@@ -30,6 +30,10 @@ std::string ReadTextFile(const std::filesystem::path& path) {
 std::filesystem::path SdkPath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / relative_path;
 }
+
+std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+}
 }  // namespace
 
 TEST(RenderGraph, RenderPassDrawStatsExposeDirectIndirectBreakdown) {
@@ -1859,6 +1863,7 @@ TEST(RenderGraph, GaussianSplatDescriptorCompositesAfterDeferredLighting) {
 TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);
+  AddAdvancedCameraResources(graph);
   AddVolumetricCloudCameraResources(graph);
   AddGaussianSplatCameraResources(graph);
 
@@ -1928,6 +1933,7 @@ TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
 TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostProcessing) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);
+  AddAdvancedCameraResources(graph);
   AddVolumetricCloudCameraResources(graph);
 
   graph.AddPass(
@@ -2071,4 +2077,195 @@ TEST(RenderGraph, AdvancedResourcesDescribeHistoryAndVisibilityInputs) {
   EXPECT_EQ(color_history->lifetime, RenderResourceLifetime::History);
   EXPECT_EQ(color_history->dimensions.size_mode, RenderResourceSizeMode::CameraRelative);
   EXPECT_EQ(color_history->history_length, 2);
+}
+
+TEST(RenderGraph, PlanCacheReusesTopologyWithoutCachingCallbacks) {
+  RenderGraphPlanCache cache(4);
+  RenderGraphResourceRegistry resources;
+  int first_calls = 0;
+  int second_calls = 0;
+  const auto make_graph = [](int& calls) {
+    RenderGraph graph;
+    graph.AddPass({"CachedPass", RenderPassQueue::Graphics, RenderPassScope::Camera}, [&]() {
+      ++calls;
+    });
+    return graph;
+  };
+
+  auto first = make_graph(first_calls);
+  const auto& first_plan = cache.GetOrCompile(first, {1280, 720, 640, 360});
+  first.Execute(first_plan, resources);
+  auto second = make_graph(second_calls);
+  const auto& second_plan = cache.GetOrCompile(second, {1280, 720, 640, 360});
+  second.Execute(second_plan, resources);
+
+  EXPECT_EQ(first_calls, 1);
+  EXPECT_EQ(second_calls, 1);
+  const auto stats = cache.GetStats();
+  EXPECT_EQ(stats.entry_count, 1u);
+  EXPECT_EQ(stats.hit_count, 1u);
+  EXPECT_EQ(stats.miss_count, 1u);
+  EXPECT_EQ(stats.compilation_count, 1u);
+}
+
+TEST(RenderGraph, PlanCacheMissesOnCompileContextAndExactTopologyChanges) {
+  RenderGraphPlanCache cache(4);
+  RenderGraph graph;
+  graph.AddResource({"External", RenderResourceType::External, RenderResourceLifetime::Imported});
+  graph.AddPass({"Read",
+                 RenderPassQueue::Graphics,
+                 RenderPassScope::Camera,
+                 {{"External", RenderResourceUsage::Read, RenderResourceState::General}}},
+                []() {
+                });
+
+  (void)cache.GetOrCompile(graph, {1280, 720, 640, 360});
+  (void)cache.GetOrCompile(graph, {1280, 720, 800, 450});
+  RenderGraph changed;
+  changed.AddResource(
+      {"External", RenderResourceType::External, RenderResourceLifetime::Imported, {}, {}, 1, 1, false, 16});
+  changed.AddPass({"Read",
+                   RenderPassQueue::Graphics,
+                   RenderPassScope::Camera,
+                   {{"External", RenderResourceUsage::Read, RenderResourceState::General}}},
+                  []() {
+                  });
+  (void)cache.GetOrCompile(changed, {1280, 720, 800, 450});
+
+  const auto stats = cache.GetStats();
+  EXPECT_EQ(stats.entry_count, 3u);
+  EXPECT_EQ(stats.hit_count, 0u);
+  EXPECT_EQ(stats.miss_count, 3u);
+}
+
+TEST(RenderGraph, PlanCacheEvictsLeastRecentlyUsedTopologyAtCapacity) {
+  RenderGraphPlanCache cache(2);
+  RenderGraph graph;
+  graph.AddPass({"Pass", RenderPassQueue::Graphics, RenderPassScope::Camera}, []() {
+  });
+  (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
+  (void)cache.GetOrCompile(graph, {1, 1, 2, 1});
+  (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
+  (void)cache.GetOrCompile(graph, {1, 1, 3, 1});
+
+  const auto stats = cache.GetStats();
+  EXPECT_EQ(stats.entry_count, 2u);
+  EXPECT_EQ(stats.hit_count, 1u);
+  EXPECT_EQ(stats.miss_count, 3u);
+  EXPECT_EQ(stats.eviction_count, 1u);
+}
+
+TEST(PlatformFrameScheduling, WaitsOnSlotReuseAndFlushesCaptureTail) {
+  const auto platform_header = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
+  const auto render_layer_source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto editor_source = ReadTextFile(SourcePath("EvoEngine_App/src/EvoEngineEditor.cpp"));
+
+  const auto pre_update = platform_source.find("void Platform::PreUpdate()");
+  const auto late_update = platform_source.find("void Platform::LateUpdate()");
+  ASSERT_NE(pre_update, std::string::npos);
+  ASSERT_NE(late_update, std::string::npos);
+  const auto recycle_wait = platform_source.find("WaitForFrameSlotSubmission(current_frame_index", pre_update);
+  const auto fence_reset = platform_source.find("vkResetFences", late_update);
+  const auto submit = platform_source.find("graphics.main_queue_->Submit", late_update);
+  ASSERT_NE(recycle_wait, std::string::npos);
+  ASSERT_NE(fence_reset, std::string::npos);
+  ASSERT_NE(submit, std::string::npos);
+  EXPECT_LT(recycle_wait, late_update);
+  EXPECT_LT(fence_reset, submit);
+  EXPECT_EQ(platform_source.find("Submitted Frame Fence Wait"), std::string::npos);
+  EXPECT_NE(platform_source.find("frame_slot_submitted_[submitted_frame_index] = true", late_update),
+            std::string::npos);
+  EXPECT_NE(platform_source.find("AccumulateCpuTiming(\"Redundant Fence Wait\""), std::string::npos);
+  const auto timestamp_scope =
+      platform_source.substr(platform_source.find("GpuTimestampScopeToken Platform::BeginGpuTimestampScope"),
+                             platform_source.find("GpuService& Platform::GetGpuService") -
+                                 platform_source.find("GpuTimestampScopeToken Platform::BeginGpuTimestampScope"));
+  EXPECT_EQ(timestamp_scope.find("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"), std::string::npos);
+  EXPECT_NE(timestamp_scope.find("vkCmdWriteTimestamp2"), std::string::npos);
+  EXPECT_NE(timestamp_scope.find("VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT"), std::string::npos);
+  EXPECT_NE(editor_source.find("WaitForFrameSubmissions(\"Capture Warmup Fence Wait\")"), std::string::npos);
+  EXPECT_NE(editor_source.find("WaitForFrameSubmissions(\"Capture Completion Fence Wait\")"), std::string::npos);
+  EXPECT_NE(editor_source.find("pending_submissions_after_capture_flush"), std::string::npos);
+  const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
+  EXPECT_NE(camera_source.find("WaitForFrameSubmissions(\"Required Camera Resize Fence Wait\")"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("std::vector<std::vector<RenderGraphTransientResourceStore>>"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("current_frame_transient_resources.clear()"), std::string::npos);
+  const auto render_layer_destroy = render_layer_source.find("void RenderLayer::OnDestroy()");
+  ASSERT_NE(render_layer_destroy, std::string::npos);
+  EXPECT_NE(render_layer_source.find("ray_camera_shader_variant_cache_.reset()", render_layer_destroy),
+            std::string::npos);
+  EXPECT_NE(render_layer_source.find("ray_tracing_camera_pipeline.reset()", render_layer_destroy), std::string::npos);
+  EXPECT_NE(render_layer_source.find("ray_query_camera_pipeline_.reset()", render_layer_destroy), std::string::npos);
+  EXPECT_NE(platform_header.find("GetPendingFrameSubmissionCount"), std::string::npos);
+  EXPECT_NE(platform_source.find("VkPhysicalDeviceVulkan11Features"), std::string::npos);
+  EXPECT_NE(platform_source.find("vk_physical_device_vulkan11_features.shaderDrawParameters = VK_TRUE"),
+            std::string::npos);
+  EXPECT_EQ(platform_source.find("VkPhysicalDeviceShaderDrawParametersFeatures"), std::string::npos);
+  EXPECT_EQ(platform_source.find("VkPhysicalDeviceMultiviewFeatures"), std::string::npos);
+  EXPECT_NE(platform_source.find("dynamic_rendering_features.pNext = &vk_physical_device_vulkan12_features"),
+            std::string::npos);
+  EXPECT_NE(platform_source.find("if (graphics.vk_surface_ != VK_NULL_HANDLE)"), std::string::npos);
+}
+
+TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
+  const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
+  const auto render_layer_source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto render_graph_header = ReadTextFile(SdkPath("include/Rendering/RenderGraph.hpp"));
+  const auto lighting_header = ReadTextFile(SdkPath("include/Rendering/PBR/Lights.hpp"));
+  const auto post_processing_header = ReadTextFile(SdkPath("include/Rendering/PostProcessing/PostProcessingStack.hpp"));
+  const auto geometry_source = ReadTextFile(SdkPath("src/GeometryStorage.cpp"));
+  const auto texture_source = ReadTextFile(SdkPath("src/Texture2D.cpp"));
+  const auto render_texture_source = ReadTextFile(SdkPath("src/RenderTexture.cpp"));
+  const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
+  const auto window_source = ReadTextFile(SdkPath("src/WindowLayer.cpp"));
+  const auto editor_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
+
+  EXPECT_NE(lighting_header.find("lighting_descriptor_sets_"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("class PerFrameDescriptorSet"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("duplicate_descriptor_sets"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("duplicate_descriptor_set_lists"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_set"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("void RetainRuntimeResources(uint64_t camera_handle"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("ddgi_variability_readback_buffers_"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("Required DDGI Resource Rebuild Fence Wait"), std::string::npos);
+  EXPECT_NE(render_graph_header.find("void RetainAsset(std::shared_ptr<IAsset> asset)"), std::string::npos);
+  EXPECT_NE(
+      render_graph_header.find("void RetainRenderTextureResources(std::shared_ptr<RenderTexture> render_texture)"),
+      std::string::npos);
+  EXPECT_NE(post_processing_pass.find("RetainAsset(post_processing_stack)"), std::string::npos);
+  EXPECT_NE(post_processing_pass.find("anti_aliasing->RetainRuntimeResources"), std::string::npos);
+  const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
+  const auto ray_retention = post_processing_pass.find(
+      "RetainPostProcessingRenderTextures(parameters.transient_resources, post_processing_stack, parameters.camera);",
+      ray_process);
+  const auto raster_process =
+      post_processing_pass.find("post_processing_stack->Process(parameters.camera", ray_retention);
+  const auto raster_retention = post_processing_pass.find(
+      "RetainPostProcessingRenderTextures(parameters.transient_resources, post_processing_stack, parameters.camera);",
+      raster_process);
+  ASSERT_NE(ray_process, std::string::npos);
+  EXPECT_NE(ray_retention, std::string::npos);
+  ASSERT_NE(raster_process, std::string::npos);
+  EXPECT_NE(raster_retention, std::string::npos);
+  EXPECT_NE(geometry_source.find("particle_data_pending"), std::string::npos);
+  EXPECT_NE(texture_source.find("Texture Readback Fence Wait"), std::string::npos);
+  EXPECT_NE(render_texture_source.find("Render Texture Readback Fence Wait"), std::string::npos);
+  EXPECT_NE(camera_source.find("Camera Destroy Fence Wait"), std::string::npos);
+  EXPECT_NE(window_source.find("Screenshot Readback Fence Wait"), std::string::npos);
+  EXPECT_NE(editor_source.find("Entity Picking Readback Fence Wait"), std::string::npos);
+}
+
+TEST(RenderGraph, ImageMemoryBarriersCoverRayTracingAndComputeShaderAccess) {
+  const auto utilities = ReadTextFile(SdkPath("src/RenderPasses/RenderPassUtilities.cpp"));
+  const auto ray_camera = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
+  EXPECT_NE(utilities.find("VkImageMemoryBarrier2"), std::string::npos);
+  EXPECT_NE(utilities.find("VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR"), std::string::npos);
+  EXPECT_NE(utilities.find("VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT"), std::string::npos);
+  EXPECT_NE(utilities.find("VK_ACCESS_2_SHADER_WRITE_BIT"), std::string::npos);
+  EXPECT_NE(ray_camera.find("ApplyRayCameraStorageDependencies"), std::string::npos);
+  EXPECT_NE(ray_camera.find("VK_ACCESS_2_MEMORY_WRITE_BIT"), std::string::npos);
+  EXPECT_EQ(ray_camera.find("Platform::EverythingBarrier"), std::string::npos);
 }

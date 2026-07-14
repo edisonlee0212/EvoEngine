@@ -10,8 +10,16 @@
 #include "Transform.hpp"
 
 namespace evo_engine {
+class DescriptorSet;
+class DescriptorSetLayout;
 
 enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
+
+struct RayCameraOutputDescriptorSlot {
+  std::shared_ptr<DescriptorSet> descriptor_set;
+  uint64_t recording_frame_serial = 0;
+  bool recorded = false;
+};
 
 struct RayCameraHistoryResources {
   VkExtent3D extent{};
@@ -24,6 +32,8 @@ struct RayCameraHistoryResources {
   uint32_t temporal_history_version = 0;
   uint32_t frame_id = 0;
   bool valid = false;
+  uint64_t resource_generation = 0;
+  std::vector<RayCameraOutputDescriptorSlot> output_descriptor_slots;
 };
 
 struct RayCameraHistoryStats {
@@ -43,6 +53,10 @@ struct RayCameraHistoryStats {
   uint64_t reuse_count = 0;
   uint64_t invalidation_count = 0;
   uint64_t retirement_count = 0;
+  uint64_t live_output_descriptor_count = 0;
+  uint64_t peak_live_output_descriptor_count = 0;
+  uint64_t output_descriptor_creation_count = 0;
+  uint64_t output_descriptor_reuse_count = 0;
 };
 
 /**
@@ -329,6 +343,7 @@ class Camera final : public IPrivateComponent {
   uint32_t temporal_history_version_ = 0;  ///< Version incremented by explicit camera history resets.
   RayCameraHistoryResources ray_camera_history_{};
   RayCameraHistoryStats ray_camera_history_counters_{};
+  uint64_t next_ray_camera_history_resource_generation_ = 0;
   bool ray_camera_history_owner_alive_ = false;
 
   glm::mat4 prev_global_transform_{};
@@ -344,6 +359,9 @@ class Camera final : public IPrivateComponent {
   RayCameraHistoryResources& AcquireRayCameraHistory(
       RayCameraHistoryTechnique technique, uint64_t scene_handle, VkExtent3D extent,
       const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory = {});
+  std::shared_ptr<DescriptorSet> AcquireRayCameraOutputDescriptor(
+      uint32_t frame_index, uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
+      const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory = {});
   void InvalidateRayCameraHistory();
   void ReleaseRayCameraHistory();
 };

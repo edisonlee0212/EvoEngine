@@ -369,11 +369,21 @@ uint32_t GeometryStorage::GetVersion() {
   return GetInstance().version_;
 }
 
-bool GeometryStorage::HasPendingUploads() {
+bool GeometryStorage::HasPendingMeshUploads() {
   const auto& storage = GetInstance();
   return storage.require_mesh_data_device_update_ || storage.pending_mesh_upload_.active ||
          storage.require_skinned_mesh_data_device_update_ || storage.pending_skinned_mesh_upload_.active ||
          storage.require_strand_mesh_data_device_update_ || storage.pending_strand_upload_.active;
+}
+
+bool GeometryStorage::HasPendingUploads() {
+  const auto& storage = GetInstance();
+  const bool particle_data_pending =
+      std::any_of(storage.particle_info_list_data_list_.begin(), storage.particle_info_list_data_list_.end(),
+                  [](const ParticleInfoListData& data) {
+                    return data.status != ParticleInfoListDataStatus::Updated;
+                  });
+  return HasPendingMeshUploads() || particle_data_pending;
 }
 
 void GeometryStorage::WaitForPendingUploads() {
@@ -387,7 +397,7 @@ void GeometryStorage::WaitForPendingUploads() {
   }
   storage.CompletePendingUploads();
   BottomLevelAccelerationStructure::ProcessStaticBuilds();
-  if (BottomLevelAccelerationStructure::StaticBuildInProgress() && HasPendingUploads()) {
+  if (BottomLevelAccelerationStructure::StaticBuildInProgress() && HasPendingMeshUploads()) {
     BottomLevelAccelerationStructure::WaitForActiveStaticBuild();
   }
   if (!BottomLevelAccelerationStructure::StaticBuildInProgress()) {

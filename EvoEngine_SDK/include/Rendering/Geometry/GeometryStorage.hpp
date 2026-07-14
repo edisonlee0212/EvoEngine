@@ -328,6 +328,7 @@ class GeometryStorage final {
 
  public:
   [[nodiscard]] static uint32_t GetVersion();
+  [[nodiscard]] static bool HasPendingMeshUploads();
   [[nodiscard]] static bool HasPendingUploads();
   static void WaitForPendingUploads();
   static const std::shared_ptr<Buffer>& GetTriangleBuffer();

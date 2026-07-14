@@ -1497,6 +1497,13 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   ImGui::Checkbox("Indirect Rendering", &render_layer.enable_indirect_rendering);
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
   ImGui::Checkbox("Full camera-ray shaders", &render_layer.force_full_ray_camera_shader_variant);
+  auto capture_gpu_timing = Platform::GpuTimestampCaptureEnabled();
+  if (ImGui::Checkbox("Capture live GPU timing", &capture_gpu_timing)) {
+    Platform::SetGpuTimestampCaptureEnabled(capture_gpu_timing);
+  }
+  if (capture_gpu_timing && ImGui::Button("Reset live timing")) {
+    Platform::ResetGpuTimestampStats();
+  }
   const auto draw_variant = [&](const char* label, const RayCameraShaderTechnique technique) {
     const auto stats = render_layer.GetRayCameraShaderVariantStats(technique);
     ImGui::Text("%s: %s -> %s (%s%s)", label, stats.requested_key.c_str(), stats.active_key.c_str(),
@@ -1516,7 +1523,7 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
     draw_variant("Ray Query variant", RayCameraShaderTechnique::RayQuery);
 }
 
-void InspectRenderLayerStats() {
+void InspectRenderLayerStats(RenderLayer& render_layer) {
   const auto& graphics = Platform::GetInstance();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto prim_count =
@@ -1526,6 +1533,76 @@ void InspectRenderLayerStats() {
   ImGui::Text("Frame: %u", current_frame_index);
   ImGui::Text("%s prims", FormatRenderCounter(prim_count).c_str());
   ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
+  ImGui::Separator();
+
+  if (ImGui::TreeNodeEx("Ray camera frame path", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const auto frame_path = render_layer.GetRayCameraFramePathStats();
+    const auto history = render_layer.GetRayCameraHistoryStats();
+    const auto& cache = frame_path.render_graph_plan_cache;
+    ImGui::Text("Graph plans %llu hits / %llu misses, %llu compiles (%.2f ms)",
+                static_cast<unsigned long long>(cache.hit_count), static_cast<unsigned long long>(cache.miss_count),
+                static_cast<unsigned long long>(cache.compilation_count), cache.compilation_milliseconds);
+    ImGui::Text("Graph cache %zu/%zu, %llu evictions", cache.entry_count, cache.capacity,
+                static_cast<unsigned long long>(cache.eviction_count));
+    ImGui::Text("Output descriptors %llu live / %llu peak, %llu creates / %llu reuses",
+                static_cast<unsigned long long>(frame_path.live_output_descriptor_count),
+                static_cast<unsigned long long>(frame_path.peak_live_output_descriptor_count),
+                static_cast<unsigned long long>(frame_path.output_descriptor_creation_count),
+                static_cast<unsigned long long>(frame_path.output_descriptor_reuse_count));
+    ImGui::Text("Frame slots %u retained / %u pending", frame_path.retained_frame_slot_count,
+                Platform::GetPendingFrameSubmissionCount());
+
+    std::shared_ptr<Camera> ray_camera;
+    render_layer.ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
+      if (!ray_camera && camera && Camera::IsRayCameraRenderMode(camera->camera_render_mode)) {
+        ray_camera = camera;
+      }
+    });
+    if (ray_camera) {
+      const auto samples_per_frame = static_cast<uint64_t>(std::max(ray_camera->camera_settings.sample_size, 1));
+      const auto accumulated_samples = static_cast<uint64_t>(ray_camera->GetFrameCount()) * samples_per_frame;
+      ImGui::Text("Camera frames %u, %llu accumulated spp (%llu spp/frame)", ray_camera->GetFrameCount(),
+                  static_cast<unsigned long long>(accumulated_samples),
+                  static_cast<unsigned long long>(samples_per_frame));
+      const auto render_texture = ray_camera->GetRenderTexture();
+      for (const auto& timing : Platform::GetGpuTimestampStats()) {
+        if (timing.name != "Path Trace (RTX)" && timing.name != "Path Trace (RQ)") {
+          continue;
+        }
+        const auto extent = render_texture ? render_texture->GetExtent() : VkExtent3D{};
+        const auto throughput = timing.last_milliseconds > 0.0
+                                    ? static_cast<double>(extent.width) * extent.height * samples_per_frame /
+                                          timing.last_milliseconds / 1000.0
+                                    : 0.0;
+        ImGui::Text("%s %.3f ms last / %.3f ms median, %.2f Msample/s", timing.name.c_str(), timing.last_milliseconds,
+                    timing.MedianMilliseconds(), throughput);
+      }
+    } else {
+      ImGui::TextUnformatted("No collected ray camera.");
+    }
+
+    const auto memory = Platform::GetGpuMemorySnapshot();
+    uint64_t device_local_bytes = 0;
+    uint64_t host_bytes = 0;
+    for (const auto& heap : memory.heaps) {
+      (heap.device_local ? device_local_bytes : host_bytes) += heap.allocation_bytes;
+    }
+    const auto blas = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+    ImGui::Text("VRAM device-local %.2f MiB, host %.2f MiB, %llu allocations",
+                static_cast<double>(device_local_bytes) / (1024.0 * 1024.0),
+                static_cast<double>(host_bytes) / (1024.0 * 1024.0),
+                static_cast<unsigned long long>(memory.allocation_count));
+    ImGui::Text("Ray history %.2f MiB, compacted static BLAS %.2f MiB",
+                static_cast<double>(history.live_byte_size) / (1024.0 * 1024.0),
+                static_cast<double>(blas.final_compacted_storage_bytes) / (1024.0 * 1024.0));
+    for (const auto& timing : Platform::GetCpuTimingStats()) {
+      if (timing.name.find("Wait") != std::string::npos) {
+        ImGui::Text("%s: %llu waits, %.3f ms median", timing.name.c_str(),
+                    static_cast<unsigned long long>(timing.sample_count), timing.MedianMilliseconds());
+      }
+    }
+    ImGui::TreePop();
+  }
   ImGui::Separator();
 
   std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount> frame_pass_stats{};
@@ -2192,7 +2269,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Stats")) {
-      InspectRenderLayerStats();
+      InspectRenderLayerStats(render_layer);
       ImGui::EndTabItem();
     }
     if (!render_layer.force_ddgi_inspection_layout) {

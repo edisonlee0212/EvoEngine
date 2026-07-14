@@ -187,6 +187,7 @@ class Lighting {
   std::shared_ptr<Image> spot_light_shadow_map_ = {};           /**< Shadow map for spotlights. */
   std::shared_ptr<ImageView> spot_light_shadow_map_view_ = {};  /**< View for spotlight shadow map. */
   std::shared_ptr<Sampler> spot_light_shadow_map_sampler_ = {}; /**< Sampler for spotlight shadow map. */
+  std::vector<std::shared_ptr<DescriptorSet>> lighting_descriptor_sets_;
   friend class RenderLayer;
 
   /**
@@ -200,9 +201,6 @@ class Lighting {
                       std::vector<glm::uvec3>& results);
 
  public:
-  std::shared_ptr<DescriptorSet> lighting_descriptor_set =
-      VK_NULL_HANDLE; /**< Descriptor set for lighting resources. */
-
   /**
    * @brief Allocates square viewport regions inside one shadow-map layer.
    * @param size Number of requested shadow-casting lights.

@@ -126,6 +126,9 @@ Cubemap::~Cubemap() {
 }
 
 void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels) const {
+  if (Platform::Initialized() && PeekStorage().image) {
+    SynchronizeCubemapResourceMutation();
+  }
   resolution_ = resolution;
   mip_levels_ = mip_levels;
   local_data_.clear();
@@ -163,6 +166,9 @@ void Cubemap::MarkGpuContentValid() const {
 }
 
 void Cubemap::BeginGpuWrite() const {
+  if (Platform::Initialized() && gpu_content_valid_ && PeekStorage().image) {
+    SynchronizeCubemapResourceMutation();
+  }
   local_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;

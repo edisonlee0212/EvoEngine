@@ -517,6 +517,9 @@ void WindowLayer::RefreshCustomTitleBar() {
 }
 
 void WindowLayer::RequestScreenshot(const std::filesystem::path& path) {
+  if (screenshot_capture_ && screenshot_capture_->copy_recorded) {
+    Platform::WaitForFrameSubmissions("Screenshot Replacement Fence Wait");
+  }
   screenshot_capture_ = ScreenshotCapture{};
   screenshot_capture_->path = path;
 }
@@ -534,6 +537,7 @@ bool WindowLayer::StoreCompletedScreenshot(std::string& error) {
     return false;
   }
 
+  Platform::WaitForFrameSubmissions("Screenshot Readback Fence Wait");
   std::vector<uint8_t> bytes;
   capture.readback_buffer->DownloadVector(bytes, static_cast<size_t>(capture.resolution.x) * capture.resolution.y * 4);
   std::vector<float> pixels(bytes.size());

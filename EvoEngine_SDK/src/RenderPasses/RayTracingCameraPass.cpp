@@ -10,8 +10,47 @@
 #include "RenderTexture.hpp"
 
 #include <algorithm>
+#include <array>
 
 using namespace evo_engine;
+
+namespace {
+void ApplyRayCameraStorageDependencies(const VkCommandBuffer command_buffer, const std::shared_ptr<Image>& color,
+                                       RayCameraHistoryResources& history, const VkPipelineStageFlags2 shader_stage) {
+  const std::array<std::shared_ptr<Image>, 3> images{color, history.radiance_image, history.convergence_image};
+  std::array<VkImageMemoryBarrier2, 3> barriers{};
+  uint32_t barrier_count = 0;
+  for (const auto& image : images) {
+    if (!image) {
+      continue;
+    }
+    if (image->GetLayout() != VK_IMAGE_LAYOUT_GENERAL) {
+      image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    }
+    auto& barrier = barriers[barrier_count++];
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
+    barrier.dstStageMask = shader_stage;
+    barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image->GetVkImage();
+    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.baseMipLevel = 0;
+    barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+    barrier.subresourceRange.baseArrayLayer = 0;
+    barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+  }
+  VkDependencyInfo dependency{};
+  dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency.imageMemoryBarrierCount = barrier_count;
+  dependency.pImageMemoryBarriers = barriers.data();
+  vkCmdPipelineBarrier2(command_buffer, &dependency);
+}
+}  // namespace
 
 RenderPassDescriptor RayTracingCameraPass::CreateDescriptor() {
   return {
@@ -49,7 +88,7 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
     if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
         !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
-        !parameters.output_descriptor_set_layout || !parameters.transient_resources || !parameters.history_resources) {
+        !parameters.output_descriptor_set || !parameters.transient_resources || !parameters.history_resources) {
       return;
     }
     auto& history_resources = *parameters.history_resources;
@@ -57,9 +96,9 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
         !history_resources.convergence_view) {
       return;
     }
-    Platform::EverythingBarrier(vk_command_buffer);
-    ApplyGraphResourceBarriers(vk_command_buffer, context);
-    Platform::EverythingBarrier(vk_command_buffer);
+    ApplyGraphResourceBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
+    ApplyRayCameraStorageDependencies(vk_command_buffer, render_texture->GetColorImage(), history_resources,
+                                      VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR);
     const auto* hit_distance_binding = context.GetResourceBinding(RenderResourceNames::camera_ray_hit_distance);
     if (!hit_distance_binding || !hit_distance_binding->image) {
       ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
@@ -73,9 +112,9 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.transient_resources->RetainImageView(hit_distance_view);
     parameters.transient_resources->RetainImageView(history_resources.radiance_view);
     parameters.transient_resources->RetainImageView(history_resources.convergence_view);
-    history_resources.radiance_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    history_resources.convergence_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    const auto output_descriptor_set = std::make_shared<DescriptorSet>(parameters.output_descriptor_set_layout);
+    parameters.transient_resources->RetainImage(render_texture->GetColorImage());
+    parameters.transient_resources->RetainImageView(render_texture->GetColorImageView());
+    const auto& output_descriptor_set = parameters.output_descriptor_set;
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = render_texture->GetColorImageView()->GetVkImageView();
@@ -110,7 +149,6 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     history_resources.valid = true;
     ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
-    Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::RayTracing);
   });
 }
@@ -123,7 +161,7 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     const auto render_texture = parameters.camera ? parameters.camera->GetRenderTexture() : nullptr;
     if (!render_texture || !parameters.pipeline || !parameters.pipeline->Initialized() ||
         !parameters.per_frame_descriptor_set || !parameters.ray_tracing_descriptor_set ||
-        !parameters.output_descriptor_set_layout || !parameters.transient_resources || !parameters.history_resources) {
+        !parameters.output_descriptor_set || !parameters.transient_resources || !parameters.history_resources) {
       return;
     }
     auto& history_resources = *parameters.history_resources;
@@ -131,9 +169,9 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
         !history_resources.convergence_view) {
       return;
     }
-    Platform::EverythingBarrier(vk_command_buffer);
-    ApplyGraphResourceBarriers(vk_command_buffer, context);
-    Platform::EverythingBarrier(vk_command_buffer);
+    ApplyGraphResourceBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+    ApplyRayCameraStorageDependencies(vk_command_buffer, render_texture->GetColorImage(), history_resources,
+                                      VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT);
     const auto* hit_distance_binding = context.GetResourceBinding(RenderResourceNames::camera_ray_hit_distance);
     if (!hit_distance_binding || !hit_distance_binding->image) {
       ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
@@ -147,9 +185,9 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     parameters.transient_resources->RetainImageView(hit_distance_view);
     parameters.transient_resources->RetainImageView(history_resources.radiance_view);
     parameters.transient_resources->RetainImageView(history_resources.convergence_view);
-    history_resources.radiance_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    history_resources.convergence_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    const auto output_descriptor_set = std::make_shared<DescriptorSet>(parameters.output_descriptor_set_layout);
+    parameters.transient_resources->RetainImage(render_texture->GetColorImage());
+    parameters.transient_resources->RetainImageView(render_texture->GetColorImageView());
+    const auto& output_descriptor_set = parameters.output_descriptor_set;
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = render_texture->GetColorImageView()->GetVkImageView();
@@ -180,7 +218,6 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     history_resources.valid = true;
     ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
-    Platform::EverythingBarrier(vk_command_buffer);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });
 }

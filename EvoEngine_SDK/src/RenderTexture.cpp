@@ -290,6 +290,14 @@ VkImageViewType RenderTexture::GetImageViewType() const {
   return image_view_type_;
 }
 
+bool RenderTexture::HasColorAttachment() const {
+  return color_;
+}
+
+bool RenderTexture::HasDepthAttachment() const {
+  return depth_;
+}
+
 uint32_t RenderTexture::GetMipLevels() const {
   return color_image_views_.size();
 }
@@ -409,6 +417,7 @@ bool RenderTexture::Save(const std::filesystem::path& path) const {
 
 void RenderTexture::GetRgbaChannelData(std::vector<glm::vec4>& dst) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   dst.resize(resolution_x * resolution_y);
@@ -459,6 +468,7 @@ void RenderTexture::StoreLinearDepthToPng(const std::filesystem::path& path, flo
                                           float max_depth, int resize_x, int resize_y,
                                           unsigned compression_level) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   stbi_write_png_compression_level = compression_level;
   const auto resolution_x = depth_image_->GetExtent().width;
   const auto resolution_y = depth_image_->GetExtent().height;
@@ -509,6 +519,7 @@ void RenderTexture::StoreLinearDepthToPng(const std::filesystem::path& path, flo
 
 void RenderTexture::StoreToJpg(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   std::vector<float> dst;
@@ -552,6 +563,7 @@ void RenderTexture::StoreToJpg(const std::filesystem::path& path, int resize_x, 
 
 void RenderTexture::StoreToHdr(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   const size_t channels = 4;

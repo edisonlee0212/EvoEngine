@@ -840,8 +840,13 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
     EXPECT_NE(source->find("ms_v_out[vert].TexCoord01 = vec4(v.tex_coord, v.tex_coord_1)"), std::string::npos);
     EXPECT_NE(source->find("ms_v_out[vert].TexCoord23 = vec4(v.tex_coord_2, v.tex_coord_3)"), std::string::npos);
     EXPECT_NE(source->find("ms_v_out[vert].Color = v.color"), std::string::npos);
-    EXPECT_NE(source->find("transformHandedness[vert] = EE_TRANSFORM_HANDEDNESS(model)"), std::string::npos);
-    EXPECT_NE(source->find("* transformHandedness[vert]"), std::string::npos);
+    EXPECT_NE(source->find("float handedness = EE_TRANSFORM_HANDEDNESS(model)"), std::string::npos);
+    EXPECT_NE(source->find("transformHandedness[vert] = handedness"), std::string::npos);
+    EXPECT_NE(source->find("* handedness"), std::string::npos);
+    EXPECT_NE(source->find("vec3 fragPos = vec3(model * vec4(v.position.xyz, 1.0))"), std::string::npos);
+    EXPECT_NE(source->find("vec4(fragPos, 1.0)"), std::string::npos);
+    EXPECT_EQ(source->find("* transformHandedness[vert]"), std::string::npos);
+    EXPECT_EQ(source->find("vec4(ms_v_out[vert].FragPos"), std::string::npos);
     EXPECT_EQ(source->find("T = normalize(T - dot(T, N) * N)"), std::string::npos);
   }
 

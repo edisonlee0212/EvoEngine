@@ -130,6 +130,8 @@ struct GpuTimestampScopeToken {
  */
 class Platform final {
  public:
+  static constexpr int kMaxFramesInFlight = 2;
+
   struct QueueFamilySupport {
     VkQueueFlags queue_flags = 0;
     bool present_support = false;
@@ -371,13 +373,14 @@ class Platform final {
   std::unique_ptr<CommandPool> compute_command_pool_ = {};  ///< Command pool for dedicated compute commands.
   std::unique_ptr<DescriptorPool> descriptor_pool_ = {};    ///< Descriptor pool for Vulkan descriptors.
 
-  int max_frame_in_flight_ = 2;  ///< Max number of frames in flight.
+  int max_frame_in_flight_ = kMaxFramesInFlight;  ///< Max number of frames in flight.
 
   std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};   ///< Semaphores for image availability.
   std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};   ///< Semaphores for render finish.
   std::vector<std::shared_ptr<Semaphore>> compute_finished_semaphores_ = {};  ///< Semaphores for compute finish.
   std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};                 ///< Fences for in-flight frames.
   std::vector<std::vector<std::weak_ptr<FrameSubmissionState>>> frame_submission_states_ = {};
+  std::vector<bool> frame_slot_submitted_ = {};
 
   uint32_t current_frame_index_ = 0;  ///< Index of current frame being rendered.
 
@@ -407,6 +410,7 @@ class Platform final {
   void CreateSwapChain();
   void CreateSwapChainSyncObjects();
   void RecreateSwapChain();
+  void WaitForFrameSlotSubmission(uint32_t frame_index, const std::string& wait_name);
   void InitializeGpuTimestampResources();
   void DestroyGpuTimestampResources();
   void PrepareGpuTimestampFrame(uint32_t frame_index);
@@ -647,6 +651,7 @@ class Platform final {
    * @brief Drains pending resource upload work and waits for GPU/device idle.
    */
   static void DrainGpuResourceWork();
+  static void WaitForFrameSubmissions(const std::string& wait_name);
 
   /// List of primitive counts for debugging purposes.
   std::vector<size_t> prim_count{};
@@ -805,10 +810,12 @@ class Platform final {
                                               const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
   static void SetGpuTimestampCaptureEnabled(bool enabled);
+  [[nodiscard]] static bool GpuTimestampCaptureEnabled();
   [[nodiscard]] static bool GpuTimestampCaptureAvailable();
   static void ResetGpuTimestampStats();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();
+  static void RecordCpuTimingSample(const std::string& name, double milliseconds);
   [[nodiscard]] static GpuMemorySnapshot GetGpuMemorySnapshot();
   [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
                                                                      const std::string& name);
@@ -831,6 +838,8 @@ class Platform final {
    * @return Maximum frames in flight.
    */
   static int GetMaxFramesInFlight();
+  [[nodiscard]] static uint32_t GetPendingFrameSubmissionCount();
+  [[nodiscard]] static bool ValidationLayersEnabled();
 
   /**
    * @brief Notifies the system that the swapchain should be recreated.

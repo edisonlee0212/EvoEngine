@@ -259,6 +259,9 @@ class TextureStorage final {
    */
   [[nodiscard]] static bool HasPendingUploads();
 
+  /** @brief Returns whether device synchronization will destroy a texture storage entry. */
+  [[nodiscard]] static bool HasPendingDeletes();
+
   /**
    * @brief Synchronizes the device to ensure all texture-related operations are complete.
    */

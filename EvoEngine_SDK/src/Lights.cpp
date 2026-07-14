@@ -149,11 +149,17 @@ void Lighting::AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector
 }
 
 Lighting::Lighting() {
-  lighting_descriptor_set = std::make_shared<DescriptorSet>(
-      ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
+  lighting_descriptor_sets_.resize(Platform::GetMaxFramesInFlight());
+  for (auto& descriptor_set : lighting_descriptor_sets_) {
+    descriptor_set = std::make_shared<DescriptorSet>(
+        ApplicationContext::Get().GetLayer<RenderLayer>()->GetLightingDescriptorSetLayout());
+  }
 }
 
 void Lighting::Initialize() {
+  if (directional_light_shadow_map_) {
+    Platform::WaitForFrameSubmissions("Required Lighting Resource Rebuild Fence Wait");
+  }
   directional_shadow_map_sampler_.reset();
   directional_light_shadow_map_view_.reset();
   directional_light_shadow_map_.reset();
@@ -335,13 +341,17 @@ void Lighting::Initialize() {
 
     image_info.imageView = directional_light_shadow_map_view_->GetVkImageView();
     image_info.sampler = directional_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(14, image_info);
-    image_info.imageView = point_light_shadow_map_view_->GetVkImageView();
-    image_info.sampler = point_light_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(15, image_info);
-    image_info.imageView = spot_light_shadow_map_view_->GetVkImageView();
-    image_info.sampler = spot_light_shadow_map_sampler_->GetVkSampler();
-    lighting_descriptor_set->UpdateImageDescriptorBinding(16, image_info);
+    for (const auto& descriptor_set : lighting_descriptor_sets_) {
+      descriptor_set->UpdateImageDescriptorBinding(14, image_info);
+      image_info.imageView = point_light_shadow_map_view_->GetVkImageView();
+      image_info.sampler = point_light_shadow_map_sampler_->GetVkSampler();
+      descriptor_set->UpdateImageDescriptorBinding(15, image_info);
+      image_info.imageView = spot_light_shadow_map_view_->GetVkImageView();
+      image_info.sampler = spot_light_shadow_map_sampler_->GetVkSampler();
+      descriptor_set->UpdateImageDescriptorBinding(16, image_info);
+      image_info.imageView = directional_light_shadow_map_view_->GetVkImageView();
+      image_info.sampler = directional_shadow_map_sampler_->GetVkSampler();
+    }
   }
 }
 

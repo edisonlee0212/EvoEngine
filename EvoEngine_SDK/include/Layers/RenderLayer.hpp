@@ -212,9 +212,19 @@ class RenderLayer final : public ILayer {
   /// Uses the permanent all-feature camera-ray shaders instead of scene-specialized variants.
   bool force_full_ray_camera_shader_variant = false;
 
+  struct RayCameraFramePathStats {
+    RenderGraphPlanCacheStats render_graph_plan_cache{};
+    uint64_t live_output_descriptor_count = 0;
+    uint64_t peak_live_output_descriptor_count = 0;
+    uint64_t output_descriptor_creation_count = 0;
+    uint64_t output_descriptor_reuse_count = 0;
+    uint32_t retained_frame_slot_count = 0;
+  };
+
   [[nodiscard]] RayCameraShaderVariantStats GetRayCameraShaderVariantStats(RayCameraShaderTechnique technique) const;
   [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
+  [[nodiscard]] RayCameraFramePathStats GetRayCameraFramePathStats() const;
 
   [[nodiscard]] DdgiSettings& GetDdgiSettings();
   [[nodiscard]] const DdgiSettings& GetDdgiSettings() const;
@@ -431,11 +441,13 @@ class RenderLayer final : public ILayer {
   std::vector<RenderResourceDescriptor> external_render_resource_descriptors;
   std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
   std::vector<CameraRenderPassExternalFunction> camera_render_pass_external_functions;
-  mutable std::vector<RenderGraphTransientResourceStore> render_graph_transient_resource_stores_;
+  mutable std::vector<std::vector<RenderGraphTransientResourceStore>> render_graph_transient_resource_stores_;
+  mutable RenderGraphPlanCache ray_camera_render_graph_plan_cache_{16};
   mutable std::unordered_map<uint64_t, std::weak_ptr<Camera>> ray_camera_history_cameras_;
   mutable RayCameraHistoryStats retired_ray_camera_history_stats_{};
   mutable uint64_t peak_live_ray_camera_history_count_ = 0;
   mutable uint64_t peak_live_ray_camera_history_byte_size_ = 0;
+  mutable uint64_t peak_live_ray_camera_output_descriptor_count_ = 0;
   mutable std::shared_ptr<Buffer> ddgi_probe_metadata_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_probe_state_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
@@ -444,9 +456,10 @@ class RenderLayer final : public ILayer {
   mutable std::shared_ptr<Image> ddgi_visibility_atlas_;
   mutable std::shared_ptr<Image> ddgi_variability_atlas_;
   mutable std::shared_ptr<Sampler> ddgi_atlas_sampler_;
-  mutable std::shared_ptr<Buffer> ddgi_probe_metadata_readback_buffer_;
-  mutable std::shared_ptr<Buffer> ddgi_probe_ray_readback_buffer_;
-  mutable std::shared_ptr<Buffer> ddgi_variability_readback_buffer_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_probe_metadata_readback_buffers_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_probe_ray_readback_buffers_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_variability_readback_buffers_;
+  mutable uint32_t ddgi_last_readback_frame_index_ = 0;
   mutable std::shared_ptr<Buffer> ddgi_frame_ray_output_visualization_buffer_;
   mutable std::vector<glm::vec4> ddgi_probe_debug_metadata_;
   mutable std::vector<float> ddgi_probe_debug_update_ages_;

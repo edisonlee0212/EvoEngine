@@ -514,7 +514,7 @@ bit-exact. RTX versus RayQuery relative L2 was `0.008947`. The following targets
 - M16: each lane's queue-submit median must be at most `0.10 ms`; normalized non-path wall overhead,
   `(accumulation_wall_ms - measured_path_gpu_total_ms) / 127`, must be at most `12.5 ms/frame`; new wait-reason telemetry
   must report zero redundant or just-submitted-frame waits; and path GPU median must not regress by more than 5% from the
-  approved post-M11 slice. The existing generic fence-wait duration follows GPU completion and is not an independent
+  approved post-M12 slice. The existing generic fence-wait duration follows GPU completion and is not an independent
   acceptance target.
 
 #### M7 Ray Diagnostic Views
@@ -900,6 +900,70 @@ python Scripts\validate_raytracer_m15.py --self-test
 out\build\vs2026-x64-tests\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="RayCameraHistory.*:CameraRenderTechnique.*:RayCameraShaderVariantCache.*"
 python Scripts\validate_raytracer_m15.py --rtx-metrics out\raytracer-m15\rtx\metrics.json --query-only-metrics out\raytracer-m15\query-only\metrics.json --output out\raytracer-m15\validation.json
 ```
+
+### M16 Ray-Camera Frame Path
+
+The platform keeps two frame slots in flight. A slot fence is waited and resolved only when that slot is recycled; a fence
+is reset immediately before its next submission. Render-graph transient resources and imported render textures are retained
+per slot until that recycle wait completes. Capture timing explicitly drains submissions at the timing-warmup boundary and
+after the final requested frame, so the measured wall interval and GPU timestamp sample count include the complete GPU tail.
+GPU timing scopes use all-command boundaries so a queued frame's scope cannot include work from the preceding submission.
+Geometry uploads, camera resize, and destructive texture-storage deletion remain categorized required waits because those
+resources are not versioned across submissions; there is no steady-state just-submitted-frame wait.
+
+Mutable descriptor and readback state follows the same slot ownership: lighting and dynamic post-processing descriptor
+sets, DDGI readback buffers, and render-graph transient stores select the recycled frame slot. Particle-buffer mutations
+join the required geometry drain without forcing mesh/BLAS wait paths to process them. Rare synchronous readbacks and
+destructive lifetime events (capture, picking, camera destruction, resource resize, and cubemap mutation) drain submitted
+frames before mapping, replacing, or releasing GPU-visible objects; none runs on the steady capture frame path. If two
+cameras share one post-processing stack in a frame, the second recording receives transient duplicate descriptor sets so
+later binding updates cannot alter the first camera's recorded work. The first recording also snapshots the stack scratch
+textures and active anti-aliasing targets/history, including their images, views, samplers, and built-in descriptor sets,
+into its frame-slot retention store. A later same-frame resize therefore cannot destroy handles already encoded in command
+buffers. This conservative bridge remains through M16; M16b replaces shared mutable stack resources with camera-owned
+runtime state.
+
+Ray-camera graph plans use a 16-entry exact-structure LRU cache. The cache stores only execution plans, while each frame's
+graph callbacks and resource registry remain current. Each camera's one history generation owns two output descriptor sets,
+one per frame slot; switching RTX/RayQuery resets the shared accumulation without allocating a second history or replacing
+those descriptors. Resize drains submitted camera work before creating a new history generation, while ordinary submitted
+descriptors, imported images, samplers, and buffers remain alive through slot retention. Ray-camera storage hazards use
+image-scoped synchronization for color, radiance history, convergence history, and graph-managed outputs instead of global
+all-command barriers.
+
+Capture JSON adds `ray_camera_frame_path`, `synchronization_waits`, and `frame_synchronization`. The binding slice uses the
+exact M11 profile (1280x720, 512 SPP, 127 measured frames, feature mask `0x2001`, deterministic, SER disabled) for RTX and
+forced query-only, plus a 640x360, 64-SPP Debug RTX validation-layer/shutdown smoke. The validator pins the M11 report for
+GPU/profile/provenance identity and the exact post-M12 records for performance guardrails. RTX retains the post-M12
+`63.85888 ms` path median and its approved +5% ceiling of `67.051824 ms`. Forced query-only uses the post-M12
+`81.642932 ms/frame` end-to-end wall cost and its +5% ceiling of `85.725079 ms/frame`; its path median remains diagnostic
+because M16 intentionally changes the lane from idle-gapped, submit-and-wait execution to sustained two-slot occupancy.
+The corrected M16 query capture improved wall cost to `78.628765 ms/frame` while reporting a `77.331936 ms` path median.
+Its HDR is bit-identical to M12, and its active SPIR-V is byte-identical after removing embedded debug paths, so the
+sustained-load path increase is not classified as added ray-query work.
+
+M16 has an acceptance-blocker exception for ten total launches. Preserve the first RTX and forced-query-only runs as
+diagnostic evidence because they exposed an invalid queued-frame timestamp scope. Preserve three rejected Debug
+investigations: the first completed capture but logged a promoted-feature-chain VUID, two mesh-output SPIR-V VUIDs, and a
+live VMA allocation assertion; the second proved the VUID fixes while reproducing the shutdown assertion; the third used
+named VMA allocations to identify completed task records retaining mesh and texture captures past allocator teardown.
+After moving each callable out of its persistent task record at execution, the next Debug run exited zero with no VMA
+survivors but exposed a separately gated `VkSurfaceKHR` ordering VUID: layer removal made the old WindowLayer lookup skip
+surface destruction. Preserve that fourth rejected Debug investigation, destroy every non-null platform surface before
+the instance without consulting removed layers, then run one clean replacement Debug RTX lane followed by the normal
+post-commit delivery. The clean replacement exited zero, produced the complete 640x360/64-SPP HDR and metrics, logged no
+validation/fatal errors, and produced no VMA leak log. No ordinary-RayQuery or reference process is launched.
+
+```bat
+python Scripts\validate_raytracer_m16.py --self-test
+out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="RenderGraph.*:PlatformFrameScheduling.*:RayCameraHistory.*:CameraRenderTechnique.*:RayCameraShaderVariantCache.*:RayTracingSkinned.*:GltfRasterMaterial.ActiveRasterNormalMapsUseTangentHandedness:TaskRuntime.*"
+python Scripts\validate_raytracer_m16.py --rtx-record out\raytracer-m16\corrected\rtx\measure\measure\measure--measure--cross-renderer--bistro--overview--evo--rtx--specialized--cold--r01--1280x720--512spp.record.json --query-only-record out\raytracer-m16\corrected\query-only\measure\measure\measure--measure--cross-renderer--bistro--overview--evo--query-only--specialized--cold--r01--1280x720--512spp.record.json --rtx-provenance out\raytracer-m16\corrected\rtx\provenance.json --query-only-provenance out\raytracer-m16\corrected\query-only\provenance.json --debug-metrics out\raytracer-m16\corrected\debug-rtx\metrics.json --debug-log out\raytracer-m16\corrected\debug-rtx\run.log --debug-executable out\build\vs2026-x64\EvoEngine_App\Debug\EvoEngineEditor.exe --debug-exit-code-file out\raytracer-m16\corrected\debug-rtx\exit-code.txt --output out\raytracer-m16\validation.json
+```
+
+## Full Cross-Renderer Baseline Workflow
+
+The following general baseline workflow is outside M16's capped launch ledger. Do not run it as M16 evidence; it includes
+ordinary RayQuery and reference-renderer processes.
 
 Run both RT-pipeline and RayQuery techniques with:
 

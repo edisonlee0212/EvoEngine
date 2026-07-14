@@ -45,6 +45,12 @@ class RayCameraHistoryTestAccess {
   static void SetFrameCount(Camera& camera, const uint32_t frame_count) {
     camera.frame_count_ = frame_count;
   }
+
+  static std::shared_ptr<DescriptorSet> AcquireOutputDescriptor(
+      Camera& camera, const uint32_t frame_index, const uint64_t frame_serial,
+      const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory) {
+    return camera.AcquireRayCameraOutputDescriptor(frame_index, frame_serial, {}, resource_factory);
+  }
 };
 }  // namespace evo_engine
 
@@ -137,6 +143,43 @@ TEST(RayCameraHistory, CameraUsesOneSlotAndResetsAcrossTechniqueSwitches) {
   EXPECT_EQ(stats.reuse_count, 3u);
   EXPECT_EQ(stats.invalidation_count, 2u);
   EXPECT_EQ(stats.peak_live_history_count, 1u);
+}
+
+TEST(RayCameraHistory, OutputDescriptorsAreCachedPerFrameSlotWithinOneHistoryGeneration) {
+  Camera camera;
+  auto& history = RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayTracing, 1, {64, 32, 1},
+                                                      MakeFakeHistory);
+  const auto generation = history.resource_generation;
+  uint32_t factory_calls = 0;
+  const auto factory = [&]() {
+    ++factory_calls;
+    return MakeFakeResource<DescriptorSet>();
+  };
+
+  auto slot_0 = RayCameraHistoryTestAccess::AcquireOutputDescriptor(camera, 0, 10, factory);
+  auto slot_1 = RayCameraHistoryTestAccess::AcquireOutputDescriptor(camera, 1, 11, factory);
+  EXPECT_EQ(factory_calls, 2u);
+  EXPECT_NE(slot_0, slot_1);
+  EXPECT_EQ(RayCameraHistoryTestAccess::AcquireOutputDescriptor(camera, 0, 12, factory), slot_0);
+  EXPECT_NE(RayCameraHistoryTestAccess::AcquireOutputDescriptor(camera, 0, 12, factory), slot_0);
+  EXPECT_EQ(factory_calls, 3u);
+
+  auto& switched =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {64, 32, 1}, MakeFakeHistory);
+  EXPECT_EQ(switched.resource_generation, generation);
+  EXPECT_EQ(RayCameraHistoryTestAccess::AcquireOutputDescriptor(camera, 1, 13, factory), slot_1);
+  const auto stats = camera.GetRayCameraHistoryStats();
+  EXPECT_EQ(stats.live_history_count, 1u);
+  EXPECT_EQ(stats.live_output_descriptor_count, 2u);
+  EXPECT_EQ(stats.output_descriptor_creation_count, 3u);
+  EXPECT_EQ(stats.output_descriptor_reuse_count, 3u);
+  EXPECT_EQ(stats.peak_live_output_descriptor_count, 2u);
+
+  camera.Resize({32, 16});
+  auto& resized =
+      RayCameraHistoryTestAccess::Acquire(camera, RayCameraHistoryTechnique::RayQuery, 1, {32, 16, 1}, MakeFakeHistory);
+  EXPECT_GT(resized.resource_generation, generation);
+  EXPECT_EQ(camera.GetRayCameraHistoryStats().live_output_descriptor_count, 0u);
 }
 
 TEST(RayCameraHistory, InvalidationAndSceneChangesDoNotResetUnrelatedCameras) {
@@ -289,6 +332,24 @@ TEST(RayCameraHistory, TransientStoreKeepsSubmittedViewsAliveAfterCameraRelease)
   EXPECT_TRUE(convergence_view.expired());
 }
 
+TEST(RayCameraHistory, TransientStoreKeepsImportedImageAliveIndependentlyOfItsView) {
+  auto image = MakeFakeResource<Image>();
+  auto view = MakeFakeResource<ImageView>();
+  const std::weak_ptr<Image> weak_image = image;
+  const std::weak_ptr<ImageView> weak_view = view;
+  RenderGraphTransientResourceStore submitted_resources;
+  submitted_resources.RetainImage(image);
+  submitted_resources.RetainImageView(view);
+  image.reset();
+  view.reset();
+
+  EXPECT_FALSE(weak_image.expired());
+  EXPECT_FALSE(weak_view.expired());
+  submitted_resources.Clear();
+  EXPECT_TRUE(weak_image.expired());
+  EXPECT_TRUE(weak_view.expired());
+}
+
 TEST(RayCameraHistory, RuntimeWiringHasNoStaticHistoryMapAndClearsAfterGpuDrain) {
   const auto camera_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Camera.hpp"));
   const auto pass_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/RayTracingCameraPass.cpp"));
@@ -298,6 +359,10 @@ TEST(RayCameraHistory, RuntimeWiringHasNoStaticHistoryMapAndClearsAfterGpuDrain)
   EXPECT_EQ(pass_source.find("static std::unordered_map"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImageView(history_resources.radiance_view)"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImageView(history_resources.convergence_view)"), std::string::npos);
+  EXPECT_NE(pass_source.find("RetainImage(render_texture->GetColorImage())"), std::string::npos);
+  EXPECT_EQ(pass_source.find("Platform::EverythingBarrier"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("render_graph_transient_resource_stores_.at(current_frame_index)"),
+            std::string::npos);
   EXPECT_NE(render_layer_source.find("!camera->ray_camera_history_owner_alive_"), std::string::npos);
   EXPECT_NE(render_layer_source.find("if (!render_texture)"), std::string::npos);
   const auto shutdown = render_layer_source.find("void RenderLayer::OnDestroy()");

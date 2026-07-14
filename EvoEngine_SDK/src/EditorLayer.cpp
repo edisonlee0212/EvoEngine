@@ -4375,6 +4375,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.x = static_cast<int32_t>(point.x);
     image_copy.imageOffset.y = static_cast<int32_t>(point.y);
     image_copy.imageOffset.z = 0;
+    Platform::WaitForFrameSubmissions("Entity Picking Readback Fence Wait");
     entity_index_read_buffer_->CopyFromImage(*g_buffer_utility, image_copy);
     float val = -1;
     switch (Platform::Constants::g_buffer_utility) {

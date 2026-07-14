@@ -63,6 +63,11 @@ struct Texture2DStagedLoadPayload final : StagedAssetLoadPayload {
   std::vector<std::byte> compressed_pixels;
 };
 
+void CopyTextureImageToBuffer(const std::shared_ptr<Image>& image, Buffer& buffer) {
+  Platform::WaitForFrameSubmissions("Texture Readback Fence Wait");
+  buffer.CopyFromImage(*image);
+}
+
 constexpr uint32_t MakeFourCc(const char a, const char b, const char c, const char d) {
   return static_cast<uint32_t>(static_cast<unsigned char>(a)) |
          (static_cast<uint32_t>(static_cast<unsigned char>(b)) << 8) |
@@ -289,7 +294,7 @@ void Texture2D::DownloadData() {
   const auto resolution = GetResolution();
   local_data_.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
+  CopyTextureImageToBuffer(texture_storage.image, image_buffer);
   image_buffer.DownloadVector(local_data_, resolution.x * resolution.y);
 }
 
@@ -646,7 +651,7 @@ void Texture2D::StoreToPng(const std::filesystem::path& path, const int resize_x
   if (local_data_.empty()) {
     // Retrieve image data here.
     Buffer image_buffer(data_length);
-    image_buffer.CopyFromImage(*texture_storage.image);
+    CopyTextureImageToBuffer(texture_storage.image, image_buffer);
     image_buffer.DownloadVector(dst, resolution.x * resolution.y * device_channels);
   } else {
     memcpy(dst.data(), local_data_.data(), data_length);
@@ -713,7 +718,7 @@ void Texture2D::StoreToTga(const std::filesystem::path& path, const int resize_x
   if (local_data_.empty()) {
     // Retrieve image data here.
     Buffer image_buffer(data_length);
-    image_buffer.CopyFromImage(*texture_storage.image);
+    CopyTextureImageToBuffer(texture_storage.image, image_buffer);
     image_buffer.DownloadVector(dst, resolution.x * resolution.y * device_channels);
   } else {
     memcpy(dst.data(), local_data_.data(), data_length);
@@ -749,7 +754,7 @@ void Texture2D::StoreToJpg(const std::filesystem::path& path, const int resize_x
   if (local_data_.empty()) {
     // Retrieve image data here.
     Buffer image_buffer(data_length);
-    image_buffer.CopyFromImage(*texture_storage.image);
+    CopyTextureImageToBuffer(texture_storage.image, image_buffer);
     image_buffer.DownloadVector(dst, resolution.x * resolution.y * device_channels);
   } else {
     memcpy(dst.data(), local_data_.data(), data_length);
@@ -882,7 +887,7 @@ void Texture2D::StoreToHdr(const std::filesystem::path& path, const int resize_x
   if (local_data_.empty()) {
     // Retrieve image data here.
     Buffer image_buffer(data_length);
-    image_buffer.CopyFromImage(*texture_storage.image);
+    CopyTextureImageToBuffer(texture_storage.image, image_buffer);
     image_buffer.DownloadVector(dst, resolution.x * resolution.y * device_channels);
   } else {
     memcpy(dst.data(), local_data_.data(), data_length);
@@ -1008,14 +1013,14 @@ void Texture2D::GetRgbaChannelData(std::vector<glm::vec4>& dst, const int resize
   const auto resolution = GetResolution();
   if ((resize_x == -1 && resize_y == -1) || (resolution.x == resize_x && resolution.y == resize_y)) {
     Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-    image_buffer.CopyFromImage(*texture_storage.image);
+    CopyTextureImageToBuffer(texture_storage.image, image_buffer);
     image_buffer.DownloadVector(dst, resolution.x * resolution.y);
     return;
   }
   std::vector<glm::vec4> src;
   src.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
+  CopyTextureImageToBuffer(texture_storage.image, image_buffer);
   image_buffer.DownloadVector(src, resolution.x * resolution.y);
 
   dst.resize(resize_x * resize_y);
@@ -1035,7 +1040,7 @@ void Texture2D::GetRgbChannelData(std::vector<glm::vec3>& dst, int resize_x, int
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
+  CopyTextureImageToBuffer(texture_storage.image, image_buffer);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
@@ -1054,7 +1059,7 @@ void Texture2D::GetRgChannelData(std::vector<glm::vec2>& dst, int resize_x, int 
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
+  CopyTextureImageToBuffer(texture_storage.image, image_buffer);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
@@ -1073,7 +1078,7 @@ void Texture2D::GetRedChannelData(std::vector<float>& dst, int resize_x, int res
   std::vector<glm::vec4> pixels;
   pixels.resize(resolution.x * resolution.y);
   Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*texture_storage.image);
+  CopyTextureImageToBuffer(texture_storage.image, image_buffer);
   image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
   dst.resize(pixels.size());
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {

@@ -11,7 +11,9 @@ class Buffer;
 class DescriptorSet;
 class Image;
 class ImageView;
+class IAsset;
 class RenderTexture;
+class Sampler;
 
 enum class RenderPassQueue { Graphics, Compute, RayTracing };
 
@@ -263,8 +265,11 @@ class RenderGraphTransientResourceStore {
  public:
   void Clear();
   void Allocate(const std::vector<RenderResourceDescriptor>& resources, const RenderGraphExecutionPlan& execution_plan);
-  void Bind(RenderGraphResourceRegistry& resource_registry) const;
+  void Bind(RenderGraphResourceRegistry& resource_registry);
   void RetainDescriptorSet(std::shared_ptr<DescriptorSet> descriptor_set);
+  void RetainAsset(std::shared_ptr<IAsset> asset);
+  void RetainRenderTextureResources(std::shared_ptr<RenderTexture> render_texture);
+  void RetainImage(std::shared_ptr<Image> image);
   void RetainImageView(std::shared_ptr<ImageView> image_view);
 
   [[nodiscard]] const std::vector<RenderGraphResourceBinding>& GetResourceBindings() const;
@@ -274,6 +279,9 @@ class RenderGraphTransientResourceStore {
   std::vector<std::shared_ptr<Image>> images_;
   std::vector<std::shared_ptr<ImageView>> image_views_;
   std::vector<std::shared_ptr<DescriptorSet>> descriptor_sets_;
+  std::vector<std::shared_ptr<IAsset>> assets_;
+  std::vector<std::shared_ptr<Sampler>> samplers_;
+  std::vector<std::shared_ptr<RenderTexture>> render_textures_;
   std::vector<RenderGraphResourceBinding> resource_bindings_;
 };
 
@@ -331,6 +339,39 @@ class RenderGraph {
   std::vector<RenderResourceDescriptor> resources_;
   std::vector<RenderPassDescriptor> passes_;
   std::vector<ExecuteFunction> execute_functions_;
+};
+
+struct RenderGraphPlanCacheStats {
+  size_t entry_count = 0;
+  size_t capacity = 0;
+  uint64_t hit_count = 0;
+  uint64_t miss_count = 0;
+  uint64_t eviction_count = 0;
+  uint64_t compilation_count = 0;
+  double compilation_milliseconds = 0.0;
+};
+
+class RenderGraphPlanCache final {
+ public:
+  explicit RenderGraphPlanCache(size_t capacity = 16);
+  [[nodiscard]] const RenderGraphExecutionPlan& GetOrCompile(const RenderGraph& graph,
+                                                             const RenderGraphCompileContext& context);
+  void Clear();
+  [[nodiscard]] RenderGraphPlanCacheStats GetStats() const;
+
+ private:
+  struct Entry {
+    RenderGraphCompileContext context{};
+    std::vector<RenderResourceDescriptor> resources{};
+    std::vector<RenderPassDescriptor> passes{};
+    RenderGraphExecutionPlan plan{};
+    uint64_t last_use = 0;
+  };
+
+  size_t capacity_ = 16;
+  uint64_t use_counter_ = 0;
+  RenderGraphPlanCacheStats stats_{};
+  std::vector<Entry> entries_{};
 };
 
 void AddDefaultFrameResources(RenderGraph& graph);

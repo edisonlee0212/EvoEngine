@@ -1809,10 +1809,14 @@ void RenderLayer::RegisterCameraRenderPass(
 }
 
 void RenderLayer::OnCreate() {
+  render_graph_transient_resource_stores_.clear();
+  render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
+  ray_camera_render_graph_plan_cache_.Clear();
   ray_camera_history_cameras_.clear();
   retired_ray_camera_history_stats_ = {};
   peak_live_ray_camera_history_count_ = 0;
   peak_live_ray_camera_history_byte_size_ = 0;
+  peak_live_ray_camera_output_descriptor_count_ = 0;
   enable_inspection = false;
   if (!ddgi_atlas_sampler_) {
     ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
@@ -2910,16 +2914,23 @@ std::string RenderLayer::GetDdgiLastProbeUpdateReasonText() const {
 }
 
 RenderLayer::DdgiProbeDebugDataView RenderLayer::GetDdgiProbeDebugData(const bool refresh_readback) const {
-  if (refresh_readback && ddgi_probe_metadata_readback_buffer_ && ddgi_probe_debug_metadata_byte_size_ != 0 &&
-      ddgi_probe_metadata_readback_buffer_->GetSize() >= ddgi_probe_debug_metadata_byte_size_) {
-    ddgi_probe_metadata_readback_buffer_->DownloadVector(
-        ddgi_probe_debug_metadata_, static_cast<size_t>(ddgi_probe_debug_metadata_byte_size_ / sizeof(glm::vec4)));
-  }
-  if (refresh_readback && ddgi_probe_debug_ray_samples_available_ && ddgi_probe_ray_readback_buffer_ &&
-      ddgi_probe_debug_ray_sample_count_ != 0u &&
-      ddgi_probe_ray_readback_buffer_->GetSize() >=
-          static_cast<uint64_t>(ddgi_probe_debug_ray_sample_count_) * sizeof(PointCloudSample)) {
-    ddgi_probe_ray_readback_buffer_->DownloadVector(ddgi_probe_debug_ray_samples_, ddgi_probe_debug_ray_sample_count_);
+  if (refresh_readback) {
+    Platform::WaitForFrameSubmissions("DDGI Debug Readback Fence Wait");
+    const auto metadata_buffer = ddgi_last_readback_frame_index_ < ddgi_probe_metadata_readback_buffers_.size()
+                                     ? ddgi_probe_metadata_readback_buffers_[ddgi_last_readback_frame_index_]
+                                     : nullptr;
+    if (metadata_buffer && ddgi_probe_debug_metadata_byte_size_ != 0 &&
+        metadata_buffer->GetSize() >= ddgi_probe_debug_metadata_byte_size_) {
+      metadata_buffer->DownloadVector(ddgi_probe_debug_metadata_,
+                                      static_cast<size_t>(ddgi_probe_debug_metadata_byte_size_ / sizeof(glm::vec4)));
+    }
+    const auto ray_buffer = ddgi_last_readback_frame_index_ < ddgi_probe_ray_readback_buffers_.size()
+                                ? ddgi_probe_ray_readback_buffers_[ddgi_last_readback_frame_index_]
+                                : nullptr;
+    if (ddgi_probe_debug_ray_samples_available_ && ray_buffer && ddgi_probe_debug_ray_sample_count_ != 0u &&
+        ray_buffer->GetSize() >= static_cast<uint64_t>(ddgi_probe_debug_ray_sample_count_) * sizeof(PointCloudSample)) {
+      ray_buffer->DownloadVector(ddgi_probe_debug_ray_samples_, ddgi_probe_debug_ray_sample_count_);
+    }
   }
   return {&ddgi_probe_debug_metadata_,        &ddgi_probe_debug_update_ages_,
           &ddgi_probe_debug_ray_samples_,     ddgi_probe_debug_metadata_probe_count_,
@@ -2969,8 +2980,14 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   if (update_editor_selection) {
     ApplyAnimators();
   }
-  if (GeometryStorage::HasPendingUploads()) {
+  if (GeometryStorage::HasPendingMeshUploads()) {
+    Platform::WaitForFrameSubmissions("Required Geometry Upload Fence Wait");
+    const auto geometry_upload_wait_start = std::chrono::steady_clock::now();
     GeometryStorage::WaitForPendingUploads();
+    Platform::RecordCpuTimingSample(
+        "Required Geometry Upload Wait",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - geometry_upload_wait_start)
+            .count());
   }
   const bool render_instance_updated = UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras,
                                                                    update_editor_selection, track_ddgi_scene_inputs);
@@ -3067,6 +3084,14 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   if (!render_instances) {
     return;
   }
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto max_frames_in_flight = static_cast<size_t>(Platform::GetMaxFramesInFlight());
+  ddgi_probe_metadata_readback_buffers_.resize(max_frames_in_flight);
+  ddgi_probe_ray_readback_buffers_.resize(max_frames_in_flight);
+  ddgi_variability_readback_buffers_.resize(max_frames_in_flight);
+  auto& ddgi_probe_metadata_readback_buffer = ddgi_probe_metadata_readback_buffers_.at(current_frame_index);
+  auto& ddgi_probe_ray_readback_buffer = ddgi_probe_ray_readback_buffers_.at(current_frame_index);
+  auto& ddgi_variability_readback_buffer = ddgi_variability_readback_buffers_.at(current_frame_index);
 
   render_instances->render_info_block.ddgi_indirect_intensity = 0.0f;
   auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSource(scene, ddgi_settings);
@@ -3075,7 +3100,20 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(ddgi_settings, ddgi_total_probe_count);
   ddgi_frame_resource_layout_ = layout;
   bool ddgi_resource_changed = false;
+  bool ddgi_resources_drained = false;
   if (ShouldUseDdgiFrameResources(ddgi_settings)) {
+    const bool rebuild_shared_resources =
+        (ddgi_probe_metadata_buffer_ && ddgi_probe_metadata_buffer_->GetSize() != layout.probe_metadata_byte_size) ||
+        (ddgi_irradiance_atlas_ &&
+         !HasDdgiAtlasImageLayout(ddgi_irradiance_atlas_, layout.irradiance_atlas, VK_FORMAT_R16G16B16A16_SFLOAT)) ||
+        (ddgi_visibility_atlas_ &&
+         !HasDdgiAtlasImageLayout(ddgi_visibility_atlas_, layout.visibility_atlas, VK_FORMAT_R16G16_SFLOAT)) ||
+        (ddgi_variability_atlas_ &&
+         !HasDdgiAtlasImageLayout(ddgi_variability_atlas_, layout.variability_atlas, VK_FORMAT_R16_SFLOAT));
+    if (rebuild_shared_resources) {
+      Platform::WaitForFrameSubmissions("Required DDGI Resource Rebuild Fence Wait");
+      ddgi_resources_drained = true;
+    }
     if (!ddgi_probe_metadata_buffer_ || ddgi_probe_metadata_buffer_->GetSize() != layout.probe_metadata_byte_size) {
       ddgi_probe_metadata_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_metadata_byte_size);
       ddgi_clear_probe_atlas_this_frame_ = true;
@@ -3096,9 +3134,9 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       ddgi_clear_probe_atlas_this_frame_ = true;
       ddgi_resource_changed = true;
     }
-    if (!ddgi_variability_readback_buffer_ ||
-        ddgi_variability_readback_buffer_->GetSize() != layout.variability_readback_byte_size) {
-      ddgi_variability_readback_buffer_ = std::make_shared<Buffer>(layout.variability_readback_byte_size, true);
+    if (!ddgi_variability_readback_buffer ||
+        ddgi_variability_readback_buffer->GetSize() != layout.variability_readback_byte_size) {
+      ddgi_variability_readback_buffer = std::make_shared<Buffer>(layout.variability_readback_byte_size, true);
       ddgi_resource_changed = true;
     }
   }
@@ -3256,8 +3294,8 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_clear_probe_atlas_this_frame_ = ddgi_clear_probe_atlas_this_frame_ || ddgi_ray_source_changed ||
                                        reset_probe_history || scene_material_refresh || scene_readiness_refresh;
   const auto probe_variability_enabled = ddgi_ray_source.enable_probe_variability;
-  if (probe_variability_enabled && ddgi_probe_variability_sample_count_ != 0u) {
-    ddgi_probe_variability_average_ = ReadDdgiProbeVariabilityAverage(ddgi_variability_readback_buffer_);
+  if (probe_variability_enabled && ddgi_probe_variability_sample_count_ != 0u && !ddgi_resource_changed) {
+    ddgi_probe_variability_average_ = ReadDdgiProbeVariabilityAverage(ddgi_variability_readback_buffer);
   }
   const bool internal_ddgi_refresh = ddgi_ray_source_changed || reset_probe_history || ddgi_resource_changed ||
                                      ddgi_scroll_clear_this_frame || scene_material_refresh || scene_readiness_refresh;
@@ -3296,6 +3334,10 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                            scene_readiness_refresh || !ddgi_probe_state_buffer_ ||
                            ddgi_probe_state_buffer_->GetSize() != layout.probe_state_byte_size;
   if (reset_probe_state) {
+    if (ddgi_probe_state_buffer_ && !ddgi_resources_drained) {
+      Platform::WaitForFrameSubmissions("Required DDGI Resource Rebuild Fence Wait");
+      ddgi_resources_drained = true;
+    }
     ddgi_probe_state_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_state_byte_size);
     if (ddgi_probe_state_buffer_) {
       const std::vector<glm::vec4> zero_state(layout.probe_count, glm::vec4(0.0f));
@@ -3357,16 +3399,22 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_active_probe_update_reasons_ = DdgiUpdateReasonNone;
   if (!ddgi_probe_update_index_buffer_ ||
       ddgi_probe_update_index_buffer_->GetSize() != layout.probe_update_index_byte_size) {
+    if (ddgi_probe_update_index_buffer_ && !ddgi_resources_drained) {
+      Platform::WaitForFrameSubmissions("Required DDGI Resource Rebuild Fence Wait");
+      ddgi_resources_drained = true;
+    }
     ddgi_probe_update_index_buffer_ = CreateDdgiProbeStateBuffer(layout.probe_update_index_byte_size);
+    if (ddgi_probe_update_index_buffer_) {
+      ddgi_probe_update_index_buffer_->UploadVector(ddgi_frame_probe_update_indices_);
+    }
   }
   if (!ddgi_probe_update_index_buffer_ || ddgi_frame_probe_update_indices_.empty()) {
     return;
   }
-  ddgi_probe_update_index_buffer_->UploadVector(ddgi_frame_probe_update_indices_);
   if (ddgi_settings.debug.enabled && ddgi_settings.debug.visualize_probe_state) {
-    if (!ddgi_probe_metadata_readback_buffer_ ||
-        ddgi_probe_metadata_readback_buffer_->GetSize() != layout.probe_metadata_byte_size) {
-      ddgi_probe_metadata_readback_buffer_ = std::make_shared<Buffer>(layout.probe_metadata_byte_size, true);
+    if (!ddgi_probe_metadata_readback_buffer ||
+        ddgi_probe_metadata_readback_buffer->GetSize() != layout.probe_metadata_byte_size) {
+      ddgi_probe_metadata_readback_buffer = std::make_shared<Buffer>(layout.probe_metadata_byte_size, true);
       ddgi_probe_debug_metadata_.assign(static_cast<size_t>(layout.probe_count) * 3ull, glm::vec4(0.0f));
       ddgi_probe_debug_metadata_byte_size_ = layout.probe_metadata_byte_size;
     }
@@ -3395,8 +3443,8 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
     const auto selected_ray_byte_size =
         static_cast<uint64_t>(ray_count) * static_cast<uint64_t>(sizeof(PointCloudSample));
     if (selected_update_iter != ddgi_frame_probe_update_indices_.end() && selected_ray_byte_size != 0u) {
-      if (!ddgi_probe_ray_readback_buffer_ || ddgi_probe_ray_readback_buffer_->GetSize() != selected_ray_byte_size) {
-        ddgi_probe_ray_readback_buffer_ = std::make_shared<Buffer>(selected_ray_byte_size, true);
+      if (!ddgi_probe_ray_readback_buffer || ddgi_probe_ray_readback_buffer->GetSize() != selected_ray_byte_size) {
+        ddgi_probe_ray_readback_buffer = std::make_shared<Buffer>(selected_ray_byte_size, true);
         ddgi_probe_debug_ray_samples_.assign(ray_count, {});
       }
       ddgi_frame_selected_probe_ray_local_index_ =
@@ -3552,15 +3600,18 @@ void RenderLayer::RenderAll() {
   const auto scene = GetScene();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
+  const auto lighting_descriptor_set =
+      lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr;
+  ddgi_last_readback_frame_index_ = current_frame_index;
   const auto& ddgi_settings = scene ? scene->environment.ddgi_settings : fallback_ddgi_settings_;
   auto& platform = Platform::GetInstance();
   PruneRayCameraHistories(current_render_instances);
-  render_graph_transient_resource_stores_.clear();
+  auto& current_frame_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index);
+  current_frame_transient_resources.clear();
   if (!ddgi_fallback_probe_state_buffer_) {
     ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer();
   }
-  BindDdgiFallbackLightingDescriptors(lighting_ ? lighting_->lighting_descriptor_set : nullptr,
-                                      ddgi_fallback_probe_state_buffer_);
+  BindDdgiFallbackLightingDescriptors(lighting_descriptor_set, ddgi_fallback_probe_state_buffer_);
   ddgi_frame_ray_output_visualization_buffer_.reset();
   ddgi_last_performance_stats_ = {};
   ddgi_last_performance_stats_.storage_probe_count = ddgi_frame_resource_layout_.probe_count;
@@ -3627,12 +3678,18 @@ void RenderLayer::RenderAll() {
       ddgi_frame_resource_layout_.variability_atlas.columns, ddgi_frame_resource_layout_.variability_atlas.resolution,
       ddgi_frame_resource_layout_.variability_reduction_extent};
   const auto ddgi_probe_metadata_readback_buffer =
-      ddgi_settings.debug.enabled && ddgi_settings.debug.visualize_probe_state ? ddgi_probe_metadata_readback_buffer_
-                                                                               : nullptr;
-  const auto ddgi_probe_ray_readback_buffer =
-      ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays && ddgi_probe_debug_ray_samples_available_
-          ? ddgi_probe_ray_readback_buffer_
+      ddgi_settings.debug.enabled && ddgi_settings.debug.visualize_probe_state &&
+              current_frame_index < ddgi_probe_metadata_readback_buffers_.size()
+          ? ddgi_probe_metadata_readback_buffers_[current_frame_index]
           : nullptr;
+  const auto ddgi_probe_ray_readback_buffer = ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays &&
+                                                      ddgi_probe_debug_ray_samples_available_ &&
+                                                      current_frame_index < ddgi_probe_ray_readback_buffers_.size()
+                                                  ? ddgi_probe_ray_readback_buffers_[current_frame_index]
+                                                  : nullptr;
+  const auto ddgi_variability_readback_buffer = current_frame_index < ddgi_variability_readback_buffers_.size()
+                                                    ? ddgi_variability_readback_buffers_[current_frame_index]
+                                                    : nullptr;
   if (trace_ddgi_probe_rays) {
     AddDdgiRayTracingFrameResources(frame_render_graph);
     frame_render_graph.AddPass(
@@ -3686,7 +3743,7 @@ void RenderLayer::RenderAll() {
                 context,
                 {ddgi_probe_variability_reduce_pipeline_, ddgi_probe_variability_extra_reduce_pipeline_,
                  ddgi_probe_variability_layout_, active_frame_transient_resources, ddgi_probe_variability_layout,
-                 ddgi_variability_readback_buffer_, &ddgi_last_performance_stats_.probe_variability_record_ms});
+                 ddgi_variability_readback_buffer, &ddgi_last_performance_stats_.probe_variability_record_ms});
           });
     }
   }
@@ -3734,7 +3791,7 @@ void RenderLayer::RenderAll() {
     frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_probe_update_indices,
                                             ddgi_probe_update_index_buffer_);
   }
-  auto& frame_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+  auto& frame_transient_resources = current_frame_transient_resources.emplace_back();
   active_frame_transient_resources = &frame_transient_resources;
   frame_transient_resources.Allocate(frame_render_graph.GetResources(), frame_render_graph_plan);
   frame_transient_resources.Bind(frame_render_graph_resources);
@@ -3742,9 +3799,8 @@ void RenderLayer::RenderAll() {
   frame_render_graph.Execute(frame_render_graph_plan, frame_render_graph_resources);
   ddgi_last_performance_stats_.frame_graph_execute_ms = DdgiElapsedMilliseconds(ddgi_frame_graph_timer);
   if (use_ddgi_frame_resources) {
-    BindDdgiAtlasLightingDescriptors(frame_render_graph_resources, frame_transient_resources,
-                                     lighting_ ? lighting_->lighting_descriptor_set : nullptr, ddgi_atlas_sampler_,
-                                     ddgi_fallback_probe_state_buffer_);
+    BindDdgiAtlasLightingDescriptors(frame_render_graph_resources, frame_transient_resources, lighting_descriptor_set,
+                                     ddgi_atlas_sampler_, ddgi_fallback_probe_state_buffer_);
   }
   if (trace_ddgi_probe_rays) {
     if (ddgi_settings.debug.enabled && ddgi_settings.debug.show_rays) {
@@ -3971,6 +4027,9 @@ RayCameraHistoryStats RenderLayer::GetRayCameraHistoryStats() const {
     result.reuse_count += stats.reuse_count;
     result.invalidation_count += stats.invalidation_count;
     result.retirement_count += stats.retirement_count;
+    result.live_output_descriptor_count += stats.live_output_descriptor_count;
+    result.output_descriptor_creation_count += stats.output_descriptor_creation_count;
+    result.output_descriptor_reuse_count += stats.output_descriptor_reuse_count;
   };
   for (const auto& [handle, camera] : ray_camera_history_cameras_) {
     if (const auto locked_camera = camera.lock()) {
@@ -3979,6 +4038,23 @@ RayCameraHistoryStats RenderLayer::GetRayCameraHistoryStats() const {
   }
   result.peak_live_history_count = peak_live_ray_camera_history_count_;
   result.peak_live_byte_size = peak_live_ray_camera_history_byte_size_;
+  result.peak_live_output_descriptor_count = peak_live_ray_camera_output_descriptor_count_;
+  return result;
+}
+
+RenderLayer::RayCameraFramePathStats RenderLayer::GetRayCameraFramePathStats() const {
+  const auto history = GetRayCameraHistoryStats();
+  RayCameraFramePathStats result;
+  result.render_graph_plan_cache = ray_camera_render_graph_plan_cache_.GetStats();
+  result.live_output_descriptor_count = history.live_output_descriptor_count;
+  result.peak_live_output_descriptor_count = history.peak_live_output_descriptor_count;
+  result.output_descriptor_creation_count = history.output_descriptor_creation_count;
+  result.output_descriptor_reuse_count = history.output_descriptor_reuse_count;
+  result.retained_frame_slot_count =
+      static_cast<uint32_t>(std::count_if(render_graph_transient_resource_stores_.begin(),
+                                          render_graph_transient_resource_stores_.end(), [](const auto& stores) {
+                                            return !stores.empty();
+                                          }));
   return result;
 }
 
@@ -4566,6 +4642,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   const ProfilerScope profiler_scope("RenderLayer::RenderToCamera", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
+  const auto lighting_descriptor_set =
+      lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr;
   const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
   const auto raster_lighting_texture_descriptor_set =
       GetRasterLightingTextureDescriptorSet(current_frame_index, camera_index, current_render_instances);
@@ -4742,8 +4820,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           DeferredLightingPass::Execute(
               context,
               {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
-               lighting_ ? lighting_->lighting_descriptor_set : nullptr, raster_lighting_texture_descriptor_set,
-               camera_index, current_frame_index, count_draw_calls, fade_selection, selection_alpha,
+               lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index, current_frame_index,
+               count_draw_calls, fade_selection, selection_alpha,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  for (const auto& func : forward_rendering_external_functions) {
                    const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
@@ -4803,16 +4881,15 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       post_lighting_dependency = RenderPassNames::volumetric_clouds;
     }
     if (transparent_mesh_rendering_enabled) {
-      camera_render_graph.AddPass(
-          TransparentGeometryPass::CreateDescriptor(post_lighting_dependency),
-          [&](const RenderGraphExecutionContext& context) {
-            TransparentGeometryPass::Execute(
-                context,
-                {camera, current_render_instances, transparent_geometry_pipeline_normal,
-                 raster_material_per_frame_descriptor_sets_[current_frame_index],
-                 lighting_ ? lighting_->lighting_descriptor_set : nullptr, raster_lighting_texture_descriptor_set,
-                 camera_index, current_frame_index, count_draw_calls, wire_frame, record_commands});
-          });
+      camera_render_graph.AddPass(TransparentGeometryPass::CreateDescriptor(post_lighting_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    TransparentGeometryPass::Execute(
+                                        context,
+                                        {camera, current_render_instances, transparent_geometry_pipeline_normal,
+                                         raster_material_per_frame_descriptor_sets_[current_frame_index],
+                                         lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
+                                         current_frame_index, count_draw_calls, wire_frame, record_commands});
+                                  });
       post_lighting_dependency = RenderPassNames::transparent_geometry;
     }
     if (gaussian_splat_rendering_enabled) {
@@ -4914,7 +4991,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       camera_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_ray_output,
                                                ddgi_frame_ray_output_visualization_buffer_);
     }
-    auto& camera_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+    auto& camera_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
     active_camera_transient_resources = &camera_transient_resources;
     camera_transient_resources.Allocate(camera_render_graph.GetResources(), camera_render_graph_plan);
     camera_transient_resources.Bind(camera_render_graph_resources);
@@ -4962,7 +5039,12 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     auto& ray_camera_history = camera->AcquireRayCameraHistory(
         use_ray_query ? RayCameraHistoryTechnique::RayQuery : RayCameraHistoryTechnique::RayTracing,
         scene ? scene->GetHandle().GetValue() : 0u, render_texture->GetExtent());
+    const auto ray_camera_output_descriptor = camera->AcquireRayCameraOutputDescriptor(
+        current_frame_index, Platform::GetFrameCount(), ray_tracing_camera_output_layout_);
     UpdateRayCameraHistoryPeaks();
+    if (!ray_camera_output_descriptor) {
+      return;
+    }
     const char* ray_camera_pass_name =
         use_ray_query ? RenderPassNames::ray_query_camera : RenderPassNames::ray_tracing_camera;
     VolumetricCloudSettings volumetric_cloud_settings{};
@@ -4995,7 +5077,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
             RayQueryCameraPass::Execute(
                 context, {camera, ray_query_pipeline, per_frame_descriptor_sets_[current_frame_index],
                           ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                          ray_tracing_camera_output_layout_, active_camera_transient_resources, &ray_camera_history});
+                          ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history});
           });
     } else {
       camera_render_graph.AddPass(
@@ -5003,7 +5085,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
             RayTracingCameraPass::Execute(
                 context, {camera, ray_tracing_pipeline, per_frame_descriptor_sets_[current_frame_index],
                           ray_tracing_descriptor_sets_[current_frame_index], camera_index, record_commands,
-                          ray_tracing_camera_output_layout_, active_camera_transient_resources, &ray_camera_history});
+                          ray_camera_output_descriptor, active_camera_transient_resources, &ray_camera_history});
           });
     }
     const char* post_ray_tracing_dependency = ray_camera_pass_name;
@@ -5052,15 +5134,17 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     }
     camera_render_graph.AddPass(PostProcessingPass::CreateRayTracingDescriptor(post_ray_tracing_dependency),
                                 [&](const RenderGraphExecutionContext& context) {
-                                  PostProcessingPass::Execute(context, {camera, nullptr, false, true});
+                                  PostProcessingPass::Execute(context,
+                                                              {camera, active_camera_transient_resources, false, true});
                                 });
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid ray tracing camera render graph.")
     }
-    const auto camera_render_graph_plan = camera_render_graph.Compile(CreateCameraRenderGraphCompileContext(camera));
+    const auto& camera_render_graph_plan = ray_camera_render_graph_plan_cache_.GetOrCompile(
+        camera_render_graph, CreateCameraRenderGraphCompileContext(camera));
     auto camera_render_graph_resources = CreateCameraRenderGraphResourceRegistry(
         per_frame_descriptor_sets_[current_frame_index], ray_tracing_descriptor_sets_[current_frame_index], camera);
-    auto& camera_transient_resources = render_graph_transient_resource_stores_.emplace_back();
+    auto& camera_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
     active_camera_transient_resources = &camera_transient_resources;
     camera_transient_resources.Allocate(camera_render_graph.GetResources(), camera_render_graph_plan);
     camera_transient_resources.Bind(camera_render_graph_resources);
@@ -5091,7 +5175,13 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  ray_camera_shader_variant_cache_.reset();
+  ray_tracing_camera_pipeline.reset();
+  ray_tracing_camera_fallback_pipeline_.reset();
+  ray_query_camera_pipeline_.reset();
+  ray_query_camera_fallback_pipeline_.reset();
   render_graph_transient_resource_stores_.clear();
+  ray_camera_render_graph_plan_cache_.Clear();
   ClearRayCameraHistories();
 }
 
@@ -5139,21 +5229,29 @@ void RenderLayer::ArchiveRayCameraHistory(const std::shared_ptr<Camera>& camera)
   retired_ray_camera_history_stats_.reuse_count += stats.reuse_count;
   retired_ray_camera_history_stats_.invalidation_count += stats.invalidation_count;
   retired_ray_camera_history_stats_.retirement_count += stats.retirement_count;
+  retired_ray_camera_history_stats_.output_descriptor_creation_count += stats.output_descriptor_creation_count;
+  retired_ray_camera_history_stats_.output_descriptor_reuse_count += stats.output_descriptor_reuse_count;
+  retired_ray_camera_history_stats_.peak_live_output_descriptor_count = std::max(
+      retired_ray_camera_history_stats_.peak_live_output_descriptor_count, stats.peak_live_output_descriptor_count);
   camera->ray_camera_history_counters_ = {};
 }
 
 void RenderLayer::UpdateRayCameraHistoryPeaks() const {
   uint64_t live_history_count = 0;
   uint64_t live_byte_size = 0;
+  uint64_t live_output_descriptor_count = 0;
   for (const auto& [handle, camera] : ray_camera_history_cameras_) {
     if (const auto locked_camera = camera.lock()) {
       const auto stats = locked_camera->GetRayCameraHistoryStats();
       live_history_count += stats.live_history_count;
       live_byte_size += stats.live_byte_size;
+      live_output_descriptor_count += stats.live_output_descriptor_count;
     }
   }
   peak_live_ray_camera_history_count_ = std::max(peak_live_ray_camera_history_count_, live_history_count);
   peak_live_ray_camera_history_byte_size_ = std::max(peak_live_ray_camera_history_byte_size_, live_byte_size);
+  peak_live_ray_camera_output_descriptor_count_ =
+      std::max(peak_live_ray_camera_output_descriptor_count_, live_output_descriptor_count);
 }
 
 void RenderLayer::ClearRayCameraHistories() const {
@@ -5189,5 +5287,6 @@ const std::shared_ptr<DescriptorSet>& RenderLayer::GetPerFrameDescriptorSet() {
 }
 
 const std::shared_ptr<DescriptorSet>& RenderLayer::GetLightingDescriptorSet() {
-  return ApplicationContext::Get().GetLayer<RenderLayer>()->lighting_->lighting_descriptor_set;
+  return ApplicationContext::Get().GetLayer<RenderLayer>()->lighting_->lighting_descriptor_sets_.at(
+      Platform::GetCurrentFrameIndex());
 }

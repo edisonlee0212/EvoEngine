@@ -587,6 +587,9 @@ void Camera::Resize(const glm::uvec2& size) {
     return;
   if (size_ == size)
     return;
+  if (render_texture_) {
+    Platform::WaitForFrameSubmissions("Required Camera Resize Fence Wait");
+  }
   ReleaseRayCameraHistory();
   size_ = size;
   ResetFrameCount();
@@ -765,6 +768,9 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
 }
 
 void Camera::OnDestroy() {
+  if (Platform::Initialized()) {
+    Platform::WaitForFrameSubmissions("Camera Destroy Fence Wait");
+  }
   ray_camera_history_owner_alive_ = false;
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     render_layer->ForgetRayCameraHistoryCamera(GetHandle().GetValue(), this);
@@ -803,6 +809,10 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
     stats.radiance_view_count += history.radiance_view ? 1u : 0u;
     stats.convergence_view_count += history.convergence_view ? 1u : 0u;
     stats.live_byte_size += RayCameraHistoryByteSize(history.extent);
+    stats.live_output_descriptor_count = static_cast<uint64_t>(std::count_if(
+        history.output_descriptor_slots.begin(), history.output_descriptor_slots.end(), [](const auto& slot) {
+          return static_cast<bool>(slot.descriptor_set);
+        }));
   }
   stats.live_camera_count = stats.live_history_count == 0 ? 0u : 1u;
   return stats;
@@ -875,6 +885,7 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
     history.temporal_history_version = temporal_history_version_;
     history.frame_id = 0;
     history.valid = false;
+    history.resource_generation = ++next_ray_camera_history_resource_generation_;
     ++ray_camera_history_counters_.creation_count;
   } else {
     ++ray_camera_history_counters_.reuse_count;
@@ -898,6 +909,45 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
   ray_camera_history_counters_.peak_live_byte_size =
       std::max(ray_camera_history_counters_.peak_live_byte_size, stats.live_byte_size);
   return history;
+}
+
+std::shared_ptr<DescriptorSet> Camera::AcquireRayCameraOutputDescriptor(
+    const uint32_t frame_index, const uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
+    const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory) {
+  auto& history = ray_camera_history_;
+  if (!HasRayCameraHistory(history) || (!layout && !resource_factory)) {
+    return {};
+  }
+  const auto slot_count = static_cast<size_t>(std::max(Platform::GetMaxFramesInFlight(), 1));
+  history.output_descriptor_slots.resize(slot_count);
+  const auto create_descriptor = [&]() {
+    ++ray_camera_history_counters_.output_descriptor_creation_count;
+    return resource_factory ? resource_factory() : std::make_shared<DescriptorSet>(layout);
+  };
+  bool current_slot_created = false;
+  for (size_t slot_index = 0; slot_index < history.output_descriptor_slots.size(); ++slot_index) {
+    auto& slot = history.output_descriptor_slots[slot_index];
+    if (!slot.descriptor_set) {
+      slot.descriptor_set = create_descriptor();
+      current_slot_created |= slot_index == frame_index;
+    }
+  }
+  if (frame_index >= history.output_descriptor_slots.size()) {
+    return {};
+  }
+  auto& slot = history.output_descriptor_slots[frame_index];
+  if (slot.recorded && slot.recording_frame_serial == frame_serial) {
+    return create_descriptor();
+  }
+  slot.recorded = true;
+  slot.recording_frame_serial = frame_serial;
+  if (!current_slot_created) {
+    ++ray_camera_history_counters_.output_descriptor_reuse_count;
+  }
+  const auto stats = GetRayCameraHistoryStats();
+  ray_camera_history_counters_.peak_live_output_descriptor_count =
+      std::max(ray_camera_history_counters_.peak_live_output_descriptor_count, stats.live_output_descriptor_count);
+  return slot.descriptor_set;
 }
 
 void Camera::ReleaseRayCameraHistory() {

@@ -1620,6 +1620,7 @@ const VmaAllocationInfo& Buffer::GetVmaAllocationInfo() const {
 }
 
 void Buffer::SetDebugName(const std::string& name) const {
+  vmaSetAllocationName(Platform::GetVmaAllocator(), gpu_state_->vma_allocation, name.c_str());
   // debug shader function
   if (vkSetDebugUtilsObjectNameEXT) {
     VkDebugUtilsObjectNameInfoEXT nameInfo{};
@@ -1952,9 +1953,9 @@ void CommandQueue::Submit(
   submit_info.commandBufferCount = buffer_count;
   std::vector<VkCommandBuffer> vk_command_buffers(buffer_count);
 
-  Jobs::RunParallelFor(buffer_count, [&](const size_t i) {
+  for (uint32_t i = 0; i < buffer_count; ++i) {
     vk_command_buffers[i] = command_buffers[i + offset]->GetVkCommandBuffer();
-  });
+  }
 
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
@@ -1992,9 +1993,9 @@ void CommandQueue::Submit(
   //===========
   submit_info.commandBufferCount = command_buffers.size();
   std::vector<VkCommandBuffer> vk_command_buffers(command_buffers.size());
-  Jobs::RunParallelFor(command_buffers.size(), [&](const size_t i) {
+  for (size_t i = 0; i < command_buffers.size(); ++i) {
     vk_command_buffers[i] = command_buffers[i]->GetVkCommandBuffer();
-  });
+  }
   submit_info.pCommandBuffers = vk_command_buffers.data();
 
   const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
@@ -2204,7 +2205,7 @@ void BottomLevelAccelerationStructure::ProcessStaticBuilds() {
     }
   }
 
-  if (GeometryStorage::HasPendingUploads()) {
+  if (GeometryStorage::HasPendingMeshUploads()) {
     return;
   }
   auto job = std::make_shared<StaticBlasBuildJob>();

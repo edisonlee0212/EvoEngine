@@ -22,7 +22,7 @@ class RayTracingCameraPass final {
     std::shared_ptr<DescriptorSet> ray_tracing_descriptor_set;
     int camera_index = -1;
     RecordCommands record_commands;
-    std::shared_ptr<DescriptorSetLayout> output_descriptor_set_layout;
+    std::shared_ptr<DescriptorSet> output_descriptor_set;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     RayCameraHistoryResources* history_resources = nullptr;
   };
@@ -42,7 +42,7 @@ class RayQueryCameraPass final {
     std::shared_ptr<DescriptorSet> ray_tracing_descriptor_set;
     int camera_index = -1;
     RecordCommands record_commands;
-    std::shared_ptr<DescriptorSetLayout> output_descriptor_set_layout;
+    std::shared_ptr<DescriptorSet> output_descriptor_set;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     RayCameraHistoryResources* history_resources = nullptr;
   };

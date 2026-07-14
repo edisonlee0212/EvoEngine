@@ -106,6 +106,9 @@ class RenderTexture {
    */
   [[nodiscard]] VkImageViewType GetImageViewType() const;
 
+  [[nodiscard]] bool HasColorAttachment() const;
+  [[nodiscard]] bool HasDepthAttachment() const;
+
   /**
    * @brief Gets the number of mip levels in the texture.
    * @return Number of mip levels.

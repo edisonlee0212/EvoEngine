@@ -807,6 +807,17 @@ bool TextureStorage::HasPendingUploads() {
   return false;
 }
 
+bool TextureStorage::HasPendingDeletes() {
+  const auto& storage = GetInstance();
+  return std::any_of(storage.texture_2ds_.begin(), storage.texture_2ds_.end(),
+                     [](const auto& texture) {
+                       return texture.pending_delete;
+                     }) ||
+         std::any_of(storage.cubemaps_.begin(), storage.cubemaps_.end(), [](const auto& texture) {
+           return texture.pending_delete;
+         });
+}
+
 void TextureStorage::DeviceSync() {
   if (!Platform::Initialized())
     return;

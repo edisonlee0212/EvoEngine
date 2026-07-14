@@ -20,10 +20,12 @@
 #include <chrono>
 #include <cstdlib>
 #include <fstream>
+#include <initializer_list>
 #include <iostream>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <string_view>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -980,6 +982,39 @@ nlohmann::ordered_json TimingStatsJson(const std::vector<GpuTimestampStats>& tim
   return result;
 }
 
+nlohmann::ordered_json WaitReasonJson(const std::vector<GpuTimestampStats>& timing_stats,
+                                      const std::initializer_list<std::string_view> names) {
+  std::vector<double> samples;
+  double total_milliseconds = 0.0;
+  uint64_t sample_count = 0;
+  for (const auto& stats : timing_stats) {
+    if (std::find(names.begin(), names.end(), stats.name) == names.end()) {
+      continue;
+    }
+    samples.insert(samples.end(), stats.samples_milliseconds.begin(), stats.samples_milliseconds.end());
+    total_milliseconds += stats.total_milliseconds;
+    sample_count += stats.sample_count;
+  }
+  std::sort(samples.begin(), samples.end());
+  double median_milliseconds = 0.0;
+  if (!samples.empty()) {
+    const auto middle = samples.size() / 2;
+    median_milliseconds = samples.size() % 2 == 0 ? (samples[middle - 1] + samples[middle]) * 0.5 : samples[middle];
+  }
+  return {{"count", sample_count}, {"total_ms", total_milliseconds}, {"median_ms", median_milliseconds}};
+}
+
+nlohmann::ordered_json SynchronizationWaitsJson(const std::vector<GpuTimestampStats>& timing_stats) {
+  return {{"frame_slot_reuse", WaitReasonJson(timing_stats, {"Recycled Frame Fence Wait"})},
+          {"capture_flush", WaitReasonJson(timing_stats, {"Capture Completion Fence Wait"})},
+          {"required_geometry_upload",
+           WaitReasonJson(timing_stats, {"Required Geometry Upload Fence Wait", "Required Geometry Upload Wait"})},
+          {"required_camera_resize", WaitReasonJson(timing_stats, {"Required Camera Resize Fence Wait"})},
+          {"required_texture_storage", WaitReasonJson(timing_stats, {"Required Texture Storage Fence Wait"})},
+          {"just_submitted_frame", WaitReasonJson(timing_stats, {"Submitted Frame Fence Wait"})},
+          {"redundant", WaitReasonJson(timing_stats, {"Redundant Fence Wait"})}};
+}
+
 nlohmann::ordered_json TlasUploadTelemetryJson(const TopLevelAccelerationStructure::UploadTelemetry& telemetry) {
   return {{"source_bytes", telemetry.source_bytes},
           {"uploaded_bytes", telemetry.uploaded_bytes},
@@ -1056,7 +1091,28 @@ nlohmann::ordered_json RayCameraHistoryStatsJson(const RayCameraHistoryStats& st
           {"creation_count", stats.creation_count},
           {"reuse_count", stats.reuse_count},
           {"invalidation_count", stats.invalidation_count},
-          {"retirement_count", stats.retirement_count}};
+          {"retirement_count", stats.retirement_count},
+          {"live_output_descriptor_count", stats.live_output_descriptor_count},
+          {"peak_live_output_descriptor_count", stats.peak_live_output_descriptor_count},
+          {"output_descriptor_creation_count", stats.output_descriptor_creation_count},
+          {"output_descriptor_reuse_count", stats.output_descriptor_reuse_count}};
+}
+
+nlohmann::ordered_json RayCameraFramePathStatsJson(const RenderLayer::RayCameraFramePathStats& stats) {
+  const auto& cache = stats.render_graph_plan_cache;
+  return {{"render_graph_plan_cache",
+           {{"entry_count", cache.entry_count},
+            {"capacity", cache.capacity},
+            {"hit_count", cache.hit_count},
+            {"miss_count", cache.miss_count},
+            {"eviction_count", cache.eviction_count},
+            {"compilation_count", cache.compilation_count},
+            {"compilation_ms", cache.compilation_milliseconds}}},
+          {"live_output_descriptor_count", stats.live_output_descriptor_count},
+          {"peak_live_output_descriptor_count", stats.peak_live_output_descriptor_count},
+          {"output_descriptor_creation_count", stats.output_descriptor_creation_count},
+          {"output_descriptor_reuse_count", stats.output_descriptor_reuse_count},
+          {"retained_frame_slot_count", stats.retained_frame_slot_count}};
 }
 
 nlohmann::ordered_json DescriptorSetLifetimeStatsJson(const DescriptorSet::LifetimeStats& stats) {
@@ -1366,6 +1422,9 @@ void CaptureDemoPreview(
   auto final_ray_camera_history = startup_ray_camera_history;
   uint64_t minimum_live_ray_camera_histories = startup_ray_camera_history.live_history_count;
   uint64_t maximum_live_ray_camera_histories = startup_ray_camera_history.live_history_count;
+  const auto startup_ray_camera_frame_path = render_layer->GetRayCameraFramePathStats();
+  auto measurement_ray_camera_frame_path = startup_ray_camera_frame_path;
+  auto final_ray_camera_frame_path = startup_ray_camera_frame_path;
   const auto startup_descriptor_sets = DescriptorSet::GetLifetimeStats();
   auto measurement_descriptor_sets = startup_descriptor_sets;
   auto final_descriptor_sets = startup_descriptor_sets;
@@ -1397,6 +1456,7 @@ void CaptureDemoPreview(
     final_gpu_memory = Platform::GetGpuMemorySnapshot();
     peak_gpu_memory = MaxGpuMemorySnapshot(peak_gpu_memory, final_gpu_memory);
     final_ray_camera_history = render_layer->GetRayCameraHistoryStats();
+    final_ray_camera_frame_path = render_layer->GetRayCameraFramePathStats();
     minimum_live_ray_camera_histories =
         std::min(minimum_live_ray_camera_histories, final_ray_camera_history.live_history_count);
     maximum_live_ray_camera_histories =
@@ -1417,9 +1477,11 @@ void CaptureDemoPreview(
         std::chrono::duration<double>(std::chrono::steady_clock::now() - memory_telemetry_start).count();
     ++capture_frame_count;
     if (capture_frame_count == std::min(timing_warmup_frames, warmup_frames)) {
+      Platform::WaitForFrameSubmissions("Capture Warmup Fence Wait");
       Platform::ResetGpuTimestampStats();
       capture_tlas_upload_baseline = render_layer->GetTlasUploadTelemetry();
       measurement_ray_camera_history = final_ray_camera_history;
+      measurement_ray_camera_frame_path = final_ray_camera_frame_path;
       minimum_live_ray_camera_histories = final_ray_camera_history.live_history_count;
       maximum_live_ray_camera_histories = final_ray_camera_history.live_history_count;
       measurement_descriptor_sets = final_descriptor_sets;
@@ -1439,6 +1501,7 @@ void CaptureDemoPreview(
                                    : "Demo preview capture timed out.");
     }
   }
+  Platform::WaitForFrameSubmissions("Capture Completion Fence Wait");
   const auto effective_timing_warmup_frames = std::min(timing_warmup_frames, capture_frame_count);
   const auto measured_frame_count = capture_frame_count - effective_timing_warmup_frames;
   const auto capture_tlas_upload = render_layer->GetTlasUploadTelemetry().DeltaFrom(capture_tlas_upload_baseline);
@@ -1633,7 +1696,14 @@ void CaptureDemoPreview(
   metrics["startup_gpu_sections"] = TimingStatsJson(startup_gpu_timestamp_stats);
   metrics["gpu_sections"] = TimingStatsJson(Platform::GetGpuTimestampStats());
   metrics["startup_cpu_sections"] = TimingStatsJson(startup_cpu_timing_stats);
-  metrics["cpu_sections"] = TimingStatsJson(Platform::GetCpuTimingStats());
+  const auto capture_cpu_timing_stats = Platform::GetCpuTimingStats();
+  metrics["cpu_sections"] = TimingStatsJson(capture_cpu_timing_stats);
+  metrics["synchronization_waits"] = SynchronizationWaitsJson(capture_cpu_timing_stats);
+  metrics["frame_synchronization"] = {
+      {"policy", "wait-on-frame-slot-reuse"},
+      {"max_frames_in_flight", Platform::GetMaxFramesInFlight()},
+      {"pending_submissions_after_capture_flush", Platform::GetPendingFrameSubmissionCount()},
+      {"validation_layers_enabled", Platform::ValidationLayersEnabled()}};
   metrics["startup_tlas_upload"] = TlasUploadTelemetryJson(startup_tlas_upload);
   metrics["tlas_upload"] = TlasUploadTelemetryJson(capture_tlas_upload);
   const auto blas_builder = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
@@ -1687,6 +1757,23 @@ void CaptureDemoPreview(
        final_ray_camera_history.creation_count >= measurement_ray_camera_history.creation_count
            ? final_ray_camera_history.creation_count - measurement_ray_camera_history.creation_count
            : 0u}};
+  const auto& measurement_plan_cache = measurement_ray_camera_frame_path.render_graph_plan_cache;
+  const auto& final_plan_cache = final_ray_camera_frame_path.render_graph_plan_cache;
+  metrics["ray_camera_frame_path"] = {
+      {"startup", RayCameraFramePathStatsJson(startup_ray_camera_frame_path)},
+      {"measurement_baseline", RayCameraFramePathStatsJson(measurement_ray_camera_frame_path)},
+      {"final", RayCameraFramePathStatsJson(final_ray_camera_frame_path)},
+      {"capture",
+       {{"plan_cache_hits", final_plan_cache.hit_count - measurement_plan_cache.hit_count},
+        {"plan_cache_misses", final_plan_cache.miss_count - measurement_plan_cache.miss_count},
+        {"plan_compilations", final_plan_cache.compilation_count - measurement_plan_cache.compilation_count},
+        {"plan_evictions", final_plan_cache.eviction_count - measurement_plan_cache.eviction_count},
+        {"plan_compilation_ms",
+         final_plan_cache.compilation_milliseconds - measurement_plan_cache.compilation_milliseconds},
+        {"output_descriptor_creations", final_ray_camera_frame_path.output_descriptor_creation_count -
+                                            measurement_ray_camera_frame_path.output_descriptor_creation_count},
+        {"output_descriptor_reuses", final_ray_camera_frame_path.output_descriptor_reuse_count -
+                                         measurement_ray_camera_frame_path.output_descriptor_reuse_count}}}};
   metrics["resource_lifetime"] = {
       {"descriptor_sets",
        {{"startup", DescriptorSetLifetimeStatsJson(startup_descriptor_sets)},

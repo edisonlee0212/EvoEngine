@@ -6,6 +6,7 @@
 #include "GraphicsPipeline.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
+#include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
@@ -84,6 +85,44 @@ const char* GetSmaaPresetDefine(const size_t preset_index) {
   return defines[glm::min(preset_index, std::size(defines) - 1)];
 }
 }  // namespace
+
+std::shared_ptr<DescriptorSet> PerFrameDescriptorSet::GetOrCreate(
+    const std::shared_ptr<DescriptorSetLayout>& layout) const {
+  slots_.resize(Platform::GetMaxFramesInFlight());
+  auto& slot = slots_.at(Platform::GetCurrentFrameIndex());
+  const auto frame_count = Platform::GetFrameCount();
+  if (!slot.recorded || slot.frame_count != frame_count) {
+    slot.frame_count = frame_count;
+    slot.recorded = true;
+    slot.duplicate_descriptor_sets.clear();
+    if (!slot.descriptor_set) {
+      slot.descriptor_set = std::make_shared<DescriptorSet>(layout);
+    }
+    return slot.descriptor_set;
+  }
+  return slot.duplicate_descriptor_sets.emplace_back(std::make_shared<DescriptorSet>(layout));
+}
+
+void PerFrameDescriptorSet::Reset() {
+  slots_.clear();
+}
+
+std::vector<std::shared_ptr<DescriptorSet>>& PerFrameDescriptorSetList::Get() {
+  slots_.resize(Platform::GetMaxFramesInFlight());
+  auto& slot = slots_.at(Platform::GetCurrentFrameIndex());
+  const auto frame_count = Platform::GetFrameCount();
+  if (!slot.recorded || slot.frame_count != frame_count) {
+    slot.frame_count = frame_count;
+    slot.recorded = true;
+    slot.duplicate_descriptor_set_lists.clear();
+    return slot.descriptor_sets;
+  }
+  return slot.duplicate_descriptor_set_lists.emplace_back();
+}
+
+void PerFrameDescriptorSetList::Reset() {
+  slots_.clear();
+}
 
 void AntiAliasing::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "algorithm" << YAML::Value << static_cast<int32_t>(algorithm);
@@ -306,6 +345,9 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
   auto& history = history_resources_[camera_handle];
   if (history.size != size || !history.textures[0] || !history.textures[1] || !history.depth_textures[0] ||
       !history.depth_textures[1]) {
+    if (history.textures[0]) {
+      Platform::WaitForFrameSubmissions("Required TAA History Resize Fence Wait");
+    }
     RenderTextureCreateInfo create_info{};
     create_info.depth = false;
     create_info.extent = {size.x, size.y, 1};
@@ -329,42 +371,45 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
                              !camera_history_reset && !reject_camera_history;
   reset_history_ = false;
 
+  const auto& copy_descriptor_set = copy_descriptor_set_.GetOrCreate(copy_layout_);
+  const auto& resolve_descriptor_set = resolve_descriptor_set_.GetOrCreate(resolve_layout_);
+
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = history.textures[previous_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     image_info.imageView = post_processing_stack.motion_vectors_image_view->GetVkImageView();
     image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = history.depth_textures[previous_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.depth_textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(3, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(4, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(4, image_info);
     image_info.imageView = history.textures[output_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(5, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(5, image_info);
     image_info.imageView = history.depth_textures[output_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.depth_textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(6, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(6, image_info);
   }
 
   TaaPushConstant push_constant{};
@@ -393,7 +438,7 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
     post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                                     VK_IMAGE_LAYOUT_GENERAL);
     copy_pipeline_->Bind(vk_command_buffer);
-    copy_pipeline_->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set_->GetVkDescriptorSet());
+    copy_pipeline_->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
     copy_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
 
@@ -411,7 +456,7 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
                                          render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
     resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 1,
                                          target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
-    resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set_->GetVkDescriptorSet());
+    resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set->GetVkDescriptorSet());
     resolve_pipeline_->PushConstant(vk_command_buffer, 0, push_constant);
     resolve_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
@@ -437,6 +482,20 @@ void AntiAliasing::ResetHistory(const std::shared_ptr<Camera>& target_camera) {
   }
 }
 
+void AntiAliasing::RetainRuntimeResources(const uint64_t camera_handle,
+                                          RenderGraphTransientResourceStore& transient_resources) const {
+  transient_resources.RetainRenderTextureResources(smaa_edges_texture_);
+  transient_resources.RetainRenderTextureResources(smaa_blend_texture_);
+  if (const auto search = history_resources_.find(camera_handle); search != history_resources_.end()) {
+    for (const auto& texture : search->second.textures) {
+      transient_resources.RetainRenderTextureResources(texture);
+    }
+    for (const auto& texture : search->second.depth_textures) {
+      transient_resources.RetainRenderTextureResources(texture);
+    }
+  }
+}
+
 void AntiAliasing::PruneHistory(const uint32_t current_frame_index, const uint64_t active_camera_handle) {
   constexpr uint32_t kRetainFrameCount = 120u;
   for (auto iterator = history_resources_.begin(); iterator != history_resources_.end();) {
@@ -456,6 +515,11 @@ void AntiAliasing::BuildPipelines(const bool force_rebuild) {
 }
 
 void AntiAliasing::BuildTaaPipelines(const bool force_rebuild) {
+  if (force_rebuild && (copy_pipeline_ || resolve_pipeline_)) {
+    Platform::WaitForFrameSubmissions("Required Post-Processing Pipeline Rebuild Fence Wait");
+    copy_descriptor_set_.Reset();
+    resolve_descriptor_set_.Reset();
+  }
   if (force_rebuild || !copy_layout_) {
     copy_layout_ = std::make_shared<DescriptorSetLayout>();
     copy_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -476,12 +540,6 @@ void AntiAliasing::BuildTaaPipelines(const bool force_rebuild) {
     resolve_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     resolve_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     resolve_layout_->Initialize();
-  }
-  if (force_rebuild || !copy_descriptor_set_) {
-    copy_descriptor_set_ = std::make_shared<DescriptorSet>(copy_layout_);
-  }
-  if (force_rebuild || !resolve_descriptor_set_) {
-    resolve_descriptor_set_ = std::make_shared<DescriptorSet>(resolve_layout_);
   }
   if (force_rebuild || !copy_pipeline_) {
     copy_pipeline_ = std::make_shared<ComputePipeline>();
@@ -537,6 +595,9 @@ void AntiAliasing::EnsureSmaaTargets(const glm::uvec2& size) {
   if (smaa_size_ == size && smaa_edges_texture_ && smaa_blend_texture_) {
     return;
   }
+  if (smaa_edges_texture_) {
+    Platform::WaitForFrameSubmissions("Required SMAA Resize Fence Wait");
+  }
   RenderTextureCreateInfo create_info{};
   create_info.extent = {size.x, size.y, 1};
   create_info.color_format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -548,6 +609,12 @@ void AntiAliasing::EnsureSmaaTargets(const glm::uvec2& size) {
 
 void AntiAliasing::BuildSmaaPipelines(const bool force_rebuild) {
   EnsureSmaaLookupTextures();
+  if (force_rebuild) {
+    smaa_prepare_descriptor_set_.Reset();
+    smaa_edge_descriptor_set_.Reset();
+    smaa_weight_descriptor_set_.Reset();
+    smaa_neighborhood_descriptor_set_.Reset();
+  }
   if (force_rebuild || !smaa_prepare_layout_) {
     smaa_prepare_layout_ = std::make_shared<DescriptorSetLayout>();
     smaa_prepare_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -577,12 +644,6 @@ void AntiAliasing::BuildSmaaPipelines(const bool force_rebuild) {
                                                        VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     }
     smaa_neighborhood_layout_->Initialize();
-  }
-  if (force_rebuild || !smaa_prepare_descriptor_set_) {
-    smaa_prepare_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_prepare_layout_);
-    smaa_edge_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_edge_layout_);
-    smaa_weight_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_weight_layout_);
-    smaa_neighborhood_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_neighborhood_layout_);
   }
   if (force_rebuild || !smaa_prepare_pipeline_) {
     smaa_prepare_pipeline_ = std::make_shared<ComputePipeline>();
@@ -655,41 +716,45 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
   }
   EnsureSmaaTargets(size);
   EnsureSmaaLookupTextures();
+  const auto& prepare_descriptor_set = smaa_prepare_descriptor_set_.GetOrCreate(smaa_prepare_layout_);
+  const auto& edge_descriptor_set = smaa_edge_descriptor_set_.GetOrCreate(smaa_edge_layout_);
+  const auto& weight_descriptor_set = smaa_weight_descriptor_set_.GetOrCreate(smaa_weight_layout_);
+  const auto& neighborhood_descriptor_set = smaa_neighborhood_descriptor_set_.GetOrCreate(smaa_neighborhood_layout_);
 
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
   image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+  prepare_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
   image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
   image_info.sampler = VK_NULL_HANDLE;
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+  prepare_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   image_info.imageView = post_processing_stack.swap_texture->GetColorImageView()->GetVkImageView();
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  prepare_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
   image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
   image_info.imageView = post_processing_stack.swap_texture->GetColorImageView()->GetVkImageView();
   image_info.sampler = post_processing_stack.swap_texture->GetColorSampler()->GetVkSampler();
-  smaa_edge_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+  edge_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
 
   image_info.imageView = smaa_edges_texture_->GetColorImageView()->GetVkImageView();
   image_info.sampler = smaa_edges_texture_->GetColorSampler()->GetVkSampler();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+  weight_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
   image_info.imageView = smaa_area_view_->GetVkImageView();
   image_info.sampler = smaa_lookup_sampler_->GetVkSampler();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+  weight_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   image_info.imageView = smaa_search_view_->GetVkImageView();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  weight_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
   image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
   image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
   image_info.imageView = smaa_blend_texture_->GetColorImageView()->GetVkImageView();
   image_info.sampler = smaa_blend_texture_->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   image_info.imageView = smaa_edges_texture_->GetColorImageView()->GetVkImageView();
   image_info.sampler = smaa_edges_texture_->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
   SmaaPushConstant push_constant{};
   push_constant.metrics = {1.0f / static_cast<float>(size.x), 1.0f / static_cast<float>(size.y),
@@ -728,7 +793,7 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
                                                                                     VK_IMAGE_LAYOUT_GENERAL);
     post_processing_stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     smaa_prepare_pipeline_->Bind(vk_command_buffer);
-    smaa_prepare_pipeline_->BindDescriptorSet(vk_command_buffer, 0, smaa_prepare_descriptor_set_->GetVkDescriptorSet());
+    smaa_prepare_pipeline_->BindDescriptorSet(vk_command_buffer, 0, prepare_descriptor_set->GetVkDescriptorSet());
     smaa_prepare_pipeline_->PushConstant(vk_command_buffer, 0, push_constant);
     smaa_prepare_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
@@ -738,19 +803,18 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
     post_processing_stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     smaa_edges_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(smaa_edges_texture_, smaa_edge_pipelines_[preset_index], smaa_edge_descriptor_set_);
+    render_fullscreen(smaa_edges_texture_, smaa_edge_pipelines_[preset_index], edge_descriptor_set);
 
     smaa_edges_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     smaa_blend_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(smaa_blend_texture_, smaa_weight_pipelines_[preset_index], smaa_weight_descriptor_set_);
+    render_fullscreen(smaa_blend_texture_, smaa_weight_pipelines_[preset_index], weight_descriptor_set);
 
     smaa_blend_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                              VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                            VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(target_camera->GetRenderTexture(), smaa_neighborhood_pipeline_,
-                      smaa_neighborhood_descriptor_set_);
+    render_fullscreen(target_camera->GetRenderTexture(), smaa_neighborhood_pipeline_, neighborhood_descriptor_set);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
@@ -776,19 +840,31 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
   const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
   const auto target_size = target_camera->GetSize();
+  const auto& copy_frame_descriptor_set = copy_descriptor_set.GetOrCreate(copy_layout);
+  const auto& mix_frame_descriptor_set = mix_descriptor_set.GetOrCreate(mix_layout);
+  auto& downsampling_frame_descriptor_sets = downsampling_descriptor_set.Get();
+  auto& upsampling_frame_descriptor_sets = upsampling_descriptor_set.Get();
+  const auto acquire_sampling_descriptor_set = [&](auto& descriptor_sets, const size_t index) {
+    descriptor_sets.resize(std::max(descriptor_sets.size(), index + 1));
+    auto& descriptor_set = descriptor_sets[index];
+    if (!descriptor_set) {
+      descriptor_set = std::make_shared<DescriptorSet>(sampling_layout);
+    }
+    return descriptor_set;
+  };
 
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -798,7 +874,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
     copy_pipeline->Bind(vk_command_buffer);
-    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
+    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_frame_descriptor_set->GetVkDescriptorSet());
     ComputePushConstant push_constant;
     push_constant.resolution = target_size;
     copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -806,14 +882,13 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
-  downsampling_descriptor_set.clear();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
     for (int target_mip_level = 1; target_mip_level < glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1);
          ++target_mip_level) {
       const auto current_descriptor_set =
-          downsampling_descriptor_set.emplace_back(std::make_shared<DescriptorSet>(sampling_layout));
+          acquire_sampling_descriptor_set(downsampling_frame_descriptor_sets, target_mip_level - 1);
 
       VkDescriptorImageInfo descriptor_image_info;
       descriptor_image_info.imageView =
@@ -842,14 +917,14 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     }
   });
 
-  upsampling_descriptor_set.clear();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
+    size_t descriptor_index = 0;
     for (int src_mip_level = glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1) - 1; src_mip_level > 0;
          --src_mip_level) {
       const auto current_descriptor_set =
-          upsampling_descriptor_set.emplace_back(std::make_shared<DescriptorSet>(sampling_layout));
+          acquire_sampling_descriptor_set(upsampling_frame_descriptor_sets, descriptor_index++);
 
       VkDescriptorImageInfo descriptor_image_info;
       descriptor_image_info.imageView =
@@ -887,13 +962,13 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
@@ -903,7 +978,7 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                               VK_IMAGE_LAYOUT_GENERAL);
     mix_pipeline->Bind(vk_command_buffer);
-    mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_descriptor_set->GetVkDescriptorSet());
+    mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_frame_descriptor_set->GetVkDescriptorSet());
     ComputePushConstant push_constant;
     push_constant.resolution = target_size;
     mix_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -913,6 +988,13 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 }
 
 void Bloom::BuildPipelines(const bool force_rebuild) {
+  if (force_rebuild && (copy_pipeline || mix_pipeline || downsampling_pipeline || upsampling_pipeline)) {
+    Platform::WaitForFrameSubmissions("Required Post-Processing Pipeline Rebuild Fence Wait");
+    copy_descriptor_set.Reset();
+    mix_descriptor_set.Reset();
+    downsampling_descriptor_set.Reset();
+    upsampling_descriptor_set.Reset();
+  }
   if (force_rebuild || !mix_layout) {
     mix_layout = std::make_shared<DescriptorSetLayout>();
     mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -920,18 +1002,12 @@ void Bloom::BuildPipelines(const bool force_rebuild) {
     mix_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     mix_layout->Initialize();
   }
-  if (force_rebuild || !mix_descriptor_set) {
-    mix_descriptor_set = std::make_shared<DescriptorSet>(mix_layout);
-  }
   if (force_rebuild || !copy_layout) {
     copy_layout = std::make_shared<DescriptorSetLayout>();
     copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     copy_layout->Initialize();
-  }
-  if (force_rebuild || !copy_descriptor_set) {
-    copy_descriptor_set = std::make_shared<DescriptorSet>(copy_layout);
   }
   if (force_rebuild || !sampling_layout) {
     sampling_layout = std::make_shared<DescriptorSetLayout>();
@@ -997,6 +1073,9 @@ void PostProcessingStack::Resize(const glm::uvec2& size) {
     return;
   if (size == current_size)
     return;
+  if (current_size != glm::uvec2(1)) {
+    Platform::WaitForFrameSubmissions("Required Post-Processing Resize Fence Wait");
+  }
   current_size = size;
   const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.x, size.y)))) + 1;
   source_color_texture->Resize({size.x, size.y, 1});
@@ -1012,12 +1091,6 @@ void PostProcessingStack::OnCreate() {
     blur_layout->Initialize();
   }
 
-  if (!blur_horizontal_descriptor_set) {
-    blur_horizontal_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
-  }
-  if (!blur_vertical_descriptor_set) {
-    blur_vertical_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
-  }
   current_size = glm::uvec2(1);
 
   RenderTextureCreateInfo render_texture_create_info{};
@@ -1085,25 +1158,27 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
     return;
   }
   Resize(target_camera->GetSize());
+  const auto& horizontal_descriptor_set = blur_horizontal_descriptor_set.GetOrCreate(blur_layout);
+  const auto& vertical_descriptor_set = blur_vertical_descriptor_set.GetOrCreate(blur_layout);
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    horizontal_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
-    blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    horizontal_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
-    blur_vertical_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    vertical_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    blur_vertical_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    vertical_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
@@ -1170,19 +1245,21 @@ void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
   }
 
   PushConstant push_constant{};
+  const auto& horizontal_descriptor_set = blur_horizontal_descriptor_set.GetOrCreate(blur_layout);
+  const auto& vertical_descriptor_set = blur_vertical_descriptor_set.GetOrCreate(blur_layout);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 
     blur_pipeline->Bind(vk_command_buffer);
-    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_descriptor_set->GetVkDescriptorSet());
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, horizontal_descriptor_set->GetVkDescriptorSet());
     push_constant.horizontal = true;
     blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
 
-    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_descriptor_set->GetVkDescriptorSet());
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, vertical_descriptor_set->GetVkDescriptorSet());
     push_constant.horizontal = false;
     blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));

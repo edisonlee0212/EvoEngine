@@ -62,13 +62,107 @@ bool TryGetQueueFamilyOwnershipTransfer(const RenderResourceBarrierPlan& barrier
   return src_queue_family_index != dst_queue_family_index;
 }
 
+VkPipelineStageFlags2 ShaderStages(const RenderPassQueue queue) {
+  switch (queue) {
+    case RenderPassQueue::Compute:
+      return VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+    case RenderPassQueue::RayTracing:
+      return VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+    case RenderPassQueue::Graphics:
+      return VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  }
+  return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+}
+
+VkPipelineStageFlags2 ResourceStages(const RenderResourceState state, const RenderPassQueue queue) {
+  switch (state) {
+    case RenderResourceState::Undefined:
+    case RenderResourceState::Present:
+      return VK_PIPELINE_STAGE_2_NONE;
+    case RenderResourceState::ColorAttachment:
+      return VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    case RenderResourceState::DepthAttachment:
+      return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
+    case RenderResourceState::TransferSource:
+    case RenderResourceState::TransferDestination:
+      return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    case RenderResourceState::AccelerationStructureRead:
+      return VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | ShaderStages(queue);
+    case RenderResourceState::ShaderRead:
+    case RenderResourceState::StorageReadWrite:
+    case RenderResourceState::General:
+      return ShaderStages(queue);
+  }
+  return VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+}
+
+VkAccessFlags2 ResourceAccess(const RenderResourceState state, const RenderResourceUsage usage) {
+  const bool read = usage != RenderResourceUsage::Write;
+  const bool write = usage != RenderResourceUsage::Read;
+  switch (state) {
+    case RenderResourceState::Undefined:
+    case RenderResourceState::Present:
+      return VK_ACCESS_2_NONE;
+    case RenderResourceState::ColorAttachment:
+      return (read ? VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT : 0) | (write ? VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT : 0);
+    case RenderResourceState::DepthAttachment:
+      return (read ? VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT : 0) |
+             (write ? VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT : 0);
+    case RenderResourceState::ShaderRead:
+      return VK_ACCESS_2_SHADER_READ_BIT;
+    case RenderResourceState::StorageReadWrite:
+    case RenderResourceState::General:
+      return (read ? VK_ACCESS_2_SHADER_READ_BIT : 0) | (write ? VK_ACCESS_2_SHADER_WRITE_BIT : 0);
+    case RenderResourceState::TransferSource:
+      return VK_ACCESS_2_TRANSFER_READ_BIT;
+    case RenderResourceState::TransferDestination:
+      return VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    case RenderResourceState::AccelerationStructureRead:
+      return VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+  }
+  return VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+}
+
 void ApplyGraphImageBarrier(const VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,
-                            const VkImageLayout target_layout, const bool force_memory_barrier) {
+                            const VkImageLayout target_layout, const RenderResourceBarrierPlan& barrier,
+                            const bool force_memory_barrier) {
   if (!image || target_layout == VK_IMAGE_LAYOUT_UNDEFINED ||
       (!force_memory_barrier && image->GetLayout() == target_layout)) {
     return;
   }
-  image->TransitImageLayout(vk_command_buffer, target_layout);
+  if (image->GetLayout() != target_layout) {
+    image->TransitImageLayout(vk_command_buffer, target_layout);
+  }
+  if (!force_memory_barrier) {
+    return;
+  }
+  VkImageMemoryBarrier2 image_barrier{};
+  image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
+  image_barrier.srcStageMask = ResourceStages(barrier.previous_state, barrier.previous_queue);
+  image_barrier.srcAccessMask = ResourceAccess(barrier.previous_state, barrier.previous_usage);
+  image_barrier.dstStageMask = ResourceStages(barrier.next_state, barrier.next_queue);
+  image_barrier.dstAccessMask = ResourceAccess(barrier.next_state, barrier.next_usage);
+  image_barrier.oldLayout = target_layout;
+  image_barrier.newLayout = target_layout;
+  image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  image_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  image_barrier.image = image->GetVkImage();
+  image_barrier.subresourceRange.aspectMask = barrier.previous_state == RenderResourceState::DepthAttachment ||
+                                                      barrier.next_state == RenderResourceState::DepthAttachment
+                                                  ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                                  : VK_IMAGE_ASPECT_COLOR_BIT;
+  if ((image_barrier.subresourceRange.aspectMask & VK_IMAGE_ASPECT_DEPTH_BIT) != 0 && image->HasStencilComponent()) {
+    image_barrier.subresourceRange.aspectMask |= VK_IMAGE_ASPECT_STENCIL_BIT;
+  }
+  image_barrier.subresourceRange.baseMipLevel = 0;
+  image_barrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+  image_barrier.subresourceRange.baseArrayLayer = 0;
+  image_barrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
+  VkDependencyInfo dependency{};
+  dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency.imageMemoryBarrierCount = 1;
+  dependency.pImageMemoryBarriers = &image_barrier;
+  vkCmdPipelineBarrier2(vk_command_buffer, &dependency);
 }
 
 bool ApplyGraphImageQueueOwnershipBarrier(const VkCommandBuffer vk_command_buffer,
@@ -149,11 +243,11 @@ void ApplyGraphResourceBarrier(const VkCommandBuffer vk_command_buffer, const Re
           barrier.barrier_type == RenderGraphBarrierType::ImageMemory || barrier.memory_dependency;
       if (!binding->images.empty()) {
         for (const auto& image : binding->images) {
-          ApplyGraphImageBarrier(vk_command_buffer, image, target_layout, force_memory_barrier);
+          ApplyGraphImageBarrier(vk_command_buffer, image, target_layout, barrier, force_memory_barrier);
         }
         return;
       }
-      ApplyGraphImageBarrier(vk_command_buffer, binding->image, target_layout, force_memory_barrier);
+      ApplyGraphImageBarrier(vk_command_buffer, binding->image, target_layout, barrier, force_memory_barrier);
     } break;
     case RenderGraphBarrierType::BufferMemory: {
       if (ApplyGraphBufferQueueOwnershipBarrier(vk_command_buffer, barrier, *descriptor, binding, recorded_queue,

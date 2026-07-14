@@ -17,7 +17,38 @@ class AntiAliasing;
 class Camera;
 class Image;
 class ImageView;
+class RenderGraphTransientResourceStore;
 class Sampler;
+
+class PerFrameDescriptorSet {
+ public:
+  [[nodiscard]] std::shared_ptr<DescriptorSet> GetOrCreate(const std::shared_ptr<DescriptorSetLayout>& layout) const;
+  void Reset();
+
+ private:
+  struct Slot {
+    std::shared_ptr<DescriptorSet> descriptor_set;
+    std::vector<std::shared_ptr<DescriptorSet>> duplicate_descriptor_sets;
+    uint32_t frame_count = 0;
+    bool recorded = false;
+  };
+  mutable std::vector<Slot> slots_;
+};
+
+class PerFrameDescriptorSetList {
+ public:
+  [[nodiscard]] std::vector<std::shared_ptr<DescriptorSet>>& Get();
+  void Reset();
+
+ private:
+  struct Slot {
+    std::vector<std::shared_ptr<DescriptorSet>> descriptor_sets;
+    std::vector<std::vector<std::shared_ptr<DescriptorSet>>> duplicate_descriptor_set_lists;
+    uint32_t frame_count = 0;
+    bool recorded = false;
+  };
+  std::vector<Slot> slots_;
+};
 
 class PostProcessingStack : public IAsset {
   glm::uvec2 current_size = glm::uvec2(1);
@@ -29,8 +60,9 @@ class PostProcessingStack : public IAsset {
   mutable std::shared_ptr<DescriptorSetLayout> blur_layout;
   mutable std::shared_ptr<ComputePipeline> blur_pipeline;
 
-  std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
-  std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
+  PerFrameDescriptorSet blur_horizontal_descriptor_set;
+  PerFrameDescriptorSet blur_vertical_descriptor_set;
+
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
@@ -75,8 +107,8 @@ class AmbientOcclusion : public IPostProcessing {
   std::shared_ptr<DescriptorSetLayout> blur_layout;
   std::shared_ptr<ComputePipeline> blur_pipeline;
 
-  std::shared_ptr<DescriptorSet> blur_horizontal_descriptor_set;  // RENDER_TEXTURE_PRESENT_LAYOUT: 0
-  std::shared_ptr<DescriptorSet> blur_vertical_descriptor_set;    // RENDER_TEXTURE_PRESENT_LAYOUT: 0
+  PerFrameDescriptorSet blur_horizontal_descriptor_set;
+  PerFrameDescriptorSet blur_vertical_descriptor_set;
   struct BlurPushConstant {
     int horizontal = false;
     float camera_near;
@@ -86,7 +118,7 @@ class AmbientOcclusion : public IPostProcessing {
   };
   float avoid_distance = 0.1f;
   std::shared_ptr<DescriptorSetLayout> combine_layout;
-  std::shared_ptr<DescriptorSet> combine_descriptor_set;
+  PerFrameDescriptorSet combine_descriptor_set;
   /**
    * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
    */
@@ -117,7 +149,7 @@ class AmbientOcclusion : public IPostProcessing {
     float thickness;
   };
   std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
-  std::shared_ptr<DescriptorSet> geometry_output_descriptor_set;
+  PerFrameDescriptorSet geometry_output_descriptor_set;
   std::shared_ptr<ComputePipeline> geometry_pipeline;
   std::shared_ptr<ComputePipeline> combine_pipeline;
 
@@ -230,6 +262,7 @@ class AntiAliasing final : public IPostProcessing {
   void ApplyTaaPreset(TaaPreset value);
   void NormalizeSettings();
   void ResetHistory(const std::shared_ptr<Camera>& target_camera = nullptr);
+  void RetainRuntimeResources(uint64_t camera_handle, RenderGraphTransientResourceStore& transient_resources) const;
   void BuildPipelines(bool force_rebuild = false) override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
@@ -263,8 +296,8 @@ class AntiAliasing final : public IPostProcessing {
 
   std::shared_ptr<DescriptorSetLayout> copy_layout_;
   std::shared_ptr<DescriptorSetLayout> resolve_layout_;
-  std::shared_ptr<DescriptorSet> copy_descriptor_set_;
-  std::shared_ptr<DescriptorSet> resolve_descriptor_set_;
+  PerFrameDescriptorSet copy_descriptor_set_;
+  PerFrameDescriptorSet resolve_descriptor_set_;
   std::shared_ptr<ComputePipeline> copy_pipeline_;
   std::shared_ptr<ComputePipeline> resolve_pipeline_;
 
@@ -280,10 +313,10 @@ class AntiAliasing final : public IPostProcessing {
   std::shared_ptr<DescriptorSetLayout> smaa_edge_layout_;
   std::shared_ptr<DescriptorSetLayout> smaa_weight_layout_;
   std::shared_ptr<DescriptorSetLayout> smaa_neighborhood_layout_;
-  std::shared_ptr<DescriptorSet> smaa_prepare_descriptor_set_;
-  std::shared_ptr<DescriptorSet> smaa_edge_descriptor_set_;
-  std::shared_ptr<DescriptorSet> smaa_weight_descriptor_set_;
-  std::shared_ptr<DescriptorSet> smaa_neighborhood_descriptor_set_;
+  PerFrameDescriptorSet smaa_prepare_descriptor_set_;
+  PerFrameDescriptorSet smaa_edge_descriptor_set_;
+  PerFrameDescriptorSet smaa_weight_descriptor_set_;
+  PerFrameDescriptorSet smaa_neighborhood_descriptor_set_;
   std::shared_ptr<ComputePipeline> smaa_prepare_pipeline_;
   std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_edge_pipelines_{};
   std::array<std::shared_ptr<GraphicsPipeline>, 4> smaa_weight_pipelines_{};
@@ -312,8 +345,8 @@ class ScreenSpaceReflection : public IPostProcessing {
   std::shared_ptr<DescriptorSetLayout> reflect_output_layout;
   std::shared_ptr<ComputePipeline> reflect_pipeline;
   std::shared_ptr<ComputePipeline> combine_pipeline;
-  std::shared_ptr<DescriptorSet> combine_descriptor_set;  // SSR_COMBINE: 0, 1
-  std::shared_ptr<DescriptorSet> reflect_output_descriptor_set;
+  PerFrameDescriptorSet combine_descriptor_set;
+  PerFrameDescriptorSet reflect_output_descriptor_set;
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;
   void BuildPipelines(bool force_rebuild = false) override;
@@ -324,9 +357,9 @@ class ScreenSpaceReflection : public IPostProcessing {
 class Bloom : public IPostProcessing {
  public:
   std::shared_ptr<DescriptorSetLayout> mix_layout;
-  std::shared_ptr<DescriptorSet> mix_descriptor_set;
+  PerFrameDescriptorSet mix_descriptor_set;
   std::shared_ptr<DescriptorSetLayout> copy_layout;
-  std::shared_ptr<DescriptorSet> copy_descriptor_set;
+  PerFrameDescriptorSet copy_descriptor_set;
 
   std::shared_ptr<DescriptorSetLayout> sampling_layout;
   std::shared_ptr<ComputePipeline> downsampling_pipeline;
@@ -350,8 +383,8 @@ class Bloom : public IPostProcessing {
 
   float filter_radius = 0.001f;
   int bloom_chain_length = 2;
-  std::vector<std::shared_ptr<DescriptorSet>> downsampling_descriptor_set;
-  std::vector<std::shared_ptr<DescriptorSet>> upsampling_descriptor_set;
+  PerFrameDescriptorSetList downsampling_descriptor_set;
+  PerFrameDescriptorSetList upsampling_descriptor_set;
   std::shared_ptr<ComputePipeline> copy_pipeline;
   std::shared_ptr<ComputePipeline> mix_pipeline;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) override;

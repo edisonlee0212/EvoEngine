@@ -690,6 +690,7 @@ void Platform::DrainGpuResourceWork() {
   if (!Initialized()) {
     return;
   }
+  WaitForFrameSubmissions("GPU Resource Drain Fence Wait");
   GeometryStorage::WaitForPendingUploads();
   BottomLevelAccelerationStructure::WaitForStaticBuilds();
   TextureStorage::DeviceSync();
@@ -698,6 +699,18 @@ void Platform::DrainGpuResourceWork() {
     gpu_service->WaitIdle();
   }
   WaitForDeviceIdle();
+}
+
+void Platform::WaitForFrameSubmissions(const std::string& wait_name) {
+  auto& graphics = GetInstance();
+  if (!graphics.initialized || graphics.vk_device_ == VK_NULL_HANDLE) {
+    return;
+  }
+  for (uint32_t frame_index = 0; frame_index < graphics.frame_slot_submitted_.size(); ++frame_index) {
+    if (graphics.frame_slot_submitted_[frame_index]) {
+      graphics.WaitForFrameSlotSubmission(frame_index, wait_name);
+    }
+  }
 }
 
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
@@ -803,6 +816,11 @@ void Platform::SetGpuTimestampCaptureEnabled(const bool enabled) {
   }
 }
 
+bool Platform::GpuTimestampCaptureEnabled() {
+  const auto& graphics = GetInstance();
+  return graphics.gpu_timestamp_capture_enabled_;
+}
+
 bool Platform::GpuTimestampCaptureAvailable() {
   auto& graphics = GetInstance();
   const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
@@ -810,6 +828,7 @@ bool Platform::GpuTimestampCaptureAvailable() {
 }
 
 void Platform::ResetGpuTimestampStats() {
+  WaitForFrameSubmissions("Timing Reset Fence Wait");
   auto& graphics = GetInstance();
   {
     const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
@@ -854,6 +873,13 @@ std::vector<GpuTimestampStats> Platform::GetCpuTimingStats() {
     return left.name < right.name;
   });
   return result;
+}
+
+void Platform::RecordCpuTimingSample(const std::string& name, const double milliseconds) {
+  auto& graphics = GetInstance();
+  if (graphics.gpu_timestamp_capture_enabled_) {
+    graphics.AccumulateCpuTiming(name, milliseconds);
+  }
 }
 
 GpuMemorySnapshot Platform::GetGpuMemorySnapshot() {
@@ -906,7 +932,7 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
   token.begin_query = frame.next_query++;
   token.end_query = frame.next_query++;
   token.valid = true;
-  vkCmdWriteTimestamp(vk_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, frame.query_pool, token.begin_query);
+  vkCmdWriteTimestamp2(vk_command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame.query_pool, token.begin_query);
   return token;
 }
 
@@ -916,7 +942,7 @@ void Platform::EndGpuTimestampScope(const VkCommandBuffer vk_command_buffer, con
     return;
   }
   auto& frame = graphics.gpu_timestamp_frames_[token.frame_index];
-  vkCmdWriteTimestamp(vk_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, frame.query_pool, token.end_query);
+  vkCmdWriteTimestamp2(vk_command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame.query_pool, token.end_query);
   frame.scopes.push_back({token.name, token.begin_query, token.end_query});
 }
 
@@ -942,8 +968,7 @@ GpuService* Platform::TryGetGpuService() {
 }
 
 int Platform::GetMaxFramesInFlight() {
-  const auto& graphics = GetInstance();
-  return graphics.max_frame_in_flight_;
+  return kMaxFramesInFlight;
 }
 
 void Platform::NotifyRecreateSwapChain() {
@@ -1715,6 +1740,7 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_vulkan11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
   vk_physical_device_vulkan11_features.storageBuffer16BitAccess = VK_TRUE;
   vk_physical_device_vulkan11_features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+  vk_physical_device_vulkan11_features.shaderDrawParameters = VK_TRUE;
 
   if (capabilities_.support_acceleration_structure) {
     vk_physical_device_vulkan11_features.pNext = &vk_physical_device_acceleration_structure_features_khr;
@@ -1723,39 +1749,30 @@ void Platform::CreateLogicalDevice() {
   }
   vk_physical_device_vulkan12_features.pNext = &vk_physical_device_vulkan11_features;
 
-  VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
-  shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
-  shader_draw_parameters_features.shaderDrawParameters = VK_TRUE;
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   VkPhysicalDeviceRayTracingValidationFeaturesNV vk_physical_device_ray_tracing_validation_features_nv = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
   vk_physical_device_ray_tracing_validation_features_nv.rayTracingValidation = VK_TRUE;
   vk_physical_device_ray_tracing_validation_features_nv.pNext = &vk_physical_device_vulkan12_features;
-  if (capabilities_.support_ray_tracing_validation) {
-    shader_draw_parameters_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
-  } else {
-    shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
-  }
-#else
-  shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
 #endif
 
   VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features{};
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;
-  dynamic_rendering_features.pNext = &shader_draw_parameters_features;
-
-  VkPhysicalDeviceMultiviewFeatures physical_device_multiview_features{};
-  physical_device_multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
-  physical_device_multiview_features.pNext = &dynamic_rendering_features;
-  physical_device_multiview_features.multiview = VK_FALSE;
-  physical_device_multiview_features.multiviewGeometryShader = VK_FALSE;
-  physical_device_multiview_features.multiviewTessellationShader = VK_FALSE;
+#if ENABLE_NV_RAY_TRACING_VALIDATION
+  if (capabilities_.support_ray_tracing_validation) {
+    dynamic_rendering_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
+  } else {
+    dynamic_rendering_features.pNext = &vk_physical_device_vulkan12_features;
+  }
+#else
+  dynamic_rendering_features.pNext = &vk_physical_device_vulkan12_features;
+#endif
 
   VkPhysicalDeviceFragmentShadingRateFeaturesKHR physical_device_fragment_shading_rate_features{};
   physical_device_fragment_shading_rate_features.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-  physical_device_fragment_shading_rate_features.pNext = &physical_device_multiview_features;
+  physical_device_fragment_shading_rate_features.pNext = &dynamic_rendering_features;
   physical_device_fragment_shading_rate_features.attachmentFragmentShadingRate = VK_FALSE;
   physical_device_fragment_shading_rate_features.pipelineFragmentShadingRate = VK_FALSE;
   physical_device_fragment_shading_rate_features.primitiveFragmentShadingRate = VK_FALSE;
@@ -1776,7 +1793,7 @@ void Platform::CreateLogicalDevice() {
   if (capabilities_.support_mesh_shader) {
     physical_device_synchronization2_features.pNext = &mesh_shader_features_ext;
   } else {
-    physical_device_synchronization2_features.pNext = &physical_device_multiview_features;
+    physical_device_synchronization2_features.pNext = &dynamic_rendering_features;
   }
 
   VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extended_dynamic_state3_features{};
@@ -2354,10 +2371,33 @@ void Platform::CreateSwapChainSyncObjects() {
   }
   frame_submission_states_.clear();
   frame_submission_states_.resize(max_frame_in_flight_);
+  frame_slot_submitted_.assign(max_frame_in_flight_, false);
   for (int i = 0; i < max_frame_in_flight_; i++) {
     compute_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
     in_flight_fences_.emplace_back(std::make_unique<Fence>(fence_create_info));
   }
+}
+
+void Platform::WaitForFrameSlotSubmission(const uint32_t frame_index, const std::string& wait_name) {
+  if (frame_index >= frame_slot_submitted_.size()) {
+    return;
+  }
+  if (!frame_slot_submitted_[frame_index]) {
+    if (gpu_timestamp_capture_enabled_ && !wait_name.empty()) {
+      AccumulateCpuTiming("Redundant Fence Wait", 0.0);
+    }
+    return;
+  }
+  const VkFence fence = in_flight_fences_[frame_index]->GetVkFence();
+  const auto wait_start = std::chrono::steady_clock::now();
+  CheckVk(vkWaitForFences(vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
+  if (gpu_timestamp_capture_enabled_ && !wait_name.empty()) {
+    AccumulateCpuTiming(
+        wait_name, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count());
+  }
+  ResolveFrameSubmissionStates(frame_submission_states_[frame_index], FrameSubmissionState::Status::Submitted);
+  ResolveGpuTimestampFrame(frame_index);
+  frame_slot_submitted_[frame_index] = false;
 }
 
 void Platform::RecreateSwapChain() {
@@ -2367,6 +2407,7 @@ void Platform::RecreateSwapChain() {
 
 void Platform::OnDestroy() {
   auto& graphics = GetInstance();
+  WaitForFrameSubmissions("Shutdown Frame Fence Wait");
   for (auto& states : graphics.frame_submission_states_) {
     ResolveFrameSubmissionStates(states, FrameSubmissionState::Status::Discarded);
   }
@@ -2374,8 +2415,6 @@ void Platform::OnDestroy() {
     graphics.gpu_service_->Shutdown();
   }
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
-  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-  CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
 
   graphics.ResetCommandBuffers();
   graphics.DestroyGpuTimestampResources();
@@ -2410,6 +2449,7 @@ void Platform::OnDestroy() {
   graphics.compute_finished_semaphores_.clear();
   graphics.in_flight_fences_.clear();
   graphics.frame_submission_states_.clear();
+  graphics.frame_slot_submitted_.clear();
   graphics.current_frame_index_ = 0;
   graphics.next_image_index_ = 0;
   graphics.buffer_sync_actions.clear();
@@ -2432,7 +2472,7 @@ void Platform::OnDestroy() {
 #endif
 #pragma endregion
 #pragma region Surface
-  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
+  if (graphics.vk_surface_ != VK_NULL_HANDLE) {
     vkDestroySurfaceKHR(graphics.vk_instance_, graphics.vk_surface_, nullptr);
     graphics.vk_surface_ = VK_NULL_HANDLE;
   }
@@ -2464,17 +2504,26 @@ void Platform::ResetCommandBuffers() {
 
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
-  ResolveFrameSubmissionStates(graphics.frame_submission_states_[graphics.current_frame_index_],
-                               FrameSubmissionState::Status::Discarded);
+  const auto current_frame_index = graphics.current_frame_index_;
+  if (graphics.frame_slot_submitted_[current_frame_index]) {
+    graphics.WaitForFrameSlotSubmission(current_frame_index, "Recycled Frame Fence Wait");
+  } else {
+    ResolveFrameSubmissionStates(graphics.frame_submission_states_[current_frame_index],
+                                 FrameSubmissionState::Status::Discarded);
+  }
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
-    const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-    CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
     for (auto& i : graphics.buffer_sync_actions)
       i.second();
     for (auto& i : graphics.temporary_buffer_sync_actions)
       i();
     graphics.temporary_buffer_sync_actions.clear();
+    if (GeometryStorage::HasPendingUploads()) {
+      WaitForFrameSubmissions("Required Geometry Upload Fence Wait");
+    }
+    if (TextureStorage::HasPendingDeletes()) {
+      WaitForFrameSubmissions("Required Texture Storage Fence Wait");
+    }
     GeometryStorage::DeviceSync();
     TextureStorage::DeviceSync();
     swap_chain_action();
@@ -2545,9 +2594,12 @@ void Platform::LateUpdate() {
     wait_semaphores.emplace_back(graphics.compute_finished_semaphores_[submitted_frame_index],
                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
   }
+  const VkFence in_flight_fence = graphics.in_flight_fences_[submitted_frame_index]->GetVkFence();
+  CheckVk(vkResetFences(graphics.vk_device_, 1, &in_flight_fence));
   graphics.main_queue_->Submit(graphics.command_buffer_pool_[submitted_frame_index], 0,
                                graphics.used_command_buffer_size_, wait_semaphores, signal_semaphores,
                                graphics.in_flight_fences_[submitted_frame_index]);
+  graphics.frame_slot_submitted_[submitted_frame_index] = true;
   if (graphics.gpu_timestamp_capture_enabled_) {
     graphics.AccumulateCpuTiming(
         "Queue Submit",
@@ -2559,18 +2611,6 @@ void Platform::LateUpdate() {
     graphics.present_queue_->Present(signal_semaphores, targets);
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
-
-  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[submitted_frame_index]->GetVkFence()};
-  const auto fence_wait_start = std::chrono::steady_clock::now();
-  CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
-  if (graphics.gpu_timestamp_capture_enabled_) {
-    graphics.AccumulateCpuTiming(
-        "Submitted Frame Fence Wait",
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - fence_wait_start).count());
-  }
-  ResolveFrameSubmissionStates(graphics.frame_submission_states_[submitted_frame_index],
-                               FrameSubmissionState::Status::Submitted);
-  graphics.ResolveGpuTimestampFrame(submitted_frame_index);
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
       ApplicationContext::Get().End();
@@ -2612,6 +2652,20 @@ bool Platform::Initialized() {
 uint32_t Platform::GetFrameCount() {
   const auto& graphics = GetInstance();
   return graphics.frame_count;
+}
+
+uint32_t Platform::GetPendingFrameSubmissionCount() {
+  const auto& graphics = GetInstance();
+  return static_cast<uint32_t>(
+      std::count(graphics.frame_slot_submitted_.begin(), graphics.frame_slot_submitted_.end(), true));
+}
+
+bool Platform::ValidationLayersEnabled() {
+#ifdef GRAPHICS_VALIDATION
+  return true;
+#else
+  return false;
+#endif
 }
 
 std::shared_ptr<FrameSubmissionState> Platform::TrackCurrentFrameSubmission() {
