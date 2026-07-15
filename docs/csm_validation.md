@@ -1,112 +1,75 @@
-# CSM Validation
+# Cascaded Shadow Map Validation
 
-Use this validation gate for every CSM overhaul milestone before making that milestone's commit:
+This page describes the current CSM contract and its local validation flow.
 
-```bat
-python Scripts\validate_csm_milestone.py --milestone M<N>
+## Runtime Contract
+
+- Directional shadows use four cascades selected from positive linear view depth.
+- `Stable Sphere` is the default fit. It encloses each frustum slice with a quantized sphere and snaps the light-space
+  projection to shadow texels for camera-motion stability.
+- `Tight Light-Space AABB` tightly fits each slice without stabilization and is available for comparison.
+- The fit mode is a global, non-serialized RenderLayer inspection setting.
+- The default shadow-map quality is `High`, which allocates 4096 by 4096 directional, point, and spot shadow maps.
+- Directional shadows use 16 Vogel-disk PCF samples by default. Point and spot shadow sample counts remain independent.
+- Cascade split lambda, transition width, distance fade, bias, normal offset, and PCF controls retain their runtime
+  defaults unless a test explicitly overrides them.
+
+## Format, Build, and Test
+
+```powershell
+python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests
+cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngine_Tests/EvoEngine_Tests --parallel 4
+cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngine_App/EvoEngineEditor --parallel 4
+out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="DirectionalShadowCascadeFit.*:CameraRenderTechnique.DirectionalShadow*:CameraRenderTechnique.ZeroToOneDepthHelpersUseProjectionTranslation:RenderGraph.DirectionalShadowCasterPathsUseProductionRenderers:GpuService.DirectionalShadowComparisonSamplerFiltersDepthStep"
+python Scripts\install_apps.py --config RelWithDebInfo --no-open --incremental
 ```
 
-The gate uses the installed editor at `out\install\vs2026-x64\bin\EvoEngineEditor.exe`. By default it:
+The GPU comparison probe requires a Vulkan device with the test shader prerequisites. If it is unavailable, report that
+separately rather than treating the CPU cascade-fit tests as equivalent coverage.
 
-- Runs the C++ format check for `EvoEngine_SDK`, `EvoEngine_App`, and `EvoEngine_Tests`.
-- Builds the `EvoEngineEditor` target from `out\build\vs2026-x64` in `RelWithDebInfo`.
-- Installs apps with `python Scripts\install_apps.py --config RelWithDebInfo --no-open --incremental`.
-- Ensures the generated Bistro project exists.
-- Launches Bistro for 30 seconds with `EvoEngineEditor.exe --demo bistro --editor`.
-- Launches the Rendering demo for 30 seconds with `EvoEngineEditor.exe --demo rendering --editor`.
-- Captures deterministic 1920x1080 rasterization previews for Bistro and Rendering.
+## Fit-Mode Comparison
 
-When a milestone changes or investigates directional shadows, also capture CSM diagnostics:
+Use the installed editor and keep every capture option except the fit mode identical:
 
-```bat
-python Scripts\validate_csm_milestone.py --milestone M<N> --capture-shadow-diagnostics
+```powershell
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\csm-validation\stable-sphere.png --preview-render-mode rasterization --preview-shadow-fit stable-sphere --preview-warmup-frames 32 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\csm-validation\tight-aabb.png --preview-render-mode rasterization --preview-shadow-fit tight-aabb --preview-warmup-frames 32 --preview-width 1280 --preview-height 720 --preview-deterministic
 ```
 
-Diagnostic captures use the editor preview flags:
+Optional capture overrides are:
 
-- `--preview-shadow-debug cascade-index`
-- `--preview-shadow-debug light-uv`
-- `--preview-shadow-debug light-depth`
-- `--preview-shadow-debug atlas-uv`
-- `--preview-shadow-debug texel-density`
-- `--preview-shadow-debug-cascade <0-3>`
-- `--preview-shadow-debug-light <directional-light-index>`
+- `--shadow-map-resolution low|medium|high|very-high`
+- `--preview-shadow-pcf-samples 1..64`
+- `--preview-shadow-split-lambda 0..1`
+- `--preview-shadow-cascade-transition-width <non-negative width>`
+- `--preview-shadow-distance-fade <non-negative width>`
 
-Shadow-map resolution is selected at renderer startup. Directional shadow maps default to `Very High` (`8192 x 8192`),
-while point and spot shadow maps default to `High` (`4096 x 4096`). To validate a unified quality override, pass:
+These are capture controls only; do not use them to redefine runtime defaults.
 
-```bat
-python Scripts\validate_csm_milestone.py --milestone M<N> --shadow-map-resolution medium
-```
+## Diagnostics
 
-The matching editor startup flag is `--shadow-map-resolution <low|medium|high|very-high>`, where:
+Capture one diagnostic at a time with `--preview-shadow-debug`:
 
-- `low` = 1024
-- `medium` = 2048
-- `high` = 4096
-- `very-high` = 8192
+- `cascade-index` shows the selected cascade and transition regions.
+- `light-uv` shows the selected cascade's local shadow-map coordinates.
+- `light-depth` shows the receiver depth used for comparison.
+- `atlas-uv` shows packed directional-light atlas coordinates.
+- `texel-density` exposes changes in projected shadow texel density.
 
-CSM validation uses the fixed runtime shadow policy:
+Use `--preview-shadow-debug-cascade 0..3` to select a cascade and `--preview-shadow-debug-light <index>` to select a
+directional light where the diagnostic supports it.
 
-- fit policy: Legacy Stable;
-- split policy: Practical Log/Uniform;
-- sampling: PCF;
-- PCF radius: `100 x light_size` texels.
+## Acceptance Checklist
 
-Milestones that need to tune practical split placement can override the preview split lambda:
+- All four cascade regions receive shadows in both fit modes; no far cascade silently samples the wrong atlas tile.
+- Cascade transitions blend without a visible hard band, double-darkening, or a missing-shadow gap.
+- Stable Sphere does not shimmer under small camera translations or rotations.
+- Tight AABB tracks the frustum slice closely and remains finite for degenerate bounds or empty visible geometry.
+- Off-camera casters along the light direction remain represented when they can shadow the visible slice.
+- Directional bias and PCF stay in shadow-texel units across resolution and fit-mode changes.
+- Regular, mesh-shader, instanced, skinned, strand, and external directional casters continue through their production
+  render paths where those renderers are present and supported.
+- The editor exits without Vulkan validation errors, shader failures, device loss, or fatal logs.
 
-```bat
-python Scripts\validate_csm_milestone.py --milestone M<N> --shadow-split-lambda 0.5 --capture-shadow-diagnostics
-```
-
-The matching editor preview flag is `--preview-shadow-split-lambda <0-1>`.
-
-Milestones that need to compare cascade transitions and the final shadow-distance fade can override those widths:
-
-```bat
-python Scripts\validate_csm_milestone.py --milestone M<N> --shadow-cascade-transition-width 5 --shadow-distance-fade 20 --capture-shadow-diagnostics
-```
-
-The matching editor preview flags are `--preview-shadow-cascade-transition-width <view-depth-units>` and
-`--preview-shadow-distance-fade <view-depth-units>`.
-
-## Directional Shadow Resource Policy
-
-EvoEngine stores directional CSM cascades as four array layers in a single `directional_light_shadow_map_resolution`
-texture. Each layer is a full `directional_light_shadow_map_resolution` square. Shadow-casting directional lights then
-share viewport regions inside each cascade layer:
-
-- one shadow-casting directional light receives the full layer resolution;
-- two to four shadow-casting directional lights receive quadrant viewports;
-- more than four shadow-casting lights recursively subdivide the fourth quadrant, subject to
-  `max_directional_light_size`.
-
-The diagnostics UI and texel-density debug view expose the effective directional-light viewport size for the selected
-light.
-
-The active shadow-map quality initializes directional, point, and spot shadow-map resolution fields together. The Shadow
-diagnostics UI displays the active quality, full directional layer size, and packed directional viewport sizes.
-
-Validation output is written to `out\csm-validation\<milestone>\`:
-
-- `logs\` contains smoke and capture logs.
-- `previews\` contains rendered PNGs.
-- `validation-report.md` records the exact editor path, smoke commands, output paths, and visual checklist.
-
-The smoke step passes only when each demo stays open for the requested duration and no fatal/error markers appear in the captured output. A milestone is not closed until the generated images are also visually checked.
-
-## Visual Checks
-
-For each milestone, inspect the generated previews and, when the change affects camera stability or cascade transitions, also move the camera in the editor:
-
-- Cascade seams: check Bistro road curb, street edge, and building facade transitions.
-- Near/far sharpness: check Bistro curb stones, plant pot, motorbike front, and distant building shadows.
-- Grazing surfaces: check curb edges and shallow-angle road surfaces.
-- Camera motion: translate and rotate the camera to catch cascade swimming or shimmer.
-- Foliage shadow silhouettes: shadow maps intentionally treat material alpha as opaque; check Bistro trees and plant
-  leaves for acceptable solid-shadow coverage where visible.
-- Rendering demo coverage: check near primitives, far surfaces, camera rotation, and camera translation.
-
-If a milestone intentionally changes output, keep the before/after captures under that milestone folder or note the comparison in `validation-report.md`.
-
-The final CSM overhaul review for this branch is recorded in `docs\csm_overhaul_review.md`.
+Record the exact installed executable, command lines, GPU, and visually inspected image paths with the PR validation
+notes.

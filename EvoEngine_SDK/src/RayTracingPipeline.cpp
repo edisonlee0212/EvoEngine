@@ -3,22 +3,37 @@
 #include "Console.hpp"
 #include "Platform.hpp"
 #include "Shader.hpp"
+
 using namespace evo_engine;
 
 RayTracingPipeline::~RayTracingPipeline() {
+  ReleaseResources();
+}
+
+void RayTracingPipeline::ReleaseResources() {
   if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
-    vk_ray_tracing_pipeline_ = nullptr;
   }
+  vk_ray_tracing_pipeline_ = VK_NULL_HANDLE;
+  raygen_shader_binding_table_.reset();
+  miss_shader_binding_table_.reset();
+  closest_hit_shader_binding_table_.reset();
+  pipeline_layout_.reset();
+}
+
+void RayTracingPipeline::SetMaxRecursionDepth(const uint32_t depth) {
+  max_recursion_depth_ = depth;
+}
+
+bool RayTracingPipeline::IsRecursionDepthSupported(const uint32_t requested_depth, const uint32_t device_limit) {
+  return requested_depth != 0 && requested_depth <= device_limit;
 }
 
 void RayTracingPipeline::Initialize() {
+  creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
-  if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
-    vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
-    vk_ray_tracing_pipeline_ = nullptr;
-  }
+  ReleaseResources();
 
   std::vector<VkPipelineShaderStageCreateInfo> shader_stages{};
   std::vector<VkRayTracingShaderGroupCreateInfoKHR> shader_groups{};
@@ -145,13 +160,27 @@ void RayTracingPipeline::Initialize() {
   raytracing_pipeline_create_info.groupCount = static_cast<uint32_t>(shader_groups.size());
   raytracing_pipeline_create_info.pGroups = shader_groups.data();
 
-  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = 8;
+  const auto& ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
+  if (!IsRecursionDepthSupported(max_recursion_depth_, ray_tracing_pipeline_properties.maxRayRecursionDepth)) {
+    EVOENGINE_ERROR("Failed to build ray tracing pipeline: requested recursion depth " +
+                    std::to_string(max_recursion_depth_) + " is outside the selected device limit [1, " +
+                    std::to_string(ray_tracing_pipeline_properties.maxRayRecursionDepth) + "].");
+    return;
+  }
+  raytracing_pipeline_create_info.maxPipelineRayRecursionDepth = max_recursion_depth_;
   try {
-    Platform::CheckVk(vkCreateRayTracingPipelinesKHR(Platform::GetVkDevice(), VK_NULL_HANDLE, VK_NULL_HANDLE, 1,
-                                                     &raytracing_pipeline_create_info, nullptr,
-                                                     &vk_ray_tracing_pipeline_));
+    if (Platform::CheckVk(Platform::CreateRayTracingPipeline(raytracing_pipeline_create_info, vk_ray_tracing_pipeline_,
+                                                             creation_feedback_)) != VK_SUCCESS) {
+      EVOENGINE_ERROR("Failed to build ray tracing pipeline.");
+      if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE)
+        vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
+      vk_ray_tracing_pipeline_ = nullptr;
+      return;
+    }
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to build ray tracing pipeline: ") + error.what());
+    if (vk_ray_tracing_pipeline_ != VK_NULL_HANDLE)
+      vkDestroyPipeline(Platform::GetVkDevice(), vk_ray_tracing_pipeline_, nullptr);
     vk_ray_tracing_pipeline_ = nullptr;
     return;
   }
@@ -159,7 +188,6 @@ void RayTracingPipeline::Initialize() {
     return value + alignment - 1 & ~(alignment - 1);
   };
 
-  const auto& ray_tracing_pipeline_properties = Platform::GetSelectedPhysicalDevice()->ray_tracing_properties_ext;
   const uint32_t handle_size = ray_tracing_pipeline_properties.shaderGroupHandleSize;
   handle_size_aligned_ = aligned_size(ray_tracing_pipeline_properties.shaderGroupHandleSize,
                                       ray_tracing_pipeline_properties.shaderGroupHandleAlignment);
@@ -177,9 +205,13 @@ void RayTracingPipeline::Initialize() {
   buffer_vma_allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
   // Create binding table buffers for each shader type
-  raygen_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  miss_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
-  closest_hit_shader_binding_table_ = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto raygen_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto miss_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  auto closest_hit_shader_binding_table =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  raygen_shader_binding_table_ = std::move(raygen_shader_binding_table);
+  miss_shader_binding_table_ = std::move(miss_shader_binding_table);
+  closest_hit_shader_binding_table_ = std::move(closest_hit_shader_binding_table);
 
   // Copy the pipeline's shader handles into a host buffer
   std::vector<uint8_t> shader_handle_storage(sbt_size);
@@ -188,7 +220,7 @@ void RayTracingPipeline::Initialize() {
                                                            group_count, sbt_size, shader_handle_storage.data()));
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to create ray tracing shader group handles: ") + error.what());
-    vk_ray_tracing_pipeline_ = nullptr;
+    ReleaseResources();
     return;
   }
   // Copy the shader handles from the host buffer to the binding tables
@@ -199,6 +231,10 @@ void RayTracingPipeline::Initialize() {
 
 bool RayTracingPipeline::Initialized() const {
   return vk_ray_tracing_pipeline_ != VK_NULL_HANDLE;
+}
+
+const PipelineCreationFeedback& RayTracingPipeline::GetCreationFeedback() const {
+  return creation_feedback_;
 }
 
 void RayTracingPipeline::Bind(const VkCommandBuffer vk_command_buffer) const {

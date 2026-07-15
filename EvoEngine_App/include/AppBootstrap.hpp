@@ -71,6 +71,19 @@ namespace evo_engine {
   throw std::invalid_argument("Unknown shadow map resolution quality: " + quality_name);
 }
 
+[[nodiscard]] inline RenderSettings::ShadowCascadeFitMode ParseShadowCascadeFitModeName(std::string fit_name) {
+  std::transform(fit_name.begin(), fit_name.end(), fit_name.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (fit_name == "sphere" || fit_name == "stable-sphere") {
+    return RenderSettings::ShadowCascadeFitMode::StableSphere;
+  }
+  if (fit_name == "tight" || fit_name == "aabb" || fit_name == "tight-aabb") {
+    return RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb;
+  }
+  throw std::invalid_argument("Unknown shadow cascade fit mode: " + fit_name);
+}
+
 inline bool ConsumeApplicationModeArgument(const int argc, char** argv, int& arg_index, ApplicationMode& mode) {
   const std::string argument = argv[arg_index] ? argv[arg_index] : "";
   if (argument == "--editor") {

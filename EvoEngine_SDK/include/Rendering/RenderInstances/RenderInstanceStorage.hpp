@@ -28,14 +28,21 @@ class TransparentGeometryPass;
  * @brief Struct containing various render settings for the engine.
  */
 struct RenderSettings {
+  enum class ShadowCascadeFitMode {
+    StableSphere,
+    TightLightSpaceAabb,
+  };
+
   float max_shadow_distance = 400;           ///< Maximum shadow distance in the scene.
   float shadow_cascade_split_lambda = 0.5f;  ///< Blend factor for practical log/uniform cascade splits.
-  bool enable_debug_visualization = false;   ///< Whether debug visualization is enabled.
-  int shadow_debug_mode = 0;                 ///< CSM debug visualization mode.
-  int shadow_debug_selected_cascade = 0;     ///< Selected cascade for CSM diagnostics.
-  int shadow_debug_selected_light = 0;       ///< Selected directional light for CSM diagnostics.
+  ShadowCascadeFitMode shadow_cascade_fit_mode = ShadowCascadeFitMode::StableSphere;
+  bool enable_debug_visualization = false;  ///< Whether debug visualization is enabled.
+  int shadow_debug_mode = 0;                ///< CSM debug visualization mode.
+  int shadow_debug_selected_cascade = 0;    ///< Selected cascade for CSM diagnostics.
+  int shadow_debug_selected_light = 0;      ///< Selected directional light for CSM diagnostics.
 
-  int pcf_sample_amount = 32;                    ///< Sample amount for directional PCF shadow filtering.
+  int pcf_sample_amount = 32;                    ///< Sample amount for point and spot PCF shadow filtering.
+  int directional_pcf_sample_amount = 16;        ///< Sample amount for directional PCF shadow filtering.
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
@@ -46,6 +53,9 @@ struct RenderSettings {
 
   [[nodiscard]] float GetShadowCascadeSplit(int split, float near_distance = 0.1f) const;
   [[nodiscard]] float GetShadowCascadeSplitDistance(int split, float near_distance = 0.1f) const;
+  [[nodiscard]] glm::vec4 GetShadowCascadeSplitDistances(float near_distance = 0.1f) const;
+  [[nodiscard]] float GetShadowCascadeTransitionHalfWidth(int boundary, float near_distance = 0.1f) const;
+  [[nodiscard]] static const char* GetShadowCascadeFitModeName(ShadowCascadeFitMode mode);
 };
 
 /**
@@ -153,7 +163,7 @@ enum class RenderInstanceType {
  */
 class RenderInstanceStorage {
  public:
-  static constexpr uint32_t kRasterMaterialTextureSlotCount = 5;
+  static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
 
   /**
    * @brief Struct to hold information related to render settings applied.
@@ -184,8 +194,9 @@ class RenderInstanceStorage {
     glm::vec4 ddgi_atlas_parameters = glm::vec4(1.0f);
     glm::vec4 ddgi_volume_parameters = glm::vec4(0.0f);
     glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
-    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);
+    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);  ///< Debug mode/cascade/light and directional PCF samples.
     glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
+    glm::uvec4 emissive_triangle_parameters = glm::uvec4(0);
 
     /**
      * @brief Applies the settings from the target RenderSettings.
@@ -201,6 +212,23 @@ class RenderInstanceStorage {
     bool operator!=(const RenderInfoBlock& other) const;
   };
 
+  struct EmissiveTriangleInfoBlock {
+    uint32_t instance_index = 0;
+    uint32_t primitive_id = 0;
+    float cdf = 0.0f;
+    float area_pdf = 0.0f;
+  };
+
+  struct EmissiveTriangleCandidate {
+    uint32_t instance_index = 0;
+    uint32_t primitive_id = 0;
+    double area = 0.0;
+    double importance = 0.0;
+  };
+
+  [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleInfoBlocks(
+      std::vector<EmissiveTriangleCandidate> candidates);
+
   /**
    * @brief Struct to hold environment-related rendering information.
    */
@@ -211,6 +239,8 @@ class RenderInstanceStorage {
     alignas(4) float background_intensity = 1.0f;                    ///< Intensity of the background.
     alignas(4) float environment_type = 0.0f;                        ///< Scene::EnvironmentType value.
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
+    alignas(4) float environment_cubemap_index = -1.0f;  ///< Cubemap index for ray-traced environment light.
+    alignas(4) float environment_rotation = 0.0f;        ///< Y-axis rotation in radians.
 
     /**
      * @brief Compares two EnvironmentInfoBlock objects for inequality.
@@ -322,7 +352,11 @@ class RenderInstanceStorage {
    * @brief Struct for mesh render instance functionality.
    */
   struct MeshRenderInstance : IRenderInstance {
+    uint32_t ray_tracing_geometry_version = 0;
+    uint32_t morph_weights_version = 0;
     std::shared_ptr<Mesh> mesh;  ///< Shared pointer to the mesh rendered.
+    std::shared_ptr<RangeDescriptor> ray_tracing_triangle_range;
+    std::shared_ptr<BottomLevelAccelerationStructure> ray_tracing_blas;
 
     /**
      * @brief Compares two MeshRenderInstance objects for inequality.
@@ -354,6 +388,7 @@ class RenderInstanceStorage {
   struct SkinnedMeshRenderInstance : IRenderInstance {
     uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
     uint32_t ray_tracing_geometry_version = 0;
+    uint32_t morph_weights_version = 0;
     std::shared_ptr<SkinnedMesh> skinned_mesh;    ///< Shared pointer to the skinned mesh.
     std::shared_ptr<BoneMatrices> bone_matrices;  ///< Shared pointer to bone matrices needed.
     std::vector<glm::mat4> bone_matrices_snapshot;
@@ -388,9 +423,10 @@ class RenderInstanceStorage {
    * @brief Struct for instanced render instance functionality.
    */
   struct InstancedRenderInstance : IRenderInstance {
-    uint32_t particle_info_list_version;               ///< Version of the particle information list.
-    std::shared_ptr<Mesh> mesh;                        ///< Shared pointer to the mesh.
-    std::shared_ptr<ParticleInfoList> particle_infos;  ///< Shared pointer to the particle information list.
+    uint32_t particle_info_list_version;                 ///< Version of the particle information list.
+    std::shared_ptr<Mesh> mesh;                          ///< Shared pointer to the mesh.
+    std::shared_ptr<ParticleInfoList> particle_infos;    ///< Shared pointer to the particle information list.
+    std::vector<uint32_t> ray_tracing_instance_indices;  ///< Ray-only instance blocks, one per particle.
 
     /**
      * @brief Compares two InstancedRenderInstance objects for inequality.
@@ -752,6 +788,7 @@ class RenderInstanceStorage {
   std::shared_ptr<Buffer> spot_light_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> render_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> camera_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> emissive_triangle_info_descriptor_buffer = {};
 
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_descriptor_sets;
@@ -786,6 +823,7 @@ class RenderInstanceStorage {
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;
+  uint32_t total_strand_meshlets = 0;
   uint32_t total_gaussian_splats = 0;
   /**
    * @brief Clears all the render instance data and collections.
@@ -828,9 +866,8 @@ class RenderInstanceStorage {
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
-   * @param scene The scene for which to update the acceleration structure.
    */
-  void UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene);
+  void UpdateTopLevelAccelerationStructure();
 
   /**
    * @brief Finds the material index via a material handle.
@@ -853,6 +890,26 @@ class RenderInstanceStorage {
    */
   [[nodiscard]] int GetCameraIndex(const Handle& camera_handle);
 
+  struct DirectionalShadowCascadeFitInput {
+    RenderSettings::ShadowCascadeFitMode mode = RenderSettings::ShadowCascadeFitMode::StableSphere;
+    std::array<glm::vec3, 8> frustum_corners{};
+    Bound world_bound{};
+    glm::vec3 light_direction = glm::vec3(0.0f, 0.0f, 1.0f);
+    glm::vec3 light_up = glm::vec3(0.0f, 1.0f, 0.0f);
+    glm::ivec2 viewport_extent{};
+    float filter_radius_world = 0.0f;
+  };
+
+  struct DirectionalShadowCascadeFitResult {
+    glm::mat4 light_space_matrix{1.0f};
+    glm::vec2 orthographic_min{};
+    glm::vec2 orthographic_max{};
+    float light_space_depth_half_extent = 0.0f;
+  };
+
+  [[nodiscard]] static DirectionalShadowCascadeFitResult CalculateDirectionalShadowCascadeFit(
+      const DirectionalShadowCascadeFitInput& input);
+
   /**
    * @brief Finds the entity handle via a render instance index.
    * @param render_instance_index The index of the render instance.
@@ -870,7 +927,7 @@ class RenderInstanceStorage {
   /**
    * @brief Uploads all data and render instance information to the GPU.
    */
-  void Upload() const;
+  void Upload();
 
   [[nodiscard]] const std::vector<GltfShadeMaterial>& GetGltfShadeMaterials() const;
 
@@ -919,6 +976,22 @@ class RenderInstanceStorage {
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
   std::vector<PreviousInstanceInfoBlock> previous_instance_info_blocks_{};
   std::vector<uint32_t> rigid_motion_supported_{};
+
+  struct EmissiveTriangleInstanceSignature {
+    uint64_t mesh_handle = 0;
+    uint32_t geometry_version = 0;
+    int32_t instance_index = -1;
+    uint32_t triangle_offset = 0;
+    uint32_t triangle_count = 0;
+    GlobalTransform model{};
+    double importance = 0.0;
+
+    bool operator==(const EmissiveTriangleInstanceSignature& other) const;
+  };
+
+  std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
+  std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
+  bool emissive_triangle_info_dirty_ = false;
 
   /**
    * @brief Stores rendering-related information like shadow splits and lighting.
@@ -976,6 +1049,7 @@ class RenderInstanceStorage {
    * @brief Builds render instance blocks for rendering.
    */
   void BuildRenderInstanceBlocks();
+  void BuildEmissiveTriangleInfoBlocks();
 
   /**
    * @brief Collects lighting information from the scene.

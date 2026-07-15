@@ -6,6 +6,7 @@ struct DirectionalLight {
   vec3 specular;
   mat4 light_space_matrix[4];
   vec4 light_frustum_width;
+  vec4 light_frustum_height;
   vec4 light_frustum_distance;
   vec4 reserved_parameters;
   int viewport_x_offset;

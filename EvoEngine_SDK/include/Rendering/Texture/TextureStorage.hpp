@@ -33,11 +33,37 @@ class Texture2DStorage {
    * @brief Stores the resolution of the new texture data.
    */
   glm::uvec2 new_resolution_{};
+  VkFormat new_data_format_ = VK_FORMAT_UNDEFINED;
+  bool new_data_samples_linear_srgb_ = false;
 
   std::vector<std::byte> new_compressed_data_;
   glm::uvec2 new_compressed_resolution_{};
   VkFormat new_compressed_format_ = VK_FORMAT_UNDEFINED;
   uint32_t new_compressed_mip_levels_ = 1;
+  VkSamplerCreateInfo sampler_create_info_{};
+  struct RetiredSampler {
+    std::shared_ptr<Sampler> sampler;
+    uint32_t remaining_frames = 0;
+  };
+  std::vector<RetiredSampler> retired_samplers_;
+  struct RetiredTextureId {
+    ImTextureID id = 0;
+    uint32_t remaining_frames = 0;
+  };
+  std::vector<RetiredTextureId> retired_texture_ids_;
+  struct RetiredResources {
+    std::shared_ptr<Image> image;
+    std::shared_ptr<ImageView> image_view;
+    std::shared_ptr<Sampler> sampler;
+    ImTextureID texture_id = 0;
+    uint32_t remaining_frames = 0;
+  };
+  std::vector<RetiredResources> retired_resources_;
+  VkFormat view_format_ = VK_FORMAT_UNDEFINED;
+
+  void RetireCurrentResources();
+  [[nodiscard]] bool ShareImage(const Texture2DStorage& source, VkFormat view_format,
+                                const VkSamplerCreateInfo& sampler_create_info);
 
   /**
    * @brief Immediately uploads any pending data to the GPU.
@@ -56,7 +82,9 @@ class Texture2DStorage {
   ImTextureID im_texture_id = 0;  ///< ImGui texture ID for rendering.
   std::shared_ptr<std::atomic_size_t> gpu_upload_in_flight =
       std::make_shared<std::atomic_size_t>(0);  ///< Async GPU uploads currently mutating image state.
-  bool gpu_upload_pending_last_sync_ = false;
+  std::shared_ptr<std::atomic_size_t> gpu_upload_generation = std::make_shared<std::atomic_size_t>(0);
+  size_t gpu_upload_generation_last_sync_ = 0;
+  bool samples_linear_srgb_ = false;
 
   /**
    * @brief Retrieves the Vulkan image layout of the texture.
@@ -92,6 +120,7 @@ class Texture2DStorage {
    * @brief Returns whether an asynchronous GPU upload is still pending.
    */
   [[nodiscard]] bool IsGpuUploadPending() const;
+  [[nodiscard]] bool SamplesLinearSrgb() const;
 
   /**
    * @brief Initializes the GPU resources for the texture with the given resolution.
@@ -106,7 +135,8 @@ class Texture2DStorage {
    * @param resolution The resolution of the texture.
    * @return A handle that completes when the GPU upload finishes.
    */
-  [[nodiscard]] GpuWorkHandle SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  [[nodiscard]] GpuWorkHandle SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution,
+                                           VkFormat format = VK_FORMAT_UNDEFINED, bool samples_linear_srgb = false);
   [[nodiscard]] GpuWorkHandle SetCompressedDataAsync(const std::vector<std::byte>& data, const glm::uvec2& resolution,
                                                      VkFormat format, uint32_t mip_levels = 1);
 
@@ -115,12 +145,14 @@ class Texture2DStorage {
    * @param data The pixel data to set.
    * @param resolution The resolution of the texture.
    */
-  void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution);
+  void SetData(const std::vector<glm::vec4>& data, const glm::uvec2& resolution, VkFormat format = VK_FORMAT_UNDEFINED,
+               bool samples_linear_srgb = false);
   void SetCompressedData(const std::vector<std::byte>& data, const glm::uvec2& resolution, VkFormat format,
                          uint32_t mip_levels = 1);
 
   [[nodiscard]] VkFormat GetFormat() const;
   [[nodiscard]] uint32_t GetMipLevels() const;
+  void SetSampler(const VkSamplerCreateInfo& sampler_create_info);
 
   /**
    * @brief Clears the texture resources and data.
@@ -210,6 +242,7 @@ class TextureStorage final {
   friend class RenderLayer;
   friend class Platform;
   friend class Resources;
+  friend class Texture2DStorage;
 
   uint32_t version_ = 0;    ///< Current version of the texture storage.
   bool initialized = true;  ///< Indicates whether the storage has been initialized.
@@ -225,6 +258,9 @@ class TextureStorage final {
    * @brief Returns whether any texture storage still has queued or in-flight GPU upload work.
    */
   [[nodiscard]] static bool HasPendingUploads();
+
+  /** @brief Returns whether device synchronization will destroy a texture storage entry. */
+  [[nodiscard]] static bool HasPendingDeletes();
 
   /**
    * @brief Synchronizes the device to ensure all texture-related operations are complete.

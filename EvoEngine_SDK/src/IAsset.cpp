@@ -18,6 +18,7 @@ bool IAsset::Load() {
     return false;
   if (const auto path = GetAbsolutePath(); Serialization::LoadAsset(*this, path)) {
     saved_ = true;
+    ++version_;
     return true;
   }
   return false;
@@ -82,7 +83,11 @@ bool IAsset::Import(const std::filesystem::path &path) {
     EVOENGINE_ERROR("Path is in project folder!")
     return false;
   }
-  return Serialization::LoadAsset(*this, path);
+  if (Serialization::LoadAsset(*this, path)) {
+    ++version_;
+    return true;
+  }
+  return false;
 }
 
 void IAsset::SetUnsaved() {

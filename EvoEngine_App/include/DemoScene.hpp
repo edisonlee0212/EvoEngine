@@ -28,6 +28,10 @@ enum class DemoSetup {
 void ClearGeneratedDemoProjectFiles(const std::filesystem::path& resource_folder_path);
 void ClearGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_folder_path);
 void ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Scene>& scene);
+void ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene);
+void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene);
+void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);
+void ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene);
 void SetRenderingRegressionTemporalMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene);

@@ -126,10 +126,11 @@ struct GizmoSettings {
  * @brief Structure representing push constants for gizmos.
  */
 struct GizmosPushConstant {
-  glm::mat4 model;      /**< The model matrix for the gizmos. */
-  glm::vec4 color;      /**< The color vector for the gizmos. */
-  float size;           /**< The size of the gizmos. */
-  int32_t camera_index; /**< Index of the camera associated with the gizmos. */
+  glm::mat4 model;                /**< The model matrix for the gizmos. */
+  glm::vec4 color;                /**< The color vector for the gizmos. */
+  float size;                     /**< The size of the gizmos. */
+  int32_t camera_index;           /**< Index of the camera associated with the gizmos. */
+  uint32_t strand_meshlet_offset; /**< First strand meshlet for direct gizmo draws. */
 };
 
 /**

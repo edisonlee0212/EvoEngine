@@ -8,7 +8,9 @@
 #include "RenderLayer.hpp"
 #include "Texture2D.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <limits>
 #include <unordered_map>
 
 using namespace evo_engine;
@@ -16,6 +18,43 @@ using namespace evo_engine;
 namespace {
 bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial& shade_material) {
   return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
+}
+
+VkCullModeFlags SwapCullModeFaces(const VkCullModeFlags cull_mode) {
+  if (cull_mode == VK_CULL_MODE_BACK_BIT) {
+    return VK_CULL_MODE_FRONT_BIT;
+  }
+  if (cull_mode == VK_CULL_MODE_FRONT_BIT) {
+    return VK_CULL_MODE_BACK_BIT;
+  }
+  return cull_mode;
+}
+
+VkCullModeFlags ResolveCullModeForTransform(const VkCullModeFlags cull_mode, const glm::mat4& model) {
+  if (glm::determinant(glm::mat3(model)) >= 0.0f) {
+    return cull_mode;
+  }
+  return SwapCullModeFaces(cull_mode);
+}
+
+VkCullModeFlags ResolveInstancedCullModeForTransforms(const VkCullModeFlags cull_mode, const glm::mat4& model,
+                                                      const std::vector<ParticleInfo>& particle_infos) {
+  if (cull_mode == VK_CULL_MODE_NONE || cull_mode == VK_CULL_MODE_FRONT_AND_BACK || particle_infos.empty()) {
+    return cull_mode;
+  }
+  bool has_positive_determinant = false;
+  bool has_negative_determinant = false;
+  for (const auto& particle_info : particle_infos) {
+    if (glm::determinant(glm::mat3(model * particle_info.instance_matrix.value)) < 0.0f) {
+      has_negative_determinant = true;
+    } else {
+      has_positive_determinant = true;
+    }
+    if (has_positive_determinant && has_negative_determinant) {
+      return VK_CULL_MODE_NONE;
+    }
+  }
+  return has_negative_determinant ? SwapCullModeFaces(cull_mode) : cull_mode;
 }
 
 VkDrawMeshTasksIndirectCommandEXT CreateMeshTaskCommand(const uint32_t meshlet_range) {
@@ -98,6 +137,128 @@ float RenderSettings::GetShadowCascadeSplitDistance(const int split, const float
   return max_shadow_distance * GetShadowCascadeSplit(split, near_distance);
 }
 
+glm::vec4 RenderSettings::GetShadowCascadeSplitDistances(const float near_distance) const {
+  glm::vec4 result;
+  for (int split = 0; split < 4; ++split) {
+    result[split] = GetShadowCascadeSplitDistance(split, near_distance);
+  }
+  return result;
+}
+
+float RenderSettings::GetShadowCascadeTransitionHalfWidth(const int boundary, const float near_distance) const {
+  const auto clamped_boundary = glm::clamp(boundary, 0, 2);
+  const auto split_distances = GetShadowCascadeSplitDistances(near_distance);
+  const auto split_distance = split_distances[clamped_boundary];
+  const auto previous_split = clamped_boundary == 0 ? 0.0f : split_distances[clamped_boundary - 1];
+  const auto next_split = split_distances[clamped_boundary + 1];
+  const auto available_width = glm::max(glm::min(split_distance - previous_split, next_split - split_distance), 0.0f);
+  return glm::min(glm::max(shadow_cascade_transition_width, 0.0f), available_width) * 0.5f;
+}
+
+const char* RenderSettings::GetShadowCascadeFitModeName(const ShadowCascadeFitMode mode) {
+  switch (mode) {
+    case ShadowCascadeFitMode::StableSphere:
+      return "Stable Sphere";
+    case ShadowCascadeFitMode::TightLightSpaceAabb:
+      return "Tight Light-Space AABB";
+  }
+  return "Stable Sphere";
+}
+
+RenderInstanceStorage::DirectionalShadowCascadeFitResult RenderInstanceStorage::CalculateDirectionalShadowCascadeFit(
+    const DirectionalShadowCascadeFitInput& input) {
+  DirectionalShadowCascadeFitResult result;
+  glm::vec3 frustum_center(0.0f);
+  for (const auto& corner : input.frustum_corners) {
+    frustum_center += corner;
+  }
+  frustum_center /= static_cast<float>(input.frustum_corners.size());
+
+  const auto light_direction = glm::normalize(input.light_direction);
+  const auto light_up = glm::normalize(input.light_up);
+  const auto world_center = input.world_bound.Center();
+  const auto light_view_center =
+      frustum_center + glm::dot(world_center - frustum_center, light_direction) * light_direction;
+
+  const std::array<glm::vec3, 8> world_corners = {
+      glm::vec3(input.world_bound.min.x, input.world_bound.min.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.min.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.max.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.min.x, input.world_bound.max.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.min.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.min.y, input.world_bound.max.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.max.y, input.world_bound.min.z),
+      glm::vec3(input.world_bound.max.x, input.world_bound.max.y, input.world_bound.max.z),
+  };
+  float minimum_depth = std::numeric_limits<float>::max();
+  float maximum_depth = std::numeric_limits<float>::lowest();
+  for (const auto& corner : world_corners) {
+    const auto depth = glm::dot(corner - light_view_center, light_direction);
+    minimum_depth = glm::min(minimum_depth, depth);
+    maximum_depth = glm::max(maximum_depth, depth);
+  }
+  result.light_space_depth_half_extent = glm::max(maximum_depth - minimum_depth, 0.001f);
+
+  const auto light_position = light_view_center - light_direction * result.light_space_depth_half_extent;
+  const auto light_view = glm::lookAt(light_position, light_view_center, light_up);
+  const bool stabilize = input.mode != RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb;
+  const auto filter_radius_world = glm::max(input.filter_radius_world, 0.0f);
+  const auto padded_half_extent = [&](const float raw_half_extent, const int viewport_extent) {
+    const auto half_extent = glm::max(raw_half_extent, 0.001f);
+    if (viewport_extent <= 0) {
+      return half_extent;
+    }
+    const auto footprint_texels = stabilize ? 2.0f : 1.0f;
+    if (static_cast<float>(viewport_extent) <= footprint_texels) {
+      return half_extent + filter_radius_world;
+    }
+    return (half_extent + filter_radius_world) / (1.0f - footprint_texels / static_cast<float>(viewport_extent));
+  };
+  if (input.mode == RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb) {
+    result.orthographic_min = glm::vec2(std::numeric_limits<float>::max());
+    result.orthographic_max = glm::vec2(std::numeric_limits<float>::lowest());
+    for (const auto& corner : input.frustum_corners) {
+      const auto light_space_corner = light_view * glm::vec4(corner, 1.0f);
+      result.orthographic_min = glm::min(result.orthographic_min, glm::vec2(light_space_corner));
+      result.orthographic_max = glm::max(result.orthographic_max, glm::vec2(light_space_corner));
+    }
+    const auto extent_center = (result.orthographic_min + result.orthographic_max) * 0.5f;
+    auto half_extent = (result.orthographic_max - result.orthographic_min) * 0.5f;
+    half_extent.x = padded_half_extent(half_extent.x, input.viewport_extent.x);
+    half_extent.y = padded_half_extent(half_extent.y, input.viewport_extent.y);
+    result.orthographic_min = extent_center - half_extent;
+    result.orthographic_max = extent_center + half_extent;
+  } else {
+    auto half_extent = 0.0f;
+    for (const auto& corner : input.frustum_corners) {
+      half_extent = glm::max(half_extent, glm::distance(corner, frustum_center));
+    }
+    half_extent = glm::max(padded_half_extent(half_extent, input.viewport_extent.x),
+                           padded_half_extent(half_extent, input.viewport_extent.y));
+    half_extent = glm::ceil(half_extent * 16.0f) / 16.0f;
+    result.orthographic_min = glm::vec2(-half_extent);
+    result.orthographic_max = glm::vec2(half_extent);
+  }
+
+  const auto extent_center = (result.orthographic_min + result.orthographic_max) * 0.5f;
+  const auto half_extent = glm::max((result.orthographic_max - result.orthographic_min) * 0.5f, glm::vec2(0.001f));
+  result.orthographic_min = extent_center - half_extent;
+  result.orthographic_max = extent_center + half_extent;
+
+  auto light_projection = glm::ortho(result.orthographic_min.x, result.orthographic_max.x, result.orthographic_min.y,
+                                     result.orthographic_max.y, 0.0f, result.light_space_depth_half_extent * 2.0f);
+  if (stabilize && input.viewport_extent.x > 0 && input.viewport_extent.y > 0) {
+    const auto shadow_origin = light_projection * light_view * glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    const auto viewport = glm::vec2(input.viewport_extent);
+    const auto texel_origin = glm::vec2(shadow_origin) * viewport * 0.5f;
+    const auto projection_offset = (glm::round(texel_origin) - texel_origin) * 2.0f / viewport;
+    light_projection[3][0] += projection_offset.x;
+    light_projection[3][1] += projection_offset.y;
+  }
+  result.light_space_matrix = light_projection * light_view;
+  return result;
+}
+
 bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRenderInstance& other) const {
   if (entity_selected != other.entity_selected)
     return true;
@@ -166,7 +327,15 @@ bool RenderInstanceStorage::MeshRenderInstance::operator!=(const MeshRenderInsta
     return true;
   if (material != other.material)
     return true;
+  if (ray_tracing_triangle_range != other.ray_tracing_triangle_range)
+    return true;
+  if (ray_tracing_blas != other.ray_tracing_blas)
+    return true;
   if (geometry_version != other.geometry_version)
+    return true;
+  if (ray_tracing_geometry_version != other.ray_tracing_geometry_version)
+    return true;
+  if (morph_weights_version != other.morph_weights_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -185,7 +354,10 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = mesh->triangle_range_->prev_frame_offset;
+  instance_info_block.triangle_offset =
+      ray_tracing_triangle_range && ray_tracing_triangle_range->prev_frame_index_count != 0
+          ? ray_tracing_triangle_range->prev_frame_offset
+          : mesh->triangle_range_->prev_frame_offset;
   instance_info_block.meshlet_index_offset = mesh->meshlet_range_->prev_frame_offset;
   instance_info_block.meshlet_size = mesh->meshlet_range_->prev_frame_range;
   instance_info_block.entity_index = owner.GetIndex();
@@ -195,11 +367,11 @@ void RenderInstanceStorage::MeshRenderInstance::Apply(InstanceInfoBlock& instanc
 uint32_t RenderInstanceStorage::MeshRenderInstance::Render(
     const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
-  const uint32_t task_work_group_invocations =
-      Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
 
-  if (Platform::MeshShaderEnabled()) {
+  if (graphics_pipeline->mesh_shader) {
+    const uint32_t task_work_group_invocations =
+        Platform::GetSelectedPhysicalDevice()->mesh_shader_properties_ext.maxPreferredTaskWorkGroupInvocations;
     graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
     const uint32_t count =
         (mesh->meshlet_range_->prev_frame_range + task_work_group_invocations - 1) / task_work_group_invocations;
@@ -234,6 +406,8 @@ bool RenderInstanceStorage::SkinnedMeshRenderInstance::operator!=(const SkinnedM
   if (geometry_version != other.geometry_version)
     return true;
   if (ray_tracing_geometry_version != other.ray_tracing_geometry_version)
+    return true;
+  if (morph_weights_version != other.morph_weights_version)
     return true;
   if (material_version != other.material_version)
     return true;
@@ -377,8 +551,12 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
 uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
     const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  if (!graphics_pipeline->mesh_shader) {
+    return 0;
+  }
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
-  strands->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
+  graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
+  graphics_pipeline->DrawMeshTasks(vk_command_buffer, strands->strand_meshlet_range_->prev_frame_range);
   return strands->segment_range_->prev_frame_index_count;
 }
 
@@ -658,7 +836,8 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   shadow_cascade_transition_width = glm::max(target_render_settings.shadow_cascade_transition_width, 0.0f);
   shadow_debug_parameters = glm::ivec4(glm::clamp(target_render_settings.shadow_debug_mode, 0, 5),
                                        glm::clamp(target_render_settings.shadow_debug_selected_cascade, 0, 3),
-                                       glm::max(target_render_settings.shadow_debug_selected_light, 0), 0);
+                                       glm::max(target_render_settings.shadow_debug_selected_light, 0),
+                                       glm::clamp(target_render_settings.directional_pcf_sample_amount, 1, 64));
   shadow_fade_parameters = glm::vec4(glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
                                                 glm::max(target_render_settings.max_shadow_distance, 0.0f)),
                                      0.0f, 0.0f, 0.0f);
@@ -722,8 +901,57 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
     return true;
   if (shadow_fade_parameters != other.shadow_fade_parameters)
     return true;
+  if (emissive_triangle_parameters != other.emissive_triangle_parameters)
+    return true;
 
   return false;
+}
+
+bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==(
+    const EmissiveTriangleInstanceSignature& other) const {
+  return mesh_handle == other.mesh_handle && geometry_version == other.geometry_version &&
+         instance_index == other.instance_index && triangle_offset == other.triangle_offset &&
+         triangle_count == other.triangle_count && model == other.model && importance == other.importance;
+}
+
+std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
+    std::vector<EmissiveTriangleCandidate> candidates) {
+  candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                  [](const EmissiveTriangleCandidate& candidate) {
+                                    return !std::isfinite(candidate.area) || !std::isfinite(candidate.importance) ||
+                                           candidate.area <= 0.0 || candidate.importance <= 0.0;
+                                  }),
+                   candidates.end());
+  std::sort(candidates.begin(), candidates.end(),
+            [](const EmissiveTriangleCandidate& lhs, const EmissiveTriangleCandidate& rhs) {
+              return lhs.instance_index < rhs.instance_index ||
+                     (lhs.instance_index == rhs.instance_index && lhs.primitive_id < rhs.primitive_id);
+            });
+
+  double total_weight = 0.0;
+  for (const auto& candidate : candidates) {
+    total_weight += candidate.area * candidate.importance;
+  }
+  if (!std::isfinite(total_weight) || total_weight <= 0.0) {
+    return {};
+  }
+
+  std::vector<EmissiveTriangleInfoBlock> result;
+  result.reserve(candidates.size());
+  double cumulative_weight = 0.0;
+  for (const auto& candidate : candidates) {
+    cumulative_weight += candidate.area * candidate.importance;
+    const float cdf = static_cast<float>(glm::min(cumulative_weight / total_weight, 1.0));
+    result.push_back({candidate.instance_index, candidate.primitive_id, cdf, 0.0f});
+  }
+  result.back().cdf = 1.0f;
+  float previous_cdf = 0.0f;
+  for (size_t i = 0; i < result.size(); ++i) {
+    const float selection_pdf = result[i].cdf - previous_cdf;
+    result[i].area_pdf = selection_pdf > 0.0f ? selection_pdf / static_cast<float>(candidates[i].area) : 0.0f;
+    previous_cdf = result[i].cdf;
+  }
+  return result;
 }
 
 bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentInfoBlock& other) const {
@@ -738,6 +966,10 @@ bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentIn
   if (environment_type != other.environment_type)
     return true;
   if (environment_pdf_texture_index != other.environment_pdf_texture_index)
+    return true;
+  if (environment_cubemap_index != other.environment_cubemap_index)
+    return true;
+  if (environment_rotation != other.environment_rotation)
     return true;
 
   return false;
@@ -1038,11 +1270,122 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   external_render_instances->ForEachExternalRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
   });
+
+  const auto append_particle_ray_instances = [&](const std::shared_ptr<InstancedRenderInstance>& render_instance) {
+    render_instance->ray_tracing_instance_indices.clear();
+    if (!Platform::RayAccelerationStructureEnabled() || !render_instance->particle_infos ||
+        render_instance->instance_index < 0 ||
+        static_cast<size_t>(render_instance->instance_index) >= instance_info_blocks_.size()) {
+      return;
+    }
+    const auto base_block = instance_info_blocks_[render_instance->instance_index];
+    for (const auto& particle_info : render_instance->particle_infos->PeekParticleInfoList()) {
+      if (instance_info_blocks_.size() > 0x00ffffffu) {
+        throw std::runtime_error("Ray tracing instance custom index exceeds 24 bits.");
+      }
+      const auto ray_instance_index = static_cast<uint32_t>(instance_info_blocks_.size());
+      auto& ray_instance_block = instance_info_blocks_.emplace_back(base_block);
+      ray_instance_block.model.value = render_instance->model.value * particle_info.instance_matrix.value;
+      rigid_motion_supported_.emplace_back(0u);
+      render_instance->ray_tracing_instance_indices.emplace_back(ray_instance_index);
+      if (render_instance->entity_handle != 0) {
+        instance_entity_handles_[ray_instance_index] = render_instance->entity_handle;
+      }
+      if (render_instance->renderer_handle != 0) {
+        instance_renderer_handles_[ray_instance_index] = render_instance->renderer_handle;
+      }
+    }
+  };
+  deferred_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+  forward_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+  transparent_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+}
+
+void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
+  if (!Platform::RayAccelerationStructureEnabled()) {
+    emissive_triangle_info_dirty_ = !emissive_triangle_info_blocks_.empty();
+    emissive_triangle_info_blocks_.clear();
+    emissive_triangle_instance_signatures_.clear();
+    render_info_block.emissive_triangle_parameters.x = 0u;
+    return;
+  }
+
+  struct EmissiveTriangleInstance {
+    std::shared_ptr<MeshRenderInstance> render_instance;
+    uint32_t triangle_offset;
+    uint32_t triangle_count;
+    double importance;
+  };
+  std::vector<EmissiveTriangleInstance> emissive_instances;
+  std::vector<EmissiveTriangleInstanceSignature> signatures;
+  const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
+  const auto append_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection) {
+    collection->ForEachMeshRenderInstance([&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+      if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_ ||
+          !render_instance->mesh->triangle_range_ || !render_instance->material ||
+          render_instance->instance_index < 0 || render_instance->polygon_mode != VK_POLYGON_MODE_FILL ||
+          render_instance->material->draw_settings.blending || render_instance->material_index < 0 ||
+          static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
+        return;
+      }
+
+      const auto& material = shade_materials[render_instance->material_index];
+      if (material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque) || material.transmission_factor > 0.0f ||
+          material.diffuse_transmission_factor > 0.0f || material.unlit != 0) {
+        return;
+      }
+      const float transform_determinant = glm::determinant(glm::mat3(render_instance->model.value));
+      if (!std::isfinite(transform_determinant) || transform_determinant == 0.0f) {
+        return;
+      }
+      const glm::vec3 emissive_factor = glm::max(material.emissive_factor, glm::vec3(0.0f));
+      double importance = static_cast<double>(glm::dot(emissive_factor, glm::vec3(0.2126f, 0.7152f, 0.0722f)));
+      if (!std::isfinite(importance) || importance <= 0.0) {
+        return;
+      }
+      if (material.double_sided != 0) {
+        importance *= 2.0;
+      }
+
+      const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
+      const auto triangle_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
+      signatures.push_back({render_instance->mesh->GetHandle().GetValue(), render_instance->geometry_version,
+                            render_instance->instance_index, triangle_offset, triangle_count, render_instance->model,
+                            importance});
+      emissive_instances.push_back({render_instance, triangle_offset, triangle_count, importance});
+    });
+  };
+  append_collection(deferred_render_instances);
+  append_collection(forward_render_instances);
+
+  if (emissive_triangle_instance_signatures_ == signatures) {
+    render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
+    return;
+  }
+
+  std::vector<EmissiveTriangleCandidate> candidates;
+  for (const auto& emissive_instance : emissive_instances) {
+    const auto& render_instance = emissive_instance.render_instance;
+    for (uint32_t primitive_id = 0; primitive_id < emissive_instance.triangle_count; ++primitive_id) {
+      const auto& triangle = GeometryStorage::PeekTriangle(emissive_instance.triangle_offset + primitive_id);
+      const glm::vec3 p0 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.x).position, 1.0f));
+      const glm::vec3 p1 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.y).position, 1.0f));
+      const glm::vec3 p2 =
+          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.z).position, 1.0f));
+      const double area = 0.5 * static_cast<double>(glm::length(glm::cross(p1 - p0, p2 - p0)));
+      candidates.push_back(
+          {static_cast<uint32_t>(render_instance->instance_index), primitive_id, area, emissive_instance.importance});
+    }
+  }
+  emissive_triangle_info_blocks_ = BuildEmissiveTriangleInfoBlocks(std::move(candidates));
+  emissive_triangle_instance_signatures_ = std::move(signatures);
+  emissive_triangle_info_dirty_ = true;
+  render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
-  auto& min_bound = world_bound.min;
-  auto& max_bound = world_bound.max;
 #pragma region Directional Light
   const std::vector<Entity>* directional_light_entities =
       target_scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>();
@@ -1100,6 +1443,7 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
     for (const auto& [cameraGlobalTransform, camera] : cameras) {
       size_t directional_light_index = 0;
       auto camera_index = GetCameraIndex(camera->GetHandle());
+      const auto& split_distances = camera_info_blocks_[camera_index].shadow_split_distances;
       glm::vec3 main_camera_pos = cameraGlobalTransform.GetPosition();
       glm::quat main_camera_rot = cameraGlobalTransform.GetRotation();
       for (const auto& light_entity : *directional_light_entities) {
@@ -1112,8 +1456,6 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
           break;
         glm::quat rotation = target_scene->GetDataComponent<GlobalTransform>(light_entity).GetRotation();
         glm::vec3 light_dir = glm::normalize(rotation * glm::vec3(0, 0, 1));
-        float plane_distance = 0;
-        glm::vec3 center;
         const auto block_index = camera_index * max_directional_light_size + directional_light_index;
         directional_light_info_blocks_[block_index].direction = glm::vec4(light_dir, 0.0f);
         directional_light_info_blocks_[block_index].diffuse =
@@ -1121,72 +1463,46 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
         directional_light_info_blocks_[block_index].specular = glm::vec4(0.0f);
         const auto camera_near_distance = glm::max(camera->camera_settings.near_distance, 0.001f);
         for (int split = 0; split < 4; split++) {
-          float split_start = 0;
-          float split_end = render_settings.GetShadowCascadeSplitDistance(split, camera_near_distance);
-          if (split != 0)
-            split_start = render_settings.GetShadowCascadeSplitDistance(split - 1, camera_near_distance);
-          render_info_block.split_distances[split] = split_end;
-          glm::mat4 light_projection, light_view;
-          float max_distance = split_end;
-          glm::vec3 light_pos;
-          glm::vec3 camera_frustum_center =
-              (main_camera_rot * glm::vec3(0, 0, -1)) * ((split_end - split_start) / 2.0f + split_start) +
-              main_camera_pos;
-
-          glm::vec3 p0 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p7 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d0 = glm::distance(p0, p7);
-
-          glm::vec3 p1 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p6 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d1 = glm::distance(p1, p6);
-
-          glm::vec3 p2 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p5 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d2 = glm::distance(p2, p5);
-
-          glm::vec3 p3 = Ray::ClosestPointOnLine(glm::vec3(max_bound.x, min_bound.y, min_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-          glm::vec3 p4 = Ray::ClosestPointOnLine(glm::vec3(min_bound.x, max_bound.y, max_bound.z),
-                                                 camera_frustum_center, camera_frustum_center + light_dir);
-
-          float d3 = glm::distance(p3, p4);
-
-          center =
-              Ray::ClosestPointOnLine(world_bound.Center(), camera_frustum_center, camera_frustum_center + light_dir);
-          plane_distance = glm::max(glm::max(d0, d1), glm::max(d2, d3));
-          light_pos = center - light_dir * plane_distance;
-          light_view = glm::lookAt(light_pos, light_pos + light_dir, glm::normalize(rotation * glm::vec3(0, 1, 0)));
-          light_projection =
-              glm::ortho(-max_distance, max_distance, -max_distance, max_distance, 0.0f, plane_distance * 2.0f);
-#pragma region Fix Shimmering due to the movement of the camera
-          glm::mat4 shadow_matrix = light_projection * light_view;
-          glm::vec4 shadow_origin = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-          shadow_origin = shadow_matrix * shadow_origin;
-          shadow_origin =
-              shadow_origin * static_cast<float>(directional_light_info_blocks_[block_index].viewport.z) / 2.0f;
-          glm::vec4 rounded_origin = glm::round(shadow_origin);
-          glm::vec4 round_offset = rounded_origin - shadow_origin;
-          round_offset =
-              round_offset * 2.0f / static_cast<float>(directional_light_info_blocks_[block_index].viewport.z);
-          round_offset.z = 0.0f;
-          round_offset.w = 0.0f;
-          glm::mat4 shadow_proj = light_projection;
-          shadow_proj[3] += round_offset;
-          light_projection = shadow_proj;
-#pragma endregion
-          directional_light_info_blocks_[block_index].light_space_matrix[split] = light_projection * light_view;
-          directional_light_info_blocks_[block_index].light_frustum_width[split] = max_distance;
-          directional_light_info_blocks_[block_index].light_frustum_distance[split] = plane_distance;
+          float split_start = camera_near_distance;
+          const float split_end = split_distances[split];
+          if (split != 0) {
+            split_start = split_distances[split - 1];
+          }
+          auto fit_start = split_start;
+          auto fit_end = split_end;
+          if (split != 0) {
+            fit_start = glm::max(
+                camera_near_distance,
+                split_start - render_settings.GetShadowCascadeTransitionHalfWidth(split - 1, camera_near_distance));
+          }
+          if (split != 3) {
+            fit_end = glm::min(split_distances.w, split_end + render_settings.GetShadowCascadeTransitionHalfWidth(
+                                                                  split, camera_near_distance));
+          }
+          std::array<glm::vec3, 8> frustum_corners{};
+          Camera::CalculateFrustumPoints(camera, fit_start, fit_end, main_camera_pos, main_camera_rot,
+                                         frustum_corners.data());
+          const auto camera_size = glm::max(glm::vec2(camera->GetSize()), glm::vec2(1.0f));
+          const auto far_half_height =
+              glm::tan(glm::radians(camera->camera_settings.fov * 0.25f)) * glm::max(fit_end, 0.0f);
+          const auto jitter_margin_world = glm::length(
+              glm::vec2(far_half_height * camera->GetSizeRatio() / camera_size.x, far_half_height / camera_size.y));
+          const auto& viewport = directional_light_info_blocks_[block_index].viewport;
+          const auto fit = CalculateDirectionalShadowCascadeFit({
+              render_settings.shadow_cascade_fit_mode,
+              frustum_corners,
+              world_bound,
+              light_dir,
+              glm::normalize(rotation * glm::vec3(0, 1, 0)),
+              glm::ivec2(viewport.z, viewport.w),
+              glm::max(dlc->light_size, 0.0f) + jitter_margin_world,
+          });
+          directional_light_info_blocks_[block_index].light_space_matrix[split] = fit.light_space_matrix;
+          directional_light_info_blocks_[block_index].light_frustum_width[split] =
+              (fit.orthographic_max.x - fit.orthographic_min.x) * 0.5f;
+          directional_light_info_blocks_[block_index].light_frustum_height[split] =
+              (fit.orthographic_max.y - fit.orthographic_min.y) * 0.5f;
+          directional_light_info_blocks_[block_index].light_frustum_distance[split] = fit.light_space_depth_half_extent;
           if (split == 4 - 1)
             directional_light_info_blocks_[block_index].reserved_parameters =
                 glm::vec4(dlc->light_size, dlc->slope_bias, dlc->bias, dlc->normal_offset);
@@ -1331,14 +1647,19 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 
 void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& target_scene) {
   environment_info_block.environment_pdf_texture_index = -1.0f;
+  environment_info_block.environment_cubemap_index = -1.0f;
   switch (target_scene->environment.environment_type) {
     case Scene::EnvironmentType::EnvironmentalMap: {
       environment_info_block.background_color.w = 0.0f;
       environment_info_block.environment_type = 0.0f;
       if (const auto environmental_map = target_scene->environment.environmental_map.Get<EnvironmentalMap>()) {
+        environmental_map->EnsureEnvironmentSource();
         if (const auto pdf_texture = environmental_map->environment_pdf_texture.Get<Texture2D>()) {
           environment_info_block.environment_pdf_texture_index =
               static_cast<float>(pdf_texture->GetTextureStorageIndex());
+        }
+        if (const auto cubemap = environmental_map->environment_cubemap.Get<Cubemap>()) {
+          environment_info_block.environment_cubemap_index = static_cast<float>(cubemap->GetTextureStorageIndex());
         }
       }
     } break;
@@ -1348,6 +1669,7 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
     } break;
   }
   environment_info_block.environmental_map_gamma = target_scene->environment.environment_gamma;
+  environment_info_block.environment_rotation = target_scene->environment.environment_rotation;
   environment_info_block.environmental_lighting_intensity = target_scene->environment.ambient_light_intensity;
   environment_info_block.background_intensity = target_scene->environment.background_intensity;
 }
@@ -1421,6 +1743,9 @@ RenderInstanceStorage::RenderInstanceStorage() {
       glm::max(static_cast<size_t>(1), sizeof(PreviousInstanceInfoBlock) * Platform::Constants::initial_instance_size);
   previous_instance_info_descriptor_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.size = sizeof(EmissiveTriangleInfoBlock);
+  emissive_triangle_info_descriptor_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   buffer_create_info.size = glm::max(static_cast<size_t>(1),
                                      sizeof(VkDrawIndexedIndirectCommand) * mesh_draw_indexed_indirect_commands.size());
@@ -1469,6 +1794,7 @@ void RenderInstanceStorage::Clear() {
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
+  total_strand_meshlets = 0;
   total_gaussian_splats = 0;
 
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
@@ -1518,7 +1844,7 @@ void RenderInstanceStorage::Clear() {
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
 }
 
-void RenderInstanceStorage::Upload() const {
+void RenderInstanceStorage::Upload() {
   if (!Platform::Initialized())
     return;
   camera_info_descriptor_buffer->UploadVector(camera_info_blocks_);
@@ -1526,6 +1852,10 @@ void RenderInstanceStorage::Upload() const {
   gltf_texture_info_descriptor_buffer->UploadVector(gltf_material_cache_.GetTextureInfos());
   instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
   previous_instance_info_descriptor_buffer->UploadVector(previous_instance_info_blocks_);
+  if (emissive_triangle_info_dirty_) {
+    emissive_triangle_info_descriptor_buffer->UploadVector(emissive_triangle_info_blocks_);
+    emissive_triangle_info_dirty_ = false;
+  }
   render_info_descriptor_buffer->Upload(render_info_block);
   directional_light_info_descriptor_buffer->UploadVector(directional_light_info_blocks_);
   point_light_info_descriptor_buffer->UploadVector(point_light_info_blocks_);
@@ -1725,6 +2055,15 @@ void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
     descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));
     descriptor_set->UpdateImageDescriptorBinding(3, resolve_image_info(material.emissive_texture, 3));
     descriptor_set->UpdateImageDescriptorBinding(4, resolve_image_info(material.occlusion_texture, 4));
+#if MAT_EXT_CLEARCOAT
+    descriptor_set->UpdateImageDescriptorBinding(5, resolve_image_info(material.clearcoat_texture, 5));
+    descriptor_set->UpdateImageDescriptorBinding(6, resolve_image_info(material.clearcoat_roughness_texture, 6));
+    descriptor_set->UpdateImageDescriptorBinding(7, resolve_image_info(material.clearcoat_normal_texture, 7));
+#else
+    descriptor_set->UpdateImageDescriptorBinding(5, fallback_image_infos[5]);
+    descriptor_set->UpdateImageDescriptorBinding(6, fallback_image_infos[6]);
+    descriptor_set->UpdateImageDescriptorBinding(7, fallback_image_infos[7]);
+#endif
   }
   raster_material_descriptor_texture_storage_version_ = current_texture_storage_version;
 }
@@ -1791,6 +2130,9 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
   if (GetGltfTextureInfos() != other.GetGltfTextureInfos())
     return true;
 
+  if (emissive_triangle_instance_signatures_ != other.emissive_triangle_instance_signatures_)
+    return true;
+
   for (uint32_t i = 0; i < camera_info_blocks_.size(); i++) {
     if (camera_info_blocks_[i] != other.camera_info_blocks_[i])
       return true;
@@ -1837,7 +2179,7 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, model.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -1879,7 +2221,8 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveInstancedCullModeForTransforms(material->draw_settings.cull_mode, model.value,
+                                                                     particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -1922,7 +2265,7 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(entity);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (out_material_index) {
@@ -1951,25 +2294,21 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;
     camera_info.second->UpdateCameraInfoBlock(camera_info_block, camera_info.first);
+    camera_info_block.shadow_split_distances =
+        render_settings.GetShadowCascadeSplitDistances(camera_info.second->camera_settings.near_distance);
     const auto index = RegisterCamera(camera_info.second->GetHandle(), camera_info_block);
   }
   CollectEntityRenderers(scene, world_bound);
   BuildRenderInstanceBlocks();
+  BuildEmissiveTriangleInfoBlocks();
   CollectLights(scene, world_bound);
 }
 
-void RenderInstanceStorage::UpdateTopLevelAccelerationStructure(const std::shared_ptr<Scene>& scene) {
-  mesh_top_level_acceleration_structure.reset();
-  if (!deferred_render_instances->Empty() || !deferred_instanced_render_instances->Empty() ||
-      !deferred_skinned_render_instances->Empty() || !forward_render_instances->Empty() ||
-      !forward_instanced_render_instances->Empty() || !forward_skinned_render_instances->Empty() ||
-      !transparent_render_instances->Empty() || !transparent_instanced_render_instances->Empty() ||
-      !transparent_skinned_render_instances->Empty() || external_render_instances->HasDdgiRayTracingGeometry()) {
-    auto acceleration_structure = std::make_shared<TopLevelAccelerationStructure>(scene, *this);
-    if (acceleration_structure->GetVkAccelerationStructure() != VK_NULL_HANDLE) {
-      mesh_top_level_acceleration_structure = acceleration_structure;
-    }
+void RenderInstanceStorage::UpdateTopLevelAccelerationStructure() {
+  if (!mesh_top_level_acceleration_structure) {
+    mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>();
   }
+  mesh_top_level_acceleration_structure->Update(*this);
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
@@ -1977,11 +2316,9 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                                            glm::vec3& min_bound, glm::vec3& max_bound) {
   auto material = strands_renderer->material.Get<Material>();
   auto strands = strands_renderer->strands.Get<Strands>();
-  if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
-      !strands->segment_range_)
+  if (!strands_renderer->IsEnabled() || !material || !strands) {
     return false;
-  if (strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0)
-    return false;
+  }
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = strands->bound_;
@@ -1993,6 +2330,11 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                         (glm::min)(min_bound.z, center.z - size.z));
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
+
+  if (!Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_ || !strands->segment_range_ ||
+      strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0) {
+    return false;
+  }
 
   const auto material_data = BuildMaterialGltfData(*material);
 
@@ -2011,7 +2353,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2021,6 +2363,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   }
 
   total_strands_segments += strands->segment_range_->prev_frame_index_count;
+  total_strand_meshlets += strands->strand_meshlet_range_->prev_frame_range;
   return true;
 }
 
@@ -2081,6 +2424,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = mesh->GetBound();
+  if (mesh_renderer->ray_tracing_blas_) {
+    mesh_bound.min = glm::min(mesh_bound.min, mesh_renderer->ray_tracing_bound_.min);
+    mesh_bound.max = glm::max(mesh_bound.max, mesh_renderer->ray_tracing_bound_.max);
+  }
   mesh_bound.ApplyTransform(ltw);
   glm::vec3 center = mesh_bound.Center();
 
@@ -2102,10 +2449,14 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cast_shadow = mesh_renderer->cast_shadow;
   render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
+  render_instance->ray_tracing_geometry_version = mesh_renderer->ray_tracing_geometry_version_;
+  render_instance->morph_weights_version = mesh_renderer->morph_weights_version_;
+  render_instance->ray_tracing_triangle_range = mesh_renderer->ray_tracing_triangle_range_;
+  render_instance->ray_tracing_blas = mesh_renderer->ray_tracing_blas_;
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2144,6 +2495,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   }
   auto ltw = gt.value;
   auto mesh_bound = skinned_mesh->GetBound();
+  if (skinned_mesh_renderer->ray_tracing_blas_) {
+    mesh_bound.min = glm::min(mesh_bound.min, skinned_mesh_renderer->ray_tracing_bound_.min);
+    mesh_bound.max = glm::max(mesh_bound.max, skinned_mesh_renderer->ray_tracing_bound_.max);
+  }
   mesh_bound.ApplyTransform(ltw);
   glm::vec3 center = mesh_bound.Center();
 
@@ -2168,6 +2523,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->bone_matrices_snapshot = skinned_mesh_renderer->bone_matrices->value;
   render_instance->geometry_version = skinned_mesh->GetVersion();
   render_instance->ray_tracing_geometry_version = skinned_mesh_renderer->ray_tracing_geometry_version_;
+  render_instance->morph_weights_version = skinned_mesh_renderer->morph_weights_version_;
   render_instance->ray_tracing_triangle_range = skinned_mesh_renderer->ray_tracing_triangle_range_;
   render_instance->ray_tracing_blas = skinned_mesh_renderer->ray_tracing_blas_;
   render_instance->material_version = material->GetVersion();
@@ -2175,7 +2531,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->bone_matrices_version = skinned_mesh_renderer->bone_matrices->GetVersion();
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
@@ -2232,7 +2588,8 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
   render_instance->entity_selected = target_scene->IsEntityAncestorSelected(owner);
   render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = material->draw_settings.cull_mode;
+  render_instance->cull_mode = ResolveInstancedCullModeForTransforms(material->draw_settings.cull_mode, gt.value,
+                                                                     particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
   if (UsesTransparentRasterPass(*material, material_data.shade_material)) {

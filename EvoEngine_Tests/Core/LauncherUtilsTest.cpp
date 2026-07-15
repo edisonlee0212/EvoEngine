@@ -291,6 +291,16 @@ TEST(LauncherUtils, ApplicationModeNamesAndArgumentsAreStable) {
   EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Headless), "--headless");
 }
 
+TEST(LauncherUtils, ShadowCascadeFitNamesExcludeLegacyStable) {
+  EXPECT_EQ(ParseShadowCascadeFitModeName("sphere"), RenderSettings::ShadowCascadeFitMode::StableSphere);
+  EXPECT_EQ(ParseShadowCascadeFitModeName("stable-sphere"), RenderSettings::ShadowCascadeFitMode::StableSphere);
+  EXPECT_EQ(ParseShadowCascadeFitModeName("tight"), RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb);
+  EXPECT_EQ(ParseShadowCascadeFitModeName("aabb"), RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb);
+  EXPECT_EQ(ParseShadowCascadeFitModeName("tight-aabb"), RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb);
+  EXPECT_THROW(ParseShadowCascadeFitModeName("legacy"), std::invalid_argument);
+  EXPECT_THROW(ParseShadowCascadeFitModeName("legacy-stable"), std::invalid_argument);
+}
+
 TEST(LauncherUtils, ValidatesProjectNamesAndCreatePaths) {
   TempLauncherDirectory temp;
   const launcher::PackageAvailability availability;

@@ -27,14 +27,22 @@ set(EVOENGINE_TEST_SOURCES
 	Core/Texture2DTest.cpp
 	Core/GltfMaterialLayoutTest.cpp
 	Core/GltfMaterialConversionTest.cpp
+	Core/GltfSceneFeaturesTest.cpp
 	Core/GltfRasterMaterialShaderTest.cpp
 	Core/GltfRayTracingMaterialShaderTest.cpp
+	Core/ShaderCacheTest.cpp
+	Core/VulkanPipelineCacheTest.cpp
+	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
+	Core/DirectionalShadowCascadeFitTest.cpp
+	Core/RayCameraHistoryTest.cpp
+	Core/PostProcessingRuntimeTest.cpp
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
+	Core/StrandsMeshShaderTest.cpp
 	Core/DdgiVolumeTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
@@ -164,6 +172,11 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GltfSceneFeatures.*
+	PROPERTIES LABELS "core,render,material,shader-variants"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER GltfRasterMaterial.*
 	PROPERTIES LABELS "core,render,material"
 	)
@@ -174,8 +187,28 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-	TEST_FILTER CameraRenderTechnique.*
+	TEST_FILTER ShaderCache.*
+	PROPERTIES LABELS "core,render,shader-cache"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER VulkanPipelineCache.*:RayCameraShaderVariantCache.*
+	PROPERTIES LABELS "core,render,pipeline-cache,shader-variants"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER GraphicsInitializationSettings.*:CameraRenderTechnique.*
 	PROPERTIES LABELS "core,render,camera"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER DirectionalShadowCascadeFit.*
+	PROPERTIES LABELS "core,render,shadow"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER RayCameraHistory.*:PostProcessingRuntime.*
+	PROPERTIES LABELS "core,render,camera,post-processing"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
@@ -194,6 +227,11 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER StaticBlasBuilder.*
+	PROPERTIES LABELS "core,render,ray-tracing"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER GpuService.*
 	PROPERTIES LABELS "render,gpu,jobs"
 	)
@@ -201,6 +239,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER RenderGraph.*
 	PROPERTIES LABELS "core,render"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER StrandsMeshShader.*
+	PROPERTIES LABELS "core,render,strands"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

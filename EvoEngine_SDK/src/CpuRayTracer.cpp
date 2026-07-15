@@ -759,9 +759,9 @@ void CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
                   glm::floatBitsToUint(scene_geometry_data[aggregate_scene_info.triangles_offset + triangle_index].y);
               const auto t_z =
                   glm::floatBitsToUint(scene_geometry_data[aggregate_scene_info.triangles_offset + triangle_index].z);
-              glm::vec3 p0 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_x * 5];
-              glm::vec3 p1 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_y * 5];
-              glm::vec3 p2 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_z * 5];
+              glm::vec3 p0 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_x * 7];
+              glm::vec3 p1 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_y * 7];
+              glm::vec3 p2 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_z * 7];
               if (p0 == p1 && p1 == p2)
                 continue;
               auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
@@ -1257,15 +1257,17 @@ CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {
 
   auto upload_vertices = [&](std::vector<glm::vec4>& destination, const std::vector<Vertex>& src) {
     std::vector<glm::vec4> gpu_vertices;
-    gpu_vertices.resize(src.size() * 5);
+    gpu_vertices.resize(src.size() * 7);
     Jobs::RunParallelFor(src.size(), [&](const auto i) {
       const auto& vertex = src[i];
-      gpu_vertices[i * 5] = glm::vec4(vertex.position.x, vertex.position.y, vertex.position.z, vertex.vertex_info1);
-      gpu_vertices[i * 5 + 1] = glm::vec4(vertex.normal.x, vertex.normal.y, vertex.normal.z, vertex.vertex_info2);
-      gpu_vertices[i * 5 + 2] = glm::vec4(vertex.tangent.x, vertex.tangent.y, vertex.tangent.z, vertex.vertex_info3);
-      gpu_vertices[i * 5 + 3] = vertex.color;
-      gpu_vertices[i * 5 + 4] =
+      gpu_vertices[i * 7] = glm::vec4(vertex.position.x, vertex.position.y, vertex.position.z, vertex.vertex_info1);
+      gpu_vertices[i * 7 + 1] = glm::vec4(vertex.normal.x, vertex.normal.y, vertex.normal.z, vertex.vertex_info2);
+      gpu_vertices[i * 7 + 2] = glm::vec4(vertex.tangent.x, vertex.tangent.y, vertex.tangent.z, vertex.vertex_info3);
+      gpu_vertices[i * 7 + 3] = vertex.color;
+      gpu_vertices[i * 7 + 4] =
           glm::vec4(vertex.tex_coord.x, vertex.tex_coord.y, vertex.vertex_info4.x, vertex.vertex_info4.y);
+      gpu_vertices[i * 7 + 5] = glm::vec4(vertex.tex_coord_1, vertex.tex_coord_2);
+      gpu_vertices[i * 7 + 6] = glm::vec4(vertex.tex_coord_3, vertex.padding);
     });
     const uint32_t offset = destination.size();
     destination.insert(destination.end(), gpu_vertices.begin(), gpu_vertices.end());

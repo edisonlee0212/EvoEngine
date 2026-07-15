@@ -33,16 +33,24 @@ void main() {
   vec3 normal =
       EE_EVALUATE_GLTF_RASTER_NORMAL(uint(instance.material_index), tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent);
 
-  vec3 world_normal = normalize((gl_FrontFacing ? 1.0 : -1.0) * normal);
+  float facing_sign = (gl_FrontFacing ? 1.0 : -1.0) * EE_TRANSFORM_HANDEDNESS(instance.model);
+  vec3 world_normal = normalize(facing_sign * normal);
   vec3 base_color = max(surface.base_color.rgb, vec3(0.0));
   float info_index = float(instance.info_index);
   if (fs_in.Color.a > 0.5f) {
     base_color = max(fs_in.Color.rgb, vec3(0.0));
     info_index = float(instance.info_index + 2);
   }
+  surface.specular_f0 =
+      EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint(instance.material_index), surface, base_color);
   outGBufferBaseColorAO = vec4(base_color, max(surface.occlusion, 0.0));
   outGBufferNormalRoughness = vec4(world_normal, surface.roughness);
-  outGBufferPbrFlags = vec4(surface.metallic, 0.0, 0.0, 0.0);
-  outGBufferEmissive = vec4(surface.emissive, 0.0);
+  outGBufferPbrFlags = vec4(surface.metallic, surface.specular_f0);
+  float encoded_specular_f90 = EE_GLTF_MATERIALS[instance.material_index].unlit != 0 ? -1.0 : surface.specular_f90;
+  vec3 view_direction = normalize(EE_CAMERA_POSITION(EE_CAMERA_INDEX) - fs_in.FragPos);
+  vec3 coated_emissive = EE_GLTF_RASTER_COATED_EMISSION(
+      uint(instance.material_index), surface, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, 1.0, facing_sign,
+      view_direction);
+  outGBufferEmissive = vec4(coated_emissive, encoded_specular_f90);
   outGBufferUtility = vec4(float(EE_INSTANCE_INDEX), info_index, float(instance.material_index), 0.0);
 }

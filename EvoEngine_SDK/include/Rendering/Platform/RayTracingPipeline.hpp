@@ -1,6 +1,7 @@
 
 #pragma once
 #include "GraphicsResources.hpp"
+#include "VulkanPipelineCache.hpp"
 
 namespace evo_engine {
 
@@ -28,6 +29,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    */
   VkPipeline vk_ray_tracing_pipeline_ = VK_NULL_HANDLE;
 
+  PipelineCreationFeedback creation_feedback_{};
+
   /**
    * @brief Shader binding tables for ray generation, miss, and closest-hit shaders.
    */
@@ -39,6 +42,10 @@ class RayTracingPipeline final : public IGraphicsResource {
    * @brief Aligned size of the shader binding table handles.
    */
   uint32_t handle_size_aligned_ = 0;
+
+  uint32_t max_recursion_depth_ = 8;
+
+  void ReleaseResources();
 
  public:
   /**
@@ -67,6 +74,17 @@ class RayTracingPipeline final : public IGraphicsResource {
   std::shared_ptr<Shader> callable_shader;      ///< Callable shader.
 
   /**
+   * @brief Sets the maximum ray recursion depth requested during pipeline creation.
+   * @param depth A non-zero depth supported by the selected physical device.
+   */
+  void SetMaxRecursionDepth(uint32_t depth);
+
+  /**
+   * @brief Checks a requested recursion depth against a physical-device limit.
+   */
+  [[nodiscard]] static bool IsRecursionDepthSupported(uint32_t requested_depth, uint32_t device_limit);
+
+  /**
    * @brief Initializes the RayTracingPipeline.
    */
   void Initialize();
@@ -76,6 +94,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    * @return true if the pipeline is initialized, otherwise false.
    */
   [[nodiscard]] bool Initialized() const;
+
+  [[nodiscard]] const PipelineCreationFeedback& GetCreationFeedback() const;
 
   /**
    * @brief Binds the ray tracing pipeline to the given command buffer.

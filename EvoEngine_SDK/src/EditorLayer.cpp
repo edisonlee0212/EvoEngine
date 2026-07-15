@@ -982,6 +982,8 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
   out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << settings.firefly_clamp_enabled;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
+  out << YAML::Key << "emissive_triangle_nee_enabled" << YAML::Value << settings.emissive_triangle_nee_enabled;
+  out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << settings.auto_spp_max_samples;
@@ -1004,6 +1006,10 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "gamma", settings.gamma);
   ReadYamlValue(in, "firefly_clamp_enabled", settings.firefly_clamp_enabled);
   ReadYamlValue(in, "firefly_clamp_threshold", settings.firefly_clamp_threshold);
+  ReadYamlValue(in, "emissive_triangle_nee_enabled", settings.emissive_triangle_nee_enabled);
+  if (const auto view = in["ray_debug_view"]) {
+    settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
+  }
   ReadYamlValue(in, "auto_spp_enabled", settings.auto_spp_enabled);
   ReadYamlValue(in, "auto_spp_min_samples", settings.auto_spp_min_samples);
   ReadYamlValue(in, "auto_spp_max_samples", settings.auto_spp_max_samples);
@@ -4369,6 +4375,7 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.x = static_cast<int32_t>(point.x);
     image_copy.imageOffset.y = static_cast<int32_t>(point.y);
     image_copy.imageOffset.z = 0;
+    Platform::WaitForFrameSubmissions("Entity Picking Readback Fence Wait");
     entity_index_read_buffer_->CopyFromImage(*g_buffer_utility, image_copy);
     float val = -1;
     switch (Platform::Constants::g_buffer_utility) {

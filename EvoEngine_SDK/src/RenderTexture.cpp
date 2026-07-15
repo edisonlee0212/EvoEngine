@@ -6,6 +6,9 @@
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 
+#include <algorithm>
+#include <cctype>
+
 using namespace evo_engine;
 
 void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_create_info, uint32_t mip_levels) {
@@ -235,6 +238,9 @@ void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
 RenderTexture::RenderTexture(const RenderTextureCreateInfo& render_texture_create_info) {
   Initialize(render_texture_create_info);
 }
+RenderTexture::RenderTexture(const RenderTextureCreateInfo& render_texture_create_info, const uint32_t mip_levels) {
+  Initialize(render_texture_create_info, mip_levels);
+}
 void RenderTexture::Resize(const VkExtent3D extent, const uint32_t mip_level) {
   if (extent.width == extent_.width && extent.height == extent_.height && extent.depth == extent_.depth)
     return;
@@ -285,6 +291,14 @@ VkExtent3D RenderTexture::GetExtent() const {
 
 VkImageViewType RenderTexture::GetImageViewType() const {
   return image_view_type_;
+}
+
+bool RenderTexture::HasColorAttachment() const {
+  return color_;
+}
+
+bool RenderTexture::HasDepthAttachment() const {
+  return depth_;
 }
 
 uint32_t RenderTexture::GetMipLevels() const {
@@ -387,11 +401,15 @@ void RenderTexture::ApplyGraphicsPipelineStates(GraphicsPipelineStates& global_p
 }
 
 bool RenderTexture::Save(const std::filesystem::path& path) const {
-  if (path.extension() == ".png") {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  if (extension == ".png") {
     StoreToPng(path.string());
-  } else if (path.extension() == ".jpg") {
+  } else if (extension == ".jpg" || extension == ".jpeg") {
     StoreToJpg(path.string());
-  } else if (path.extension() == ".hdr") {
+  } else if (extension == ".hdr") {
     StoreToHdr(path.string());
   } else {
     EVOENGINE_ERROR("Not implemented!");
@@ -402,6 +420,7 @@ bool RenderTexture::Save(const std::filesystem::path& path) const {
 
 void RenderTexture::GetRgbaChannelData(std::vector<glm::vec4>& dst) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   dst.resize(resolution_x * resolution_y);
@@ -452,6 +471,7 @@ void RenderTexture::StoreLinearDepthToPng(const std::filesystem::path& path, flo
                                           float max_depth, int resize_x, int resize_y,
                                           unsigned compression_level) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   stbi_write_png_compression_level = compression_level;
   const auto resolution_x = depth_image_->GetExtent().width;
   const auto resolution_y = depth_image_->GetExtent().height;
@@ -502,6 +522,7 @@ void RenderTexture::StoreLinearDepthToPng(const std::filesystem::path& path, flo
 
 void RenderTexture::StoreToJpg(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   std::vector<float> dst;
@@ -545,6 +566,7 @@ void RenderTexture::StoreToJpg(const std::filesystem::path& path, int resize_x, 
 
 void RenderTexture::StoreToHdr(const std::filesystem::path& path, int resize_x, int resize_y, unsigned quality) const {
   assert(color_);
+  Platform::WaitForFrameSubmissions("Render Texture Readback Fence Wait");
   const auto resolution_x = color_image_->GetExtent().width;
   const auto resolution_y = color_image_->GetExtent().height;
   const size_t channels = 4;
@@ -561,7 +583,7 @@ void RenderTexture::StoreToHdr(const std::filesystem::path& path, int resize_x, 
     pixels.resize(resize_x * resize_y * channels);
     stbir_resize_float_linear(dst.data(), resolution_x, resolution_y, 0, pixels.data(), resize_x, resize_y, 0,
                               static_cast<stbir_pixel_layout>(channels));
-    stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, pixels.data());
+    stbi_write_hdr(path.string().c_str(), resize_x, resize_y, channels, pixels.data());
   } else {
     stbi_write_hdr(path.string().c_str(), resolution_x, resolution_y, channels, dst.data());
   }

@@ -53,13 +53,12 @@ void Strands::PrepareStrands(const StrandPointAttributes& strand_point_attribute
   });
 
 #pragma region Bound
-  glm::vec3 min_bound = strand_points_.at(0).position;
-  glm::vec3 max_bound = strand_points_.at(0).position;
-  for (auto& vertex : strand_points_) {
-    min_bound = glm::vec3((glm::min)(min_bound.x, vertex.position.x), (glm::min)(min_bound.y, vertex.position.y),
-                          (glm::min)(min_bound.z, vertex.position.z));
-    max_bound = glm::vec3((glm::max)(max_bound.x, vertex.position.x), (glm::max)(max_bound.y, vertex.position.y),
-                          (glm::max)(max_bound.z, vertex.position.z));
+  glm::vec3 min_bound = glm::vec3(FLT_MAX);
+  glm::vec3 max_bound = glm::vec3(-FLT_MAX);
+  for (const auto& vertex : strand_points_) {
+    const glm::vec3 radius = glm::vec3(glm::abs(vertex.thickness));
+    min_bound = glm::min(min_bound, vertex.position - radius);
+    max_bound = glm::max(max_bound, vertex.position + radius);
   }
   bound_.max = max_bound;
   bound_.min = min_bound;
@@ -68,9 +67,12 @@ void Strands::PrepareStrands(const StrandPointAttributes& strand_point_attribute
   if (!strand_point_attributes_.normal)
     RecalculateNormal();
   strand_point_attributes_.normal = true;
-  if (version_ != 0)
+  if (version_ != 0) {
     GeometryStorage::FreeStrands(GetHandle());
-  GeometryStorage::AllocateStrands(GetHandle(), strand_points_, segments_, strand_meshlet_range_, segment_range_);
+  }
+  if (Platform::Initialized() && Platform::MeshShaderEnabled()) {
+    GeometryStorage::AllocateStrands(GetHandle(), strand_points_, segments_, strand_meshlet_range_, segment_range_);
+  }
   version_++;
   saved_ = false;
 }
@@ -459,13 +461,4 @@ void Strands::RecalculateNormal() {
                        strand_points_[indices[2]].position, strand_points_[indices[3]].position, temp, tangent, 1.0f);
     strand_points_[indices[3]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[2]].normal), tangent);
   }
-}
-
-void Strands::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
-                          const int instances_count) const {
-  if (instances_count == 0)
-    return;
-  global_pipeline_state.ApplyAllStates(vk_command_buffer);
-  Platform::DrawIndexed(vk_command_buffer, segment_range_->prev_frame_index_count * 4, instances_count,
-                        segment_range_->prev_frame_offset * 4);
 }

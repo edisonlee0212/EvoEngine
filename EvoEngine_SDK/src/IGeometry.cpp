@@ -5,7 +5,6 @@ const std::vector<VkVertexInputBindingDescription>& IGeometry::GetVertexBindingD
     const GeometryType geometry_type) {
   static std::vector<VkVertexInputBindingDescription> mesh{};
   static std::vector<VkVertexInputBindingDescription> skinned_mesh{};
-  static std::vector<VkVertexInputBindingDescription> strands{};
   if (mesh.empty()) {
     mesh.resize(1);
     mesh[0].binding = 0;
@@ -18,19 +17,11 @@ const std::vector<VkVertexInputBindingDescription>& IGeometry::GetVertexBindingD
     skinned_mesh[0].stride = sizeof(SkinnedVertex);
     skinned_mesh[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
   }
-  if (strands.empty()) {
-    strands.resize(1);
-    strands[0].binding = 0;
-    strands[0].stride = sizeof(StrandPoint);
-    strands[0].inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-  }
   switch (geometry_type) {
     case GeometryType::Mesh:
       return mesh;
     case GeometryType::SkinnedMesh:
       return skinned_mesh;
-    case GeometryType::Strands:
-      return strands;
   }
   throw std::runtime_error("Unhandled geometry type!");
 }
@@ -39,9 +30,8 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     const GeometryType geometry_type) {
   static std::vector<VkVertexInputAttributeDescription> mesh{};
   static std::vector<VkVertexInputAttributeDescription> skinned_mesh{};
-  static std::vector<VkVertexInputAttributeDescription> strands{};
   if (mesh.empty()) {
-    mesh.resize(6);
+    mesh.resize(9);
     mesh[0].binding = 0;
     mesh[0].location = 0;
     mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -71,10 +61,25 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     mesh[5].location = 9;
     mesh[5].format = VK_FORMAT_R32_SFLOAT;
     mesh[5].offset = offsetof(Vertex, vertex_info3);
+
+    mesh[6].binding = 0;
+    mesh[6].location = 10;
+    mesh[6].format = VK_FORMAT_R32G32_SFLOAT;
+    mesh[6].offset = offsetof(Vertex, tex_coord_1);
+
+    mesh[7].binding = 0;
+    mesh[7].location = 11;
+    mesh[7].format = VK_FORMAT_R32G32_SFLOAT;
+    mesh[7].offset = offsetof(Vertex, tex_coord_2);
+
+    mesh[8].binding = 0;
+    mesh[8].location = 12;
+    mesh[8].format = VK_FORMAT_R32G32_SFLOAT;
+    mesh[8].offset = offsetof(Vertex, tex_coord_3);
   }
 
   if (skinned_mesh.empty()) {
-    skinned_mesh.resize(10);
+    skinned_mesh.resize(13);
     skinned_mesh[0].binding = 0;
     skinned_mesh[0].location = 0;
     skinned_mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -124,42 +129,28 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     skinned_mesh[9].location = 9;
     skinned_mesh[9].format = VK_FORMAT_R32_SFLOAT;
     skinned_mesh[9].offset = offsetof(SkinnedVertex, vertex_info3);
+
+    skinned_mesh[10].binding = 0;
+    skinned_mesh[10].location = 10;
+    skinned_mesh[10].format = VK_FORMAT_R32G32_SFLOAT;
+    skinned_mesh[10].offset = offsetof(SkinnedVertex, tex_coord_1);
+
+    skinned_mesh[11].binding = 0;
+    skinned_mesh[11].location = 11;
+    skinned_mesh[11].format = VK_FORMAT_R32G32_SFLOAT;
+    skinned_mesh[11].offset = offsetof(SkinnedVertex, tex_coord_2);
+
+    skinned_mesh[12].binding = 0;
+    skinned_mesh[12].location = 12;
+    skinned_mesh[12].format = VK_FORMAT_R32G32_SFLOAT;
+    skinned_mesh[12].offset = offsetof(SkinnedVertex, tex_coord_3);
   }
 
-  if (strands.empty()) {
-    strands.resize(5);
-    strands[0].binding = 0;
-    strands[0].location = 0;
-    strands[0].format = VK_FORMAT_R32G32B32_SFLOAT;
-    strands[0].offset = offsetof(StrandPoint, position);
-
-    strands[1].binding = 0;
-    strands[1].location = 1;
-    strands[1].format = VK_FORMAT_R32_SFLOAT;
-    strands[1].offset = offsetof(StrandPoint, thickness);
-
-    strands[2].binding = 0;
-    strands[2].location = 2;
-    strands[2].format = VK_FORMAT_R32G32B32_SFLOAT;
-    strands[2].offset = offsetof(StrandPoint, normal);
-
-    strands[3].binding = 0;
-    strands[3].location = 3;
-    strands[3].format = VK_FORMAT_R32_SFLOAT;
-    strands[3].offset = offsetof(StrandPoint, tex_coord);
-
-    strands[4].binding = 0;
-    strands[4].location = 4;
-    strands[4].format = VK_FORMAT_R32G32B32A32_SFLOAT;
-    strands[4].offset = offsetof(StrandPoint, color);
-  }
   switch (geometry_type) {
     case GeometryType::Mesh:
       return mesh;
     case GeometryType::SkinnedMesh:
       return skinned_mesh;
-    case GeometryType::Strands:
-      return strands;
   }
   throw std::runtime_error("Unhandled geometry type!");
 }

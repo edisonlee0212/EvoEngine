@@ -14,6 +14,7 @@ struct DirectionalLightInfoBlock {
   glm::vec4 specular;               /**< The specular color of the light. */
   glm::mat4 light_space_matrix[4];  /**< The light space transformation matrices. */
   glm::vec4 light_frustum_width;    /**< The width of the frustum for the light. */
+  glm::vec4 light_frustum_height;   /**< The height of the frustum for the light. */
   glm::vec4 light_frustum_distance; /**< The distance of the frustum for the light. */
   glm::vec4 reserved_parameters;    /**< Reserved parameters. */
   glm::ivec4 viewport;              /**< Viewport information for the light. */
@@ -32,13 +33,13 @@ struct DirectionalLightInfoBlock {
  */
 class DirectionalLight : public IPrivateComponent {
  public:
-  bool cast_shadow = true;             /**< Whether the light casts shadows. */
-  glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
-  float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
-  float bias = 0.001f;                 /**< Bias for shadow mapping to reduce artifacts. */
-  float slope_bias = 0.001f;           /**< Additional shadow bias applied at grazing light angles. */
-  float normal_offset = 0.01f;         /**< Offset added to the surface normal for shadow calculations. */
-  float light_size = 0.001f;           /**< Size of the light source. */
+  bool cast_shadow;         /**< Whether the light casts shadows. */
+  glm::vec3 diffuse;        /**< Diffuse color of the light. */
+  float diffuse_brightness; /**< Brightness factor for diffuse lighting. */
+  float bias;               /**< Constant directional shadow bias in shadow texels. */
+  float slope_bias;         /**< Additional directional shadow bias in texels at grazing angles. */
+  float normal_offset;      /**< Directional receiver normal offset in shadow texels. */
+  float light_size;         /**< Size of the light source. */
 
   /**
    * @brief Called when the component is created.
@@ -79,16 +80,16 @@ struct PointLightInfoBlock {
  */
 class PointLight : public IPrivateComponent {
  public:
-  bool cast_shadow = true;             /**< Whether the light casts shadows. */
-  float constant = 1.0f;               /**< Constant attenuation factor. */
-  float linear = 0.07f;                /**< Linear attenuation factor. */
-  float quadratic = 0.0015f;           /**< Quadratic attenuation factor. */
-  float bias = 0.002f;                 /**< Bias for shadow mapping to reduce artifacts. */
-  glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
-  float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
-  float light_size = 0.01f;            /**< Size of the light source. */
-  float range = 0.0f;                  /**< Explicit light range. A non-positive value derives the range. */
-  float shadow_distance = 400.f;       /**< Maximum shadow draw distance. */
+  bool cast_shadow;         /**< Whether the light casts shadows. */
+  float constant;           /**< Constant attenuation factor. */
+  float linear;             /**< Linear attenuation factor. */
+  float quadratic;          /**< Quadratic attenuation factor. */
+  float bias;               /**< Bias for shadow mapping to reduce artifacts. */
+  glm::vec3 diffuse;        /**< Diffuse color of the light. */
+  float diffuse_brightness; /**< Brightness factor for diffuse lighting. */
+  float light_size;         /**< Size of the light source. */
+  float range;              /**< Explicit light range. A non-positive value derives the range. */
+  float shadow_distance;    /**< Maximum shadow draw distance. */
 
   /**
    * @brief Called when the component is created.
@@ -136,18 +137,18 @@ struct SpotLightInfoBlock {
  */
 class SpotLight : public IPrivateComponent {
  public:
-  bool cast_shadow = true;             /**< Whether the light casts shadows. */
-  float inner_degrees = 20;            /**< Inner cutoff angle in degrees. */
-  float outer_degrees = 30;            /**< Outer cutoff angle in degrees. */
-  float constant = 1.0f;               /**< Constant attenuation factor. */
-  float linear = 0.07f;                /**< Linear attenuation factor. */
-  float quadratic = 0.0015f;           /**< Quadratic attenuation factor. */
-  float bias = 0.002f;                 /**< Bias for shadow mapping to reduce artifacts. */
-  glm::vec3 diffuse = glm::vec3(1.0f); /**< Diffuse color of the light. */
-  float diffuse_brightness = 3.f;      /**< Brightness factor for diffuse lighting. */
-  float light_size = 0.01f;            /**< Size of the light source. */
-  float range = 0.0f;                  /**< Explicit light range. A non-positive value derives the range. */
-  float shadow_distance = 400.f;       /**< Maximum shadow draw distance. */
+  bool cast_shadow;         /**< Whether the light casts shadows. */
+  float inner_degrees;      /**< Inner cutoff angle in degrees. */
+  float outer_degrees;      /**< Outer cutoff angle in degrees. */
+  float constant;           /**< Constant attenuation factor. */
+  float linear;             /**< Linear attenuation factor. */
+  float quadratic;          /**< Quadratic attenuation factor. */
+  float bias;               /**< Bias for shadow mapping to reduce artifacts. */
+  glm::vec3 diffuse;        /**< Diffuse color of the light. */
+  float diffuse_brightness; /**< Brightness factor for diffuse lighting. */
+  float light_size;         /**< Size of the light source. */
+  float range;              /**< Explicit light range. A non-positive value derives the range. */
+  float shadow_distance;    /**< Maximum shadow draw distance. */
 
   /**
    * @brief Called when the component is created.
@@ -187,6 +188,7 @@ class Lighting {
   std::shared_ptr<Image> spot_light_shadow_map_ = {};           /**< Shadow map for spotlights. */
   std::shared_ptr<ImageView> spot_light_shadow_map_view_ = {};  /**< View for spotlight shadow map. */
   std::shared_ptr<Sampler> spot_light_shadow_map_sampler_ = {}; /**< Sampler for spotlight shadow map. */
+  std::vector<std::shared_ptr<DescriptorSet>> lighting_descriptor_sets_;
   friend class RenderLayer;
 
   /**
@@ -200,9 +202,6 @@ class Lighting {
                       std::vector<glm::uvec3>& results);
 
  public:
-  std::shared_ptr<DescriptorSet> lighting_descriptor_set =
-      VK_NULL_HANDLE; /**< Descriptor set for lighting resources. */
-
   /**
    * @brief Allocates square viewport regions inside one shadow-map layer.
    * @param size Number of requested shadow-casting lights.
@@ -210,6 +209,12 @@ class Lighting {
    * @param results Output viewport origins and sizes.
    */
   static void AllocateAtlas(uint32_t size, uint32_t max_resolution, std::vector<glm::uvec3>& results);
+
+  /**
+   * @brief Returns the comparison sampler configuration used by directional shadow maps.
+   * @return Vulkan sampler creation information.
+   */
+  [[nodiscard]] static VkSamplerCreateInfo GetDirectionalShadowSamplerCreateInfo();
 
   /**
    * @brief Default constructor for Lighting.

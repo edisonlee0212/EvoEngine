@@ -1,13 +1,13 @@
 #include "Camera.hpp"
 #include <algorithm>
 #include <cctype>
-#include <unordered_map>
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
+#include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "Serialization.hpp"
@@ -15,15 +15,33 @@
 using namespace evo_engine;
 
 namespace {
-std::unordered_map<uint64_t, glm::mat4> previous_camera_projection_views;
-std::unordered_map<uint64_t, glm::mat4> previous_camera_unjittered_projection_views;
-struct CameraJitterState {
-  glm::vec2 current = {};
-  glm::vec2 previous = {};
-  uint32_t frame_index = 0;
-  bool taa_enabled = false;
-};
-std::unordered_map<uint64_t, CameraJitterState> camera_jitter_states;
+bool SameExtent(const VkExtent3D left, const VkExtent3D right) {
+  return left.width == right.width && left.height == right.height && left.depth == right.depth;
+}
+
+std::shared_ptr<Image> CreateRayCameraHistoryImage(const VkExtent3D extent) {
+  VkImageCreateInfo image_info{};
+  image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+  image_info.imageType = VK_IMAGE_TYPE_2D;
+  image_info.extent = extent;
+  image_info.mipLevels = 1;
+  image_info.arrayLayers = 1;
+  image_info.format = Platform::Constants::render_texture_color;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+  image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+  image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  return std::make_shared<Image>(image_info);
+}
+
+bool HasRayCameraHistory(const RayCameraHistoryResources& history) {
+  return history.radiance_image && history.radiance_view && history.convergence_image && history.convergence_view;
+}
+
+uint64_t RayCameraHistoryByteSize(const VkExtent3D extent) {
+  return static_cast<uint64_t>(extent.width) * extent.height * extent.depth * sizeof(glm::vec4) * 2u;
+}
 
 float Halton(uint32_t index, const uint32_t base) {
   float result = 0.0f;
@@ -39,7 +57,7 @@ float Halton(uint32_t index, const uint32_t base) {
 std::string NormalizeRenderModeName(std::string value) {
   value.erase(std::remove_if(value.begin(), value.end(),
                              [](const char character) {
-                               return character == '-' || character == '_' ||
+                               return character == '-' || character == '_' || character == '/' ||
                                       std::isspace(static_cast<unsigned char>(character));
                              }),
               value.end());
@@ -160,6 +178,57 @@ const char* Camera::GetShaderExecutionReorderingModeName(const CameraSettings::S
   return GetShaderExecutionReorderingModeNames()[index].c_str();
 }
 
+const std::vector<std::string>& Camera::GetRayDebugViewNames() {
+  static const std::vector<std::string> view_names{
+      "Beauty",          "Material ID",        "Base Color",      "Geometric Normal",  "Shading Normal", "Roughness",
+      "Metallic",        "Specular F0",        "Alpha/Coverage",  "Transmission",      "Iridescence",    "Emission",
+      "Direct Punctual", "Direct Environment", "Direct Emissive", "Indirect Radiance", "Path Depth",     "BSDF PDF",
+      "Light PDF",       "Emissive PDF"};
+  return view_names;
+}
+
+const char* Camera::GetRayDebugViewName(const CameraSettings::RayDebugView view) {
+  const auto index = static_cast<uint32_t>(NormalizeRayDebugView(static_cast<uint32_t>(view)));
+  return GetRayDebugViewNames()[index].c_str();
+}
+
+CameraSettings::RayDebugView Camera::ParseRayDebugView(const std::string& value,
+                                                       const CameraSettings::RayDebugView fallback) {
+  const auto normalized = NormalizeRenderModeName(value);
+  static const std::vector<std::string> names{
+      "beauty",           "materialid", "basecolor",      "geometricnormal",   "shadingnormal",
+      "roughness",        "metallic",   "specularf0",     "alphacoverage",     "transmission",
+      "iridescence",      "emission",   "directpunctual", "directenvironment", "directemissive",
+      "indirectradiance", "pathdepth",  "bsdfpdf",        "lightpdf",          "emissivepdf"};
+  for (uint32_t index = 0; index < kRayDebugViewCount; ++index) {
+    if (normalized == std::to_string(index)) {
+      return static_cast<CameraSettings::RayDebugView>(index);
+    }
+  }
+  const auto match = std::find(names.begin(), names.end(), normalized);
+  if (match != names.end()) {
+    return static_cast<CameraSettings::RayDebugView>(std::distance(names.begin(), match));
+  }
+  if (normalized == "none" || normalized == "off" || normalized == "disabled") {
+    return CameraSettings::RayDebugView::Beauty;
+  }
+  if (normalized == "material") {
+    return CameraSettings::RayDebugView::MaterialId;
+  }
+  if (normalized == "alpha" || normalized == "opacity" || normalized == "coverage") {
+    return CameraSettings::RayDebugView::AlphaCoverage;
+  }
+  if (normalized == "f0") {
+    return CameraSettings::RayDebugView::SpecularF0;
+  }
+  return fallback;
+}
+
+CameraSettings::RayDebugView Camera::NormalizeRayDebugView(const uint32_t view) {
+  return view < kRayDebugViewCount ? static_cast<CameraSettings::RayDebugView>(view)
+                                   : CameraSettings::RayDebugView::Beauty;
+}
+
 CameraSettings::ShaderExecutionReorderingMode Camera::ParseShaderExecutionReorderingMode(
     const std::string& value, const CameraSettings::ShaderExecutionReorderingMode fallback) {
   const auto normalized = NormalizeRenderModeName(value);
@@ -219,7 +288,7 @@ bool Camera::IsRayCameraRenderMode(const CameraRenderMode mode) {
 Camera::CameraRenderMode Camera::ResolveCameraRenderMode(const CameraRenderMode requested_mode) {
   auto fallback_mode = requested_mode;
   if (requested_mode == CameraRenderMode::RayTracing && !Platform::RayTracingEnabled()) {
-    fallback_mode = CameraRenderMode::Rasterization;
+    fallback_mode = Platform::RayQueryEnabled() ? CameraRenderMode::RayQuery : CameraRenderMode::Rasterization;
   } else if (requested_mode == CameraRenderMode::RayQuery && !Platform::RayQueryEnabled()) {
     fallback_mode = Platform::RayTracingEnabled() ? CameraRenderMode::RayTracing : CameraRenderMode::Rasterization;
   }
@@ -272,6 +341,10 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (firefly_clamp_threshold != other.firefly_clamp_threshold)
     return true;
+  if (emissive_triangle_nee_enabled != other.emissive_triangle_nee_enabled)
+    return true;
+  if (ray_debug_view != other.ray_debug_view)
+    return true;
   if (auto_spp_enabled != other.auto_spp_enabled)
     return true;
   if (auto_spp_min_samples != other.auto_spp_min_samples)
@@ -279,6 +352,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
   if (auto_spp_max_samples != other.auto_spp_max_samples)
     return true;
   if (auto_spp_convergence_threshold != other.auto_spp_convergence_threshold)
+    return true;
+  if (shadow_split_distances != other.shadow_split_distances)
     return true;
   return false;
 }
@@ -362,26 +437,32 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   const auto unjittered_projection = glm::perspective(glm::radians(camera_settings.fov * 0.5f), ratio,
                                                       camera_settings.near_distance, camera_settings.far_distance);
   camera_info_block.projection = unjittered_projection;
-  auto& jitter_state = camera_jitter_states[GetHandle().GetValue()];
-  const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
-  const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
-                           post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
-                           post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
-  if (jitter_state.taa_enabled != taa_enabled) {
-    jitter_state = {};
-    jitter_state.taa_enabled = taa_enabled;
-  }
-  jitter_state.previous = jitter_state.current;
-  jitter_state.current = {};
-  if (taa_enabled && size_.x != 0 && size_.y != 0) {
-    const uint32_t sequence_index = jitter_state.frame_index % 16u + 1u;
-    jitter_state.current = glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
-    jitter_state.current *= 2.0f / glm::vec2(size_);
-    camera_info_block.projection[2][0] += jitter_state.current.x;
-    camera_info_block.projection[2][1] += jitter_state.current.y;
-    ++jitter_state.frame_index;
-  } else {
-    jitter_state.frame_index = 0;
+  PostProcessingCameraResources* post_processing_resources = nullptr;
+  if (require_rendering_) {
+    const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
+    post_processing_resources = &AcquirePostProcessingResources(post_processing_stack);
+    const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
+                             post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
+                             post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
+    if (post_processing_resources->jitter_taa_enabled != taa_enabled) {
+      post_processing_resources->current_jitter = {};
+      post_processing_resources->previous_jitter = {};
+      post_processing_resources->jitter_frame_index = 0;
+      post_processing_resources->jitter_taa_enabled = taa_enabled;
+    }
+    post_processing_resources->previous_jitter = post_processing_resources->current_jitter;
+    post_processing_resources->current_jitter = {};
+    if (taa_enabled && size_.x != 0 && size_.y != 0) {
+      const uint32_t sequence_index = post_processing_resources->jitter_frame_index % 16u + 1u;
+      post_processing_resources->current_jitter =
+          glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
+      post_processing_resources->current_jitter *= 2.0f / glm::vec2(size_);
+      camera_info_block.projection[2][0] += post_processing_resources->current_jitter.x;
+      camera_info_block.projection[2][1] += post_processing_resources->current_jitter.y;
+      ++post_processing_resources->jitter_frame_index;
+    } else {
+      post_processing_resources->jitter_frame_index = 0;
+    }
   }
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
@@ -389,21 +470,24 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.inverse_projection = glm::inverse(camera_info_block.projection);
   camera_info_block.inverse_view = glm::inverse(camera_info_block.view);
   camera_info_block.inverse_projection_view = glm::inverse(camera_info_block.projection * camera_info_block.view);
-  const auto camera_handle = GetHandle().GetValue();
-  const auto previous_projection_view = previous_camera_projection_views.find(camera_handle);
-  camera_info_block.previous_projection_view = previous_projection_view == previous_camera_projection_views.end()
-                                                   ? camera_info_block.projection_view
-                                                   : previous_projection_view->second;
-  previous_camera_projection_views[camera_handle] = camera_info_block.projection_view;
-  const auto previous_unjittered_projection_view = previous_camera_unjittered_projection_views.find(camera_handle);
+  camera_info_block.previous_projection_view =
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_projection_view
+          : camera_info_block.projection_view;
   camera_info_block.previous_unjittered_projection_view =
-      previous_unjittered_projection_view == previous_camera_unjittered_projection_views.end()
-          ? camera_info_block.unjittered_projection_view
-          : previous_unjittered_projection_view->second;
-  previous_camera_unjittered_projection_views[camera_handle] = camera_info_block.unjittered_projection_view;
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_unjittered_projection_view
+          : camera_info_block.unjittered_projection_view;
+  if (post_processing_resources) {
+    post_processing_resources->previous_projection_view = camera_info_block.projection_view;
+    post_processing_resources->previous_unjittered_projection_view = camera_info_block.unjittered_projection_view;
+    post_processing_resources->previous_matrices_valid = true;
+  }
   camera_info_block.clear_color =
       glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
-  camera_info_block.jitter = glm::vec4(jitter_state.current, jitter_state.previous);
+  camera_info_block.jitter = post_processing_resources ? glm::vec4(post_processing_resources->current_jitter,
+                                                                   post_processing_resources->previous_jitter)
+                                                       : glm::vec4(0.0f);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;
@@ -445,6 +529,9 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.gamma = camera_settings.gamma;
   camera_info_block.firefly_clamp_enabled = camera_settings.firefly_clamp_enabled ? 1u : 0u;
   camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
+  camera_info_block.emissive_triangle_nee_enabled = camera_settings.emissive_triangle_nee_enabled ? 1u : 0u;
+  camera_info_block.ray_debug_view =
+      static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
   const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
   const auto auto_spp_max_samples =
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
@@ -500,8 +587,14 @@ void Camera::Resize(const glm::uvec2& size) {
     return;
   if (size_ == size)
     return;
+  if (render_texture_) {
+    Platform::WaitForFrameSubmissions("Required Camera Resize Fence Wait");
+  }
+  ReleaseRayCameraHistory();
   size_ = size;
-  ResetFrameCount();
+  frame_count_ = 0;
+  ++temporal_history_version_;
+  InvalidateRayCameraHistory();
   if (render_texture_) {
     render_texture_->Resize({size_.x, size_.y, 1});
     UpdateGBuffer();
@@ -509,6 +602,10 @@ void Camera::Resize(const glm::uvec2& size) {
 }
 
 void Camera::OnCreate() {
+  ray_camera_history_ = {};
+  ray_camera_history_counters_ = {};
+  ray_camera_history_owner_alive_ = true;
+  post_processing_resources_.reset();
   size_ = glm::uvec2(1, 1);
   frame_count_ = 0;
   camera_settings = {};
@@ -584,7 +681,7 @@ void Camera::CalculateFrustumPoints(const std::shared_ptr<Camera>& camera_compon
   const glm::vec3 near_center = front * near_plane;
   const glm::vec3 far_center = front * far_plane;
 
-  const float e = tanf(glm::radians(camera_component->camera_settings.fov * 0.5f));
+  const float e = tanf(glm::radians(camera_component->camera_settings.fov * 0.25f));
   const float near_ext_y = e * near_plane;
   const float near_ext_x = near_ext_y * camera_component->GetSizeRatio();
   const float far_ext_y = e * far_plane;
@@ -674,8 +771,21 @@ Ray Camera::ScreenPointToRay(GlobalTransform& ltw, glm::vec2 mouse_position) con
 }
 
 void Camera::OnDestroy() {
+  if (Platform::Initialized()) {
+    Platform::WaitForFrameSubmissions("Camera Destroy Fence Wait");
+  }
+  ray_camera_history_owner_alive_ = false;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    render_layer->ForgetRayCameraHistoryCamera(GetHandle().GetValue(), this);
+  }
+  ReleaseRayCameraHistory();
+  ReleasePostProcessingResources();
   post_processing_stack_ref.Clear();
   skybox.Clear();
+}
+
+void Camera::PostCloneAction(const std::shared_ptr<IPrivateComponent>& source) {
+  post_processing_resources_.reset();
 }
 
 void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -689,6 +799,31 @@ const std::shared_ptr<DescriptorSet>& Camera::GetGBufferDescriptorSet() const {
 
 const std::shared_ptr<Image>& Camera::GetGBufferUtilityImage() const {
   return g_buffer_utility_;
+}
+
+RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
+  auto stats = ray_camera_history_counters_;
+  const auto& history = ray_camera_history_;
+  if (HasRayCameraHistory(history)) {
+    ++stats.live_history_count;
+    if (history.technique == RayCameraHistoryTechnique::RayTracing) {
+      ++stats.live_ray_tracing_history_count;
+    } else {
+      ++stats.live_ray_query_history_count;
+    }
+    stats.valid_history_count += history.valid ? 1u : 0u;
+    stats.radiance_image_count += history.radiance_image ? 1u : 0u;
+    stats.convergence_image_count += history.convergence_image ? 1u : 0u;
+    stats.radiance_view_count += history.radiance_view ? 1u : 0u;
+    stats.convergence_view_count += history.convergence_view ? 1u : 0u;
+    stats.live_byte_size += RayCameraHistoryByteSize(history.extent);
+    stats.live_output_descriptor_count = static_cast<uint64_t>(std::count_if(
+        history.output_descriptor_slots.begin(), history.output_descriptor_slots.end(), [](const auto& slot) {
+          return static_cast<bool>(slot.descriptor_set);
+        }));
+  }
+  stats.live_camera_count = stats.live_history_count == 0 ? 0u : 1u;
+  return stats;
 }
 
 ImTextureID Camera::GetGBufferBaseColorAoImTextureId() const {
@@ -721,8 +856,162 @@ void Camera::ResetRenderState() {
 void Camera::ResetFrameCount() {
   frame_count_ = 0;
   ++temporal_history_version_;
-  const auto camera_handle = GetHandle().GetValue();
-  previous_camera_projection_views.erase(camera_handle);
-  previous_camera_unjittered_projection_views.erase(camera_handle);
-  camera_jitter_states.erase(camera_handle);
+  InvalidateRayCameraHistory();
+  if (post_processing_resources_) {
+    post_processing_resources_->ResetTemporalState();
+  }
+}
+
+PostProcessingCameraResources& Camera::AcquirePostProcessingResources(
+    const std::shared_ptr<PostProcessingStack>& stack) {
+  SynchronizePostProcessingResources(stack);
+  return *post_processing_resources_;
+}
+
+void Camera::SynchronizePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack) {
+  if (!post_processing_resources_) {
+    post_processing_resources_ = std::make_shared<PostProcessingCameraResources>();
+  }
+  auto& resources = *post_processing_resources_;
+  const uint64_t stack_handle = stack ? stack->GetHandle().GetValue() : 0;
+  const uint32_t stack_version = stack ? stack->GetVersion() : 0;
+  bool reset_temporal_state = false;
+  if (resources.stack_handle != stack_handle || resources.stack_version != stack_version) {
+    if (resources.stack_version != std::numeric_limits<uint32_t>::max()) {
+      ++resources.version_reset_count;
+    }
+    resources.stack_handle = stack_handle;
+    resources.stack_version = stack_version;
+    reset_temporal_state = true;
+  }
+  const auto render_technique = static_cast<uint32_t>(camera_render_mode);
+  if (resources.render_technique != render_technique) {
+    if (resources.render_technique != std::numeric_limits<uint32_t>::max()) {
+      ++resources.technique_reset_count;
+    }
+    resources.render_technique = render_technique;
+    reset_temporal_state = true;
+  }
+  if (resources.observed_resolution != size_) {
+    if (resources.observed_resolution != glm::uvec2(0)) {
+      ++resources.resolution_reset_count;
+    }
+    resources.observed_resolution = size_;
+    reset_temporal_state = true;
+  }
+  if (reset_temporal_state) {
+    resources.ResetTemporalState();
+  }
+}
+
+void Camera::RetainPostProcessingResources(RenderGraphTransientResourceStore& transient_resources) const {
+  if (post_processing_resources_) {
+    post_processing_resources_->Retain(transient_resources);
+  }
+}
+
+void Camera::ReleasePostProcessingResources() {
+  post_processing_resources_.reset();
+}
+
+void Camera::InvalidateRayCameraHistory() {
+  if (HasRayCameraHistory(ray_camera_history_)) {
+    ray_camera_history_.temporal_history_version = temporal_history_version_;
+    ray_camera_history_.frame_id = 0;
+    ray_camera_history_.valid = false;
+    ++ray_camera_history_counters_.invalidation_count;
+  }
+}
+
+RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
+    const RayCameraHistoryTechnique technique, const uint64_t scene_handle, const VkExtent3D extent,
+    const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory) {
+  auto& history = ray_camera_history_;
+  if (!HasRayCameraHistory(history) || !SameExtent(history.extent, extent)) {
+    if (HasRayCameraHistory(history)) {
+      ++ray_camera_history_counters_.retirement_count;
+    }
+    history = resource_factory ? resource_factory(extent) : RayCameraHistoryResources{};
+    history.extent = extent;
+    if (!resource_factory) {
+      history.radiance_image = CreateRayCameraHistoryImage(extent);
+      history.radiance_view = CreateGraphImageMipView(history.radiance_image, 0);
+      history.convergence_image = CreateRayCameraHistoryImage(extent);
+      history.convergence_view = CreateGraphImageMipView(history.convergence_image, 0);
+    }
+    history.technique = technique;
+    history.scene_handle = scene_handle;
+    history.temporal_history_version = temporal_history_version_;
+    history.frame_id = 0;
+    history.valid = false;
+    history.resource_generation = ++next_ray_camera_history_resource_generation_;
+    ++ray_camera_history_counters_.creation_count;
+  } else {
+    ++ray_camera_history_counters_.reuse_count;
+    const bool technique_changed = history.technique != technique;
+    if (technique_changed || history.scene_handle != scene_handle ||
+        history.temporal_history_version != temporal_history_version_) {
+      if (technique_changed) {
+        frame_count_ = 0;
+      }
+      history.technique = technique;
+      history.scene_handle = scene_handle;
+      history.temporal_history_version = temporal_history_version_;
+      history.frame_id = 0;
+      history.valid = false;
+      ++ray_camera_history_counters_.invalidation_count;
+    }
+  }
+  const auto stats = GetRayCameraHistoryStats();
+  ray_camera_history_counters_.peak_live_history_count =
+      std::max(ray_camera_history_counters_.peak_live_history_count, stats.live_history_count);
+  ray_camera_history_counters_.peak_live_byte_size =
+      std::max(ray_camera_history_counters_.peak_live_byte_size, stats.live_byte_size);
+  return history;
+}
+
+std::shared_ptr<DescriptorSet> Camera::AcquireRayCameraOutputDescriptor(
+    const uint32_t frame_index, const uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
+    const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory) {
+  auto& history = ray_camera_history_;
+  if (!HasRayCameraHistory(history) || (!layout && !resource_factory)) {
+    return {};
+  }
+  const auto slot_count = static_cast<size_t>(std::max(Platform::GetMaxFramesInFlight(), 1));
+  history.output_descriptor_slots.resize(slot_count);
+  const auto create_descriptor = [&]() {
+    ++ray_camera_history_counters_.output_descriptor_creation_count;
+    return resource_factory ? resource_factory() : std::make_shared<DescriptorSet>(layout);
+  };
+  bool current_slot_created = false;
+  for (size_t slot_index = 0; slot_index < history.output_descriptor_slots.size(); ++slot_index) {
+    auto& slot = history.output_descriptor_slots[slot_index];
+    if (!slot.descriptor_set) {
+      slot.descriptor_set = create_descriptor();
+      current_slot_created |= slot_index == frame_index;
+    }
+  }
+  if (frame_index >= history.output_descriptor_slots.size()) {
+    return {};
+  }
+  auto& slot = history.output_descriptor_slots[frame_index];
+  if (slot.recorded && slot.recording_frame_serial == frame_serial) {
+    return create_descriptor();
+  }
+  slot.recorded = true;
+  slot.recording_frame_serial = frame_serial;
+  if (!current_slot_created) {
+    ++ray_camera_history_counters_.output_descriptor_reuse_count;
+  }
+  const auto stats = GetRayCameraHistoryStats();
+  ray_camera_history_counters_.peak_live_output_descriptor_count =
+      std::max(ray_camera_history_counters_.peak_live_output_descriptor_count, stats.live_output_descriptor_count);
+  return slot.descriptor_set;
+}
+
+void Camera::ReleaseRayCameraHistory() {
+  if (HasRayCameraHistory(ray_camera_history_)) {
+    ++ray_camera_history_counters_.retirement_count;
+  }
+  ray_camera_history_ = {};
 }

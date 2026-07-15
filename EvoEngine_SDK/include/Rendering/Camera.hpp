@@ -1,5 +1,6 @@
 
 #pragma once
+#include <functional>
 #include <string>
 #include <vector>
 #include "Bound.hpp"
@@ -9,6 +10,57 @@
 #include "Transform.hpp"
 
 namespace evo_engine {
+class DescriptorSet;
+class DescriptorSetLayout;
+class PostProcessingStack;
+class RenderGraphTransientResourceStore;
+struct PostProcessingCameraResources;
+
+enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
+
+struct RayCameraOutputDescriptorSlot {
+  std::shared_ptr<DescriptorSet> descriptor_set;
+  uint64_t recording_frame_serial = 0;
+  bool recorded = false;
+};
+
+struct RayCameraHistoryResources {
+  VkExtent3D extent{};
+  std::shared_ptr<Image> radiance_image;
+  std::shared_ptr<ImageView> radiance_view;
+  std::shared_ptr<Image> convergence_image;
+  std::shared_ptr<ImageView> convergence_view;
+  RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
+  uint64_t scene_handle = 0;
+  uint32_t temporal_history_version = 0;
+  uint32_t frame_id = 0;
+  bool valid = false;
+  uint64_t resource_generation = 0;
+  std::vector<RayCameraOutputDescriptorSlot> output_descriptor_slots;
+};
+
+struct RayCameraHistoryStats {
+  uint64_t live_camera_count = 0;
+  uint64_t live_history_count = 0;
+  uint64_t live_ray_tracing_history_count = 0;
+  uint64_t live_ray_query_history_count = 0;
+  uint64_t valid_history_count = 0;
+  uint64_t radiance_image_count = 0;
+  uint64_t convergence_image_count = 0;
+  uint64_t radiance_view_count = 0;
+  uint64_t convergence_view_count = 0;
+  uint64_t live_byte_size = 0;
+  uint64_t peak_live_history_count = 0;
+  uint64_t peak_live_byte_size = 0;
+  uint64_t creation_count = 0;
+  uint64_t reuse_count = 0;
+  uint64_t invalidation_count = 0;
+  uint64_t retirement_count = 0;
+  uint64_t live_output_descriptor_count = 0;
+  uint64_t peak_live_output_descriptor_count = 0;
+  uint64_t output_descriptor_creation_count = 0;
+  uint64_t output_descriptor_reuse_count = 0;
+};
 
 /**
  * @brief Represents the camera information block with matrices and settings used for rendering.
@@ -43,9 +95,10 @@ struct CameraInfoBlock {
   uint32_t auto_spp_min_samples = 16;
   uint32_t auto_spp_max_samples = 256;
   float auto_spp_convergence_threshold = 0.01f;
-  uint32_t auto_spp_padding0 = 0;
-  uint32_t auto_spp_padding1 = 0;
+  uint32_t emissive_triangle_nee_enabled = 1;
+  uint32_t ray_debug_view = 0;
   uint32_t auto_spp_padding2 = 0;
+  glm::vec4 shadow_split_distances = {};
 
   /**
    * @brief Projects a 3D world position into 2D screen space.
@@ -79,12 +132,18 @@ class Camera final : public IPrivateComponent {
 
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
+  static constexpr uint32_t kRayDebugViewCount = 20;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
   [[nodiscard]] static const char* GetCameraRenderModeName(CameraRenderMode mode);
   [[nodiscard]] static const std::vector<std::string>& GetShaderExecutionReorderingModeNames();
   [[nodiscard]] static const char* GetShaderExecutionReorderingModeName(
       CameraSettings::ShaderExecutionReorderingMode mode);
+  [[nodiscard]] static const std::vector<std::string>& GetRayDebugViewNames();
+  [[nodiscard]] static const char* GetRayDebugViewName(CameraSettings::RayDebugView view);
+  [[nodiscard]] static CameraSettings::RayDebugView ParseRayDebugView(
+      const std::string& value, CameraSettings::RayDebugView fallback = CameraSettings::RayDebugView::Beauty);
+  [[nodiscard]] static CameraSettings::RayDebugView NormalizeRayDebugView(uint32_t view);
   [[nodiscard]] static CameraSettings::ShaderExecutionReorderingMode ParseShaderExecutionReorderingMode(
       const std::string& value,
       CameraSettings::ShaderExecutionReorderingMode fallback = CameraSettings::ShaderExecutionReorderingMode::Disabled);
@@ -234,6 +293,7 @@ class Camera final : public IPrivateComponent {
    * @brief Called when the camera is destroyed.
    */
   void OnDestroy() override;
+  void PostCloneAction(const std::shared_ptr<IPrivateComponent>& source) override;
 
   /**
    * @brief Collects asset references used by the camera.
@@ -248,6 +308,7 @@ class Camera final : public IPrivateComponent {
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
+  [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
@@ -259,8 +320,12 @@ class Camera final : public IPrivateComponent {
   void ResetFrameCount();
 
  private:
-  friend class Platform;          ///< Grants access to the Platform class.
-  friend class RenderLayer;       ///< Grants access to the RenderLayer class.
+  friend class Platform;     ///< Grants access to the Platform class.
+  friend class RenderLayer;  ///< Grants access to the RenderLayer class.
+  friend class RayCameraHistoryTestAccess;
+  friend class PostProcessingRuntimeTestAccess;
+  friend class PostProcessingPass;
+  friend class PostProcessingStack;
   friend struct CameraInfoBlock;  ///< Grants access to the CameraInfoBlock struct.
 
   std::shared_ptr<RenderTexture> render_texture_;  ///< The render texture used by the camera.
@@ -284,6 +349,11 @@ class Camera final : public IPrivateComponent {
 
   uint32_t frame_count_ = 0;               ///< Frame count used for tracking rendering updates.
   uint32_t temporal_history_version_ = 0;  ///< Version incremented by explicit camera history resets.
+  RayCameraHistoryResources ray_camera_history_{};
+  RayCameraHistoryStats ray_camera_history_counters_{};
+  uint64_t next_ray_camera_history_resource_generation_ = 0;
+  bool ray_camera_history_owner_alive_ = false;
+  std::shared_ptr<PostProcessingCameraResources> post_processing_resources_;
 
   glm::mat4 prev_global_transform_{};
   bool rendered_ = false;               ///< Indicates whether the camera has rendered.
@@ -295,6 +365,18 @@ class Camera final : public IPrivateComponent {
    * @brief Updates the deferred shading GBuffer resources.
    */
   void UpdateGBuffer();
+  RayCameraHistoryResources& AcquireRayCameraHistory(
+      RayCameraHistoryTechnique technique, uint64_t scene_handle, VkExtent3D extent,
+      const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory = {});
+  std::shared_ptr<DescriptorSet> AcquireRayCameraOutputDescriptor(
+      uint32_t frame_index, uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
+      const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory = {});
+  void InvalidateRayCameraHistory();
+  void ReleaseRayCameraHistory();
+  PostProcessingCameraResources& AcquirePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);
+  void SynchronizePostProcessingResources(const std::shared_ptr<PostProcessingStack>& stack);
+  void RetainPostProcessingResources(RenderGraphTransientResourceStore& transient_resources) const;
+  void ReleasePostProcessingResources();
 };
 
 }  // namespace evo_engine

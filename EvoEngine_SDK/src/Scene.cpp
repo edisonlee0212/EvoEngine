@@ -1163,6 +1163,7 @@ void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Sc
 
 std::shared_ptr<LightProbe> Scene::Environment::GetLightProbe(const glm::vec3& position) {
   if (const auto em = environmental_map.Get<EnvironmentalMap>()) {
+    em->EnsureEnvironmentSource();
     if (auto light_probe = em->light_probe.Get<LightProbe>())
       return light_probe;
   }
@@ -1171,6 +1172,7 @@ std::shared_ptr<LightProbe> Scene::Environment::GetLightProbe(const glm::vec3& p
 
 std::shared_ptr<ReflectionProbe> Scene::Environment::GetReflectionProbe(const glm::vec3& position) {
   if (const auto em = environmental_map.Get<EnvironmentalMap>()) {
+    em->EnsureEnvironmentSource();
     if (auto reflection_probe = em->reflection_probe.Get<ReflectionProbe>())
       return reflection_probe;
   }
@@ -1180,6 +1182,7 @@ std::shared_ptr<ReflectionProbe> Scene::Environment::GetReflectionProbe(const gl
 void Scene::Environment::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "background_color" << YAML::Value << background_color;
   out << YAML::Key << "environment_gamma" << YAML::Value << environment_gamma;
+  out << YAML::Key << "environment_rotation" << YAML::Value << environment_rotation;
   out << YAML::Key << "ambient_light_intensity" << YAML::Value << ambient_light_intensity;
   out << YAML::Key << "environment_type" << YAML::Value << static_cast<unsigned>(environment_type);
   environmental_map.Save("environmental_map", out);
@@ -1193,6 +1196,8 @@ void Scene::Environment::Deserialize(const YAML::Node& in) {
     background_color = in["background_color"].as<glm::vec3>();
   if (in["environment_gamma"])
     environment_gamma = in["environment_gamma"].as<float>();
+  if (in["environment_rotation"])
+    environment_rotation = in["environment_rotation"].as<float>();
   if (in["ambient_light_intensity"])
     ambient_light_intensity = in["ambient_light_intensity"].as<float>();
   if (in["environment_type"]) {

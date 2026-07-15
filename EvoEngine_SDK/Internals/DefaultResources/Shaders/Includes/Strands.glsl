@@ -69,6 +69,7 @@ int EE_STRANDS_RING_SUBDIVISION(in mat4 model, in vec3 worldPos, in vec3 modelPo
   vec3 modelPosB = thickness * vec3(0, 1, 0) + modelPos;
   vec3 endPointWorldPos = (model * vec4(modelPosB, 1.0)).xyz;
   vec3 redirectedWorldPosB = worldPos + EE_CAMERA_UP(EE_CAMERA_INDEX) * distance(worldPos, endPointWorldPos);
-  float subdivision = EE_PIXEL_DISTANCE(EE_CAMERA_INDEX, worldPos, redirectedWorldPosB);
-  return max(3, min(int(subdivision), EE_RENDER_INFO.strand_subdivision_max_y));
+  float subdivision = EE_PIXEL_DISTANCE(EE_CAMERA_INDEX, worldPos, redirectedWorldPosB) * 50.0 /
+                      max(EE_RENDER_INFO.strand_subdivision_y, 1.0);
+  return max(3, min(int(subdivision), min(EE_RENDER_INFO.strand_subdivision_max_y, 15)));
 }

@@ -4,7 +4,7 @@
 #include "DDGI.glsl"
 #include "VogelDisk.glsl"
 
-layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArray EE_DIRECTIONAL_LIGHT_SM;
+layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArrayShadow EE_DIRECTIONAL_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 15) uniform sampler2DArray EE_POINT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 17) uniform sampler2D EE_DDGI_IRRADIANCE_ATLAS;
@@ -26,9 +26,9 @@ vec3 EE_SKY_COLOR(vec3 direction) {
 		return camera.clear_color.xyz * camera.clear_color.w;
 	}
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
-	return pow(texture(EE_RASTER_SKYBOX, normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	return pow(texture(EE_RASTER_SKYBOX, normalize(EE_ENVIRONMENT_LOCAL_DIRECTION(direction))).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
 #else
-	return pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
+	return pow(texture(EE_CUBEMAPS[camera.skybox_tex_index], normalize(EE_ENVIRONMENT_LOCAL_DIRECTION(direction))).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * camera.clear_color.w;
 #endif
 }
 
@@ -69,21 +69,22 @@ float EE_FUNC_GEOMETRY_SMITH(vec3 N, vec3 V, vec3 L, float roughness)
 	return ggx1 * ggx2;
 }
 // ----------------------------------------------------------------------------
-vec3 EE_FUNC_FRESNEL_SCHLICK(float cosTheta, vec3 F0)
+vec3 EE_FUNC_FRESNEL_SCHLICK(float cosTheta, vec3 F0, float F90)
 {
-	return F0 + (1.0f - F0) * pow(max(1.0f - cosTheta, 0.0f), 5.0f);
+	return F0 + (vec3(F90) - F0) * pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
 // ----------------------------------------------------------------------------
-vec3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, vec3 F0, float roughness)
+vec3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, vec3 F0, float F90, float roughness)
 {
-	return F0 + (max(vec3(1.0f - roughness), F0) - F0) * pow(max(1.0f - cosTheta, 0.0f), 5.0f);
+	return F0 + (max(vec3(F90 * (1.0f - roughness)), F0) - F0) *
+	             pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
-vec3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0);
-vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0);
+vec3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
+vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90);
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance);
 float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
 float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance);
@@ -199,39 +200,39 @@ vec3 EE_FUNC_CALCULATE_DDGI_DIFFUSE(vec3 albedo, vec3 normal, vec3 viewDir, vec3
   return albedo / EE_DDGI_PI * diffuse * intensity * volume_blend_weight;
 }
 
-vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	// ambient lighting (we now use IBL as the ambient term)
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(max(dot(normal, viewDir), 0.0f), F0, roughness);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(max(dot(normal, viewDir), 0.0f), F0, F90, roughness);
 	vec3 R = reflect(-viewDir, normal);
 	vec3 kS = F;
 	vec3 kD = 1.0f - kS;
 	kD *= 1.0f - metallic;
 
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
-	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_RASTER_IRRADIANCE_MAP, normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_RASTER_IRRADIANCE_MAP, EE_ENVIRONMENT_LOCAL_DIRECTION(normal)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 #else
-	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], normal).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(texture(EE_CUBEMAPS[EE_CAMERAS[EE_CAMERA_INDEX].irradiance_map_index], EE_ENVIRONMENT_LOCAL_DIRECTION(normal)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 #endif
 	vec3 diffuse = irradiance * albedo;
 
 	// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
 	float reflectionLodScale = float(textureQueryLevels(EE_RASTER_PREFILTERED_MAP));
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_RASTER_PREFILTERED_MAP, R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_RASTER_PREFILTERED_MAP, EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_RASTER_BRDF_LUT, vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 #else
 	int prefilteredMapIndex = EE_CAMERAS[EE_CAMERA_INDEX].prefiltered_map_index;
 	float reflectionLodScale = float(textureQueryLevels(EE_CUBEMAPS[prefilteredMapIndex]));
-	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], R, roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
+	vec3 prefilteredColor = EE_ENVIRONMENT.background_color.w == 1.0f ? EE_ENVIRONMENT.background_color.xyz : pow(textureLod(EE_CUBEMAPS[prefilteredMapIndex], EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma));
 	vec2 brdf = texture(EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index], vec2(max(dot(normal, viewDir), 0.0f), roughness)).rg;
 #endif
-	vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
+	vec3 specular = prefilteredColor * (F * brdf.x + vec3(F90 * brdf.y));
 	vec3 ambient = (kD * diffuse + specular) * EE_ENVIRONMENT.light_intensity;
 	return ambient;
 }
 
-vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0) {
+vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic, float roughness, vec3 F0, float F90) {
 	vec3 result = vec3(0.0, 0.0, 0.0f);
 	vec3 fragToCamera = fragPos - EE_CAMERA_POSITION(EE_CAMERA_INDEX);
 	float cameraFragDistance = length(fragToCamera);
@@ -242,7 +243,7 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_DIRECTIONAL_LIGHTS[lightIndex].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_DIRECTIONAL_LIGHT_CASCADE_SHADOW(lightIndex, dist, fragPos, normal, cameraFragDistance);
 		}
-		result += EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_DIRECTIONAL_LIGHT(albedo, specular, lightIndex, normal, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	// phase 2: point lights
 	for (int i = 0; i < EE_RENDER_INFO.point_light_size; i++) {
@@ -250,7 +251,7 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_POINT_LIGHTS[i].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_POINT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
 		}
-		result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_POINT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	// phase 3: spot light
 	for (int i = 0; i < EE_RENDER_INFO.spot_light_size; i++) {
@@ -258,13 +259,13 @@ vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular,
 		if (calculateShadow && EE_SPOT_LIGHTS[i].diffuse.w == 1.0f) {
 			shadow = EE_FUNC_SPOT_LIGHT_SHADOW(i, fragPos, cameraFragDistance);
 		}
-		result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0) * shadow;
+		result += EE_FUNC_SPOT_LIGHT(albedo, specular, i, normal, fragPos, viewDir, metallic, roughness, F0, F90) * shadow;
 	}
 	return result;
 }
 
 // calculates the color when using a directional light.
-vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
 	vec3 lightDir = normalize(-light.direction);
@@ -272,7 +273,7 @@ vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, 
 	vec3 radiance = light.diffuse.xyz;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001f) * specular;
@@ -284,7 +285,7 @@ vec3 EE_FUNC_DIRECTIONAL_LIGHT(vec3 albedo, float specular, int i, vec3 normal, 
 }
 
 // calculates the color when using a point light.
-vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	PointLight light = EE_POINT_LIGHTS[i];
 	vec3 lightDir = normalize(light.position - fragPos);
@@ -294,7 +295,7 @@ vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 f
 	vec3 radiance = light.diffuse.xyz * attenuation;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001) * specular;
@@ -307,7 +308,7 @@ vec3 EE_FUNC_POINT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 f
 }
 
 // calculates the color when using a spot light.
-vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0)
+vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fragPos, vec3 viewDir, float metallic, float roughness, vec3 F0, float F90)
 {
 	SpotLight light = EE_SPOT_LIGHTS[i];
 	vec3 lightDir = normalize(light.position - fragPos);
@@ -322,7 +323,7 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 	vec3 radiance = light.diffuse.xyz * attenuation * intensity;
 	float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
 	float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
-	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0);
+	vec3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
 	vec3 nominator = normalDF * G * F;
 	float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
 	vec3 spec = nominator / max(denominator, 0.001f) * specular;
@@ -334,18 +335,16 @@ vec3 EE_FUNC_SPOT_LIGHT(vec3 albedo, float specular, int i, vec3 normal, vec3 fr
 }
 
 int EE_FUNC_DIRECTIONAL_SHADOW_CASCADE_INDEX(float dist) {
-	if (dist < EE_RENDER_INFO.shadow_split_0) return 0;
-	if (dist < EE_RENDER_INFO.shadow_split_1) return 1;
-	if (dist < EE_RENDER_INFO.shadow_split_2) return 2;
-	if (dist < EE_RENDER_INFO.shadow_split_3) return 3;
+	vec4 splitDistances = EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances;
+	if (dist < splitDistances.x) return 0;
+	if (dist < splitDistances.y) return 1;
+	if (dist < splitDistances.z) return 2;
+	if (dist < splitDistances.w) return 3;
 	return -1;
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_SPLIT_DISTANCE(int splitIndex) {
-	if (splitIndex <= 0) return EE_RENDER_INFO.shadow_split_0;
-	if (splitIndex == 1) return EE_RENDER_INFO.shadow_split_1;
-	if (splitIndex == 2) return EE_RENDER_INFO.shadow_split_2;
-	return EE_RENDER_INFO.shadow_split_3;
+	return EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances[clamp(splitIndex, 0, 3)];
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_TRANSITION_HALF_WIDTH(int boundaryIndex) {
@@ -360,7 +359,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_TRANSITION_HALF_WIDTH(int boundaryIndex) {
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_DISTANCE_FADE(float dist) {
-	float maxShadowDistance = EE_RENDER_INFO.shadow_split_3;
+	float maxShadowDistance = EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances.w;
 	if (dist >= maxShadowDistance) return 0.0f;
 
 	float fadeWidth = max(EE_RENDER_INFO.shadow_fade_parameters.x, 0.0f);
@@ -476,7 +475,10 @@ vec4 EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(float dist, vec3 fragPos) {
 		return vec4(mix(vec3(0.75f, 0.0f, 0.0f), vec3(atlasUv, 1.0f), insideScale), 1.0f);
 	}
 
-	float worldUnitsPerTexel = (2.0f * light.light_frustum_width[splitIndex]) / max(float(light.viewport_x_size), 1.0f);
+	vec2 worldUnitsPerTexelAxes =
+	    2.0f * vec2(light.light_frustum_width[splitIndex], light.light_frustum_height[splitIndex]) /
+	    max(viewportSize, vec2(1.0f));
+	float worldUnitsPerTexel = max(worldUnitsPerTexelAxes.x, worldUnitsPerTexelAxes.y);
 	float density = clamp(log2(max(worldUnitsPerTexel, 0.001f)) * 0.125f + 0.5f, 0.0f, 1.0f);
 	vec3 densityColor = mix(vec3(0.0f, 0.35f, 1.0f), vec3(1.0f, 0.1f, 0.0f), density);
 	vec2 texelUv = fract(lightUv * viewportSize);
@@ -493,8 +495,15 @@ vec2 EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(DirectionalLight light, vec2 lightUv) {
 	       atlasSize;
 }
 
-float EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(DirectionalLight light, int splitIndex, vec2 lightUv) {
-	return texture(EE_DIRECTIONAL_LIGHT_SM, vec3(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), splitIndex)).r;
+float EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(DirectionalLight light, int splitIndex, vec2 lightUv,
+                                        float receiverDepth) {
+	vec2 viewportSize = max(vec2(float(light.viewport_x_size), float(light.viewport_y_size)), vec2(1.0f));
+	vec2 halfTexel = vec2(0.5f) / viewportSize;
+	if (any(lessThan(lightUv, halfTexel)) || any(greaterThan(lightUv, vec2(1.0f) - halfTexel))) {
+		return 1.0f;
+	}
+	return texture(EE_DIRECTIONAL_LIGHT_SM,
+	               vec4(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), splitIndex, receiverDepth));
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(float receiverDepth, float closestDepth) {
@@ -503,13 +512,12 @@ float EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(float receiverDepth, float closestDepth
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_HARD(DirectionalLight light, int splitIndex, vec3 projCoords) {
-	float closestDepth = EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(light, splitIndex, projCoords.xy);
-	return EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
+	return EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(light, splitIndex, projCoords.xy, projCoords.z);
 }
 
-float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec3 projCoords, float radiusUv,
+float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec3 projCoords, vec2 radiusUv,
                                      int sampleAmount, vec3 randomSeed) {
-	if (radiusUv <= 0.0f || sampleAmount <= 1) {
+	if (all(lessThanEqual(radiusUv, vec2(0.0f))) || sampleAmount <= 1) {
 		return EE_FUNC_DIRECTIONAL_SHADOW_HARD(light, splitIndex, projCoords);
 	}
 
@@ -517,8 +525,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec
 	for (int sampleIndex = 0; sampleIndex < sampleAmount; sampleIndex++)
 	{
 		vec2 texCoord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, sampleAmount, randomSeed) * radiusUv;
-		float closestDepth = EE_FUNC_DIRECTIONAL_SHADOW_DEPTH(light, splitIndex, texCoord);
-		shadow += EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
+		shadow += EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(light, splitIndex, texCoord, projCoords.z);
 	}
 	return shadow / float(sampleAmount);
 }
@@ -528,10 +535,15 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
 	DirectionalLight light = EE_DIRECTIONAL_LIGHTS[i];
 	vec3 lightDir = light.direction;
 	float nDotL = max(dot(normal, -lightDir), 0.0f);
-	float shadowTexelSize = light.light_frustum_width[splitIndex] / max(float(light.viewport_x_size), 1.0f);
+	vec2 viewportSize = max(vec2(float(light.viewport_x_size), float(light.viewport_y_size)), vec2(1.0f));
+	vec2 halfExtent = max(vec2(light.light_frustum_width[splitIndex], light.light_frustum_height[splitIndex]),
+	                      vec2(0.001f));
+	vec2 worldUnitsPerTexel = 2.0f * halfExtent / viewportSize;
+	float shadowTexelSize = max(worldUnitsPerTexel.x, worldUnitsPerTexel.y);
 	float constantBias = light.reserved_parameters.z;
 	float slopeBias = light.reserved_parameters.y * (1.0f - nDotL);
-	float bias = (constantBias + slopeBias) * shadowTexelSize;
+	float lightDepthSpan = max(2.0f * light.light_frustum_distance[splitIndex], 0.001f);
+	float bias = (constantBias + slopeBias) * shadowTexelSize / lightDepthSpan;
 	float normalOffset = light.reserved_parameters.w * shadowTexelSize;
 
 	fragPos = fragPos + normal * normalOffset;
@@ -547,8 +559,8 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
 	}
 	projCoords = vec3(projCoords.xy, projCoords.z - bias);
 
-	float radiusUv = max(light.reserved_parameters.x * 100.0f, 0.0f) / max(float(light.viewport_x_size), 1.0f);
-	int sampleAmount = clamp(EE_RENDER_INFO.shadow_sample_size, 1, 64);
+	vec2 radiusUv = vec2(max(light.reserved_parameters.x, 0.0f)) / (2.0f * halfExtent);
+	int sampleAmount = clamp(EE_RENDER_INFO.shadow_debug_parameters.w, 1, 64);
 	return EE_FUNC_DIRECTIONAL_SHADOW_PCF(light, splitIndex, projCoords, radiusUv, sampleAmount, fragPos * 3141);
 }
 

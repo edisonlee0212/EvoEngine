@@ -5,12 +5,14 @@
 #include "Application.hpp"
 #include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
+#include "Particles.hpp"
 #include "PathUtils.hpp"
 #include "PlayerController.hpp"
 #include "PostProcessingStack.hpp"
@@ -19,9 +21,11 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
+#include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "TransformGraph.hpp"
 
+#include <array>
 #include <cmath>
 #include <optional>
 #include <sstream>
@@ -33,6 +37,9 @@ using namespace evo_engine;
 namespace {
 constexpr uint64_t kSpatialDragonGaussianSplatHandle = 9739484957885691067ull;
 constexpr uint64_t kBicycleGaussianSplatHandle = 14453709846752502031ull;
+constexpr const char* kStrandValidationRootName = "Strand Mesh Shader Validation";
+constexpr const char* kStrandValidationDynamicName = "Strand Validation Multi Meshlet";
+constexpr const char* kStrandPunctualValidationRootName = "Strand Punctual Shadow Validation";
 // VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
 const glm::vec3 kBicycleDemoCamera0Position = glm::vec3(-3.0026817f, 1.4007727f, -2.2284005f);
 const glm::vec3 kBicycleDemoCamera0Front = glm::vec3(0.7710113f, -0.08249339f, 0.6314558f);
@@ -73,6 +80,42 @@ struct RenderingRegressionTemporalMotionState {
 
 std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
 bool rendering_regression_temporal_motion_registered = false;
+
+struct StrandGizmoValidationState {
+  std::weak_ptr<Scene> scene;
+  std::shared_ptr<Strands> strands;
+};
+
+std::shared_ptr<StrandGizmoValidationState> strand_gizmo_validation_state;
+bool strand_gizmo_validation_registered = false;
+
+void RegisterStrandGizmoValidationUpdate() {
+  if (strand_gizmo_validation_registered) {
+    return;
+  }
+  strand_gizmo_validation_registered = true;
+  ApplicationContext::Get().RegisterUpdateFunction([] {
+    const auto state = strand_gizmo_validation_state;
+    const auto scene = state ? state->scene.lock() : nullptr;
+    auto& application = ApplicationContext::Get();
+    const auto editor_layer = application.GetLayer<EditorLayer>();
+    const auto camera = editor_layer ? editor_layer->GetSceneCamera() : nullptr;
+    if (!state || !state->strands || !scene || application.GetActiveScene() != scene || !camera) {
+      return;
+    }
+
+    constexpr std::array modes = {GizmoSettings::ColorMode::Default, GizmoSettings::ColorMode::VertexColor,
+                                  GizmoSettings::ColorMode::NormalColor};
+    for (size_t mode = 0; mode < modes.size(); ++mode) {
+      GizmoSettings settings;
+      settings.color_mode = modes[mode];
+      const auto x = (static_cast<float>(mode) - 1.0f) * 1.5f;
+      const auto model = glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, -2.5f));
+      editor_layer->DrawGizmoStrands(state->strands, camera, glm::vec4(1.0f, 0.45f, 0.12f, 1.0f), model, 1.0f,
+                                     settings);
+    }
+  });
+}
 
 void RegisterRenderingRegressionTemporalMotionUpdate() {
   if (rendering_regression_temporal_motion_registered) {
@@ -211,6 +254,49 @@ void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec
   material->MarkDirty();
 }
 
+std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count, const glm::vec4& color,
+                                                        const float thickness = 0.075f) {
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  std::vector<StrandPoint> points(point_count);
+  for (size_t index = 0; index < point_count; ++index) {
+    const float t = static_cast<float>(index) / static_cast<float>(point_count - 1);
+    auto& point = points[index];
+    point.position = glm::vec3(0.18f * glm::sin(t * glm::two_pi<float>() * 1.5f), t * 1.8f - 0.9f,
+                               0.08f * glm::cos(t * glm::two_pi<float>()));
+    point.thickness = thickness * (1.0f - 0.25f * t);
+    point.normal = glm::normalize(glm::vec3(0.15f * glm::sin(t * glm::two_pi<float>()), 0.0f, 1.0f));
+    point.tex_coord = t;
+    point.color = color;
+  }
+  const auto strands = AssetManager::CreateTemporaryAsset<Strands>();
+  if (point_count == 4) {
+    strands->SetSegments(attributes, {0}, points);
+  } else {
+    strands->SetStrands(attributes, {0, static_cast<glm::uint>(point_count)}, points);
+  }
+  return strands;
+}
+
+Entity CreateStrandValidationRenderer(const std::shared_ptr<Scene>& scene, const Entity root, const std::string& name,
+                                      const std::shared_ptr<Strands>& strands,
+                                      const std::shared_ptr<Material>& material, const glm::vec3& position,
+                                      const glm::vec3& scale, const bool cast_shadow,
+                                      const glm::vec3& rotation = glm::vec3(0.0f, 0.0f, glm::radians(8.0f))) {
+  const auto entity = scene->CreateEntity(name);
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(entity).lock();
+  renderer->strands = strands;
+  renderer->material = material;
+  renderer->cast_shadow = cast_shadow;
+  Transform transform;
+  transform.SetValue(position, rotation, scale);
+  scene->SetDataComponent(entity, transform);
+  scene->SetParent(entity, root);
+  return entity;
+}
+
 Entity CreateRenderingRegressionProbe(const std::shared_ptr<Scene>& scene, const Entity& root, const std::string& name,
                                       const std::shared_ptr<Mesh>& mesh, const glm::vec3& position,
                                       const glm::vec3& scale, const glm::vec3& albedo, const float roughness,
@@ -227,6 +313,436 @@ Entity CreateRenderingRegressionProbe(const std::shared_ptr<Scene>& scene, const
   scene->SetDataComponent(entity, transform);
   scene->SetParent(entity, root);
   return entity;
+}
+
+std::shared_ptr<Mesh> CreateRenderingRegressionMaterialQuad(const std::array<glm::vec4, 4>& colors) {
+  std::vector<Vertex> vertices(4);
+  vertices[0].position = glm::vec3(-0.5f, -0.5f, 0.0f);
+  vertices[1].position = glm::vec3(0.5f, -0.5f, 0.0f);
+  vertices[2].position = glm::vec3(0.5f, 0.5f, 0.0f);
+  vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
+  const std::array<glm::vec2, 4> tex_coords_0 = {glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(1.0f, 1.0f),
+                                                 glm::vec2(0.0f, 1.0f)};
+  const std::array<glm::vec2, 4> tex_coords_1 = {glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f),
+                                                 glm::vec2(1.0f, 1.0f)};
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    vertices[i].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertices[i].color = colors[i];
+    vertices[i].tex_coord = tex_coords_0[i];
+    vertices[i].tex_coord_1 = tex_coords_1[i];
+    vertices[i].tex_coord_2 = tex_coords_0[3 - i];
+    vertices[i].tex_coord_3 = tex_coords_1[i];
+  }
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.tex_coord_1 = true;
+  attributes.tex_coord_2 = true;
+  attributes.tex_coord_3 = true;
+  attributes.color = true;
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, 3);
+  return mesh;
+}
+
+std::shared_ptr<Mesh> CreateRenderingRegressionMirroredTangentSeam() {
+  std::vector<Vertex> vertices(4);
+  const std::array positions = {glm::vec3(-1.0f, -0.5f, 0.0f), glm::vec3(1.0f, -0.5f, 0.0f),
+                                glm::vec3(-1.0f, 0.5f, 0.0f), glm::vec3(1.0f, 0.5f, 0.0f)};
+  const std::array tex_coords = {glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f), glm::vec2(0.0f, 1.0f),
+                                 glm::vec2(0.0f, 0.0f)};
+  for (size_t index = 0; index < vertices.size(); ++index) {
+    vertices[index].position = positions[index];
+    vertices[index].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    vertices[index].tex_coord = tex_coords[index];
+  }
+  VertexAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(2, 1, 3)});
+  return mesh;
+}
+
+void SetRenderingRegressionSampler(const std::shared_ptr<Texture2D>& texture, const VkFilter filter,
+                                   const VkSamplerAddressMode address_mode) {
+  Texture2DSamplerSettings settings;
+  settings.mag_filter = filter;
+  settings.min_filter = filter;
+  settings.mipmap_mode = filter == VK_FILTER_NEAREST ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  settings.address_mode_u = address_mode;
+  settings.address_mode_v = address_mode;
+  texture->SetSamplerSettings(settings);
+  texture->UnsafeUploadDataImmediately();
+}
+
+Entity CreateRenderingRegressionMaterialQuadEntity(const std::shared_ptr<Scene>& scene, const Entity& root,
+                                                   const std::string& name, const std::shared_ptr<Mesh>& mesh,
+                                                   const std::shared_ptr<Material>& material, const glm::vec3& position,
+                                                   const glm::vec3& rotation, const glm::vec3& scale) {
+  const auto entity = scene->CreateEntity(name);
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  renderer->mesh = mesh;
+  renderer->material = material;
+  Transform transform;
+  transform.SetValue(position, rotation, scale);
+  scene->SetDataComponent(entity, transform);
+  scene->SetParent(entity, root);
+  return entity;
+}
+
+void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto textured_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.35f, 0.2f, 1.0f), glm::vec4(0.2f, 1.0f, 0.35f, 1.0f),
+                                             glm::vec4(0.25f, 0.45f, 1.0f, 1.0f), glm::vec4(1.0f, 0.9f, 0.25f, 1.0f)});
+  const auto textured_material = AssetManager::CreateTemporaryAsset<Material>();
+  auto color_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  color_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.15f, 0.04f, 1.0f), glm::vec4(0.04f, 0.25f, 1.0f, 1.0f),
+                                     glm::vec4(0.04f, 1.0f, 0.18f, 1.0f), glm::vec4(1.0f, 0.8f, 0.04f, 1.0f)},
+                                    glm::uvec2(2, 2));
+  auto normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  normal_texture->SetRgbaChannelData({glm::vec4(0.72f, 0.50f, 0.95f, 1.0f), glm::vec4(0.28f, 0.50f, 0.95f, 1.0f),
+                                      glm::vec4(0.50f, 0.72f, 0.95f, 1.0f), glm::vec4(0.50f, 0.28f, 0.95f, 1.0f)},
+                                     glm::uvec2(2, 2));
+  const float rotation = glm::radians(30.0f);
+  const glm::mat3x2 texture_transform(1.35f * std::cos(rotation), 1.35f * std::sin(rotation),
+                                      -0.85f * std::sin(rotation), 0.85f * std::cos(rotation), 0.15f, 0.1f);
+  const auto base_color_slot =
+      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 3, texture_transform);
+  textured_material->material_data.texture_infos[base_color_slot].color_space =
+      static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 3, texture_transform);
+  ConfigureMaterial(textured_material, glm::vec3(1.0f), 0.45f, 0.0f);
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M9 UV3 Transform Vertex Color Probe", textured_mesh, textured_material,
+      glm::vec3(-1.75f, 0.85f, -1.35f), glm::radians(glm::vec3(8.0f, 22.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto mirrored_normal_material = AssetManager::CreateTemporaryAsset<Material>();
+  mirrored_normal_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 1, texture_transform);
+  ConfigureMaterial(mirrored_normal_material, glm::vec3(0.25f, 0.65f, 1.0f), 0.45f, 0.0f);
+  mirrored_normal_material->material_data.shade_material.double_sided = 1;
+  mirrored_normal_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Mirrored Double Sided Normal Probe", textured_mesh, mirrored_normal_material,
+      glm::vec3(-0.6f, 1.55f, -1.55f), glm::radians(glm::vec3(8.0f, 18.0f, 0.0f)), glm::vec3(-0.55f, 0.32f, 1.0f));
+
+  const auto instanced_entity = scene->CreateEntity("M3a Mixed Mirrored Instanced Probe");
+  const auto particles = scene->GetOrSetPrivateComponent<Particles>(instanced_entity).lock();
+  particles->mesh = textured_mesh;
+  particles->material = textured_material;
+  const auto particle_info_list = particles->particle_info_list.Get<ParticleInfoList>();
+  std::vector<ParticleInfo> particle_infos(2);
+  particle_infos[0].instance_matrix.SetValue(glm::vec3(-1.55f, 1.55f, -1.55f),
+                                             glm::radians(glm::vec3(5.0f, 12.0f, 0.0f)), glm::vec3(0.38f, 0.25f, 1.0f));
+  particle_infos[1].instance_matrix.SetValue(
+      glm::vec3(1.55f, 1.55f, -1.55f), glm::radians(glm::vec3(-5.0f, -12.0f, 0.0f)), glm::vec3(-0.38f, 0.25f, 1.0f));
+  particle_info_list->SetParticleInfos(particle_infos);
+  particles->RecalculateBoundingBox();
+  scene->SetParent(instanced_entity, root);
+
+  const auto spec_gloss_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.45f, 0.45f, 1.0f), glm::vec4(0.45f, 1.0f, 0.45f, 1.0f),
+                                             glm::vec4(0.45f, 0.55f, 1.0f, 1.0f), glm::vec4(1.0f, 0.85f, 0.45f, 1.0f)});
+  const auto spec_gloss_material = AssetManager::CreateTemporaryAsset<Material>();
+  auto& spec_gloss = spec_gloss_material->material_data.shade_material;
+  spec_gloss.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
+  spec_gloss.pbr_diffuse_factor = glm::vec4(0.9f, 0.75f, 0.55f, 1.0f);
+  spec_gloss.pbr_specular_factor = glm::vec3(0.78f, 0.16f, 0.06f);
+  spec_gloss.pbr_glossiness_factor = 0.72f;
+  spec_gloss_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Specular Glossiness F0 Probe", spec_gloss_mesh, spec_gloss_material,
+      glm::vec3(-0.55f, 0.85f, -1.35f), glm::radians(glm::vec3(-5.0f, -18.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto opaque_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(0.1f, 1.0f, 0.3f, 0.0f), glm::vec4(0.1f, 1.0f, 0.3f, 0.0f),
+                                             glm::vec4(0.1f, 1.0f, 0.3f, 0.0f), glm::vec4(0.1f, 1.0f, 0.3f, 0.0f)});
+  const auto opaque_material = AssetManager::CreateTemporaryAsset<Material>();
+  opaque_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(1.0f, 0.8f, 0.25f, 0.0f);
+  opaque_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  opaque_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Opaque Ignores Alpha Probe", opaque_mesh,
+                                              opaque_material, glm::vec3(0.65f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.75f, 0.48f, 1.0f));
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M3a Mirrored Single Sided Visibility Probe", opaque_mesh, opaque_material,
+      glm::vec3(0.65f, 1.55f, -1.55f), glm::radians(glm::vec3(-5.0f, -18.0f, 0.0f)), glm::vec3(-0.55f, 0.32f, 1.0f));
+
+  const auto alpha_mesh =
+      CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.3f, 0.1f, 0.0f), glm::vec4(1.0f, 0.3f, 0.1f, 1.0f),
+                                             glm::vec4(0.2f, 0.55f, 1.0f, 1.0f), glm::vec4(0.2f, 0.55f, 1.0f, 0.0f)});
+  const auto alpha_material = AssetManager::CreateTemporaryAsset<Material>();
+  alpha_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+  alpha_material->material_data.shade_material.alpha_cutoff = 0.5f;
+  alpha_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Vertex Alpha Mask Probe", alpha_mesh, alpha_material,
+                                              glm::vec3(1.85f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.75f, 0.48f, 1.0f));
+
+  const auto blend_material = AssetManager::CreateTemporaryAsset<Material>();
+  blend_material->material_data.shade_material.pbr_base_color_factor = glm::vec4(0.35f, 0.65f, 1.0f, 0.55f);
+  blend_material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+  blend_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M3a Vertex Alpha Blend Probe", alpha_mesh, blend_material,
+                                              glm::vec3(2.75f, 0.85f, -1.35f), glm::vec3(0.0f),
+                                              glm::vec3(0.55f, 0.48f, 1.0f));
+
+  const auto sampler_pixels = std::vector{glm::vec4(1.0f, 0.05f, 0.02f, 1.0f), glm::vec4(0.02f, 0.1f, 1.0f, 1.0f),
+                                          glm::vec4(0.02f, 1.0f, 0.08f, 1.0f), glm::vec4(1.0f, 0.8f, 0.02f, 1.0f)};
+  const glm::mat3x2 out_of_range_transform(2.0f, 0.0f, 0.0f, 2.0f, -0.5f, -0.5f);
+  const auto create_sampler_probe = [&](const std::string& name, const glm::vec3& position, const VkFilter filter,
+                                        const VkSamplerAddressMode address_mode) {
+    const auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+    texture->SetRgbaChannelData(sampler_pixels, glm::uvec2(2));
+    SetRenderingRegressionSampler(texture, filter, address_mode);
+    const auto material = AssetManager::CreateTemporaryAsset<Material>();
+    const auto slot =
+        material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, texture, 0, out_of_range_transform);
+    material->material_data.texture_infos[slot].color_space = static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+    ConfigureMaterial(material, glm::vec3(1.0f), 0.65f, 0.0f);
+    CreateRenderingRegressionMaterialQuadEntity(scene, root, name, textured_mesh, material, position, glm::vec3(0.0f),
+                                                glm::vec3(0.55f, 0.34f, 1.0f));
+  };
+  create_sampler_probe("M7 Repeat Nearest Sampler Probe", glm::vec3(-1.55f, 2.45f, -1.4f), VK_FILTER_NEAREST,
+                       VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  create_sampler_probe("M7 Clamp Linear Sampler Probe", glm::vec3(-0.55f, 2.45f, -1.4f), VK_FILTER_LINEAR,
+                       VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+
+  const auto mip_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  mip_texture->srgb = true;
+  std::vector<glm::vec4> mip_pixels(32 * 32);
+  for (uint32_t y = 0; y < 32; ++y) {
+    for (uint32_t x = 0; x < 32; ++x) {
+      const float value = (x + y) % 2 == 0 ? 1.0f : 0.0f;
+      mip_pixels[y * 32 + x] = glm::vec4(value, value, value, 1.0f);
+    }
+  }
+  mip_texture->SetRgbaChannelData(mip_pixels, glm::uvec2(32));
+  SetRenderingRegressionSampler(mip_texture, VK_FILTER_LINEAR, VK_SAMPLER_ADDRESS_MODE_REPEAT);
+  const auto mip_material = AssetManager::CreateTemporaryAsset<Material>();
+  const glm::mat3x2 minification_transform(32.0f, 0.0f, 0.0f, 32.0f, 0.0f, 0.0f);
+  const auto mip_slot =
+      mip_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, mip_texture, 2, minification_transform);
+  mip_material->material_data.texture_infos[mip_slot].color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
+  ConfigureMaterial(mip_material, glm::vec3(1.0f), 1.0f, 0.0f);
+  mip_material->material_data.shade_material.unlit = 1;
+  mip_material->MarkDirty();
+  CreateRenderingRegressionMaterialQuadEntity(scene, root, "M9 Linear sRGB Mip Probe", textured_mesh, mip_material,
+                                              glm::vec3(2.35f, 2.45f, -1.4f), glm::vec3(0.0f),
+                                              glm::vec3(0.5f, 0.34f, 1.0f));
+
+  const auto seam_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  seam_normal_texture->SetRgbaChannelData({glm::vec4(0.75f, 0.5f, 0.9330127f, 1.0f)}, glm::uvec2(1));
+  const auto seam_material = AssetManager::CreateTemporaryAsset<Material>();
+  seam_material->SetTexture(&GltfShadeMaterial::normal_texture, seam_normal_texture);
+  ConfigureMaterial(seam_material, glm::vec3(0.72f), 0.5f, 0.0f);
+  CreateRenderingRegressionMaterialQuadEntity(
+      scene, root, "M9 Mikk Mirrored UV Tangent Seam Probe", CreateRenderingRegressionMirroredTangentSeam(),
+      seam_material, glm::vec3(1.15f, 2.45f, -1.4f), glm::vec3(0.0f), glm::vec3(0.5f, 0.34f, 1.0f));
+}
+
+void ConfigureRenderingRegressionAdvancedRayMaterialProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto& primitives = Resources::GetInstance().GetPrimitives();
+  const auto create_probe = [&](const std::string& name, const glm::vec3& position, const glm::vec3& color,
+                                const float roughness, const float metallic) {
+    const auto entity = CreateRenderingRegressionProbe(scene, root, name, primitives.sphere, position, glm::vec3(0.16f),
+                                                       color, roughness, metallic);
+    return scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock()->material.Get<Material>();
+  };
+
+  const glm::mat3x2 data_texture_transform(0.75f, 0.0f, 0.0f, 1.25f, 0.125f, 0.25f);
+  const auto iridescence_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  iridescence_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 1.0f, 0.17f, 0.0f)}, glm::uvec2(1));
+  const auto anisotropy_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  anisotropy_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.5f, 1.0f, 0.0f)}, glm::uvec2(1));
+  const auto retroreflection_data_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  retroreflection_data_texture->SetRgbaChannelData({glm::vec4(1.0f, 0.07f, 0.83f, 0.0f)}, glm::uvec2(1));
+
+  auto iridescence =
+      create_probe("M3b Iridescence Colored F0 Probe", glm::vec3(2.0f, 1.75f, -1.4f), glm::vec3(0.62f), 0.16f, 0.0f);
+  iridescence->material_data.shade_material.iridescence_factor = 1.0f;
+  iridescence->material_data.shade_material.iridescence_ior = 1.3f;
+  iridescence->material_data.shade_material.iridescence_thickness_minimum = 100.0f;
+  iridescence->material_data.shade_material.iridescence_thickness_maximum = 400.0f;
+  iridescence->material_data.shade_material.specular_color_factor = glm::vec3(0.55f, 0.85f, 1.0f);
+  iridescence->SetTexture(&GltfShadeMaterial::iridescence_texture, iridescence_data_texture, 1, data_texture_transform);
+  iridescence->SetTexture(&GltfShadeMaterial::iridescence_thickness_texture, iridescence_data_texture, 1,
+                          data_texture_transform);
+  iridescence->MarkDirty();
+
+  auto anisotropy_zero = create_probe("M3b Anisotropy Rotation 0 Probe", glm::vec3(-2.0f, 1.75f, -1.4f),
+                                      glm::vec3(0.95f, 0.72f, 0.25f), 0.35f, 1.0f);
+  anisotropy_zero->material_data.shade_material.anisotropy_strength = 1.0f;
+  anisotropy_zero->material_data.shade_material.anisotropy_rotation = glm::vec2(1.0f, 0.0f);
+  anisotropy_zero->SetTexture(&GltfShadeMaterial::anisotropy_texture, anisotropy_data_texture, 1,
+                              data_texture_transform);
+  anisotropy_zero->MarkDirty();
+
+  auto anisotropy_ninety = create_probe("M3b Anisotropy Rotation 90 CCW Probe", glm::vec3(-1.6f, 1.75f, -1.4f),
+                                        glm::vec3(0.95f, 0.72f, 0.25f), 0.35f, 1.0f);
+  anisotropy_ninety->material_data.shade_material.anisotropy_strength = 1.0f;
+  anisotropy_ninety->material_data.shade_material.anisotropy_rotation = glm::vec2(0.0f, 1.0f);
+  anisotropy_ninety->SetTexture(&GltfShadeMaterial::anisotropy_texture, anisotropy_data_texture, 1,
+                                data_texture_transform);
+  anisotropy_ninety->MarkDirty();
+
+  const auto configure_dispersion = [](const std::shared_ptr<Material>& material, const float dispersion) {
+    auto& shade = material->material_data.shade_material;
+    shade.pbr_base_color_factor = glm::vec4(1.0f);
+    shade.pbr_roughness_factor = 0.025f;
+    shade.pbr_metallic_factor = 0.0f;
+    shade.transmission_factor = 1.0f;
+    shade.thickness_factor = 1.0f;
+    shade.ior = 1.5f;
+    shade.dispersion = dispersion;
+    material->MarkDirty();
+  };
+  auto dispersion_off =
+      create_probe("M3b Dispersion 0 Probe", glm::vec3(-1.2f, 1.75f, -1.4f), glm::vec3(1.0f), 0.025f, 0.0f);
+  auto dispersion_on =
+      create_probe("M3b Dispersion 1 Probe", glm::vec3(-0.8f, 1.75f, -1.4f), glm::vec3(1.0f), 0.025f, 0.0f);
+  configure_dispersion(dispersion_off, 0.0f);
+  configure_dispersion(dispersion_on, 1.0f);
+
+  const auto configure_retroreflection = [](const std::shared_ptr<Material>& material, const float factor) {
+    auto& shade = material->material_data.shade_material;
+    shade.retroreflection_factor = factor;
+    material->MarkDirty();
+  };
+  auto retroreflection_off = create_probe("M3b Retroreflection 0 Probe", glm::vec3(-0.4f, 1.75f, -1.4f),
+                                          glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  auto retroreflection_half = create_probe("M3b Retroreflection 0.5 Energy Probe", glm::vec3(0.0f, 1.75f, -1.4f),
+                                           glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  auto retroreflection_full = create_probe("M3b Retroreflection 1 Probe", glm::vec3(0.4f, 1.75f, -1.4f),
+                                           glm::vec3(0.78f, 0.82f, 0.9f), 0.48f, 1.0f);
+  for (const auto& material : {retroreflection_off, retroreflection_half, retroreflection_full}) {
+    material->SetTexture(&GltfShadeMaterial::retroreflection_texture, retroreflection_data_texture, 1,
+                         data_texture_transform);
+  }
+  configure_retroreflection(retroreflection_off, 0.0f);
+  configure_retroreflection(retroreflection_half, 0.5f);
+  configure_retroreflection(retroreflection_full, 1.0f);
+
+  auto zero_specular = create_probe("M3b Explicit Specular Factor 0 Probe", glm::vec3(0.8f, 1.75f, -1.4f),
+                                    glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  zero_specular->material_data.shade_material.specular_factor = 0.0f;
+  zero_specular->MarkDirty();
+
+  auto half_specular = create_probe("M3b Specular Factor 0.5 F90 Probe", glm::vec3(1.2f, 1.75f, -1.4f),
+                                    glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular->material_data.shade_material.specular_factor = 0.5f;
+  half_specular->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular->MarkDirty();
+
+  const auto unlit_entity = CreateRenderingRegressionProbe(
+      scene, root, "M3b Unlit Ignores Emissive Probe", primitives.cube, glm::vec3(1.6f, 1.75f, -1.4f), glm::vec3(0.15f),
+      glm::vec3(0.12f, 0.82f, 0.34f), 0.7f, 0.0f);
+  const auto unlit = scene->GetOrSetPrivateComponent<MeshRenderer>(unlit_entity).lock()->material.Get<Material>();
+  unlit->material_data.shade_material.unlit = 1;
+  unlit->material_data.shade_material.emissive_factor = glm::vec3(8.0f, 0.0f, 0.0f);
+  unlit->MarkDirty();
+
+  const auto clearcoat_normal_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  clearcoat_normal_texture->SetRgbaChannelData({glm::vec4(0.8f, 0.35f, 0.9f, 1.0f)}, glm::uvec2(1));
+  const auto configure_clearcoat_normal = [&](const std::shared_ptr<Material>& material, const float scale) {
+    auto& shade = material->material_data.shade_material;
+    shade.clearcoat_factor = 1.0f;
+    shade.clearcoat_roughness = 0.12f;
+    shade.clearcoat_normal_texture_scale = scale;
+    shade.pbr_base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    shade.specular_factor = 0.0f;
+    shade.emissive_factor = glm::vec3(12.0f, 4.0f, 1.0f);
+    shade.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+    material->SetTexture(&GltfShadeMaterial::clearcoat_normal_texture, clearcoat_normal_texture);
+    material->MarkDirty();
+  };
+  auto clearcoat_normal_zero = create_probe("M8 Clearcoat Normal Scale 0 Probe", glm::vec3(-2.0f, 2.15f, -1.4f),
+                                            glm::vec3(0.64f, 0.72f, 0.9f), 0.28f, 0.0f);
+  auto clearcoat_normal_one = create_probe("M8 Clearcoat Normal Scale 1 Probe", glm::vec3(-1.6f, 2.15f, -1.4f),
+                                           glm::vec3(0.64f, 0.72f, 0.9f), 0.28f, 0.0f);
+  configure_clearcoat_normal(clearcoat_normal_zero, 0.0f);
+  configure_clearcoat_normal(clearcoat_normal_one, 1.0f);
+
+  const auto configure_coated_emitter = [](const std::shared_ptr<Material>& material, const float clearcoat) {
+    auto& shade = material->material_data.shade_material;
+    shade.pbr_base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    shade.specular_factor = 0.0f;
+    shade.emissive_factor = glm::vec3(12.0f, 4.0f, 1.0f);
+    shade.clearcoat_factor = clearcoat;
+    shade.clearcoat_roughness = 0.08f;
+    material->MarkDirty();
+  };
+  auto uncoated_emitter =
+      create_probe("M8 Uncoated Emission Probe", glm::vec3(-1.2f, 2.15f, -1.4f), glm::vec3(0.4f), 0.3f, 0.0f);
+  auto coated_emitter =
+      create_probe("M8 Coated Emission Probe", glm::vec3(-0.8f, 2.15f, -1.4f), glm::vec3(0.4f), 0.3f, 0.0f);
+  configure_coated_emitter(uncoated_emitter, 0.0f);
+  configure_coated_emitter(coated_emitter, 1.0f);
+
+  auto half_specular_iridescence = create_probe("M8 Specular 0.5 Iridescence F90 Probe", glm::vec3(-0.4f, 2.15f, -1.4f),
+                                                glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular_iridescence->material_data.shade_material.specular_factor = 0.5f;
+  half_specular_iridescence->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular_iridescence->material_data.shade_material.iridescence_factor = 1.0f;
+  half_specular_iridescence->material_data.shade_material.iridescence_thickness_minimum = 350.0f;
+  half_specular_iridescence->material_data.shade_material.iridescence_thickness_maximum = 350.0f;
+  half_specular_iridescence->MarkDirty();
+
+  auto half_specular_control = create_probe("M8 Specular 0.5 Iridescence Control Probe", glm::vec3(0.0f, 2.15f, -1.4f),
+                                            glm::vec3(0.72f, 0.28f, 0.16f), 0.12f, 0.0f);
+  half_specular_control->material_data.shade_material.specular_factor = 0.5f;
+  half_specular_control->material_data.shade_material.specular_color_factor = glm::vec3(2.0f, 1.0f, 0.5f);
+  half_specular_control->MarkDirty();
+
+  CreateRenderingRegressionProbe(scene, root, "M3b Dispersion Backdrop Red", primitives.cube,
+                                 glm::vec3(-1.3f, 1.75f, -2.2f), glm::vec3(0.06f, 0.3f, 0.04f),
+                                 glm::vec3(1.0f, 0.03f, 0.03f), 0.8f, 0.0f, 4.0f, false);
+  CreateRenderingRegressionProbe(scene, root, "M3b Dispersion Backdrop Blue", primitives.cube,
+                                 glm::vec3(-0.7f, 1.75f, -2.2f), glm::vec3(0.06f, 0.3f, 0.04f),
+                                 glm::vec3(0.03f, 0.12f, 1.0f), 0.8f, 0.0f, 4.0f, false);
+}
+
+void ConfigureRenderingRegressionEmissiveNeeProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  const auto cube = Resources::GetInstance().GetPrimitives().cube;
+  CreateRenderingRegressionProbe(scene, root, "M4 Emissive NEE Receiver Floor", cube, glm::vec3(0.0f, 3.75f, -2.4f),
+                                 glm::vec3(2.0f, 0.05f, 1.5f), glm::vec3(0.72f), 0.9f, 0.0f);
+  CreateRenderingRegressionProbe(scene, root, "M4 Emissive NEE Receiver Back Wall", cube, glm::vec3(0.0f, 4.4f, -3.85f),
+                                 glm::vec3(2.0f, 0.7f, 0.05f), glm::vec3(0.62f, 0.66f, 0.72f), 0.9f, 0.0f);
+
+  const auto constant_emitter = CreateRenderingRegressionProbe(
+      scene, root, "M4 Emissive NEE Constant Emitter", cube, glm::vec3(-0.72f, 5.15f, -2.4f),
+      glm::vec3(0.22f, 0.025f, 0.22f), glm::vec3(1.0f, 0.48f, 0.14f), 0.8f, 0.0f, 50.0f);
+  const auto constant_material =
+      scene->GetOrSetPrivateComponent<MeshRenderer>(constant_emitter).lock()->material.Get<Material>();
+  constant_material->material_data.shade_material.double_sided = 0;
+  constant_material->MarkDirty();
+
+  const auto textured_emitter = CreateRenderingRegressionProbe(
+      scene, root, "M4 Emissive NEE Textured Emitter", cube, glm::vec3(0.72f, 5.15f, -2.4f),
+      glm::vec3(0.22f, 0.025f, 0.22f), glm::vec3(0.24f, 0.62f, 1.0f), 0.8f, 0.0f, 50.0f);
+  const auto textured_material =
+      scene->GetOrSetPrivateComponent<MeshRenderer>(textured_emitter).lock()->material.Get<Material>();
+  const auto emissive_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  constexpr uint32_t kEmissiveTextureResolution = 32;
+  const std::array emissive_palette = {glm::vec4(1.0f, 0.18f, 0.04f, 1.0f), glm::vec4(0.04f, 0.25f, 1.0f, 1.0f),
+                                       glm::vec4(0.05f, 1.0f, 0.22f, 1.0f), glm::vec4(1.0f, 0.85f, 0.08f, 1.0f)};
+  std::vector<glm::vec4> emissive_pixels;
+  emissive_pixels.reserve(kEmissiveTextureResolution * kEmissiveTextureResolution);
+  for (uint32_t y = 0; y < kEmissiveTextureResolution; ++y) {
+    for (uint32_t x = 0; x < kEmissiveTextureResolution; ++x) {
+      emissive_pixels.emplace_back(emissive_palette[(x + y * 3u) % emissive_palette.size()]);
+    }
+  }
+  emissive_texture->SetRgbaChannelData(emissive_pixels, glm::uvec2(kEmissiveTextureResolution));
+  const float texture_rotation = glm::radians(22.5f);
+  const glm::mat3x2 texture_transform(1.25f * std::cos(texture_rotation), 1.25f * std::sin(texture_rotation),
+                                      -0.8f * std::sin(texture_rotation), 0.8f * std::cos(texture_rotation), 0.1f,
+                                      0.15f);
+  const auto emissive_slot =
+      textured_material->SetTexture(&GltfShadeMaterial::emissive_texture, emissive_texture, 1, texture_transform);
+  textured_material->material_data.texture_infos[emissive_slot].color_space =
+      static_cast<int32_t>(GltfTextureColorSpace::Srgb);
+  textured_material->MarkDirty();
 }
 
 void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
@@ -308,7 +824,7 @@ void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, con
   point_light->quadratic = 0.045f;
 
   const auto spot_entity = CreateRenderingRegressionProbe(scene, root, "M42 Punctual Light Probe Spot", primitives.cone,
-                                                          glm::vec3(2.3f, 1.7f, -0.45f), glm::vec3(0.18f),
+                                                          glm::vec3(2.9f, 1.2f, -0.45f), glm::vec3(0.18f),
                                                           glm::vec3(0.35f, 0.62f, 1.0f), 0.8f, 0.0f, 3.0f, false);
   const auto spot_light = scene->GetOrSetPrivateComponent<SpotLight>(spot_entity).lock();
   spot_light->diffuse = glm::vec3(0.45f, 0.65f, 1.0f);
@@ -322,6 +838,20 @@ void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, con
   spot_transform.SetRotation(
       glm::quatLookAt(glm::normalize(spot_target - spot_transform.GetPosition()), glm::vec3(0, 1, 0)));
   scene->SetDataComponent(spot_entity, spot_transform);
+
+  const auto retroreflection_light_entity = scene->CreateEntity("M3b Retroreflection Camera Light");
+  const auto retroreflection_light = scene->GetOrSetPrivateComponent<PointLight>(retroreflection_light_entity).lock();
+  retroreflection_light->diffuse = glm::vec3(1.0f);
+  retroreflection_light->diffuse_brightness = 5.0f;
+  retroreflection_light->range = 16.0f;
+  retroreflection_light->light_size = 0.02f;
+  retroreflection_light->constant = 1.0f;
+  retroreflection_light->linear = 0.08f;
+  retroreflection_light->quadratic = 0.02f;
+  Transform retroreflection_light_transform;
+  retroreflection_light_transform.SetPosition(glm::vec3(0.0f, 1.15f, 5.2f));
+  scene->SetDataComponent(retroreflection_light_entity, retroreflection_light_transform);
+  scene->SetParent(retroreflection_light_entity, root);
 }
 
 void ConfigureRenderingRegressionImportedProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
@@ -1391,6 +1921,9 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
       scene, root, "M42 Temporal Moving Transparent Probe", primitives.sphere, glm::vec3(1.35f, 0.42f, -1.15f),
       glm::vec3(0.28f), glm::vec3(0.25f, 0.65f, 1.0f), 0.12f, 0.0f, 0.0f, false, 0.72f);
 
+  ConfigureRenderingRegressionGltfMaterialProbes(scene, root);
+  ConfigureRenderingRegressionAdvancedRayMaterialProbes(scene, root);
+  ConfigureRenderingRegressionEmissiveNeeProbes(scene, root);
   ConfigureRenderingRegressionImportedProbes(scene, root);
   ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);
@@ -1403,6 +1936,257 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
     rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
   }
   RegisterRenderingRegressionTemporalMotionUpdate();
+}
+
+void evo_engine::ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  if (const auto regression_root = FindEntityNamed(scene, kRenderingRegressionRootName)) {
+    scene->SetEnable(*regression_root, false);
+  }
+  if (const auto existing_root = FindEntityNamed(scene, kStrandValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.12f;
+
+  const auto root = scene->CreateEntity(kStrandValidationRootName);
+  const auto ground_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(ground_material, glm::vec3(0.42f, 0.45f, 0.5f), 0.9f, 0.0f);
+  const auto ground = scene->CreateEntity("Strand Validation Ground");
+  const auto ground_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground).lock();
+  ground_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+  ground_renderer->material = ground_material;
+  Transform ground_transform;
+  ground_transform.SetValue(glm::vec3(0.0f, -1.0f, -125.0f), glm::vec3(0.0f), glm::vec3(32.0f, 0.08f, 250.0f));
+  scene->SetDataComponent(ground, ground_transform);
+  scene->SetParent(ground, root);
+
+  const auto single_material = AssetManager::CreateTemporaryAsset<Material>();
+  const auto multi_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(single_material, glm::vec3(0.95f, 0.28f, 0.12f), 0.48f, 0.0f);
+  ConfigureMaterial(multi_material, glm::vec3(0.12f, 0.55f, 0.95f), 0.42f, 0.0f);
+  CreateStrandValidationRenderer(scene, root, "Strand Validation Single Segment",
+                                 CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.45f, 0.18f, 1.0f)),
+                                 single_material, glm::vec3(-0.75f, 0.0f, -2.5f), glm::vec3(1.0f), false);
+  CreateStrandValidationRenderer(scene, root, kStrandValidationDynamicName,
+                                 CreateStrandValidationGeometry(58, glm::vec4(0.18f, 0.65f, 1.0f, 1.0f)),
+                                 multi_material, glm::vec3(0.75f, 0.0f, -2.5f), glm::vec3(-1.15f, 0.8f, 1.35f), true);
+  const auto cascade_geometry = CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.82f, 0.18f, 1.0f));
+  const std::array cascade_positions = {glm::vec3(-4.0f, 0.0f, -70.0f), glm::vec3(0.0f, 0.0f, -130.0f),
+                                        glm::vec3(12.0f, 0.0f, -190.0f)};
+  for (size_t cascade = 0; cascade < cascade_positions.size(); ++cascade) {
+    const float scale = static_cast<float>(cascade + 2);
+    CreateStrandValidationRenderer(scene, root, "Strand Validation Cascade " + std::to_string(cascade + 1),
+                                   cascade_geometry, single_material, cascade_positions[cascade],
+                                   glm::vec3(scale, scale * 2.0f, scale), true);
+  }
+
+  const auto light_entity = scene->CreateEntity("Strand Validation Directional Light");
+  const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
+  light->cast_shadow = true;
+  light->diffuse = glm::vec3(1.0f, 0.96f, 0.88f);
+  light->diffuse_brightness = 3.5f;
+  light->light_size = 0.02f;
+  light->bias = 0.02f;
+  light->normal_offset = 0.02f;
+  Transform light_transform;
+  const auto direction = glm::normalize(glm::vec3(0.45f, -0.85f, -0.32f));
+  light_transform.SetRotation(glm::quatLookAt(-direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  scene->SetDataComponent(light_entity, light_transform);
+  scene->SetParent(light_entity, root);
+}
+
+void evo_engine::UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene) {
+  const auto entity = scene ? FindEntityNamed(scene, kStrandValidationDynamicName) : std::nullopt;
+  if (!entity) {
+    throw std::runtime_error("Strand mesh-shader validation was not configured before its geometry update.");
+  }
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(*entity).lock();
+  const auto strands = renderer ? renderer->strands.Get<Strands>() : nullptr;
+  if (!strands || strands->GetStrandPointAmount() != 58) {
+    throw std::runtime_error("Strand mesh-shader validation dynamic geometry is invalid.");
+  }
+  auto points = strands->PeekStrandPoints();
+  for (size_t index = 0; index < points.size(); ++index) {
+    const float t = static_cast<float>(index) / static_cast<float>(points.size() - 1);
+    points[index].position.x += 0.04f * glm::sin(t * glm::two_pi<float>() * 3.0f);
+  }
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  strands->SetStrands(attributes, {0, static_cast<glm::uint>(points.size())}, points);
+}
+
+void evo_engine::ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  for (const auto* root_name :
+       {kRenderingRegressionRootName, kStrandValidationRootName, kStrandPunctualValidationRootName}) {
+    if (const auto root = FindEntityNamed(scene, root_name)) {
+      scene->SetEnable(*root, false);
+    }
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  const auto strands = CreateStrandValidationGeometry(4, glm::vec4(1.0f), 0.12f);
+  auto points = strands->PeekStrandPoints();
+  constexpr std::array colors = {glm::vec4(1.0f, 0.12f, 0.08f, 1.0f), glm::vec4(0.1f, 1.0f, 0.18f, 1.0f),
+                                 glm::vec4(0.08f, 0.3f, 1.0f, 1.0f), glm::vec4(1.0f, 0.9f, 0.08f, 1.0f)};
+  constexpr std::array normals = {glm::vec3(0.25f, 0.25f, 1.0f), glm::vec3(0.65f, 0.25f, 0.8f),
+                                  glm::vec3(0.25f, 0.75f, 0.7f), glm::vec3(0.8f, 0.55f, 0.35f)};
+  for (size_t index = 0; index < points.size(); ++index) {
+    points[index].color = colors[index];
+    points[index].normal = glm::normalize(normals[index]);
+  }
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  strands->SetSegments(attributes, {0}, points);
+
+  strand_gizmo_validation_state = std::make_shared<StrandGizmoValidationState>();
+  strand_gizmo_validation_state->scene = scene;
+  strand_gizmo_validation_state->strands = strands;
+  RegisterStrandGizmoValidationUpdate();
+}
+
+void evo_engine::ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  if (const auto regression_root = FindEntityNamed(scene, kRenderingRegressionRootName)) {
+    scene->SetEnable(*regression_root, false);
+  }
+  if (const auto strand_root = FindEntityNamed(scene, kStrandValidationRootName)) {
+    scene->SetEnable(*strand_root, false);
+  }
+  if (const auto existing_root = FindEntityNamed(scene, kStrandPunctualValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<PointLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<SpotLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  const auto root = scene->CreateEntity(kStrandPunctualValidationRootName);
+  const auto point_material = AssetManager::CreateTemporaryAsset<Material>();
+  const auto spot_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(point_material, glm::vec3(1.0f, 0.45f, 0.12f), 0.45f, 0.0f);
+  ConfigureMaterial(spot_material, glm::vec3(0.18f, 0.55f, 1.0f), 0.45f, 0.0f);
+  const auto point_geometry = CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.45f, 0.12f, 1.0f));
+  const auto spot_geometry = CreateStrandValidationGeometry(4, glm::vec4(0.18f, 0.55f, 1.0f, 1.0f), 0.24f);
+
+  const glm::vec3 point_position(-5.0f, 2.0f, -12.0f);
+  const std::array point_directions = {glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                                       glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                                       glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+  const std::array point_panel_scales = {glm::vec3(0.08f, 1.2f, 1.2f), glm::vec3(0.08f, 1.2f, 1.2f),
+                                         glm::vec3(1.2f, 0.08f, 1.2f), glm::vec3(1.2f, 0.08f, 1.2f),
+                                         glm::vec3(1.2f, 1.2f, 0.08f), glm::vec3(1.2f, 1.2f, 0.08f)};
+  for (size_t face = 0; face < point_directions.size(); ++face) {
+    const bool y_face = face == 2 || face == 3;
+    const auto rotation =
+        y_face ? glm::vec3(0.0f, 0.0f, glm::half_pi<float>()) : glm::vec3(0.0f, 0.0f, glm::radians(8.0f));
+    const auto visible_offset = face == 5 ? glm::vec3(0.8f, 0.0f, 0.0f) : glm::vec3(0.0f);
+    CreateStrandValidationRenderer(scene, root, "Strand Point Face " + std::to_string(face), point_geometry,
+                                   point_material, point_position + point_directions[face] * 1.25f + visible_offset,
+                                   glm::vec3(0.55f), true, rotation);
+    CreateRenderingRegressionProbe(scene, root, "Strand Point Receiver " + std::to_string(face),
+                                   Resources::GetInstance().GetPrimitives().cube,
+                                   point_position + point_directions[face] * 2.5f + visible_offset,
+                                   point_panel_scales[face], glm::vec3(0.42f, 0.44f, 0.48f), 0.9f, 0.0f, 0.0f, false);
+  }
+  CreateStrandValidationRenderer(scene, root, "Strand Point Cast False", point_geometry, point_material,
+                                 point_position + glm::vec3(1.25f, 0.0f, 0.65f), glm::vec3(0.55f), false);
+
+  const auto point_light_entity = scene->CreateEntity("Strand Validation Point Light");
+  const auto point_light = scene->GetOrSetPrivateComponent<PointLight>(point_light_entity).lock();
+  point_light->cast_shadow = true;
+  point_light->diffuse = glm::vec3(1.0f, 0.55f, 0.25f);
+  point_light->diffuse_brightness = 20.0f;
+  point_light->range = 6.0f;
+  point_light->shadow_distance = 6.0f;
+  point_light->constant = 1.0f;
+  point_light->linear = 0.2f;
+  point_light->quadratic = 0.08f;
+  point_light->bias = 0.002f;
+  Transform point_light_transform;
+  point_light_transform.SetPosition(point_position);
+  scene->SetDataComponent(point_light_entity, point_light_transform);
+  scene->SetParent(point_light_entity, root);
+
+  const glm::vec3 spot_position(5.0f, 4.0f, -9.0f);
+  const glm::vec3 spot_target(5.0f, -0.75f, -14.0f);
+  const auto spot_direction = glm::normalize(spot_target - spot_position);
+  CreateStrandValidationRenderer(scene, root, "Strand Spot Cast True", spot_geometry, spot_material,
+                                 spot_position + spot_direction * 3.2f, glm::vec3(1.0f), true);
+  CreateStrandValidationRenderer(scene, root, "Strand Spot Cast False", spot_geometry, spot_material,
+                                 spot_position + spot_direction * 3.2f + glm::vec3(0.85f, 0.0f, 0.0f), glm::vec3(1.0f),
+                                 false);
+  const auto spot_receiver_position = spot_position + spot_direction * 6.0f;
+  const auto spot_receiver = CreateRenderingRegressionProbe(
+      scene, root, "Strand Spot Receiver", Resources::GetInstance().GetPrimitives().cube, spot_receiver_position,
+      glm::vec3(2.8f, 2.8f, 0.08f), glm::vec3(0.38f, 0.42f, 0.5f), 0.9f, 0.0f, 0.0f, false);
+  Transform spot_receiver_transform;
+  spot_receiver_transform.SetPosition(spot_receiver_position);
+  spot_receiver_transform.SetRotation(glm::quatLookAt(spot_direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  spot_receiver_transform.SetScale(glm::vec3(2.8f, 2.8f, 0.08f));
+  scene->SetDataComponent(spot_receiver, spot_receiver_transform);
+
+  const auto spot_light_entity = scene->CreateEntity("Strand Validation Spot Light");
+  const auto spot_light = scene->GetOrSetPrivateComponent<SpotLight>(spot_light_entity).lock();
+  spot_light->cast_shadow = true;
+  spot_light->diffuse = glm::vec3(0.3f, 0.6f, 1.0f);
+  spot_light->diffuse_brightness = 20.0f;
+  spot_light->inner_degrees = 18.0f;
+  spot_light->outer_degrees = 28.0f;
+  spot_light->range = 10.0f;
+  spot_light->shadow_distance = 10.0f;
+  spot_light->constant = 1.0f;
+  spot_light->linear = 0.2f;
+  spot_light->quadratic = 0.08f;
+  spot_light->bias = 0.0005f;
+  Transform spot_light_transform;
+  spot_light_transform.SetPosition(spot_position);
+  spot_light_transform.SetRotation(glm::quatLookAt(spot_direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  scene->SetDataComponent(spot_light_entity, spot_light_transform);
+  scene->SetParent(spot_light_entity, root);
 }
 
 void evo_engine::ConfigureBistroRayTracingPostProcessing(const std::shared_ptr<Camera>& camera) {

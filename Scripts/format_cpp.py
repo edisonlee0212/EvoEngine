@@ -35,6 +35,7 @@ EXCLUDED_DIRECTORY_NAMES = {
     "out",
     "Extern",
     "3rdParty",
+    "ThirdParty",
 }
 
 

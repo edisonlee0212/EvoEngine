@@ -1435,7 +1435,7 @@ void ScotsPine::RebuildGeometry() {
           needle_material->material_data.shade_material.pbr_base_color_factor =
               glm::vec4(color_mode == ColorMode::ByInstance ? by_instance_tint : glm::vec3(1.0f), 1.0f);
           needle_material->draw_settings.blending = false;
-          needle_material->draw_settings.cull_mode = VK_CULL_MODE_NONE;
+          needle_material->material_data.shade_material.double_sided = 1;
           needle_material->material_data.shade_material.pbr_metallic_factor = 0.0f;
           needle_material->material_data.shade_material.specular_factor =
               std::clamp(0.04f + 0.08f * needle_specularity, 0.04f, 0.12f);

@@ -5,6 +5,7 @@
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
+#include "VulkanPipelineCache.hpp"
 
 #include <array>
 #include <cstddef>
@@ -28,6 +29,11 @@
 #endif
 
 namespace evo_engine {
+
+struct FrameSubmissionState {
+  enum class Status { Pending, Submitted, Discarded };
+  Status status = Status::Pending;
+};
 class GpuService;
 class PlatformLifecycleTestAccess;
 
@@ -43,6 +49,7 @@ enum class RenderPassDrawBucket : uint8_t {
   CameraExternal,
   DdgiProbeVisualization,
   DdgiProbeRayVisualization,
+  EditorGizmos,
   Count
 };
 
@@ -53,7 +60,6 @@ struct RenderPassDrawStats {
   size_t indirect_draw_calls = 0;
   size_t indirect_draw_commands = 0;
   size_t prim_count = 0;
-
   [[nodiscard]] size_t TotalDrawCalls() const;
 };
 
@@ -73,6 +79,49 @@ struct RenderCameraDrawScope {
   bool scene_camera = false;
 };
 
+struct GpuTimestampStats {
+  std::string name{};
+  double last_milliseconds = 0.0;
+  double minimum_milliseconds = 0.0;
+  double maximum_milliseconds = 0.0;
+  double total_milliseconds = 0.0;
+  uint64_t sample_count = 0;
+  std::vector<double> samples_milliseconds{};
+
+  void AddSample(double milliseconds);
+  [[nodiscard]] double AverageMilliseconds() const;
+  [[nodiscard]] double MedianMilliseconds() const;
+  [[nodiscard]] double PercentileMilliseconds(double percentile) const;
+};
+
+struct GpuMemoryHeapStats {
+  uint32_t heap_index = 0;
+  bool device_local = false;
+  uint64_t heap_size_bytes = 0;
+  uint64_t block_count = 0;
+  uint64_t allocation_count = 0;
+  uint64_t block_bytes = 0;
+  uint64_t allocation_bytes = 0;
+  uint64_t driver_usage_bytes = 0;
+  uint64_t driver_budget_bytes = 0;
+};
+
+struct GpuMemorySnapshot {
+  uint64_t block_count = 0;
+  uint64_t allocation_count = 0;
+  uint64_t block_bytes = 0;
+  uint64_t allocation_bytes = 0;
+  std::vector<GpuMemoryHeapStats> heaps{};
+};
+
+struct GpuTimestampScopeToken {
+  std::string name{};
+  uint32_t frame_index = 0;
+  uint32_t begin_query = 0;
+  uint32_t end_query = 0;
+  bool valid = false;
+};
+
 /**
  * @brief Class representing platform-specific Vulkan setup and utilities.
  *
@@ -81,6 +130,8 @@ struct RenderCameraDrawScope {
  */
 class Platform final {
  public:
+  static constexpr int kMaxFramesInFlight = 2;
+
   struct QueueFamilySupport {
     VkQueueFlags queue_flags = 0;
     bool present_support = false;
@@ -188,7 +239,15 @@ class Platform final {
     VkPhysicalDeviceFeatures features{};
 
     /// Acceleration structure features.
-    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{};
+    VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};
+
+    /// Ray tracing pipeline features.
+    VkPhysicalDeviceRayTracingPipelineFeaturesKHR ray_tracing_pipeline_features{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_FEATURES_KHR};
+
+    /// Ray query features.
+    VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
 
     /**
      * @brief Struct representing queue family indices needed by the application.
@@ -276,6 +335,9 @@ class Platform final {
   /// Vulkan logical device handle.
   VkDevice vk_device_ = VK_NULL_HANDLE;
 
+  /// Persistent, device-scoped pipeline cache shared by engine pipeline creation.
+  std::unique_ptr<VulkanPipelineCache> pipeline_cache_{};
+
   /// Vulkan Memory Allocator (VMA) handle.
   VmaAllocator vma_allocator_ = VK_NULL_HANDLE;
 
@@ -311,12 +373,14 @@ class Platform final {
   std::unique_ptr<CommandPool> compute_command_pool_ = {};  ///< Command pool for dedicated compute commands.
   std::unique_ptr<DescriptorPool> descriptor_pool_ = {};    ///< Descriptor pool for Vulkan descriptors.
 
-  int max_frame_in_flight_ = 2;  ///< Max number of frames in flight.
+  int max_frame_in_flight_ = kMaxFramesInFlight;  ///< Max number of frames in flight.
 
   std::vector<std::shared_ptr<Semaphore>> image_available_semaphores_ = {};   ///< Semaphores for image availability.
   std::vector<std::shared_ptr<Semaphore>> render_finished_semaphores_ = {};   ///< Semaphores for render finish.
   std::vector<std::shared_ptr<Semaphore>> compute_finished_semaphores_ = {};  ///< Semaphores for compute finish.
   std::vector<std::shared_ptr<Fence>> in_flight_fences_ = {};                 ///< Fences for in-flight frames.
+  std::vector<std::vector<std::weak_ptr<FrameSubmissionState>>> frame_submission_states_ = {};
+  std::vector<bool> frame_slot_submitted_ = {};
 
   uint32_t current_frame_index_ = 0;  ///< Index of current frame being rendered.
 
@@ -346,6 +410,13 @@ class Platform final {
   void CreateSwapChain();
   void CreateSwapChainSyncObjects();
   void RecreateSwapChain();
+  void WaitForFrameSlotSubmission(uint32_t frame_index, const std::string& wait_name);
+  void InitializeGpuTimestampResources();
+  void DestroyGpuTimestampResources();
+  void PrepareGpuTimestampFrame(uint32_t frame_index);
+  void ResolveGpuTimestampFrame(uint32_t frame_index);
+  void AccumulateGpuTimestamp(const std::string& name, double milliseconds);
+  void AccumulateCpuTiming(const std::string& name, double milliseconds);
 
   /**
    * @brief Resets command buffers for reuse.
@@ -403,6 +474,7 @@ class Platform final {
    * @brief Global defines for shaders, set during initialization.
    */
   std::string shader_global_defines = {};
+  mutable std::mutex shader_include_paths_mutex_;
   std::set<std::filesystem::path> shader_include_paths_{};
 
  public:
@@ -411,12 +483,14 @@ class Platform final {
    */
   struct Capabilities {
     bool support_mesh_shader = true;
+    bool support_acceleration_structure = true;
     bool support_ray_tracing = true;
     bool support_ray_query = true;
     bool support_shader_execution_reordering = false;
     bool support_shader_float16 = false;
     bool support_ray_tracing_validation = false;
     bool support_async_compute = false;
+    bool support_pipeline_creation_feedback = false;
     uint32_t subgroup_size = 1;
     uint32_t task_subgroup_count = 1;
     uint32_t task_work_group_invocations = 1;
@@ -432,13 +506,13 @@ class Platform final {
 
  public:
   [[nodiscard]] const Capabilities& GetCapabilities() const;
-  [[nodiscard]] Capabilities& GetCapabilities();
   void RegisterShaderIncludePath(const std::filesystem::path& path);
-  [[nodiscard]] const std::set<std::filesystem::path>& GetRegisteredShaderIncludePaths() const;
+  [[nodiscard]] std::set<std::filesystem::path> GetRegisteredShaderIncludePaths() const;
   [[nodiscard]] static QueueFamilySelection SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families);
 
   static bool RayTracingEnabled();
   static bool RayQueryEnabled();
+  static bool RayAccelerationStructureEnabled();
   static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();
   static constexpr size_t kRenderPassDrawBucketCount = static_cast<size_t>(RenderPassDrawBucket::Count);
@@ -462,6 +536,19 @@ class Platform final {
    * @return The frame count.
    */
   static uint32_t GetFrameCount();
+
+  /**
+   * @brief Tracks whether commands recorded for the current frame are submitted or discarded.
+   * @return Shared state resolved by the frame lifecycle.
+   */
+  [[nodiscard]] static std::shared_ptr<FrameSubmissionState> TrackCurrentFrameSubmission();
+
+  static VkResult CreateComputePipeline(const VkComputePipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                        PipelineCreationFeedback& feedback);
+  static VkResult CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                         PipelineCreationFeedback& feedback);
+  static VkResult CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfoKHR& create_info, VkPipeline& pipeline,
+                                           PipelineCreationFeedback& feedback);
 
   /**
    * @brief Adds a temporary buffer synchronization action.
@@ -562,6 +649,7 @@ class Platform final {
    * @brief Drains pending resource upload work and waits for GPU/device idle.
    */
   static void DrainGpuResourceWork();
+  static void WaitForFrameSubmissions(const std::string& wait_name);
 
   /// List of primitive counts for debugging purposes.
   std::vector<size_t> prim_count{};
@@ -716,10 +804,26 @@ class Platform final {
    */
   static void ImmediateSubmit(const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
 
+  static void ImmediateSubmitWithGpuTimestamp(const std::string& name,
+                                              const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+
+  static void SetGpuTimestampCaptureEnabled(bool enabled);
+  [[nodiscard]] static bool GpuTimestampCaptureEnabled();
+  [[nodiscard]] static bool GpuTimestampCaptureAvailable();
+  static void ResetGpuTimestampStats();
+  [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
+  [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();
+  static void RecordCpuTimingSample(const std::string& name, double milliseconds);
+  [[nodiscard]] static GpuMemorySnapshot GetGpuMemorySnapshot();
+  [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
+                                                                     const std::string& name);
+  static void EndGpuTimestampScope(VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token);
+
   /**
    * @brief Retrieves the platform-owned GPU service.
    */
   static GpuService& GetGpuService();
+  static std::mutex& GetQueueHostMutex();
 
   /**
    * @brief Returns the platform-owned GPU service when it has been created.
@@ -732,6 +836,7 @@ class Platform final {
    * @return Maximum frames in flight.
    */
   static int GetMaxFramesInFlight();
+  [[nodiscard]] static uint32_t GetPendingFrameSubmissionCount();
 
   /**
    * @brief Notifies the system that the swapchain should be recreated.
@@ -751,6 +856,13 @@ class Platform final {
    * @return A shared pointer to the selected physical device.
    */
   static const std::shared_ptr<PhysicalDevice>& GetSelectedPhysicalDevice();
+
+  /**
+   * @brief Gets extended format features for the selected physical device.
+   * @param format Vulkan format to query.
+   * @return Extended format properties.
+   */
+  [[nodiscard]] static VkFormatProperties3 GetPhysicalDeviceFormatProperties(VkFormat format);
 
   /**
    * @brief Gets the Vulkan logical device handle.
@@ -883,6 +995,34 @@ class Platform final {
   [[nodiscard]] static bool CheckLayerSupport(const std::string& layer_name);
 
  private:
+  static void CountRenderPassDrawInternal(RenderPassDrawBucket bucket, RenderDrawCallKind kind, uint32_t frame_index,
+                                          size_t prim_count, size_t indirect_draw_commands);
+
+  struct PendingGpuTimestampScope {
+    std::string name{};
+    uint32_t begin_query = 0;
+    uint32_t end_query = 0;
+  };
+
+  struct GpuTimestampFrame {
+    VkQueryPool query_pool = VK_NULL_HANDLE;
+    uint32_t next_query = 0;
+    bool reset_recorded = false;
+    std::vector<PendingGpuTimestampScope> scopes{};
+  };
+
+  static constexpr uint32_t kGpuTimestampQueriesPerFrame = 128;
+  bool gpu_timestamp_capture_enabled_ = false;
+  bool gpu_timestamp_capture_available_ = false;
+  uint32_t gpu_timestamp_valid_bits_ = 0;
+  double gpu_timestamp_period_nanoseconds_ = 0.0;
+  std::vector<GpuTimestampFrame> gpu_timestamp_frames_{};
+  VkQueryPool immediate_gpu_timestamp_query_pool_ = VK_NULL_HANDLE;
+  std::recursive_mutex immediate_gpu_timestamp_mutex_{};
+  mutable std::mutex gpu_timestamp_stats_mutex_{};
+  std::unordered_map<std::string, GpuTimestampStats> gpu_timestamp_stats_{};
+  mutable std::mutex cpu_timing_stats_mutex_{};
+  std::unordered_map<std::string, GpuTimestampStats> cpu_timing_stats_{};
   std::optional<RenderCameraDrawScope> active_render_camera_draw_scope_{};
 };
 }  // namespace evo_engine

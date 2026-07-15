@@ -1,0 +1,125 @@
+#pragma once
+
+#include "GltfSceneFeatures.hpp"
+#include "Jobs.hpp"
+#include "VulkanPipelineCache.hpp"
+
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+namespace evo_engine {
+
+class ComputePipeline;
+struct FrameSubmissionState;
+class RayTracingPipeline;
+
+enum class RayCameraShaderTechnique { RayTracing, RayQuery };
+
+constexpr uint32_t kRayCameraDebugViewsFeature = 1u << 31u;
+static_assert((kRayCameraDebugViewsFeature & kGltfSceneAllFeatures) == 0u);
+
+struct RayCameraShaderVariantStats {
+  uint32_t requested_mask = kGltfSceneAllFeatures;
+  uint32_t active_mask = kGltfSceneAllFeatures;
+  std::string requested_key;
+  std::string active_key;
+  std::string cache_source = "fallback";
+  std::string last_error;
+  bool pending = false;
+  bool ready = true;
+  bool failed = false;
+  uint64_t eviction_count = 0;
+  uint32_t resident_variant_count = 0;
+  uint32_t pending_build_count = 0;
+  uint32_t failed_entry_count = 0;
+  uint32_t retained_submission_count = 0;
+  uint32_t variant_capacity = 8;
+  PipelineCreationFeedback pipeline_creation;
+};
+
+struct RayCameraShaderVariantUpdate {
+  bool ray_tracing_activated = false;
+  bool ray_query_activated = false;
+};
+
+class RayCameraShaderVariantCache final {
+ public:
+  using RayTracingFactory = std::function<std::shared_ptr<RayTracingPipeline>(uint32_t feature_mask)>;
+  using RayQueryFactory = std::function<std::shared_ptr<ComputePipeline>(uint32_t feature_mask)>;
+
+  RayCameraShaderVariantCache(std::shared_ptr<RayTracingPipeline> ray_tracing_fallback,
+                              std::shared_ptr<ComputePipeline> ray_query_fallback,
+                              RayTracingFactory ray_tracing_factory, RayQueryFactory ray_query_factory);
+  ~RayCameraShaderVariantCache();
+
+  RayCameraShaderVariantUpdate Update(uint32_t feature_mask, bool need_ray_tracing, bool need_ray_query,
+                                      bool need_ray_tracing_debug_views = false,
+                                      bool need_ray_query_debug_views = false);
+  [[nodiscard]] std::shared_ptr<RayTracingPipeline> GetRayTracingPipeline() const;
+  [[nodiscard]] std::shared_ptr<ComputePipeline> GetRayQueryPipeline() const;
+  [[nodiscard]] RayCameraShaderVariantStats GetStats(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] bool IsReady(RayCameraShaderTechnique technique) const;
+  void RecordActiveUse(RayCameraShaderTechnique technique);
+  void WaitForJobs();
+
+ private:
+  template <typename Pipeline>
+  struct Entry {
+    uint32_t mask = 0;
+    JobHandle job;
+    mutable std::mutex mutex;
+    std::shared_ptr<Pipeline> pipeline;
+    std::string cache_source;
+    std::string error;
+    uint64_t retry_after_update = 0;
+    uint64_t last_access_serial = 0;
+    bool published = false;
+    bool success = false;
+  };
+
+  template <typename Pipeline>
+  struct RetainedSubmission {
+    std::shared_ptr<Pipeline> pipeline;
+    std::shared_ptr<FrameSubmissionState> submission;
+    uint32_t frame_index = 0;
+  };
+
+  template <typename Pipeline>
+  struct TechniqueState {
+    std::shared_ptr<Pipeline> fallback;
+    std::shared_ptr<Pipeline> active;
+    std::unordered_map<uint32_t, std::shared_ptr<Entry<Pipeline>>> entries;
+    std::vector<RetainedSubmission<Pipeline>> retained_submissions;
+    RayCameraShaderVariantStats stats;
+  };
+
+  template <typename Pipeline>
+  void PruneEntries(TechniqueState<Pipeline>& state, uint32_t requested_mask);
+  template <typename Pipeline>
+  void ReleaseCompletedSubmissions(TechniqueState<Pipeline>& state);
+  template <typename Pipeline>
+  void TouchEntry(const std::shared_ptr<Entry<Pipeline>>& entry);
+
+  void PollCompletedJobs();
+  bool UpdateRayTracing(uint32_t feature_mask);
+  bool UpdateRayQuery(uint32_t feature_mask);
+  void RequestRayTracing(uint32_t feature_mask);
+  void RequestRayQuery(uint32_t feature_mask);
+
+  mutable std::mutex mutex_;
+  bool shutting_down_ = false;
+  uint64_t update_serial_ = 0;
+  uint64_t access_serial_ = 0;
+  TechniqueState<RayTracingPipeline> ray_tracing_;
+  TechniqueState<ComputePipeline> ray_query_;
+  RayTracingFactory ray_tracing_factory_;
+  RayQueryFactory ray_query_factory_;
+
+  friend class RayCameraShaderVariantCacheTestAccess;
+};
+
+}  // namespace evo_engine

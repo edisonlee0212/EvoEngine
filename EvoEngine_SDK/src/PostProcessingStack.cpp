@@ -6,20 +6,17 @@
 #include "GraphicsPipeline.hpp"
 #include "Mesh.hpp"
 #include "Platform.hpp"
+#include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
 #include "SmaaAreaTex.h"
 #include "SmaaSearchTex.h"
 #include "WindowLayer.hpp"
+
 using namespace evo_engine;
 
 namespace {
-template <typename T>
-void HashCombine(size_t& seed, const T& value) {
-  seed ^= std::hash<T>{}(value) + 0x9e3779b9u + (seed << 6u) + (seed >> 2u);
-}
-
 std::shared_ptr<Image> CreateSmaaLookupImage(const VkFormat format, const uint32_t width, const uint32_t height) {
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -84,6 +81,116 @@ const char* GetSmaaPresetDefine(const size_t preset_index) {
   return defines[glm::min(preset_index, std::size(defines) - 1)];
 }
 }  // namespace
+
+std::shared_ptr<DescriptorSet> PerFrameDescriptorSet::GetOrCreate(
+    const std::shared_ptr<DescriptorSetLayout>& layout) const {
+  slots_.resize(Platform::GetMaxFramesInFlight());
+  auto& slot = slots_.at(Platform::GetCurrentFrameIndex());
+  const auto frame_count = Platform::GetFrameCount();
+  if (!slot.recorded || slot.frame_count != frame_count) {
+    slot.frame_count = frame_count;
+    slot.recorded = true;
+    slot.duplicate_descriptor_sets.clear();
+    if (!slot.descriptor_set) {
+      slot.descriptor_set = std::make_shared<DescriptorSet>(layout);
+    }
+    return slot.descriptor_set;
+  }
+  return slot.duplicate_descriptor_sets.emplace_back(std::make_shared<DescriptorSet>(layout));
+}
+
+void PerFrameDescriptorSet::Retain(RenderGraphTransientResourceStore& transient_resources) const {
+  for (const auto& slot : slots_) {
+    transient_resources.RetainDescriptorSet(slot.descriptor_set);
+    for (const auto& descriptor_set : slot.duplicate_descriptor_sets) {
+      transient_resources.RetainDescriptorSet(descriptor_set);
+    }
+  }
+}
+
+void PerFrameDescriptorSet::Reset() {
+  slots_.clear();
+}
+
+std::vector<std::shared_ptr<DescriptorSet>>& PerFrameDescriptorSetList::Get() {
+  slots_.resize(Platform::GetMaxFramesInFlight());
+  auto& slot = slots_.at(Platform::GetCurrentFrameIndex());
+  const auto frame_count = Platform::GetFrameCount();
+  if (!slot.recorded || slot.frame_count != frame_count) {
+    slot.frame_count = frame_count;
+    slot.recorded = true;
+    slot.duplicate_descriptor_set_lists.clear();
+    return slot.descriptor_sets;
+  }
+  return slot.duplicate_descriptor_set_lists.emplace_back();
+}
+
+void PerFrameDescriptorSetList::Retain(RenderGraphTransientResourceStore& transient_resources) const {
+  for (const auto& slot : slots_) {
+    for (const auto& descriptor_set : slot.descriptor_sets) {
+      transient_resources.RetainDescriptorSet(descriptor_set);
+    }
+    for (const auto& descriptor_sets : slot.duplicate_descriptor_set_lists) {
+      for (const auto& descriptor_set : descriptor_sets) {
+        transient_resources.RetainDescriptorSet(descriptor_set);
+      }
+    }
+  }
+}
+
+void PerFrameDescriptorSetList::Reset() {
+  slots_.clear();
+}
+
+void PostProcessingCameraResources::ResetTemporalState() {
+  anti_aliasing.history.valid = false;
+  anti_aliasing.history.frame_index = 0;
+  anti_aliasing.history.last_processed_frame = 0;
+  current_jitter = {};
+  previous_jitter = {};
+  jitter_frame_index = 0;
+  previous_matrices_valid = false;
+  tone_mapping.auto_exposure_time_initialized = false;
+  tone_mapping.luminance_reset_pending = true;
+  tone_mapping.last_auto_exposure_time = 0.0;
+  ++tone_mapping.auto_exposure_reset_count;
+  ++temporal_reset_count;
+}
+
+void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& transient_resources) const {
+  transient_resources.RetainRenderTextureResources(stack.source_color_texture);
+  transient_resources.RetainRenderTextureResources(stack.result_texture);
+  transient_resources.RetainRenderTextureResources(stack.swap_texture);
+  stack.blur_horizontal_descriptor_set.Retain(transient_resources);
+  stack.blur_vertical_descriptor_set.Retain(transient_resources);
+  ambient_occlusion.blur_horizontal_descriptor_set.Retain(transient_resources);
+  ambient_occlusion.blur_vertical_descriptor_set.Retain(transient_resources);
+  ambient_occlusion.combine_descriptor_set.Retain(transient_resources);
+  ambient_occlusion.geometry_output_descriptor_set.Retain(transient_resources);
+  anti_aliasing.copy_descriptor_set.Retain(transient_resources);
+  anti_aliasing.resolve_descriptor_set.Retain(transient_resources);
+  for (const auto& texture : anti_aliasing.history.textures) {
+    transient_resources.RetainRenderTextureResources(texture);
+  }
+  for (const auto& texture : anti_aliasing.history.depth_textures) {
+    transient_resources.RetainRenderTextureResources(texture);
+  }
+  transient_resources.RetainRenderTextureResources(anti_aliasing.smaa_edges_texture);
+  transient_resources.RetainRenderTextureResources(anti_aliasing.smaa_blend_texture);
+  anti_aliasing.smaa_prepare_descriptor_set.Retain(transient_resources);
+  anti_aliasing.smaa_edge_descriptor_set.Retain(transient_resources);
+  anti_aliasing.smaa_weight_descriptor_set.Retain(transient_resources);
+  anti_aliasing.smaa_neighborhood_descriptor_set.Retain(transient_resources);
+  screen_space_reflection.combine_descriptor_set.Retain(transient_resources);
+  screen_space_reflection.reflect_output_descriptor_set.Retain(transient_resources);
+  bloom.mix_descriptor_set.Retain(transient_resources);
+  bloom.copy_descriptor_set.Retain(transient_resources);
+  bloom.downsampling_descriptor_sets.Retain(transient_resources);
+  bloom.upsampling_descriptor_sets.Retain(transient_resources);
+  tone_mapping.auto_exposure_descriptor_set.Retain(transient_resources);
+  transient_resources.RetainBuffer(tone_mapping.histogram_buffer);
+  transient_resources.RetainBuffer(tone_mapping.luminance_buffer);
+}
 
 void AntiAliasing::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "algorithm" << YAML::Value << static_cast<int32_t>(algorithm);
@@ -168,13 +275,11 @@ void AntiAliasing::Deserialize(const YAML::Node& in) {
     }
   }
   NormalizeSettings();
-  reset_history_ = true;
 }
 
 void AntiAliasing::ApplyTaaPreset(const TaaPreset value) {
   taa.preset = value;
   if (value == TaaPreset::Custom) {
-    reset_history_ = true;
     return;
   }
 
@@ -217,7 +322,6 @@ void AntiAliasing::ApplyTaaPreset(const TaaPreset value) {
       break;
   }
   NormalizeSettings();
-  reset_history_ = true;
 }
 
 void AntiAliasing::NormalizeSettings() {
@@ -252,58 +356,36 @@ void AntiAliasing::NormalizeSettings() {
   }
 }
 
-size_t AntiAliasing::ComputeSettingsHash() const {
-  size_t hash = 0;
-  HashCombine(hash, static_cast<int32_t>(taa.preset));
-  HashCombine(hash, static_cast<int32_t>(taa.variance_clipping_mode));
-  HashCombine(hash, static_cast<int32_t>(taa.history_color_mode));
-  HashCombine(hash, taa.variance_sample_count);
-  HashCombine(hash, taa.longest_velocity_sample_count);
-  HashCombine(hash, taa.use_ycocg);
-  HashCombine(hash, taa.use_neighborhood_sampling);
-  HashCombine(hash, taa.use_bicubic_filter);
-  HashCombine(hash, taa.use_longest_velocity);
-  HashCombine(hash, taa.use_depth_threshold);
-  HashCombine(hash, taa.use_tgsm);
-  HashCombine(hash, taa.use_fp16);
-  HashCombine(hash, taa.min_variance_gamma);
-  HashCombine(hash, taa.max_variance_gamma);
-  HashCombine(hash, taa.velocity_rejection_threshold);
-  HashCombine(hash, taa.depth_threshold);
-  HashCombine(hash, taa.sharpen);
-  return hash;
-}
-
 void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
-                           const std::shared_ptr<Camera>& target_camera) {
-  NormalizeSettings();
+                           const std::shared_ptr<Camera>& target_camera,
+                           PostProcessingExecutionContext& context) const {
   if (algorithm == Algorithm::Taa) {
-    ProcessTaa(post_processing_stack, target_camera);
+    ProcessTaa(post_processing_stack, target_camera, context);
   } else {
-    ProcessSmaa(post_processing_stack, target_camera);
+    ProcessSmaa(post_processing_stack, target_camera, context);
   }
 }
 
 void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
-                              const std::shared_ptr<Camera>& target_camera) {
+                              const std::shared_ptr<Camera>& target_camera,
+                              PostProcessingExecutionContext& context) const {
+  auto& camera_resources = context.camera.anti_aliasing;
+  auto& renderer_resources = context.renderer.anti_aliasing;
   const bool effective_use_fp16 = taa.use_fp16 && Platform::GetInstance().GetCapabilities().support_shader_float16;
-  if (!resolve_pipeline_configuration_valid_ || built_use_tgsm_ != taa.use_tgsm ||
-      built_use_fp16_ != effective_use_fp16) {
-    BuildTaaPipelines(true);
-  }
-  if (!copy_pipeline_ || !copy_pipeline_->Initialized() || !resolve_pipeline_ || !resolve_pipeline_->Initialized()) {
+  const size_t resolve_pipeline_index = (taa.use_tgsm ? 1u : 0u) | (effective_use_fp16 ? 2u : 0u);
+  const auto& copy_pipeline = renderer_resources.copy_pipeline;
+  const auto& resolve_pipeline = renderer_resources.resolve_pipelines[resolve_pipeline_index];
+  if (!copy_pipeline || !copy_pipeline->Initialized() || !resolve_pipeline || !resolve_pipeline->Initialized()) {
     return;
   }
-  if (!post_processing_stack.motion_vectors_image_view) {
-    ResetHistory(target_camera);
+  if (!context.motion_vectors_image_view) {
+    camera_resources.history.valid = false;
     return;
   }
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto size = target_camera->GetSize();
-  const uint64_t camera_handle = target_camera->GetHandle().GetValue();
   const uint32_t current_frame_index = Platform::GetFrameCount();
-  PruneHistory(current_frame_index, camera_handle);
-  auto& history = history_resources_[camera_handle];
+  auto& history = camera_resources.history;
   if (history.size != size || !history.textures[0] || !history.textures[1] || !history.depth_textures[0] ||
       !history.depth_textures[1]) {
     RenderTextureCreateInfo create_info{};
@@ -320,51 +402,51 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
   const uint32_t previous_history_index = history.frame_index % 2u;
   const uint32_t output_history_index = 1u - previous_history_index;
   const bool skipped_frame = history.valid && current_frame_index > history.last_processed_frame + 1u;
-  const auto settings_hash = ComputeSettingsHash();
-  const bool settings_changed = history.valid && history.settings_hash != settings_hash;
   const uint32_t camera_history_version = target_camera->GetTemporalHistoryVersion();
   const bool camera_history_reset = history.valid && history.camera_history_version != camera_history_version;
   const bool reject_camera_history = render_layer->RequiresCameraWideTemporalHistoryRejection();
-  const bool history_valid = history.valid && !reset_history_ && !skipped_frame && !settings_changed &&
-                             !camera_history_reset && !reject_camera_history;
-  reset_history_ = false;
+  const bool history_valid = history.valid && !skipped_frame && !camera_history_reset && !reject_camera_history;
+
+  const auto& copy_descriptor_set = camera_resources.copy_descriptor_set.GetOrCreate(renderer_resources.copy_layout);
+  const auto& resolve_descriptor_set =
+      camera_resources.resolve_descriptor_set.GetOrCreate(renderer_resources.resolve_layout);
 
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = history.textures[previous_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = post_processing_stack.motion_vectors_image_view->GetVkImageView();
-    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+    image_info.imageView = context.motion_vectors_image_view->GetVkImageView();
+    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = history.depth_textures[previous_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.depth_textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(3, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(4, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(4, image_info);
     image_info.imageView = history.textures[output_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(5, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(5, image_info);
     image_info.imageView = history.depth_textures[output_history_index]->GetColorImageView()->GetVkImageView();
     image_info.sampler = history.depth_textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set_->UpdateImageDescriptorBinding(6, image_info);
+    resolve_descriptor_set->UpdateImageDescriptorBinding(6, image_info);
   }
 
   TaaPushConstant push_constant{};
@@ -390,11 +472,11 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                    VK_IMAGE_LAYOUT_GENERAL);
-    copy_pipeline_->Bind(vk_command_buffer);
-    copy_pipeline_->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set_->GetVkDescriptorSet());
-    copy_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
+    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                   VK_IMAGE_LAYOUT_GENERAL);
+    copy_pipeline->Bind(vk_command_buffer);
+    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
+    copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
 
     target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -406,14 +488,14 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
                                                                                         VK_IMAGE_LAYOUT_GENERAL);
     history.depth_textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                                       VK_IMAGE_LAYOUT_GENERAL);
-    resolve_pipeline_->Bind(vk_command_buffer);
-    resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 0,
-                                         render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-    resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 1,
-                                         target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
-    resolve_pipeline_->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set_->GetVkDescriptorSet());
-    resolve_pipeline_->PushConstant(vk_command_buffer, 0, push_constant);
-    resolve_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
+    resolve_pipeline->Bind(vk_command_buffer);
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                        target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
+    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set->GetVkDescriptorSet());
+    resolve_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    resolve_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
@@ -421,180 +503,149 @@ void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
   history.frame_index++;
   history.last_processed_frame = current_frame_index;
   history.camera_history_version = camera_history_version;
-  history.settings_hash = settings_hash;
 }
 
-void AntiAliasing::ResetHistory(const std::shared_ptr<Camera>& target_camera) {
-  if (!target_camera) {
-    for (auto& history_pair : history_resources_) {
-      history_pair.second.valid = false;
+void AntiAliasing::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
+  BuildTaaPipelines(resources, force_rebuild);
+  BuildSmaaPipelines(resources, force_rebuild);
+}
+
+void AntiAliasing::BuildTaaPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
+  static_cast<void>(force_rebuild);
+  auto& renderer = resources.anti_aliasing;
+  if (!renderer.copy_layout) {
+    renderer.copy_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.copy_layout->Initialize();
+  }
+  if (!renderer.resolve_layout) {
+    renderer.resolve_layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 4; ++binding) {
+      renderer.resolve_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
     }
-    return;
-  }
-  if (const auto search = history_resources_.find(target_camera->GetHandle().GetValue());
-      search != history_resources_.end()) {
-    search->second.valid = false;
-  }
-}
-
-void AntiAliasing::PruneHistory(const uint32_t current_frame_index, const uint64_t active_camera_handle) {
-  constexpr uint32_t kRetainFrameCount = 120u;
-  for (auto iterator = history_resources_.begin(); iterator != history_resources_.end();) {
-    const auto last_processed_frame = iterator->second.last_processed_frame;
-    if (iterator->first != active_camera_handle && current_frame_index >= last_processed_frame &&
-        current_frame_index - last_processed_frame > kRetainFrameCount) {
-      iterator = history_resources_.erase(iterator);
-    } else {
-      ++iterator;
+    for (uint32_t binding = 4; binding < 7; ++binding) {
+      renderer.resolve_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
     }
+    renderer.resolve_layout->Initialize();
   }
-}
-
-void AntiAliasing::BuildPipelines(const bool force_rebuild) {
-  BuildTaaPipelines(force_rebuild);
-  BuildSmaaPipelines(force_rebuild);
-}
-
-void AntiAliasing::BuildTaaPipelines(const bool force_rebuild) {
-  if (force_rebuild || !copy_layout_) {
-    copy_layout_ = std::make_shared<DescriptorSetLayout>();
-    copy_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    copy_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    copy_layout_->Initialize();
-  }
-  if (force_rebuild || !resolve_layout_) {
-    resolve_layout_ = std::make_shared<DescriptorSetLayout>();
-    resolve_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                           0);
-    resolve_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                           0);
-    resolve_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                           0);
-    resolve_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                           0);
-    resolve_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    resolve_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    resolve_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    resolve_layout_->Initialize();
-  }
-  if (force_rebuild || !copy_descriptor_set_) {
-    copy_descriptor_set_ = std::make_shared<DescriptorSet>(copy_layout_);
-  }
-  if (force_rebuild || !resolve_descriptor_set_) {
-    resolve_descriptor_set_ = std::make_shared<DescriptorSet>(resolve_layout_);
-  }
-  if (force_rebuild || !copy_pipeline_) {
-    copy_pipeline_ = std::make_shared<ComputePipeline>();
-    copy_pipeline_->compute_shader =
+  if (!renderer.copy_pipeline) {
+    renderer.copy_pipeline = std::make_shared<ComputePipeline>();
+    renderer.copy_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAACopy.comp");
-    copy_pipeline_->descriptor_set_layouts.emplace_back(copy_layout_);
-    copy_pipeline_->Initialize();
+    renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
+    renderer.copy_pipeline->Initialize();
   }
-  if (force_rebuild || !resolve_pipeline_) {
-    resolve_pipeline_ = std::make_shared<ComputePipeline>();
-    const bool effective_use_fp16 = taa.use_fp16 && Platform::GetInstance().GetCapabilities().support_shader_float16;
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  for (size_t index = 0; index < renderer.resolve_pipelines.size(); ++index) {
+    if (renderer.resolve_pipelines[index]) {
+      continue;
+    }
+    const bool use_tgsm = (index & 1u) != 0;
+    const bool use_fp16 = (index & 2u) != 0 && Platform::GetInstance().GetCapabilities().support_shader_float16;
     const auto shader_defines = Platform::GetShaderGlobalDefines() + "\n#define EE_TAA_USE_TGSM " +
-                                std::string(taa.use_tgsm ? "1\n" : "0\n") + "#define EE_TAA_USE_FP16 " +
-                                std::string(effective_use_fp16 ? "1\n" : "0\n");
-    resolve_pipeline_->compute_shader = Shader::CreateTemporary(
+                                std::string(use_tgsm ? "1\n" : "0\n") + "#define EE_TAA_USE_FP16 " +
+                                std::string(use_fp16 ? "1\n" : "0\n");
+    auto& pipeline = renderer.resolve_pipelines[index];
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, shader_defines,
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.comp");
-    resolve_pipeline_->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
-    resolve_pipeline_->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
-    resolve_pipeline_->descriptor_set_layouts.emplace_back(resolve_layout_);
-    auto& push_constant_range = resolve_pipeline_->push_constant_ranges.emplace_back();
+    pipeline->descriptor_set_layouts.emplace_back(render_layer->GetPerFrameDescriptorSetLayout());
+    pipeline->descriptor_set_layouts.emplace_back(render_layer->GetCameraGBufferDescriptorSetLayout());
+    pipeline->descriptor_set_layouts.emplace_back(renderer.resolve_layout);
+    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(TaaPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    resolve_pipeline_->Initialize();
-    built_use_tgsm_ = taa.use_tgsm;
-    built_use_fp16_ = effective_use_fp16;
-    resolve_pipeline_configuration_valid_ = true;
+    pipeline->Initialize();
   }
 }
 
-void AntiAliasing::EnsureSmaaLookupTextures() {
+void AntiAliasing::EnsureSmaaLookupTextures(PostProcessingRendererResources& resources) const {
   static_assert(AREATEX_WIDTH == 160 && AREATEX_HEIGHT == 560);
   static_assert(SEARCHTEX_WIDTH == 64 && SEARCHTEX_HEIGHT == 16);
   static_assert(sizeof(areaTexBytes) == AREATEX_SIZE);
   static_assert(sizeof(searchTexBytes) == SEARCHTEX_SIZE);
-  if (smaa_area_image_ && smaa_search_image_ && smaa_area_view_ && smaa_search_view_ && smaa_lookup_sampler_) {
+  auto& renderer = resources.anti_aliasing;
+  if (renderer.smaa_area_image && renderer.smaa_search_image && renderer.smaa_area_view && renderer.smaa_search_view &&
+      renderer.smaa_lookup_sampler) {
     return;
   }
-  smaa_area_image_ = CreateSmaaLookupImage(VK_FORMAT_R8G8_UNORM, AREATEX_WIDTH, AREATEX_HEIGHT);
-  smaa_search_image_ = CreateSmaaLookupImage(VK_FORMAT_R8_UNORM, SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT);
-  UploadSmaaLookupImage(smaa_area_image_, areaTexBytes, sizeof(areaTexBytes));
-  UploadSmaaLookupImage(smaa_search_image_, searchTexBytes, sizeof(searchTexBytes));
-  smaa_area_view_ = CreateSmaaLookupView(smaa_area_image_);
-  smaa_search_view_ = CreateSmaaLookupView(smaa_search_image_);
-  smaa_lookup_sampler_ = CreateSmaaSampler();
+  renderer.smaa_area_image = CreateSmaaLookupImage(VK_FORMAT_R8G8_UNORM, AREATEX_WIDTH, AREATEX_HEIGHT);
+  renderer.smaa_search_image = CreateSmaaLookupImage(VK_FORMAT_R8_UNORM, SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT);
+  UploadSmaaLookupImage(renderer.smaa_area_image, areaTexBytes, sizeof(areaTexBytes));
+  UploadSmaaLookupImage(renderer.smaa_search_image, searchTexBytes, sizeof(searchTexBytes));
+  renderer.smaa_area_view = CreateSmaaLookupView(renderer.smaa_area_image);
+  renderer.smaa_search_view = CreateSmaaLookupView(renderer.smaa_search_image);
+  renderer.smaa_lookup_sampler = CreateSmaaSampler();
 }
 
-void AntiAliasing::EnsureSmaaTargets(const glm::uvec2& size) {
-  if (smaa_size_ == size && smaa_edges_texture_ && smaa_blend_texture_) {
+void AntiAliasing::EnsureSmaaTargets(const glm::uvec2& size, PostProcessingCameraResources& resources) const {
+  auto& anti_aliasing = resources.anti_aliasing;
+  if (anti_aliasing.smaa_size == size && anti_aliasing.smaa_edges_texture && anti_aliasing.smaa_blend_texture) {
     return;
   }
   RenderTextureCreateInfo create_info{};
   create_info.extent = {size.x, size.y, 1};
   create_info.color_format = VK_FORMAT_R8G8B8A8_UNORM;
   create_info.depth = false;
-  smaa_edges_texture_ = std::make_shared<RenderTexture>(create_info);
-  smaa_blend_texture_ = std::make_shared<RenderTexture>(create_info);
-  smaa_size_ = size;
+  anti_aliasing.smaa_edges_texture = std::make_shared<RenderTexture>(create_info);
+  anti_aliasing.smaa_blend_texture = std::make_shared<RenderTexture>(create_info);
+  anti_aliasing.smaa_size = size;
 }
 
-void AntiAliasing::BuildSmaaPipelines(const bool force_rebuild) {
-  EnsureSmaaLookupTextures();
-  if (force_rebuild || !smaa_prepare_layout_) {
-    smaa_prepare_layout_ = std::make_shared<DescriptorSetLayout>();
-    smaa_prepare_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    smaa_prepare_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    smaa_prepare_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    smaa_prepare_layout_->Initialize();
+void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
+  static_cast<void>(force_rebuild);
+  EnsureSmaaLookupTextures(resources);
+  auto& renderer = resources.anti_aliasing;
+  if (!renderer.smaa_prepare_layout) {
+    renderer.smaa_prepare_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.smaa_prepare_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                        VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.smaa_prepare_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                        VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.smaa_prepare_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                        VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.smaa_prepare_layout->Initialize();
   }
-  if (force_rebuild || !smaa_edge_layout_) {
-    smaa_edge_layout_ = std::make_shared<DescriptorSetLayout>();
-    smaa_edge_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                             0);
-    smaa_edge_layout_->Initialize();
+  if (!renderer.smaa_edge_layout) {
+    renderer.smaa_edge_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.smaa_edge_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                     VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+    renderer.smaa_edge_layout->Initialize();
   }
-  if (force_rebuild || !smaa_weight_layout_) {
-    smaa_weight_layout_ = std::make_shared<DescriptorSetLayout>();
+  if (!renderer.smaa_weight_layout) {
+    renderer.smaa_weight_layout = std::make_shared<DescriptorSetLayout>();
     for (uint32_t binding = 0; binding < 3; ++binding) {
-      smaa_weight_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                 VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+      renderer.smaa_weight_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                         VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     }
-    smaa_weight_layout_->Initialize();
+    renderer.smaa_weight_layout->Initialize();
   }
-  if (force_rebuild || !smaa_neighborhood_layout_) {
-    smaa_neighborhood_layout_ = std::make_shared<DescriptorSetLayout>();
+  if (!renderer.smaa_neighborhood_layout) {
+    renderer.smaa_neighborhood_layout = std::make_shared<DescriptorSetLayout>();
     for (uint32_t binding = 0; binding < 3; ++binding) {
-      smaa_neighborhood_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                       VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+      renderer.smaa_neighborhood_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                               VK_SHADER_STAGE_FRAGMENT_BIT, 0);
     }
-    smaa_neighborhood_layout_->Initialize();
+    renderer.smaa_neighborhood_layout->Initialize();
   }
-  if (force_rebuild || !smaa_prepare_descriptor_set_) {
-    smaa_prepare_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_prepare_layout_);
-    smaa_edge_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_edge_layout_);
-    smaa_weight_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_weight_layout_);
-    smaa_neighborhood_descriptor_set_ = std::make_shared<DescriptorSet>(smaa_neighborhood_layout_);
-  }
-  if (force_rebuild || !smaa_prepare_pipeline_) {
-    smaa_prepare_pipeline_ = std::make_shared<ComputePipeline>();
-    smaa_prepare_pipeline_->compute_shader = Shader::CreateTemporary(
+  if (!renderer.smaa_prepare_pipeline) {
+    renderer.smaa_prepare_pipeline = std::make_shared<ComputePipeline>();
+    renderer.smaa_prepare_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SMAAPrepare.comp");
-    smaa_prepare_pipeline_->descriptor_set_layouts.emplace_back(smaa_prepare_layout_);
-    auto& push_constant_range = smaa_prepare_pipeline_->push_constant_ranges.emplace_back();
+    renderer.smaa_prepare_pipeline->descriptor_set_layouts.emplace_back(renderer.smaa_prepare_layout);
+    auto& push_constant_range = renderer.smaa_prepare_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(SmaaPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    smaa_prepare_pipeline_->Initialize();
+    renderer.smaa_prepare_pipeline->Initialize();
   }
 
   const auto create_pipeline = [&](const std::filesystem::path& vertex_path, const std::filesystem::path& fragment_path,
@@ -616,80 +667,91 @@ void AntiAliasing::BuildSmaaPipelines(const bool force_rebuild) {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pipeline->Initialize();
+    pipeline->states.depth_test = false;
+    pipeline->states.depth_write = false;
+    pipeline->states.cull_mode = VK_CULL_MODE_NONE;
     return pipeline;
   };
 
   const auto shader_root = Resources::GetDefaultResourcesPath() / "Shaders/Graphics";
-  for (size_t preset_index = 0; preset_index < smaa_edge_pipelines_.size(); ++preset_index) {
-    if (!force_rebuild && smaa_edge_pipelines_[preset_index] && smaa_weight_pipelines_[preset_index]) {
+  for (size_t preset_index = 0; preset_index < renderer.smaa_edge_pipelines.size(); ++preset_index) {
+    if (renderer.smaa_edge_pipelines[preset_index] && renderer.smaa_weight_pipelines[preset_index]) {
       continue;
     }
     const auto defines = Platform::GetShaderGlobalDefines() + "\n#define " + GetSmaaPresetDefine(preset_index) + "\n";
-    smaa_edge_pipelines_[preset_index] = create_pipeline(shader_root / "Vertex/PostProcessing/SMAAEdge.vert",
-                                                         shader_root / "Fragment/PostProcessing/SMAAEdge.frag",
-                                                         smaa_edge_layout_, VK_FORMAT_R8G8B8A8_UNORM, defines);
-    smaa_weight_pipelines_[preset_index] = create_pipeline(shader_root / "Vertex/PostProcessing/SMAABlendWeight.vert",
-                                                           shader_root / "Fragment/PostProcessing/SMAABlendWeight.frag",
-                                                           smaa_weight_layout_, VK_FORMAT_R8G8B8A8_UNORM, defines);
+    renderer.smaa_edge_pipelines[preset_index] = create_pipeline(
+        shader_root / "Vertex/PostProcessing/SMAAEdge.vert", shader_root / "Fragment/PostProcessing/SMAAEdge.frag",
+        renderer.smaa_edge_layout, VK_FORMAT_R8G8B8A8_UNORM, defines);
+    renderer.smaa_weight_pipelines[preset_index] =
+        create_pipeline(shader_root / "Vertex/PostProcessing/SMAABlendWeight.vert",
+                        shader_root / "Fragment/PostProcessing/SMAABlendWeight.frag", renderer.smaa_weight_layout,
+                        VK_FORMAT_R8G8B8A8_UNORM, defines);
   }
-  if (force_rebuild || !smaa_neighborhood_pipeline_) {
-    smaa_neighborhood_pipeline_ =
-        create_pipeline(shader_root / "Vertex/PostProcessing/SMAANeighborhood.vert",
-                        shader_root / "Fragment/PostProcessing/SMAANeighborhood.frag", smaa_neighborhood_layout_,
-                        Platform::Constants::render_texture_color, Platform::GetShaderGlobalDefines());
+  if (!renderer.smaa_neighborhood_pipeline) {
+    renderer.smaa_neighborhood_pipeline = create_pipeline(
+        shader_root / "Vertex/PostProcessing/SMAANeighborhood.vert",
+        shader_root / "Fragment/PostProcessing/SMAANeighborhood.frag", renderer.smaa_neighborhood_layout,
+        Platform::Constants::render_texture_color, Platform::GetShaderGlobalDefines());
   }
 }
 
 void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
-                               const std::shared_ptr<Camera>& target_camera) {
+                               const std::shared_ptr<Camera>& target_camera,
+                               PostProcessingExecutionContext& context) const {
+  auto& camera = context.camera.anti_aliasing;
+  auto& renderer = context.renderer.anti_aliasing;
   const auto preset_index = static_cast<size_t>(smaa.preset);
-  if (!smaa_prepare_pipeline_ || !smaa_prepare_pipeline_->Initialized() || !smaa_edge_pipelines_[preset_index] ||
-      !smaa_edge_pipelines_[preset_index]->Initialized() || !smaa_weight_pipelines_[preset_index] ||
-      !smaa_weight_pipelines_[preset_index]->Initialized() || !smaa_neighborhood_pipeline_ ||
-      !smaa_neighborhood_pipeline_->Initialized()) {
+  if (!renderer.smaa_prepare_pipeline || !renderer.smaa_prepare_pipeline->Initialized() ||
+      !renderer.smaa_edge_pipelines[preset_index] || !renderer.smaa_edge_pipelines[preset_index]->Initialized() ||
+      !renderer.smaa_weight_pipelines[preset_index] || !renderer.smaa_weight_pipelines[preset_index]->Initialized() ||
+      !renderer.smaa_neighborhood_pipeline || !renderer.smaa_neighborhood_pipeline->Initialized()) {
     return;
   }
   const auto size = target_camera->GetSize();
   if (size.x == 0 || size.y == 0) {
     return;
   }
-  EnsureSmaaTargets(size);
-  EnsureSmaaLookupTextures();
+  EnsureSmaaTargets(size, context.camera);
+  const auto& prepare_descriptor_set = camera.smaa_prepare_descriptor_set.GetOrCreate(renderer.smaa_prepare_layout);
+  const auto& edge_descriptor_set = camera.smaa_edge_descriptor_set.GetOrCreate(renderer.smaa_edge_layout);
+  const auto& weight_descriptor_set = camera.smaa_weight_descriptor_set.GetOrCreate(renderer.smaa_weight_layout);
+  const auto& neighborhood_descriptor_set =
+      camera.smaa_neighborhood_descriptor_set.GetOrCreate(renderer.smaa_neighborhood_layout);
 
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
   image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
-  image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
+  prepare_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
   image_info.sampler = VK_NULL_HANDLE;
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
-  image_info.imageView = post_processing_stack.swap_texture->GetColorImageView()->GetVkImageView();
-  smaa_prepare_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  prepare_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
+  prepare_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
   image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  image_info.imageView = post_processing_stack.swap_texture->GetColorImageView()->GetVkImageView();
-  image_info.sampler = post_processing_stack.swap_texture->GetColorSampler()->GetVkSampler();
-  smaa_edge_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.swap_texture->GetColorSampler()->GetVkSampler();
+  edge_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
 
-  image_info.imageView = smaa_edges_texture_->GetColorImageView()->GetVkImageView();
-  image_info.sampler = smaa_edges_texture_->GetColorSampler()->GetVkSampler();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
-  image_info.imageView = smaa_area_view_->GetVkImageView();
-  image_info.sampler = smaa_lookup_sampler_->GetVkSampler();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
-  image_info.imageView = smaa_search_view_->GetVkImageView();
-  smaa_weight_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  image_info.imageView = camera.smaa_edges_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = camera.smaa_edges_texture->GetColorSampler()->GetVkSampler();
+  weight_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = renderer.smaa_area_view->GetVkImageView();
+  image_info.sampler = renderer.smaa_lookup_sampler->GetVkSampler();
+  weight_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  image_info.imageView = renderer.smaa_search_view->GetVkImageView();
+  weight_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
-  image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
-  image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(0, image_info);
-  image_info.imageView = smaa_blend_texture_->GetColorImageView()->GetVkImageView();
-  image_info.sampler = smaa_blend_texture_->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(1, image_info);
-  image_info.imageView = smaa_edges_texture_->GetColorImageView()->GetVkImageView();
-  image_info.sampler = smaa_edges_texture_->GetColorSampler()->GetVkSampler();
-  smaa_neighborhood_descriptor_set_->UpdateImageDescriptorBinding(2, image_info);
+  image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = camera.smaa_blend_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = camera.smaa_blend_texture->GetColorSampler()->GetVkSampler();
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  image_info.imageView = camera.smaa_edges_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = camera.smaa_edges_texture->GetColorSampler()->GetVkSampler();
+  neighborhood_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
   SmaaPushConstant push_constant{};
   push_constant.metrics = {1.0f / static_cast<float>(size.x), 1.0f / static_cast<float>(size.y),
@@ -711,12 +773,17 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
       render_info.colorAttachmentCount = static_cast<uint32_t>(attachments.size());
       render_info.pColorAttachments = attachments.data();
       Platform::RecordRenderCommands(render_info, vk_command_buffer, [&] {
-        pipeline->states.ResetAllStates(1);
-        pipeline->states.SetViewportScissor(viewport);
-        pipeline->states.depth_test = false;
-        pipeline->states.depth_write = false;
-        pipeline->states.cull_mode = VK_CULL_MODE_NONE;
         pipeline->Bind(vk_command_buffer);
+        const VkViewport vk_viewport = {static_cast<float>(viewport.x),
+                                        static_cast<float>(viewport.y),
+                                        static_cast<float>(viewport.z),
+                                        static_cast<float>(viewport.w),
+                                        0.0f,
+                                        1.0f};
+        const VkRect2D scissor = {{viewport.x, viewport.y},
+                                  {static_cast<uint32_t>(viewport.z), static_cast<uint32_t>(viewport.w)}};
+        vkCmdSetViewport(vk_command_buffer, 0, 1, &vk_viewport);
+        vkCmdSetScissor(vk_command_buffer, 0, 1, &scissor);
         pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
         pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         vkCmdDraw(vk_command_buffer, 3, 1, 0, 0);
@@ -724,33 +791,36 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
     };
 
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                    VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    smaa_prepare_pipeline_->Bind(vk_command_buffer);
-    smaa_prepare_pipeline_->BindDescriptorSet(vk_command_buffer, 0, smaa_prepare_descriptor_set_->GetVkDescriptorSet());
-    smaa_prepare_pipeline_->PushConstant(vk_command_buffer, 0, push_constant);
-    smaa_prepare_pipeline_->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
+    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                   VK_IMAGE_LAYOUT_GENERAL);
+    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    renderer.smaa_prepare_pipeline->Bind(vk_command_buffer);
+    renderer.smaa_prepare_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                      prepare_descriptor_set->GetVkDescriptorSet());
+    renderer.smaa_prepare_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    renderer.smaa_prepare_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
 
-    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(
+    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(
         vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    post_processing_stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    smaa_edges_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(smaa_edges_texture_, smaa_edge_pipelines_[preset_index], smaa_edge_descriptor_set_);
+    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    render_fullscreen(camera.smaa_edges_texture, renderer.smaa_edge_pipelines[preset_index], edge_descriptor_set);
 
-    smaa_edges_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    smaa_blend_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(smaa_blend_texture_, smaa_weight_pipelines_[preset_index], smaa_weight_descriptor_set_);
+    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    render_fullscreen(camera.smaa_blend_texture, renderer.smaa_weight_pipelines[preset_index], weight_descriptor_set);
 
-    smaa_blend_texture_->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                            VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-    render_fullscreen(target_camera->GetRenderTexture(), smaa_neighborhood_pipeline_,
-                      smaa_neighborhood_descriptor_set_);
+    render_fullscreen(target_camera->GetRenderTexture(), renderer.smaa_neighborhood_pipeline,
+                      neighborhood_descriptor_set);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
@@ -767,62 +837,73 @@ void Bloom::Deserialize(const YAML::Node& in) {
     bloom_chain_length = in["bloom_chain_length"].as<int>();
 }
 
-void Bloom::Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera) {
-  if (!copy_pipeline || !copy_pipeline->Initialized() || !downsampling_pipeline ||
-      !downsampling_pipeline->Initialized() || !upsampling_pipeline || !upsampling_pipeline->Initialized() ||
-      !mix_pipeline || !mix_pipeline->Initialized())
+void Bloom::Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
+                    PostProcessingExecutionContext& context) const {
+  auto& stack = context.camera.stack;
+  auto& camera = context.camera.bloom;
+  auto& renderer = context.renderer.bloom;
+  if (!renderer.copy_pipeline || !renderer.copy_pipeline->Initialized() || !renderer.downsampling_pipeline ||
+      !renderer.downsampling_pipeline->Initialized() || !renderer.upsampling_pipeline ||
+      !renderer.upsampling_pipeline->Initialized() || !renderer.mix_pipeline || !renderer.mix_pipeline->Initialized())
     return;
 
-  const auto mip_levels = post_processing_stack.result_texture->GetMipLevels();
-  const auto base_extent = post_processing_stack.result_texture->GetColorImage()->GetExtent();
+  const auto mip_levels = stack.result_texture->GetMipLevels();
+  const auto base_extent = stack.result_texture->GetColorImage()->GetExtent();
   const auto target_size = target_camera->GetSize();
+  const auto& copy_frame_descriptor_set = camera.copy_descriptor_set.GetOrCreate(renderer.copy_layout);
+  const auto& mix_frame_descriptor_set = camera.mix_descriptor_set.GetOrCreate(renderer.mix_layout);
+  auto& downsampling_frame_descriptor_sets = camera.downsampling_descriptor_sets.Get();
+  auto& upsampling_frame_descriptor_sets = camera.upsampling_descriptor_sets.Get();
+  const auto acquire_sampling_descriptor_set = [&](auto& descriptor_sets, const size_t index) {
+    descriptor_sets.resize(std::max(descriptor_sets.size(), index + 1));
+    auto& descriptor_set = descriptor_sets[index];
+    if (!descriptor_set) {
+      descriptor_set = std::make_shared<DescriptorSet>(renderer.sampling_layout);
+    }
+    return descriptor_set;
+  };
 
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-    image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageView = stack.result_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                    VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                              VK_IMAGE_LAYOUT_GENERAL);
-    copy_pipeline->Bind(vk_command_buffer);
-    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
+    stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    renderer.copy_pipeline->Bind(vk_command_buffer);
+    renderer.copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_frame_descriptor_set->GetVkDescriptorSet());
     ComputePushConstant push_constant;
     push_constant.resolution = target_size;
-    copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16), Platform::DivUp(target_size.y, 16));
+    renderer.copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    renderer.copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16),
+                                     Platform::DivUp(target_size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
   });
 
-  downsampling_descriptor_set.clear();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                              VK_IMAGE_LAYOUT_GENERAL);
+    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     for (int target_mip_level = 1; target_mip_level < glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1);
          ++target_mip_level) {
       const auto current_descriptor_set =
-          downsampling_descriptor_set.emplace_back(std::make_shared<DescriptorSet>(sampling_layout));
+          acquire_sampling_descriptor_set(downsampling_frame_descriptor_sets, target_mip_level - 1);
 
       VkDescriptorImageInfo descriptor_image_info;
-      descriptor_image_info.imageView =
-          post_processing_stack.result_texture->GetColorImageView(target_mip_level - 1)->GetVkImageView();
-      descriptor_image_info.imageLayout = post_processing_stack.result_texture->GetColorImage()->GetLayout();
-      descriptor_image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
+      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(target_mip_level - 1)->GetVkImageView();
+      descriptor_image_info.imageLayout = stack.result_texture->GetColorImage()->GetLayout();
+      descriptor_image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
       current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
-      descriptor_image_info.imageView =
-          post_processing_stack.result_texture->GetColorImageView(target_mip_level)->GetVkImageView();
+      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(target_mip_level)->GetVkImageView();
       current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
       const float mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, target_mip_level);
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, target_mip_level);
@@ -830,35 +911,33 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
         continue;
       const auto mip_extent_width = static_cast<uint32_t>(mip_width);
       const auto mip_extent_height = static_cast<uint32_t>(mip_height);
-      downsampling_pipeline->Bind(vk_command_buffer);
-      downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, current_descriptor_set->GetVkDescriptorSet());
+      renderer.downsampling_pipeline->Bind(vk_command_buffer);
+      renderer.downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                        current_descriptor_set->GetVkDescriptorSet());
       DownsamplingPushConstant push_constant;
       push_constant.mip_level = target_mip_level - 1;
       push_constant.source_resolution = {mip_width, mip_height};
-      downsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      downsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
-                                      Platform::DivUp(mip_extent_height, 16));
+      renderer.downsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      renderer.downsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
+                                               Platform::DivUp(mip_extent_height, 16));
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
 
-  upsampling_descriptor_set.clear();
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                              VK_IMAGE_LAYOUT_GENERAL);
+    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    size_t descriptor_index = 0;
     for (int src_mip_level = glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1) - 1; src_mip_level > 0;
          --src_mip_level) {
       const auto current_descriptor_set =
-          upsampling_descriptor_set.emplace_back(std::make_shared<DescriptorSet>(sampling_layout));
+          acquire_sampling_descriptor_set(upsampling_frame_descriptor_sets, descriptor_index++);
 
       VkDescriptorImageInfo descriptor_image_info;
-      descriptor_image_info.imageView =
-          post_processing_stack.result_texture->GetColorImageView(src_mip_level)->GetVkImageView();
-      descriptor_image_info.imageLayout = post_processing_stack.result_texture->GetColorImage()->GetLayout();
-      descriptor_image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
+      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(src_mip_level)->GetVkImageView();
+      descriptor_image_info.imageLayout = stack.result_texture->GetColorImage()->GetLayout();
+      descriptor_image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
       current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
-      descriptor_image_info.imageView =
-          post_processing_stack.result_texture->GetColorImageView(src_mip_level - 1)->GetVkImageView();
+      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(src_mip_level - 1)->GetVkImageView();
       current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
 
       const float prev_mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, src_mip_level);
@@ -870,14 +949,15 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
       const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level - 1);
       const auto mip_extent_width = static_cast<uint32_t>(mip_width);
       const auto mip_extent_height = static_cast<uint32_t>(mip_height);
-      upsampling_pipeline->Bind(vk_command_buffer);
-      upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, current_descriptor_set->GetVkDescriptorSet());
+      renderer.upsampling_pipeline->Bind(vk_command_buffer);
+      renderer.upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                      current_descriptor_set->GetVkDescriptorSet());
       UpsamplingPushConstant push_constant;
       push_constant.target_resolution = {mip_extent_width, mip_extent_height};
       push_constant.filter_radius = filter_radius;
-      upsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      upsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
-                                    Platform::DivUp(mip_extent_height, 16));
+      renderer.upsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+      renderer.upsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
+                                             Platform::DivUp(mip_extent_height, 16));
       Platform::EverythingBarrier(vk_command_buffer);
     }
   });
@@ -885,155 +965,139 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = post_processing_stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = post_processing_stack.result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = post_processing_stack.result_texture->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+    image_info.imageView = stack.source_color_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = stack.result_texture->GetColorImageView()->GetVkImageView();
+    image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    mix_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
+    mix_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                    VK_IMAGE_LAYOUT_GENERAL);
-    post_processing_stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                              VK_IMAGE_LAYOUT_GENERAL);
-    mix_pipeline->Bind(vk_command_buffer);
-    mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_descriptor_set->GetVkDescriptorSet());
+    stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    renderer.mix_pipeline->Bind(vk_command_buffer);
+    renderer.mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_frame_descriptor_set->GetVkDescriptorSet());
     ComputePushConstant push_constant;
     push_constant.resolution = target_size;
-    mix_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    mix_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16), Platform::DivUp(target_size.y, 16));
+    renderer.mix_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    renderer.mix_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16),
+                                    Platform::DivUp(target_size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 
-void Bloom::BuildPipelines(const bool force_rebuild) {
-  if (force_rebuild || !mix_layout) {
-    mix_layout = std::make_shared<DescriptorSetLayout>();
-    mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    mix_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    mix_layout->Initialize();
+void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
+  static_cast<void>(force_rebuild);
+  auto& renderer = resources.bloom;
+  if (!renderer.mix_layout) {
+    renderer.mix_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.mix_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.mix_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.mix_layout->Initialize();
   }
-  if (force_rebuild || !mix_descriptor_set) {
-    mix_descriptor_set = std::make_shared<DescriptorSet>(mix_layout);
+  if (!renderer.copy_layout) {
+    renderer.copy_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.copy_layout->Initialize();
   }
-  if (force_rebuild || !copy_layout) {
-    copy_layout = std::make_shared<DescriptorSetLayout>();
-    copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    copy_layout->Initialize();
+  if (!renderer.sampling_layout) {
+    renderer.sampling_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                    VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.sampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                    0);
+    renderer.sampling_layout->Initialize();
   }
-  if (force_rebuild || !copy_descriptor_set) {
-    copy_descriptor_set = std::make_shared<DescriptorSet>(copy_layout);
-  }
-  if (force_rebuild || !sampling_layout) {
-    sampling_layout = std::make_shared<DescriptorSetLayout>();
-    sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
-                                           0);
-    sampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    sampling_layout->Initialize();
-  }
-  if (force_rebuild || !downsampling_pipeline) {
-    downsampling_pipeline = std::make_shared<ComputePipeline>();
-    downsampling_pipeline->compute_shader = Shader::CreateTemporary(
+  if (!renderer.downsampling_pipeline) {
+    renderer.downsampling_pipeline = std::make_shared<ComputePipeline>();
+    renderer.downsampling_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomDownsampling.comp");
-    downsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-    auto& downsampling_push_constant_range = downsampling_pipeline->push_constant_ranges.emplace_back();
+    renderer.downsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
+    auto& downsampling_push_constant_range = renderer.downsampling_pipeline->push_constant_ranges.emplace_back();
     downsampling_push_constant_range.size = sizeof(DownsamplingPushConstant);
     downsampling_push_constant_range.offset = 0;
     downsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    downsampling_pipeline->Initialize();
+    renderer.downsampling_pipeline->Initialize();
   }
-  if (force_rebuild || !upsampling_pipeline) {
-    upsampling_pipeline = std::make_shared<ComputePipeline>();
-    upsampling_pipeline->compute_shader = Shader::CreateTemporary(
+  if (!renderer.upsampling_pipeline) {
+    renderer.upsampling_pipeline = std::make_shared<ComputePipeline>();
+    renderer.upsampling_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomUpsampling.comp");
-    upsampling_pipeline->descriptor_set_layouts.emplace_back(sampling_layout);
-    auto& upsampling_push_constant_range = upsampling_pipeline->push_constant_ranges.emplace_back();
+    renderer.upsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
+    auto& upsampling_push_constant_range = renderer.upsampling_pipeline->push_constant_ranges.emplace_back();
     upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
     upsampling_push_constant_range.offset = 0;
     upsampling_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    upsampling_pipeline->Initialize();
+    renderer.upsampling_pipeline->Initialize();
   }
-  if (force_rebuild || !copy_pipeline) {
-    copy_pipeline = std::make_shared<ComputePipeline>();
-    copy_pipeline->compute_shader =
+  if (!renderer.copy_pipeline) {
+    renderer.copy_pipeline = std::make_shared<ComputePipeline>();
+    renderer.copy_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomCopy.comp");
-    copy_pipeline->descriptor_set_layouts.emplace_back(copy_layout);
-    auto& copy_push_constant_range = copy_pipeline->push_constant_ranges.emplace_back();
+    renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
+    auto& copy_push_constant_range = renderer.copy_pipeline->push_constant_ranges.emplace_back();
     copy_push_constant_range.size = sizeof(ComputePushConstant);
     copy_push_constant_range.offset = 0;
     copy_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    copy_pipeline->Initialize();
+    renderer.copy_pipeline->Initialize();
   }
-  if (force_rebuild || !mix_pipeline) {
-    mix_pipeline = std::make_shared<ComputePipeline>();
-    mix_pipeline->compute_shader =
+  if (!renderer.mix_pipeline) {
+    renderer.mix_pipeline = std::make_shared<ComputePipeline>();
+    renderer.mix_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomMix.comp");
-    mix_pipeline->descriptor_set_layouts.emplace_back(mix_layout);
-    auto& mix_push_constant_range = mix_pipeline->push_constant_ranges.emplace_back();
+    renderer.mix_pipeline->descriptor_set_layouts.emplace_back(renderer.mix_layout);
+    auto& mix_push_constant_range = renderer.mix_pipeline->push_constant_ranges.emplace_back();
     mix_push_constant_range.size = sizeof(ComputePushConstant);
     mix_push_constant_range.offset = 0;
     mix_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    mix_pipeline->Initialize();
+    renderer.mix_pipeline->Initialize();
   }
 }
 
-void PostProcessingStack::Resize(const glm::uvec2& size) {
+void PostProcessingStack::Resize(PostProcessingCameraResources& resources, const glm::uvec2& size) const {
   if (size.x == 0 || size.y == 0)
     return;
   if (size.x > 16384 || size.y >= 16384)
     return;
-  if (size == current_size)
+  auto& stack = resources.stack;
+  if (size == stack.size && stack.source_color_texture && stack.result_texture && stack.swap_texture)
     return;
-  current_size = size;
   const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.x, size.y)))) + 1;
-  source_color_texture->Resize({size.x, size.y, 1});
-  result_texture->Resize({size.x, size.y, 1}, mip_levels);
-  swap_texture->Resize({size.x, size.y, 1});
+  RenderTextureCreateInfo create_info{};
+  create_info.depth = false;
+  create_info.extent = {size.x, size.y, 1};
+  stack.source_color_texture = std::make_shared<RenderTexture>(create_info);
+  stack.result_texture = std::make_shared<RenderTexture>(create_info, mip_levels);
+  stack.swap_texture = std::make_shared<RenderTexture>(create_info);
+  stack.size = size;
+  ++stack.generation;
 }
 
 void PostProcessingStack::OnCreate() {
-  if (!blur_layout) {
-    blur_layout = std::make_shared<DescriptorSetLayout>();
-    blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    blur_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    blur_layout->Initialize();
-  }
-
-  if (!blur_horizontal_descriptor_set) {
-    blur_horizontal_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
-  }
-  if (!blur_vertical_descriptor_set) {
-    blur_vertical_descriptor_set = std::make_shared<DescriptorSet>(blur_layout);
-  }
-  current_size = glm::uvec2(1);
-
-  RenderTextureCreateInfo render_texture_create_info{};
-  render_texture_create_info.depth = false;
-  source_color_texture = std::make_unique<RenderTexture>(render_texture_create_info);
-  result_texture = std::make_unique<RenderTexture>(render_texture_create_info);
-  swap_texture = std::make_unique<RenderTexture>(render_texture_create_info);
   ambient_occlusion = std::make_shared<AmbientOcclusion>();
   bloom = std::make_shared<Bloom>();
   screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   anti_aliasing = std::make_shared<AntiAliasing>();
   tone_mapping = std::make_shared<ToneMapping>();
-  pipeline_build_step_ = 0;
-  pipelines_ready_ = false;
-  if (!ApplicationContext::Get().GetLayer<WindowLayer>()) {
-    while (!BuildNextPipeline()) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (render_layer && render_layer->GetPostProcessingRendererResources() &&
+      !ApplicationContext::Get().GetLayer<WindowLayer>()) {
+    while (!BuildNextPipeline(*render_layer->GetPostProcessingRendererResources())) {
     }
   }
 
@@ -1044,91 +1108,102 @@ void PostProcessingStack::OnCreate() {
   enable_tone_mapping = true;
 }
 
-bool PostProcessingStack::BuildNextPipeline() {
-  if (pipelines_ready_) {
+bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& resources) const {
+  if (resources.pipelines_ready) {
     return true;
   }
   if (!ambient_occlusion || !bloom || !screen_space_reflection || !anti_aliasing || !tone_mapping) {
     return false;
   }
-  switch (pipeline_build_step_) {
+  switch (resources.pipeline_build_step) {
     case 0:
-      ambient_occlusion->BuildPipelines();
+      if (!resources.stack.blur_layout) {
+        resources.stack.blur_layout = std::make_shared<DescriptorSetLayout>();
+        resources.stack.blur_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
+        resources.stack.blur_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                           VK_SHADER_STAGE_COMPUTE_BIT, 0);
+        resources.stack.blur_layout->Initialize();
+      }
+      if (!resources.stack.blur_pipeline) {
+        resources.stack.blur_pipeline = std::make_shared<ComputePipeline>();
+        resources.stack.blur_pipeline->compute_shader =
+            Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                    Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/Blur.comp");
+        resources.stack.blur_pipeline->descriptor_set_layouts.emplace_back(resources.stack.blur_layout);
+        auto& push_constant_range = resources.stack.blur_pipeline->push_constant_ranges.emplace_back();
+        push_constant_range.size = sizeof(int) + sizeof(float) * 5;
+        push_constant_range.offset = 0;
+        push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+        resources.stack.blur_pipeline->Initialize();
+      }
       break;
     case 1:
-      screen_space_reflection->BuildPipelines();
+      ambient_occlusion->BuildPipelines(resources);
       break;
     case 2:
-      anti_aliasing->BuildPipelines();
+      screen_space_reflection->BuildPipelines(resources);
       break;
     case 3:
-      bloom->BuildPipelines();
+      anti_aliasing->BuildPipelines(resources);
       break;
     case 4:
-      tone_mapping->BuildPipelines();
+      bloom->BuildPipelines(resources);
+      break;
+    case 5:
+      tone_mapping->BuildPipelines(resources);
       break;
     default:
-      pipelines_ready_ = true;
+      resources.pipelines_ready = true;
       return true;
   }
-  ++pipeline_build_step_;
-  pipelines_ready_ = pipeline_build_step_ > 4;
+  ++resources.pipeline_build_step;
+  resources.pipelines_ready = resources.pipeline_build_step > 5;
   return false;
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
+                                  const std::shared_ptr<ImageView>& motion_vectors_image_view,
                                   const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
   if (!target_camera) {
     return;
   }
-  if (!BuildNextPipeline()) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer || !render_layer->GetPostProcessingRendererResources()) {
     return;
   }
-  Resize(target_camera->GetSize());
-  {
-    VkDescriptorImageInfo image_info;
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
-    blur_horizontal_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  auto& renderer = *render_layer->GetPostProcessingRendererResources();
+  if (!BuildNextPipeline(renderer)) {
+    return;
   }
-  {
-    VkDescriptorImageInfo image_info;
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
-    blur_vertical_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    blur_vertical_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-  }
+  auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
+  Resize(camera, target_camera->GetSize());
+  PostProcessingExecutionContext context{camera, renderer, motion_vectors_image_view};
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }
 
   if (enable_ambient_occlusion) {
-    ambient_occlusion->Process(*this, target_camera);
+    ambient_occlusion->Process(*this, target_camera, context);
   }
   if (enable_screen_space_reflection) {
-    screen_space_reflection->Process(*this, target_camera);
+    screen_space_reflection->Process(*this, target_camera, context);
   }
   if (enable_anti_aliasing && anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa) {
-    anti_aliasing->Process(*this, target_camera);
+    anti_aliasing->Process(*this, target_camera, context);
   } else {
-    anti_aliasing->ResetHistory(target_camera);
+    camera.anti_aliasing.history.valid = false;
   }
   if (enable_bloom) {
-    bloom->Process(*this, target_camera);
+    bloom->Process(*this, target_camera, context);
   }
 
   if (enable_tone_mapping) {
-    tone_mapping->Process(*this, target_camera);
+    tone_mapping->Process(*this, target_camera, context);
   }
   if (enable_anti_aliasing && anti_aliasing->algorithm == AntiAliasing::Algorithm::Smaa) {
-    anti_aliasing->Process(*this, target_camera);
+    anti_aliasing->Process(*this, target_camera, context);
   }
 }
 
@@ -1137,52 +1212,73 @@ void PostProcessingStack::ProcessRayCamera(const std::shared_ptr<Camera>& target
   if (!target_camera) {
     return;
   }
-  if (!BuildNextPipeline()) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer || !render_layer->GetPostProcessingRendererResources()) {
     return;
   }
-  Resize(target_camera->GetSize());
+  auto& renderer = *render_layer->GetPostProcessingRendererResources();
+  if (!BuildNextPipeline(renderer)) {
+    return;
+  }
+  auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
+  Resize(camera, target_camera->GetSize());
+  PostProcessingExecutionContext context{camera, renderer, {}};
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }
   if (enable_bloom) {
-    bloom->Process(*this, target_camera);
+    bloom->Process(*this, target_camera, context);
   }
   if (enable_tone_mapping) {
-    tone_mapping->Process(*this, target_camera);
+    tone_mapping->Process(*this, target_camera, context);
   }
 }
 
-void PostProcessingStack::GaussianBlur(const glm::uvec2& size) const {
+void PostProcessingStack::GaussianBlur(const glm::uvec2& size, PostProcessingExecutionContext& context) const {
   struct PushConstant {
     int horizontal = false;
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
   };
-  if (!blur_pipeline) {
-    blur_pipeline = std::make_shared<ComputePipeline>();
-    blur_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/Blur.comp");
-    blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);
-    auto& ssr_blur_pipeline_push_constant_range = blur_pipeline->push_constant_ranges.emplace_back();
-    ssr_blur_pipeline_push_constant_range.size = sizeof(PushConstant);
-    ssr_blur_pipeline_push_constant_range.offset = 0;
-    ssr_blur_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    blur_pipeline->Initialize();
+  const auto& blur_pipeline = context.renderer.stack.blur_pipeline;
+  if (!blur_pipeline || !blur_pipeline->Initialized()) {
+    return;
   }
 
   PushConstant push_constant{};
+  const auto& horizontal_descriptor_set =
+      context.camera.stack.blur_horizontal_descriptor_set.GetOrCreate(context.renderer.stack.blur_layout);
+  const auto& vertical_descriptor_set =
+      context.camera.stack.blur_vertical_descriptor_set.GetOrCreate(context.renderer.stack.blur_layout);
+
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  image_info.imageView = context.camera.stack.result_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.result_texture->GetColorSampler()->GetVkSampler();
+  horizontal_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.swap_texture->GetColorSampler()->GetVkSampler();
+  horizontal_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+  image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.swap_texture->GetColorSampler()->GetVkSampler();
+  vertical_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+  image_info.imageView = context.camera.stack.result_texture->GetColorImageView()->GetVkImageView();
+  image_info.sampler = context.camera.stack.result_texture->GetColorSampler()->GetVkSampler();
+  vertical_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    context.camera.stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                             VK_IMAGE_LAYOUT_GENERAL);
+    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 
     blur_pipeline->Bind(vk_command_buffer);
-    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_descriptor_set->GetVkDescriptorSet());
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, horizontal_descriptor_set->GetVkDescriptorSet());
     push_constant.horizontal = true;
     blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
 
-    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_descriptor_set->GetVkDescriptorSet());
+    blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, vertical_descriptor_set->GetVkDescriptorSet());
     push_constant.horizontal = false;
     blur_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));

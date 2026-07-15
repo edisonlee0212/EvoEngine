@@ -12,6 +12,7 @@
 #include "AssetRef.hpp"
 #include "AssetThumbnailProvider.hpp"
 #include "Camera.hpp"
+#include "Cubemap.hpp"
 #include "EnvironmentalMap.hpp"
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
@@ -641,6 +642,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(UnknownSystem).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(PostProcessingStack).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Material).hash_code()), nullptr);
+  ASSERT_NE(Serialization::FindSerializationHandler(typeid(Cubemap).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(EnvironmentalMap).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(Shader).hash_code()), nullptr);
   ASSERT_NE(Serialization::FindSerializationHandler(typeid(procedural_noise::ProceduralNoise2D).hash_code()), nullptr);
@@ -718,7 +720,75 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   ASSERT_EQ(restored_animator.PeekBoneNames().size(), 1);
   EXPECT_EQ(restored_animator.PeekBoneNames()[0], "Root");
 
+  Cubemap cubemap;
+  std::vector<glm::vec4> cubemap_pixels(30);
+  for (size_t index = 0; index < cubemap_pixels.size(); ++index) {
+    cubemap_pixels[index] = glm::vec4(static_cast<float>(index), 0.25f, 0.5f, 1.0f);
+  }
+  ASSERT_TRUE(cubemap.SetRgbaChannelData(cubemap_pixels, 2u, 2u));
+  YAML::Emitter cubemap_out;
+  BeginMap(cubemap_out);
+  Serialization::SerializeObject(cubemap_out, static_cast<IAsset&>(cubemap));
+  cubemap_out << YAML::EndMap;
+  const auto cubemap_node = YAML::Load(cubemap_out.c_str());
+  EXPECT_EQ(cubemap_node["resolution"].as<uint32_t>(), 2u);
+  EXPECT_EQ(cubemap_node["mip_levels"].as<uint32_t>(), 2u);
+  EXPECT_TRUE(cubemap_node["pixels"]);
+  Cubemap restored_cubemap;
+  Serialization::DeserializeObject(cubemap_node, static_cast<IAsset&>(restored_cubemap));
+  EXPECT_EQ(restored_cubemap.GetResolution(), 2u);
+  EXPECT_EQ(restored_cubemap.GetMipLevels(), 2u);
+  ASSERT_EQ(restored_cubemap.PeekLocalData().size(), cubemap_pixels.size());
+  for (size_t index = 0; index < cubemap_pixels.size(); ++index) {
+    for (int channel = 0; channel < 4; ++channel) {
+      EXPECT_FLOAT_EQ(restored_cubemap.PeekLocalData()[index][channel], cubemap_pixels[index][channel]);
+    }
+  }
+  EXPECT_FALSE(cubemap.SetRgbaChannelData(std::vector<glm::vec4>(6), 2u, 1u));
+  EXPECT_FALSE(cubemap.SetRgbaChannelData({}, 2u, 3u));
+  const std::array<unsigned char, 3> malformed_pixels = {1u, 2u, 3u};
+  YAML::Emitter malformed_cubemap_out;
+  BeginMap(malformed_cubemap_out);
+  malformed_cubemap_out << YAML::Key << "resolution" << YAML::Value << 2u;
+  malformed_cubemap_out << YAML::Key << "mip_levels" << YAML::Value << 1u;
+  malformed_cubemap_out << YAML::Key << "pixels" << YAML::Value
+                        << YAML::Binary(malformed_pixels.data(), malformed_pixels.size());
+  malformed_cubemap_out << YAML::EndMap;
+  Cubemap malformed_cubemap;
+  EXPECT_THROW(Serialization::DeserializeObject(YAML::Load(malformed_cubemap_out.c_str()),
+                                                static_cast<IAsset&>(malformed_cubemap)),
+               std::invalid_argument);
+  Cubemap empty_cubemap;
+  YAML::Emitter empty_cubemap_out;
+  BeginMap(empty_cubemap_out);
+  Serialization::SerializeObject(empty_cubemap_out, static_cast<IAsset&>(empty_cubemap));
+  empty_cubemap_out << YAML::EndMap;
+  const auto empty_cubemap_node = YAML::Load(empty_cubemap_out.c_str());
+  EXPECT_EQ(empty_cubemap_node["resolution"].as<uint32_t>(), 0u);
+  EXPECT_FALSE(empty_cubemap_node["pixels"]);
+  Serialization::DeserializeObject(empty_cubemap_node, static_cast<IAsset&>(restored_cubemap));
+  EXPECT_EQ(restored_cubemap.GetResolution(), 0u);
+  EXPECT_EQ(restored_cubemap.GetMipLevels(), 1u);
+  EXPECT_TRUE(restored_cubemap.PeekLocalData().empty());
+  Cubemap unavailable_cubemap;
+  unavailable_cubemap.Initialize(2u);
+  YAML::Emitter unavailable_cubemap_out;
+  BeginMap(unavailable_cubemap_out);
+  EXPECT_THROW(Serialization::SerializeObject(unavailable_cubemap_out, static_cast<IAsset&>(unavailable_cubemap)),
+               std::runtime_error);
+  Cubemap invalid_cubemap;
+  invalid_cubemap.Initialize(2u, 3u);
+  YAML::Emitter invalid_cubemap_out;
+  BeginMap(invalid_cubemap_out);
+  EXPECT_THROW(Serialization::SerializeObject(invalid_cubemap_out, static_cast<IAsset&>(invalid_cubemap)),
+               std::runtime_error);
+
   EnvironmentalMap environmental_map;
+  environmental_map.environment_source_type = EnvironmentalMap::SourceType::SkyIllumination;
+  environmental_map.sky_illumination_resolution = 384;
+  environmental_map.sky_illumination_source.atmosphere.earth_radius = 6200.0f;
+  environmental_map.sky_illumination_source.sun_direction = glm::normalize(glm::vec3(1.0f, 2.0f, 3.0f));
+  environmental_map.sky_illumination_source.ground_transmittance = 0.35f;
   YAML::Emitter environmental_map_out;
   BeginMap(environmental_map_out);
   Serialization::SerializeObject(environmental_map_out, static_cast<IAsset&>(environmental_map));
@@ -727,12 +797,55 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_TRUE(environmental_map_node["light_probe"]);
   EXPECT_TRUE(environmental_map_node["reflection_probe"]);
   EXPECT_TRUE(environmental_map_node["environment_pdf_texture"]);
+  EXPECT_TRUE(environmental_map_node["environment_cubemap"]);
+  EXPECT_TRUE(environmental_map_node["environment_source"]);
+  EXPECT_EQ(environmental_map_node["environment_source_type"].as<uint32_t>(),
+            static_cast<uint32_t>(EnvironmentalMap::SourceType::SkyIllumination));
+  EXPECT_EQ(environmental_map_node["sky_illumination_resolution"].as<uint32_t>(), 384u);
+  EXPECT_FLOAT_EQ(environmental_map_node["sky_illumination_source"]["earth_radius"].as<float>(), 6200.0f);
+  const auto generated_light_probe = AssetManager::CreateTemporaryAsset<LightProbe>();
+  const auto generated_reflection_probe = AssetManager::CreateTemporaryAsset<ReflectionProbe>();
+  const auto generated_pdf = AssetManager::CreateTemporaryAsset<Texture2D>();
+  const auto generated_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
+  environmental_map.light_probe = generated_light_probe;
+  environmental_map.reflection_probe = generated_reflection_probe;
+  environmental_map.environment_pdf_texture = generated_pdf;
+  environmental_map.environment_cubemap = generated_cubemap;
+  std::vector<AssetRef> environmental_map_refs;
+  Serialization::CollectAssetRefs(static_cast<IAsset&>(environmental_map), environmental_map_refs);
+  EXPECT_TRUE(environmental_map_refs.empty());
+
+  const auto source_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  environmental_map.environment_source_type = EnvironmentalMap::SourceType::Texture2D;
+  environmental_map.environment_source = source_texture;
+  Serialization::CollectAssetRefs(static_cast<IAsset&>(environmental_map), environmental_map_refs);
+  ASSERT_EQ(environmental_map_refs.size(), 1u);
+  EXPECT_EQ(environmental_map_refs.front().GetAssetHandle(), source_texture->GetHandle());
+
+  const auto source_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
+  environmental_map.environment_source_type = EnvironmentalMap::SourceType::Cubemap;
+  environmental_map.environment_source = source_cubemap;
+  environmental_map_refs.clear();
+  Serialization::CollectAssetRefs(static_cast<IAsset&>(environmental_map), environmental_map_refs);
+  ASSERT_EQ(environmental_map_refs.size(), 1u);
+  EXPECT_EQ(environmental_map_refs.front().GetAssetHandle(), source_cubemap->GetHandle());
+
+  environmental_map.environment_source_type = EnvironmentalMap::SourceType::None;
+  environmental_map.environment_source.Clear();
+  environmental_map_refs.clear();
+  Serialization::CollectAssetRefs(static_cast<IAsset&>(environmental_map), environmental_map_refs);
+  EXPECT_TRUE(environmental_map_refs.empty());
 
   EnvironmentalMap restored_environmental_map;
-  Serialization::DeserializeObject(YAML::Load("{}"), static_cast<IAsset&>(restored_environmental_map));
+  Serialization::DeserializeObject(environmental_map_node, static_cast<IAsset&>(restored_environmental_map));
   EXPECT_EQ(restored_environmental_map.light_probe.GetAssetHandle().GetValue(), 0);
   EXPECT_EQ(restored_environmental_map.reflection_probe.GetAssetHandle().GetValue(), 0);
   EXPECT_EQ(restored_environmental_map.environment_pdf_texture.GetAssetHandle().GetValue(), 0);
+  EXPECT_EQ(restored_environmental_map.environment_cubemap.GetAssetHandle().GetValue(), 0);
+  EXPECT_EQ(restored_environmental_map.environment_source_type, EnvironmentalMap::SourceType::SkyIllumination);
+  EXPECT_EQ(restored_environmental_map.sky_illumination_resolution, 384u);
+  EXPECT_FLOAT_EQ(restored_environmental_map.sky_illumination_source.atmosphere.earth_radius, 6200.0f);
+  EXPECT_FLOAT_EQ(restored_environmental_map.sky_illumination_source.ground_transmittance, 0.35f);
 
   Prefab prefab;
   prefab.instance_name = "Parent";
@@ -1138,6 +1251,15 @@ anti_aliasing:
   EXPECT_EQ(restored_gaussian_splat.spherical_harmonics_rest.size(), 4);
 
   Texture2D texture;
+  texture.srgb = true;
+  Texture2DSamplerSettings sampler_settings;
+  sampler_settings.mag_filter = VK_FILTER_NEAREST;
+  sampler_settings.min_filter = VK_FILTER_NEAREST;
+  sampler_settings.mipmap_mode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  sampler_settings.address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_settings.address_mode_v = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+  sampler_settings.max_lod = 0.0f;
+  texture.SetSamplerSettings(sampler_settings);
   texture.SetRgbaChannelData({glm::vec4(1.0f, 0.5f, 0.25f, 1.0f)}, glm::uvec2(1, 1));
   YAML::Emitter texture_out;
   BeginMap(texture_out);
@@ -1147,13 +1269,18 @@ anti_aliasing:
   EXPECT_EQ(texture_node["resolution"].as<glm::uvec2>().x, 1);
   EXPECT_EQ(texture_node["resolution"].as<glm::uvec2>().y, 1);
   EXPECT_TRUE(texture_node["pixels"]);
+  EXPECT_TRUE(texture_node["srgb"].as<bool>());
+  EXPECT_EQ(texture_node["sampler"]["address_mode_v"].as<int32_t>(),
+            static_cast<int32_t>(VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT));
 
   Texture2D restored_texture;
   Serialization::DeserializeObject(texture_node, static_cast<IAsset&>(restored_texture));
   EXPECT_EQ(restored_texture.GetResolution().x, 1);
   EXPECT_EQ(restored_texture.GetResolution().y, 1);
   ASSERT_EQ(restored_texture.PeekLocalData().size(), 1);
-  EXPECT_GT(restored_texture.PeekLocalData()[0].r, 0.99f);
+  EXPECT_FLOAT_EQ(restored_texture.PeekLocalData()[0].r, 1.0f);
+  EXPECT_TRUE(restored_texture.srgb);
+  EXPECT_EQ(restored_texture.GetSamplerSettings(), sampler_settings);
 
   Animation animation;
   animation.bone_size = 1;
@@ -1196,13 +1323,26 @@ anti_aliasing:
   vertex_attributes.normal = true;
   vertex_attributes.tangent = true;
   vertex_attributes.tex_coord = true;
+  vertex_attributes.tex_coord_1 = true;
+  vertex_attributes.tex_coord_2 = true;
+  vertex_attributes.tex_coord_3 = true;
   vertex_attributes.color = true;
   std::vector<Vertex> vertices(3);
   vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  vertices[1].tex_coord_1 = glm::vec2(0.25f, 0.75f);
+  vertices[1].tex_coord_2 = glm::vec2(0.4f, 0.6f);
+  vertices[1].tex_coord_3 = glm::vec2(0.8f, 0.2f);
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(vertex_attributes, vertices, {glm::uvec3(0, 1, 2)});
+  EXPECT_EQ(mesh->BuildMorphedVertices({}).size(), vertices.size());
+  MorphTarget morph_target;
+  morph_target.name = "raise";
+  morph_target.position_deltas = {glm::vec3(0.0f), glm::vec3(0.0f, 2.0f, 0.0f), glm::vec3(0.0f)};
+  mesh->SetMorphTargets({morph_target}, {0.25f}, vertices);
+  EXPECT_TRUE(MorphVertexStreamsMatch(mesh->PeekVertices(), mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(mesh->PeekVertices()[1].position.y, 0.5f);
   YAML::Emitter mesh_out;
   BeginMap(mesh_out);
   Serialization::SerializeObject(mesh_out, static_cast<IAsset&>(*mesh));
@@ -1210,25 +1350,110 @@ anti_aliasing:
   const auto mesh_node = YAML::Load(mesh_out.c_str());
   EXPECT_TRUE(mesh_node["vertices_"]);
   EXPECT_TRUE(mesh_node["triangles_"]);
+  EXPECT_TRUE(mesh_node["morph_targets_"]);
+  EXPECT_TRUE(mesh_node["default_morph_weights_"]);
+  EXPECT_TRUE(mesh_node["morph_base_vertices_"]);
+  EXPECT_EQ(mesh_node["vertex_stride_"].as<size_t>(), sizeof(Vertex));
+  EXPECT_EQ(mesh_node["morph_base_vertex_stride_"].as<size_t>(), sizeof(Vertex));
 
   const auto restored_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   Serialization::DeserializeObject(mesh_node, static_cast<IAsset&>(*restored_mesh));
   EXPECT_EQ(restored_mesh->PeekVertices().size(), 3);
   EXPECT_EQ(restored_mesh->PeekTriangles().size(), 1);
   EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.x, 1.0f);
+  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
+  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.4f, 0.6f));
+  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.8f, 0.2f));
+  ASSERT_EQ(restored_mesh->PeekMorphTargets().size(), 1);
+  EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].name, "raise");
+  EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].position_deltas[1], glm::vec3(0.0f, 2.0f, 0.0f));
+  ASSERT_EQ(restored_mesh->GetDefaultMorphWeights().size(), 1);
+  EXPECT_FLOAT_EQ(restored_mesh->GetDefaultMorphWeights()[0], 0.25f);
+  EXPECT_TRUE(MorphVertexStreamsMatch(restored_mesh->PeekVertices(), restored_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.y, 0.5f);
+  ASSERT_EQ(restored_mesh->PeekMorphBaseVertices().size(), vertices.size());
+  EXPECT_EQ(
+      std::memcmp(restored_mesh->PeekMorphBaseVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
+
+  const auto padded_morph_stride = sizeof(Vertex) + 8;
+  std::vector<unsigned char> padded_morph_base(vertices.size() * padded_morph_stride);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(padded_morph_base.data() + i * padded_morph_stride, &vertices[i], sizeof(Vertex));
+  }
+  auto padded_morph_node = YAML::Clone(mesh_node);
+  padded_morph_node["morph_base_vertex_stride_"] = padded_morph_stride;
+  padded_morph_node["morph_base_vertices_"] = YAML::Binary(padded_morph_base.data(), padded_morph_base.size());
+  const auto padded_morph_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(padded_morph_node, static_cast<IAsset&>(*padded_morph_mesh));
+  ASSERT_EQ(padded_morph_mesh->PeekMorphBaseVertices().size(), vertices.size());
+  EXPECT_EQ(padded_morph_mesh->PeekMorphBaseVertices()[1].position, vertices[1].position);
+
+  auto implicit_morph_stride_node = YAML::Clone(mesh_node);
+  implicit_morph_stride_node.remove("morph_base_vertex_stride_");
+  const auto implicit_morph_stride_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(implicit_morph_stride_node, static_cast<IAsset&>(*implicit_morph_stride_mesh));
+  EXPECT_EQ(implicit_morph_stride_mesh->PeekMorphBaseVertices().size(), vertices.size());
+
+  auto missing_morph_base_node = YAML::Clone(mesh_node);
+  missing_morph_base_node.remove("morph_base_vertices_");
+  const auto missing_morph_base_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(missing_morph_base_node, static_cast<IAsset&>(*missing_morph_base_mesh));
+  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphTargets().empty());
+  EXPECT_TRUE(missing_morph_base_mesh->GetDefaultMorphWeights().empty());
+  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphBaseVertices().empty());
+
+  std::vector<unsigned char> legacy_vertex_data(vertices.size() * 80);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(legacy_vertex_data.data() + i * 80, &vertices[i], 80);
+  }
+  auto legacy_mesh_node = YAML::Clone(mesh_node);
+  legacy_mesh_node.remove("vertex_stride_");
+  legacy_mesh_node["vertices_"] = YAML::Binary(legacy_vertex_data.data(), legacy_vertex_data.size());
+  const auto legacy_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(legacy_mesh_node, static_cast<IAsset&>(*legacy_mesh));
+  ASSERT_EQ(legacy_mesh->PeekVertices().size(), 3);
+  EXPECT_FLOAT_EQ(legacy_mesh->PeekVertices()[1].position.x, 1.0f);
+  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
+
+  std::vector<unsigned char> previous_vertex_data(vertices.size() * 96);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(previous_vertex_data.data() + i * 96, &vertices[i], 88);
+    std::memset(previous_vertex_data.data() + i * 96 + 88, 0xff, 8);
+  }
+  auto previous_mesh_node = YAML::Clone(mesh_node);
+  previous_mesh_node["vertex_stride_"] = 96;
+  previous_mesh_node["vertices_"] = YAML::Binary(previous_vertex_data.data(), previous_vertex_data.size());
+  const auto previous_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  Serialization::DeserializeObject(previous_mesh_node, static_cast<IAsset&>(*previous_mesh));
+  ASSERT_EQ(previous_mesh->PeekVertices().size(), 3);
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
 
   SkinnedVertexAttributes skinned_vertex_attributes;
   skinned_vertex_attributes.normal = true;
   skinned_vertex_attributes.tangent = true;
   skinned_vertex_attributes.tex_coord = true;
+  skinned_vertex_attributes.tex_coord_1 = true;
+  skinned_vertex_attributes.tex_coord_2 = true;
+  skinned_vertex_attributes.tex_coord_3 = true;
   skinned_vertex_attributes.color = true;
   std::vector<SkinnedVertex> skinned_vertices(3);
   skinned_vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   skinned_vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   skinned_vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
+  skinned_vertices[1].tex_coord_1 = glm::vec2(0.6f, 0.4f);
+  skinned_vertices[1].tex_coord_2 = glm::vec2(0.3f, 0.7f);
+  skinned_vertices[1].tex_coord_3 = glm::vec2(0.9f, 0.1f);
   const auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   skinned_mesh->bone_animator_indices = {2, 5};
   skinned_mesh->SetVertices(skinned_vertex_attributes, skinned_vertices, {glm::uvec3(0, 1, 2)});
+  EXPECT_EQ(skinned_mesh->BuildMorphedVertices({}).size(), skinned_vertices.size());
+  skinned_mesh->SetMorphTargets({morph_target}, {0.5f}, skinned_vertices);
+  EXPECT_TRUE(MorphVertexStreamsMatch(skinned_mesh->PeekSkinnedVertices(), skinned_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(skinned_mesh->PeekSkinnedVertices()[1].position.y, 1.0f);
   YAML::Emitter skinned_mesh_out;
   BeginMap(skinned_mesh_out);
   Serialization::SerializeObject(skinned_mesh_out, static_cast<IAsset&>(*skinned_mesh));
@@ -1236,6 +1461,8 @@ anti_aliasing:
   const auto skinned_mesh_node = YAML::Load(skinned_mesh_out.c_str());
   EXPECT_TRUE(skinned_mesh_node["bone_animator_indices"]);
   EXPECT_TRUE(skinned_mesh_node["skinned_vertices_"]);
+  EXPECT_EQ(skinned_mesh_node["skinned_vertex_stride_"].as<size_t>(), sizeof(SkinnedVertex));
+  EXPECT_EQ(skinned_mesh_node["morph_base_vertex_stride_"].as<size_t>(), sizeof(SkinnedVertex));
 
   const auto restored_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   Serialization::DeserializeObject(skinned_mesh_node, static_cast<IAsset&>(*restored_skinned_mesh));
@@ -1243,6 +1470,51 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices().size(), 3);
   EXPECT_EQ(restored_skinned_mesh->PeekTriangles().size(), 1);
   EXPECT_EQ(restored_skinned_mesh->bone_animator_indices[1], 5);
+  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
+  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.3f, 0.7f));
+  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.9f, 0.1f));
+  ASSERT_EQ(restored_skinned_mesh->PeekMorphTargets().size(), 1);
+  EXPECT_FLOAT_EQ(restored_skinned_mesh->GetDefaultMorphWeights()[0], 0.5f);
+  EXPECT_TRUE(MorphVertexStreamsMatch(restored_skinned_mesh->PeekSkinnedVertices(),
+                                      restored_skinned_mesh->BuildMorphedVertices({})));
+  EXPECT_FLOAT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].position.y, 1.0f);
+  ASSERT_EQ(restored_skinned_mesh->PeekMorphBaseVertices().size(), skinned_vertices.size());
+  EXPECT_EQ(std::memcmp(restored_skinned_mesh->PeekMorphBaseVertices().data(), skinned_vertices.data(),
+                        skinned_vertices.size() * sizeof(SkinnedVertex)),
+            0);
+
+  std::vector<unsigned char> legacy_skinned_vertex_data(skinned_vertices.size() * 144);
+  for (size_t i = 0; i < skinned_vertices.size(); ++i) {
+    std::memcpy(legacy_skinned_vertex_data.data() + i * 144, &skinned_vertices[i], 144);
+  }
+  auto legacy_skinned_mesh_node = YAML::Clone(skinned_mesh_node);
+  legacy_skinned_mesh_node.remove("skinned_vertex_stride_");
+  legacy_skinned_mesh_node["skinned_vertices_"] =
+      YAML::Binary(legacy_skinned_vertex_data.data(), legacy_skinned_vertex_data.size());
+  const auto legacy_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
+  Serialization::DeserializeObject(legacy_skinned_mesh_node, static_cast<IAsset&>(*legacy_skinned_mesh));
+  ASSERT_EQ(legacy_skinned_mesh->PeekSkinnedVertices().size(), 3);
+  EXPECT_FLOAT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].position.x, 1.0f);
+  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
+  EXPECT_EQ(legacy_skinned_mesh->bone_animator_indices, skinned_mesh->bone_animator_indices);
+
+  std::vector<unsigned char> previous_skinned_vertex_data(skinned_vertices.size() * 160);
+  for (size_t i = 0; i < skinned_vertices.size(); ++i) {
+    std::memcpy(previous_skinned_vertex_data.data() + i * 160, &skinned_vertices[i], 152);
+    std::memset(previous_skinned_vertex_data.data() + i * 160 + 152, 0xff, 8);
+  }
+  auto previous_skinned_mesh_node = YAML::Clone(skinned_mesh_node);
+  previous_skinned_mesh_node["skinned_vertex_stride_"] = 160;
+  previous_skinned_mesh_node["skinned_vertices_"] =
+      YAML::Binary(previous_skinned_vertex_data.data(), previous_skinned_vertex_data.size());
+  const auto previous_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
+  Serialization::DeserializeObject(previous_skinned_mesh_node, static_cast<IAsset&>(*previous_skinned_mesh));
+  ASSERT_EQ(previous_skinned_mesh->PeekSkinnedVertices().size(), 3);
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
+  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
 
   StrandPointAttributes strand_point_attributes;
   strand_point_attributes.normal = true;
@@ -1269,8 +1541,22 @@ anti_aliasing:
   EXPECT_EQ(restored_strands->PeekStrandPoints().size(), 4);
   EXPECT_FLOAT_EQ(restored_strands->PeekStrandPoints()[3].position.x, 1.0f);
 
+  MeshRenderer mesh_renderer;
+  mesh_renderer.SetMorphWeights({0.125f, 0.875f});
+  YAML::Emitter mesh_renderer_out;
+  BeginMap(mesh_renderer_out);
+  Serialization::SerializeObject(mesh_renderer_out, static_cast<IPrivateComponent&>(mesh_renderer));
+  mesh_renderer_out << YAML::EndMap;
+  const auto mesh_renderer_node = YAML::Load(mesh_renderer_out.c_str());
+  EXPECT_TRUE(mesh_renderer_node["morph_weights"]);
+  MeshRenderer restored_mesh_renderer;
+  Serialization::DeserializeObject(mesh_renderer_node, static_cast<IPrivateComponent&>(restored_mesh_renderer));
+  ASSERT_EQ(restored_mesh_renderer.PeekMorphWeights().size(), 2);
+  EXPECT_FLOAT_EQ(restored_mesh_renderer.PeekMorphWeights()[1], 0.875f);
+
   SkinnedMeshRenderer skinned_mesh_renderer;
   skinned_mesh_renderer.cast_shadow = false;
+  skinned_mesh_renderer.SetMorphWeights({0.75f});
   skinned_mesh_renderer.SetRagDollState(true);
   skinned_mesh_renderer.rag_doll_freeze = true;
   skinned_mesh_renderer.RefRagDollTransformChain() = {glm::mat4(3.0f)};
@@ -1282,6 +1568,7 @@ anti_aliasing:
   EXPECT_FALSE(skinned_mesh_renderer_node["cast_shadow"].as<bool>());
   EXPECT_TRUE(skinned_mesh_renderer_node["rag_doll_"].as<bool>());
   EXPECT_TRUE(skinned_mesh_renderer_node["rag_doll_transform_chain_"]);
+  EXPECT_TRUE(skinned_mesh_renderer_node["morph_weights"]);
 
   SkinnedMeshRenderer restored_skinned_mesh_renderer;
   Serialization::DeserializeObject(skinned_mesh_renderer_node,
@@ -1290,6 +1577,44 @@ anti_aliasing:
   EXPECT_TRUE(restored_skinned_mesh_renderer.RagDoll());
   EXPECT_TRUE(restored_skinned_mesh_renderer.rag_doll_freeze);
   EXPECT_EQ(restored_skinned_mesh_renderer.PeekRagDollTransformChain().size(), 1);
+  ASSERT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights().size(), 1);
+  EXPECT_FLOAT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights()[0], 0.75f);
+}
+
+TEST(SerializationRegistry, PostProcessingAssetReloadAndImportAdvanceVersion) {
+  TempProject project;
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(ProjectSettings(project));
+
+  const auto stack = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
+  ASSERT_TRUE(stack);
+  stack->enable_bloom = false;
+  ASSERT_TRUE(stack->SetPathAndSave("Versioned.evepostprocessingstack"));
+  ASSERT_TRUE(std::filesystem::exists(stack->GetAbsolutePath()));
+  EXPECT_TRUE(stack->Saved());
+
+  stack->enable_bloom = true;
+  stack->SetUnsaved();
+  const auto version_before_reload = stack->GetVersion();
+  ASSERT_TRUE(stack->Load());
+  EXPECT_EQ(stack->GetVersion(), version_before_reload + 1);
+  EXPECT_FALSE(stack->enable_bloom);
+  EXPECT_TRUE(stack->Saved());
+
+  stack->enable_bloom = true;
+  stack->SetUnsaved();
+  const auto import_path = project.RootPath() / "Imported.evepostprocessingstack";
+  ASSERT_TRUE(stack->Export(import_path));
+  ASSERT_TRUE(std::filesystem::exists(import_path));
+  stack->enable_bloom = false;
+  stack->SetUnsaved();
+  const auto version_before_import = stack->GetVersion();
+  ASSERT_FALSE(stack->Saved());
+  ASSERT_TRUE(stack->Import(import_path));
+  EXPECT_EQ(stack->GetVersion(), version_before_import + 1);
+  EXPECT_TRUE(stack->enable_bloom);
+  EXPECT_FALSE(stack->Saved());
 }
 
 TEST(SerializationRegistry, GaussianSplatLoadsStandardPlyFields) {
@@ -2279,12 +2604,29 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   shade_material.thickness_factor = 0.75f;
   shade_material.diffuse_transmission_color = glm::vec3(0.7f, 0.8f, 0.9f);
   shade_material.diffuse_transmission_factor = 0.65f;
+  shade_material.specular_factor = 0.0f;
+  shade_material.clearcoat_normal_texture_scale = 0.35f;
+  shade_material.iridescence_factor = 0.8f;
+  shade_material.iridescence_ior = 1.4f;
+  shade_material.iridescence_thickness_minimum = 125.0f;
+  shade_material.iridescence_thickness_maximum = 625.0f;
+  shade_material.anisotropy_rotation = glm::vec2(0.0f, 1.0f);
+  shade_material.anisotropy_strength = 0.7f;
+  shade_material.dispersion = 1.2f;
+  shade_material.retroreflection_factor = 0.45f;
   shade_material.multiscatter_color_factor = glm::vec3(0.3f, 0.4f, 0.5f);
   shade_material.scatter_anisotropy = -0.25f;
   shade_material.transmission_texture = 3;
   shade_material.thickness_texture = 4;
   shade_material.diffuse_transmission_texture = 5;
   shade_material.diffuse_transmission_color_texture = 6;
+  shade_material.iridescence_texture = 7;
+  shade_material.iridescence_thickness_texture = 8;
+  shade_material.anisotropy_texture = 9;
+  shade_material.retroreflection_texture = 10;
+  material->material_data.texture_infos.resize(11);
+  material->material_data.texture_infos[10].tex_coord = 1;
+  material->material_data.texture_infos[10].color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
 
   YAML::Emitter out;
   BeginMap(out);
@@ -2303,12 +2645,64 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   EXPECT_FLOAT_EQ(restored_material.thickness_factor, 0.75f);
   EXPECT_EQ(restored_material.diffuse_transmission_color, glm::vec3(0.7f, 0.8f, 0.9f));
   EXPECT_FLOAT_EQ(restored_material.diffuse_transmission_factor, 0.65f);
+  EXPECT_FLOAT_EQ(restored_material.specular_factor, 0.0f);
+  EXPECT_FLOAT_EQ(restored_material.clearcoat_normal_texture_scale, 0.35f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_factor, 0.8f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_ior, 1.4f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_thickness_minimum, 125.0f);
+  EXPECT_FLOAT_EQ(restored_material.iridescence_thickness_maximum, 625.0f);
+  EXPECT_EQ(restored_material.anisotropy_rotation, glm::vec2(0.0f, 1.0f));
+  EXPECT_FLOAT_EQ(restored_material.anisotropy_strength, 0.7f);
+  EXPECT_FLOAT_EQ(restored_material.dispersion, 1.2f);
+  EXPECT_FLOAT_EQ(restored_material.retroreflection_factor, 0.45f);
   EXPECT_EQ(restored_material.multiscatter_color_factor, glm::vec3(0.3f, 0.4f, 0.5f));
   EXPECT_FLOAT_EQ(restored_material.scatter_anisotropy, -0.25f);
   EXPECT_EQ(restored_material.transmission_texture, 3);
   EXPECT_EQ(restored_material.thickness_texture, 4);
   EXPECT_EQ(restored_material.diffuse_transmission_texture, 5);
   EXPECT_EQ(restored_material.diffuse_transmission_color_texture, 6);
+  EXPECT_EQ(restored_material.iridescence_texture, 7);
+  EXPECT_EQ(restored_material.iridescence_thickness_texture, 8);
+  EXPECT_EQ(restored_material.anisotropy_texture, 9);
+  EXPECT_EQ(restored_material.retroreflection_texture, 10);
+  ASSERT_EQ(restored->material_data.texture_infos.size(), 11);
+  EXPECT_EQ(restored->material_data.texture_infos[10].tex_coord, 1);
+  EXPECT_EQ(restored->material_data.texture_infos[10].color_space, static_cast<int32_t>(GltfTextureColorSpace::Linear));
+  EXPECT_NE(std::string(out.c_str()).find("schema_version: 2"), std::string::npos);
+}
+
+TEST(SerializationRegistry, LegacyMaterialSchemasPreservePreviousSpecularAndAnisotropyBehavior) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto rotated = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load(R"(
+gltf_material:
+  shade_material:
+    specular_factor: 0.0
+    anisotropy_rotation: [0.5, 0.8660254]
+  texture_infos: []
+)"),
+                                   static_cast<IAsset&>(*rotated));
+  EXPECT_FLOAT_EQ(rotated->material_data.shade_material.specular_factor, 1.0f);
+  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.x, 0.8660254f, 0.000001f);
+  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.y, -0.5f, 0.000001f);
+
+  const auto default_rotation = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load(R"(
+gltf_material:
+  shade_material:
+    anisotropy_rotation: [0.0, 0.0]
+  texture_infos: []
+)"),
+                                   static_cast<IAsset&>(*default_rotation));
+  EXPECT_EQ(default_rotation->material_data.shade_material.anisotropy_rotation, glm::vec2(1.0f, 0.0f));
+
+  const auto legacy_eve = AssetManager::CreateTemporaryAsset<Material>();
+  Serialization::DeserializeObject(YAML::Load("{material_properties: {specular: 0.0}}"),
+                                   static_cast<IAsset&>(*legacy_eve));
+  EXPECT_FLOAT_EQ(legacy_eve->material_data.shade_material.specular_factor, 1.0f);
 }
 
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {

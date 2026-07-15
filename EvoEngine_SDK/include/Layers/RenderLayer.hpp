@@ -8,18 +8,22 @@
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "PointCloudSample.hpp"
+#include "RayCameraShaderVariantCache.hpp"
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
 #include <array>
 #include <limits>
+#include <optional>
 #include <string>
+#include <unordered_map>
 
 namespace evo_engine {
 struct ApplicationInitializationSettings;
 class ComputePipeline;
 class OffscreenPreviewRenderer;
 class Sampler;
+struct PostProcessingRendererResources;
 
 /**
  * \class RenderLayer
@@ -204,6 +208,23 @@ class RenderLayer final : public ILayer {
   /// Specifies the rendering settings.
   RenderSettings render_settings{};
 
+  /// Uses the permanent all-feature camera-ray shaders instead of scene-specialized variants.
+  bool force_full_ray_camera_shader_variant = false;
+
+  struct RayCameraFramePathStats {
+    RenderGraphPlanCacheStats render_graph_plan_cache{};
+    uint64_t live_output_descriptor_count = 0;
+    uint64_t peak_live_output_descriptor_count = 0;
+    uint64_t output_descriptor_creation_count = 0;
+    uint64_t output_descriptor_reuse_count = 0;
+    uint32_t retained_frame_slot_count = 0;
+  };
+
+  [[nodiscard]] RayCameraShaderVariantStats GetRayCameraShaderVariantStats(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] bool IsRayCameraShaderVariantReady(RayCameraShaderTechnique technique) const;
+  [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
+  [[nodiscard]] RayCameraFramePathStats GetRayCameraFramePathStats() const;
+
   [[nodiscard]] DdgiSettings& GetDdgiSettings();
   [[nodiscard]] const DdgiSettings& GetDdgiSettings() const;
   [[nodiscard]] glm::ivec3 GetDdgiProbeScrollOffset() const;
@@ -268,9 +289,10 @@ class RenderLayer final : public ILayer {
 
   /// Represents the view for a specific directional light shadow map.
   struct DirectionalLightShadowMapView {
-    int light_index;      ///< Index of the light.
-    int split_index;      ///< Index of the split for cascaded shadow maps.
-    glm::ivec4 viewport;  ///< The viewport rectangle for rendering.
+    int light_index;               ///< Camera-local index of the light.
+    int split_index;               ///< Index of the split for cascaded shadow maps.
+    glm::ivec4 viewport;           ///< The viewport rectangle for rendering.
+    glm::mat4 light_space_matrix;  ///< Matrix for this camera, light, and split.
   };
 
   /// Represents the view for deferred rendering.
@@ -379,6 +401,7 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<PostProcessingRendererResources>& GetPostProcessingRendererResources() const;
 
  private:
   std::vector<
@@ -418,7 +441,14 @@ class RenderLayer final : public ILayer {
   std::vector<RenderResourceDescriptor> external_render_resource_descriptors;
   std::vector<FrameRenderPassExternalFunction> frame_render_pass_external_functions;
   std::vector<CameraRenderPassExternalFunction> camera_render_pass_external_functions;
-  mutable std::vector<RenderGraphTransientResourceStore> render_graph_transient_resource_stores_;
+  mutable std::vector<std::vector<RenderGraphTransientResourceStore>> render_graph_transient_resource_stores_;
+  std::shared_ptr<PostProcessingRendererResources> post_processing_renderer_resources_;
+  mutable RenderGraphPlanCache ray_camera_render_graph_plan_cache_{16};
+  mutable std::unordered_map<uint64_t, std::weak_ptr<Camera>> ray_camera_history_cameras_;
+  mutable RayCameraHistoryStats retired_ray_camera_history_stats_{};
+  mutable uint64_t peak_live_ray_camera_history_count_ = 0;
+  mutable uint64_t peak_live_ray_camera_history_byte_size_ = 0;
+  mutable uint64_t peak_live_ray_camera_output_descriptor_count_ = 0;
   mutable std::shared_ptr<Buffer> ddgi_probe_metadata_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_probe_state_buffer_;
   mutable std::shared_ptr<Buffer> ddgi_fallback_probe_state_buffer_;
@@ -427,9 +457,10 @@ class RenderLayer final : public ILayer {
   mutable std::shared_ptr<Image> ddgi_visibility_atlas_;
   mutable std::shared_ptr<Image> ddgi_variability_atlas_;
   mutable std::shared_ptr<Sampler> ddgi_atlas_sampler_;
-  mutable std::shared_ptr<Buffer> ddgi_probe_metadata_readback_buffer_;
-  mutable std::shared_ptr<Buffer> ddgi_probe_ray_readback_buffer_;
-  mutable std::shared_ptr<Buffer> ddgi_variability_readback_buffer_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_probe_metadata_readback_buffers_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_probe_ray_readback_buffers_;
+  mutable std::vector<std::shared_ptr<Buffer>> ddgi_variability_readback_buffers_;
+  mutable uint32_t ddgi_last_readback_frame_index_ = 0;
   mutable std::shared_ptr<Buffer> ddgi_frame_ray_output_visualization_buffer_;
   mutable std::vector<glm::vec4> ddgi_probe_debug_metadata_;
   mutable std::vector<float> ddgi_probe_debug_update_ages_;
@@ -443,6 +474,7 @@ class RenderLayer final : public ILayer {
   friend class Platform;
   friend class Resources;
   friend class Camera;
+  friend class RayCameraHistoryTestAccess;
   friend class GraphicsPipeline;
   friend class EditorLayer;
   friend class Material;
@@ -457,6 +489,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_material_per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
+  std::shared_ptr<DescriptorSetLayout> strand_meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_camera_output_layout_;
@@ -593,6 +626,11 @@ class RenderLayer final : public ILayer {
    */
   void RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
                                 const std::shared_ptr<Camera>& camera) const;
+  void PruneRayCameraHistories(const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
+  void ForgetRayCameraHistoryCamera(uint64_t camera_handle, const Camera* camera) const;
+  void ArchiveRayCameraHistory(const std::shared_ptr<Camera>& camera) const;
+  void UpdateRayCameraHistoryPeaks() const;
+  void ClearRayCameraHistories() const;
 
   /**
    * \brief Called before updating this render layer.
@@ -665,6 +703,7 @@ class RenderLayer final : public ILayer {
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
   mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
+  std::vector<std::shared_ptr<DescriptorSet>> strand_meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
 
@@ -686,6 +725,9 @@ class RenderLayer final : public ILayer {
 
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
+
+  /// Mesh-shader pipeline for rendering directional light shadows from strands.
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
 
   /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
@@ -710,9 +752,6 @@ class RenderLayer final : public ILayer {
 
   /// Graphics pipeline for rendering spot light shadows with hair strands.
   std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline;
-
-  /// Graphics pipeline for rendering directional light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using normal meshes.
   std::shared_ptr<GraphicsPipeline> deferred_prepass_pipeline_normal;
@@ -784,10 +823,13 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
+  std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
 
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;
+  std::shared_ptr<RayTracingPipeline> ray_tracing_camera_fallback_pipeline_;
+  std::shared_ptr<RayCameraShaderVariantCache> ray_camera_shader_variant_cache_;
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   friend class PointCloud;
   std::shared_ptr<RayTracingPipeline> ray_tracing_point_cloud_pipeline;

@@ -32,7 +32,12 @@ void main()
 	vec4 baseColorAO = texture(inBaseColorAO, fs_in.TexCoord);
 	vec4 normalRoughness = texture(inNormalRoughness, fs_in.TexCoord);
 	vec4 pbrFlags = texture(inPbrFlags, fs_in.TexCoord);
-	vec3 emissive = texture(inEmissive, fs_in.TexCoord).rgb;
+	vec4 emissiveSample = texture(inEmissive, fs_in.TexCoord);
+	vec3 emissive = emissiveSample.rgb;
+	if (emissiveSample.a < 0.0f) {
+		FragColor = vec4(baseColorAO.rgb, 1.0f);
+		return;
+	}
 
 	vec3 normal = normalize(normalRoughness.xyz);
 	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
@@ -49,10 +54,10 @@ void main()
 
 	vec3 viewDir = normalize(cameraPosition - fragPos);
 	bool receiveShadow = true;
-	vec3 F0 = vec3(0.04f); 
-	F0 = mix(F0, albedo.xyz, metallic);
-	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0);
-	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0) +
+	vec3 F0 = pbrFlags.yzw;
+	float F90 = emissiveSample.a;
+	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0, F90);
+	vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.xyz, normal, viewDir, metallic, roughness, F0, F90) +
 	               EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.xyz, normal, viewDir, fragPos);
 	vec3 outputColor = result + emissive + ambient * ao;
 

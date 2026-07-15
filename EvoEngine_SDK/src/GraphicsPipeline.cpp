@@ -6,6 +6,7 @@
 using namespace evo_engine;
 
 void GraphicsPipeline::Initialize() {
+  creation_feedback_ = {};
   if (!Platform::Initialized())
     return;
   if (vk_graphics_pipeline_ != VK_NULL_HANDLE && Platform::GetVkInstance() != VK_NULL_HANDLE) {
@@ -254,8 +255,7 @@ void GraphicsPipeline::Initialize() {
   pipeline_info.pNext = &rendering_create_info;
   pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
   try {
-    Platform::CheckVk(vkCreateGraphicsPipelines(Platform::GetVkDevice(), VK_NULL_HANDLE, 1, &pipeline_info, nullptr,
-                                                &vk_graphics_pipeline_));
+    Platform::CheckVk(Platform::CreateGraphicsPipeline(pipeline_info, vk_graphics_pipeline_, creation_feedback_));
   } catch (const std::runtime_error& error) {
     EVOENGINE_ERROR(std::string("Failed to build graphics pipeline: ") + error.what());
     vk_graphics_pipeline_ = nullptr;
@@ -265,6 +265,10 @@ void GraphicsPipeline::Initialize() {
 
 bool GraphicsPipeline::Initialized() const {
   return vk_graphics_pipeline_ != VK_NULL_HANDLE;
+}
+
+const PipelineCreationFeedback& GraphicsPipeline::GetCreationFeedback() const {
+  return creation_feedback_;
 }
 
 void GraphicsPipeline::Bind(const VkCommandBuffer vk_command_buffer) {

@@ -73,8 +73,8 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 | 17 | Camera depth | NDC depth. |
 | 20 | Base color / AO | `rgb = evaluated linear base color`, `a = evaluated occlusion`. |
 | 21 | Normal / roughness | `xyz = world normal`, `a = evaluated roughness`. |
-| 22 | PBR / flags | `x = evaluated metallic`, `y = default-lit shading model id`, `z/w = reserved`. |
-| 23 | Emissive | `rgb = evaluated emissive radiance`, `a = reserved`. |
+| 22 | PBR / flags | `x = evaluated metallic`, `yzw = evaluated dielectric/specular F0`. |
+| 23 | Emissive | `rgb = evaluated coated emissive radiance`, `a = scalar specular F90`; a negative alpha marks unlit. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
 `StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
@@ -89,15 +89,16 @@ keeps depth as-is and introduces this logical schema:
 | --- | --- | --- |
 | Base color / AO | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = linear base color`, `a = occlusion`. |
 | Normal / roughness | `VK_FORMAT_R16G16B16A16_SFLOAT` | `xyz = world normal`, `a = roughness`. A later compact packing may replace full-vector normal storage after validation. |
-| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `y = shading model id`, `z = material flags`, `w = reserved custom data`. |
-| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = emissive radiance`, `a = reserved custom data`. |
+| PBR / flags | `VK_FORMAT_R16G16B16A16_SFLOAT` | `x = metallic`, `yzw = dielectric/specular F0`. |
+| Emissive | `VK_FORMAT_R16G16B16A16_SFLOAT` | `rgb = coated emissive radiance`, `a = scalar specular F90`; a negative alpha marks unlit. |
 | Utility | `VK_FORMAT_R32G32B32A32_SFLOAT` | `x = instance index`, `y = instance info index`, `z = optional material index for debug or fallback`, `w = reserved`. |
 
-The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials and specular-glossiness
-materials are both reduced to base color, metallic, roughness, normal, occlusion, and emissive by the geometry pass.
+The first supported shading model is opaque/default-lit GLTF. Metallic-roughness materials produce base color, metallic,
+roughness, and derived F0. Specular-glossiness materials retain the Khronos diffuse term, independent colored F0, and
+`roughness = 1 - glossiness`; they are no longer approximated as metallic-roughness.
 Masked alpha remains a geometry-pass discard. Transparent blend, transmission, diffuse transmission, volume/scatter,
 clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
-documented fallback paths until a later milestone defines their GBuffer representation.
+documented fallback paths until their GBuffer representation is implemented.
 
 Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is
 allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
@@ -121,11 +122,136 @@ itself is a normal fixed binding, such as a shadow-map array or atlas texture.
 | 2 | Normal | Flat normal. |
 | 3 | Emissive | Black. |
 | 4 | Occlusion | White. |
+| 5 | Clearcoat | White. |
+| 6 | Clearcoat roughness | White. |
+| 7 | Clearcoat normal | Flat normal. |
 
 Raster material descriptor sets are renderer-owned runtime state keyed by material index. The first migration intentionally
 does not deduplicate descriptor sets across material indices because material indices can change while the renderer is
 running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
 bind the documented fallback textures.
+
+glTF base-material evaluation shares one texture-info ABI across raster, RT-pipeline, and RayQuery. It carries UV0 through
+UV3 independently, applies `KHR_texture_transform` after selecting the extension-overridden coordinate set, multiplies
+linear `COLOR_0` RGBA into metallic-roughness base color or specular-glossiness diffuse, and treats `OPAQUE` alpha as
+coverage-independent. Ray footprints track separate texel densities for all four UV sets before selecting a texture gradient; zero
+footprints use explicit mip 0 outside fragment stages. Color-semantic RGB channels (base/diffuse, emissive,
+specular-glossiness, specular color, sheen color, and diffuse-transmission color) use the exact sRGB transfer function
+when the texture view does not already decode sRGB. Alpha and data-texture channels remain linear.
+
+Selections outside `TEXCOORD_0` through `TEXCOORD_3` disable only that texture binding and emit an error instead of
+silently sampling UV0. Missing tangents are generated with MikkTSpace from the normal texture's selected UV set, including
+vertex splits at mirrored or discontinuous tangent charts. Authored tangents remain unchanged.
+
+`GltfShadeMaterial` is the canonical owner of material-facing raster state: `double_sided` selects culling, while alpha
+mode and transmission select the opaque or transparent pass. The Material inspector exposes those canonical controls
+instead of separate cull/blending overrides so raster, RT-pipeline, and RayQuery cannot silently disagree.
+
+Requested DDS images are preferred and retain authored BC7 mip chains and hardware sRGB decoding; same-stem
+PNG/TGA/JPG/JPEG files remain fallback sources when the DDS is absent. Float fallback textures generate a complete mip
+chain. Each imported glTF texture carries its authored wrap, magnification, minification, and mip-filter state into the
+combined sampler used by raster, RT-pipeline, and RayQuery. sRGB images use hardware sRGB views; if the selected format
+cannot generate filtered mips, the CPU fallback decodes RGB to linear, filters each level, and re-encodes it. Alpha remains
+linear. The canonical extension parser accepts external `.gltf`, data-URI and buffer-view images, and binary `.glb`
+containers; broad compression-extension and non-glTF format parity remain outside this roadmap.
+
+### Advanced glTF Ray Materials
+
+The shared RT-pipeline/RayQuery material path imports and evaluates the ratified `KHR_materials_iridescence`,
+`KHR_materials_anisotropy`, and `KHR_materials_dispersion` extensions. Iridescence intensity uses texture R, thin-film
+thickness uses texture G, and anisotropy uses normalized texture RG with strength in B. These are linear data textures and
+reuse the same four-UV, `KHR_texture_transform`, storage-flip, and ray-footprint behavior as the base material inputs.
+Dispersion has no texture and is evaluated only by the specular-transmission lobe.
+
+The implementation follows Khronos when the pinned reference differs:
+
+- iridescence uses the Khronos analytical spectral integration with the colored substrate F0. Dielectrics use the
+  IOR/specular-weighted F0, metals use base-color F0, and the maximum Fresnel component controls base-layer attenuation;
+- positive anisotropy rotation is counter-clockwise from tangent toward bitangent. Host state stores `(cos(theta),
+  sin(theta))`; the pinned reference's inverse rotation is not reproduced;
+- dispersion perturbs the material IOR on both entry and exit. The reference's `ior.x`-only implementation does not
+  disperse an air-to-material entry interface;
+- a volume boundary is selected by `thicknessFactor > 0`. Ray traversal supplies the real segment length, so the
+  thickness texture remains a raster thickness estimate and does not turn a traced volume boundary on or off;
+- `KHR_materials_specular` keeps authored color components above 1 and applies the scalar factor after the colored,
+  unweighted dielectric F0. Its grazing F90 is the scalar specular factor, so factor 0 disables dielectric reflection and
+  fractional factors do not incorrectly approach white. New material assets use the Khronos default of 1; schema-1
+  `.evematerial` values of 0 migrate to 1 because the old shader treated them as implicit full specular;
+- `KHR_materials_ior.ior: 0` retains the specification's positive-infinity compatibility mode: surface F0 is 1,
+  transmission uses a finite infinity surrogate for stable arithmetic, and dispersion is disabled. Invalid authored IORs
+  between 0 and 1 normalize to 1 rather than being interpreted as this compatibility mode;
+- unlit raster and ray materials return base color only, without adding emissive or lighting first. Diffuse or glossy
+  transmission events both update the current volume medium.
+
+`KHR_materials_retroreflection` is not in the Khronos extension registry. EvoEngine accepts that spelling, plus the older
+`EXT_materials_retroreflection` spelling, only as experimental compatibility with `vk_gltf_renderer` at
+`f72d2f3711116261a76e7b8b0f4724e167703a55`. The inspected BSDF dependency was `nvpro_core2` revision
+`907fba3c5b7a9597e7e63a5388079b964bd6ddb4`. The shared ray BSDF applies the Minimal Retroreflective Microfacet Model view
+substitution to reflection lobes and leaves transmission conventional. Evaluation and sampling both report the same
+marginal forward/retro mixture BSDF and PDF. Sample throughput is the full mixture BSDF divided by that marginal PDF; it
+does not divide again by the selected branch probability, which would over-brighten fractional blends.
+
+Opaque raster stores IOR/specular-aware colored F0 plus scalar F90; the emissive attachment alpha carries F90, with a
+negative value reserved for the unlit lighting bypass. Ray shadow transmission samples the specular-transmission,
+base-color, diffuse-transmission factor/color, specular factor/color, and vertex-color inputs. It applies Fresnel remaining
+energy first, then layers diffuse transmission only over the `(1 - specularTransmission)` share. The current fixed raster
+material descriptors include clearcoat factor, roughness, and normal textures so authored clearcoat-normal scale and
+coated-emission attenuation work in opaque and transparent raster as well as RTX and RayQuery. The deferred raster
+lighting model still does not add a clearcoat reflection lobe or encode iridescence, anisotropy, dispersion, or
+retroreflection, so those effects remain ray-path features rather than claimed raster parity. The legacy CPU/compute ray
+display is likewise not an advanced-material integrator.
+
+Native `KHR_materials_pbrSpecularGlossiness` remains a distinct diffuse/F0/glossiness model; EvoEngine does not reproduce
+the pinned reference's lossy metallic-roughness conversion. Khronos material extensions that explicitly exclude unlit or
+specular-glossiness are rejected per material with an error diagnostic. The importer preserves the material-array entry
+and its primary unlit or specular-glossiness model while ignoring only conflicting extension factors and textures.
+
+Clearcoat emission uses `emission * (1 - clearcoat * clearcoatFresnel)`. Ray hit emission and emissive-triangle NEE call
+the same helper; the NEE path reconstructs the sampled emitter's UVs, tangent basis, emissive/clearcoat textures, and
+clearcoat normal so MIS never combines differently coated radiance values.
+
+### Emissive-Triangle Next-Event Sampling
+
+RT-pipeline and RayQuery cameras share one static emissive-triangle distribution. Eligible emitters are fill-mode,
+opaque, non-transmissive, non-unlit `MeshRenderer` instances with a valid BLAS. Skinned meshes, particle/instanced
+meshes, strands, Gaussian splats, external geometry, alpha-mask/blend materials, and transmissive materials are not in
+the distribution. They retain hit-time emission where their existing material path permits it.
+
+Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. Selection weight is
+world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable. The GPU
+samples the stored float CDF, and each entry's area PDF is derived from that exact quantized CDF interval so sampling and
+hit-side MIS have identical discrete support. Textures are deliberately excluded from the proposal distribution; the
+sampled UV0/UV1 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
+emitters use that same explicit-LOD radiance for the competing BSDF estimator; unsupported hit-only emitters retain their
+ray-footprint LOD. This keeps the MIS estimators on one integrand without requiring CPU texture readback.
+
+Each frame slot retains its distribution across `RenderInstanceStorage::Clear()`. An exact ordered signature of the
+eligible static mesh handle/version, packed triangle range, ray instance index, model transform, and derived importance
+gates the triangle walk; unchanged slots restore only the table count and do not transform, sort, compare, or upload the
+triangle records again. The key intentionally does not use the global geometry-storage revision, so unrelated skinned
+mesh updates cannot invalidate the static-emitter table. The storage buffer is uploaded only when that exact signature
+changes.
+
+Emissive NEE is an independent one-sample estimator in addition to the existing punctual/environment estimator. It uses
+the area-to-solid-angle PDF and balance-heuristic MIS against the BSDF or volume phase PDF. BSDF/phase rays that hit a
+table emitter perform a key lookup and apply the reciprocal MIS weight. Primary and Dirac hits, unsupported emitters, and
+zero-width CDF entries keep hit weight 1. The camera setting `emissive_triangle_nee_enabled` and
+`--preview-emissive-nee enabled|disabled` capture override disable only this estimator and its hit competitor; hit-time
+emission remains available for matched energy tests.
+
+### Camera-Ray Shader Variants
+
+Normal scene preparation detects the glTF behaviors used by collected materials and requests an exact camera-ray shader
+variant. The detector is material-order invariant and promotes volume scatter to volume and transmission. The host and
+shader storage ABI always retain every material field; only `EE_GLTF_USE_*` behavior gates vary. RTX compiles the shared
+integrator through specialized raygen and any-hit modules while reusing miss/closest-hit modules. RayQuery compiles only
+its compute shader and does not depend on an RTX pipeline, SBT, or SER capability.
+
+The all-feature startup pipelines are permanent fallbacks. Missing variants compile asynchronously on the render
+executor, remain cached by technique plus feature mask, and publish only at frame preparation. A publication resets the
+matching camera histories once. The bounded caches retain an evicted pipeline until its submitted frame has completed.
+The editor's Render Layer inspection shows requested and active keys; automated ray captures wait for the requested
+variant before counting samples.
 
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
@@ -136,11 +262,13 @@ material per-frame descriptor set that keeps the shared per-frame buffers but om
 bindings.
 
 Built-in shadow-map passes treat all mesh materials as opaque. They use texture-free depth shaders, do not bind raster
-material descriptor sets, and do not sample material textures for alpha discard. This keeps regular mesh shadow draws on
-the opaque shadow indirect command path when indirect rendering is enabled. Transparent mesh pipelines still use the
-fixed raster material backend and bind the material descriptor set before direct material-sampling draws. Package or
-external forward callbacks that evaluate glTF raster materials are explicit migration fallbacks until their owners
-provide fixed material descriptors or material-batched submission.
+material descriptor sets, do not sample material textures for alpha discard, and retain fixed pass-level culling rather
+than material- and transform-aware logical facing. Alpha-cutout silhouettes and mirrored single-sided shadow casters are
+therefore deliberate follow-up work. This keeps regular mesh shadow draws on the opaque shadow indirect command path when
+indirect rendering is enabled. Transparent mesh pipelines still use the fixed raster material backend and bind the
+material descriptor set before direct material-sampling draws. Package or external forward callbacks that evaluate glTF
+raster materials are explicit migration fallbacks until their owners provide fixed material descriptors or
+material-batched submission.
 
 Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
 bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh
@@ -161,21 +289,46 @@ pass descriptor sets. Ray tracing, ray query, and ray diagnostics keep their bin
 
 Current shadow policy:
 
-- directional CSM uses Legacy Stable fitting;
-- split placement uses Practical Log/Uniform;
-- directional, point, and spot lights use PCF sampling;
-- PCF radius is derived from light size as `100 x light_size`;
-- directional shadows default to 8192, while point and spot shadows default to 4096;
+- directional CSM defaults to Stable Sphere fitting; Render Layer inspection can switch globally and transiently between
+  Stable Sphere and unsnapped Tight Light-Space AABB, and the choice is not serialized;
+- split placement uses Practical Log/Uniform distances stored per camera, matching each camera-indexed cascade matrix;
+- directional shadows use 16-sample Vogel-disc PCF through a linear comparison sampler; point and spot shadows retain
+  their existing 32-sample PCF paths;
+- when mesh shaders are supported and enabled, built-in strands render normally and cast directional, point, and spot
+  shadows through the mesh-shader backend;
+- directional light size is the PCF radius in world units and each fit includes that footprint plus its packed-viewport
+  comparison/snap guard and a conservative TAA-jitter envelope;
+- both fits include the bounded depth overlap used by cascade-transition blending;
+- directional constant, slope, and normal-offset bias are authored in texels and use the packed viewport's corrected
+  world-units-per-texel scale;
+- directional, point, and spot shadows default to 4096;
 - an explicit shadow-map quality override sets directional, point, and spot resolution together.
 
 ## Ray Camera Paths
 
-Ray-tracing cameras update the TLAS, bind the per-frame descriptor set and ray-tracing descriptor set, then dispatch the
-camera ray-generation shader. The camera raygen owns path depth, direct light evaluation, environment misses,
-BSDF-sampled next-bounce rays, throughput, Russian roulette, firefly clamping, and Auto SPP convergence. Closest-hit
-shaders record surface identity and geometry data into `CameraRayTracingPayload`.
+Each frame slot owns a persistent TLAS. Unchanged instance input reuses it without recording GPU work, compatible
+transform or instance-data changes use an in-place TLAS update, and topology or active-state changes rebuild the same
+allocation when its capacity permits. Upload, build/update, and traversal barriers are recorded on the main frame queue;
+there is no separate immediate-submit fence. Mesh-empty ray scenes bind a valid TLAS containing one inactive dummy
+instance. Instanced meshes assign each particle a ray-only instance block containing its composed world transform so hit
+reconstruction does not fall back to the particle renderer's parent transform. Static mesh BLAS objects remain
+asset-owned. Each animated skinned renderer owns a persistent updateable BLAS and a fixed packed ray-payload topology.
+Bone-only changes remap the deformed vertices into that topology, update the existing GeometryStorage vertex range, and
+record an in-place BLAS update before TLAS maintenance. A BLAS content generation forces a TLAS update even when its
+device address and instance bytes are unchanged, so deformed bounds remain current. Pose and generation state commit only
+when the frame is submitted; discarded frames retry both the payload and BLAS update.
 
-RayQuery cameras use the compute path and share the same high-level camera material and light data where supported.
+Ray cameras share one GLSL estimator in `CameraRayIntegrator.glsl`. It owns path depth, direct-light and environment MIS,
+BSDF sampling, volume transport, throughput, Russian roulette, invalid-radiance rejection, configurable firefly clamping,
+accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.glsl` adapts that estimator to the Vulkan ray-tracing
+pipeline and payload shaders; `CameraRayQueryTraversal.glsl` adapts it to inline RayQuery traversal from a compute shader.
+The active `.rgen` and `.comp` files are stage-specific entry points only.
+
+Acceleration structures are a shared capability rather than an RT-pipeline capability. Static, skinned, and particle
+BLAS data, TLAS updates, geometry descriptors, and synchronization are available when either RT pipelines or RayQuery are
+enabled. RT pipelines, shader binding tables, SER, point-cloud ray tracing, and DDGI ray diagnostics remain RT-only.
+RayQuery pipeline creation and dispatch require only acceleration-structure and RayQuery support; an unavailable requested
+ray mode falls back to the other ray technique before rasterization.
 
 ## Render Graph And Extension Model
 
@@ -253,3 +406,4 @@ The renderer has moved many built-in resources into explicit graph resources, bu
 | Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl` |
 | glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRasterMaterial.glsl` |
 | glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRayTracingBsdf.glsl` |
+| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.glsl`, `CameraRayTracingTraversal.glsl`, `CameraRayQueryTraversal.glsl` |

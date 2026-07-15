@@ -212,6 +212,13 @@ environment_gamma: 2.0
 )"));
 
   ExpectDefaultVolumetricCloudSettings(restored.volumetric_cloud_settings);
+  EXPECT_FLOAT_EQ(restored.environment_rotation, 0.0f);
+}
+
+TEST(VolumetricCloudSettings, SceneEnvironmentDeserializesEnvironmentRotation) {
+  Scene::Environment restored;
+  restored.Deserialize(YAML::Load("{environment_rotation: 1.25}"));
+  EXPECT_FLOAT_EQ(restored.environment_rotation, 1.25f);
 }
 
 TEST(VolumetricCloudSettings, SceneEnvironmentMigratesHighAltitudeLegacyCloudDefaultsForVisibility) {

@@ -19,3 +19,14 @@ layout(std430, set = 1, binding = 1) readonly buffer EE_INDICES_BLOCK {
 };
 
 layout(set = 1, binding = 2) uniform accelerationStructureEXT EE_TLAS;
+
+struct EmissiveTriangleInfo {
+  uint instance_index;
+  uint primitive_id;
+  float cdf;
+  float area_pdf;
+};
+
+layout(std430, set = 1, binding = 3) readonly buffer EE_EMISSIVE_TRIANGLES_BLOCK {
+  EmissiveTriangleInfo EE_EMISSIVE_TRIANGLES[];
+};

@@ -11,9 +11,8 @@ class GraphicsPipelineStates;
  * @brief Specifies the type of geometry.
  */
 enum class GeometryType {
-  Mesh,         ///< Static mesh geometry.
-  SkinnedMesh,  ///< Skinned mesh geometry (e.g., animated).
-  Strands       ///< Strand-based geometry (e.g., hair or fur).
+  Mesh,        ///< Static mesh geometry.
+  SkinnedMesh  ///< Skinned mesh geometry (e.g., animated).
 };
 
 /**
@@ -39,7 +38,7 @@ class IGeometry {
   /**
    * @brief Gets the vertex binding descriptions for the specified geometry type.
    *
-   * @param geometry_type The type of geometry (e.g., Mesh, SkinnedMesh, Strands).
+   * @param geometry_type The type of geometry (e.g., Mesh or SkinnedMesh).
    * @return A reference to a vector of vertex input binding descriptions.
    * These describe how vertex buffer data is organized.
    */
@@ -48,7 +47,7 @@ class IGeometry {
   /**
    * @brief Gets the vertex attribute descriptions for the specified geometry type.
    *
-   * @param geometry_type The type of geometry (e.g., Mesh, SkinnedMesh, Strands).
+   * @param geometry_type The type of geometry (e.g., Mesh or SkinnedMesh).
    * @return A reference to a vector of vertex input attribute descriptions.
    * These define how vertex attributes (e.g., position, normal, UV) are fetched.
    */

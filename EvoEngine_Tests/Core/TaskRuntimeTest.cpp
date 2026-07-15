@@ -3,6 +3,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <memory>
 #include <mutex>
 #include <stdexcept>
 #include <thread>
@@ -70,6 +71,25 @@ TEST(TaskRuntime, CompletedHandleRemainsCompletedAfterWaitRecyclesIt) {
 
   runtime.Wait(task);
   EXPECT_TRUE(runtime.IsCompleted(task));
+}
+
+TEST(TaskRuntime, CompletedTaskReleasesCapturedResourcesWithoutWait) {
+  TaskRuntime runtime;
+  runtime.Initialize(TestRuntimeSettings());
+
+  auto resource = std::make_shared<int>(42);
+  const std::weak_ptr<int> resource_reference = resource;
+  TaskOptions options;
+  options.executor = TaskExecutorType::MainThread;
+  options.affinity = ThreadAffinity::MainThread;
+  const auto task = runtime.Schedule({}, options, [resource]() {
+  });
+  resource.reset();
+
+  runtime.Execute(task);
+  EXPECT_EQ(runtime.RunReadyMainThreadTasks(), 1);
+  EXPECT_TRUE(runtime.IsCompleted(task));
+  EXPECT_TRUE(resource_reference.expired());
 }
 
 TEST(TaskRuntime, RunsNamedServiceExecutors) {

@@ -47,6 +47,9 @@
 #ifndef MAT_EXT_DIFFUSE_TRANSMISSION
 #  define MAT_EXT_DIFFUSE_TRANSMISSION MAT_EXT_VAL
 #endif
+#ifndef MAT_EXT_RETROREFLECTION
+#  define MAT_EXT_RETROREFLECTION MAT_EXT_VAL
+#endif
 #ifndef MAT_EXT_UNLIT
 #  define MAT_EXT_UNLIT MAT_EXT_VAL
 #endif
@@ -70,12 +73,19 @@ enum class GltfAlphaMode : int32_t {
   Blend = 2,
 };
 
+enum class GltfTextureColorSpace : int32_t {
+  Linear = 0,
+  Srgb = 1,
+};
+
 struct GltfTextureInfo {
 #if MAT_EXT_TEXTURE_TRANSFORM
   glm::mat3x2 uv_transform = glm::mat3x2(1.0f);
 #endif
   int32_t index = -1;
   int32_t tex_coord = 0;
+  int32_t color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
+  int32_t padding = 0;
 };
 
 inline bool operator!=(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
@@ -87,6 +97,8 @@ inline bool operator!=(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
     return true;
   if (lhs.tex_coord != rhs.tex_coord)
     return true;
+  if (lhs.color_space != rhs.color_space)
+    return true;
   return false;
 }
 
@@ -94,7 +106,7 @@ inline bool operator==(const GltfTextureInfo& lhs, const GltfTextureInfo& rhs) {
   return !(lhs != rhs);
 }
 
-struct GltfShadeMaterial {
+struct alignas(8) GltfShadeMaterial {
   glm::vec4 pbr_base_color_factor = glm::vec4(1.0f);
   glm::vec3 emissive_factor = glm::vec3(0.0f);
   float normal_texture_scale = 1.0f;
@@ -137,7 +149,7 @@ struct GltfShadeMaterial {
 #endif
 
 #if MAT_EXT_SPECULAR
-  float specular_factor = 0.0f;
+  float specular_factor = 1.0f;
 #endif
 
 #if MAT_EXT_UNLIT
@@ -152,7 +164,7 @@ struct GltfShadeMaterial {
 #endif
 
 #if MAT_EXT_ANISOTROPY
-  glm::vec2 anisotropy_rotation = glm::vec2(0.0f);
+  glm::vec2 anisotropy_rotation = glm::vec2(1.0f, 0.0f);
 #endif
 
 #if MAT_EXT_SHEEN
@@ -182,6 +194,10 @@ struct GltfShadeMaterial {
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   glm::vec3 diffuse_transmission_color = glm::vec3(1.0f);
   float diffuse_transmission_factor = 0.0f;
+#endif
+
+#if MAT_EXT_RETROREFLECTION
+  float retroreflection_factor = 0.0f;
 #endif
 
 #if MAT_EXT_VOLUME_SCATTER
@@ -238,7 +254,17 @@ struct GltfShadeMaterial {
   uint16_t diffuse_transmission_color_texture = 0;
 #endif
 
-  uint64_t pad = 0;
+#if MAT_EXT_RETROREFLECTION
+  uint16_t retroreflection_texture = 0;
+#endif
+
+  uint32_t padding0 = 0;
+#if MAT_EXT_CLEARCOAT
+  float clearcoat_normal_texture_scale = 1.0f;
+#else
+  float clearcoat_padding = 0.0f;
+#endif
+  uint32_t padding1 = 0;
 };
 
 inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& material) {
@@ -361,6 +387,10 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.diffuse_transmission_factor != rhs.diffuse_transmission_factor)
     return true;
 #endif
+#if MAT_EXT_RETROREFLECTION
+  if (lhs.retroreflection_factor != rhs.retroreflection_factor)
+    return true;
+#endif
 #if MAT_EXT_VOLUME_SCATTER
   if (lhs.multiscatter_color_factor != rhs.multiscatter_color_factor)
     return true;
@@ -427,7 +457,20 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.diffuse_transmission_color_texture != rhs.diffuse_transmission_color_texture)
     return true;
 #endif
-  if (lhs.pad != rhs.pad)
+#if MAT_EXT_RETROREFLECTION
+  if (lhs.retroreflection_texture != rhs.retroreflection_texture)
+    return true;
+#endif
+  if (lhs.padding0 != rhs.padding0)
+    return true;
+#if MAT_EXT_CLEARCOAT
+  if (lhs.clearcoat_normal_texture_scale != rhs.clearcoat_normal_texture_scale)
+    return true;
+#else
+  if (lhs.clearcoat_padding != rhs.clearcoat_padding)
+    return true;
+#endif
+  if (lhs.padding1 != rhs.padding1)
     return true;
   return false;
 }

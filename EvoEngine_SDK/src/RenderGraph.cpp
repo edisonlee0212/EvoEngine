@@ -2,8 +2,10 @@
 
 #include "GraphicsResources.hpp"
 #include "Platform.hpp"
+#include "RenderTexture.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cstddef>
 #include <utility>
 
@@ -12,6 +14,34 @@ using namespace evo_engine;
 namespace {
 bool IsWriteAccess(const RenderResourceUsage usage) {
   return usage == RenderResourceUsage::Write || usage == RenderResourceUsage::ReadWrite;
+}
+
+bool SameDimensions(const RenderResourceDimensions& left, const RenderResourceDimensions& right) {
+  return left.size_mode == right.size_mode && left.width == right.width && left.height == right.height &&
+         left.depth == right.depth && left.layers == right.layers && left.mip_levels == right.mip_levels;
+}
+
+bool SameResource(const RenderResourceDescriptor& left, const RenderResourceDescriptor& right) {
+  return left.name == right.name && left.type == right.type && left.lifetime == right.lifetime &&
+         SameDimensions(left.dimensions, right.dimensions) && left.format_name == right.format_name &&
+         left.sample_count == right.sample_count && left.history_length == right.history_length &&
+         left.managed_by_graph == right.managed_by_graph && left.byte_size == right.byte_size;
+}
+
+bool SameAccess(const RenderResourceAccess& left, const RenderResourceAccess& right) {
+  return left.resource_name == right.resource_name && left.usage == right.usage && left.state == right.state;
+}
+
+bool SamePass(const RenderPassDescriptor& left, const RenderPassDescriptor& right) {
+  return left.name == right.name && left.queue == right.queue && left.scope == right.scope &&
+         std::equal(left.resources.begin(), left.resources.end(), right.resources.begin(), right.resources.end(),
+                    SameAccess) &&
+         left.resources.size() == right.resources.size() && left.dependencies == right.dependencies;
+}
+
+bool SameCompileContext(const RenderGraphCompileContext& left, const RenderGraphCompileContext& right) {
+  return left.frame_width == right.frame_width && left.frame_height == right.frame_height &&
+         left.camera_width == right.camera_width && left.camera_height == right.camera_height;
 }
 
 bool CanAllocateGraphicsResources() {
@@ -478,8 +508,11 @@ RenderGraphResourceBinding& RenderGraphResourceRegistry::GetOrAddResourceBinding
 }
 
 void RenderGraphTransientResourceStore::Clear() {
+  assets_.clear();
   descriptor_sets_.clear();
+  samplers_.clear();
   image_views_.clear();
+  render_textures_.clear();
   resource_bindings_.clear();
   images_.clear();
   buffers_.clear();
@@ -524,7 +557,7 @@ void RenderGraphTransientResourceStore::Allocate(const std::vector<RenderResourc
   }
 }
 
-void RenderGraphTransientResourceStore::Bind(RenderGraphResourceRegistry& resource_registry) const {
+void RenderGraphTransientResourceStore::Bind(RenderGraphResourceRegistry& resource_registry) {
   for (const auto& binding : resource_bindings_) {
     if (binding.buffer) {
       resource_registry.BindBuffer(binding.resource_name, binding.buffer);
@@ -533,11 +566,72 @@ void RenderGraphTransientResourceStore::Bind(RenderGraphResourceRegistry& resour
       resource_registry.BindImage(binding.resource_name, binding.image);
     }
   }
+  for (const auto& binding : resource_registry.GetResourceBindings()) {
+    if (binding.buffer) {
+      buffers_.emplace_back(binding.buffer);
+    }
+    if (binding.image) {
+      images_.emplace_back(binding.image);
+    }
+    images_.insert(images_.end(), binding.images.begin(), binding.images.end());
+    if (binding.descriptor_set) {
+      descriptor_sets_.emplace_back(binding.descriptor_set);
+    }
+    if (binding.render_texture) {
+      RetainRenderTextureResources(binding.render_texture);
+    }
+  }
 }
 
 void RenderGraphTransientResourceStore::RetainDescriptorSet(std::shared_ptr<DescriptorSet> descriptor_set) {
   if (descriptor_set) {
     descriptor_sets_.emplace_back(std::move(descriptor_set));
+  }
+}
+
+void RenderGraphTransientResourceStore::RetainBuffer(std::shared_ptr<Buffer> buffer) {
+  if (buffer) {
+    buffers_.emplace_back(std::move(buffer));
+  }
+}
+
+void RenderGraphTransientResourceStore::RetainAsset(std::shared_ptr<IAsset> asset) {
+  if (asset) {
+    assets_.emplace_back(std::move(asset));
+  }
+}
+
+void RenderGraphTransientResourceStore::RetainRenderTextureResources(std::shared_ptr<RenderTexture> render_texture) {
+  if (!render_texture) {
+    return;
+  }
+  const auto has_color = render_texture->HasColorAttachment();
+  const auto has_depth = render_texture->HasDepthAttachment();
+  if (has_color) {
+    images_.emplace_back(render_texture->GetColorImage());
+    samplers_.emplace_back(render_texture->GetColorSampler());
+    descriptor_sets_.emplace_back(render_texture->GetColorPresentDescriptorSet());
+    descriptor_sets_.emplace_back(render_texture->GetStorageDescriptorSet());
+  }
+  if (has_depth) {
+    images_.emplace_back(render_texture->GetDepthImage());
+    samplers_.emplace_back(render_texture->GetDepthSampler());
+    descriptor_sets_.emplace_back(render_texture->GetDepthPresentDescriptorSet());
+  }
+  for (uint32_t mip_level = 0; mip_level < render_texture->GetMipLevels(); ++mip_level) {
+    if (has_color) {
+      image_views_.emplace_back(render_texture->GetColorImageView(mip_level));
+    }
+    if (has_depth) {
+      image_views_.emplace_back(render_texture->GetDepthImageView(mip_level));
+    }
+  }
+  render_textures_.emplace_back(std::move(render_texture));
+}
+
+void RenderGraphTransientResourceStore::RetainImage(std::shared_ptr<Image> image) {
+  if (image) {
+    images_.emplace_back(std::move(image));
   }
 }
 
@@ -967,6 +1061,58 @@ const std::vector<RenderResourceDescriptor>& RenderGraph::GetResources() const {
 
 const std::vector<RenderPassDescriptor>& RenderGraph::GetPasses() const {
   return passes_;
+}
+
+RenderGraphPlanCache::RenderGraphPlanCache(const size_t capacity) : capacity_(std::max<size_t>(capacity, 1)) {
+  entries_.reserve(capacity_);
+  stats_.capacity = capacity_;
+}
+
+const RenderGraphExecutionPlan& RenderGraphPlanCache::GetOrCompile(const RenderGraph& graph,
+                                                                   const RenderGraphCompileContext& context) {
+  const auto& resources = graph.GetResources();
+  const auto& passes = graph.GetPasses();
+  const auto same_topology = [&](const Entry& entry) {
+    return SameCompileContext(entry.context, context) && entry.resources.size() == resources.size() &&
+           entry.passes.size() == passes.size() &&
+           std::equal(entry.resources.begin(), entry.resources.end(), resources.begin(), SameResource) &&
+           std::equal(entry.passes.begin(), entry.passes.end(), passes.begin(), SamePass);
+  };
+  if (const auto found = std::find_if(entries_.begin(), entries_.end(), same_topology); found != entries_.end()) {
+    found->last_use = ++use_counter_;
+    ++stats_.hit_count;
+    return found->plan;
+  }
+
+  ++stats_.miss_count;
+  const auto compilation_start = std::chrono::steady_clock::now();
+  auto plan = graph.Compile(context);
+  stats_.compilation_milliseconds +=
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - compilation_start).count();
+  ++stats_.compilation_count;
+  if (entries_.size() == capacity_) {
+    const auto oldest = std::min_element(entries_.begin(), entries_.end(), [](const Entry& left, const Entry& right) {
+      return left.last_use < right.last_use;
+    });
+    entries_.erase(oldest);
+    ++stats_.eviction_count;
+  }
+  entries_.push_back({context, resources, passes, std::move(plan), ++use_counter_});
+  stats_.entry_count = entries_.size();
+  return entries_.back().plan;
+}
+
+void RenderGraphPlanCache::Clear() {
+  entries_.clear();
+  use_counter_ = 0;
+  stats_ = {};
+  stats_.capacity = capacity_;
+}
+
+RenderGraphPlanCacheStats RenderGraphPlanCache::GetStats() const {
+  auto stats = stats_;
+  stats.entry_count = entries_.size();
+  return stats;
 }
 
 void evo_engine::AddDefaultFrameResources(RenderGraph& graph) {

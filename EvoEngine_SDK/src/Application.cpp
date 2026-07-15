@@ -56,6 +56,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <stdexcept>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -185,6 +186,10 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
   out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << camera.camera_settings.firefly_clamp_enabled;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
+  out << YAML::Key << "emissive_triangle_nee_enabled" << YAML::Value
+      << camera.camera_settings.emissive_triangle_nee_enabled;
+  out << YAML::Key << "ray_debug_view" << YAML::Value
+      << Camera::GetRayDebugViewName(camera.camera_settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
@@ -235,6 +240,11 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.firefly_clamp_enabled = in["firefly_clamp_enabled"].as<bool>();
   if (in["firefly_clamp_threshold"])
     camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
+  if (in["emissive_triangle_nee_enabled"])
+    camera.camera_settings.emissive_triangle_nee_enabled = in["emissive_triangle_nee_enabled"].as<bool>();
+  if (in["ray_debug_view"])
+    camera.camera_settings.ray_debug_view =
+        Camera::ParseRayDebugView(in["ray_debug_view"].as<std::string>(), camera.camera_settings.ray_debug_view);
   if (in["auto_spp_enabled"])
     camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
   if (in["auto_spp_min_samples"])
@@ -346,7 +356,6 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Smaa;
   stack.anti_aliasing->taa = {};
   stack.anti_aliasing->smaa = {};
-  stack.anti_aliasing->ResetHistory();
   if (in["enable_ambient_occlusion"])
     stack.enable_ambient_occlusion = in["enable_ambient_occlusion"].as<bool>();
   if (in["enable_bloom"])
@@ -383,16 +392,117 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   }
 }
 
+void SerializeCubemap(YAML::Emitter& out, const Cubemap& cubemap) {
+  std::vector<glm::vec4> pixels;
+  cubemap.GetRgbaChannelData(pixels);
+  const uint32_t resolution = cubemap.GetResolution();
+  const uint32_t mip_levels = cubemap.GetMipLevels();
+  const size_t expected_pixel_count = Cubemap::CalculatePixelCount(resolution, mip_levels);
+  const bool canonical_empty = resolution == 0 && mip_levels == 1 && pixels.empty();
+  if (!canonical_empty && (expected_pixel_count == 0 || expected_pixel_count != pixels.size())) {
+    throw std::runtime_error("Cubemap pixel data is unavailable or incomplete.");
+  }
+  out << YAML::Key << "resolution" << YAML::Value << resolution;
+  out << YAML::Key << "mip_levels" << YAML::Value << mip_levels;
+  Serialization::SerializeVector("pixels", pixels, out);
+}
+
+void DeserializeCubemap(const YAML::Node& in, Cubemap& cubemap) {
+  const uint32_t resolution = in["resolution"] ? in["resolution"].as<uint32_t>() : 0u;
+  const uint32_t mip_levels = in["mip_levels"] ? in["mip_levels"].as<uint32_t>() : 1u;
+  if (resolution == 0 && !in["pixels"]) {
+    cubemap.Reset();
+    return;
+  }
+  const size_t pixel_count = Cubemap::CalculatePixelCount(resolution, mip_levels);
+  if (pixel_count == 0 || !in["pixels"]) {
+    throw std::invalid_argument("Cubemap dimensions or pixel payload are invalid.");
+  }
+  const auto& binary = in["pixels"].as<YAML::Binary>();
+  if (binary.size() != pixel_count * sizeof(glm::vec4)) {
+    throw std::invalid_argument("Cubemap pixel payload size does not match its faces and mip levels.");
+  }
+  std::vector<glm::vec4> pixels(pixel_count);
+  std::memcpy(pixels.data(), binary.data(), binary.size());
+  if (!cubemap.SetRgbaChannelData(pixels, resolution, mip_levels)) {
+    throw std::invalid_argument("Cubemap pixel payload could not be applied.");
+  }
+}
+
 void SerializeEnvironmentalMap(YAML::Emitter& out, const EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Save("light_probe", out);
   environmental_map.reflection_probe.Save("reflection_probe", out);
   environmental_map.environment_pdf_texture.Save("environment_pdf_texture", out);
+  environmental_map.environment_cubemap.Save("environment_cubemap", out);
+  environmental_map.environment_source.Save("environment_source", out);
+  out << YAML::Key << "environment_source_type" << YAML::Value
+      << static_cast<uint32_t>(environmental_map.environment_source_type);
+  out << YAML::Key << "environment_source_pdf_expected" << YAML::Value
+      << environmental_map.environment_source_pdf_expected;
+  out << YAML::Key << "sky_illumination_resolution" << YAML::Value << environmental_map.sky_illumination_resolution;
+  const auto& sky = environmental_map.sky_illumination_source;
+  out << YAML::Key << "sky_illumination_source" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "earth_radius" << YAML::Value << sky.atmosphere.earth_radius;
+  out << YAML::Key << "atmosphere_radius" << YAML::Value << sky.atmosphere.atmosphere_radius;
+  out << YAML::Key << "hr" << YAML::Value << sky.atmosphere.hr;
+  out << YAML::Key << "hm" << YAML::Value << sky.atmosphere.hm;
+  out << YAML::Key << "g" << YAML::Value << sky.atmosphere.g;
+  out << YAML::Key << "num_samples" << YAML::Value << sky.atmosphere.num_samples;
+  out << YAML::Key << "num_samples_light" << YAML::Value << sky.atmosphere.num_samples_light;
+  out << YAML::Key << "intensity" << YAML::Value << sky.atmosphere.intensity;
+  out << YAML::Key << "sun_direction" << YAML::Value << sky.sun_direction;
+  out << YAML::Key << "gamma" << YAML::Value << sky.gamma;
+  out << YAML::Key << "ground_color" << YAML::Value << sky.ground_color;
+  out << YAML::Key << "ground_transmittance" << YAML::Value << sky.ground_transmittance;
+  out << YAML::EndMap;
 }
 
 void DeserializeEnvironmentalMap(const YAML::Node& in, EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Load("light_probe", in);
   environmental_map.reflection_probe.Load("reflection_probe", in);
   environmental_map.environment_pdf_texture.Load("environment_pdf_texture", in);
+  environmental_map.environment_cubemap.Load("environment_cubemap", in);
+  environmental_map.environment_source.Load("environment_source", in);
+  if (in["environment_source_type"]) {
+    const auto source_type = in["environment_source_type"].as<uint32_t>();
+    environmental_map.environment_source_type =
+        source_type <= static_cast<uint32_t>(EnvironmentalMap::SourceType::SkyIllumination)
+            ? static_cast<EnvironmentalMap::SourceType>(source_type)
+            : EnvironmentalMap::SourceType::None;
+  }
+  if (in["environment_source_pdf_expected"]) {
+    environmental_map.environment_source_pdf_expected = in["environment_source_pdf_expected"].as<bool>();
+  }
+  if (in["sky_illumination_resolution"]) {
+    environmental_map.sky_illumination_resolution = in["sky_illumination_resolution"].as<uint32_t>();
+  }
+  if (const auto sky_node = in["sky_illumination_source"]) {
+    auto& sky = environmental_map.sky_illumination_source;
+    if (sky_node["earth_radius"])
+      sky.atmosphere.earth_radius = sky_node["earth_radius"].as<float>();
+    if (sky_node["atmosphere_radius"])
+      sky.atmosphere.atmosphere_radius = sky_node["atmosphere_radius"].as<float>();
+    if (sky_node["hr"])
+      sky.atmosphere.hr = sky_node["hr"].as<float>();
+    if (sky_node["hm"])
+      sky.atmosphere.hm = sky_node["hm"].as<float>();
+    if (sky_node["g"])
+      sky.atmosphere.g = sky_node["g"].as<float>();
+    if (sky_node["num_samples"])
+      sky.atmosphere.num_samples = sky_node["num_samples"].as<int>();
+    if (sky_node["num_samples_light"])
+      sky.atmosphere.num_samples_light = sky_node["num_samples_light"].as<int>();
+    if (sky_node["intensity"])
+      sky.atmosphere.intensity = sky_node["intensity"].as<float>();
+    if (sky_node["sun_direction"])
+      sky.sun_direction = sky_node["sun_direction"].as<glm::vec3>();
+    if (sky_node["gamma"])
+      sky.gamma = sky_node["gamma"].as<float>();
+    if (sky_node["ground_color"])
+      sky.ground_color = sky_node["ground_color"].as<glm::vec3>();
+    if (sky_node["ground_transmittance"])
+      sky.ground_transmittance = sky_node["ground_transmittance"].as<float>();
+  }
 }
 
 void SaveMat3x2(const std::string& name, const glm::mat3x2& value, YAML::Emitter& out) {
@@ -433,6 +543,7 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 #if MAT_EXT_CLEARCOAT
   out << YAML::Key << "clearcoat_factor" << YAML::Value << material.clearcoat_factor;
   out << YAML::Key << "clearcoat_roughness" << YAML::Value << material.clearcoat_roughness;
+  out << YAML::Key << "clearcoat_normal_texture_scale" << YAML::Value << material.clearcoat_normal_texture_scale;
 #endif
 #if MAT_EXT_SPECULAR
   out << YAML::Key << "specular_color_factor" << YAML::Value << material.specular_color_factor;
@@ -467,6 +578,9 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   out << YAML::Key << "diffuse_transmission_color" << YAML::Value << material.diffuse_transmission_color;
   out << YAML::Key << "diffuse_transmission_factor" << YAML::Value << material.diffuse_transmission_factor;
+#endif
+#if MAT_EXT_RETROREFLECTION
+  out << YAML::Key << "retroreflection_factor" << YAML::Value << material.retroreflection_factor;
 #endif
 #if MAT_EXT_VOLUME_SCATTER
   out << YAML::Key << "multiscatter_color_factor" << YAML::Value << material.multiscatter_color_factor;
@@ -511,6 +625,9 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
   out << YAML::Key << "diffuse_transmission_texture" << YAML::Value << material.diffuse_transmission_texture;
   out << YAML::Key << "diffuse_transmission_color_texture" << YAML::Value
       << material.diffuse_transmission_color_texture;
+#endif
+#if MAT_EXT_RETROREFLECTION
+  out << YAML::Key << "retroreflection_texture" << YAML::Value << material.retroreflection_texture;
 #endif
   out << YAML::EndMap;
 }
@@ -558,6 +675,8 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
     material.clearcoat_factor = in["clearcoat_factor"].as<float>();
   if (in["clearcoat_roughness"])
     material.clearcoat_roughness = in["clearcoat_roughness"].as<float>();
+  if (in["clearcoat_normal_texture_scale"])
+    material.clearcoat_normal_texture_scale = in["clearcoat_normal_texture_scale"].as<float>();
 #endif
 #if MAT_EXT_SPECULAR
   if (in["specular_color_factor"])
@@ -610,6 +729,10 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
     material.diffuse_transmission_color = in["diffuse_transmission_color"].as<glm::vec3>();
   if (in["diffuse_transmission_factor"])
     material.diffuse_transmission_factor = in["diffuse_transmission_factor"].as<float>();
+#endif
+#if MAT_EXT_RETROREFLECTION
+  if (in["retroreflection_factor"])
+    material.retroreflection_factor = in["retroreflection_factor"].as<float>();
 #endif
 #if MAT_EXT_VOLUME_SCATTER
   if (in["multiscatter_color_factor"])
@@ -677,6 +800,10 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
   if (in["diffuse_transmission_color_texture"])
     material.diffuse_transmission_color_texture = in["diffuse_transmission_color_texture"].as<uint16_t>();
 #endif
+#if MAT_EXT_RETROREFLECTION
+  if (in["retroreflection_texture"])
+    material.retroreflection_texture = in["retroreflection_texture"].as<uint16_t>();
+#endif
 }
 
 void SaveGltfTextureInfos(const Material& material, YAML::Emitter& out) {
@@ -686,6 +813,7 @@ void SaveGltfTextureInfos(const Material& material, YAML::Emitter& out) {
     const auto& texture_info = material.material_data.texture_infos[i];
     out << YAML::BeginMap;
     out << YAML::Key << "tex_coord" << YAML::Value << texture_info.tex_coord;
+    out << YAML::Key << "color_space" << YAML::Value << texture_info.color_space;
 #if MAT_EXT_TEXTURE_TRANSFORM
     SaveMat3x2("uv_transform", texture_info.uv_transform, out);
 #endif
@@ -706,6 +834,8 @@ void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vec
       texture_info.index = -1;
       if (texture_info_node["tex_coord"])
         texture_info.tex_coord = texture_info_node["tex_coord"].as<int32_t>();
+      if (texture_info_node["color_space"])
+        texture_info.color_space = texture_info_node["color_space"].as<int32_t>();
 #if MAT_EXT_TEXTURE_TRANSFORM
       texture_info.uv_transform = LoadMat3x2(texture_info_node["uv_transform"]);
 #endif
@@ -767,6 +897,9 @@ void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
 #endif
 #if MAT_EXT_SPECULAR
   shade.specular_factor = LegacyFloat(old_fields, "specular", shade.specular_factor);
+  if (shade.specular_factor == 0.0f) {
+    shade.specular_factor = 1.0f;
+  }
 #endif
 #if MAT_EXT_SHEEN
   shade.sheen_color_factor = glm::vec3(LegacyFloat(old_fields, "sheen", 0.0f));
@@ -793,6 +926,7 @@ void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
 
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
   out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "schema_version" << YAML::Value << 2;
   SaveGltfShadeMaterial(material.material_data.shade_material, out);
   SaveGltfTextureInfos(material, out);
   out << YAML::EndMap;
@@ -806,6 +940,22 @@ void DeserializeMaterial(const YAML::Node& in, Material& material) {
     std::vector<AssetRef> texture_refs;
     const auto gltf_material = in["gltf_material"];
     LoadGltfShadeMaterial(gltf_material["shade_material"], data.shade_material);
+    const int schema_version = gltf_material["schema_version"] ? gltf_material["schema_version"].as<int>() : 1;
+    if (schema_version < 2) {
+#if MAT_EXT_SPECULAR
+      if (data.shade_material.specular_factor == 0.0f) {
+        data.shade_material.specular_factor = 1.0f;
+      }
+#endif
+#if MAT_EXT_ANISOTROPY
+      const auto legacy_rotation = data.shade_material.anisotropy_rotation;
+      if (glm::dot(legacy_rotation, legacy_rotation) == 0.0f) {
+        data.shade_material.anisotropy_rotation = glm::vec2(1.0f, 0.0f);
+      } else {
+        data.shade_material.anisotropy_rotation = glm::vec2(legacy_rotation.y, -legacy_rotation.x);
+      }
+#endif
+    }
     LoadGltfTextureInfos(gltf_material["texture_infos"], data, texture_refs);
     material.SetGltfMaterialData(data);
     material.RefTextureRefs() = std::move(texture_refs);
@@ -986,6 +1136,17 @@ void SerializeTexture2D(YAML::Emitter& out, const Texture2D& texture) {
   out << YAML::Key << "green_channel" << YAML::Value << texture.green_channel;
   out << YAML::Key << "blue_channel" << YAML::Value << texture.blue_channel;
   out << YAML::Key << "alpha_channel" << YAML::Value << texture.alpha_channel;
+  out << YAML::Key << "srgb" << YAML::Value << texture.srgb;
+  const auto& sampler = texture.GetSamplerSettings();
+  out << YAML::Key << "sampler" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "mag_filter" << YAML::Value << static_cast<int32_t>(sampler.mag_filter);
+  out << YAML::Key << "min_filter" << YAML::Value << static_cast<int32_t>(sampler.min_filter);
+  out << YAML::Key << "mipmap_mode" << YAML::Value << static_cast<int32_t>(sampler.mipmap_mode);
+  out << YAML::Key << "address_mode_u" << YAML::Value << static_cast<int32_t>(sampler.address_mode_u);
+  out << YAML::Key << "address_mode_v" << YAML::Value << static_cast<int32_t>(sampler.address_mode_v);
+  out << YAML::Key << "min_lod" << YAML::Value << sampler.min_lod;
+  out << YAML::Key << "max_lod" << YAML::Value << sampler.max_lod;
+  out << YAML::EndMap;
   const auto resolution = texture.GetResolution();
   out << YAML::Key << "resolution" << YAML::Value << resolution;
   if (resolution.x == 0 || resolution.y == 0) {
@@ -1033,6 +1194,26 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
     texture.alpha_channel = in["alpha_channel"].as<bool>();
   if (in["hdr"])
     texture.hdr = in["hdr"].as<bool>();
+  if (in["srgb"])
+    texture.srgb = in["srgb"].as<bool>();
+  auto sampler = texture.GetSamplerSettings();
+  if (const auto sampler_node = in["sampler"]) {
+    if (sampler_node["mag_filter"])
+      sampler.mag_filter = static_cast<VkFilter>(sampler_node["mag_filter"].as<int32_t>());
+    if (sampler_node["min_filter"])
+      sampler.min_filter = static_cast<VkFilter>(sampler_node["min_filter"].as<int32_t>());
+    if (sampler_node["mipmap_mode"])
+      sampler.mipmap_mode = static_cast<VkSamplerMipmapMode>(sampler_node["mipmap_mode"].as<int32_t>());
+    if (sampler_node["address_mode_u"])
+      sampler.address_mode_u = static_cast<VkSamplerAddressMode>(sampler_node["address_mode_u"].as<int32_t>());
+    if (sampler_node["address_mode_v"])
+      sampler.address_mode_v = static_cast<VkSamplerAddressMode>(sampler_node["address_mode_v"].as<int32_t>());
+    if (sampler_node["min_lod"])
+      sampler.min_lod = sampler_node["min_lod"].as<float>();
+    if (sampler_node["max_lod"])
+      sampler.max_lod = sampler_node["max_lod"].as<float>();
+  }
+  texture.SetSamplerSettings(sampler);
   if (in["resolution"])
     resolution = in["resolution"].as<glm::ivec2>();
   if (resolution.x == 0 || resolution.y == 0) {
@@ -1060,7 +1241,7 @@ void DeserializeTexture2D(const YAML::Node& in, Texture2D& texture) {
   pixels.resize(resolution.x * resolution.y);
   Jobs::RunParallelFor(pixels.size(), [&](size_t i) {
     for (int channel = 0; channel < target_channel_size; channel++) {
-      pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 256.f, 0.f, 1.f);
+      pixels[i][channel] = glm::clamp(transferred_pixels[i * target_channel_size + channel] / 255.0f, 0.f, 1.f);
     }
     if (target_channel_size < 4) {
       pixels[i][3] = 1.f;
@@ -1129,6 +1310,18 @@ VertexAttributes DefaultVertexAttributes() {
   return attributes;
 }
 
+template <typename VertexType>
+std::vector<VertexType> DeserializeVertexData(const YAML::Binary& data, const size_t stride) {
+  if (stride == 0 || data.size() % stride != 0) {
+    return {};
+  }
+  std::vector<VertexType> vertices(data.size() / stride);
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    std::memcpy(&vertices[i], data.data() + i * stride, std::min(stride, sizeof(VertexType)));
+  }
+  return vertices;
+}
+
 SkinnedVertexAttributes DefaultSkinnedVertexAttributes() {
   SkinnedVertexAttributes attributes{};
   attributes.normal = true;
@@ -1146,6 +1339,84 @@ StrandPointAttributes DefaultStrandPointAttributes() {
   return attributes;
 }
 
+template <typename VertexType>
+void SerializeMorphTargets(YAML::Emitter& out, const std::vector<MorphTarget>& targets,
+                           const std::vector<float>& default_weights,
+                           const std::vector<VertexType>& morph_base_vertices) {
+  if (targets.empty()) {
+    return;
+  }
+  out << YAML::Key << "morph_targets_" << YAML::Value << YAML::BeginSeq;
+  for (const auto& target : targets) {
+    out << YAML::BeginMap << YAML::Key << "name" << YAML::Value << target.name;
+    const auto write = [&](const char* name, const std::vector<glm::vec3>& values) {
+      if (!values.empty()) {
+        out << YAML::Key << name << YAML::Value
+            << YAML::Binary(reinterpret_cast<const unsigned char*>(values.data()), values.size() * sizeof(glm::vec3));
+      }
+    };
+    write("position_deltas", target.position_deltas);
+    write("normal_deltas", target.normal_deltas);
+    write("tangent_deltas", target.tangent_deltas);
+    out << YAML::EndMap;
+  }
+  out << YAML::EndSeq;
+  out << YAML::Key << "default_morph_weights_" << YAML::Value
+      << YAML::Binary(reinterpret_cast<const unsigned char*>(default_weights.data()),
+                      default_weights.size() * sizeof(float));
+  out << YAML::Key << "morph_base_vertex_stride_" << YAML::Value << sizeof(VertexType);
+  out << YAML::Key << "morph_base_vertices_" << YAML::Value
+      << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_base_vertices.data()),
+                      morph_base_vertices.size() * sizeof(VertexType));
+}
+
+std::pair<std::vector<MorphTarget>, std::vector<float>> DeserializeMorphTargets(const YAML::Node& in) {
+  std::vector<MorphTarget> targets;
+  std::vector<float> weights;
+  if (const auto target_nodes = in["morph_targets_"]) {
+    for (const auto& target_node : target_nodes) {
+      MorphTarget target;
+      if (target_node["name"]) {
+        target.name = target_node["name"].as<std::string>();
+      }
+      const auto read = [&](const char* name, std::vector<glm::vec3>& values) {
+        if (!target_node[name]) {
+          return;
+        }
+        const auto& binary = target_node[name].as<YAML::Binary>();
+        if (binary.size() % sizeof(glm::vec3) != 0) {
+          return;
+        }
+        values.resize(binary.size() / sizeof(glm::vec3));
+        std::memcpy(values.data(), binary.data(), binary.size());
+      };
+      read("position_deltas", target.position_deltas);
+      read("normal_deltas", target.normal_deltas);
+      read("tangent_deltas", target.tangent_deltas);
+      targets.emplace_back(std::move(target));
+    }
+  }
+  if (in["default_morph_weights_"]) {
+    const auto& binary = in["default_morph_weights_"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      weights.resize(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+    }
+  }
+  return {std::move(targets), std::move(weights)};
+}
+
+template <typename VertexType>
+std::vector<VertexType> DeserializeMorphBaseVertices(const YAML::Node& in, const size_t fallback_stride) {
+  if (const auto node = in["morph_base_vertices_"]) {
+    const auto& binary = node.as<YAML::Binary>();
+    const auto stride =
+        in["morph_base_vertex_stride_"] ? in["morph_base_vertex_stride_"].as<size_t>() : fallback_stride;
+    return DeserializeVertexData<VertexType>(binary, stride);
+  }
+  return {};
+}
+
 void SerializeMesh(YAML::Emitter& out, const Mesh& mesh) {
   out << YAML::Key << "vertex_attributes_" << YAML::BeginMap;
   mesh.GetVertexAttributes().Serialize(out);
@@ -1154,12 +1425,14 @@ void SerializeMesh(YAML::Emitter& out, const Mesh& mesh) {
   const auto& vertices = mesh.PeekVertices();
   const auto& triangles = mesh.PeekTriangles();
   if (!vertices.empty() && !triangles.empty()) {
+    out << YAML::Key << "vertex_stride_" << YAML::Value << sizeof(Vertex);
     out << YAML::Key << "vertices_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(vertices.data()), vertices.size() * sizeof(Vertex));
     out << YAML::Key << "triangles_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(triangles.data()),
                         triangles.size() * sizeof(glm::uvec3));
   }
+  SerializeMorphTargets(out, mesh.PeekMorphTargets(), mesh.GetDefaultMorphWeights(), mesh.PeekMorphBaseVertices());
 }
 
 void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
@@ -1170,9 +1443,15 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
 
   if (in["vertices_"] && in["triangles_"]) {
     const auto& vertex_data = in["vertices_"].as<YAML::Binary>();
-    std::vector<Vertex> vertices;
-    vertices.resize(vertex_data.size() / sizeof(Vertex));
-    std::memcpy(vertices.data(), vertex_data.data(), vertex_data.size());
+    const auto stride = in["vertex_stride_"] ? in["vertex_stride_"].as<size_t>() : size_t{80};
+    auto vertices = DeserializeVertexData<Vertex>(vertex_data, stride);
+    if (stride == 96) {
+      for (auto& vertex : vertices) {
+        vertex.tex_coord_2 = glm::vec2(0.0f);
+        vertex.tex_coord_3 = glm::vec2(0.0f);
+        vertex.padding = glm::vec2(0.0f);
+      }
+    }
 
     const auto& triangle_data = in["triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1180,6 +1459,11 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
     std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
 
     mesh.SetVertices(vertex_attributes, vertices, triangles);
+    auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
+    if (!morph_targets.empty()) {
+      mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
+                           DeserializeMorphBaseVertices<Vertex>(in, stride));
+    }
   }
 }
 
@@ -1197,6 +1481,7 @@ void SerializeSkinnedMesh(YAML::Emitter& out, const SkinnedMesh& mesh) {
   const auto& vertices = mesh.PeekSkinnedVertices();
   const auto& triangles = mesh.PeekTriangles();
   if (!vertices.empty() && !triangles.empty()) {
+    out << YAML::Key << "skinned_vertex_stride_" << YAML::Value << sizeof(SkinnedVertex);
     out << YAML::Key << "skinned_vertices_" << YAML::Value
         << YAML::Binary(reinterpret_cast<const unsigned char*>(vertices.data()),
                         vertices.size() * sizeof(SkinnedVertex));
@@ -1204,6 +1489,7 @@ void SerializeSkinnedMesh(YAML::Emitter& out, const SkinnedMesh& mesh) {
         << YAML::Binary(reinterpret_cast<const unsigned char*>(triangles.data()),
                         triangles.size() * sizeof(glm::uvec3));
   }
+  SerializeMorphTargets(out, mesh.PeekMorphTargets(), mesh.GetDefaultMorphWeights(), mesh.PeekMorphBaseVertices());
 }
 
 void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
@@ -1220,9 +1506,15 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
 
   if (in["skinned_vertices_"] && in["skinned_triangles_"]) {
     const auto& vertex_data = in["skinned_vertices_"].as<YAML::Binary>();
-    std::vector<SkinnedVertex> vertices;
-    vertices.resize(vertex_data.size() / sizeof(SkinnedVertex));
-    std::memcpy(vertices.data(), vertex_data.data(), vertex_data.size());
+    const auto stride = in["skinned_vertex_stride_"] ? in["skinned_vertex_stride_"].as<size_t>() : size_t{144};
+    auto vertices = DeserializeVertexData<SkinnedVertex>(vertex_data, stride);
+    if (stride == 160) {
+      for (auto& vertex : vertices) {
+        vertex.tex_coord_2 = glm::vec2(0.0f);
+        vertex.tex_coord_3 = glm::vec2(0.0f);
+        vertex.padding = glm::vec2(0.0f);
+      }
+    }
 
     const auto& triangle_data = in["skinned_triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1230,6 +1522,11 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
     std::memcpy(triangles.data(), triangle_data.data(), triangle_data.size());
 
     mesh.SetVertices(vertex_attributes, vertices, triangles);
+    auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
+    if (!morph_targets.empty()) {
+      mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
+                           DeserializeMorphBaseVertices<SkinnedVertex>(in, stride));
+    }
   }
 }
 
@@ -1353,12 +1650,26 @@ void SerializeMeshRenderer(YAML::Emitter& out, const MeshRenderer& renderer) {
   out << YAML::Key << "cast_shadow" << YAML::Value << renderer.cast_shadow;
   renderer.mesh.Save("mesh", out);
   renderer.material.Save("material", out);
+  const auto& morph_weights = renderer.PeekMorphWeights();
+  if (!morph_weights.empty()) {
+    out << YAML::Key << "morph_weights" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_weights.data()),
+                        morph_weights.size() * sizeof(float));
+  }
 }
 
 void DeserializeMeshRenderer(const YAML::Node& in, MeshRenderer& renderer) {
   renderer.cast_shadow = in["cast_shadow"].as<bool>();
   renderer.mesh.Load("mesh", in);
   renderer.material.Load("material", in);
+  if (in["morph_weights"]) {
+    const auto& binary = in["morph_weights"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      std::vector<float> weights(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+      renderer.SetMorphWeights(weights);
+    }
+  }
 }
 
 void SerializeStrandsRenderer(YAML::Emitter& out, const StrandsRenderer& renderer) {
@@ -1403,6 +1714,12 @@ void SerializeSkinnedMeshRenderer(YAML::Emitter& out, const SkinnedMeshRenderer&
   renderer.material.Save("material", out);
   out << YAML::Key << "rag_doll_" << YAML::Value << renderer.RagDoll();
   out << YAML::Key << "rag_doll_freeze" << YAML::Value << renderer.rag_doll_freeze;
+  const auto& morph_weights = renderer.PeekMorphWeights();
+  if (!morph_weights.empty()) {
+    out << YAML::Key << "morph_weights" << YAML::Value
+        << YAML::Binary(reinterpret_cast<const unsigned char*>(morph_weights.data()),
+                        morph_weights.size() * sizeof(float));
+  }
 
   if (const auto& bound_entities = renderer.PeekRagDollBoundEntities(); !bound_entities.empty()) {
     out << YAML::Key << "bound_entities_" << YAML::Value << YAML::BeginSeq;
@@ -1429,6 +1746,14 @@ void DeserializeSkinnedMeshRenderer(const YAML::Node& in, SkinnedMeshRenderer& r
   renderer.material.Load("material", in);
   renderer.SetRagDollState(in["rag_doll_"].as<bool>());
   renderer.rag_doll_freeze = in["rag_doll_freeze"].as<bool>();
+  if (in["morph_weights"]) {
+    const auto& binary = in["morph_weights"].as<YAML::Binary>();
+    if (binary.size() % sizeof(float) == 0) {
+      std::vector<float> weights(binary.size() / sizeof(float));
+      std::memcpy(weights.data(), binary.data(), binary.size());
+      renderer.SetMorphWeights(weights);
+    }
+  }
   if (const auto in_bound_entities = in["bound_entities_"]) {
     auto& bound_entities = renderer.RefRagDollBoundEntities();
     for (const auto& i : in_bound_entities) {
@@ -1770,6 +2095,7 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<PostProcessingStack>(
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
   Serialization::RegisterSerializationHandler<Material>(SerializeMaterial, DeserializeMaterial, {}, "Material");
+  Serialization::RegisterSerializationHandler<Cubemap>(SerializeCubemap, DeserializeCubemap, {}, "Cubemap");
   Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
                                                                 {}, "EnvironmentalMap");
   Serialization::RegisterSerializationHandler<Shader>(SerializeShader, DeserializeShader, {}, "Shader");
@@ -2207,6 +2533,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   ProjectManager::Initialize();
   if (render_layer) {
     Platform::Initialize(this->initialization_settings);
+    if (this->initialization_settings.enable_gpu_timestamp_capture) {
+      Platform::SetGpuTimestampCaptureEnabled(true);
+    }
   }
   if (this->initialization_settings.load_default_resources) {
     Resources::Initialize();

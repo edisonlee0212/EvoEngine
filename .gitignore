@@ -26,6 +26,8 @@ Resources/Example Projects
 *.d
 __pycache__/
 *.py[cod]
+ShaderBinaries/
+PipelineCache/
 
 # Compiled Object files
 *.slo

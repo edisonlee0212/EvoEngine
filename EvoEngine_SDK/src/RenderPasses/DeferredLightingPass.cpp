@@ -41,6 +41,7 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
 
     ApplyGraphResourceBarriers(vk_command_buffer, context);
 
+    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Deferred Lighting");
     const auto& g_buffer_descriptor_set = parameters.camera->GetGBufferDescriptorSet();
     if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.per_frame_descriptor_set &&
         g_buffer_descriptor_set && parameters.lighting_descriptor_set &&
@@ -83,6 +84,7 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
         }
       });
     }
+    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
 
     if (parameters.external_forward_rendering) {
       parameters.external_forward_rendering(vk_command_buffer, viewport);

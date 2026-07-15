@@ -1,187 +1,89 @@
 # Rendering Validation
 
-[Back to rendering overview](rendering.md)
+This page describes the current local validation flow for rasterization, ray tracing, ray query, and cascaded directional
+shadows. It intentionally records commands and acceptance checks, not development history.
 
-Rendering validation is local-only because it requires a Vulkan-capable GPU and often produces image artifacts for manual
-inspection. Hosted CI should stay focused on format/build checks unless a task explicitly changes that policy.
+## Format, Build, and Test
 
-## Baseline Checks
+Run the formatter check before building:
 
-For rendering documentation or lightweight render behavior changes, run the smallest checks that exercise the changed
-surface:
-
-```bat
-python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests
-git diff --check
+```powershell
+python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests --root PythonBinding
 ```
 
-Validate and prepare generated demo resources with:
+Build the affected targets with the normal Windows preset:
 
-```bat
-python Scripts\prepare_demos.py --editor out\install\vs2026-x64\bin\EvoEngineEditor.exe
+```powershell
+cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngine_Tests/EvoEngine_Tests --parallel 4
+cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngine_App/EvoEngineEditor --parallel 4
 ```
 
-Pass `--demo <id>` for a single demo, `--validate` for validation only, `--prepare` for missing-file preparation only,
-`--override` to force preparation without validation, or `--no-previews` when preview images are outside the current task.
+Run the focused CPU and source-contract coverage:
 
-If app behavior changed, build or install the relevant executable before manual validation:
+```powershell
+out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="CameraRenderTechnique.*:GltfRayTracingMaterial.*:RayCameraShaderVariantCache.*:RayCameraHistory.*:DirectionalShadowCascadeFit.*:RenderGraph.DirectionalShadowCasterPathsUseProductionRenderers:RenderGraph.RenderPassDrawCountersRouteRasterAccountingByPass"
+```
 
-```bat
-cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target DemoApp
+On a Vulkan device that supports the required features, also run the shader and numerical probes:
+
+```powershell
+out\build\vs2026-x64\EvoEngine_Tests\RelWithDebInfo\EvoEngine_Tests.exe --gtest_filter="GpuService.CameraRayTransportShadersCompile:GpuService.GltfRayTracingNumericalProbeMatchesAnalyticValues:GpuService.DirectionalShadowComparisonSamplerFiltersDepthStep"
+```
+
+Install the applications after the focused tests pass:
+
+```powershell
 python Scripts\install_apps.py --config RelWithDebInfo --no-open --incremental
 ```
 
-Installed binaries are written to:
+The executable used for manual validation is:
 
 ```text
-out\install\vs2026-x64\bin
+out\install\vs2026-x64\bin\EvoEngineEditor.exe
 ```
 
-## README Screenshot Capture
+## Ray-Camera Captures
 
-Use the unified demo preparation script to refresh the README editor image:
+The `rendering-regression` profile contains representative material, emissive, punctual-light, skinned, temporal, and
+high-contrast probes. Capture both ray-camera techniques at the same resolution and sample count:
 
-```bat
-python Scripts\prepare_demos.py --demo rendering --override --no-previews
+```powershell
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\render-validation\raytracing.hdr --preview-render-mode raytracing --preview-warmup-frames 64 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\render-validation\rayquery.hdr --preview-render-mode rayquery --preview-warmup-frames 64 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
 ```
 
-The script writes `Resources/GitHub/RenderingDemo.png` for the Rendering demo. Inspect the image after capture.
+Use `.png` when validating the presented image and `.hdr` when comparing linear radiance. The capture path waits for the
+requested ray-camera shader variant before accumulating the requested warmup frames. Unsupported techniques fall back
+according to the runtime capability policy and report that choice in the log.
 
-Useful DDGI inspection variants:
+An individual shared debug view can be captured with `--preview-ray-debug <name>`. Useful names include `material-id`,
+`base-color`, `geometric-normal`, `shading-normal`, `roughness`, `metallic`, `emission`, `direct-punctual`,
+`direct-environment`, `direct-emissive`, `indirect-radiance`, `path-depth`, `bsdf-pdf`, `light-pdf`, and `emissive-pdf`.
 
-```bat
-python Scripts\capture_readme_editor_screenshot.py --output out\visual-inspection\sponza-rendering-ddgi.png --demo-setup Rendering --width 1920 --height 1080 --warmup-frames 512
-python Scripts\capture_readme_editor_screenshot.py --output out\visual-inspection\sponza-ddgi-atlas-preview.png --demo-setup Rendering --ddgi-atlas-preview --width 1920 --height 1080 --warmup-frames 512
-python Scripts\capture_readme_editor_screenshot.py --output out\visual-inspection\cornell-box-ddgi.png --demo-setup CornellBox --width 1920 --height 1080 --warmup-frames 512
-python Scripts\capture_readme_editor_screenshot.py --output out\visual-inspection\thin-wall-ddgi.png --demo-setup ThinWall --width 1920 --height 1080 --warmup-frames 512
+## Image Comparison
+
+Verify the image reader before using it for an acceptance comparison:
+
+```powershell
+python Scripts\compare_reference_render.py --self-test
 ```
 
-## Demo Preview Capture
+Compare two PNG or HDR captures with:
 
-Preview captures should be run from an installed app tree so shader and resource installation are validated with the same
-executable a reviewer can launch.
-
-Rendering regression examples:
-
-```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\rendering-regression-rasterization.png --preview-render-mode rasterization --preview-warmup-frames 1800 --preview-width 1280 --preview-height 720
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\rendering-regression-raytracing.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\rendering-regression-rayquery.png --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+```powershell
+python Scripts\compare_reference_render.py reference.hdr candidate.hdr --out out\render-validation\comparison.json
 ```
 
-`--preview-render-mode` accepts `rasterization`, `raytracing`, and `rayquery`. RayQuery captures require a device with
-RayQuery support. `--preview-sample-size` controls manual samples per rendered frame for ray techniques.
+Add `--require-exact` only when byte-equivalent decoded pixels are the intended contract. Most stochastic ray-camera
+comparisons should instead review the reported error metrics and the images themselves.
 
-Other useful preview flags:
+## Acceptance Checklist
 
-- `--preview-firefly-clamp enabled|disabled`
-- `--preview-firefly-clamp-threshold <value>`
-- `--preview-auto-spp enabled|disabled`
-- `--preview-auto-spp-min-samples <n>`
-- `--preview-auto-spp-max-samples <n>`
-- `--preview-auto-spp-threshold <value>`
-- `--preview-ser disabled|automatic|enabled`
-- `--preview-ao ssao|gtao|disabled`
-- `--preview-aa disabled|taa|smaa`
-- `--preview-aa-preset best-quality|high-quality|performance|low|medium|high|ultra`
-- `--preview-aa-tgsm enabled|disabled`
-- `--preview-aa-fp16 enabled|disabled`
-- `--preview-aa-motion-sequence enabled|disabled` for the `rendering-regression` profile
-- `--preview-debug none|taa-motion|taa-depth-confidence|taa-history-confidence|taa-no-history|smaa-edges|smaa-weights`
+- The editor exits normally without Vulkan validation errors, device loss, fatal logs, or shader compilation failures.
+- RTX and RayQuery show the same scene, camera, material interpretation, lighting controls, and selected debug view.
+- Saved HDR values are finite and preserve expected highlights; presented PNG output has no clipping or row inversion.
+- Material boundaries, normal maps, alpha masking, transmission, emissive lighting, and punctual shadows are intact.
+- Camera or scene changes reset accumulation, while an unchanged view continues accumulating without flicker.
+- CSM captures satisfy the separate checks in [csm_validation.md](csm_validation.md).
 
-TAA presets, controls, and debug modes require `--preview-aa taa`; SMAA presets and debug modes require
-`--preview-aa smaa`. Incompatible combinations are rejected. The TAA debug modes capture motion vectors,
-depth confidence, accumulated history confidence, or pixels where history was rejected. Best Quality and High Quality use
-FP32 by default. Performance or an explicit FP16 override uses FP16 only when the selected Vulkan device advertises
-`shaderFloat16`; otherwise the FP32 fallback is selected. Preview post-processing overrides require
-`--capture-demo-preview`.
-
-Best Quality comparison example:
-
-```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 64 --preview-aa taa --preview-aa-preset best-quality
-```
-
-The deterministic temporal-motion scene is captured with:
-
-```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\taa-motion-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa taa --preview-aa-preset best-quality --preview-aa-motion-sequence enabled
-```
-
-The full Rendering demo AA capture matrix is:
-
-```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-none.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa disabled
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-taa-best.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa taa --preview-aa-preset best-quality
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-low.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset low
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-medium.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset medium
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-high.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset high
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-ultra.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-edges.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra --preview-debug smaa-edges
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering --editor --capture-demo-preview out\aa-smaa-weights.png --preview-width 1280 --preview-height 720 --preview-warmup-frames 120 --preview-deterministic --preview-aa smaa --preview-aa-preset ultra --preview-debug smaa-weights
-```
-
-## DemoApp Smoke Run
-
-A temporary run config can exercise the Rendering demo smoke path:
-
-```yaml
-mode: smoke_test
-demo_setup: Rendering
-application_mode: Editor
-warmup_frames: 30
-frames_after_play: 30
-max_load_frames: 30000
-max_play_frames: 1000
-exit_on_complete: true
-```
-
-Run it with:
-
-```bat
-out\build\vs2026-x64\EvoEngine_App\RelWithDebInfo\DemoApp.exe --run-config out\documentation-rendering-smoke.yaml
-```
-
-The Rendering smoke path validates the canonical DDGI volume, the top-down directional light, the yellow point light, DDGI
-update reasons, disabled-light behavior, relocation/classification toggles, and a real Sponza hallway lighting readback.
-
-## Bistro Reference Parity
-
-Bistro path-tracing parity compares EvoEngine against `vk_gltf_renderer`. The reference input must use the same
-`KHR_lights_punctual` directional light intensity as the EvoEngine scene. For Bistro light-unit comparisons, use the
-normalized glTF with directional Sun intensity `10`, not the raw downloaded `6830` asset value.
-
-Example:
-
-```bat
-C:\Users\lllll\Documents\GitHub\vk_gltf_renderer\_bin\Release\vk_gltf_renderer.exe --headless --size 1920 1080 --scenefile C:\Users\lllll\Documents\GitHub\EvoEngine\Resources\.generated\niagara_bistro\bistro-directional-intensity-10.gltf --frames 512 --maxFrames 512 --ptSamples 4 --ptAdaptiveSampling 0 --renderSystem 0 --envSystem 0 --gltfCamera 0 --output out\bistro-reference-raytracing-2048spp-1920x1080-raw.png
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\evoengine-bistro-raytracing-2048spp-1920x1080.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-width 1920 --preview-height 1080 --preview-deterministic
-python Scripts\compare_reference_render.py out\bistro-reference-raytracing-2048spp-1920x1080-raw.png out\evoengine-bistro-raytracing-2048spp-1920x1080.png --ignore-alpha --out out\bistro-raytracing-2048spp-1920x1080-rgb-diff.json
-```
-
-Bistro raster parity captures explicitly enable the configured DDGI volume and use a newly initialized post-processing
-stack: GTAO, SMAA Ultra, and tone mapping enabled with bloom and SSR disabled. The imported Bistro sun uses light size
-`0.01`, and the default directional shadow resource is 8192. Ray-tracing and ray-query parity captures keep DDGI disabled.
-A matched 1440p comparison uses:
-
-```bat
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rasterization-2560x1440.png --preview-render-mode rasterization --preview-warmup-frames 256 --preview-width 2560 --preview-height 1440 --preview-deterministic
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-raytracing-2048spp-2560x1440.png --preview-render-mode raytracing --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
-out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo bistro --editor --capture-demo-preview out\bistro-rayquery-2048spp-2560x1440.png --preview-render-mode rayquery --preview-warmup-frames 512 --preview-sample-size 4 --preview-auto-spp disabled --preview-firefly-clamp enabled --preview-firefly-clamp-threshold 10 --preview-width 2560 --preview-height 1440 --preview-deterministic
-```
-
-Current accepted tracking target is normalized RGB MAE `<= 0.02` and RMS `<= 0.04` full-frame against the alpha-normalized
-reference. Focused diagnostic crops may use the same threshold family but must record measured crop and residual
-statistics.
-
-## Visual Checks
-
-Before closing rendering milestones, inspect the generated images and record the exact executable and command used.
-
-Minimum visual checks:
-
-- Rendering demo editor screenshot is nonblank and has the expected editor layout.
-- RT-Bistro and 3DGS-Bicycle gallery images remain valid.
-- Rasterization and ray captures are not blank.
-- Bistro reference captures preserve RGB and normalize alpha for tooling when needed.
-- Logs do not contain crash, hang, validation, device-lost, or missing-file errors.
+Always record the exact installed executable, command line, GPU, and inspected output paths with the PR validation notes.

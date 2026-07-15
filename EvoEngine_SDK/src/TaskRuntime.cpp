@@ -569,7 +569,7 @@ void TaskRuntime::RunTask(const TaskHandle& handle, const TaskExecutorType execu
       return;
     }
     task.state = TaskState::Running;
-    function = task.function;
+    function = std::move(task.function);
     cancellation_token = task.options.cancellation_token;
     options = task.options;
   }

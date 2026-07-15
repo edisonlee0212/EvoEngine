@@ -483,13 +483,16 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     changed = true;
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
+    uint32_t debug_view = static_cast<uint32_t>(camera.camera_settings.ray_debug_view);
+    if (ImGui::Combo("Ray Debug View", Camera::GetRayDebugViewNames(), debug_view)) {
+      camera.camera_settings.ray_debug_view = Camera::NormalizeRayDebugView(debug_view);
+      camera.ResetFrameCount();
+      changed = true;
+    }
     if (ImGui::DragFloat("Gamma", &camera.camera_settings.gamma, 0.01f, 0.01f, 10.0f)) {
       changed = true;
     }
-    const char* sample_label =
-        camera.camera_render_mode == Camera::CameraRenderMode::RayTracing && camera.camera_settings.auto_spp_enabled
-            ? "Samples/frame"
-            : "Samples";
+    const char* sample_label = camera.camera_settings.auto_spp_enabled ? "Samples/frame" : "Samples";
     if (ImGui::SliderInt(sample_label, &camera.camera_settings.sample_size, 1, 32)) {
       changed = true;
     }
@@ -497,7 +500,11 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
       changed = true;
     }
   }
-  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
+  if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
+    if (ImGui::Checkbox("Emissive triangle NEE", &camera.camera_settings.emissive_triangle_nee_enabled)) {
+      camera.ResetFrameCount();
+      changed = true;
+    }
     if (ImGui::Checkbox("Firefly clamp", &camera.camera_settings.firefly_clamp_enabled)) {
       camera.ResetFrameCount();
       changed = true;
@@ -536,6 +543,8 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
         changed = true;
       }
     }
+  }
+  if (camera.camera_render_mode == Camera::CameraRenderMode::RayTracing) {
     uint32_t ser_mode = static_cast<uint32_t>(camera.camera_settings.shader_execution_reordering_mode);
     if (ImGui::Combo("Shader Execution Reordering", Camera::GetShaderExecutionReorderingModeNames(), ser_mode)) {
       camera.camera_settings.shader_execution_reordering_mode =
@@ -672,9 +681,6 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
     if (ImGui::DragFloat("Bias", &ambient_occlusion.gtao_bias, 0.001f, 0.0f, 1.f))
       changed = true;
   }
-  if (ImGui::Button("Rebuild pipelines")) {
-    ambient_occlusion.BuildPipelines();
-  }
   return changed;
 }
 
@@ -684,7 +690,9 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
   const char* algorithms[] = {"TAA", "SMAA"};
   if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
     anti_aliasing.algorithm = static_cast<AntiAliasing::Algorithm>(algorithm);
-    anti_aliasing.ResetHistory();
+    changed = true;
+  }
+  if (ImGui::Button("Reset temporal state")) {
     changed = true;
   }
 
@@ -701,9 +709,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
       anti_aliasing.smaa.debug_mode = static_cast<AntiAliasing::SmaaDebugMode>(debug_mode);
       changed = true;
     }
-    if (ImGui::Button("Rebuild pipelines")) {
-      anti_aliasing.BuildPipelines(true);
-    }
     return changed;
   }
 
@@ -717,7 +722,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
 
   const auto mark_custom = [&] {
     taa.preset = AntiAliasing::TaaPreset::Custom;
-    anti_aliasing.ResetHistory();
     changed = true;
   };
 
@@ -781,12 +785,6 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
     taa.debug_mode = static_cast<AntiAliasing::TaaDebugMode>(debug_mode);
     changed = true;
   }
-  if (ImGui::Button("Reset history")) {
-    anti_aliasing.ResetHistory();
-  }
-  if (ImGui::Button("Rebuild pipelines")) {
-    anti_aliasing.BuildPipelines(true);
-  }
   return changed;
 }
 
@@ -796,9 +794,6 @@ bool InspectBloom(Bloom& bloom) {
     changed = true;
   if (ImGui::DragInt("Chain length", &bloom.bloom_chain_length, 1, 0, 10))
     changed = true;
-  if (ImGui::Button("Rebuild pipelines")) {
-    bloom.BuildPipelines();
-  }
   return changed;
 }
 
@@ -816,9 +811,6 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
     changed = true;
   if (ImGui::Checkbox("Blur", &ssr.blur))
     changed = true;
-  if (ImGui::Button("Rebuild pipelines")) {
-    ssr.BuildPipelines();
-  }
   return changed;
 }
 
@@ -900,40 +892,6 @@ bool InspectPostProcessingStack(InspectorContext&, PostProcessingStack& stack) {
     ImGui::TreePop();
   }
 
-  if (ImGui::TreeNode("Debug")) {
-    static float debug_scale = 0.25f;
-    ImGui::DragFloat("Scale", &debug_scale, 0.01f, 0.1f, 1.0f);
-    debug_scale = glm::clamp(debug_scale, 0.1f, 1.0f);
-    auto initial_size = ImVec2(stack.source_color_texture->GetExtent().width * debug_scale,
-                               stack.source_color_texture->GetExtent().height * debug_scale);
-    if (ImGui::TreeNode("Source")) {
-      ImGui::Image(stack.source_color_texture->GetColorImTextureId(), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Result")) {
-      ImGui::Image(stack.result_texture->GetColorImTextureId(),
-                   ImVec2(stack.result_texture->GetExtent().width * debug_scale,
-                          stack.result_texture->GetExtent().height * debug_scale),
-                   ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Mipmaps")) {
-      const auto mip_levels = stack.result_texture->GetMipLevels();
-      for (uint32_t mip_level = 1; mip_level < mip_levels; mip_level++) {
-        initial_size /= 2.f;
-        ImGui::Image(stack.result_texture->GetColorImTextureId(mip_level), initial_size, ImVec2(0, 1), ImVec2(1, 0));
-      }
-      ImGui::TreePop();
-    }
-    if (ImGui::TreeNode("Swap")) {
-      ImGui::Image(stack.swap_texture->GetColorImTextureId(),
-                   ImVec2(stack.swap_texture->GetExtent().width * debug_scale,
-                          stack.swap_texture->GetExtent().height * debug_scale),
-                   ImVec2(0, 1), ImVec2(1, 0));
-      ImGui::TreePop();
-    }
-    ImGui::TreePop();
-  }
   return changed;
 }
 
@@ -1376,7 +1334,7 @@ bool InspectProceduralNoise4D(InspectorContext& context, pn::ProceduralNoise4D& 
   return changed;
 }
 
-bool InspectDrawSettings(DrawSettings& draw_settings) {
+bool InspectDrawSettings(DrawSettings& draw_settings, const bool inspect_material_render_state = true) {
   bool changed = false;
   int polygon_mode_tmp = 0;
   switch (draw_settings.polygon_mode) {
@@ -1407,50 +1365,52 @@ bool InspectDrawSettings(DrawSettings& draw_settings) {
   if (draw_settings.polygon_mode == VK_POLYGON_MODE_LINE) {
     ImGui::DragFloat("Line width", &draw_settings.line_width, 0.1f, 0.0f, 100.0f);
   }
-  int cull_face_mode_tmp = 0;
-  switch (draw_settings.cull_mode) {
-    case VK_CULL_MODE_FRONT_BIT:
-      cull_face_mode_tmp = 0;
-      break;
-    case VK_CULL_MODE_BACK_BIT:
-      cull_face_mode_tmp = 1;
-      break;
-    case VK_CULL_MODE_FRONT_AND_BACK:
-      cull_face_mode_tmp = 2;
-      break;
-    case VK_CULL_MODE_NONE:
-      cull_face_mode_tmp = 3;
-      break;
-  }
-  if (ImGui::Combo("Cull Face Mode", &cull_face_mode_tmp, culling_mode_string, IM_ARRAYSIZE(culling_mode_string))) {
-    changed = true;
-    switch (cull_face_mode_tmp) {
-      case 0:
-        draw_settings.cull_mode = VK_CULL_MODE_FRONT_BIT;
+  if (inspect_material_render_state) {
+    int cull_face_mode_tmp = 0;
+    switch (draw_settings.cull_mode) {
+      case VK_CULL_MODE_FRONT_BIT:
+        cull_face_mode_tmp = 0;
         break;
-      case 1:
-        draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+      case VK_CULL_MODE_BACK_BIT:
+        cull_face_mode_tmp = 1;
         break;
-      case 2:
-        draw_settings.cull_mode = VK_CULL_MODE_FRONT_AND_BACK;
+      case VK_CULL_MODE_FRONT_AND_BACK:
+        cull_face_mode_tmp = 2;
         break;
-      case 3:
-        draw_settings.cull_mode = VK_CULL_MODE_NONE;
+      case VK_CULL_MODE_NONE:
+        cull_face_mode_tmp = 3;
         break;
     }
-  }
-
-  if (ImGui::Checkbox("Blending", &draw_settings.blending))
-    changed = true;
-
-  if (false && draw_settings.blending) {
-    if (ImGui::Combo("Blending Source Factor", reinterpret_cast<int*>(&draw_settings.blending_src_factor),
-                     blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+    if (ImGui::Combo("Cull Face Mode", &cull_face_mode_tmp, culling_mode_string, IM_ARRAYSIZE(culling_mode_string))) {
       changed = true;
+      switch (cull_face_mode_tmp) {
+        case 0:
+          draw_settings.cull_mode = VK_CULL_MODE_FRONT_BIT;
+          break;
+        case 1:
+          draw_settings.cull_mode = VK_CULL_MODE_BACK_BIT;
+          break;
+        case 2:
+          draw_settings.cull_mode = VK_CULL_MODE_FRONT_AND_BACK;
+          break;
+        case 3:
+          draw_settings.cull_mode = VK_CULL_MODE_NONE;
+          break;
+      }
     }
-    if (ImGui::Combo("Blending Destination Factor", reinterpret_cast<int*>(&draw_settings.blending_dst_factor),
-                     blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+
+    if (ImGui::Checkbox("Blending", &draw_settings.blending))
       changed = true;
+
+    if (false && draw_settings.blending) {
+      if (ImGui::Combo("Blending Source Factor", reinterpret_cast<int*>(&draw_settings.blending_src_factor),
+                       blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+        changed = true;
+      }
+      if (ImGui::Combo("Blending Destination Factor", reinterpret_cast<int*>(&draw_settings.blending_dst_factor),
+                       blending_factor_string, IM_ARRAYSIZE(blending_factor_string))) {
+        changed = true;
+      }
     }
   }
   return changed;
@@ -1485,9 +1445,34 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   }
   ImGui::Checkbox("Indirect Rendering", &render_layer.enable_indirect_rendering);
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
+  ImGui::Checkbox("Full camera-ray shaders", &render_layer.force_full_ray_camera_shader_variant);
+  auto capture_gpu_timing = Platform::GpuTimestampCaptureEnabled();
+  if (ImGui::Checkbox("Capture live GPU timing", &capture_gpu_timing)) {
+    Platform::SetGpuTimestampCaptureEnabled(capture_gpu_timing);
+  }
+  if (capture_gpu_timing && ImGui::Button("Reset live timing")) {
+    Platform::ResetGpuTimestampStats();
+  }
+  const auto draw_variant = [&](const char* label, const RayCameraShaderTechnique technique) {
+    const auto stats = render_layer.GetRayCameraShaderVariantStats(technique);
+    ImGui::Text("%s: %s -> %s (%s%s)", label, stats.requested_key.c_str(), stats.active_key.c_str(),
+                stats.cache_source.c_str(), stats.pending ? ", pending" : "");
+    ImGui::Text("  variants %u/%u, pending %u, failed %u, retained %u, evictions %llu", stats.resident_variant_count,
+                stats.variant_capacity, stats.pending_build_count, stats.failed_entry_count,
+                stats.retained_submission_count, static_cast<unsigned long long>(stats.eviction_count));
+    ImGui::Text("  pipeline %.2f ms%s%s", stats.pipeline_creation.wall_milliseconds,
+                stats.pipeline_creation.feedback_valid
+                    ? (stats.pipeline_creation.application_cache_hit ? ", cache hit" : ", cache miss")
+                    : ", cache status unknown",
+                stats.pipeline_creation.deferred_used ? ", deferred" : "");
+  };
+  if (Platform::RayTracingEnabled())
+    draw_variant("RTX variant", RayCameraShaderTechnique::RayTracing);
+  if (Platform::RayQueryEnabled())
+    draw_variant("Ray Query variant", RayCameraShaderTechnique::RayQuery);
 }
 
-void InspectRenderLayerStats() {
+void InspectRenderLayerStats(RenderLayer& render_layer) {
   const auto& graphics = Platform::GetInstance();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto prim_count =
@@ -1497,6 +1482,76 @@ void InspectRenderLayerStats() {
   ImGui::Text("Frame: %u", current_frame_index);
   ImGui::Text("%s prims", FormatRenderCounter(prim_count).c_str());
   ImGui::Text("%llu draw submissions", static_cast<unsigned long long>(draw_call_count));
+  ImGui::Separator();
+
+  if (ImGui::TreeNodeEx("Ray camera frame path", ImGuiTreeNodeFlags_DefaultOpen)) {
+    const auto frame_path = render_layer.GetRayCameraFramePathStats();
+    const auto history = render_layer.GetRayCameraHistoryStats();
+    const auto& cache = frame_path.render_graph_plan_cache;
+    ImGui::Text("Graph plans %llu hits / %llu misses, %llu compiles (%.2f ms)",
+                static_cast<unsigned long long>(cache.hit_count), static_cast<unsigned long long>(cache.miss_count),
+                static_cast<unsigned long long>(cache.compilation_count), cache.compilation_milliseconds);
+    ImGui::Text("Graph cache %zu/%zu, %llu evictions", cache.entry_count, cache.capacity,
+                static_cast<unsigned long long>(cache.eviction_count));
+    ImGui::Text("Output descriptors %llu live / %llu peak, %llu creates / %llu reuses",
+                static_cast<unsigned long long>(frame_path.live_output_descriptor_count),
+                static_cast<unsigned long long>(frame_path.peak_live_output_descriptor_count),
+                static_cast<unsigned long long>(frame_path.output_descriptor_creation_count),
+                static_cast<unsigned long long>(frame_path.output_descriptor_reuse_count));
+    ImGui::Text("Frame slots %u retained / %u pending", frame_path.retained_frame_slot_count,
+                Platform::GetPendingFrameSubmissionCount());
+
+    std::shared_ptr<Camera> ray_camera;
+    render_layer.ForEachCollectedCamera([&](const std::shared_ptr<Camera>& camera) {
+      if (!ray_camera && camera && Camera::IsRayCameraRenderMode(camera->camera_render_mode)) {
+        ray_camera = camera;
+      }
+    });
+    if (ray_camera) {
+      const auto samples_per_frame = static_cast<uint64_t>(std::max(ray_camera->camera_settings.sample_size, 1));
+      const auto accumulated_samples = static_cast<uint64_t>(ray_camera->GetFrameCount()) * samples_per_frame;
+      ImGui::Text("Camera frames %u, %llu accumulated spp (%llu spp/frame)", ray_camera->GetFrameCount(),
+                  static_cast<unsigned long long>(accumulated_samples),
+                  static_cast<unsigned long long>(samples_per_frame));
+      const auto render_texture = ray_camera->GetRenderTexture();
+      for (const auto& timing : Platform::GetGpuTimestampStats()) {
+        if (timing.name != "Path Trace (RTX)" && timing.name != "Path Trace (RQ)") {
+          continue;
+        }
+        const auto extent = render_texture ? render_texture->GetExtent() : VkExtent3D{};
+        const auto throughput = timing.last_milliseconds > 0.0
+                                    ? static_cast<double>(extent.width) * extent.height * samples_per_frame /
+                                          timing.last_milliseconds / 1000.0
+                                    : 0.0;
+        ImGui::Text("%s %.3f ms last / %.3f ms median, %.2f Msample/s", timing.name.c_str(), timing.last_milliseconds,
+                    timing.MedianMilliseconds(), throughput);
+      }
+    } else {
+      ImGui::TextUnformatted("No collected ray camera.");
+    }
+
+    const auto memory = Platform::GetGpuMemorySnapshot();
+    uint64_t device_local_bytes = 0;
+    uint64_t host_bytes = 0;
+    for (const auto& heap : memory.heaps) {
+      (heap.device_local ? device_local_bytes : host_bytes) += heap.allocation_bytes;
+    }
+    const auto blas = BottomLevelAccelerationStructure::GetStaticBuildTelemetry();
+    ImGui::Text("VRAM device-local %.2f MiB, host %.2f MiB, %llu allocations",
+                static_cast<double>(device_local_bytes) / (1024.0 * 1024.0),
+                static_cast<double>(host_bytes) / (1024.0 * 1024.0),
+                static_cast<unsigned long long>(memory.allocation_count));
+    ImGui::Text("Ray history %.2f MiB, compacted static BLAS %.2f MiB",
+                static_cast<double>(history.live_byte_size) / (1024.0 * 1024.0),
+                static_cast<double>(blas.final_compacted_storage_bytes) / (1024.0 * 1024.0));
+    for (const auto& timing : Platform::GetCpuTimingStats()) {
+      if (timing.name.find("Wait") != std::string::npos) {
+        ImGui::Text("%s: %llu waits, %.3f ms median", timing.name.c_str(),
+                    static_cast<unsigned long long>(timing.sample_count), timing.MedianMilliseconds());
+      }
+    }
+    ImGui::TreePop();
+  }
   ImGui::Separator();
 
   std::array<RenderPassDrawStats, Platform::kRenderPassDrawBucketCount> frame_pass_stats{};
@@ -1547,7 +1602,13 @@ void InspectRenderLayerStats() {
 
 void InspectShadowSettings(RenderSettings& render_settings) {
   const char* shadow_debug_modes[] = {"Off", "Cascade Index", "Light UV", "Light Depth", "Atlas UV", "Texel Density"};
-  ImGui::TextUnformatted("Fit policy: Legacy Stable");
+  const char* fit_modes[] = {"Stable Sphere", "Tight Light-Space AABB"};
+  auto fit_mode = static_cast<int>(render_settings.shadow_cascade_fit_mode);
+  if (ImGui::Combo("Fit policy", &fit_mode, fit_modes, IM_ARRAYSIZE(fit_modes))) {
+    render_settings.shadow_cascade_fit_mode = static_cast<RenderSettings::ShadowCascadeFitMode>(
+        glm::clamp(fit_mode, 0, static_cast<int>(IM_ARRAYSIZE(fit_modes)) - 1));
+  }
+  ImGui::TextUnformatted("Stable Sphere is quantized and snapped; Tight AABB is intentionally unsnapped.");
   ImGui::TextUnformatted("Split policy: Practical Log/Uniform");
   if (ImGui::TreeNode("Distance")) {
     if (ImGui::DragFloat("Max shadow distance", &render_settings.max_shadow_distance, 1.0f, 10.f, 1000.f)) {
@@ -1573,8 +1634,9 @@ void InspectShadowSettings(RenderSettings& render_settings) {
   }
   if (ImGui::TreeNode("Sampling")) {
     ImGui::TextUnformatted("Shadow filtering: PCF");
-    ImGui::DragInt("Filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
-    ImGui::TextUnformatted("PCF radius: 100 x light size.");
+    ImGui::DragInt("Directional filter samples", &render_settings.directional_pcf_sample_amount, 1, 1, 64);
+    ImGui::DragInt("Point/spot filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
+    ImGui::TextUnformatted("Directional PCF radius: light size in world units.");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Diagnostics")) {
@@ -1604,14 +1666,10 @@ void InspectShadowSettings(RenderSettings& render_settings) {
 }
 
 void InspectStrandsSettings(RenderSettings& render_settings) {
-#ifdef EVOENGINE_WINDOWS
   ImGui::DragFloat("Curve subdivision factor", &render_settings.strands_subdivision_x_factor, 1.0f, 1.0f, 1000.0f);
   ImGui::DragFloat("Ring subdivision factor", &render_settings.strands_subdivision_y_factor, 1.0f, 1.0f, 1000.0f);
   ImGui::DragInt("Max curve subdivision", &render_settings.strands_subdivision_max_x, 1, 1, 15);
   ImGui::DragInt("Max ring subdivision", &render_settings.strands_subdivision_max_y, 1, 1, 15);
-#else
-  ImGui::TextUnformatted("Strands settings are only available on Windows.");
-#endif
 }
 
 bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
@@ -2163,7 +2221,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Stats")) {
-      InspectRenderLayerStats();
+      InspectRenderLayerStats(render_layer);
       ImGui::EndTabItem();
     }
     if (!render_layer.force_ddgi_inspection_layout) {
@@ -2173,7 +2231,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
       InspectShadowSettings(render_layer.render_settings);
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Strands")) {
+    if (Platform::MeshShaderEnabled() && ImGui::BeginTabItem("Strands")) {
       InspectStrandsSettings(render_layer.render_settings);
       ImGui::EndTabItem();
     }
@@ -2216,6 +2274,9 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
                          10.0f))
       modified = true;
     if (ImGui::DragFloat("Environmental light gamma", &scene.environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
+      modified = true;
+    }
+    if (ImGui::SliderAngle("Environment rotation", &scene.environment.environment_rotation, -360.0f, 360.0f)) {
       modified = true;
     }
     if (ImGui::TreeNodeEx("Volumetric clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -2336,11 +2397,11 @@ bool InspectDirectionalLight(InspectorContext&, DirectionalLight& light) {
     changed = false;
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Bias", &light.bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Bias (texels)", &light.bias, 1.f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Slope Bias", &light.slope_bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Slope Bias (texels)", &light.slope_bias, 1.f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Normal Offset", &light.normal_offset, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Normal Offset (texels)", &light.normal_offset, 1.f, 0.0f, 999.0f))
     changed = false;
   if (ImGui::DragFloat("Light Size", &light.light_size, 0.001f, 0.0f, 999.0f))
     changed = false;
@@ -2709,7 +2770,8 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     if (ImGui::DragFloat("Specular##Material", &shade_material.specular_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
-    if (ImGui::ColorEdit3("Specular Color##Material", &shade_material.specular_color_factor.x)) {
+    if (ImGui::ColorEdit3("Specular Color##Material", &shade_material.specular_color_factor.x,
+                          ImGuiColorEditFlags_HDR | ImGuiColorEditFlags_Float)) {
       changed = true;
     }
     if (ImGui::ColorEdit3("Emissive##Material", &shade_material.emissive_factor.x)) {
@@ -2764,17 +2826,50 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
     if (ImGui::DragFloat("Clearcoat Roughness##Material", &shade_material.clearcoat_roughness, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
+    if (ImGui::DragFloat("Clearcoat Normal Scale##Material", &shade_material.clearcoat_normal_texture_scale, 0.01f,
+                         -2.0f, 2.0f)) {
+      changed = true;
+    }
     if (ImGui::ColorEdit3("Sheen Color##Material", &shade_material.sheen_color_factor.x)) {
       changed = true;
     }
     if (ImGui::DragFloat("Sheen Roughness##Material", &shade_material.sheen_roughness_factor, 0.01f, 0.0f, 1.0f)) {
       changed = true;
     }
+    if (ImGui::DragFloat("Iridescence##Material", &shade_material.iridescence_factor, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence IOR##Material", &shade_material.iridescence_ior, 0.01f, 1.0f, 5.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence Min Thickness (nm)##Material", &shade_material.iridescence_thickness_minimum,
+                         1.0f, 0.0f, 10000.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Iridescence Max Thickness (nm)##Material", &shade_material.iridescence_thickness_maximum,
+                         1.0f, 0.0f, 10000.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Anisotropy##Material", &shade_material.anisotropy_strength, 0.01f, 0.0f, 1.0f)) {
+      changed = true;
+    }
+    float anisotropy_rotation = std::atan2(shade_material.anisotropy_rotation.y, shade_material.anisotropy_rotation.x);
+    if (ImGui::DragFloat("Anisotropy Rotation (rad)##Material", &anisotropy_rotation, 0.01f)) {
+      shade_material.anisotropy_rotation = glm::vec2(std::cos(anisotropy_rotation), std::sin(anisotropy_rotation));
+      changed = true;
+    }
+    if (ImGui::DragFloat("Dispersion##Material", &shade_material.dispersion, 0.01f, 0.0f, 10.0f)) {
+      changed = true;
+    }
+    if (ImGui::DragFloat("Reference Retroreflection##Material", &shade_material.retroreflection_factor, 0.01f, 0.0f,
+                         1.0f)) {
+      changed = true;
+    }
 
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Others##Material")) {
-    if (InspectDrawSettings(material.draw_settings)) {
+    if (InspectDrawSettings(material.draw_settings, false)) {
       changed = true;
     }
     ImGui::TreePop();
@@ -2811,6 +2906,18 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
         changed;
     changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::specular_color_texture,
                                          "Specular Color Tex") ||
+              changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::iridescence_texture,
+                                         "Iridescence Tex") ||
+              changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::iridescence_thickness_texture,
+                                         "Iridescence Thickness Tex") ||
+              changed;
+    changed =
+        InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::anisotropy_texture, "Anisotropy Tex") ||
+        changed;
+    changed = InspectMaterialTextureSlot(editor_layer, material, &GltfShadeMaterial::retroreflection_texture,
+                                         "Reference Retroreflection Tex") ||
               changed;
 
     AssetRef rma_texture_ref;

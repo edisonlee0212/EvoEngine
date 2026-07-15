@@ -9,12 +9,17 @@ layout(location = 1) in vec4 inCurrentClip;
 layout(location = 2) in vec4 inPreviousClip;
 layout(location = 3) in flat uint inInstanceIndex;
 layout(location = 4) in flat uint inPreviousTransformValid;
+layout(location = 5) in vec2 inTexCoord1;
+layout(location = 6) in vec4 inColor;
+layout(location = 7) in vec2 inTexCoord2;
+layout(location = 8) in vec2 inTexCoord3;
 
 layout(location = 0) out vec4 outMotionVectors;
 
 void main() {
   GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
-      uint(EE_INSTANCES[inInstanceIndex].material_index), inTexCoord, inTexCoord);
+      uint(EE_INSTANCES[inInstanceIndex].material_index), inTexCoord, inTexCoord1, inTexCoord2, inTexCoord3,
+      inColor);
   if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) {
     discard;
   }

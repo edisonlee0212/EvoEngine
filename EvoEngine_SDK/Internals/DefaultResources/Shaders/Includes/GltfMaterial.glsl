@@ -47,6 +47,9 @@
 #ifndef MAT_EXT_DIFFUSE_TRANSMISSION
 #define MAT_EXT_DIFFUSE_TRANSMISSION MAT_EXT_VAL
 #endif
+#ifndef MAT_EXT_RETROREFLECTION
+#define MAT_EXT_RETROREFLECTION MAT_EXT_VAL
+#endif
 #ifndef MAT_EXT_UNLIT
 #define MAT_EXT_UNLIT MAT_EXT_VAL
 #endif
@@ -57,6 +60,53 @@
 #define MAT_EXT_TEXTURE_TRANSFORM MAT_EXT_VAL
 #endif
 
+// MAT_EXT_* controls the storage ABI. Camera-ray variants only override EE_GLTF_USE_* behavior gates.
+#ifndef EE_GLTF_USE_TRANSMISSION
+#define EE_GLTF_USE_TRANSMISSION MAT_EXT_TRANSMISSION
+#endif
+#ifndef EE_GLTF_USE_VOLUME
+#define EE_GLTF_USE_VOLUME MAT_EXT_VOLUME
+#endif
+#ifndef EE_GLTF_USE_VOLUME_SCATTER
+#define EE_GLTF_USE_VOLUME_SCATTER MAT_EXT_VOLUME_SCATTER
+#endif
+#ifndef EE_GLTF_USE_CLEARCOAT
+#define EE_GLTF_USE_CLEARCOAT MAT_EXT_CLEARCOAT
+#endif
+#ifndef EE_GLTF_USE_IRIDESCENCE
+#define EE_GLTF_USE_IRIDESCENCE MAT_EXT_IRIDESCENCE
+#endif
+#ifndef EE_GLTF_USE_ANISOTROPY
+#define EE_GLTF_USE_ANISOTROPY MAT_EXT_ANISOTROPY
+#endif
+#ifndef EE_GLTF_USE_SHEEN
+#define EE_GLTF_USE_SHEEN MAT_EXT_SHEEN
+#endif
+#ifndef EE_GLTF_USE_DISPERSION
+#define EE_GLTF_USE_DISPERSION MAT_EXT_DISPERSION
+#endif
+#ifndef EE_GLTF_USE_DIFFUSE_TRANSMISSION
+#define EE_GLTF_USE_DIFFUSE_TRANSMISSION MAT_EXT_DIFFUSE_TRANSMISSION
+#endif
+#ifndef EE_GLTF_USE_RETROREFLECTION
+#define EE_GLTF_USE_RETROREFLECTION MAT_EXT_RETROREFLECTION
+#endif
+#ifndef EE_GLTF_USE_UNLIT
+#define EE_GLTF_USE_UNLIT MAT_EXT_UNLIT
+#endif
+#ifndef EE_GLTF_USE_SPECULAR
+#define EE_GLTF_USE_SPECULAR MAT_EXT_SPECULAR
+#endif
+#ifndef EE_GLTF_USE_IOR
+#define EE_GLTF_USE_IOR MAT_EXT_IOR
+#endif
+#ifndef EE_GLTF_USE_SPECULAR_GLOSSINESS
+#define EE_GLTF_USE_SPECULAR_GLOSSINESS MAT_EXT_SPECULAR_GLOSSINESS
+#endif
+#ifndef EE_GLTF_USE_TEXTURE_TRANSFORM
+#define EE_GLTF_USE_TEXTURE_TRANSFORM MAT_EXT_TEXTURE_TRANSFORM
+#endif
+
 const int EE_GLTF_PBR_MODEL_METALLIC_ROUGHNESS = 0;
 const int EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS = 1;
 
@@ -64,12 +114,17 @@ const int EE_GLTF_ALPHA_MODE_OPAQUE = 0;
 const int EE_GLTF_ALPHA_MODE_MASK = 1;
 const int EE_GLTF_ALPHA_MODE_BLEND = 2;
 
+const int EE_GLTF_TEXTURE_COLOR_SPACE_LINEAR = 0;
+const int EE_GLTF_TEXTURE_COLOR_SPACE_SRGB = 1;
+
 struct GltfTextureInfo {
 #if MAT_EXT_TEXTURE_TRANSFORM
   mat3x2 uv_transform;
 #endif
   int index;
   int tex_coord;
+  int color_space;
+  int padding;
 };
 
 struct GltfShadeMaterial {
@@ -162,6 +217,10 @@ struct GltfShadeMaterial {
   float diffuse_transmission_factor;
 #endif
 
+#if MAT_EXT_RETROREFLECTION
+  float retroreflection_factor;
+#endif
+
 #if MAT_EXT_VOLUME_SCATTER
   vec3 multiscatter_color_factor;
   float scatter_anisotropy;
@@ -216,7 +275,17 @@ struct GltfShadeMaterial {
   uint16_t diffuse_transmission_color_texture;
 #endif
 
-  uint64_t pad;
+#if MAT_EXT_RETROREFLECTION
+  uint16_t retroreflection_texture;
+#endif
+
+  uint padding0;
+#if MAT_EXT_CLEARCOAT
+  float clearcoat_normal_texture_scale;
+#else
+  float clearcoat_padding;
+#endif
+  uint padding1;
 };
 
 #ifdef EE_GLTF_MATERIALS_BLOCK_BINDING

@@ -15,12 +15,13 @@ using namespace evo_engine;
 
 namespace {
 void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const size_t prim_count,
-                  const RenderDrawCallKind kind = RenderDrawCallKind::Direct, const size_t indirect_draw_commands = 0) {
+                  const RenderDrawCallKind draw_kind = RenderDrawCallKind::Direct,
+                  const size_t indirect_draw_commands = 0) {
   if (!count_draw_calls) {
     return;
   }
-  Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow, kind, current_frame_index, prim_count,
-                                indirect_draw_commands);
+  Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow, draw_kind, current_frame_index,
+                                prim_count, indirect_draw_commands);
 }
 
 bool LightCastsShadow(const glm::vec4& diffuse) {
@@ -101,6 +102,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
 
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Directional Shadow");
     VkRect2D render_area;
     render_area.offset = {0, 0};
     render_area.extent = parameters.shadow_map_extent;
@@ -138,6 +140,10 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                 target_pipeline == parameters.directional_opaque_pipeline) {
               target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                                  parameters.meshlet_descriptor_set->GetVkDescriptorSet());
+            } else if (parameters.strand_meshlet_descriptor_set &&
+                       target_pipeline == parameters.strands_opaque_pipeline) {
+              target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                 parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet());
             }
             target_pipeline->states.SetViewportScissor(directional_light_info_block.viewport);
             return true;
@@ -235,10 +241,8 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                   });
             }
           }
-#ifdef EVOENGINE_WINDOWS
-          GeometryStorage::BindStrandPoints(vk_command_buffer);
           {
-            if (prepare_graphics_pipeline(parameters.strands_pipeline)) {
+            if (prepare_graphics_pipeline(parameters.strands_opaque_pipeline)) {
               parameters.render_instances->deferred_strands_render_instances->ForEachStrandsRenderInstance(
                   [&](const auto& render_instance) {
                     if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
@@ -248,20 +252,22 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     push_constant.camera_index = light_block_index;
                     push_constant.light_split_index = split;
                     push_constant.instance_index = render_instance->instance_index;
+                    parameters.strands_opaque_pipeline->states.cull_mode = render_instance->cull_mode;
                     const auto prim_count =
-                        render_instance->Render(vk_command_buffer, push_constant, parameters.strands_pipeline);
+                        render_instance->Render(vk_command_buffer, push_constant, parameters.strands_opaque_pipeline);
                     AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }
           }
-#endif
           if (parameters.external_shadow_rendering &&
               i < parameters.render_instances->directional_light_info_blocks_.size()) {
-            parameters.external_shadow_rendering(vk_command_buffer, i, split, directional_light_info_block.viewport);
+            parameters.external_shadow_rendering(vk_command_buffer, i, split, directional_light_info_block.viewport,
+                                                 light_space_matrix);
           }
         }
       });
     }
+    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });
 }

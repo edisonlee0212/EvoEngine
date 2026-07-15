@@ -5,24 +5,13 @@
 #include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
+#include "MikkTangentSpace.hpp"
+
+#include <numeric>
 #include "Platform.hpp"
 #include "Serialization.hpp"
 #include "Utilities.hpp"
 using namespace evo_engine;
-
-namespace {
-glm::vec3 NormalizeOrFallback(const glm::vec3& value, const glm::vec3& fallback) {
-  const auto length_squared = glm::dot(value, value);
-  if (length_squared <= 0.0f) {
-    return fallback;
-  }
-  return value * glm::inversesqrt(length_squared);
-}
-
-float TangentHandedness(const glm::vec3& tangent, const glm::vec3& bitangent, const glm::vec3& normal) {
-  return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
-}
-}  // namespace
 
 bool Mesh::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".evemesh") {
@@ -126,7 +115,8 @@ void Mesh::DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<unsigned>& indices) {
+                       const std::vector<unsigned>& indices, const int tangent_tex_coord,
+                       std::vector<uint32_t>* source_vertex_indices) {
   if (indices.size() % 3 != 0) {
     EVOENGINE_ERROR("Triangle size wrong!");
     return;
@@ -134,18 +124,24 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   std::vector<glm::uvec3> triangles;
   triangles.resize(indices.size() / 3);
   memcpy(triangles.data(), indices.data(), indices.size() * sizeof(unsigned));
-  SetVertices(vertex_attributes, vertices, triangles);
+  SetVertices(vertex_attributes, vertices, triangles, tangent_tex_coord, source_vertex_indices);
 }
 
 void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vector<Vertex>& vertices,
-                       const std::vector<glm::uvec3>& triangles) {
+                       const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord,
+                       std::vector<uint32_t>* source_vertex_indices) {
   if (vertices.empty() || triangles.empty()) {
 #ifndef NDEBUG
     EVOENGINE_LOG("Vertices or triangles empty!");
 #endif
     return;
   }
+  ClearMorphTargets();
   vertices_ = vertices;
+  if (source_vertex_indices) {
+    source_vertex_indices->resize(vertices_.size());
+    std::iota(source_vertex_indices->begin(), source_vertex_indices->end(), 0u);
+  }
   triangles_.clear();
   triangles_.reserve(triangles.size());
   for (const auto& triangle : triangles) {
@@ -176,7 +172,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   if (!vertex_attributes.normal)
     RecalculateNormal();
   if (!vertex_attributes.tangent)
-    RecalculateTangent();
+    GenerateMikkTangents(vertices_, triangles_, tangent_tex_coord, source_vertex_indices);
 
   vertex_attributes_ = vertex_attributes;
   vertex_attributes_.normal = true;
@@ -192,14 +188,91 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
   GeometryStorage::AllocateMesh(GetHandle(), v_c, t_c, meshlet_range_, triangle_range_);
 
   version_++;
-  if (Platform::RayTracingEnabled()) {
-    blas_ = std::make_shared<BottomLevelAccelerationStructure>(v_c, t_c);
+  if (Platform::RayAccelerationStructureEnabled()) {
+    blas_ = BottomLevelAccelerationStructure::CreateStatic(meshlet_range_, triangle_range_, v_c);
   }
 
   saved_ = false;
 }
 
+void Mesh::ClearMorphTargets() {
+  morph_targets_.clear();
+  default_morph_weights_.clear();
+  morph_base_vertices_.clear();
+}
+
+void Mesh::SetMorphTargets(std::vector<MorphTarget> morph_targets, std::vector<float> default_weights,
+                           std::vector<Vertex> morph_base_vertices) {
+  const auto valid = [&](const MorphTarget& target) {
+    const auto valid_stream = [&](const std::vector<glm::vec3>& stream) {
+      return stream.empty() || stream.size() == vertices_.size();
+    };
+    return valid_stream(target.position_deltas) && valid_stream(target.normal_deltas) &&
+           valid_stream(target.tangent_deltas);
+  };
+  for (size_t index = morph_targets.size(); index-- > 0;) {
+    if (valid(morph_targets[index])) {
+      continue;
+    }
+    morph_targets.erase(morph_targets.begin() + index);
+    if (index < default_weights.size()) {
+      default_weights.erase(default_weights.begin() + index);
+    }
+  }
+  if (morph_targets.empty()) {
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  default_weights.resize(morph_targets.size(), 0.0f);
+  if (morph_base_vertices.size() != vertices_.size()) {
+    EVOENGINE_ERROR("Morph base vertex count does not match the mesh.")
+    ClearMorphTargets();
+    version_++;
+    saved_ = false;
+    return;
+  }
+  const auto default_vertices = evo_engine::BuildMorphedVertices(
+      ComposeMorphBaseVertices(vertices_, morph_base_vertices, morph_targets), morph_targets, {}, default_weights);
+  if (!MorphVertexStreamsMatch(vertices_, default_vertices)) {
+    const auto attributes = vertex_attributes_;
+    const auto triangles = triangles_;
+    SetVertices(attributes, default_vertices, triangles);
+  }
+  morph_targets_ = std::move(morph_targets);
+  default_morph_weights_ = std::move(default_weights);
+  morph_base_vertices_ = std::move(morph_base_vertices);
+  version_++;
+  saved_ = false;
+}
+
+const std::vector<MorphTarget>& Mesh::PeekMorphTargets() const {
+  return morph_targets_;
+}
+
+const std::vector<float>& Mesh::GetDefaultMorphWeights() const {
+  return default_morph_weights_;
+}
+
+const std::vector<Vertex>& Mesh::PeekMorphBaseVertices() const {
+  return morph_base_vertices_;
+}
+
+std::vector<Vertex> Mesh::BuildMorphedVertices(const std::vector<float>& weights) const {
+  if (morph_targets_.empty()) {
+    return vertices_;
+  }
+  auto resolved_weights = default_morph_weights_;
+  for (size_t index = 0; index < std::min(resolved_weights.size(), weights.size()); index++) {
+    resolved_weights[index] = weights[index];
+  }
+  return evo_engine::BuildMorphedVertices(ComposeMorphBaseVertices(vertices_, morph_base_vertices_, morph_targets_),
+                                          morph_targets_, {}, resolved_weights);
+}
+
 void Mesh::MergeVertices() {
+  ClearMorphTargets();
   for (uint32_t i = 0; i < vertices_.size() - 1; i++) {
     for (uint32_t j = i + 1; j < vertices_.size(); j++) {
       auto& vi = vertices_.at(i);
@@ -208,6 +281,7 @@ void Mesh::MergeVertices() {
         continue;
       }
       vi.tex_coord = (vi.tex_coord + vj.tex_coord) * 0.5f;
+      vi.tex_coord_1 = (vi.tex_coord_1 + vj.tex_coord_1) * 0.5f;
       vi.color = (vi.color + vj.color) * 0.5f;
       vertices_.at(j) = vertices_.back();
       for (auto& triangle : triangles_) {
@@ -239,6 +313,7 @@ uint32_t Mesh::GetTriangleAmount() const {
 }
 
 void Mesh::RecalculateNormal() {
+  ClearMorphTargets();
   auto normal_lists = std::vector<std::vector<glm::vec3>>();
   const auto size = vertices_.size();
   for (auto i = 0; i < size; i++) {
@@ -271,59 +346,9 @@ void Mesh::RecalculateNormal() {
   }
 }
 
-void Mesh::RecalculateTangent() {
-  auto tangent_lists = std::vector<std::vector<glm::vec3>>();
-  auto handedness_sums = std::vector<float>();
-  const auto size = vertices_.size();
-  for (auto i = 0; i < size; i++) {
-    tangent_lists.emplace_back();
-    handedness_sums.emplace_back(0.0f);
-  }
-  for (const auto& triangle : triangles_) {
-    const auto i1 = triangle.x;
-    const auto i2 = triangle.y;
-    const auto i3 = triangle.z;
-    if (i1 >= vertices_.size())
-      continue;
-    if (i2 >= vertices_.size())
-      continue;
-    if (i3 >= vertices_.size())
-      continue;
-    const auto& p1 = vertices_[i1].position;
-    const auto& p2 = vertices_[i2].position;
-    const auto& p3 = vertices_[i3].position;
-    const auto& uv1 = vertices_[i1].tex_coord;
-    const auto& uv2 = vertices_[i2].tex_coord;
-    const auto& uv3 = vertices_[i3].tex_coord;
-
-    const auto e21 = p2 - p1;
-    const auto d21 = uv2 - uv1;
-    const auto e31 = p3 - p1;
-    const auto d31 = uv3 - uv1;
-    const float determinant = d21.x * d31.y - d31.x * d21.y;
-    if (glm::abs(determinant) <= 1e-8f) {
-      continue;
-    }
-    const float f = 1.0f / determinant;
-    const auto tangent =
-        f * glm::vec3(d31.y * e21.x - d21.y * e31.x, d31.y * e21.y - d21.y * e31.y, d31.y * e21.z - d21.y * e31.z);
-    const auto bitangent =
-        f * glm::vec3(d31.x * e21.x - d21.x * e31.x, d31.x * e21.y - d21.x * e31.y, d31.x * e21.z - d21.x * e31.z);
-    tangent_lists[i1].push_back(tangent);
-    tangent_lists[i2].push_back(tangent);
-    tangent_lists[i3].push_back(tangent);
-    handedness_sums[i1] += TangentHandedness(tangent, bitangent, vertices_[i1].normal);
-    handedness_sums[i2] += TangentHandedness(tangent, bitangent, vertices_[i2].normal);
-    handedness_sums[i3] += TangentHandedness(tangent, bitangent, vertices_[i3].normal);
-  }
-  for (auto i = 0; i < size; i++) {
-    auto tangent = glm::vec3(0.0f);
-    for (const auto& j : tangent_lists[i]) {
-      tangent += j;
-    }
-    vertices_[i].tangent = NormalizeOrFallback(tangent, glm::vec3(1.0f, 0.0f, 0.0f));
-    vertices_[i].vertex_info3 = handedness_sums[i] < 0.0f ? -1.0f : 1.0f;
-  }
+void Mesh::RecalculateTangent(const int tex_coord) {
+  ClearMorphTargets();
+  GenerateMikkTangents(vertices_, triangles_, tex_coord);
 }
 
 const std::shared_ptr<RangeDescriptor>& Mesh::GetTriangleRange() const {
@@ -381,6 +406,9 @@ void VertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "normal" << YAML::Value << normal;
   out << YAML::Key << "tangent" << YAML::Value << tangent;
   out << YAML::Key << "tex_coord" << YAML::Value << tex_coord;
+  out << YAML::Key << "tex_coord_1" << YAML::Value << tex_coord_1;
+  out << YAML::Key << "tex_coord_2" << YAML::Value << tex_coord_2;
+  out << YAML::Key << "tex_coord_3" << YAML::Value << tex_coord_3;
   out << YAML::Key << "color" << YAML::Value << color;
 }
 
@@ -391,6 +419,12 @@ void VertexAttributes::Deserialize(const YAML::Node& in) {
     tangent = in["tangent"].as<bool>();
   if (in["tex_coord"])
     tex_coord = in["tex_coord"].as<bool>();
+  if (in["tex_coord_1"])
+    tex_coord_1 = in["tex_coord_1"].as<bool>();
+  if (in["tex_coord_2"])
+    tex_coord_2 = in["tex_coord_2"].as<bool>();
+  if (in["tex_coord_3"])
+    tex_coord_3 = in["tex_coord_3"].as<bool>();
   if (in["color"])
     color = in["color"].as<bool>();
 }

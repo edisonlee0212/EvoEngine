@@ -5,11 +5,19 @@
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "EditorLayer.hpp"
+#include "GeometryStorage.hpp"
+#include "GraphicsPipeline.hpp"
+#include "Lights.hpp"
+#include "Mesh.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
+#include "Scene.hpp"
+#include "Shader.hpp"
+#include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -22,6 +30,7 @@
 #include <optional>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -44,9 +53,11 @@ struct EditorCommandLine {
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
+  std::optional<CameraSettings::RayDebugView> preview_capture_ray_debug_view;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
   std::optional<bool> preview_capture_firefly_clamp_enabled;
   std::optional<float> preview_capture_firefly_clamp_threshold;
+  std::optional<bool> preview_capture_emissive_triangle_nee_enabled;
   std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
@@ -69,9 +80,14 @@ struct EditorCommandLine {
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
+  std::optional<RenderSettings::ShadowCascadeFitMode> preview_shadow_fit_mode;
+  std::optional<int> preview_shadow_pcf_samples;
   std::optional<int> preview_shadow_debug_mode;
   std::optional<int> preview_shadow_debug_cascade;
   std::optional<int> preview_shadow_debug_light;
+  bool preview_strand_fixture = false;
+  bool preview_strand_punctual_fixture = false;
+  bool preview_strand_gizmo_fixture = false;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
 };
@@ -96,6 +112,16 @@ CameraSettings::ShaderExecutionReorderingMode ParsePreviewShaderExecutionReorder
     return disabled_fallback;
   }
   throw std::invalid_argument("Unknown preview SER mode: " + value);
+}
+
+CameraSettings::RayDebugView ParsePreviewRayDebugView(const std::string& value) {
+  const auto beauty_fallback = Camera::ParseRayDebugView(value, CameraSettings::RayDebugView::Beauty);
+  const auto material_fallback = Camera::ParseRayDebugView(value, CameraSettings::RayDebugView::MaterialId);
+  if (beauty_fallback != CameraSettings::RayDebugView::Beauty ||
+      material_fallback != CameraSettings::RayDebugView::MaterialId) {
+    return beauty_fallback;
+  }
+  throw std::invalid_argument("Unknown preview ray debug view: " + value);
 }
 
 bool ParsePreviewBool(const std::string& value, const std::string& argument) {
@@ -311,7 +337,7 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.demo_profile_id = profile->id;
     } else if (argument == "--capture-demo-preview") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--capture-demo-preview requires an output PNG path.");
+        throw std::invalid_argument("--capture-demo-preview requires an output PNG or HDR path.");
       }
       command_line.demo_preview_capture_path = std::filesystem::absolute(argv[++arg_index]);
     } else if (argument == "--preview-width") {
@@ -331,9 +357,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_capture_warmup_frames = static_cast<size_t>(std::max(0, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-render-mode") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-render-mode requires rasterization or raytracing.");
+        throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
       }
       command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-ray-debug") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires a ray debug view.");
+      }
+      command_line.preview_capture_ray_debug_view = ParsePreviewRayDebugView(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-ser") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ser requires disabled, automatic, or enabled.");
@@ -351,6 +382,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
       }
       command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-emissive-nee") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-emissive-nee requires enabled or disabled.");
+      }
+      command_line.preview_capture_emissive_triangle_nee_enabled =
+          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-auto-spp") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
@@ -438,6 +475,16 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-shadow-distance-fade requires a non-negative width.");
       }
       command_line.preview_shadow_distance_fade = std::max(0.0f, std::stof(argv[++arg_index]));
+    } else if (argument == "--preview-shadow-fit") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-fit requires stable-sphere or tight-aabb.");
+      }
+      command_line.preview_shadow_fit_mode = ParseShadowCascadeFitModeName(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-shadow-pcf-samples") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-shadow-pcf-samples requires a value between 1 and 64.");
+      }
+      command_line.preview_shadow_pcf_samples = std::clamp(std::stoi(argv[++arg_index]), 1, 64);
     } else if (argument == "--preview-shadow-debug") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-debug requires a mode.");
@@ -453,6 +500,12 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-shadow-debug-light requires a directional light index.");
       }
       command_line.preview_shadow_debug_light = std::max(0, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-strand-fixture") {
+      command_line.preview_strand_fixture = true;
+    } else if (argument == "--preview-strand-punctual-fixture") {
+      command_line.preview_strand_punctual_fixture = true;
+    } else if (argument == "--preview-strand-gizmo-fixture") {
+      command_line.preview_strand_gizmo_fixture = true;
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -484,6 +537,23 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.demo_preview_capture_path && !command_line.demo_profile_id) {
     throw std::invalid_argument("--capture-demo-preview requires --demo <profile-id>.");
   }
+  if (command_line.preview_capture_ray_debug_view && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-ray-debug requires --capture-demo-preview.");
+  }
+  if (command_line.preview_capture_ray_debug_view &&
+      (!command_line.preview_capture_render_mode ||
+       !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
+    throw std::invalid_argument("--preview-ray-debug requires --preview-render-mode raytracing or rayquery.");
+  }
+  if (command_line.demo_preview_capture_path) {
+    auto extension = command_line.demo_preview_capture_path->extension().string();
+    std::transform(extension.begin(), extension.end(), extension.begin(), [](const char character) {
+      return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+    });
+    if (extension != ".png" && extension != ".hdr") {
+      throw std::invalid_argument("--capture-demo-preview output must use .png or .hdr.");
+    }
+  }
   if (command_line.preview_capture_camera_position.has_value() !=
       command_line.preview_capture_camera_look_at.has_value()) {
     throw std::invalid_argument("--preview-camera-position and --preview-camera-look-at must be provided together.");
@@ -504,10 +574,37 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --capture-demo-preview.");
   }
-  if ((command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
+  if ((command_line.preview_shadow_fit_mode || command_line.preview_shadow_pcf_samples ||
+       command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
        command_line.preview_shadow_debug_light) &&
       !command_line.demo_preview_capture_path) {
-    throw std::invalid_argument("--preview-shadow-debug requires --capture-demo-preview.");
+    throw std::invalid_argument("Preview shadow controls require --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_fixture && command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_punctual_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_punctual_fixture &&
+      command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_punctual_fixture && command_line.preview_strand_fixture) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture cannot be combined with another shadow fixture.");
+  }
+  if (command_line.preview_strand_gizmo_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_gizmo_fixture && command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_gizmo_fixture &&
+      (command_line.preview_strand_fixture || command_line.preview_strand_punctual_fixture)) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture cannot be combined with another validation fixture.");
   }
   if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
        command_line.preview_shadow_distance_fade) &&
@@ -805,7 +902,8 @@ void WaitForDemoProfileProjectIdle() {
 
 bool DemoPreviewSceneInputsReady() {
   return ProjectManager::IsProjectIdle() && !AssetManager::GetAssetLoadSnapshot().Active() &&
-         !TextureStorage::HasPendingUploads();
+         !TextureStorage::HasPendingUploads() && !GeometryStorage::HasPendingUploads() &&
+         !BottomLevelAccelerationStructure::HasPendingStaticBuilds();
 }
 
 void WaitForDemoPreviewSceneInputsReady() {
@@ -878,10 +976,13 @@ void CaptureDemoPreview(
     const std::filesystem::path& output_path, const int width, const int height, const size_t warmup_frames,
     const std::optional<DemoProfileId> demo_profile_id,
     const std::optional<Camera::CameraRenderMode>& preview_render_mode,
+    const std::optional<CameraSettings::RayDebugView>& preview_ray_debug_view,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
     const std::optional<bool>& preview_firefly_clamp_enabled,
-    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
-    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<float>& preview_firefly_clamp_threshold,
+    const std::optional<bool>& preview_emissive_triangle_nee_enabled,
+    const std::optional<bool>& preview_auto_spp_enabled, const std::optional<int>& preview_auto_spp_min_samples,
+    const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
@@ -896,10 +997,30 @@ void CaptureDemoPreview(
     const std::optional<AntiAliasing::SmaaDebugMode>& preview_smaa_debug_mode,
     const bool preview_anti_aliasing_debug_disabled, const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
-    const std::optional<float>& preview_shadow_distance_fade, const std::optional<int>& preview_shadow_debug_mode,
+    const std::optional<float>& preview_shadow_distance_fade,
+    const std::optional<RenderSettings::ShadowCascadeFitMode>& preview_shadow_fit_mode,
+    const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
-    const bool deterministic_capture, const bool preview_bistro_ddgi) {
+    const bool preview_strand_fixture, const bool preview_strand_punctual_fixture,
+    const bool preview_strand_gizmo_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi) {
+  auto output_extension = output_path.extension().string();
+  std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
+    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
+  });
+  const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
+    if (!Platform::MeshShaderEnabled()) {
+      throw std::runtime_error("Strand validation requires mesh-shader support.");
+    }
+    if (preview_strand_fixture) {
+      ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
+    } else if (preview_strand_punctual_fixture) {
+      ConfigureStrandPunctualShadowValidation(ApplicationContext::Get().GetActiveScene());
+    } else {
+      ConfigureStrandGizmoValidation(ApplicationContext::Get().GetActiveScene());
+    }
+  }
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     window_layer->ResizeWindow(width, height);
     window_layer->CenterWindow();
@@ -908,15 +1029,29 @@ void CaptureDemoPreview(
   if (!editor_layer) {
     throw std::runtime_error("Demo preview capture requires EditorLayer.");
   }
+  editor_layer->show_camera_window = false;
   editor_layer->RequestSceneCameraPreviewWindow(preview_resolution);
   editor_layer->SetSceneCameraResolutionOverride(preview_resolution);
   const auto scene_camera = editor_layer->GetSceneCamera();
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
   }
-  ApplyPreviewCameraOverride(editor_layer, preview_camera_position, preview_camera_look_at);
+  auto resolved_camera_position = preview_camera_position;
+  auto resolved_camera_look_at = preview_camera_look_at;
+  if ((preview_strand_fixture || preview_strand_gizmo_fixture) && !resolved_camera_position) {
+    resolved_camera_position = glm::vec3(0.0f, 0.45f, 4.5f);
+    resolved_camera_look_at = glm::vec3(0.0f, 0.0f, -2.5f);
+  } else if (preview_strand_punctual_fixture && !resolved_camera_position) {
+    resolved_camera_position = glm::vec3(0.0f, 3.0f, 8.0f);
+    resolved_camera_look_at = glm::vec3(0.0f, 1.0f, -12.0f);
+  }
+  ApplyPreviewCameraOverride(editor_layer, resolved_camera_position, resolved_camera_look_at);
   if (preview_render_mode) {
     scene_camera->camera_render_mode = *preview_render_mode;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_ray_debug_view) {
+    scene_camera->camera_settings.ray_debug_view = *preview_ray_debug_view;
     scene_camera->ResetFrameCount();
   }
   if (preview_ser_mode) {
@@ -929,6 +1064,10 @@ void CaptureDemoPreview(
   }
   if (preview_firefly_clamp_threshold) {
     scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
+    scene_camera->ResetFrameCount();
+  }
+  if (preview_emissive_triangle_nee_enabled) {
+    scene_camera->camera_settings.emissive_triangle_nee_enabled = *preview_emissive_triangle_nee_enabled;
     scene_camera->ResetFrameCount();
   }
   if (preview_auto_spp_enabled) {
@@ -1022,13 +1161,13 @@ void CaptureDemoPreview(
           anti_aliasing->smaa.debug_mode = *preview_smaa_debug_mode;
         }
         anti_aliasing->NormalizeSettings();
-        anti_aliasing->ResetHistory(scene_camera);
       }
       scene_camera->ResetFrameCount();
     }
   }
   if (preview_shadow_split_lambda || preview_shadow_cascade_transition_width || preview_shadow_distance_fade ||
-      preview_shadow_debug_mode || preview_shadow_debug_cascade || preview_shadow_debug_light) {
+      preview_shadow_fit_mode || preview_shadow_pcf_samples || preview_shadow_debug_mode ||
+      preview_shadow_debug_cascade || preview_shadow_debug_light) {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     if (!render_layer) {
       throw std::runtime_error("Preview shadow overrides require RenderLayer.");
@@ -1043,6 +1182,12 @@ void CaptureDemoPreview(
     if (preview_shadow_distance_fade) {
       render_layer->render_settings.shadow_distance_fade = std::max(0.0f, *preview_shadow_distance_fade);
     }
+    if (preview_shadow_fit_mode) {
+      render_layer->render_settings.shadow_cascade_fit_mode = *preview_shadow_fit_mode;
+    }
+    if (preview_shadow_pcf_samples) {
+      render_layer->render_settings.directional_pcf_sample_amount = std::clamp(*preview_shadow_pcf_samples, 1, 64);
+    }
     if (preview_shadow_debug_mode) {
       render_layer->render_settings.shadow_debug_mode = std::clamp(*preview_shadow_debug_mode, 0, 5);
     }
@@ -1054,6 +1199,21 @@ void CaptureDemoPreview(
     }
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
+    if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
+      throw std::runtime_error("Strand validation requires the raster RenderLayer path.");
+    }
+    render_layer->enable_meshlet = true;
+  }
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    if (!render_layer) {
+      throw std::runtime_error("Ray preview capture requires RenderLayer.");
+    }
+  }
+  if (linear_hdr_output && !Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    throw std::invalid_argument("Linear HDR preview capture requires raytracing or rayquery mode.");
+  }
   if (demo_profile_id == DemoProfileId::Bistro && Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     ConfigureBistroRayTracingPostProcessing(scene_camera);
     if (deterministic_capture) {
@@ -1068,6 +1228,19 @@ void CaptureDemoPreview(
   if (demo_profile_id == DemoProfileId::Bistro && !preview_bistro_ddgi) {
     const auto active_scene = ApplicationContext::Get().GetActiveScene();
     ConfigureBistroParityCapture(active_scene, scene_camera);
+  }
+  if (linear_hdr_output) {
+    if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
+      post_processing_stack->enable_ambient_occlusion = false;
+      post_processing_stack->enable_bloom = false;
+      post_processing_stack->enable_screen_space_reflection = false;
+      post_processing_stack->enable_anti_aliasing = false;
+      post_processing_stack->enable_tone_mapping = false;
+      scene_camera->ResetFrameCount();
+    }
+  }
+  if (demo_profile_id == DemoProfileId::Bistro && !preview_bistro_ddgi) {
+    const auto active_scene = ApplicationContext::Get().GetActiveScene();
     LogBistroParityCaptureState(active_scene, scene_camera, width, height,
                                 Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
   }
@@ -1082,38 +1255,67 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
+  if (preview_strand_fixture) {
+    UpdateStrandMeshShaderValidationGeometry(ApplicationContext::Get().GetActiveScene());
+    WaitForDemoPreviewSceneInputsReady();
+  }
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
+                               ? RayCameraShaderTechnique::RayQuery
+                               : RayCameraShaderTechnique::RayTracing;
+    constexpr size_t max_variant_wait_frames = 30000;
+    size_t wait_frames = 0;
+    while (!render_layer->IsRayCameraShaderVariantReady(technique)) {
+      const auto stats = render_layer->GetRayCameraShaderVariantStats(technique);
+      if (stats.failed) {
+        throw std::runtime_error("Ray camera shader variant failed: " + stats.last_error);
+      }
+      if (!ApplicationContext::Get().Loop()) {
+        throw std::runtime_error("Application ended before the ray camera shader variant became ready.");
+      }
+      if (++wait_frames >= max_variant_wait_frames) {
+        throw std::runtime_error("Timed out waiting for the ray camera shader variant.");
+      }
+    }
+  }
+  if (const auto active_scene = ApplicationContext::Get().GetActiveScene()) {
+    if (const auto main_camera = active_scene->main_camera.Get<Camera>(); main_camera && main_camera != scene_camera) {
+      main_camera->SetRequireRendering(false);
+    }
+  }
   if (demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence) {
     SetRenderingRegressionTemporalMotionEnabled(*preview_anti_aliasing_motion_sequence);
   }
   scene_camera->ResetFrameCount();
-  const auto capture_start_time = std::chrono::steady_clock::now();
-  const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode);
+  const bool temporal_motion_capture =
+      demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence.value_or(false);
+  const bool wait_for_ray_accumulation =
+      Camera::IsRayCameraRenderMode(resolved_render_mode) && !temporal_motion_capture;
   constexpr size_t max_capture_frame_slack = 30000;
   const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
   size_t capture_frame_count = 0;
+  const auto capture_start_time = std::chrono::steady_clock::now();
   while ((wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
          (!wait_for_ray_accumulation && capture_frame_count < warmup_frames)) {
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
-    ++capture_frame_count;
-    if (capture_frame_count >= max_capture_frames) {
+    if (++capture_frame_count >= max_capture_frames) {
       throw std::runtime_error(wait_for_ray_accumulation
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
     }
   }
+  Platform::WaitForFrameSubmissions("Capture Completion Fence Wait");
   const auto capture_elapsed_seconds =
       std::chrono::duration<double>(std::chrono::steady_clock::now() - capture_start_time).count();
   const auto capture_frames_per_second =
       capture_elapsed_seconds > 0.0 ? static_cast<double>(capture_frame_count) / capture_elapsed_seconds : 0.0;
-  std::cout << "Demo preview capture timing: output=\"" << output_path.string()
-            << "\" render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode) << " ser_mode="
-            << Camera::GetShaderExecutionReorderingModeName(
-                   scene_camera->camera_settings.shader_execution_reordering_mode)
-            << " warmup_frames=" << warmup_frames << " rendered_frames=" << capture_frame_count
-            << " camera_frames=" << scene_camera->GetFrameCount() << " elapsed_seconds=" << capture_elapsed_seconds
-            << " frames_per_second=" << capture_frames_per_second << std::endl;
+  std::cout << "Demo preview capture: output=\"" << output_path.string()
+            << "\" render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode)
+            << " rendered_frames=" << capture_frame_count << " camera_frames=" << scene_camera->GetFrameCount()
+            << " elapsed_seconds=" << capture_elapsed_seconds << " frames_per_second=" << capture_frames_per_second
+            << std::endl;
   const auto render_texture = scene_camera->GetRenderTexture();
   if (!render_texture) {
     throw std::runtime_error("Demo preview capture scene camera has no render texture.");
@@ -1125,7 +1327,10 @@ void CaptureDemoPreview(
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);
   }
-  render_texture->StoreToPng(output_path);
+  if (!render_texture->Save(output_path)) {
+    throw std::runtime_error("Demo preview capture failed to save output image.");
+  }
+
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
 }
 }  // namespace
@@ -1160,8 +1365,9 @@ int main(const int argc, char** argv) {
               *command_line.demo_preview_capture_path, command_line.preview_capture_width,
               command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
               command_line.demo_profile_id, command_line.preview_capture_render_mode,
-              command_line.preview_capture_ser_mode, command_line.preview_capture_firefly_clamp_enabled,
-              command_line.preview_capture_firefly_clamp_threshold, command_line.preview_capture_auto_spp_enabled,
+              command_line.preview_capture_ray_debug_view, command_line.preview_capture_ser_mode,
+              command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
+              command_line.preview_capture_emissive_triangle_nee_enabled, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
               command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
@@ -1172,9 +1378,12 @@ int main(const int argc, char** argv) {
               command_line.preview_anti_aliasing_motion_sequence, command_line.preview_taa_debug_mode,
               command_line.preview_smaa_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
               command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
-              command_line.preview_shadow_distance_fade, command_line.preview_shadow_debug_mode,
+              command_line.preview_shadow_distance_fade, command_line.preview_shadow_fit_mode,
+              command_line.preview_shadow_pcf_samples, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi);
+              command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
+              command_line.preview_strand_gizmo_fixture, command_line.preview_capture_deterministic,
+              command_line.preview_capture_bistro_ddgi);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

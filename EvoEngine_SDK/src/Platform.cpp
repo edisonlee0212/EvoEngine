@@ -1,5 +1,7 @@
 #include "Platform.hpp"
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Console.hpp"
@@ -24,6 +26,20 @@
 using namespace evo_engine;
 
 namespace {
+constexpr float kBackgroundQueuePriority = 0.0f;
+constexpr float kInteractiveQueuePriority = 1.0f;
+static_assert(kBackgroundQueuePriority < kInteractiveQueuePriority);
+
+void ResolveFrameSubmissionStates(std::vector<std::weak_ptr<FrameSubmissionState>>& states,
+                                  const FrameSubmissionState::Status status) {
+  for (const auto& weak_state : states) {
+    if (const auto state = weak_state.lock(); state && state->status == FrameSubmissionState::Status::Pending) {
+      state->status = status;
+    }
+  }
+  states.clear();
+}
+
 void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
                   const size_t indirect_draw_commands) {
   stats.prim_count += prim_count;
@@ -34,15 +50,22 @@ void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, con
     stats.direct_draw_calls++;
   }
 }
+
+uint64_t TimestampDelta(const uint64_t begin, const uint64_t end, const uint32_t valid_bits) {
+  if (valid_bits == 0) {
+    return 0;
+  }
+  if (valid_bits >= 64) {
+    return end - begin;
+  }
+  const uint64_t mask = (uint64_t{1} << valid_bits) - 1;
+  return (end - begin) & mask;
+}
 }  // namespace
 
 Platform::~Platform() = default;
 
 const Platform::Capabilities& Platform::GetCapabilities() const {
-  return capabilities_;
-}
-
-Platform::Capabilities& Platform::GetCapabilities() {
   return capabilities_;
 }
 
@@ -59,6 +82,44 @@ RenderPassDrawStats RenderCameraDrawStats::Total() const {
     total.prim_count += stats.prim_count;
   }
   return total;
+}
+
+void GpuTimestampStats::AddSample(const double milliseconds) {
+  if (!std::isfinite(milliseconds) || milliseconds < 0.0) {
+    return;
+  }
+  last_milliseconds = milliseconds;
+  total_milliseconds += milliseconds;
+  if (sample_count == 0) {
+    minimum_milliseconds = milliseconds;
+    maximum_milliseconds = milliseconds;
+  } else {
+    minimum_milliseconds = std::min(minimum_milliseconds, milliseconds);
+    maximum_milliseconds = std::max(maximum_milliseconds, milliseconds);
+  }
+  samples_milliseconds.emplace_back(milliseconds);
+  ++sample_count;
+}
+
+double GpuTimestampStats::AverageMilliseconds() const {
+  return sample_count == 0 ? 0.0 : total_milliseconds / static_cast<double>(sample_count);
+}
+
+double GpuTimestampStats::MedianMilliseconds() const {
+  return PercentileMilliseconds(0.5);
+}
+
+double GpuTimestampStats::PercentileMilliseconds(const double percentile) const {
+  if (samples_milliseconds.empty()) {
+    return 0.0;
+  }
+  auto sorted_samples = samples_milliseconds;
+  std::sort(sorted_samples.begin(), sorted_samples.end());
+  const auto rank = std::clamp(percentile, 0.0, 1.0) * static_cast<double>(sorted_samples.size() - 1);
+  const auto lower = static_cast<size_t>(std::floor(rank));
+  const auto upper = static_cast<size_t>(std::ceil(rank));
+  const auto weight = rank - static_cast<double>(lower);
+  return sorted_samples[lower] * (1.0 - weight) + sorted_samples[upper] * weight;
 }
 
 const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
@@ -85,6 +146,8 @@ const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket buc
       return "DDGI probes";
     case RenderPassDrawBucket::DdgiProbeRayVisualization:
       return "DDGI probe rays";
+    case RenderPassDrawBucket::EditorGizmos:
+      return "Editor gizmos";
     case RenderPassDrawBucket::Count:
       break;
   }
@@ -127,6 +190,12 @@ void Platform::EndRenderCameraDrawScope() {
 void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
                                    const uint32_t frame_index, const size_t prim_count,
                                    const size_t indirect_draw_commands) {
+  CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands);
+}
+
+void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
+                                           const uint32_t frame_index, const size_t prim_count,
+                                           const size_t indirect_draw_commands) {
   auto& graphics = GetInstance();
   if (frame_index < graphics.draw_call.size()) {
     graphics.draw_call[frame_index]++;
@@ -164,10 +233,12 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
+  const std::lock_guard lock(shader_include_paths_mutex_);
   shader_include_paths_.emplace(path);
 }
 
-const std::set<std::filesystem::path>& Platform::GetRegisteredShaderIncludePaths() const {
+std::set<std::filesystem::path> Platform::GetRegisteredShaderIncludePaths() const {
+  const std::lock_guard lock(shader_include_paths_mutex_);
   return shader_include_paths_;
 }
 
@@ -223,6 +294,13 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
   graphics.gpu_crash_tracker.Initialize();
 #endif
   graphics.CreateLogicalDevice();
+  graphics.pipeline_cache_ = std::make_unique<VulkanPipelineCache>();
+  graphics.pipeline_cache_->Initialize(graphics.vk_device_, graphics.selected_physical_device->properties,
+                                       graphics.capabilities_.support_pipeline_creation_feedback,
+                                       graphics.capabilities_.support_ray_tracing && vkCreateDeferredOperationKHR &&
+                                           vkCreateRayTracingPipelinesKHR && vkGetDeferredOperationMaxConcurrencyKHR &&
+                                           vkDeferredOperationJoinKHR && vkGetDeferredOperationResultKHR &&
+                                           vkDestroyDeferredOperationKHR);
   graphics.SetupVmaAllocator();
   graphics.RegisterShaderIncludePath(Resources::GetDefaultResourcePath("Shaders/Includes"));
   const auto& selected_physical_device = graphics.selected_physical_device;
@@ -314,6 +392,11 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       ImGui::CreateContext();
       ImNodes::CreateContext();
       ImGuiIO& io = ImGui::GetIO();
+      if (const char* path = std::getenv("EVOENGINE_IMGUI_INI_PATH"); path && path[0] != '\0') {
+        static std::string imgui_ini_path;
+        imgui_ini_path = path;
+        io.IniFilename = imgui_ini_path.c_str();
+      }
       if (ApplicationContext::Get().GetApplicationInfo().enable_docking) {
         io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
       }
@@ -611,13 +694,27 @@ void Platform::DrainGpuResourceWork() {
   if (!Initialized()) {
     return;
   }
+  WaitForFrameSubmissions("GPU Resource Drain Fence Wait");
   GeometryStorage::WaitForPendingUploads();
+  BottomLevelAccelerationStructure::WaitForStaticBuilds();
   TextureStorage::DeviceSync();
   if (const auto gpu_service = TryGetGpuService();
       gpu_service && gpu_service->GetLifecycleState() == GpuService::LifecycleState::Running) {
     gpu_service->WaitIdle();
   }
   WaitForDeviceIdle();
+}
+
+void Platform::WaitForFrameSubmissions(const std::string& wait_name) {
+  auto& graphics = GetInstance();
+  if (!graphics.initialized || graphics.vk_device_ == VK_NULL_HANDLE) {
+    return;
+  }
+  for (uint32_t frame_index = 0; frame_index < graphics.frame_slot_submitted_.size(); ++frame_index) {
+    if (graphics.frame_slot_submitted_[frame_index]) {
+      graphics.WaitForFrameSlotSubmission(frame_index, wait_name);
+    }
+  }
 }
 
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
@@ -685,12 +782,185 @@ void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_comma
   GetGpuService().SubmitImmediate(action);
 }
 
+void Platform::ImmediateSubmitWithGpuTimestamp(const std::string& name,
+                                               const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+  auto& graphics = GetInstance();
+  const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
+  if (!graphics.gpu_timestamp_capture_enabled_ || !graphics.gpu_timestamp_capture_available_ ||
+      graphics.immediate_gpu_timestamp_query_pool_ == VK_NULL_HANDLE) {
+    ImmediateSubmit(action);
+    return;
+  }
+  ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    vkCmdResetQueryPool(vk_command_buffer, graphics.immediate_gpu_timestamp_query_pool_, 0, 2);
+    vkCmdWriteTimestamp(vk_command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                        graphics.immediate_gpu_timestamp_query_pool_, 0);
+    action(vk_command_buffer);
+    vkCmdWriteTimestamp(vk_command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        graphics.immediate_gpu_timestamp_query_pool_, 1);
+  });
+  uint64_t timestamps[2]{};
+  if (vkGetQueryPoolResults(graphics.vk_device_, graphics.immediate_gpu_timestamp_query_pool_, 0, 2, sizeof(timestamps),
+                            timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+    const auto ticks = TimestampDelta(timestamps[0], timestamps[1], graphics.gpu_timestamp_valid_bits_);
+    graphics.AccumulateGpuTimestamp(name,
+                                    static_cast<double>(ticks) * graphics.gpu_timestamp_period_nanoseconds_ / 1.0e6);
+  }
+}
+
+void Platform::SetGpuTimestampCaptureEnabled(const bool enabled) {
+  auto& graphics = GetInstance();
+  const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
+  if (enabled && graphics.gpu_timestamp_frames_.empty()) {
+    graphics.InitializeGpuTimestampResources();
+  }
+  graphics.gpu_timestamp_capture_enabled_ = enabled && graphics.gpu_timestamp_capture_available_;
+  if (enabled) {
+    ResetGpuTimestampStats();
+  }
+}
+
+bool Platform::GpuTimestampCaptureEnabled() {
+  const auto& graphics = GetInstance();
+  return graphics.gpu_timestamp_capture_enabled_;
+}
+
+bool Platform::GpuTimestampCaptureAvailable() {
+  auto& graphics = GetInstance();
+  const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
+  return graphics.gpu_timestamp_capture_available_;
+}
+
+void Platform::ResetGpuTimestampStats() {
+  WaitForFrameSubmissions("Timing Reset Fence Wait");
+  auto& graphics = GetInstance();
+  {
+    const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
+    graphics.gpu_timestamp_stats_.clear();
+  }
+  {
+    const std::scoped_lock stats_lock(graphics.cpu_timing_stats_mutex_);
+    graphics.cpu_timing_stats_.clear();
+  }
+  for (uint32_t frame_index = 0; frame_index < graphics.gpu_timestamp_frames_.size(); ++frame_index) {
+    graphics.PrepareGpuTimestampFrame(frame_index);
+  }
+}
+
+std::vector<GpuTimestampStats> Platform::GetGpuTimestampStats() {
+  auto& graphics = GetInstance();
+  std::vector<GpuTimestampStats> result;
+  {
+    const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
+    result.reserve(graphics.gpu_timestamp_stats_.size());
+    for (const auto& [name, stats] : graphics.gpu_timestamp_stats_) {
+      result.emplace_back(stats);
+    }
+  }
+  std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+    return left.name < right.name;
+  });
+  return result;
+}
+
+std::vector<GpuTimestampStats> Platform::GetCpuTimingStats() {
+  auto& graphics = GetInstance();
+  std::vector<GpuTimestampStats> result;
+  {
+    const std::scoped_lock stats_lock(graphics.cpu_timing_stats_mutex_);
+    result.reserve(graphics.cpu_timing_stats_.size());
+    for (const auto& [name, stats] : graphics.cpu_timing_stats_) {
+      result.emplace_back(stats);
+    }
+  }
+  std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+    return left.name < right.name;
+  });
+  return result;
+}
+
+void Platform::RecordCpuTimingSample(const std::string& name, const double milliseconds) {
+  auto& graphics = GetInstance();
+  if (graphics.gpu_timestamp_capture_enabled_) {
+    graphics.AccumulateCpuTiming(name, milliseconds);
+  }
+}
+
+GpuMemorySnapshot Platform::GetGpuMemorySnapshot() {
+  auto& graphics = GetInstance();
+  GpuMemorySnapshot result;
+  if (graphics.vma_allocator_ == VK_NULL_HANDLE || !graphics.selected_physical_device) {
+    return result;
+  }
+  VmaTotalStatistics statistics{};
+  vmaCalculateStatistics(graphics.vma_allocator_, &statistics);
+  std::array<VmaBudget, VK_MAX_MEMORY_HEAPS> budgets{};
+  vmaGetHeapBudgets(graphics.vma_allocator_, budgets.data());
+  const auto& memory_properties = graphics.selected_physical_device->vk_physical_device_memory_properties;
+  const auto& total = statistics.total.statistics;
+  result.block_count = total.blockCount;
+  result.allocation_count = total.allocationCount;
+  result.block_bytes = total.blockBytes;
+  result.allocation_bytes = total.allocationBytes;
+  result.heaps.reserve(memory_properties.memoryHeapCount);
+  for (uint32_t heap_index = 0; heap_index < memory_properties.memoryHeapCount; ++heap_index) {
+    const auto& heap = memory_properties.memoryHeaps[heap_index];
+    const auto& heap_statistics = statistics.memoryHeap[heap_index].statistics;
+    const auto& budget = budgets[heap_index];
+    result.heaps.emplace_back(GpuMemoryHeapStats{heap_index, (heap.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) != 0,
+                                                 heap.size, heap_statistics.blockCount, heap_statistics.allocationCount,
+                                                 heap_statistics.blockBytes, heap_statistics.allocationBytes,
+                                                 budget.usage, budget.budget});
+  }
+  return result;
+}
+
+GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk_command_buffer,
+                                                        const std::string& name) {
+  auto& graphics = GetInstance();
+  GpuTimestampScopeToken token;
+  if (!graphics.gpu_timestamp_capture_enabled_ || !graphics.gpu_timestamp_capture_available_ ||
+      graphics.current_frame_index_ >= graphics.gpu_timestamp_frames_.size()) {
+    return token;
+  }
+  auto& frame = graphics.gpu_timestamp_frames_[graphics.current_frame_index_];
+  if (frame.query_pool == VK_NULL_HANDLE || frame.next_query + 2 > kGpuTimestampQueriesPerFrame) {
+    return token;
+  }
+  if (!frame.reset_recorded) {
+    vkCmdResetQueryPool(vk_command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
+    frame.reset_recorded = true;
+  }
+  token.name = name;
+  token.frame_index = graphics.current_frame_index_;
+  token.begin_query = frame.next_query++;
+  token.end_query = frame.next_query++;
+  token.valid = true;
+  vkCmdWriteTimestamp2(vk_command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame.query_pool, token.begin_query);
+  return token;
+}
+
+void Platform::EndGpuTimestampScope(const VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token) {
+  auto& graphics = GetInstance();
+  if (!token.valid || token.frame_index >= graphics.gpu_timestamp_frames_.size()) {
+    return;
+  }
+  auto& frame = graphics.gpu_timestamp_frames_[token.frame_index];
+  vkCmdWriteTimestamp2(vk_command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame.query_pool, token.end_query);
+  frame.scopes.push_back({token.name, token.begin_query, token.end_query});
+}
+
 GpuService& Platform::GetGpuService() {
   const auto gpu_service = TryGetGpuService();
   if (!gpu_service) {
     throw std::runtime_error("GpuService has not been created.");
   }
   return *gpu_service;
+}
+
+std::mutex& Platform::GetQueueHostMutex() {
+  static std::mutex mutex;
+  return mutex;
 }
 
 GpuService* Platform::TryGetGpuService() {
@@ -702,8 +972,7 @@ GpuService* Platform::TryGetGpuService() {
 }
 
 int Platform::GetMaxFramesInFlight() {
-  const auto& graphics = GetInstance();
-  return graphics.max_frame_in_flight_;
+  return kMaxFramesInFlight;
 }
 
 void Platform::NotifyRecreateSwapChain() {
@@ -719,6 +988,20 @@ VkInstance Platform::GetVkInstance() {
 const std::shared_ptr<Platform::PhysicalDevice>& Platform::GetSelectedPhysicalDevice() {
   const auto& graphics = GetInstance();
   return graphics.selected_physical_device;
+}
+
+VkFormatProperties3 Platform::GetPhysicalDeviceFormatProperties(const VkFormat format) {
+  const auto& physical_device = GetSelectedPhysicalDevice();
+  if (!physical_device) {
+    throw std::runtime_error("Physical device is unavailable.");
+  }
+  VkFormatProperties3 format_properties{};
+  format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+  VkFormatProperties2 format_properties_2{};
+  format_properties_2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+  format_properties_2.pNext = &format_properties;
+  vkGetPhysicalDeviceFormatProperties2(physical_device->vk_physical_device, format, &format_properties_2);
+  return format_properties;
 }
 
 VkDevice Platform::GetVkDevice() {
@@ -889,6 +1172,37 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
   }
   if (!support_check)
     return false;
+  const auto effective_api_version = std::min(volkGetInstanceVersion(), properties.apiVersion);
+  if (effective_api_version < VK_API_VERSION_1_3 &&
+      !CheckExtensionSupport(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME)) {
+    EVOENGINE_WARNING("Current device cannot report depth-comparison format support.")
+    return false;
+  }
+  VkFormatProperties3 shadow_format_properties{};
+  shadow_format_properties.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_3;
+  VkFormatProperties2 shadow_format_properties_2{};
+  shadow_format_properties_2.sType = VK_STRUCTURE_TYPE_FORMAT_PROPERTIES_2;
+  shadow_format_properties_2.pNext = &shadow_format_properties;
+  vkGetPhysicalDeviceFormatProperties2(vk_physical_device, Constants::shadow_map, &shadow_format_properties_2);
+  constexpr VkFormatFeatureFlags2 required_shadow_features =
+      VK_FORMAT_FEATURE_2_DEPTH_STENCIL_ATTACHMENT_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT |
+      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_DEPTH_COMPARISON_BIT;
+  if ((shadow_format_properties.optimalTilingFeatures & required_shadow_features) != required_shadow_features) {
+    EVOENGINE_WARNING("Current device does not support linear depth-comparison sampling for the shadow-map format.")
+    return false;
+  }
+  const auto directional_shadow_resolution =
+      ApplicationContext::Get().GetApplicationInfo().graphics_settings.directional_light_shadow_map_resolution;
+  VkImageFormatProperties shadow_image_properties{};
+  const auto shadow_image_result = vkGetPhysicalDeviceImageFormatProperties(
+      vk_physical_device, Constants::shadow_map, VK_IMAGE_TYPE_2D, VK_IMAGE_TILING_OPTIMAL,
+      VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, 0, &shadow_image_properties);
+  if (shadow_image_result != VK_SUCCESS || shadow_image_properties.maxExtent.width < directional_shadow_resolution ||
+      shadow_image_properties.maxExtent.height < directional_shadow_resolution ||
+      shadow_image_properties.maxArrayLayers < 4 || !(shadow_image_properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT)) {
+    EVOENGINE_WARNING("Current device cannot allocate the configured directional shadow map.")
+    return false;
+  }
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     if (!queue_family_indices.present_family.has_value())
       return false;
@@ -1171,13 +1485,28 @@ void Platform::SelectPhysicalDevice() {
       required_device_extension_names_.emplace_back(extension_name);
     }
   };
+  const auto effective_api_version =
+      std::min(volkGetInstanceVersion(), selected_physical_device->properties.apiVersion);
+  if (effective_api_version < VK_API_VERSION_1_3) {
+    require_device_extension(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME);
+  }
+  if (effective_api_version >= VK_API_VERSION_1_3) {
+    capabilities_.support_pipeline_creation_feedback = true;
+  } else if (selected_physical_device->CheckExtensionSupport(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME)) {
+    require_device_extension(VK_EXT_PIPELINE_CREATION_FEEDBACK_EXTENSION_NAME);
+    capabilities_.support_pipeline_creation_feedback = true;
+  } else {
+    capabilities_.support_pipeline_creation_feedback = false;
+  }
   const bool ray_acceleration_structure_supported =
+      capabilities_.support_acceleration_structure &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME) &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_SPIRV_1_4_EXTENSION_NAME) &&
-      selected_physical_device->CheckExtensionSupport(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
+      selected_physical_device->CheckExtensionSupport(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME) &&
+      selected_physical_device->acceleration_structure_features.accelerationStructure == VK_TRUE;
   const auto require_ray_acceleration_structure_extensions = [&]() {
     require_device_extension(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
     require_device_extension(VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
@@ -1187,7 +1516,8 @@ void Platform::SelectPhysicalDevice() {
     require_device_extension(VK_KHR_SHADER_FLOAT_CONTROLS_EXTENSION_NAME);
   };
   if (capabilities_.support_ray_tracing && ray_acceleration_structure_supported &&
-      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME) &&
+      selected_physical_device->ray_tracing_pipeline_features.rayTracingPipeline == VK_TRUE) {
     require_ray_acceleration_structure_extensions();
     require_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
     capabilities_.support_ray_tracing = true;
@@ -1197,7 +1527,8 @@ void Platform::SelectPhysicalDevice() {
     EVOENGINE_LOG("Target device doesn't support ray tracing!");
   }
   if (capabilities_.support_ray_query && ray_acceleration_structure_supported &&
-      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+      selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
+      selected_physical_device->ray_query_features.rayQuery == VK_TRUE) {
     require_ray_acceleration_structure_extensions();
     require_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     capabilities_.support_ray_query = true;
@@ -1206,6 +1537,8 @@ void Platform::SelectPhysicalDevice() {
     capabilities_.support_ray_query = false;
     EVOENGINE_LOG("Target device doesn't support ray query!");
   }
+  capabilities_.support_acceleration_structure =
+      ray_acceleration_structure_supported && (capabilities_.support_ray_tracing || capabilities_.support_ray_query);
 #ifdef VK_NV_ray_tracing_invocation_reorder
   if (capabilities_.support_ray_tracing &&
       selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
@@ -1257,18 +1590,29 @@ void Platform::PhysicalDevice::QueryInformation() {
   vkGetPhysicalDeviceFeatures(vk_physical_device, &features);
   VkPhysicalDeviceFeatures2 device_features{};
   device_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-  device_features.pNext = &acceleration_structure_features;
-  void* acceleration_features_tail = nullptr;
+  void* feature_chain_tail = nullptr;
 #if ENABLE_NV_RAY_TRACING_VALIDATION
-  acceleration_features_tail = &ray_tracing_validation_features_nv;
+  feature_chain_tail = &ray_tracing_validation_features_nv;
 #endif
 #ifdef VK_NV_ray_tracing_invocation_reorder
   if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
-    ray_tracing_invocation_reorder_features_nv.pNext = acceleration_features_tail;
-    acceleration_features_tail = &ray_tracing_invocation_reorder_features_nv;
+    ray_tracing_invocation_reorder_features_nv.pNext = feature_chain_tail;
+    feature_chain_tail = &ray_tracing_invocation_reorder_features_nv;
   }
 #endif
-  acceleration_structure_features.pNext = acceleration_features_tail;
+  if (CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+    ray_tracing_pipeline_features.pNext = feature_chain_tail;
+    feature_chain_tail = &ray_tracing_pipeline_features;
+  }
+  if (CheckExtensionSupport(VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+    ray_query_features.pNext = feature_chain_tail;
+    feature_chain_tail = &ray_query_features;
+  }
+  if (CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)) {
+    acceleration_structure_features.pNext = feature_chain_tail;
+    feature_chain_tail = &acceleration_structure_features;
+  }
+  device_features.pNext = feature_chain_tail;
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
 
@@ -1276,16 +1620,22 @@ void Platform::PhysicalDevice::QueryInformation() {
   vulkan11_properties.pNext = &vulkan12_properties;
   vulkan12_properties.pNext = &mesh_shader_properties_ext;
   mesh_shader_properties_ext.pNext = &subgroup_size_control_properties;
-  subgroup_size_control_properties.pNext = &ray_tracing_properties_ext;
-  ray_tracing_properties_ext.pNext = &acceleration_structure_properties_khr;
-  void* acceleration_properties_tail = nullptr;
+  void* ray_properties_tail = nullptr;
 #ifdef VK_NV_ray_tracing_invocation_reorder
   if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
-    ray_tracing_invocation_reorder_properties_nv.pNext = acceleration_properties_tail;
-    acceleration_properties_tail = &ray_tracing_invocation_reorder_properties_nv;
+    ray_tracing_invocation_reorder_properties_nv.pNext = ray_properties_tail;
+    ray_properties_tail = &ray_tracing_invocation_reorder_properties_nv;
   }
 #endif
-  acceleration_structure_properties_khr.pNext = acceleration_properties_tail;
+  if (CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)) {
+    acceleration_structure_properties_khr.pNext = ray_properties_tail;
+    ray_properties_tail = &acceleration_structure_properties_khr;
+  }
+  if (CheckExtensionSupport(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME)) {
+    ray_tracing_properties_ext.pNext = ray_properties_tail;
+    ray_properties_tail = &ray_tracing_properties_ext;
+  }
+  subgroup_size_control_properties.pNext = ray_properties_tail;
 
   vkGetPhysicalDeviceProperties2(vk_physical_device, &properties2);
   vkGetPhysicalDeviceMemoryProperties(vk_physical_device, &vk_physical_device_memory_properties);
@@ -1392,10 +1742,6 @@ void Platform::CreateLogicalDevice() {
 #endif
 
   vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipeline = VK_TRUE;
-  vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplay = VK_TRUE;
-  vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineShaderGroupHandleCaptureReplayMixed = VK_TRUE;
-  vk_physical_device_ray_tracing_pipeline_features_khr.rayTracingPipelineTraceRaysIndirect = VK_TRUE;
-  vk_physical_device_ray_tracing_pipeline_features_khr.rayTraversalPrimitiveCulling = VK_TRUE;
   if (capabilities_.support_ray_tracing) {
     vk_physical_device_ray_tracing_pipeline_features_khr.pNext = ray_feature_chain_tail;
     ray_feature_chain_tail = &vk_physical_device_ray_tracing_pipeline_features_khr;
@@ -1446,47 +1792,39 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_vulkan11_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES;
   vk_physical_device_vulkan11_features.storageBuffer16BitAccess = VK_TRUE;
   vk_physical_device_vulkan11_features.uniformAndStorageBuffer16BitAccess = VK_TRUE;
+  vk_physical_device_vulkan11_features.shaderDrawParameters = VK_TRUE;
 
-  if (capabilities_.support_ray_tracing || capabilities_.support_ray_query) {
+  if (capabilities_.support_acceleration_structure) {
     vk_physical_device_vulkan11_features.pNext = &vk_physical_device_acceleration_structure_features_khr;
   } else {
     vk_physical_device_vulkan11_features.pNext = nullptr;
   }
   vk_physical_device_vulkan12_features.pNext = &vk_physical_device_vulkan11_features;
 
-  VkPhysicalDeviceShaderDrawParametersFeatures shader_draw_parameters_features{};
-  shader_draw_parameters_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_DRAW_PARAMETERS_FEATURES;
-  shader_draw_parameters_features.shaderDrawParameters = VK_TRUE;
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   VkPhysicalDeviceRayTracingValidationFeaturesNV vk_physical_device_ray_tracing_validation_features_nv = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_VALIDATION_FEATURES_NV};
   vk_physical_device_ray_tracing_validation_features_nv.rayTracingValidation = VK_TRUE;
   vk_physical_device_ray_tracing_validation_features_nv.pNext = &vk_physical_device_vulkan12_features;
-  if (capabilities_.support_ray_tracing_validation) {
-    shader_draw_parameters_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
-  } else {
-    shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
-  }
-#else
-  shader_draw_parameters_features.pNext = &vk_physical_device_vulkan12_features;
 #endif
 
   VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamic_rendering_features{};
   dynamic_rendering_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR;
   dynamic_rendering_features.dynamicRendering = VK_TRUE;
-  dynamic_rendering_features.pNext = &shader_draw_parameters_features;
-
-  VkPhysicalDeviceMultiviewFeatures physical_device_multiview_features{};
-  physical_device_multiview_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MULTIVIEW_FEATURES;
-  physical_device_multiview_features.pNext = &dynamic_rendering_features;
-  physical_device_multiview_features.multiview = VK_FALSE;
-  physical_device_multiview_features.multiviewGeometryShader = VK_FALSE;
-  physical_device_multiview_features.multiviewTessellationShader = VK_FALSE;
+#if ENABLE_NV_RAY_TRACING_VALIDATION
+  if (capabilities_.support_ray_tracing_validation) {
+    dynamic_rendering_features.pNext = &vk_physical_device_ray_tracing_validation_features_nv;
+  } else {
+    dynamic_rendering_features.pNext = &vk_physical_device_vulkan12_features;
+  }
+#else
+  dynamic_rendering_features.pNext = &vk_physical_device_vulkan12_features;
+#endif
 
   VkPhysicalDeviceFragmentShadingRateFeaturesKHR physical_device_fragment_shading_rate_features{};
   physical_device_fragment_shading_rate_features.sType =
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR;
-  physical_device_fragment_shading_rate_features.pNext = &physical_device_multiview_features;
+  physical_device_fragment_shading_rate_features.pNext = &dynamic_rendering_features;
   physical_device_fragment_shading_rate_features.attachmentFragmentShadingRate = VK_FALSE;
   physical_device_fragment_shading_rate_features.pipelineFragmentShadingRate = VK_FALSE;
   physical_device_fragment_shading_rate_features.primitiveFragmentShadingRate = VK_FALSE;
@@ -1507,7 +1845,7 @@ void Platform::CreateLogicalDevice() {
   if (capabilities_.support_mesh_shader) {
     physical_device_synchronization2_features.pNext = &mesh_shader_features_ext;
   } else {
-    physical_device_synchronization2_features.pNext = &physical_device_multiview_features;
+    physical_device_synchronization2_features.pNext = &dynamic_rendering_features;
   }
 
   VkPhysicalDeviceExtendedDynamicState3FeaturesEXT extended_dynamic_state3_features{};
@@ -1549,29 +1887,29 @@ void Platform::CreateLogicalDevice() {
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
     const auto graphics_family = selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-    add_queue_request(graphics_family, 1.f);
-    add_queue_request(graphics_family, 0.f);
+    add_queue_request(graphics_family, kBackgroundQueuePriority);
+    add_queue_request(graphics_family, kInteractiveQueuePriority);
 #else
-    add_queue_request(graphics_family, 0.f);
+    add_queue_request(graphics_family, kInteractiveQueuePriority);
 #endif
   }
   if (selected_physical_device->queue_family_indices.compute_family.has_value() &&
       selected_physical_device->queue_family_indices.compute_family !=
           selected_physical_device->queue_family_indices.graphics_and_compute_family) {
-    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), 0.f);
+    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), kBackgroundQueuePriority);
   }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     const auto present_family = selected_physical_device->queue_family_indices.present_family.value();
 #if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
     if (present_family == selected_physical_device->queue_family_indices.graphics_and_compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     } else if (present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     }
 #else
     if (present_family != selected_physical_device->queue_family_indices.graphics_and_compute_family.value() &&
         present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, 0.f);
+      add_queue_request(present_family, kInteractiveQueuePriority);
     }
 #endif
   }
@@ -1659,6 +1997,122 @@ void Platform::CreateLogicalDevice() {
   }
 #endif
 #pragma endregion
+}
+
+void Platform::InitializeGpuTimestampResources() {
+  const std::scoped_lock timestamp_lock(immediate_gpu_timestamp_mutex_);
+  DestroyGpuTimestampResources();
+  gpu_timestamp_capture_available_ = false;
+  if (!initialized || vk_device_ == VK_NULL_HANDLE || !selected_physical_device ||
+      !selected_physical_device->queue_family_indices.graphics_and_compute_family) {
+    return;
+  }
+
+  uint32_t queue_family_count = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device->vk_physical_device, &queue_family_count, nullptr);
+  std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
+  vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device->vk_physical_device, &queue_family_count,
+                                           queue_family_properties.data());
+  const uint32_t queue_family_index =
+      selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
+  if (queue_family_index >= queue_family_properties.size() ||
+      selected_physical_device->properties.limits.timestampComputeAndGraphics != VK_TRUE) {
+    return;
+  }
+  gpu_timestamp_valid_bits_ = queue_family_properties[queue_family_index].timestampValidBits;
+  if (gpu_timestamp_valid_bits_ == 0) {
+    return;
+  }
+  gpu_timestamp_period_nanoseconds_ = selected_physical_device->properties.limits.timestampPeriod;
+
+  VkQueryPoolCreateInfo query_pool_create_info{};
+  query_pool_create_info.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+  query_pool_create_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+  query_pool_create_info.queryCount = kGpuTimestampQueriesPerFrame;
+  gpu_timestamp_frames_.resize(max_frame_in_flight_);
+  for (auto& frame : gpu_timestamp_frames_) {
+    CheckVk(vkCreateQueryPool(vk_device_, &query_pool_create_info, nullptr, &frame.query_pool));
+  }
+  query_pool_create_info.queryCount = 2;
+  CheckVk(vkCreateQueryPool(vk_device_, &query_pool_create_info, nullptr, &immediate_gpu_timestamp_query_pool_));
+  gpu_timestamp_capture_available_ = true;
+}
+
+void Platform::DestroyGpuTimestampResources() {
+  const std::scoped_lock timestamp_lock(immediate_gpu_timestamp_mutex_);
+  if (vk_device_ != VK_NULL_HANDLE) {
+    for (auto& frame : gpu_timestamp_frames_) {
+      if (frame.query_pool != VK_NULL_HANDLE) {
+        vkDestroyQueryPool(vk_device_, frame.query_pool, nullptr);
+      }
+    }
+    if (immediate_gpu_timestamp_query_pool_ != VK_NULL_HANDLE) {
+      vkDestroyQueryPool(vk_device_, immediate_gpu_timestamp_query_pool_, nullptr);
+    }
+  }
+  gpu_timestamp_frames_.clear();
+  immediate_gpu_timestamp_query_pool_ = VK_NULL_HANDLE;
+  gpu_timestamp_capture_available_ = false;
+  gpu_timestamp_capture_enabled_ = false;
+  gpu_timestamp_valid_bits_ = 0;
+  gpu_timestamp_period_nanoseconds_ = 0.0;
+  {
+    const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
+    gpu_timestamp_stats_.clear();
+  }
+  {
+    const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
+    cpu_timing_stats_.clear();
+  }
+}
+
+void Platform::PrepareGpuTimestampFrame(const uint32_t frame_index) {
+  if (!gpu_timestamp_capture_enabled_ || frame_index >= gpu_timestamp_frames_.size()) {
+    return;
+  }
+  auto& frame = gpu_timestamp_frames_[frame_index];
+  frame.next_query = 0;
+  frame.reset_recorded = false;
+  frame.scopes.clear();
+}
+
+void Platform::ResolveGpuTimestampFrame(const uint32_t frame_index) {
+  if (!gpu_timestamp_capture_enabled_ || frame_index >= gpu_timestamp_frames_.size()) {
+    return;
+  }
+  const auto& frame = gpu_timestamp_frames_[frame_index];
+  if (frame.next_query == 0 || frame.scopes.empty()) {
+    return;
+  }
+  std::vector<uint64_t> timestamps(frame.next_query);
+  const auto result =
+      vkGetQueryPoolResults(vk_device_, frame.query_pool, 0, frame.next_query, timestamps.size() * sizeof(uint64_t),
+                            timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+  if (result != VK_SUCCESS) {
+    return;
+  }
+  for (const auto& scope : frame.scopes) {
+    if (scope.begin_query >= timestamps.size() || scope.end_query >= timestamps.size()) {
+      continue;
+    }
+    const auto ticks =
+        TimestampDelta(timestamps[scope.begin_query], timestamps[scope.end_query], gpu_timestamp_valid_bits_);
+    AccumulateGpuTimestamp(scope.name, static_cast<double>(ticks) * gpu_timestamp_period_nanoseconds_ / 1.0e6);
+  }
+}
+
+void Platform::AccumulateGpuTimestamp(const std::string& name, const double milliseconds) {
+  const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
+  auto& stats = gpu_timestamp_stats_[name];
+  stats.name = name;
+  stats.AddSample(milliseconds);
+}
+
+void Platform::AccumulateCpuTiming(const std::string& name, const double milliseconds) {
+  const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
+  auto& stats = cpu_timing_stats_[name];
+  stats.name = name;
+  stats.AddSample(milliseconds);
 }
 
 auto Platform::DivUp(const uint32_t a, uint32_t b) -> uint32_t {
@@ -1964,10 +2418,38 @@ void Platform::CreateSwapChainSyncObjects() {
   fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
   compute_finished_semaphores_.clear();
   in_flight_fences_.clear();
+  for (auto& states : frame_submission_states_) {
+    ResolveFrameSubmissionStates(states, FrameSubmissionState::Status::Discarded);
+  }
+  frame_submission_states_.clear();
+  frame_submission_states_.resize(max_frame_in_flight_);
+  frame_slot_submitted_.assign(max_frame_in_flight_, false);
   for (int i = 0; i < max_frame_in_flight_; i++) {
     compute_finished_semaphores_.emplace_back(std::make_unique<Semaphore>(semaphore_create_info));
     in_flight_fences_.emplace_back(std::make_unique<Fence>(fence_create_info));
   }
+}
+
+void Platform::WaitForFrameSlotSubmission(const uint32_t frame_index, const std::string& wait_name) {
+  if (frame_index >= frame_slot_submitted_.size()) {
+    return;
+  }
+  if (!frame_slot_submitted_[frame_index]) {
+    if (gpu_timestamp_capture_enabled_ && !wait_name.empty()) {
+      AccumulateCpuTiming("Redundant Fence Wait", 0.0);
+    }
+    return;
+  }
+  const VkFence fence = in_flight_fences_[frame_index]->GetVkFence();
+  const auto wait_start = std::chrono::steady_clock::now();
+  CheckVk(vkWaitForFences(vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
+  if (gpu_timestamp_capture_enabled_ && !wait_name.empty()) {
+    AccumulateCpuTiming(
+        wait_name, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count());
+  }
+  ResolveFrameSubmissionStates(frame_submission_states_[frame_index], FrameSubmissionState::Status::Submitted);
+  ResolveGpuTimestampFrame(frame_index);
+  frame_slot_submitted_[frame_index] = false;
 }
 
 void Platform::RecreateSwapChain() {
@@ -1977,14 +2459,17 @@ void Platform::RecreateSwapChain() {
 
 void Platform::OnDestroy() {
   auto& graphics = GetInstance();
+  WaitForFrameSubmissions("Shutdown Frame Fence Wait");
+  for (auto& states : graphics.frame_submission_states_) {
+    ResolveFrameSubmissionStates(states, FrameSubmissionState::Status::Discarded);
+  }
   if (graphics.gpu_service_) {
     graphics.gpu_service_->Shutdown();
   }
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
-  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-  CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
 
   graphics.ResetCommandBuffers();
+  graphics.DestroyGpuTimestampResources();
 
   graphics.immediate_submit_queue_.reset();
   graphics.main_queue_.reset();
@@ -2015,11 +2500,17 @@ void Platform::OnDestroy() {
   graphics.render_finished_semaphores_.clear();
   graphics.compute_finished_semaphores_.clear();
   graphics.in_flight_fences_.clear();
+  graphics.frame_submission_states_.clear();
+  graphics.frame_slot_submitted_.clear();
   graphics.current_frame_index_ = 0;
   graphics.next_image_index_ = 0;
   graphics.buffer_sync_actions.clear();
 
   graphics.temporary_buffer_sync_actions.clear();
+
+  if (graphics.pipeline_cache_)
+    graphics.pipeline_cache_->Shutdown();
+  graphics.pipeline_cache_.reset();
 
   vmaDestroyAllocator(graphics.vma_allocator_);
   graphics.vma_allocator_ = VK_NULL_HANDLE;
@@ -2033,7 +2524,7 @@ void Platform::OnDestroy() {
 #endif
 #pragma endregion
 #pragma region Surface
-  if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
+  if (graphics.vk_surface_ != VK_NULL_HANDLE) {
     vkDestroySurfaceKHR(graphics.vk_instance_, graphics.vk_surface_, nullptr);
     graphics.vk_surface_ = VK_NULL_HANDLE;
   }
@@ -2065,15 +2556,26 @@ void Platform::ResetCommandBuffers() {
 
 void Platform::PreUpdate() {
   auto& graphics = GetInstance();
+  const auto current_frame_index = graphics.current_frame_index_;
+  if (graphics.frame_slot_submitted_[current_frame_index]) {
+    graphics.WaitForFrameSlotSubmission(current_frame_index, "Recycled Frame Fence Wait");
+  } else {
+    ResolveFrameSubmissionStates(graphics.frame_submission_states_[current_frame_index],
+                                 FrameSubmissionState::Status::Discarded);
+  }
   const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
   const auto vulkan_update = [&](const std::function<void()>& swap_chain_action) {
-    const VkFence in_flight_fences[] = {graphics.in_flight_fences_[graphics.current_frame_index_]->GetVkFence()};
-    CheckVk(vkResetFences(graphics.vk_device_, 1, in_flight_fences));
     for (auto& i : graphics.buffer_sync_actions)
       i.second();
     for (auto& i : graphics.temporary_buffer_sync_actions)
       i();
     graphics.temporary_buffer_sync_actions.clear();
+    if (GeometryStorage::HasPendingUploads()) {
+      WaitForFrameSubmissions("Required Geometry Upload Fence Wait");
+    }
+    if (TextureStorage::HasPendingDeletes()) {
+      WaitForFrameSubmissions("Required Texture Storage Fence Wait");
+    }
     GeometryStorage::DeviceSync();
     TextureStorage::DeviceSync();
     swap_chain_action();
@@ -2106,6 +2608,7 @@ void Platform::PreUpdate() {
     });
   }
   graphics.ResetCommandBuffers();
+  graphics.PrepareGpuTimestampFrame(graphics.current_frame_index_);
   graphics.frame_count++;
   if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
     if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
@@ -2133,6 +2636,7 @@ void Platform::LateUpdate() {
     signal_semaphores.emplace_back(graphics.render_finished_semaphores_[graphics.next_image_index_]);
   }
   const auto submitted_frame_index = graphics.current_frame_index_;
+  const auto queue_submit_start = std::chrono::steady_clock::now();
   if (graphics.compute_queue_ && graphics.used_compute_command_buffer_size_ > 0) {
     const auto& compute_command_buffers = graphics.compute_command_buffer_pool_[submitted_frame_index];
     std::vector<std::shared_ptr<CommandBuffer>> submitted_compute_command_buffers(
@@ -2142,18 +2646,23 @@ void Platform::LateUpdate() {
     wait_semaphores.emplace_back(graphics.compute_finished_semaphores_[submitted_frame_index],
                                  VK_PIPELINE_STAGE_ALL_COMMANDS_BIT);
   }
+  const VkFence in_flight_fence = graphics.in_flight_fences_[submitted_frame_index]->GetVkFence();
+  CheckVk(vkResetFences(graphics.vk_device_, 1, &in_flight_fence));
   graphics.main_queue_->Submit(graphics.command_buffer_pool_[submitted_frame_index], 0,
                                graphics.used_command_buffer_size_, wait_semaphores, signal_semaphores,
                                graphics.in_flight_fences_[submitted_frame_index]);
+  graphics.frame_slot_submitted_[submitted_frame_index] = true;
+  if (graphics.gpu_timestamp_capture_enabled_) {
+    graphics.AccumulateCpuTiming(
+        "Queue Submit",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - queue_submit_start).count());
+  }
   if (window_layer) {
     std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
     targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
     graphics.present_queue_->Present(signal_semaphores, targets);
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;
-
-  const VkFence in_flight_fences[] = {graphics.in_flight_fences_[submitted_frame_index]->GetVkFence()};
-  CheckVk(vkWaitForFences(graphics.vk_device_, 1, in_flight_fences, VK_TRUE, UINT64_MAX));
   if (window_layer) {
     if (glfwWindowShouldClose(window_layer->window_)) {
       ApplicationContext::Get().End();
@@ -2169,6 +2678,12 @@ bool Platform::RayTracingEnabled() {
 bool Platform::RayQueryEnabled() {
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   return GetInstance().capabilities_.support_ray_query && graphics_settings.use_ray_tracing;
+}
+
+bool Platform::RayAccelerationStructureEnabled() {
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  return GetInstance().capabilities_.support_acceleration_structure && graphics_settings.use_ray_tracing &&
+         (RayTracingEnabled() || RayQueryEnabled());
 }
 
 bool Platform::ShaderExecutionReorderingEnabled() {
@@ -2189,6 +2704,50 @@ bool Platform::Initialized() {
 uint32_t Platform::GetFrameCount() {
   const auto& graphics = GetInstance();
   return graphics.frame_count;
+}
+
+uint32_t Platform::GetPendingFrameSubmissionCount() {
+  const auto& graphics = GetInstance();
+  return static_cast<uint32_t>(
+      std::count(graphics.frame_slot_submitted_.begin(), graphics.frame_slot_submitted_.end(), true));
+}
+
+std::shared_ptr<FrameSubmissionState> Platform::TrackCurrentFrameSubmission() {
+  auto& graphics = GetInstance();
+  auto state = std::make_shared<FrameSubmissionState>();
+  graphics.frame_submission_states_[graphics.current_frame_index_].emplace_back(state);
+  return state;
+}
+
+VkResult Platform::CreateComputePipeline(const VkComputePipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                         PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateComputePipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateComputePipelines(graphics.vk_device_, VK_NULL_HANDLE, 1, &create_info, nullptr, &pipeline);
+  return feedback.result;
+}
+
+VkResult Platform::CreateGraphicsPipeline(const VkGraphicsPipelineCreateInfo& create_info, VkPipeline& pipeline,
+                                          PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateGraphicsPipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateGraphicsPipelines(graphics.vk_device_, VK_NULL_HANDLE, 1, &create_info, nullptr, &pipeline);
+  return feedback.result;
+}
+
+VkResult Platform::CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfoKHR& create_info, VkPipeline& pipeline,
+                                            PipelineCreationFeedback& feedback) {
+  auto& graphics = GetInstance();
+  if (graphics.pipeline_cache_)
+    return graphics.pipeline_cache_->CreateRayTracingPipeline(create_info, pipeline, feedback);
+  feedback = {};
+  feedback.result = vkCreateRayTracingPipelinesKHR(graphics.vk_device_, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &create_info,
+                                                   nullptr, &pipeline);
+  return feedback.result;
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

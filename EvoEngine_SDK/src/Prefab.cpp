@@ -5,6 +5,7 @@
 #include "GltfMaterialCache.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
 #include "Serialization.hpp"
@@ -17,8 +18,11 @@
 #include <cctype>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <optional>
 #include <unordered_set>
+
+#include <stb_image.h>
 
 using namespace evo_engine;
 void Prefab::OnCreate() {
@@ -269,13 +273,17 @@ void ReadAnimations(const aiScene* importer_scene, const std::shared_ptr<Animati
   }
 }
 void AddTextureImportCandidate(std::vector<std::filesystem::path>& candidates, std::unordered_set<std::string>& seen,
-                               const std::filesystem::path& path) {
+                               const std::filesystem::path& path, const bool include_dds_fallbacks) {
   const auto absolute_path = std::filesystem::absolute(path);
   auto extension = absolute_path.extension().string();
   std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
     return static_cast<char>(std::tolower(value));
   });
-  if (extension == ".dds") {
+  const auto key = absolute_path.lexically_normal().string();
+  if (seen.insert(key).second) {
+    candidates.emplace_back(absolute_path);
+  }
+  if (include_dds_fallbacks && extension == ".dds") {
     for (const auto* fallback_extension : {".png", ".tga", ".jpg", ".jpeg"}) {
       auto fallback_path = absolute_path;
       fallback_path.replace_extension(fallback_extension);
@@ -285,39 +293,73 @@ void AddTextureImportCandidate(std::vector<std::filesystem::path>& candidates, s
       }
     }
   }
-
-  const auto key = absolute_path.lexically_normal().string();
-  if (seen.insert(key).second) {
-    candidates.emplace_back(absolute_path);
-  }
 }
 
-std::vector<std::filesystem::path> CollectTextureImportCandidates(const std::string& directory,
-                                                                  const std::string& path) {
+std::vector<std::filesystem::path> CollectTextureImportCandidates(const std::string& directory, const std::string& path,
+                                                                  const bool include_dds_fallbacks = true) {
   const auto base_dir = std::filesystem::absolute(directory);
-  const auto texture_path = std::filesystem::path(path);
+  std::string decoded_path;
+  decoded_path.reserve(path.size());
+  const auto hex_value = [](const char value) -> int {
+    if (value >= '0' && value <= '9')
+      return value - '0';
+    if (value >= 'a' && value <= 'f')
+      return value - 'a' + 10;
+    if (value >= 'A' && value <= 'F')
+      return value - 'A' + 10;
+    return -1;
+  };
+  for (size_t index = 0; index < path.size(); ++index) {
+    if (path[index] == '%' && index + 2 < path.size()) {
+      const int high = hex_value(path[index + 1]);
+      const int low = hex_value(path[index + 2]);
+      if (high >= 0 && low >= 0) {
+        decoded_path.push_back(static_cast<char>((high << 4) | low));
+        index += 2;
+        continue;
+      }
+    }
+    decoded_path.push_back(path[index]);
+  }
+  const auto texture_path = std::filesystem::path(decoded_path);
   const auto texture_filename = texture_path.filename();
   std::vector<std::filesystem::path> candidates;
   std::unordered_set<std::string> seen;
 
-  AddTextureImportCandidate(candidates, seen, base_dir / texture_path);
-  AddTextureImportCandidate(candidates, seen, texture_path);
-  AddTextureImportCandidate(candidates, seen, base_dir / texture_filename);
-  AddTextureImportCandidate(candidates, seen, base_dir.parent_path() / texture_filename);
-  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "textures" / texture_filename);
-  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "texture" / texture_filename);
+  AddTextureImportCandidate(candidates, seen, base_dir / texture_path, include_dds_fallbacks);
+  AddTextureImportCandidate(candidates, seen, texture_path, include_dds_fallbacks);
+  AddTextureImportCandidate(candidates, seen, base_dir / texture_filename, include_dds_fallbacks);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path() / texture_filename, include_dds_fallbacks);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "textures" / texture_filename,
+                            include_dds_fallbacks);
+  AddTextureImportCandidate(candidates, seen, base_dir.parent_path().parent_path() / "texture" / texture_filename,
+                            include_dds_fallbacks);
   return candidates;
 }
 
-std::shared_ptr<Texture2D> CollectTexture(
-    const std::string& directory, const std::string& path,
-    std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures) {
+bool TexturePathNeedsYFlip(const std::filesystem::path& path) {
+  auto extension = path.extension().string();
+  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
+    return static_cast<char>(std::tolower(value));
+  });
+  return extension != ".dds";
+}
+
+std::shared_ptr<Texture2D> CollectTexture(const std::string& directory, const std::string& path,
+                                          std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures,
+                                          bool* source_needs_y_flip = nullptr) {
+  if (source_needs_y_flip) {
+    *source_needs_y_flip = false;
+  }
   for (const auto& full_path : CollectTextureImportCandidates(directory, path)) {
     if (!std::filesystem::exists(full_path)) {
       continue;
     }
     const auto full_path_string = full_path.string();
     if (const auto search = loaded_textures.find(full_path_string); search != loaded_textures.end()) {
+      if (source_needs_y_flip) {
+        *source_needs_y_flip = TexturePathNeedsYFlip(full_path);
+      }
       return search->second;
     }
 
@@ -331,6 +373,9 @@ std::shared_ptr<Texture2D> CollectTexture(
         continue;
       }
     }
+    if (source_needs_y_flip) {
+      *source_needs_y_flip = TexturePathNeedsYFlip(full_path);
+    }
     loaded_textures[full_path_string] = texture_2d;
     return texture_2d;
   }
@@ -341,63 +386,254 @@ struct ImportedGltfMaterialData {
   std::vector<AssetRef> texture_refs;
 };
 
-bool TextureUriUsesDds(const std::string& texture_uri) {
-  auto extension = std::filesystem::path(texture_uri).extension().string();
-  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
-    return static_cast<char>(std::tolower(value));
-  });
-  return extension == ".dds";
+std::string LowercaseExtension(const std::filesystem::path& path);
+
+YAML::Node evo_engine::ReadGltfRootNode(const std::filesystem::path& path) {
+  const auto extension = LowercaseExtension(path);
+  if (extension == ".gltf") {
+    std::ifstream stream(path);
+    std::stringstream json;
+    json << stream.rdbuf();
+    return YAML::Load(json.str());
+  }
+  if (extension != ".glb") {
+    return {};
+  }
+
+  std::ifstream stream(path, std::ios::binary);
+  std::vector<unsigned char> bytes(std::filesystem::file_size(path));
+  stream.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  const auto read_u32 = [&](const size_t offset) {
+    uint32_t value = 0;
+    if (offset + sizeof(value) <= bytes.size()) {
+      std::memcpy(&value, bytes.data() + offset, sizeof(value));
+    }
+    return value;
+  };
+  constexpr uint32_t glb_magic = 0x46546c67;
+  constexpr uint32_t json_chunk = 0x4e4f534a;
+  if (bytes.size() < 20 || read_u32(0) != glb_magic || read_u32(4) != 2 || read_u32(8) > bytes.size() ||
+      read_u32(16) != json_chunk || 20ull + read_u32(12) > bytes.size()) {
+    throw std::runtime_error("invalid glTF binary header or JSON chunk");
+  }
+  std::string json(reinterpret_cast<const char*>(bytes.data() + 20), read_u32(12));
+  while (!json.empty() && (json.back() == '\0' || std::isspace(static_cast<unsigned char>(json.back())))) {
+    json.pop_back();
+  }
+  return YAML::Load(json);
+}
+
+std::vector<int32_t> GltfTextureImageIndices(const YAML::Node& gltf, const int32_t texture_index) {
+  std::vector<int32_t> result;
+  const auto textures = gltf["textures"];
+  if (!textures || !textures.IsSequence() || texture_index < 0 || texture_index >= textures.size()) {
+    return result;
+  }
+  const auto texture = textures[texture_index];
+  const auto dds = texture["extensions"] && texture["extensions"]["MSFT_texture_dds"]
+                       ? texture["extensions"]["MSFT_texture_dds"]
+                       : YAML::Node{};
+  if (dds && dds["source"]) {
+    result.push_back(dds["source"].as<int32_t>());
+  }
+  if (texture["source"]) {
+    const int32_t core_source = texture["source"].as<int32_t>();
+    if (result.empty() || result.front() != core_source) {
+      result.push_back(core_source);
+    }
+  }
+  return result;
+}
+
+std::string GltfImageUri(const YAML::Node& gltf, const int32_t image_index) {
+  const auto images = gltf["images"];
+  if (!images || !images.IsSequence() || image_index < 0 || image_index >= images.size() ||
+      !images[image_index]["uri"]) {
+    return {};
+  }
+  return images[image_index]["uri"].as<std::string>();
+}
+
+const aiTexture* GltfEmbeddedTexture(const YAML::Node& gltf, const aiScene& scene, const int32_t image_index) {
+  const auto images = gltf["images"];
+  if (!images || !images.IsSequence() || image_index < 0 || image_index >= images.size()) {
+    return nullptr;
+  }
+  int32_t embedded_index = -1;
+  for (int32_t i = 0; i <= image_index; ++i) {
+    const auto image = images[i];
+    const auto uri = image["uri"] ? image["uri"].as<std::string>() : std::string{};
+    if (image["bufferView"] || uri.rfind("data:", 0) == 0) {
+      ++embedded_index;
+    }
+  }
+  return embedded_index >= 0 && embedded_index < static_cast<int32_t>(scene.mNumTextures)
+             ? scene.mTextures[embedded_index]
+             : nullptr;
+}
+
+Texture2DSamplerSettings ToTextureSamplerSettings(const GltfSamplerInfo& source) {
+  Texture2DSamplerSettings result;
+  result.mag_filter = source.mag_filter;
+  result.min_filter = source.min_filter;
+  result.mipmap_mode = source.mipmap_mode;
+  result.address_mode_u = source.address_mode_u;
+  result.address_mode_v = source.address_mode_v;
+  result.max_lod = source.max_lod;
+  return result;
+}
+
+std::shared_ptr<Texture2D> LoadEmbeddedGltfTexture(const aiTexture& source, const bool srgb,
+                                                   const Texture2DSamplerSettings& sampler) {
+  auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  texture->srgb = srgb;
+  texture->SetSamplerSettings(sampler);
+  int width = 0;
+  int height = 0;
+  int components = 0;
+  stbi_set_flip_vertically_on_load_thread(true);
+  stbi_uc* decoded = nullptr;
+  if (source.mHeight == 0 && source.pcData && source.mWidth > 0) {
+    decoded = stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(source.pcData), static_cast<int>(source.mWidth),
+                                    &width, &height, &components, STBI_rgb_alpha);
+  }
+  std::vector<glm::vec4> pixels;
+  if (decoded) {
+    pixels.resize(static_cast<size_t>(width) * height);
+    for (size_t i = 0; i < pixels.size(); ++i) {
+      pixels[i] = glm::vec4(decoded[i * 4], decoded[i * 4 + 1], decoded[i * 4 + 2], decoded[i * 4 + 3]) / 255.0f;
+    }
+    stbi_image_free(decoded);
+  } else if (source.pcData && source.mWidth > 0 && source.mHeight > 0) {
+    width = static_cast<int>(source.mWidth);
+    height = static_cast<int>(source.mHeight);
+    components = 4;
+    pixels.resize(static_cast<size_t>(width) * height);
+    for (int y = 0; y < height; ++y) {
+      for (int x = 0; x < width; ++x) {
+        const auto& texel = source.pcData[(height - 1 - y) * width + x];
+        pixels[static_cast<size_t>(y) * width + x] = glm::vec4(texel.r, texel.g, texel.b, texel.a) / 255.0f;
+      }
+    }
+  } else {
+    return {};
+  }
+  texture->SetRgbaChannelData(pixels, glm::uvec2(width, height));
+  texture->red_channel = components >= 1;
+  texture->green_channel = components >= 2;
+  texture->blue_channel = components >= 3;
+  texture->alpha_channel = components >= 4;
+  return texture;
 }
 
 std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
     const std::filesystem::path& path, const std::string& directory,
-    std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures) {
-  auto extension = path.extension().string();
-  std::transform(extension.begin(), extension.end(), extension.begin(), [](const unsigned char value) {
-    return static_cast<char>(std::tolower(value));
-  });
-  if (extension != ".gltf") {
+    std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures, const aiScene& scene,
+    bool* parsed_gltf = nullptr) {
+  if (parsed_gltf) {
+    *parsed_gltf = false;
+  }
+  const auto extension = LowercaseExtension(path);
+  if (extension != ".gltf" && extension != ".glb") {
     return {};
   }
 
   try {
-    std::ifstream stream(path.string());
-    std::stringstream string_stream;
-    string_stream << stream.rdbuf();
-    const auto gltf = YAML::Load(string_stream.str());
-    std::unordered_map<int32_t, std::string> resolved_texture_uris;
-    std::unordered_map<int32_t, int32_t> resolved_texture_indices;
+    const auto gltf = ReadGltfRootNode(path);
+    std::unordered_map<uint64_t, int32_t> resolved_texture_indices;
+    std::unordered_map<uint64_t, bool> resolved_texture_source_needs_y_flip;
     std::unordered_map<int32_t, std::shared_ptr<Texture2D>> resolved_textures_by_storage_index;
-    const auto resolve_texture_uri = [&](const int32_t texture_index) {
-      if (const auto search = resolved_texture_uris.find(texture_index); search != resolved_texture_uris.end()) {
-        return search->second;
-      }
-      const auto texture_uri = ResolveGltfTextureUri(gltf, texture_index);
-      resolved_texture_uris[texture_index] = texture_uri;
-      return texture_uri;
+    const auto cache_key = [](const int32_t texture_index, const bool srgb) {
+      return (static_cast<uint64_t>(static_cast<uint32_t>(texture_index)) << 1u) | static_cast<uint64_t>(srgb);
+    };
+    const auto report_error = [&](const std::string& message) {
+      EVOENGINE_ERROR(message)
     };
     auto material_data = BuildGltfMaterialDataFromGltfNode(
         gltf,
-        [&](const int32_t texture_index) {
+        [&](const int32_t texture_index, const bool srgb) {
           if (texture_index < 0) {
             return -1;
           }
-          if (const auto search = resolved_texture_indices.find(texture_index);
-              search != resolved_texture_indices.end()) {
+          const auto key = cache_key(texture_index, srgb);
+          if (const auto search = resolved_texture_indices.find(key); search != resolved_texture_indices.end()) {
             return search->second;
           }
-          const auto texture_uri = resolve_texture_uri(texture_index);
-          const auto texture = texture_uri.empty() ? nullptr : CollectTexture(directory, texture_uri, loaded_textures);
+
+          const auto sampler = ToTextureSamplerSettings(ReadGltfSamplerInfo(gltf, texture_index, report_error));
+          std::shared_ptr<Texture2D> texture;
+          bool source_needs_y_flip = false;
+          for (const int32_t image_index : GltfTextureImageIndices(gltf, texture_index)) {
+            if (const auto embedded = GltfEmbeddedTexture(gltf, scene, image_index)) {
+              texture = LoadEmbeddedGltfTexture(*embedded, srgb, sampler);
+              source_needs_y_flip = texture != nullptr;
+            } else if (const auto texture_uri = GltfImageUri(gltf, image_index); !texture_uri.empty()) {
+              for (const auto& full_path : CollectTextureImportCandidates(directory, texture_uri, false)) {
+                if (!std::filesystem::exists(full_path)) {
+                  continue;
+                }
+                if (!Platform::Initialized() && LowercaseExtension(full_path) == ".dds") {
+                  continue;
+                }
+                std::shared_ptr<Texture2D> candidate;
+                bool shared_project_image = false;
+                if (ProjectManager::IsInAssetsFolder(full_path)) {
+                  try {
+                    const auto source = std::dynamic_pointer_cast<Texture2D>(
+                        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
+                    auto shared_view = AssetManager::CreateTemporaryAsset<Texture2D>();
+                    if (source && shared_view->ShareGpuImage(*source, srgb, sampler)) {
+                      candidate = std::move(shared_view);
+                      shared_project_image = true;
+                    }
+                  } catch (const std::exception& e) {
+                    EVOENGINE_WARNING("Unable to reuse project texture " + full_path.filename().string() + ": " +
+                                      e.what())
+                  }
+                }
+                if (!candidate) {
+                  candidate = AssetManager::CreateTemporaryAsset<Texture2D>();
+                  candidate->SetSrgbImportOverride(srgb);
+                  candidate->SetSamplerSettings(sampler);
+                }
+                if (shared_project_image || Serialization::LoadAsset(*candidate, full_path)) {
+                  texture = std::move(candidate);
+                  source_needs_y_flip = TexturePathNeedsYFlip(full_path);
+                  loaded_textures[full_path.string() + "#gltf-" + std::to_string(texture_index) +
+                                  (srgb ? "-srgb" : "-linear")] = texture;
+                  break;
+                }
+              }
+            }
+            if (texture) {
+              break;
+            }
+          }
+          if (!texture) {
+            report_error("glTF texture " + std::to_string(texture_index) + " could not be decoded; disabling binding.");
+          }
           const int32_t storage_index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
-          resolved_texture_indices[texture_index] = storage_index;
+          resolved_texture_indices[key] = storage_index;
+          resolved_texture_source_needs_y_flip[key] = source_needs_y_flip;
           if (texture && storage_index >= 0) {
             resolved_textures_by_storage_index[storage_index] = texture;
           }
           return storage_index;
         },
-        [&](const int32_t texture_index) {
-          return texture_index >= 0 && TextureUriUsesDds(resolve_texture_uri(texture_index));
-        });
+        [&](const int32_t texture_index, const bool srgb) {
+          const auto resolved = resolved_texture_source_needs_y_flip.find(cache_key(texture_index, srgb));
+          return resolved != resolved_texture_source_needs_y_flip.end() && resolved->second;
+        },
+        [&](const int32_t texture_index, const bool srgb) {
+          const auto resolved_index = resolved_texture_indices.find(cache_key(texture_index, srgb));
+          if (resolved_index == resolved_texture_indices.end()) {
+            return false;
+          }
+          const auto resolved_texture = resolved_textures_by_storage_index.find(resolved_index->second);
+          return resolved_texture != resolved_textures_by_storage_index.end() && resolved_texture->second &&
+                 resolved_texture->second->SamplesLinearSrgb();
+        },
+        report_error);
     std::vector<ImportedGltfMaterialData> result;
     result.reserve(material_data.size());
     for (auto& data : material_data) {
@@ -412,6 +648,9 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
         }
       }
       result.emplace_back(std::move(imported));
+    }
+    if (parsed_gltf) {
+      *parsed_gltf = true;
     }
     return result;
   } catch (const std::exception& e) {
@@ -617,7 +856,83 @@ auto ReadMaterial(const std::string& directory,
 
 float ImportedTangentHandedness(const aiMesh* mesh, int vertex_index);
 
-std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
+std::pair<std::vector<MorphTarget>, std::vector<float>> ReadImportedMorphTargets(const aiMesh* mesh) {
+  std::vector<MorphTarget> targets;
+  std::vector<float> weights;
+  if (!mesh) {
+    return {targets, weights};
+  }
+  targets.reserve(mesh->mNumAnimMeshes);
+  weights.reserve(mesh->mNumAnimMeshes);
+  const auto cast = [](const aiVector3D& value) {
+    return glm::vec3(value.x, value.y, value.z);
+  };
+  for (uint32_t target_index = 0; target_index < mesh->mNumAnimMeshes; target_index++) {
+    const auto* source = mesh->mAnimMeshes[target_index];
+    if (!source || source->mNumVertices != mesh->mNumVertices) {
+      continue;
+    }
+    MorphTarget target;
+    target.name = source->mName.length == 0 ? "target_" + std::to_string(target_index) : source->mName.C_Str();
+    const auto read_deltas = [&](std::vector<glm::vec3>& deltas, const aiVector3D* values,
+                                 const aiVector3D* base_values) {
+      if (!values || !base_values) {
+        return;
+      }
+      deltas.resize(mesh->mNumVertices);
+      for (uint32_t vertex_index = 0; vertex_index < mesh->mNumVertices; vertex_index++) {
+        deltas[vertex_index] = cast(values[vertex_index]) - cast(base_values[vertex_index]);
+      }
+    };
+    read_deltas(target.position_deltas, source->mVertices, mesh->mVertices);
+    read_deltas(target.normal_deltas, source->mNormals, mesh->mNormals);
+    read_deltas(target.tangent_deltas, source->mTangents, mesh->mTangents);
+    targets.emplace_back(std::move(target));
+    weights.emplace_back(source->mWeight);
+  }
+  return {std::move(targets), std::move(weights)};
+}
+
+template <typename VertexType>
+std::vector<VertexType> RemapMorphBaseVertices(const std::vector<VertexType>& source_vertices,
+                                               const std::vector<uint32_t>& source_vertex_indices,
+                                               const std::vector<MorphTarget>& morph_targets,
+                                               const std::vector<VertexType>& evaluated_vertices) {
+  auto result = evaluated_vertices;
+  const auto has_stream = [&](const auto stream) {
+    return std::any_of(morph_targets.begin(), morph_targets.end(), [&](const MorphTarget& target) {
+      return !(target.*stream).empty();
+    });
+  };
+  const bool positions = has_stream(&MorphTarget::position_deltas);
+  const bool normals = has_stream(&MorphTarget::normal_deltas);
+  const bool tangents = has_stream(&MorphTarget::tangent_deltas);
+  for (size_t index = 0; index < result.size(); index++) {
+    const auto& source = source_vertices.at(source_vertex_indices.at(index));
+    if (positions) {
+      result[index].position = source.position;
+    }
+    if (normals) {
+      result[index].normal = source.normal;
+    }
+    if (tangents) {
+      result[index].tangent = source.tangent;
+    }
+  }
+  return result;
+}
+
+glm::vec2 ReadImportedTexCoord(const aiMesh* mesh, const int channel, const int vertex_index,
+                               const bool restore_gltf_coordinates) {
+  glm::vec2 tex_coord(mesh->mTextureCoords[channel][vertex_index].x, mesh->mTextureCoords[channel][vertex_index].y);
+  if (restore_gltf_coordinates) {
+    tex_coord.y = 1.0f - tex_coord.y;
+  }
+  return tex_coord;
+}
+
+std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_coordinates,
+                               const int tangent_tex_coord) {
   VertexAttributes attributes;
   std::vector<Vertex> vertices;
   std::vector<unsigned> indices;
@@ -654,25 +969,45 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
       attributes.tangent = false;
     }
     if (importer_mesh->HasVertexColors(0)) {
-      v3.x = importer_mesh->mColors[0][i].r;
-      v3.y = importer_mesh->mColors[0][i].g;
-      v3.z = importer_mesh->mColors[0][i].b;
-      vertex.color = glm::vec4(v3, 1.0f);
+      const auto& color = importer_mesh->mColors[0][i];
+      vertex.color = glm::vec4(color.r, color.g, color.b, color.a);
+      if (restore_gltf_coordinates) {
+        vertex.color = glm::clamp(vertex.color, glm::vec4(0.0f), glm::vec4(1.0f));
+      }
       attributes.color = true;
     } else {
       attributes.color = false;
     }
     if (importer_mesh->HasTextureCoords(0)) {
-      glm::vec2 v2;
-      v2.x = importer_mesh->mTextureCoords[0][i].x;
-      v2.y = importer_mesh->mTextureCoords[0][i].y;
-      vertex.tex_coord = v2;
+      vertex.tex_coord = ReadImportedTexCoord(importer_mesh, 0, i, restore_gltf_coordinates);
       attributes.tex_coord = true;
     } else {
       vertex.tex_coord = glm::vec2(0.0f, 0.0f);
       attributes.tex_coord = false;
     }
+    if (importer_mesh->HasTextureCoords(1)) {
+      vertex.tex_coord_1 = ReadImportedTexCoord(importer_mesh, 1, i, restore_gltf_coordinates);
+      attributes.tex_coord_1 = true;
+    } else {
+      vertex.tex_coord_1 = glm::vec2(0.0f);
+      attributes.tex_coord_1 = false;
+    }
+    if (importer_mesh->HasTextureCoords(2)) {
+      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
+      attributes.tex_coord_2 = true;
+    }
+    if (importer_mesh->HasTextureCoords(3)) {
+      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
+      attributes.tex_coord_3 = true;
+    }
     vertices[i] = vertex;
+  }
+  auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
+                                                    ? ReadImportedMorphTargets(importer_mesh)
+                                                    : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
+  const auto morph_base_vertices = vertices;
+  if (!morph_targets.empty()) {
+    vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
   }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
@@ -683,12 +1018,20 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh) {
       indices.push_back(importer_mesh->mFaces[i].mIndices[j]);
   }
   auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  mesh->SetVertices(attributes, vertices, indices);
+  std::vector<uint32_t> source_vertex_indices;
+  mesh->SetVertices(attributes, vertices, indices, tangent_tex_coord, &source_vertex_indices);
+  if (!morph_targets.empty()) {
+    RemapMorphTargets(morph_targets, source_vertex_indices);
+    auto remapped_base =
+        RemapMorphBaseVertices(morph_base_vertices, source_vertex_indices, morph_targets, mesh->PeekVertices());
+    mesh->SetMorphTargets(std::move(morph_targets), std::move(default_morph_weights), std::move(remapped_base));
+  }
   return mesh;
 }
 std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
-    std::unordered_map<std::string, std::shared_ptr<Bone>>& bones_map, aiMesh* importer_mesh) {
+    std::unordered_map<std::string, std::shared_ptr<Bone>>& bones_map, aiMesh* importer_mesh,
+    const bool restore_gltf_coordinates, const int tangent_tex_coord) {
   SkinnedVertexAttributes skinned_vertex_attributes{};
   std::vector<SkinnedVertex> vertices;
   std::vector<unsigned> indices;
@@ -721,23 +1064,43 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
       skinned_vertex_attributes.tangent = true;
     }
     if (importer_mesh->HasVertexColors(0)) {
-      v3.x = importer_mesh->mColors[0][i].r;
-      v3.y = importer_mesh->mColors[0][i].g;
-      v3.z = importer_mesh->mColors[0][i].b;
-      vertex.color = glm::vec4(v3, 1.0f);
+      const auto& color = importer_mesh->mColors[0][i];
+      vertex.color = glm::vec4(color.r, color.g, color.b, color.a);
+      if (restore_gltf_coordinates) {
+        vertex.color = glm::clamp(vertex.color, glm::vec4(0.0f), glm::vec4(1.0f));
+      }
       skinned_vertex_attributes.color = true;
     }
-    glm::vec2 v2;
     if (importer_mesh->HasTextureCoords(0)) {
-      v2.x = importer_mesh->mTextureCoords[0][i].x;
-      v2.y = importer_mesh->mTextureCoords[0][i].y;
-      vertex.tex_coord = v2;
+      vertex.tex_coord = ReadImportedTexCoord(importer_mesh, 0, i, restore_gltf_coordinates);
       skinned_vertex_attributes.tex_coord = true;
     } else {
       vertex.tex_coord = glm::vec2(0.0f, 0.0f);
       skinned_vertex_attributes.tex_coord = false;
     }
+    if (importer_mesh->HasTextureCoords(1)) {
+      vertex.tex_coord_1 = ReadImportedTexCoord(importer_mesh, 1, i, restore_gltf_coordinates);
+      skinned_vertex_attributes.tex_coord_1 = true;
+    } else {
+      vertex.tex_coord_1 = glm::vec2(0.0f);
+      skinned_vertex_attributes.tex_coord_1 = false;
+    }
+    if (importer_mesh->HasTextureCoords(2)) {
+      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
+      skinned_vertex_attributes.tex_coord_2 = true;
+    }
+    if (importer_mesh->HasTextureCoords(3)) {
+      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
+      skinned_vertex_attributes.tex_coord_3 = true;
+    }
     vertices[i] = vertex;
+  }
+  auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
+                                                    ? ReadImportedMorphTargets(importer_mesh)
+                                                    : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
+  const auto morph_base_vertices = vertices;
+  if (!morph_targets.empty()) {
+    vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
   }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
@@ -815,7 +1178,14 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     vertices[i].weight2 = weights;
   }
 #pragma endregion
-  skinned_mesh->SetVertices(skinned_vertex_attributes, vertices, indices);
+  std::vector<uint32_t> source_vertex_indices;
+  skinned_mesh->SetVertices(skinned_vertex_attributes, vertices, indices, tangent_tex_coord, &source_vertex_indices);
+  if (!morph_targets.empty()) {
+    RemapMorphTargets(morph_targets, source_vertex_indices);
+    auto remapped_base = RemapMorphBaseVertices(morph_base_vertices, source_vertex_indices, morph_targets,
+                                                skinned_mesh->PeekSkinnedVertices());
+    skinned_mesh->SetMorphTargets(std::move(morph_targets), std::move(default_morph_weights), std::move(remapped_base));
+  }
   return skinned_mesh;
 }
 
@@ -1017,7 +1387,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
                  std::unordered_map<unsigned, std::shared_ptr<Material>>& loaded_materials,
                  std::unordered_map<std::string, std::shared_ptr<Texture2D>>& texture_2ds_loaded,
                  std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>& opacity_maps,
-                 const std::vector<ImportedGltfMaterialData>& gltf_material_data,
+                 const std::vector<ImportedGltfMaterialData>& gltf_material_data, const bool restore_gltf_coordinates,
                  const std::unordered_map<std::string, const aiLight*>& imported_lights,
                  ImportedPunctualLightStats& imported_light_stats,
                  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
@@ -1038,14 +1408,21 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     child_node->instance_name = std::string(importer_mesh->mName.C_Str());
     const auto search = loaded_materials.find(importer_mesh->mMaterialIndex);
     const bool is_skinned_mesh = importer_mesh->mNumBones != 0xffffffff && importer_mesh->mBones;
+    const auto imported_material_data = importer_mesh->mMaterialIndex < gltf_material_data.size()
+                                            ? &gltf_material_data[importer_mesh->mMaterialIndex]
+                                            : nullptr;
+    int tangent_tex_coord = 0;
+    if (imported_material_data) {
+      const auto normal_texture = imported_material_data->material_data.shade_material.normal_texture;
+      if (normal_texture < imported_material_data->material_data.texture_infos.size()) {
+        tangent_tex_coord = imported_material_data->material_data.texture_infos[normal_texture].tex_coord;
+      }
+    }
     std::shared_ptr<Material> material;
     if (search == loaded_materials.end()) {
       const aiMaterial* importer_material = nullptr;
       if (importer_mesh->mMaterialIndex != 0xffffffff && importer_mesh->mMaterialIndex < importer_scene->mNumMaterials)
         importer_material = importer_scene->mMaterials[importer_mesh->mMaterialIndex];
-      const auto imported_material_data = importer_mesh->mMaterialIndex < gltf_material_data.size()
-                                              ? &gltf_material_data[importer_mesh->mMaterialIndex]
-                                              : nullptr;
       material = ReadMaterial(directory, texture_2ds_loaded, opacity_maps, importer_material, imported_material_data);
       loaded_materials[importer_mesh->mMaterialIndex] = material;
     } else {
@@ -1055,7 +1432,8 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     if (is_skinned_mesh) {
       auto skinned_mesh_renderer = Serialization::ProduceSerializable<SkinnedMeshRenderer>();
       skinned_mesh_renderer->material.Set<Material>(material);
-      skinned_mesh_renderer->skinned_mesh.Set<SkinnedMesh>(ReadSkinnedMesh(bones_lists, bones_map, importer_mesh));
+      skinned_mesh_renderer->skinned_mesh.Set<SkinnedMesh>(
+          ReadSkinnedMesh(bones_lists, bones_map, importer_mesh, restore_gltf_coordinates, tangent_tex_coord));
       if (!skinned_mesh_renderer->skinned_mesh.Get())
         continue;
       added_mesh_renderer = true;
@@ -1066,7 +1444,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     } else {
       auto mesh_renderer = Serialization::ProduceSerializable<MeshRenderer>();
       mesh_renderer->material.Set<Material>(material);
-      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh));
+      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh, restore_gltf_coordinates, tangent_tex_coord));
       if (!mesh_renderer->mesh.Get())
         continue;
       added_mesh_renderer = true;
@@ -1093,8 +1471,8 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     child_assimp_node->parent_node = assimp_node;
     const bool child_add =
         ProcessNode(directory, child_node.get(), loaded_materials, texture_2ds_loaded, opacity_maps, gltf_material_data,
-                    imported_lights, imported_light_stats, bones_lists, bones_map, importer_node->mChildren[i],
-                    child_assimp_node, importer_scene, animation);
+                    restore_gltf_coordinates, imported_lights, imported_light_stats, bones_lists, bones_map,
+                    importer_node->mChildren[i], child_assimp_node, importer_scene, animation);
     if (child_add) {
       model_node->child_prefabs.push_back(std::move(child_node));
     }
@@ -1142,20 +1520,20 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>> opacity_maps;
   std::unordered_map<std::string, std::shared_ptr<Bone>> bones_map;
   std::shared_ptr<Animation> animation;
-  if (!bones_map.empty() || scene.HasAnimations()) {
-    animation = AssetManager::CreateTemporaryAsset<Animation>();
-  }
   std::shared_ptr<AssimpImportNode> root_assimp_node = std::make_shared<AssimpImportNode>(scene.mRootNode);
 
   std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>> bones_lists;
   const auto process_nodes_start = PrefabImportClock::now();
   std::unordered_map<std::string, std::shared_ptr<Texture2D>> loaded_textures;
-  const auto gltf_material_data = ReadGltfMaterialData(path, directory, loaded_textures);
+  bool parsed_gltf = false;
+  const auto gltf_material_data = ReadGltfMaterialData(path, directory, loaded_textures, scene, &parsed_gltf);
+  const auto extension = LowercaseExtension(path);
+  const bool restore_gltf_coordinates = (extension == ".gltf" || extension == ".glb") && parsed_gltf;
   const auto imported_lights = BuildImportedLightMap(scene);
   ImportedPunctualLightStats imported_light_stats;
   if (!ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, gltf_material_data,
-                   imported_lights, imported_light_stats, bones_lists, bones_map, scene.mRootNode, root_assimp_node,
-                   &scene, animation)) {
+                   restore_gltf_coordinates, imported_lights, imported_light_stats, bones_lists, bones_map,
+                   scene.mRootNode, root_assimp_node, &scene, animation)) {
     EVOENGINE_ERROR("Model is empty!")
     return false;
   }
@@ -1202,8 +1580,9 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   }
   LogPrefabImportPhaseDuration(path, "Relink materials", material_relink_start);
 
-  if (!bones_map.empty() || scene.HasAnimations()) {
+  if (!bones_map.empty()) {
     const auto animation_start = PrefabImportClock::now();
+    animation = AssetManager::CreateTemporaryAsset<Animation>();
     root_assimp_node->NecessaryWalker(bones_map);
     size_t index = 0;
     root_assimp_node->AttachToAnimator(animation, index);
@@ -1219,6 +1598,8 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
     holder.private_component = std::static_pointer_cast<IPrivateComponent>(animator);
     private_components.push_back(holder);
     LogPrefabImportPhaseDuration(path, "Build animation", animation_start);
+  } else if (scene.HasAnimations()) {
+    EVOENGINE_WARNING("Skipped non-skeletal animation channels while importing " + path.filename().string())
   }
   const auto gather_assets_start = PrefabImportClock::now();
   GatherAssets();
@@ -1387,7 +1768,11 @@ std::shared_ptr<StagedAssetLoadPayload> Prefab::LoadStagedPayloadInternal(const 
   if (!IsNativePrefabPath(path)) {
     payload->kind = PrefabStagedLoadPayload::Kind::ModelImport;
     payload->importer = std::make_unique<Assimp::Importer>();
-    const auto flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals;
+    auto flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals;
+    const auto extension = LowercaseExtension(path);
+    if (extension == ".gltf" || extension == ".glb") {
+      flags &= ~aiProcess_CalcTangentSpace;
+    }
     payload->scene = payload->importer->ReadFile(path.string(), flags);
     if (!payload->scene || payload->scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !payload->scene->mRootNode) {
       EVOENGINE_LOG("Assimp: " + std::string(payload->importer->GetErrorString()))
@@ -1472,6 +1857,10 @@ void Prefab::SetPrefabEnabled(const bool value) {
 
 bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags) {
   flags = flags | aiProcess_Triangulate;
+  const auto extension = LowercaseExtension(path);
+  if (extension == ".gltf" || extension == ".glb") {
+    flags &= ~aiProcess_CalcTangentSpace;
+  }
   if (optimize) {
     flags = flags | aiProcess_OptimizeGraph | aiProcess_OptimizeMeshes;
   }
