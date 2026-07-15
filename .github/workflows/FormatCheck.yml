@@ -10,4 +10,4 @@ jobs:
       uses: jidicula/clang-format-action@v4.14.0
       with:
         clang-format-version: '19'
-        exclude-regex: '(Extern|Internals|ImGui|NSight|Nsight|imnode|Cuda|cuda|CUDA|PhysX|rapidcsv|dirent|Tinyply)'
+        exclude-regex: '(Extern|Internals|ThirdParty|ImGui|NSight|Nsight|imnode|Cuda|cuda|CUDA|PhysX|rapidcsv|dirent|Tinyply)'
