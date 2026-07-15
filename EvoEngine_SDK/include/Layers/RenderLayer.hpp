@@ -492,6 +492,7 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_material_per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
+  std::shared_ptr<DescriptorSetLayout> strand_meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_layout_;
   std::shared_ptr<DescriptorSetLayout> ray_tracing_camera_output_layout_;
@@ -705,6 +706,7 @@ class RenderLayer final : public ILayer {
   std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
   mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
+  std::vector<std::shared_ptr<DescriptorSet>> strand_meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> ray_tracing_descriptor_sets_ = {};
   std::vector<std::shared_ptr<Buffer>> kernel_descriptor_buffers_ = {};
 

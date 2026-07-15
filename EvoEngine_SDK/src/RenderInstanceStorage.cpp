@@ -551,8 +551,12 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
 uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
     const VkCommandBuffer vk_command_buffer, const RenderInstancePushConstant& render_instance_push_constant,
     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const {
+  if (!graphics_pipeline->mesh_shader) {
+    return 0;
+  }
   graphics_pipeline->PushConstant(vk_command_buffer, 0, render_instance_push_constant);
-  strands->DrawIndexed(vk_command_buffer, graphics_pipeline->states, 1);
+  graphics_pipeline->states.ApplyAllStates(vk_command_buffer);
+  graphics_pipeline->DrawMeshTasks(vk_command_buffer, strands->strand_meshlet_range_->prev_frame_range);
   return strands->segment_range_->prev_frame_index_count;
 }
 
@@ -1790,6 +1794,7 @@ void RenderInstanceStorage::Clear() {
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
+  total_strand_meshlets = 0;
   total_gaussian_splats = 0;
 
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
@@ -2311,11 +2316,9 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                                            glm::vec3& min_bound, glm::vec3& max_bound) {
   auto material = strands_renderer->material.Get<Material>();
   auto strands = strands_renderer->strands.Get<Strands>();
-  if (!strands_renderer->IsEnabled() || !material || !strands || !strands->strand_meshlet_range_ ||
-      !strands->segment_range_)
+  if (!strands_renderer->IsEnabled() || !material || !strands) {
     return false;
-  if (strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0)
-    return false;
+  }
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
   auto mesh_bound = strands->bound_;
@@ -2327,6 +2330,11 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                         (glm::min)(min_bound.z, center.z - size.z));
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
+
+  if (!Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_ || !strands->segment_range_ ||
+      strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0) {
+    return false;
+  }
 
   const auto material_data = BuildMaterialGltfData(*material);
 
@@ -2355,6 +2363,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   }
 
   total_strands_segments += strands->segment_range_->prev_frame_index_count;
+  total_strand_meshlets += strands->strand_meshlet_range_->prev_frame_range;
   return true;
 }
 

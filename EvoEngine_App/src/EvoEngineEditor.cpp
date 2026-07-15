@@ -17,6 +17,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "Shader.hpp"
+#include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
 #include "WindowLayer.hpp"
@@ -94,6 +95,7 @@ struct EditorCommandLine {
   std::optional<int> preview_shadow_debug_light;
   std::optional<int> preview_shadow_light_count;
   bool preview_shadow_caster_fixture = false;
+  bool preview_strand_fixture = false;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   bool preview_capture_m10_ray_transport = false;
@@ -543,6 +545,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_shadow_light_count = count;
     } else if (argument == "--preview-shadow-caster-fixture") {
       command_line.preview_shadow_caster_fixture = true;
+    } else if (argument == "--preview-strand-fixture") {
+      command_line.preview_strand_fixture = true;
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -636,6 +640,15 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
        command_line.preview_shadow_caster_fixture) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("Preview shadow controls require --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_fixture && command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_fixture && command_line.preview_shadow_caster_fixture) {
+    throw std::invalid_argument("--preview-strand-fixture cannot be combined with --preview-shadow-caster-fixture.");
   }
   if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
        command_line.preview_shadow_distance_fade) &&
@@ -1196,15 +1209,64 @@ nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawStats& stats)
             {"external", caster_draws(DirectionalShadowCasterKind::External)}}}};
 }
 
-nlohmann::ordered_json DirectionalShadowDrawStatsJson() {
+nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawBucket bucket) {
   RenderPassDrawStats result{};
-  const auto bucket = static_cast<size_t>(RenderPassDrawBucket::DirectionalLightShadow);
+  const auto bucket_index = static_cast<size_t>(bucket);
   for (const auto& frame_stats : Platform::GetInstance().render_pass_draw_stats) {
-    if (frame_stats[bucket].TotalDrawCalls() > result.TotalDrawCalls()) {
-      result = frame_stats[bucket];
+    if (frame_stats[bucket_index].TotalDrawCalls() > result.TotalDrawCalls()) {
+      result = frame_stats[bucket_index];
     }
   }
   return RenderPassDrawStatsJson(result);
+}
+
+nlohmann::ordered_json DirectionalShadowDrawStatsJson() {
+  return RenderPassDrawStatsJson(RenderPassDrawBucket::DirectionalLightShadow);
+}
+
+nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLayer>& render_layer,
+                                                  const std::shared_ptr<Scene>& scene) {
+  size_t renderer_count = 0;
+  size_t cast_shadow_count = 0;
+  size_t configured_segment_count = 0;
+  auto geometry_versions = nlohmann::ordered_json::array();
+  const auto render_instances = render_layer ? render_layer->GetCurrentRenderInstanceStorage() : nullptr;
+  if (scene) {
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<StrandsRenderer>()) {
+      for (const auto& owner : *owners) {
+        const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(owner).lock();
+        const auto strands = renderer ? renderer->strands.Get<Strands>() : nullptr;
+        if (!renderer || !renderer->IsEnabled() || !strands) {
+          continue;
+        }
+        ++renderer_count;
+        cast_shadow_count += renderer->cast_shadow ? 1 : 0;
+        configured_segment_count += strands->GetSegmentAmount();
+        geometry_versions.push_back(strands->GetVersion());
+      }
+    }
+  }
+  bool geometry_updated = renderer_count == 2;
+  bool has_reuploaded_geometry = false;
+  for (const auto& version : geometry_versions) {
+    const auto value = version.get<uint32_t>();
+    geometry_updated &= value >= 1;
+    has_reuploaded_geometry |= value >= 2;
+  }
+  geometry_updated &= has_reuploaded_geometry;
+  const auto registered_renderer_count =
+      render_instances && render_instances->total_strands_segments == configured_segment_count ? renderer_count : 0;
+  return {{"mesh_shader_supported", Platform::MeshShaderEnabled()},
+          {"mesh_shader_enabled", Platform::MeshShaderEnabled() && render_layer && render_layer->enable_meshlet},
+          {"registered_renderer_count", registered_renderer_count},
+          {"cast_shadow_true_count", cast_shadow_count},
+          {"cast_shadow_false_count", renderer_count - cast_shadow_count},
+          {"segment_count", render_instances ? render_instances->total_strands_segments : 0},
+          {"meshlet_count", render_instances ? render_instances->total_strand_meshlets : 0},
+          {"geometry_versions", std::move(geometry_versions)},
+          {"geometry_updated", geometry_updated},
+          {"geometry_uploads_pending", GeometryStorage::HasPendingMeshUploads()},
+          {"deferred_draws", RenderPassDrawStatsJson(RenderPassDrawBucket::DeferredGeometry)}};
 }
 
 void ConfigureDirectionalShadowLightCount(const std::shared_ptr<Scene>& scene, const int light_count) {
@@ -1719,14 +1781,20 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
     const std::optional<int>& preview_shadow_light_count, const bool preview_shadow_caster_fixture,
-    const bool deterministic_capture, const bool preview_bistro_ddgi, const bool preview_m10_ray_transport,
-    const bool preview_post_processing_stress) {
+    const bool preview_strand_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi,
+    const bool preview_m10_ray_transport, const bool preview_post_processing_stress) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
+  if (preview_strand_fixture) {
+    if (!Platform::MeshShaderEnabled()) {
+      throw std::runtime_error("Strand validation requires mesh-shader support.");
+    }
+    ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
+  }
   if (preview_m10_ray_transport) {
     ConfigureM10RayTransportValidation(ApplicationContext::Get().GetActiveScene());
   }
@@ -1748,7 +1816,13 @@ void CaptureDemoPreview(
   if (!scene_camera) {
     throw std::runtime_error("Demo preview capture requires a scene camera.");
   }
-  ApplyPreviewCameraOverride(editor_layer, preview_camera_position, preview_camera_look_at);
+  auto resolved_camera_position = preview_camera_position;
+  auto resolved_camera_look_at = preview_camera_look_at;
+  if (preview_strand_fixture && !resolved_camera_position) {
+    resolved_camera_position = glm::vec3(0.0f, 0.45f, 4.5f);
+    resolved_camera_look_at = glm::vec3(0.0f, 0.0f, -2.5f);
+  }
+  ApplyPreviewCameraOverride(editor_layer, resolved_camera_position, resolved_camera_look_at);
   if (preview_render_mode) {
     scene_camera->camera_render_mode = *preview_render_mode;
     scene_camera->ResetFrameCount();
@@ -1903,6 +1977,12 @@ void CaptureDemoPreview(
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (preview_strand_fixture) {
+    if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
+      throw std::runtime_error("Strand validation requires the raster RenderLayer path.");
+    }
+    render_layer->enable_meshlet = true;
+  }
   std::shared_ptr<GraphicsPipeline> external_shadow_pipeline;
   std::shared_ptr<Mesh> external_shadow_mesh;
   glm::mat4 external_shadow_model(1.0f);
@@ -1972,6 +2052,10 @@ void CaptureDemoPreview(
   }
   scene_camera->Resize(preview_resolution);
   WaitForDemoPreviewSceneInputsReady();
+  if (preview_strand_fixture) {
+    UpdateStrandMeshShaderValidationGeometry(ApplicationContext::Get().GetActiveScene());
+    WaitForDemoPreviewSceneInputsReady();
+  }
   if (preview_shadow_caster_fixture) {
     if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
       throw std::runtime_error("CSM caster validation requires the raster RenderLayer path.");
@@ -2177,6 +2261,10 @@ void CaptureDemoPreview(
   metrics["auto_spp_enabled"] = scene_camera->camera_settings.auto_spp_enabled;
   metrics["m10_ray_transport"] = preview_m10_ray_transport;
   metrics["csm_caster_fixture"] = preview_shadow_caster_fixture;
+  metrics["strand_fixture"] = preview_strand_fixture;
+  metrics["strand_validation"] =
+      preview_strand_fixture ? StrandFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene())
+                             : nullptr;
   metrics["post_processing_stress"] = post_processing_stress;
   if (preview_m10_ray_transport) {
     metrics["m10_fixture_version"] = "isolated-v2";
@@ -2186,11 +2274,11 @@ void CaptureDemoPreview(
   metrics["temporal_motion_capture"] = temporal_motion_capture;
   metrics["camera_position_override"] = nullptr;
   metrics["camera_look_at_override"] = nullptr;
-  if (preview_camera_position && preview_camera_look_at) {
-    metrics["camera_position_override"] = {preview_camera_position->x, preview_camera_position->y,
-                                           preview_camera_position->z};
-    metrics["camera_look_at_override"] = {preview_camera_look_at->x, preview_camera_look_at->y,
-                                          preview_camera_look_at->z};
+  if (resolved_camera_position && resolved_camera_look_at) {
+    metrics["camera_position_override"] = {resolved_camera_position->x, resolved_camera_position->y,
+                                           resolved_camera_position->z};
+    metrics["camera_look_at_override"] = {resolved_camera_look_at->x, resolved_camera_look_at->y,
+                                          resolved_camera_look_at->z};
   }
   const auto camera_position = editor_layer->GetSceneCameraPosition();
   const auto camera_front = editor_layer->GetSceneCameraRotation() * glm::vec3(0.0f, 0.0f, -1.0f);
@@ -2483,8 +2571,9 @@ int main(const int argc, char** argv) {
               command_line.preview_shadow_pcf_samples, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
               command_line.preview_shadow_light_count, command_line.preview_shadow_caster_fixture,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
-              command_line.preview_capture_m10_ray_transport, command_line.preview_post_processing_stress);
+              command_line.preview_strand_fixture, command_line.preview_capture_deterministic,
+              command_line.preview_capture_bistro_ddgi, command_line.preview_capture_m10_ray_transport,
+              command_line.preview_post_processing_stress);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

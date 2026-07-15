@@ -1499,6 +1499,13 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
     meshlet_layout_->Initialize();
   }
+  if (Platform::MeshShaderEnabled() && !strand_meshlet_layout_) {
+    strand_meshlet_layout_ = std::make_shared<DescriptorSetLayout>();
+    constexpr VkShaderStageFlags strand_mesh_stages = VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+    strand_meshlet_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, strand_mesh_stages, 0);
+    strand_meshlet_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, strand_mesh_stages, 0);
+    strand_meshlet_layout_->Initialize();
+  }
   if (!lighting_layout_) {
     lighting_layout_ = std::make_shared<DescriptorSetLayout>();
     lighting_layout_->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
@@ -2282,30 +2289,22 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     transparent_motion_vectors_pipeline_->Initialize();
   }
-#ifdef EVOENGINE_WINDOWS
-  if (!strands_deferred_prepass_pipeline) {
+  if (Platform::MeshShaderEnabled() && !strands_deferred_prepass_pipeline) {
     strands_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardStrands.vert");
-    strands_deferred_prepass_pipeline->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Standard/StandardStrands.tesc");
-    strands_deferred_prepass_pipeline->tessellation_evaluation_shader = Shader::CreateTemporary(
-        ShaderType::TessellationEvaluation, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationEvaluation/Standard/StandardStrands.tese");
-    strands_deferred_prepass_pipeline->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Standard/StandardStrands.geom");
+    strands_deferred_prepass_pipeline->task_shader = Shader::CreateTemporary(
+        ShaderType::Task, CreateRasterNoBindlessTextureShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/StandardStrands.task");
+    strands_deferred_prepass_pipeline->mesh_shader = Shader::CreateTemporary(
+        ShaderType::Mesh, CreateRasterNoBindlessTextureShaderDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/StandardStrands.mesh");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
     strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
+    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    strands_deferred_prepass_pipeline->tessellation_patch_control_points = 4;
     strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2315,7 +2314,6 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     strands_deferred_prepass_pipeline->Initialize();
   }
-#endif
   if (!deferred_lighting_pass_pipeline) {
     deferred_lighting_pass_pipeline = std::make_shared<GraphicsPipeline>();
     deferred_lighting_pass_pipeline->vertex_shader = Shader::CreateTemporary(
@@ -2749,6 +2747,13 @@ void RenderLayer::OnCreate() {
   for (size_t i = 0; i < max_frames_in_flight; i++) {
     auto descriptor_set = std::make_shared<DescriptorSet>(meshlet_layout_);
     meshlet_descriptor_sets_.emplace_back(descriptor_set);
+  }
+
+  strand_meshlet_descriptor_sets_.clear();
+  if (strand_meshlet_layout_) {
+    for (size_t i = 0; i < max_frames_in_flight; i++) {
+      strand_meshlet_descriptor_sets_.emplace_back(std::make_shared<DescriptorSet>(strand_meshlet_layout_));
+    }
   }
 
   ray_tracing_descriptor_sets_.clear();
@@ -3465,6 +3470,12 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
 
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
+  if (current_frame_index < strand_meshlet_descriptor_sets_.size()) {
+    strand_meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        0, GeometryStorage::GetStrandPointBuffer());
+    strand_meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        1, GeometryStorage::GetStrandMeshletBuffer());
+  }
 
   if (per_frame_bindless_texture_descriptors_enabled_) {
     TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
@@ -3888,50 +3899,6 @@ void RenderLayer::RenderGizmos() const {
         });
       }
     }
-#ifdef EVOENGINE_WINDOWS
-    for (const auto& i : editor_layer->gizmo_strands_tasks_) {
-      if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
-          editor_layer->editor_cameras_.end()) {
-        EVOENGINE_ERROR("Target camera not registered in editor!");
-        return;
-      }
-      if (i.editor_camera_component && i.editor_camera_component->IsEnabled()) {
-        Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
-          std::shared_ptr<GraphicsPipeline> gizmos_pipeline;
-          switch (i.gizmo_settings.color_mode) {
-            case GizmoSettings::ColorMode::Default: {
-              gizmos_pipeline = gizmos_strands;
-            } break;
-            case GizmoSettings::ColorMode::VertexColor: {
-              gizmos_pipeline = gizmos_strands_vertex_colored;
-            } break;
-            case GizmoSettings::ColorMode::NormalColor: {
-              gizmos_pipeline = gizmos_strands_normal_colored;
-            } break;
-          }
-          i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_pipeline->states);
-          i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
-
-          gizmos_pipeline->Bind(vk_command_buffer);
-          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
-
-          i.editor_camera_component->GetRenderTexture()->Render(
-              vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-                GizmosPushConstant push_constant;
-                push_constant.model = i.model;
-                push_constant.color = i.color;
-                push_constant.size = i.size;
-                push_constant.camera_index =
-                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
-                gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-                GeometryStorage::BindStrandPoints(vk_command_buffer);
-                i.strands->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
-              });
-        });
-      }
-    }
-#endif
   }
 }
 
@@ -4233,14 +4200,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                                      skinned_point_light_shadow_pipeline_opaque, light_space_matrix, i, face,
                                      point_light_info_block.viewport);
           }
-#ifdef EVOENGINE_WINDOWS
-          GeometryStorage::BindStrandPoints(vk_command_buffer);
-          {
-            render_strands_shadow_collection(
-                RenderPassDrawBucket::PointLightShadow, current_render_instances->deferred_strands_render_instances,
-                strands_point_light_shadow_pipeline, light_space_matrix, i, face, point_light_info_block.viewport);
-          }
-#endif
+          render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow,
+                                           current_render_instances->deferred_strands_render_instances, nullptr,
+                                           light_space_matrix, i, face, point_light_info_block.viewport);
           for (const auto& func : point_light_shadow_map_external_functions) {
             const auto prim_count = func(vk_command_buffer, {i, face, point_light_info_block.viewport});
             account_draw(RenderPassDrawBucket::PointLightShadow, RenderDrawCallKind::Direct, prim_count);
@@ -4300,14 +4262,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_skinned_render_instances,
               skinned_spot_light_shadow_pipeline_opaque, light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
-#ifdef EVOENGINE_WINDOWS
-        GeometryStorage::BindStrandPoints(vk_command_buffer);
-        {
-          render_strands_shadow_collection(
-              RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_strands_render_instances,
-              strands_spot_light_shadow_pipeline, light_space_matrix, i, 0, spot_light_info_block.viewport);
-        }
-#endif
+        render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
+                                         current_render_instances->deferred_strands_render_instances, nullptr,
+                                         light_space_matrix, i, 0, spot_light_info_block.viewport);
         for (const auto& func : spot_light_shadow_map_external_functions) {
           const auto prim_count = func(vk_command_buffer, {i, spot_light_info_block.viewport});
           account_draw(RenderPassDrawBucket::SpotLightShadow, RenderDrawCallKind::Direct, prim_count);
@@ -4747,10 +4704,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           DeferredGeometryPass::Execute(
               context,
               {camera, current_render_instances, deferred_prepass_pipeline, instanced_deferred_prepass_pipeline,
-               skinned_deferred_prepass_pipeline, strands_deferred_prepass_pipeline,
+               skinned_deferred_prepass_pipeline, use_mesh_shader ? strands_deferred_prepass_pipeline : nullptr,
                raster_material_per_frame_descriptor_sets_[current_frame_index],
-               meshlet_descriptor_sets_[current_frame_index], camera_index, current_frame_index, use_mesh_shader,
-               enable_indirect_rendering, true, count_draw_calls, wire_frame,
+               meshlet_descriptor_sets_[current_frame_index],
+               use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr, camera_index,
+               current_frame_index, use_mesh_shader, enable_indirect_rendering, true, count_draw_calls, wire_frame,
                [&](const VkCommandBuffer vk_command_buffer,
                    const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
                  for (const auto& func : deferred_rendering_external_functions) {

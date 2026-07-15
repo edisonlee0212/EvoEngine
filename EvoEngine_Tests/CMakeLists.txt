@@ -42,6 +42,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/GpuServiceTest.cpp
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
+	Core/StrandsMeshShaderTest.cpp
 	Core/DdgiVolumeTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
@@ -238,6 +239,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER RenderGraph.*
 	PROPERTIES LABELS "core,render"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER StrandsMeshShader.*
+	PROPERTIES LABELS "core,render,strands"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

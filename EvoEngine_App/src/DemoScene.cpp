@@ -21,6 +21,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
+#include "StrandsRenderer.hpp"
 #include "Times.hpp"
 #include "TransformGraph.hpp"
 
@@ -39,6 +40,8 @@ constexpr uint64_t kBicycleGaussianSplatHandle = 14453709846752502031ull;
 constexpr const char* kCsmValidationRootName = "CSM Caster Validation";
 constexpr const char* kCsmValidationRegularName = "CSM Validation Regular Caster";
 constexpr const char* kCsmValidationInstancedName = "CSM Validation Instanced Caster";
+constexpr const char* kStrandValidationRootName = "Strand Mesh Shader Validation";
+constexpr const char* kStrandValidationDynamicName = "Strand Validation Multi Meshlet";
 // VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
 const glm::vec3 kBicycleDemoCamera0Position = glm::vec3(-3.0026817f, 1.4007727f, -2.2284005f);
 const glm::vec3 kBicycleDemoCamera0Front = glm::vec3(0.7710113f, -0.08249339f, 0.6314558f);
@@ -215,6 +218,47 @@ void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec
   shade_material.emissive_factor =
       emission > 0.0f && emissive_length > 0.0f ? emissive_tint / emissive_length * emission : glm::vec3(0.0f);
   material->MarkDirty();
+}
+
+std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count, const glm::vec4& color) {
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  std::vector<StrandPoint> points(point_count);
+  for (size_t index = 0; index < point_count; ++index) {
+    const float t = static_cast<float>(index) / static_cast<float>(point_count - 1);
+    auto& point = points[index];
+    point.position = glm::vec3(0.18f * glm::sin(t * glm::two_pi<float>() * 1.5f), t * 1.8f - 0.9f,
+                               0.08f * glm::cos(t * glm::two_pi<float>()));
+    point.thickness = 0.075f * (1.0f - 0.25f * t);
+    point.normal = glm::normalize(glm::vec3(0.15f * glm::sin(t * glm::two_pi<float>()), 0.0f, 1.0f));
+    point.tex_coord = t;
+    point.color = color;
+  }
+  const auto strands = AssetManager::CreateTemporaryAsset<Strands>();
+  if (point_count == 4) {
+    strands->SetSegments(attributes, {0}, points);
+  } else {
+    strands->SetStrands(attributes, {0, static_cast<glm::uint>(point_count)}, points);
+  }
+  return strands;
+}
+
+Entity CreateStrandValidationRenderer(const std::shared_ptr<Scene>& scene, const Entity root, const std::string& name,
+                                      const std::shared_ptr<Strands>& strands,
+                                      const std::shared_ptr<Material>& material, const glm::vec3& position,
+                                      const glm::vec3& scale, const bool cast_shadow) {
+  const auto entity = scene->CreateEntity(name);
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(entity).lock();
+  renderer->strands = strands;
+  renderer->material = material;
+  renderer->cast_shadow = cast_shadow;
+  Transform transform;
+  transform.SetValue(position, glm::vec3(0.0f, 0.0f, glm::radians(8.0f)), scale);
+  scene->SetDataComponent(entity, transform);
+  scene->SetParent(entity, root);
+  return entity;
 }
 
 Entity CreateRenderingRegressionProbe(const std::shared_ptr<Scene>& scene, const Entity& root, const std::string& name,
@@ -1856,6 +1900,82 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
     rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
   }
   RegisterRenderingRegressionTemporalMotionUpdate();
+}
+
+void evo_engine::ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  if (const auto regression_root = FindEntityNamed(scene, kRenderingRegressionRootName)) {
+    scene->SetEnable(*regression_root, false);
+  }
+  if (const auto existing_root = FindEntityNamed(scene, kStrandValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.12f;
+
+  const auto root = scene->CreateEntity(kStrandValidationRootName);
+  const auto ground_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(ground_material, glm::vec3(0.42f, 0.45f, 0.5f), 0.9f, 0.0f);
+  const auto ground = scene->CreateEntity("Strand Validation Ground");
+  const auto ground_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(ground).lock();
+  ground_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+  ground_renderer->material = ground_material;
+  Transform ground_transform;
+  ground_transform.SetValue(glm::vec3(0.0f, -1.0f, -2.6f), glm::vec3(0.0f), glm::vec3(3.2f, 0.08f, 3.2f));
+  scene->SetDataComponent(ground, ground_transform);
+  scene->SetParent(ground, root);
+
+  const auto single_material = AssetManager::CreateTemporaryAsset<Material>();
+  const auto multi_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(single_material, glm::vec3(0.95f, 0.28f, 0.12f), 0.48f, 0.0f);
+  ConfigureMaterial(multi_material, glm::vec3(0.12f, 0.55f, 0.95f), 0.42f, 0.0f);
+  CreateStrandValidationRenderer(scene, root, "Strand Validation Single Segment",
+                                 CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.45f, 0.18f, 1.0f)),
+                                 single_material, glm::vec3(-0.75f, 0.0f, -2.5f), glm::vec3(1.0f), false);
+  CreateStrandValidationRenderer(scene, root, kStrandValidationDynamicName,
+                                 CreateStrandValidationGeometry(58, glm::vec4(0.18f, 0.65f, 1.0f, 1.0f)),
+                                 multi_material, glm::vec3(0.75f, 0.0f, -2.5f), glm::vec3(-1.15f, 0.8f, 1.35f), true);
+
+  const auto light_entity = scene->CreateEntity("Strand Validation Directional Light");
+  const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
+  light->cast_shadow = true;
+  light->diffuse = glm::vec3(1.0f, 0.96f, 0.88f);
+  light->diffuse_brightness = 3.5f;
+  light->light_size = 0.02f;
+  light->bias = 0.02f;
+  light->normal_offset = 0.02f;
+  Transform light_transform;
+  const auto direction = glm::normalize(glm::vec3(0.45f, -0.85f, -0.32f));
+  light_transform.SetRotation(glm::quatLookAt(-direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  scene->SetDataComponent(light_entity, light_transform);
+  scene->SetParent(light_entity, root);
+}
+
+void evo_engine::UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene) {
+  const auto entity = scene ? FindEntityNamed(scene, kStrandValidationDynamicName) : std::nullopt;
+  if (!entity) {
+    throw std::runtime_error("Strand mesh-shader validation was not configured before its geometry update.");
+  }
+  const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(*entity).lock();
+  const auto strands = renderer ? renderer->strands.Get<Strands>() : nullptr;
+  if (!strands || strands->GetStrandPointAmount() != 58) {
+    throw std::runtime_error("Strand mesh-shader validation dynamic geometry is invalid.");
+  }
+  auto points = strands->PeekStrandPoints();
+  for (size_t index = 0; index < points.size(); ++index) {
+    const float t = static_cast<float>(index) / static_cast<float>(points.size() - 1);
+    points[index].position.x += 0.04f * glm::sin(t * glm::two_pi<float>() * 3.0f);
+  }
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  strands->SetStrands(attributes, {0, static_cast<glm::uint>(points.size())}, points);
 }
 
 void evo_engine::ConfigureCsmCasterValidation(const std::shared_ptr<Scene>& scene) {

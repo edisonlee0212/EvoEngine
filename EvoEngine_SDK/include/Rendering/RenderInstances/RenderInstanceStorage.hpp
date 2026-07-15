@@ -823,6 +823,7 @@ class RenderInstanceStorage {
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;
+  uint32_t total_strand_meshlets = 0;
   uint32_t total_gaussian_splats = 0;
   /**
    * @brief Clears all the render instance data and collections.

@@ -211,8 +211,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
               });
         }
       }
-#ifdef EVOENGINE_WINDOWS
-      GeometryStorage::BindStrandPoints(vk_command_buffer);
       {
         if (parameters.strands_pipeline) {
           parameters.strands_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
@@ -220,6 +218,8 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           parameters.strands_pipeline->Bind(vk_command_buffer);
           parameters.strands_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                          parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+          parameters.strands_pipeline->BindDescriptorSet(
+              vk_command_buffer, 1, parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet());
           parameters.render_instances->deferred_strands_render_instances->ForEachStrandsRenderInstance(
               [&](const auto& render_instance) {
                 RenderInstancePushConstant push_constant;
@@ -239,7 +239,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
               });
         }
       }
-#endif
       if (parameters.external_deferred_rendering) {
         parameters.external_deferred_rendering(vk_command_buffer, geometry_pass_color_attachment_infos, viewport);
       }

@@ -27,6 +27,7 @@ class DeferredGeometryPass final {
     std::shared_ptr<GraphicsPipeline> strands_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> meshlet_descriptor_set;
+    std::shared_ptr<DescriptorSet> strand_meshlet_descriptor_set;
     int camera_index = -1;
     uint32_t current_frame_index = 0;
     bool use_mesh_shader = false;

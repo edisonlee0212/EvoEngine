@@ -314,11 +314,15 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_NE(skinned_pipeline.find("raster_material_layout_"), std::string::npos);
 
   const std::string strands_pipeline =
-      ExtractSourceRange(render_layer, "if (!strands_deferred_prepass_pipeline)",
-                         "strands_deferred_prepass_pipeline->tessellation_patch_control_points");
+      ExtractSourceRange(render_layer, "if (Platform::MeshShaderEnabled() && !strands_deferred_prepass_pipeline)",
+                         "strands_deferred_prepass_pipeline->depth_attachment_format");
   EXPECT_NE(strands_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
   EXPECT_NE(strands_pipeline.find("CreateRasterMaterialNoBindlessShaderDefines()"), std::string::npos);
-  EXPECT_NE(strands_pipeline.find("particle_instanced_data_layout_"), std::string::npos);
+  EXPECT_NE(strands_pipeline.find("StandardStrands.task"), std::string::npos);
+  EXPECT_NE(strands_pipeline.find("StandardStrands.mesh"), std::string::npos);
+  EXPECT_NE(strands_pipeline.find("strand_meshlet_layout_"), std::string::npos);
+  EXPECT_EQ(strands_pipeline.find("tessellation_"), std::string::npos);
+  EXPECT_EQ(strands_pipeline.find("geometry_shader"), std::string::npos);
   EXPECT_EQ(CountOccurrences(strands_pipeline, "empty_descriptor_set_layout_"), 1);
   EXPECT_NE(strands_pipeline.find("raster_material_layout_"), std::string::npos);
 
@@ -776,7 +780,7 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto standard_skinned = ReadTextFile(ShaderPath("Graphics/Vertex/Standard/StandardSkinned.vert"));
   const auto standard_mesh = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/Standard.mesh"));
   const auto standard_meshlet_colored = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/StandardMeshletColored.mesh"));
-  const auto standard_strands = ReadTextFile(ShaderPath("Graphics/Geometry/Standard/StandardStrands.geom"));
+  const auto standard_strands = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/StandardStrands.mesh"));
   const auto instances = ReadTextFile(ShaderPath("Includes/Instances.glsl"));
   const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"));
   const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.frag"));
@@ -863,9 +867,10 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(raster_material.find("tangent - n * dot(n, tangent)"), std::string::npos);
   EXPECT_NE(raster_material.find("EE_GLTF_FALLBACK_TANGENT(n)"), std::string::npos);
   EXPECT_NE(raster_material.find("vec3 b = cross(n, t) * bitangent_sign"), std::string::npos);
-  EXPECT_NE(standard_strands.find("gs_out.TangentHandedness = modelHandedness"), std::string::npos);
-  EXPECT_NE(standard_strands.find("gs_out.TexCoord01 = vec4(texCoordS, texCoordS)"), std::string::npos);
-  EXPECT_NE(standard_strands.find("gs_out.TexCoord23 = vec4(0.0)"), std::string::npos);
+  EXPECT_NE(standard_strands.find("transpose(inverse(mat3(model)))"), std::string::npos);
+  EXPECT_NE(standard_strands.find("ms_v_out[vertex].TangentHandedness = handedness"), std::string::npos);
+  EXPECT_NE(standard_strands.find("ms_v_out[vertex].TexCoord01 = vec4(tex_coord, tex_coord)"), std::string::npos);
+  EXPECT_NE(standard_strands.find("ms_v_out[vertex].TexCoord23 = vec4(0.0)"), std::string::npos);
   for (const auto* source : {&deferred, &transparent}) {
     EXPECT_NE(source->find("layout(location = 8) in flat float transformHandedness"), std::string::npos);
     EXPECT_NE(source->find("(gl_FrontFacing ? 1.0 : -1.0) * transformHandedness"), std::string::npos);
