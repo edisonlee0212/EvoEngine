@@ -42,6 +42,7 @@ constexpr const char* kCsmValidationRegularName = "CSM Validation Regular Caster
 constexpr const char* kCsmValidationInstancedName = "CSM Validation Instanced Caster";
 constexpr const char* kStrandValidationRootName = "Strand Mesh Shader Validation";
 constexpr const char* kStrandValidationDynamicName = "Strand Validation Multi Meshlet";
+constexpr const char* kStrandPunctualValidationRootName = "Strand Punctual Shadow Validation";
 // VK's benchmark preset 1 maps to the first imported INRIA camera because preset 0 is VK's default camera.
 const glm::vec3 kBicycleDemoCamera0Position = glm::vec3(-3.0026817f, 1.4007727f, -2.2284005f);
 const glm::vec3 kBicycleDemoCamera0Front = glm::vec3(0.7710113f, -0.08249339f, 0.6314558f);
@@ -220,7 +221,8 @@ void ConfigureMaterial(const std::shared_ptr<Material>& material, const glm::vec
   material->MarkDirty();
 }
 
-std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count, const glm::vec4& color) {
+std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count, const glm::vec4& color,
+                                                        const float thickness = 0.075f) {
   StrandPointAttributes attributes;
   attributes.normal = true;
   attributes.tex_coord = true;
@@ -231,7 +233,7 @@ std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count
     auto& point = points[index];
     point.position = glm::vec3(0.18f * glm::sin(t * glm::two_pi<float>() * 1.5f), t * 1.8f - 0.9f,
                                0.08f * glm::cos(t * glm::two_pi<float>()));
-    point.thickness = 0.075f * (1.0f - 0.25f * t);
+    point.thickness = thickness * (1.0f - 0.25f * t);
     point.normal = glm::normalize(glm::vec3(0.15f * glm::sin(t * glm::two_pi<float>()), 0.0f, 1.0f));
     point.tex_coord = t;
     point.color = color;
@@ -248,14 +250,15 @@ std::shared_ptr<Strands> CreateStrandValidationGeometry(const size_t point_count
 Entity CreateStrandValidationRenderer(const std::shared_ptr<Scene>& scene, const Entity root, const std::string& name,
                                       const std::shared_ptr<Strands>& strands,
                                       const std::shared_ptr<Material>& material, const glm::vec3& position,
-                                      const glm::vec3& scale, const bool cast_shadow) {
+                                      const glm::vec3& scale, const bool cast_shadow,
+                                      const glm::vec3& rotation = glm::vec3(0.0f, 0.0f, glm::radians(8.0f))) {
   const auto entity = scene->CreateEntity(name);
   const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(entity).lock();
   renderer->strands = strands;
   renderer->material = material;
   renderer->cast_shadow = cast_shadow;
   Transform transform;
-  transform.SetValue(position, glm::vec3(0.0f, 0.0f, glm::radians(8.0f)), scale);
+  transform.SetValue(position, rotation, scale);
   scene->SetDataComponent(entity, transform);
   scene->SetParent(entity, root);
   return entity;
@@ -1985,6 +1988,134 @@ void evo_engine::UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<
   attributes.tex_coord = true;
   attributes.color = true;
   strands->SetStrands(attributes, {0, static_cast<glm::uint>(points.size())}, points);
+}
+
+void evo_engine::ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  if (const auto regression_root = FindEntityNamed(scene, kRenderingRegressionRootName)) {
+    scene->SetEnable(*regression_root, false);
+  }
+  if (const auto strand_root = FindEntityNamed(scene, kStrandValidationRootName)) {
+    scene->SetEnable(*strand_root, false);
+  }
+  if (const auto existing_root = FindEntityNamed(scene, kStrandPunctualValidationRootName)) {
+    scene->DeleteEntity(*existing_root);
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<PointLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>()) {
+    for (const auto& owner : *owners) {
+      if (const auto light = scene->GetOrSetPrivateComponent<SpotLight>(owner).lock()) {
+        light->cast_shadow = false;
+        light->SetEnabled(false);
+      }
+    }
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  const auto root = scene->CreateEntity(kStrandPunctualValidationRootName);
+  const auto point_material = AssetManager::CreateTemporaryAsset<Material>();
+  const auto spot_material = AssetManager::CreateTemporaryAsset<Material>();
+  ConfigureMaterial(point_material, glm::vec3(1.0f, 0.45f, 0.12f), 0.45f, 0.0f);
+  ConfigureMaterial(spot_material, glm::vec3(0.18f, 0.55f, 1.0f), 0.45f, 0.0f);
+  const auto point_geometry = CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.45f, 0.12f, 1.0f));
+  const auto spot_geometry = CreateStrandValidationGeometry(4, glm::vec4(0.18f, 0.55f, 1.0f, 1.0f), 0.24f);
+
+  const glm::vec3 point_position(-5.0f, 2.0f, -12.0f);
+  const std::array point_directions = {glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(-1.0f, 0.0f, 0.0f),
+                                       glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, -1.0f, 0.0f),
+                                       glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 0.0f, -1.0f)};
+  const std::array point_panel_scales = {glm::vec3(0.08f, 1.2f, 1.2f), glm::vec3(0.08f, 1.2f, 1.2f),
+                                         glm::vec3(1.2f, 0.08f, 1.2f), glm::vec3(1.2f, 0.08f, 1.2f),
+                                         glm::vec3(1.2f, 1.2f, 0.08f), glm::vec3(1.2f, 1.2f, 0.08f)};
+  for (size_t face = 0; face < point_directions.size(); ++face) {
+    const bool y_face = face == 2 || face == 3;
+    const auto rotation =
+        y_face ? glm::vec3(0.0f, 0.0f, glm::half_pi<float>()) : glm::vec3(0.0f, 0.0f, glm::radians(8.0f));
+    const auto visible_offset = face == 5 ? glm::vec3(0.8f, 0.0f, 0.0f) : glm::vec3(0.0f);
+    CreateStrandValidationRenderer(scene, root, "Strand Point Face " + std::to_string(face), point_geometry,
+                                   point_material, point_position + point_directions[face] * 1.25f + visible_offset,
+                                   glm::vec3(0.55f), true, rotation);
+    CreateRenderingRegressionProbe(scene, root, "Strand Point Receiver " + std::to_string(face),
+                                   Resources::GetInstance().GetPrimitives().cube,
+                                   point_position + point_directions[face] * 2.5f + visible_offset,
+                                   point_panel_scales[face], glm::vec3(0.42f, 0.44f, 0.48f), 0.9f, 0.0f, 0.0f, false);
+  }
+  CreateStrandValidationRenderer(scene, root, "Strand Point Cast False", point_geometry, point_material,
+                                 point_position + glm::vec3(1.25f, 0.0f, 0.65f), glm::vec3(0.55f), false);
+
+  const auto point_light_entity = scene->CreateEntity("Strand Validation Point Light");
+  const auto point_light = scene->GetOrSetPrivateComponent<PointLight>(point_light_entity).lock();
+  point_light->cast_shadow = true;
+  point_light->diffuse = glm::vec3(1.0f, 0.55f, 0.25f);
+  point_light->diffuse_brightness = 20.0f;
+  point_light->range = 6.0f;
+  point_light->shadow_distance = 6.0f;
+  point_light->constant = 1.0f;
+  point_light->linear = 0.2f;
+  point_light->quadratic = 0.08f;
+  point_light->bias = 0.002f;
+  Transform point_light_transform;
+  point_light_transform.SetPosition(point_position);
+  scene->SetDataComponent(point_light_entity, point_light_transform);
+  scene->SetParent(point_light_entity, root);
+
+  const glm::vec3 spot_position(5.0f, 4.0f, -9.0f);
+  const glm::vec3 spot_target(5.0f, -0.75f, -14.0f);
+  const auto spot_direction = glm::normalize(spot_target - spot_position);
+  CreateStrandValidationRenderer(scene, root, "Strand Spot Cast True", spot_geometry, spot_material,
+                                 spot_position + spot_direction * 3.2f, glm::vec3(1.0f), true);
+  CreateStrandValidationRenderer(scene, root, "Strand Spot Cast False", spot_geometry, spot_material,
+                                 spot_position + spot_direction * 3.2f + glm::vec3(0.85f, 0.0f, 0.0f), glm::vec3(1.0f),
+                                 false);
+  const auto spot_receiver_position = spot_position + spot_direction * 6.0f;
+  const auto spot_receiver = CreateRenderingRegressionProbe(
+      scene, root, "Strand Spot Receiver", Resources::GetInstance().GetPrimitives().cube, spot_receiver_position,
+      glm::vec3(2.8f, 2.8f, 0.08f), glm::vec3(0.38f, 0.42f, 0.5f), 0.9f, 0.0f, 0.0f, false);
+  Transform spot_receiver_transform;
+  spot_receiver_transform.SetPosition(spot_receiver_position);
+  spot_receiver_transform.SetRotation(glm::quatLookAt(spot_direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  spot_receiver_transform.SetScale(glm::vec3(2.8f, 2.8f, 0.08f));
+  scene->SetDataComponent(spot_receiver, spot_receiver_transform);
+
+  const auto spot_light_entity = scene->CreateEntity("Strand Validation Spot Light");
+  const auto spot_light = scene->GetOrSetPrivateComponent<SpotLight>(spot_light_entity).lock();
+  spot_light->cast_shadow = true;
+  spot_light->diffuse = glm::vec3(0.3f, 0.6f, 1.0f);
+  spot_light->diffuse_brightness = 20.0f;
+  spot_light->inner_degrees = 18.0f;
+  spot_light->outer_degrees = 28.0f;
+  spot_light->range = 10.0f;
+  spot_light->shadow_distance = 10.0f;
+  spot_light->constant = 1.0f;
+  spot_light->linear = 0.2f;
+  spot_light->quadratic = 0.08f;
+  spot_light->bias = 0.0005f;
+  Transform spot_light_transform;
+  spot_light_transform.SetPosition(spot_position);
+  spot_light_transform.SetRotation(glm::quatLookAt(spot_direction, glm::vec3(0.0f, 1.0f, 0.0f)));
+  scene->SetDataComponent(spot_light_entity, spot_light_transform);
+  scene->SetParent(spot_light_entity, root);
 }
 
 void evo_engine::ConfigureCsmCasterValidation(const std::shared_ptr<Scene>& scene) {

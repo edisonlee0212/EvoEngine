@@ -264,6 +264,29 @@ std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline(
   return pipeline;
 }
 
+std::shared_ptr<GraphicsPipeline> CreateStrandShadowMeshPipeline(
+    const std::filesystem::path& mesh_shader_path, const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
+    const std::shared_ptr<DescriptorSetLayout>& strand_meshlet_layout) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->task_shader = Shader::CreateTemporary(
+      ShaderType::Task, Platform::GetShaderGlobalDefines(),
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/StrandsShadowMap.task");
+  pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(), mesh_shader_path);
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+                              Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+  pipeline->descriptor_set_layouts = {per_frame_layout, strand_meshlet_layout};
+  pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+  pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+  push_constant_range.size = sizeof(RenderInstancePushConstant);
+  push_constant_range.offset = 0;
+  push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+  pipeline->Initialize();
+  return pipeline;
+}
+
 std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline(
     const std::shared_ptr<DescriptorSetLayout>& per_frame_layout,
     const std::shared_ptr<DescriptorSetLayout>& gaussian_splat_layout, const VkFormat depth_attachment_format,
@@ -2062,25 +2085,9 @@ void RenderLayer::OnCreate() {
     directional_light_shadow_pipeline_mesh_shader->Initialize();
   }
   if (Platform::MeshShaderEnabled() && !strands_directional_light_shadow_pipeline) {
-    strands_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_directional_light_shadow_pipeline->task_shader = Shader::CreateTemporary(
-        ShaderType::Task, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/StrandsShadowMap.task");
-    strands_directional_light_shadow_pipeline->mesh_shader = Shader::CreateTemporary(
-        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh");
-    strands_directional_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
-    strands_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    strands_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    auto& push_constant_range = strands_directional_light_shadow_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderInstancePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    strands_directional_light_shadow_pipeline->Initialize();
+    strands_directional_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh",
+        per_frame_layout_, strand_meshlet_layout_);
   }
   if (!instanced_point_light_shadow_pipeline_opaque) {
     instanced_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
@@ -2113,68 +2120,16 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert",
         shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
-#ifdef EVOENGINE_WINDOWS
-  if (!strands_point_light_shadow_pipeline) {
-    strands_point_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_point_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapStrands.vert");
-    strands_point_light_shadow_pipeline->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
-    strands_point_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
-    strands_point_light_shadow_pipeline->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Lighting/PointLightShadowMapStrands.geom");
-    strands_point_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
-    strands_point_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    strands_point_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
-    strands_point_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    strands_point_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_point_light_shadow_pipeline->tessellation_patch_control_points = 4;
-    auto& push_constant_range = strands_point_light_shadow_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderInstancePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    strands_point_light_shadow_pipeline->Initialize();
+  if (Platform::MeshShaderEnabled() && !strands_point_light_shadow_pipeline) {
+    strands_point_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightStrandsShadowMap.mesh",
+        per_frame_layout_, strand_meshlet_layout_);
   }
-  if (!strands_spot_light_shadow_pipeline) {
-    strands_spot_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_spot_light_shadow_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapStrands.vert");
-    strands_spot_light_shadow_pipeline->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Lighting/ShadowMapStrands.tesc");
-    strands_spot_light_shadow_pipeline->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese");
-    strands_spot_light_shadow_pipeline->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Lighting/SpotLightShadowMapStrands.geom");
-    strands_spot_light_shadow_pipeline->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
-    strands_spot_light_shadow_pipeline->geometry_type = GeometryType::Strands;
-    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    strands_spot_light_shadow_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
-    strands_spot_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
-    strands_spot_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_spot_light_shadow_pipeline->tessellation_patch_control_points = 4;
-    auto& push_constant_range = strands_spot_light_shadow_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderInstancePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    strands_spot_light_shadow_pipeline->Initialize();
+  if (Platform::MeshShaderEnabled() && !strands_spot_light_shadow_pipeline) {
+    strands_spot_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.mesh",
+        per_frame_layout_, strand_meshlet_layout_);
   }
-#endif
   if (!deferred_prepass_pipeline_normal) {
     deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_normal->vertex_shader = Shader::CreateTemporary(
@@ -4093,6 +4048,10 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                               target_pipeline == spot_light_shadow_opaque_pipeline)) {
         target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                            meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+      } else if (target_pipeline == strands_point_light_shadow_pipeline ||
+                 target_pipeline == strands_spot_light_shadow_pipeline) {
+        target_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                           strand_meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
       }
       target_pipeline->states.SetViewportScissor(view_port);
       return true;
@@ -4162,8 +4121,11 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             push_constant.camera_index = light_index;
             push_constant.light_split_index = split_index;
             push_constant.instance_index = render_instance->instance_index;
+            pipeline->states.cull_mode = render_instance->cull_mode;
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, pipeline);
-            account_draw(bucket, RenderDrawCallKind::Direct, prim_count);
+            if (count_draw_calls) {
+              Platform::CountShadowStrandDraw(bucket, current_frame_index, prim_count, split_index);
+            }
           });
         };
 
@@ -4222,7 +4184,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
                                      point_light_info_block.viewport);
           }
           render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow,
-                                           current_render_instances->deferred_strands_render_instances, nullptr,
+                                           current_render_instances->deferred_strands_render_instances,
+                                           use_mesh_shader ? strands_point_light_shadow_pipeline : nullptr,
                                            light_space_matrix, i, face, point_light_info_block.viewport);
           for (const auto& func : point_light_shadow_map_external_functions) {
             const auto prim_count = func(vk_command_buffer, {i, face, point_light_info_block.viewport});
@@ -4284,7 +4247,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
               skinned_spot_light_shadow_pipeline_opaque, light_space_matrix, i, 0, spot_light_info_block.viewport);
         }
         render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
-                                         current_render_instances->deferred_strands_render_instances, nullptr,
+                                         current_render_instances->deferred_strands_render_instances,
+                                         use_mesh_shader ? strands_spot_light_shadow_pipeline : nullptr,
                                          light_space_matrix, i, 0, spot_light_info_block.viewport);
         for (const auto& func : spot_light_shadow_map_external_functions) {
           const auto prim_count = func(vk_command_buffer, {i, spot_light_info_block.viewport});

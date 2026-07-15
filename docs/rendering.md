@@ -295,8 +295,10 @@ Current shadow policy:
 - split placement uses Practical Log/Uniform distances stored per camera, matching each camera-indexed cascade matrix;
 - directional shadows use 16-sample Vogel-disc PCF through a linear comparison sampler; point and spot shadows retain
   their existing 32-sample PCF paths;
-- when mesh shaders are supported and enabled, built-in strands render normally and cast directional shadows through
-  the mesh-shader backend; point and spot strand shadows remain disabled while their mesh paths are migrated;
+- when mesh shaders are supported and enabled, built-in strands render normally and cast directional, point, and spot
+  shadows through the mesh-shader backend;
+- the punctual-strand validation fixture labels its point/spot counters as frame-global because those shadow passes run
+  before per-camera draw scopes;
 - directional light size is the PCF radius in world units and each fit includes that footprint plus its packed-viewport
   comparison/snap guard and a conservative TAA-jitter envelope;
 - both fits include the bounded depth overlap used by cascade-transition blending;

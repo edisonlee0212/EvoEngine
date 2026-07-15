@@ -61,8 +61,10 @@ CSM validation uses the following runtime shadow policy:
 - split policy: Practical Log/Uniform;
 - directional sampling: 16-sample Vogel-disc PCF through a linear depth-comparison sampler;
 - point and spot sampling: the existing 32-sample PCF paths;
-- built-in strand-renderer directional shadow casting: enabled through the mesh-shader backend when mesh shaders are
-  supported and enabled; point and spot strand shadows remain disabled while their mesh paths are migrated;
+- built-in strand-renderer directional, point, and spot shadow casting: enabled through the mesh-shader backend when
+  mesh shaders are supported and enabled;
+- `--preview-strand-punctual-fixture` rejects captures unless its frame-global draw telemetry records one strand on
+  every point-light cube face and one strand in the spot-light shadow pass;
 - directional PCF radius: directional-light `light_size` in world units, converted independently through each cascade's
   light-space X/Y half-extent;
 - directional bias: constant, slope, and normal offset are authored in shadow texels and scaled by the larger

@@ -125,11 +125,12 @@ TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {
 TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndCasterAccounting) {
   const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Lighting/StrandsShadowMap.task"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh"));
+  const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.glsl"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto pass = ReadRepoFile("EvoEngine_SDK/src/RenderPasses/DirectionalLightShadowPass.cpp");
   EXPECT_NE(task.find("EmitMeshTasksEXT(EE_STRAND_MESHLETS[meshlet_index].segment_size, 1, 1)"), std::string::npos);
-  EXPECT_NE(mesh.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
-  EXPECT_NE(mesh.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
+  EXPECT_NE(common.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
+  EXPECT_NE(common.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
   EXPECT_NE(mesh.find("EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX]"),
             std::string::npos);
   EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap.mesh"), std::string::npos);
@@ -139,4 +140,41 @@ TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndCasterAccountin
   EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands"), std::string::npos);
   EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split"), std::string::npos);
   EXPECT_NE(pass.find("states.cull_mode = render_instance->cull_mode"), std::string::npos);
+}
+
+TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndExactFixtureTelemetry) {
+  const auto point = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/PointLightStrandsShadowMap.mesh"));
+  const auto spot = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.mesh"));
+  const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.glsl"));
+  const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
+  const auto platform = ReadRepoFile("EvoEngine_SDK/include/Rendering/Platform/Platform.hpp");
+  const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
+  const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
+
+  EXPECT_NE(common.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
+  EXPECT_NE(common.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
+  EXPECT_NE(point.find("EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX]"), std::string::npos);
+  EXPECT_NE(spot.find("EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix"), std::string::npos);
+  EXPECT_NE(render_layer.find("PointLightStrandsShadowMap.mesh"), std::string::npos);
+  EXPECT_NE(render_layer.find("SpotLightStrandsShadowMap.mesh"), std::string::npos);
+  EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);
+  EXPECT_EQ(render_layer.find("SpotLightShadowMapStrands"), std::string::npos);
+  EXPECT_NE(render_layer.find("strand_meshlet_descriptor_sets_[current_frame_index]"), std::string::npos);
+  EXPECT_NE(render_layer.find("use_mesh_shader ? strands_point_light_shadow_pipeline : nullptr"), std::string::npos);
+  EXPECT_NE(render_layer.find("use_mesh_shader ? strands_spot_light_shadow_pipeline : nullptr"), std::string::npos);
+  EXPECT_NE(render_layer.find("pipeline->states.cull_mode = render_instance->cull_mode"), std::string::npos);
+  EXPECT_NE(render_layer.find("Platform::CountShadowStrandDraw"), std::string::npos);
+  EXPECT_NE(platform.find("point_shadow_strand_face_draw_calls"), std::string::npos);
+  EXPECT_NE(platform.find("spot_shadow_strand_draw_calls"), std::string::npos);
+  EXPECT_NE(scene.find("ConfigureStrandPunctualShadowValidation"), std::string::npos);
+  EXPECT_NE(scene.find("const std::array point_directions"), std::string::npos);
+  EXPECT_NE(editor.find("--preview-strand-punctual-fixture"), std::string::npos);
+  EXPECT_NE(editor.find("StrandPunctualFixtureTelemetryJson"), std::string::npos);
+  EXPECT_NE(editor.find("\"point_shadow_strand_faces\""), std::string::npos);
+  EXPECT_NE(editor.find("\"spot_shadow_strands\""), std::string::npos);
+  EXPECT_NE(editor.find("\"draw_scope\"] = \"frame-global\""), std::string::npos);
+  EXPECT_NE(editor.find("expected_point_face_draws = {1, 1, 1, 1, 1, 1}"), std::string::npos);
+  EXPECT_NE(editor.find("result[\"pass\"] = failures.empty()"), std::string::npos);
+  EXPECT_NE(editor.find("!scene->IsEntityEnabled(owner) || !renderer"), std::string::npos);
+  EXPECT_NE(editor.find("Strand punctual-shadow validation failed"), std::string::npos);
 }

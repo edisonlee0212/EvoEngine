@@ -21,9 +21,8 @@ tuning is intentionally left to the user.
   light radius is converted through each cascade's actual extent and packed viewport, and out-of-viewport samples return
   lit to prevent repeated-edge streaking and cross-light atlas reads.
 - Constant, slope, and normal-offset bias remain authored in shadow texels. Their defaults remain 0.1, 0.1, and 0.01.
-- Built-in strand-renderer geometry now casts directional shadows through the mesh-shader backend when mesh shaders are
-  supported and enabled. It remains absent from the historical CSM-P4 caster fixture; point and spot strand shadows are
-  disabled while their mesh paths are migrated.
+- Built-in strand-renderer geometry now casts directional, point, and spot shadows through the mesh-shader backend when
+  mesh shaders are supported and enabled. It remains absent from the historical CSM-P4 caster fixture.
 - The implementation does not use depth-buffer fitting, SDSM, depth readback, projection-based cascade selection, or a
   second shadow-filtering family.
 

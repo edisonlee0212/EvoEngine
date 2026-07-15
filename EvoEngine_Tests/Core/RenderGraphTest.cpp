@@ -50,6 +50,8 @@ TEST(RenderGraph, RenderPassDrawStatsExposeDirectIndirectBreakdown) {
                Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DirectionalLightShadow));
   EXPECT_EQ(stats.directional_shadow_caster_draw_calls.size(), static_cast<size_t>(DirectionalShadowCasterKind::Count));
   EXPECT_EQ(stats.directional_shadow_strand_cascade_draw_calls.size(), 4);
+  EXPECT_EQ(stats.point_shadow_strand_face_draw_calls.size(), 6);
+  EXPECT_EQ(stats.spot_shadow_strand_draw_calls, 0);
 }
 
 TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
@@ -100,20 +102,16 @@ TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
   EXPECT_LT(fixture_readiness, enable_fixture);
   EXPECT_EQ(editor.find("render_layer->enable_indirect_rendering = false", configure_fixture), std::string::npos);
   EXPECT_NE(editor.find("render_layer->enable_meshlet = false", enable_fixture), std::string::npos);
-  for (const auto light : {"Point", "Spot"}) {
-    const auto path = std::filesystem::path("Internals/DefaultResources/Shaders/Graphics/Geometry/Lighting") /
-                      (std::string(light) + "LightShadowMapStrands.geom");
-    EXPECT_NE(ReadTextFile(SdkPath(path)).find("max_vertices = 10"), std::string::npos) << path.string();
-  }
+  EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);
+  EXPECT_EQ(render_layer.find("SpotLightShadowMapStrands"), std::string::npos);
+  EXPECT_NE(render_layer.find("PointLightStrandsShadowMap.mesh"), std::string::npos);
+  EXPECT_NE(render_layer.find("SpotLightStrandsShadowMap.mesh"), std::string::npos);
   EXPECT_NE(render_layer_header.find("strands_directional_light_shadow_pipeline"), std::string::npos);
   EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap"), std::string::npos);
   EXPECT_NE(directional_shadow.find("ForEachStrandsRenderInstance"), std::string::npos);
   EXPECT_NE(directional_shadow.find("DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split"),
             std::string::npos);
-  const auto strands_tessellation = ReadTextFile(
-      SdkPath("Internals/DefaultResources/Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese"));
-  EXPECT_NE(strands_tessellation.find("#include \"BasicConstants.glsl\""), std::string::npos);
-  EXPECT_EQ(strands_tessellation.find("#include \"GizmosConstants.glsl\""), std::string::npos);
+  EXPECT_NE(render_layer.find("CountShadowStrandDraw"), std::string::npos);
 }
 
 TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {

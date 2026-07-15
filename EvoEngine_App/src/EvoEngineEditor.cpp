@@ -96,6 +96,7 @@ struct EditorCommandLine {
   std::optional<int> preview_shadow_light_count;
   bool preview_shadow_caster_fixture = false;
   bool preview_strand_fixture = false;
+  bool preview_strand_punctual_fixture = false;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   bool preview_capture_m10_ray_transport = false;
@@ -547,6 +548,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_shadow_caster_fixture = true;
     } else if (argument == "--preview-strand-fixture") {
       command_line.preview_strand_fixture = true;
+    } else if (argument == "--preview-strand-punctual-fixture") {
+      command_line.preview_strand_punctual_fixture = true;
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -649,6 +652,17 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   }
   if (command_line.preview_strand_fixture && command_line.preview_shadow_caster_fixture) {
     throw std::invalid_argument("--preview-strand-fixture cannot be combined with --preview-shadow-caster-fixture.");
+  }
+  if (command_line.preview_strand_punctual_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_punctual_fixture &&
+      command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_punctual_fixture &&
+      (command_line.preview_strand_fixture || command_line.preview_shadow_caster_fixture)) {
+    throw std::invalid_argument("--preview-strand-punctual-fixture cannot be combined with another shadow fixture.");
   }
   if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
        command_line.preview_shadow_distance_fade) &&
@@ -1201,6 +1215,8 @@ nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawStats& stats)
           {"primitive_count", stats.prim_count},
           {"total_draw_calls", stats.TotalDrawCalls()},
           {"directional_shadow_strand_cascades", stats.directional_shadow_strand_cascade_draw_calls},
+          {"point_shadow_strand_faces", stats.point_shadow_strand_face_draw_calls},
+          {"spot_shadow_strands", stats.spot_shadow_strand_draw_calls},
           {"directional_shadow_casters",
            {{"regular", caster_draws(DirectionalShadowCasterKind::Regular)},
             {"mesh_shader", caster_draws(DirectionalShadowCasterKind::MeshShader)},
@@ -1226,7 +1242,9 @@ nlohmann::ordered_json DirectionalShadowDrawStatsJson() {
 }
 
 nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLayer>& render_layer,
-                                                  const std::shared_ptr<Scene>& scene) {
+                                                  const std::shared_ptr<Scene>& scene,
+                                                  const size_t expected_renderer_count,
+                                                  const bool require_reuploaded_geometry) {
   size_t renderer_count = 0;
   size_t cast_shadow_count = 0;
   size_t configured_segment_count = 0;
@@ -1237,7 +1255,7 @@ nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLa
       for (const auto& owner : *owners) {
         const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(owner).lock();
         const auto strands = renderer ? renderer->strands.Get<Strands>() : nullptr;
-        if (!renderer || !renderer->IsEnabled() || !strands) {
+        if (!scene->IsEntityEnabled(owner) || !renderer || !renderer->IsEnabled() || !strands) {
           continue;
         }
         ++renderer_count;
@@ -1247,14 +1265,14 @@ nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLa
       }
     }
   }
-  bool geometry_updated = renderer_count == 5;
+  bool geometry_updated = renderer_count == expected_renderer_count;
   bool has_reuploaded_geometry = false;
   for (const auto& version : geometry_versions) {
     const auto value = version.get<uint32_t>();
     geometry_updated &= value >= 1;
     has_reuploaded_geometry |= value >= 2;
   }
-  geometry_updated &= has_reuploaded_geometry;
+  geometry_updated &= !require_reuploaded_geometry || has_reuploaded_geometry;
   const auto registered_renderer_count =
       render_instances && render_instances->total_strands_segments == configured_segment_count ? renderer_count : 0;
   return {{"mesh_shader_supported", Platform::MeshShaderEnabled()},
@@ -1268,6 +1286,74 @@ nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLa
           {"geometry_updated", geometry_updated},
           {"geometry_uploads_pending", GeometryStorage::HasPendingMeshUploads()},
           {"deferred_draws", RenderPassDrawStatsJson(RenderPassDrawBucket::DeferredGeometry)}};
+}
+
+nlohmann::ordered_json StrandPunctualFixtureTelemetryJson(const std::shared_ptr<RenderLayer>& render_layer,
+                                                          const std::shared_ptr<Scene>& scene) {
+  constexpr std::array<size_t, 6> expected_point_face_draws = {1, 1, 1, 1, 1, 1};
+  auto result = StrandFixtureTelemetryJson(render_layer, scene, 9, false);
+  size_t point_light_count = 0;
+  size_t spot_light_count = 0;
+  if (scene) {
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {
+      for (const auto& owner : *owners) {
+        const auto light = scene->GetOrSetPrivateComponent<PointLight>(owner).lock();
+        point_light_count += scene->IsEntityEnabled(owner) && light && light->IsEnabled() && light->cast_shadow ? 1 : 0;
+      }
+    }
+    if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SpotLight>()) {
+      for (const auto& owner : *owners) {
+        const auto light = scene->GetOrSetPrivateComponent<SpotLight>(owner).lock();
+        spot_light_count += scene->IsEntityEnabled(owner) && light && light->IsEnabled() && light->cast_shadow ? 1 : 0;
+      }
+    }
+  }
+  result["point_shadow_light_count"] = point_light_count;
+  result["spot_shadow_light_count"] = spot_light_count;
+  const auto point_draws = RenderPassDrawStatsJson(RenderPassDrawBucket::PointLightShadow);
+  const auto spot_draws = RenderPassDrawStatsJson(RenderPassDrawBucket::SpotLightShadow);
+  result["draw_scope"] = "frame-global";
+  result["point_shadow_draws"] = point_draws;
+  result["spot_shadow_draws"] = spot_draws;
+  result["expected"] = {{"registered_renderer_count", 9},
+                        {"cast_shadow_true_count", 7},
+                        {"cast_shadow_false_count", 2},
+                        {"segment_count", 9},
+                        {"meshlet_count", 9},
+                        {"point_shadow_light_count", 1},
+                        {"spot_shadow_light_count", 1},
+                        {"point_shadow_strand_faces", expected_point_face_draws},
+                        {"spot_shadow_strands", 1}};
+
+  auto failures = nlohmann::ordered_json::array();
+  const auto require = [&](const bool condition, const char* message) {
+    if (!condition) {
+      failures.push_back(message);
+    }
+  };
+  require(result["mesh_shader_supported"].get<bool>(), "mesh shaders are not supported");
+  require(result["mesh_shader_enabled"].get<bool>(), "mesh shaders are not enabled");
+  require(result["registered_renderer_count"].get<size_t>() == 9, "expected 9 registered strand renderers");
+  require(result["cast_shadow_true_count"].get<size_t>() == 7, "expected 7 strand shadow casters");
+  require(result["cast_shadow_false_count"].get<size_t>() == 2, "expected 2 non-casting strand controls");
+  require(result["segment_count"].get<size_t>() == 9, "expected 9 strand segments");
+  require(result["meshlet_count"].get<size_t>() == 9, "expected 9 strand meshlets");
+  require(result["geometry_updated"].get<bool>(), "strand geometry was not ready");
+  require(!result["geometry_uploads_pending"].get<bool>(), "strand geometry uploads remain pending");
+  require(point_light_count == 1, "expected 1 active shadow-casting point light");
+  require(spot_light_count == 1, "expected 1 active shadow-casting spot light");
+  require(point_draws["direct_draw_calls"].get<size_t>() == 6, "expected 6 point-shadow direct draws");
+  require(point_draws["indirect_draw_calls"].get<size_t>() == 0, "expected no point-shadow indirect draws");
+  require(point_draws["primitive_count"].get<size_t>() == 6, "expected 6 point-shadow primitives");
+  require(point_draws["point_shadow_strand_faces"].get<std::array<size_t, 6>>() == expected_point_face_draws,
+          "expected one strand draw on each point-shadow cube face");
+  require(spot_draws["direct_draw_calls"].get<size_t>() == 1, "expected 1 spot-shadow direct draw");
+  require(spot_draws["indirect_draw_calls"].get<size_t>() == 0, "expected no spot-shadow indirect draws");
+  require(spot_draws["primitive_count"].get<size_t>() == 1, "expected 1 spot-shadow primitive");
+  require(spot_draws["spot_shadow_strands"].get<size_t>() == 1, "expected 1 spot-shadow strand draw");
+  result["pass"] = failures.empty();
+  result["failures"] = std::move(failures);
+  return result;
 }
 
 void ConfigureDirectionalShadowLightCount(const std::shared_ptr<Scene>& scene, const int light_count) {
@@ -1782,19 +1868,23 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
     const std::optional<int>& preview_shadow_light_count, const bool preview_shadow_caster_fixture,
-    const bool preview_strand_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi,
-    const bool preview_m10_ray_transport, const bool preview_post_processing_stress) {
+    const bool preview_strand_fixture, const bool preview_strand_punctual_fixture, const bool deterministic_capture,
+    const bool preview_bistro_ddgi, const bool preview_m10_ray_transport, const bool preview_post_processing_stress) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
-  if (preview_strand_fixture) {
+  if (preview_strand_fixture || preview_strand_punctual_fixture) {
     if (!Platform::MeshShaderEnabled()) {
       throw std::runtime_error("Strand validation requires mesh-shader support.");
     }
-    ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
+    if (preview_strand_fixture) {
+      ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
+    } else {
+      ConfigureStrandPunctualShadowValidation(ApplicationContext::Get().GetActiveScene());
+    }
   }
   if (preview_m10_ray_transport) {
     ConfigureM10RayTransportValidation(ApplicationContext::Get().GetActiveScene());
@@ -1822,6 +1912,9 @@ void CaptureDemoPreview(
   if (preview_strand_fixture && !resolved_camera_position) {
     resolved_camera_position = glm::vec3(0.0f, 0.45f, 4.5f);
     resolved_camera_look_at = glm::vec3(0.0f, 0.0f, -2.5f);
+  } else if (preview_strand_punctual_fixture && !resolved_camera_position) {
+    resolved_camera_position = glm::vec3(0.0f, 3.0f, 8.0f);
+    resolved_camera_look_at = glm::vec3(0.0f, 1.0f, -12.0f);
   }
   ApplyPreviewCameraOverride(editor_layer, resolved_camera_position, resolved_camera_look_at);
   if (preview_render_mode) {
@@ -1978,7 +2071,7 @@ void CaptureDemoPreview(
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  if (preview_strand_fixture) {
+  if (preview_strand_fixture || preview_strand_punctual_fixture) {
     if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
       throw std::runtime_error("Strand validation requires the raster RenderLayer path.");
     }
@@ -2263,9 +2356,15 @@ void CaptureDemoPreview(
   metrics["m10_ray_transport"] = preview_m10_ray_transport;
   metrics["csm_caster_fixture"] = preview_shadow_caster_fixture;
   metrics["strand_fixture"] = preview_strand_fixture;
+  metrics["strand_punctual_fixture"] = preview_strand_punctual_fixture;
   metrics["strand_validation"] =
-      preview_strand_fixture ? StrandFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene())
-                             : nullptr;
+      preview_strand_fixture
+          ? StrandFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene(), 5, true)
+          : nullptr;
+  metrics["strand_punctual_validation"] =
+      preview_strand_punctual_fixture
+          ? StrandPunctualFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene())
+          : nullptr;
   metrics["post_processing_stress"] = post_processing_stress;
   if (preview_m10_ray_transport) {
     metrics["m10_fixture_version"] = "isolated-v2";
@@ -2506,6 +2605,10 @@ void CaptureDemoPreview(
                            {"startup_ready", GpuMemorySnapshotJson(startup_gpu_memory)},
                            {"peak", GpuMemorySnapshotJson(peak_gpu_memory)},
                            {"final", GpuMemorySnapshotJson(final_gpu_memory)}};
+  const bool strand_punctual_validation_failed =
+      preview_strand_punctual_fixture && !metrics["strand_punctual_validation"].value("pass", false);
+  const auto strand_punctual_validation_failures =
+      strand_punctual_validation_failed ? metrics["strand_punctual_validation"]["failures"].dump() : std::string{};
   std::cout << "RAY_CAPTURE_JSON " << metrics.dump() << std::endl;
   if (metrics_path) {
     if (const auto parent_path = metrics_path->parent_path(); !parent_path.empty()) {
@@ -2519,6 +2622,9 @@ void CaptureDemoPreview(
   }
   Platform::SetGpuTimestampCaptureEnabled(false);
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
+  if (strand_punctual_validation_failed) {
+    throw std::runtime_error("Strand punctual-shadow validation failed: " + strand_punctual_validation_failures);
+  }
 }
 }  // namespace
 
@@ -2572,9 +2678,9 @@ int main(const int argc, char** argv) {
               command_line.preview_shadow_pcf_samples, command_line.preview_shadow_debug_mode,
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
               command_line.preview_shadow_light_count, command_line.preview_shadow_caster_fixture,
-              command_line.preview_strand_fixture, command_line.preview_capture_deterministic,
-              command_line.preview_capture_bistro_ddgi, command_line.preview_capture_m10_ray_transport,
-              command_line.preview_post_processing_stress);
+              command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
+              command_line.preview_capture_m10_ray_transport, command_line.preview_post_processing_stress);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();
