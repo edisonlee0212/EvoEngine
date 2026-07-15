@@ -1926,7 +1926,7 @@ void evo_engine::ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene
   ground_renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
   ground_renderer->material = ground_material;
   Transform ground_transform;
-  ground_transform.SetValue(glm::vec3(0.0f, -1.0f, -2.6f), glm::vec3(0.0f), glm::vec3(3.2f, 0.08f, 3.2f));
+  ground_transform.SetValue(glm::vec3(0.0f, -1.0f, -125.0f), glm::vec3(0.0f), glm::vec3(32.0f, 0.08f, 250.0f));
   scene->SetDataComponent(ground, ground_transform);
   scene->SetParent(ground, root);
 
@@ -1940,6 +1940,15 @@ void evo_engine::ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene
   CreateStrandValidationRenderer(scene, root, kStrandValidationDynamicName,
                                  CreateStrandValidationGeometry(58, glm::vec4(0.18f, 0.65f, 1.0f, 1.0f)),
                                  multi_material, glm::vec3(0.75f, 0.0f, -2.5f), glm::vec3(-1.15f, 0.8f, 1.35f), true);
+  const auto cascade_geometry = CreateStrandValidationGeometry(4, glm::vec4(1.0f, 0.82f, 0.18f, 1.0f));
+  const std::array cascade_positions = {glm::vec3(-4.0f, 0.0f, -70.0f), glm::vec3(0.0f, 0.0f, -130.0f),
+                                        glm::vec3(12.0f, 0.0f, -190.0f)};
+  for (size_t cascade = 0; cascade < cascade_positions.size(); ++cascade) {
+    const float scale = static_cast<float>(cascade + 2);
+    CreateStrandValidationRenderer(scene, root, "Strand Validation Cascade " + std::to_string(cascade + 1),
+                                   cascade_geometry, single_material, cascade_positions[cascade],
+                                   glm::vec3(scale, scale * 2.0f, scale), true);
+  }
 
   const auto light_entity = scene->CreateEntity("Strand Validation Directional Light");
   const auto light = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();

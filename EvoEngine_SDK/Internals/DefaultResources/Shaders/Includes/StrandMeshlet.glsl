@@ -37,6 +37,11 @@ struct StrandTaskPayload {
   uint interval_offsets[MESHLET_MAX_TRIANGLES_SIZE + 1];
 };
 
+struct StrandShadowTaskPayload {
+  uint instance_index;
+  uint meshlet_index;
+};
+
 void EE_STRAND_FRAME(in vec3 tangent, in vec3 normal, out vec3 frame_normal, out vec3 frame_bitangent) {
   vec3 t = normalize(tangent);
   frame_normal = normal - t * dot(normal, t);

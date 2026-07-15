@@ -49,6 +49,7 @@ TEST(RenderGraph, RenderPassDrawStatsExposeDirectIndirectBreakdown) {
   EXPECT_STREQ("Directional shadow",
                Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DirectionalLightShadow));
   EXPECT_EQ(stats.directional_shadow_caster_draw_calls.size(), static_cast<size_t>(DirectionalShadowCasterKind::Count));
+  EXPECT_EQ(stats.directional_shadow_strand_cascade_draw_calls.size(), 4);
 }
 
 TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
@@ -61,12 +62,13 @@ TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
   const auto demo_scene = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
   const auto editor = ReadTextFile(SourcePath("EvoEngine_App/src/EvoEngineEditor.cpp"));
   EXPECT_NE(platform_header.find("DirectionalShadowCasterKind"), std::string::npos);
+  EXPECT_NE(platform_header.find("directional_shadow_strand_cascade_draw_calls"), std::string::npos);
   EXPECT_NE(render_layer_header.find("glm::mat4 light_space_matrix"), std::string::npos);
   for (const auto category : {"DirectionalShadowCasterKind::Regular", "DirectionalShadowCasterKind::MeshShader",
-                              "DirectionalShadowCasterKind::Instanced", "DirectionalShadowCasterKind::Skinned"}) {
+                              "DirectionalShadowCasterKind::Instanced", "DirectionalShadowCasterKind::Skinned",
+                              "DirectionalShadowCasterKind::Strands"}) {
     EXPECT_NE(directional_shadow.find(category), std::string::npos) << category;
   }
-  EXPECT_EQ(directional_shadow.find("DirectionalShadowCasterKind::Strands"), std::string::npos);
   EXPECT_NE(render_layer.find("DirectionalShadowCasterKind::External"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("if (graphics_pipeline->mesh_shader)"), std::string::npos);
   EXPECT_EQ(render_instance_storage.find("if (Platform::MeshShaderEnabled())"), std::string::npos);
@@ -82,6 +84,7 @@ TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
   ASSERT_NE(fixture_enable, std::string::npos);
   const auto fixture_source = demo_scene.substr(fixture_configure, fixture_enable - fixture_configure);
   EXPECT_EQ(fixture_source.find("StrandsRenderer"), std::string::npos);
+  EXPECT_NE(demo_scene.find("Strand Validation Cascade"), std::string::npos);
   EXPECT_NE(fixture_source.find("renderer->SetEnabled(false)"), std::string::npos);
   EXPECT_NE(fixture_source.find("light->SetEnabled(false)"), std::string::npos);
   const auto base_readiness = editor.find("scene_camera->Resize(preview_resolution);");
@@ -102,9 +105,11 @@ TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {
                       (std::string(light) + "LightShadowMapStrands.geom");
     EXPECT_NE(ReadTextFile(SdkPath(path)).find("max_vertices = 10"), std::string::npos) << path.string();
   }
-  EXPECT_EQ(render_layer_header.find("strands_directional_light_shadow_pipeline"), std::string::npos);
-  EXPECT_EQ(render_layer.find("DirectionalLightShadowMapStrands"), std::string::npos);
-  EXPECT_EQ(directional_shadow.find("ForEachStrandsRenderInstance"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("strands_directional_light_shadow_pipeline"), std::string::npos);
+  EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap"), std::string::npos);
+  EXPECT_NE(directional_shadow.find("ForEachStrandsRenderInstance"), std::string::npos);
+  EXPECT_NE(directional_shadow.find("DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split"),
+            std::string::npos);
   const auto strands_tessellation = ReadTextFile(
       SdkPath("Internals/DefaultResources/Shaders/Graphics/TessellationEvaluation/Lighting/ShadowMapStrands.tese"));
   EXPECT_NE(strands_tessellation.find("#include \"BasicConstants.glsl\""), std::string::npos);

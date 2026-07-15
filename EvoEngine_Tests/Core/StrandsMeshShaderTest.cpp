@@ -118,5 +118,25 @@ TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {
   EXPECT_NE(editor.find("--preview-strand-fixture"), std::string::npos);
   EXPECT_NE(editor.find("StrandFixtureTelemetryJson"), std::string::npos);
   EXPECT_NE(editor.find("\"meshlet_count\""), std::string::npos);
+  EXPECT_NE(editor.find("\"directional_shadow_strand_cascades\""), std::string::npos);
   EXPECT_NE(editor.find("GeometryStorage::HasPendingMeshUploads()"), std::string::npos);
+}
+
+TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndCasterAccounting) {
+  const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Lighting/StrandsShadowMap.task"));
+  const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh"));
+  const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
+  const auto pass = ReadRepoFile("EvoEngine_SDK/src/RenderPasses/DirectionalLightShadowPass.cpp");
+  EXPECT_NE(task.find("EmitMeshTasksEXT(EE_STRAND_MESHLETS[meshlet_index].segment_size, 1, 1)"), std::string::npos);
+  EXPECT_NE(mesh.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
+  EXPECT_NE(mesh.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX]"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap.mesh"), std::string::npos);
+  EXPECT_NE(render_layer.find("strand_meshlet_descriptor_sets_[current_frame_index]"), std::string::npos);
+  EXPECT_NE(pass.find("parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet()"), std::string::npos);
+  EXPECT_NE(pass.find("ForEachStrandsRenderInstance"), std::string::npos);
+  EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands"), std::string::npos);
+  EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split"), std::string::npos);
+  EXPECT_NE(pass.find("states.cull_mode = render_instance->cull_mode"), std::string::npos);
 }

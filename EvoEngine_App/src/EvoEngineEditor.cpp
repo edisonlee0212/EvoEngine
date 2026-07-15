@@ -1200,6 +1200,7 @@ nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawStats& stats)
           {"indirect_draw_commands", stats.indirect_draw_commands},
           {"primitive_count", stats.prim_count},
           {"total_draw_calls", stats.TotalDrawCalls()},
+          {"directional_shadow_strand_cascades", stats.directional_shadow_strand_cascade_draw_calls},
           {"directional_shadow_casters",
            {{"regular", caster_draws(DirectionalShadowCasterKind::Regular)},
             {"mesh_shader", caster_draws(DirectionalShadowCasterKind::MeshShader)},
@@ -1246,7 +1247,7 @@ nlohmann::ordered_json StrandFixtureTelemetryJson(const std::shared_ptr<RenderLa
       }
     }
   }
-  bool geometry_updated = renderer_count == 2;
+  bool geometry_updated = renderer_count == 5;
   bool has_reuploaded_geometry = false;
   for (const auto& version : geometry_versions) {
     const auto value = version.get<uint32_t>();

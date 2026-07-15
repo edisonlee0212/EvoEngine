@@ -1,0 +1,67 @@
+#extension GL_EXT_mesh_shader : require
+#extension GL_ARB_shading_language_include : enable
+
+#include "BasicConstants.glsl"
+#include "PerFrame.glsl"
+#include "Strands.glsl"
+#include "StrandMeshlet.glsl"
+
+const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+const uint STRAND_SHADOW_RING_SIZE = 4;
+const float PI2 = 6.28318530718;
+
+layout(local_size_x = WORKGROUP_SIZE) in;
+layout(triangles) out;
+layout(max_vertices = 10, max_primitives = 8) out;
+
+taskPayloadSharedEXT StrandShadowTaskPayload strand_shadow_task;
+
+void main() {
+  StrandMeshlet meshlet = EE_STRAND_MESHLETS[strand_shadow_task.meshlet_index];
+  u8vec4 segment = meshlet.segments[gl_WorkGroupID.x];
+  StrandPoint p0 = EE_STRAND_POINT_DATA_CHUNKS[meshlet.strand_point_chunk_index].strand_points[segment.x];
+  StrandPoint p1 = EE_STRAND_POINT_DATA_CHUNKS[meshlet.strand_point_chunk_index].strand_points[segment.y];
+  StrandPoint p2 = EE_STRAND_POINT_DATA_CHUNKS[meshlet.strand_point_chunk_index].strand_points[segment.z];
+  StrandPoint p3 = EE_STRAND_POINT_DATA_CHUNKS[meshlet.strand_point_chunk_index].strand_points[segment.w];
+
+  vec3 position0, position1, tangent0, tangent1;
+  vec3 normal0, normal1, unused_vec3;
+  float thickness0, thickness1, unused_float;
+  EE_SPLINE_INTERPOLATION(p0.position, p1.position, p2.position, p3.position, position0, tangent0, 0.0);
+  EE_SPLINE_INTERPOLATION(p0.position, p1.position, p2.position, p3.position, position1, tangent1, 1.0);
+  EE_SPLINE_INTERPOLATION(p0.normal, p1.normal, p2.normal, p3.normal, normal0, unused_vec3, 0.0);
+  EE_SPLINE_INTERPOLATION(p0.normal, p1.normal, p2.normal, p3.normal, normal1, unused_vec3, 1.0);
+  EE_SPLINE_INTERPOLATION(p0.thickness, p1.thickness, p2.thickness, p3.thickness, thickness0, unused_float, 0.0);
+  EE_SPLINE_INTERPOLATION(p0.thickness, p1.thickness, p2.thickness, p3.thickness, thickness1, unused_float, 1.0);
+
+  vec3 frame_normal0, frame_normal1, frame_bitangent0, frame_bitangent1;
+  EE_STRAND_FRAME(tangent0, normal0, frame_normal0, frame_bitangent0);
+  EE_STRAND_FRAME(tangent1, normal1, frame_normal1, frame_bitangent1);
+
+  SetMeshOutputsEXT(10, 8);
+  uint instance_index = strand_shadow_task.instance_index;
+  mat4 model = EE_INSTANCES[instance_index].model;
+  mat4 projection_view =
+      EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * model;
+  for (uint vertex = gl_LocalInvocationID.x; vertex < 10; vertex += WORKGROUP_SIZE) {
+    bool endpoint = (vertex & 1u) != 0u;
+    uint ring_vertex = vertex >> 1u;
+    float angle = -PI2 * float(ring_vertex) / float(STRAND_SHADOW_RING_SIZE);
+    vec3 position = endpoint ? position1 : position0;
+    vec3 radial = (endpoint ? frame_normal1 : frame_normal0) * sin(angle) +
+                  (endpoint ? frame_bitangent1 : frame_bitangent0) * cos(angle);
+    float thickness = endpoint ? thickness1 : thickness0;
+    gl_MeshVerticesEXT[vertex].gl_Position = projection_view * vec4(position + radial * thickness, 1.0);
+  }
+
+  for (uint primitive = gl_LocalInvocationID.x; primitive < 8; primitive += WORKGROUP_SIZE) {
+    uint ring_index = primitive >> 1u;
+    uint source = ring_index * 2;
+    uint target = source + 1;
+    uint next_source = source + 2;
+    uint next_target = next_source + 1;
+    gl_PrimitiveTriangleIndicesEXT[primitive] = (primitive & 1u) == 0u
+                                                    ? uvec3(source, target, next_source)
+                                                    : uvec3(next_source, target, next_target);
+  }
+}

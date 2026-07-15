@@ -2061,6 +2061,27 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     directional_light_shadow_pipeline_mesh_shader->Initialize();
   }
+  if (Platform::MeshShaderEnabled() && !strands_directional_light_shadow_pipeline) {
+    strands_directional_light_shadow_pipeline = std::make_shared<GraphicsPipeline>();
+    strands_directional_light_shadow_pipeline->task_shader = Shader::CreateTemporary(
+        ShaderType::Task, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/StrandsShadowMap.task");
+    strands_directional_light_shadow_pipeline->mesh_shader = Shader::CreateTemporary(
+        ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh");
+    strands_directional_light_shadow_pipeline->fragment_shader =
+        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    strands_directional_light_shadow_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
+    strands_directional_light_shadow_pipeline->depth_attachment_format = Platform::Constants::shadow_map;
+    strands_directional_light_shadow_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    auto& push_constant_range = strands_directional_light_shadow_pipeline->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(RenderInstancePushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+    strands_directional_light_shadow_pipeline->Initialize();
+  }
   if (!instanced_point_light_shadow_pipeline_opaque) {
     instanced_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert",
@@ -4671,8 +4692,10 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                directional_light_shadow_opaque_pipeline,
                instanced_directional_light_shadow_pipeline_opaque,
                skinned_directional_light_shadow_pipeline_opaque,
+               use_mesh_shader ? strands_directional_light_shadow_pipeline : nullptr,
                per_frame_descriptor_sets_[current_frame_index],
                meshlet_descriptor_sets_[current_frame_index],
+               use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr,
                camera_index,
                static_cast<int>(graphics_settings.max_directional_light_size),
                current_frame_index,

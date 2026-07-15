@@ -729,6 +729,9 @@ class RenderLayer final : public ILayer {
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
 
+  /// Mesh-shader pipeline for rendering directional light shadows from strands.
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
+
   /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
 
