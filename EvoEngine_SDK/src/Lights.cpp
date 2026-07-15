@@ -8,8 +8,19 @@ using namespace evo_engine;
 
 void SpotLight::OnCreate() {
   SetEnabled(true);
+  cast_shadow = true;
+  inner_degrees = 20;
+  outer_degrees = 30;
+  constant = 1.0f;
+  linear = 0.07f;
+  quadratic = 0.0015f;
+  bias = 0.002f;
+  diffuse = glm::vec3(1.0f);
+  diffuse_brightness = 3.f;
+  light_size = 0.01f;
+  range = 0.0f;
+  shadow_distance = 400.f;
 }
-
 float PointLight::GetFarPlane() const {
   const float light_max = glm::max(glm::max(diffuse.x, diffuse.y), diffuse.z);
   return (-linear + glm::sqrt(linear * linear - 4 * quadratic * (constant - (256.0 / 5.0) * light_max))) /
@@ -24,6 +35,16 @@ float SpotLight::GetFarPlane() const {
 
 void PointLight::OnCreate() {
   SetEnabled(true);
+  cast_shadow = true;
+  constant = 1.0f;
+  linear = 0.07f;
+  quadratic = 0.0015f;
+  bias = 0.002f;
+  diffuse = glm::vec3(1.0f);
+  diffuse_brightness = 3.f;
+  light_size = 0.01f;
+  range = 0.0f;
+  shadow_distance = 400.f;
 }
 
 bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& other) const {
@@ -57,6 +78,13 @@ bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& othe
 
 void DirectionalLight::OnCreate() {
   SetEnabled(true);
+  cast_shadow = true;
+  diffuse = glm::vec3(1.0f);
+  diffuse_brightness = 1.f;
+  bias = 0.0f;
+  slope_bias = 0.0f;
+  normal_offset = 1.f;
+  light_size = 0.01f;
 }
 
 void DirectionalLight::PostCloneAction(const std::shared_ptr<IPrivateComponent>& target) {

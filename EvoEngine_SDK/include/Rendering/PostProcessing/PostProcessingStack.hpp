@@ -113,10 +113,10 @@ class AmbientOcclusion : public IPostProcessing {
   float radius = 0.15f;
   float bias = 0.01f;
   float factor = 0.0f;
-  float intensity = 2.0f;
+  float intensity = 1.0f;
   float gtao_radius = 0.4f;
   float gtao_bias = 0.02f;
-  float gtao_intensity = 1.5f;
+  float gtao_intensity = 1.0f;
   float thickness = 1.0f;
   int slice_count = 8;
   int steps_per_slice = 6;

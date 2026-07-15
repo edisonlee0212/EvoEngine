@@ -2404,11 +2404,11 @@ bool InspectDirectionalLight(InspectorContext&, DirectionalLight& light) {
     changed = false;
   if (ImGui::DragFloat("Intensity", &light.diffuse_brightness, 0.01f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Bias (texels)", &light.bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Bias (texels)", &light.bias, 1.f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Slope Bias (texels)", &light.slope_bias, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Slope Bias (texels)", &light.slope_bias, 1.f, 0.0f, 999.0f))
     changed = false;
-  if (ImGui::DragFloat("Normal Offset (texels)", &light.normal_offset, 0.001f, 0.0f, 999.0f))
+  if (ImGui::DragFloat("Normal Offset (texels)", &light.normal_offset, 1.f, 0.0f, 999.0f))
     changed = false;
   if (ImGui::DragFloat("Light Size", &light.light_size, 0.001f, 0.0f, 999.0f))
     changed = false;
