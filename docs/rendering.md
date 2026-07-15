@@ -98,7 +98,7 @@ roughness, and derived F0. Specular-glossiness materials retain the Khronos diff
 `roughness = 1 - glossiness`; they are no longer approximated as metallic-roughness.
 Masked alpha remains a geometry-pass discard. Transparent blend, transmission, diffuse transmission, volume/scatter,
 clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their existing transparent, forward, ray, or
-documented fallback paths until a later milestone defines their GBuffer representation.
+documented fallback paths until their GBuffer representation is implemented.
 
 Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is
 allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
@@ -249,10 +249,9 @@ its compute shader and does not depend on an RTX pipeline, SBT, or SER capabilit
 
 The all-feature startup pipelines are permanent fallbacks. Missing variants compile asynchronously on the render
 executor, remain cached by technique plus feature mask, and publish only at frame preparation. A publication resets the
-matching camera histories once. Successful pipelines are retained until render-layer destruction because Vulkan
-pipelines have no general deferred-retirement queue yet. The editor's Render Layer inspection shows requested and active
-keys; automated captures can select `--preview-ray-shader-variant auto|full` and wait for exact readiness before counting
-samples.
+matching camera histories once. The bounded caches retain an evicted pipeline until its submitted frame has completed.
+The editor's Render Layer inspection shows requested and active keys; automated ray captures wait for the requested
+variant before counting samples.
 
 Opaque deferred pipelines currently enable the fixed raster material backend. Direct draws bind per-material descriptor
 sets per draw. When indirect rendering is enabled, `DeferredGeometryPass` uses material-batched indirect ranges: each
@@ -297,8 +296,6 @@ Current shadow policy:
   their existing 32-sample PCF paths;
 - when mesh shaders are supported and enabled, built-in strands render normally and cast directional, point, and spot
   shadows through the mesh-shader backend;
-- the punctual-strand validation fixture labels its point/spot counters as frame-global because those shadow passes run
-  before per-camera draw scopes;
 - directional light size is the PCF radius in world units and each fit includes that footprint plus its packed-viewport
   comparison/snap guard and a conservative TAA-jitter envelope;
 - both fits include the bounded depth overlap used by cascade-transition blending;
@@ -325,7 +322,7 @@ Ray cameras share one GLSL estimator in `CameraRayIntegrator.glsl`. It owns path
 BSDF sampling, volume transport, throughput, Russian roulette, invalid-radiance rejection, configurable firefly clamping,
 accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.glsl` adapts that estimator to the Vulkan ray-tracing
 pipeline and payload shaders; `CameraRayQueryTraversal.glsl` adapts it to inline RayQuery traversal from a compute shader.
-The active `.rgen` and `.comp` files are stage-specific entry points only. `CameraLegacy` remains a separate fallback.
+The active `.rgen` and `.comp` files are stage-specific entry points only.
 
 Acceleration structures are a shared capability rather than an RT-pipeline capability. Static, skinned, and particle
 BLAS data, TLAS updates, geometry descriptors, and synchronization are available when either RT pipelines or RayQuery are

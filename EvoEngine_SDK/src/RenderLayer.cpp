@@ -1439,13 +1439,6 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRayTracingPointCloud
   return ray_tracing_point_cloud_layout_;
 }
 
-std::optional<uint32_t> RenderLayer::GetRayTracingCameraMaxRecursionDepth() const {
-  if (!ray_tracing_camera_pipeline) {
-    return std::nullopt;
-  }
-  return ray_tracing_camera_pipeline->GetMaxRecursionDepth();
-}
-
 const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetParticleInstancedDataDescriptorSetLayout() const {
   return particle_instanced_data_layout_;
 }
@@ -2543,22 +2536,14 @@ void RenderLayer::OnCreate() {
   constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
                                                     VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR |
                                                     VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
-  double ray_tracing_fallback_build_milliseconds = 0.0;
-  double ray_query_fallback_build_milliseconds = 0.0;
   if (Platform::RayTracingEnabled() && !ray_tracing_camera_fallback_pipeline_) {
-    const auto build_start = std::chrono::steady_clock::now();
     ray_tracing_camera_fallback_pipeline_ = CreateRayTracingCameraPipeline(
         per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
-    ray_tracing_fallback_build_milliseconds =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - build_start).count();
     ray_tracing_camera_pipeline = ray_tracing_camera_fallback_pipeline_;
   }
   if (Platform::RayQueryEnabled() && !ray_query_camera_fallback_pipeline_) {
-    const auto build_start = std::chrono::steady_clock::now();
     ray_query_camera_fallback_pipeline_ = CreateRayQueryCameraPipeline(
         per_frame_layout_, ray_tracing_layout_, ray_tracing_camera_output_layout_, Platform::GetShaderGlobalDefines());
-    ray_query_fallback_build_milliseconds =
-        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - build_start).count();
     ray_query_camera_pipeline_ = ray_query_camera_fallback_pipeline_;
   }
   if (!ray_camera_shader_variant_cache_ &&
@@ -2587,7 +2572,7 @@ void RenderLayer::OnCreate() {
             : RayCameraShaderVariantCache::RayQueryFactory{};
     ray_camera_shader_variant_cache_ = std::make_shared<RayCameraShaderVariantCache>(
         ray_tracing_camera_fallback_pipeline_, ray_query_camera_fallback_pipeline_, ray_tracing_factory,
-        ray_query_factory, ray_tracing_fallback_build_milliseconds, ray_query_fallback_build_milliseconds);
+        ray_query_factory);
   }
   if (Platform::RayTracingEnabled() && !ray_tracing_point_cloud_pipeline) {
     ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
@@ -2914,8 +2899,6 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
                                                    need_ray_query_debug_views || force_full_ray_camera_shader_variant);
       ray_tracing_camera_pipeline = ray_camera_shader_variant_cache_->GetRayTracingPipeline();
       ray_query_camera_pipeline_ = ray_camera_shader_variant_cache_->GetRayQueryPipeline();
-      bool reset_ray_tracing = false;
-      bool reset_ray_query = false;
       for (const auto& [transform, camera] : current_render_instances->cameras) {
         if (!camera)
           continue;
@@ -2923,14 +2906,8 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
         if ((variant_update.ray_tracing_activated && mode == Camera::CameraRenderMode::RayTracing) ||
             (variant_update.ray_query_activated && mode == Camera::CameraRenderMode::RayQuery)) {
           camera->ResetFrameCount();
-          reset_ray_tracing |= mode == Camera::CameraRenderMode::RayTracing;
-          reset_ray_query |= mode == Camera::CameraRenderMode::RayQuery;
         }
       }
-      if (reset_ray_tracing)
-        ray_camera_shader_variant_cache_->RecordAccumulationReset(RayCameraShaderTechnique::RayTracing);
-      if (reset_ray_query)
-        ray_camera_shader_variant_cache_->RecordAccumulationReset(RayCameraShaderTechnique::RayQuery);
     }
     current_render_instances->UpdateTopLevelAccelerationStructure();
 
@@ -3832,8 +3809,8 @@ void RenderLayer::RenderGizmos() const {
                 push_constant.strand_meshlet_offset = i.strands->strand_meshlet_range_->prev_frame_offset;
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 gizmos_pipeline->DrawMeshTasks(vk_command_buffer, i.strands->strand_meshlet_range_->prev_frame_range);
-                Platform::CountStrandGizmoDraw(current_frame_index, i.strands->segment_range_->prev_frame_index_count,
-                                               static_cast<size_t>(i.gizmo_settings.color_mode));
+                Platform::CountRenderPassDraw(RenderPassDrawBucket::EditorGizmos, RenderDrawCallKind::Direct,
+                                              current_frame_index, i.strands->segment_range_->prev_frame_index_count);
               });
         });
       }
@@ -3895,16 +3872,6 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
   if (index >= render_instances_list_.size())
     return {};
   return render_instances_list_[index];
-}
-
-TopLevelAccelerationStructure::UploadTelemetry RenderLayer::GetTlasUploadTelemetry() const {
-  TopLevelAccelerationStructure::UploadTelemetry result;
-  for (const auto& render_instances : render_instances_list_) {
-    if (render_instances && render_instances->mesh_top_level_acceleration_structure) {
-      result += render_instances->mesh_top_level_acceleration_structure->GetUploadTelemetry();
-    }
-  }
-  return result;
 }
 
 bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {
@@ -4121,7 +4088,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap() const {
             pipeline->states.cull_mode = render_instance->cull_mode;
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, pipeline);
             if (count_draw_calls) {
-              Platform::CountShadowStrandDraw(bucket, current_frame_index, prim_count, split_index);
+              Platform::CountRenderPassDraw(bucket, RenderDrawCallKind::Direct, current_frame_index, prim_count);
             }
           });
         };
@@ -4674,8 +4641,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                        func(vk_command_buffer, {light_index, split_index, viewport, light_space_matrix});
                    if (count_draw_calls) {
                      Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow,
-                                                   RenderDrawCallKind::Direct, current_frame_index, prim_count, 0,
-                                                   DirectionalShadowCasterKind::External);
+                                                   RenderDrawCallKind::Direct, current_frame_index, prim_count);
                    }
                  }
                },
@@ -4941,10 +4907,6 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
     if ((use_ray_query && (!ray_query_pipeline || !ray_query_pipeline->Initialized())) ||
         (!use_ray_query && (!ray_tracing_pipeline || !ray_tracing_pipeline->Initialized()))) {
       return;
-    }
-    if (ray_camera_shader_variant_cache_) {
-      ray_camera_shader_variant_cache_->RecordFallbackFrame(use_ray_query ? RayCameraShaderTechnique::RayQuery
-                                                                          : RayCameraShaderTechnique::RayTracing);
     }
     const auto camera_handle = camera->GetHandle().GetValue();
     ray_camera_history_cameras_[camera_handle] = camera;

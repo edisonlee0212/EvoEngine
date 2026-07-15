@@ -2656,28 +2656,6 @@ int RenderInstanceStorage::GetCameraIndex(const Handle& camera_handle) {
   return search->second;
 }
 
-RenderInstanceStorage::DirectionalShadowTelemetry RenderInstanceStorage::GetDirectionalShadowTelemetry(
-    const Handle& camera_handle) const {
-  DirectionalShadowTelemetry result;
-  result.pcf_sample_amount = render_info_block.shadow_debug_parameters.w;
-  const auto camera_search = camera_indices_.find(camera_handle);
-  if (camera_search == camera_indices_.end()) {
-    return result;
-  }
-  result.split_distances = camera_info_blocks_[camera_search->second].shadow_split_distances;
-  if (cameras.empty()) {
-    return result;
-  }
-  const auto light_capacity = directional_light_info_blocks_.size() / cameras.size();
-  const auto begin = static_cast<size_t>(camera_search->second) * light_capacity;
-  if (begin >= directional_light_info_blocks_.size()) {
-    return result;
-  }
-  const auto end = std::min(begin + light_capacity, directional_light_info_blocks_.size());
-  result.lights.assign(directional_light_info_blocks_.begin() + begin, directional_light_info_blocks_.begin() + end);
-  return result;
-}
-
 Handle RenderInstanceStorage::GetInstanceEntityHandle(const int render_instance_index) {
   const auto search = instance_entity_handles_.find(render_instance_index);
   if (search == instance_entity_handles_.end()) {

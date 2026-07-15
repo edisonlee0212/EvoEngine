@@ -64,11 +64,12 @@ TEST(DirectionalShadowCascadeFit, StableSphereIsTheTransientStartupDefault) {
                "Tight Light-Space AABB");
 }
 
-TEST(DirectionalShadowCascadeFit, DirectionalBiasDefaultsUseSubTexelUnits) {
-  const DirectionalLight light;
-  EXPECT_FLOAT_EQ(light.bias, 0.1f);
-  EXPECT_FLOAT_EQ(light.slope_bias, 0.1f);
-  EXPECT_FLOAT_EQ(light.normal_offset, 0.01f);
+TEST(DirectionalShadowCascadeFit, DirectionalBiasDefaultsRemainUnchanged) {
+  DirectionalLight light;
+  light.OnCreate();
+  EXPECT_FLOAT_EQ(light.bias, 0.0f);
+  EXPECT_FLOAT_EQ(light.slope_bias, 0.0f);
+  EXPECT_FLOAT_EQ(light.normal_offset, 1.0f);
 }
 
 TEST(DirectionalShadowCascadeFit, PerCameraSplitsAndFitsTrackDistinctCameraConfigurations) {

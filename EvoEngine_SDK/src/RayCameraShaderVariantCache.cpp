@@ -3,6 +3,7 @@
 #include "ComputePipeline.hpp"
 #include "Platform.hpp"
 #include "RayTracingPipeline.hpp"
+#include "Shader.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -32,9 +33,7 @@ std::string CacheSource(const ShaderCompileCacheStats& before, const ShaderCompi
 RayCameraShaderVariantCache::RayCameraShaderVariantCache(std::shared_ptr<RayTracingPipeline> ray_tracing_fallback,
                                                          std::shared_ptr<ComputePipeline> ray_query_fallback,
                                                          RayTracingFactory ray_tracing_factory,
-                                                         RayQueryFactory ray_query_factory,
-                                                         const double ray_tracing_fallback_build_milliseconds,
-                                                         const double ray_query_fallback_build_milliseconds)
+                                                         RayQueryFactory ray_query_factory)
     : ray_tracing_factory_(std::move(ray_tracing_factory)), ray_query_factory_(std::move(ray_query_factory)) {
   ray_tracing_.fallback = std::move(ray_tracing_fallback);
   ray_tracing_.active = ray_tracing_.fallback;
@@ -42,16 +41,12 @@ RayCameraShaderVariantCache::RayCameraShaderVariantCache(std::shared_ptr<RayTrac
   ray_tracing_.stats.active_mask = kRayCameraFallbackMask;
   ray_tracing_.stats.requested_key = VariantKey(RayCameraShaderTechnique::RayTracing, kRayCameraFallbackMask);
   ray_tracing_.stats.active_key = ray_tracing_.stats.requested_key;
-  ray_tracing_.stats.build_milliseconds = ray_tracing_fallback_build_milliseconds;
-  ray_tracing_.stats.fallback_build_milliseconds = ray_tracing_fallback_build_milliseconds;
   ray_query_.fallback = std::move(ray_query_fallback);
   ray_query_.active = ray_query_.fallback;
   ray_query_.stats.requested_mask = kRayCameraFallbackMask;
   ray_query_.stats.active_mask = kRayCameraFallbackMask;
   ray_query_.stats.requested_key = VariantKey(RayCameraShaderTechnique::RayQuery, kRayCameraFallbackMask);
   ray_query_.stats.active_key = ray_query_.stats.requested_key;
-  ray_query_.stats.build_milliseconds = ray_query_fallback_build_milliseconds;
-  ray_query_.stats.fallback_build_milliseconds = ray_query_fallback_build_milliseconds;
 }
 
 RayCameraShaderVariantCache::~RayCameraShaderVariantCache() {
@@ -150,12 +145,10 @@ void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask)
   }
   auto entry = std::make_shared<Entry<RayTracingPipeline>>();
   entry->mask = feature_mask;
-  entry->requested_at = std::chrono::steady_clock::now();
   TouchEntry(entry);
   const auto factory = ray_tracing_factory_;
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
-    const auto build_start = std::chrono::steady_clock::now();
     try {
       auto pipeline = factory(entry->mask);
       const bool success = pipeline && pipeline->Initialized();
@@ -171,16 +164,8 @@ void RayCameraShaderVariantCache::RequestRayTracing(const uint32_t feature_mask)
       const std::lock_guard lock(entry->mutex);
       entry->error = "Unknown ray-tracing pipeline build failure.";
     }
-    {
-      const std::lock_guard lock(entry->mutex);
-      const auto completed_at = std::chrono::steady_clock::now();
-      entry->build_milliseconds = std::chrono::duration<double, std::milli>(completed_at - build_start).count();
-      entry->request_to_ready_milliseconds =
-          std::chrono::duration<double, std::milli>(completed_at - entry->requested_at).count();
-    }
   });
   ray_tracing_.entries.emplace(feature_mask, entry);
-  ++ray_tracing_.stats.build_count;
   Jobs::Execute(entry->job);
 }
 
@@ -194,12 +179,10 @@ void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
   }
   auto entry = std::make_shared<Entry<ComputePipeline>>();
   entry->mask = feature_mask;
-  entry->requested_at = std::chrono::steady_clock::now();
   TouchEntry(entry);
   const auto factory = ray_query_factory_;
   entry->job = Jobs::RunOnRenderThread([entry, factory]() {
     const auto before = Shader::GetCompileCacheStats();
-    const auto build_start = std::chrono::steady_clock::now();
     try {
       auto pipeline = factory(entry->mask);
       const bool success = pipeline && pipeline->Initialized();
@@ -215,16 +198,8 @@ void RayCameraShaderVariantCache::RequestRayQuery(const uint32_t feature_mask) {
       const std::lock_guard lock(entry->mutex);
       entry->error = "Unknown Ray Query pipeline build failure.";
     }
-    {
-      const std::lock_guard lock(entry->mutex);
-      const auto completed_at = std::chrono::steady_clock::now();
-      entry->build_milliseconds = std::chrono::duration<double, std::milli>(completed_at - build_start).count();
-      entry->request_to_ready_milliseconds =
-          std::chrono::duration<double, std::milli>(completed_at - entry->requested_at).count();
-    }
   });
   ray_query_.entries.emplace(feature_mask, entry);
-  ++ray_query_.stats.build_count;
   Jobs::Execute(entry->job);
 }
 
@@ -242,12 +217,8 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
     stats.active_mask = kRayCameraFallbackMask;
     stats.active_key = stats.requested_key;
     stats.cache_source = "fallback";
-    stats.build_milliseconds = stats.fallback_build_milliseconds;
-    stats.request_to_ready_milliseconds = 0.0;
     stats.pending = false;
     stats.ready = true;
-    stats.fallback_active = true;
-    stats.activation_count += changed ? 1u : 0u;
     return changed;
   }
   if (const auto search = ray_tracing_.entries.find(feature_mask); search != ray_tracing_.entries.end()) {
@@ -260,12 +231,8 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
       stats.active_mask = feature_mask;
       stats.active_key = stats.requested_key;
       stats.cache_source = entry->cache_source;
-      stats.build_milliseconds = entry->build_milliseconds;
-      stats.request_to_ready_milliseconds = entry->request_to_ready_milliseconds;
       stats.pending = false;
       stats.ready = true;
-      stats.fallback_active = false;
-      stats.activation_count += changed ? 1u : 0u;
       return changed;
     }
     if (entry->published) {
@@ -281,10 +248,6 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
         stats.active_mask = kRayCameraFallbackMask;
         stats.active_key = VariantKey(RayCameraShaderTechnique::RayTracing, kRayCameraFallbackMask);
         stats.cache_source = "fallback";
-        stats.build_milliseconds = stats.fallback_build_milliseconds;
-        stats.request_to_ready_milliseconds = 0.0;
-        stats.fallback_active = true;
-        stats.activation_count += changed ? 1u : 0u;
         return changed;
       }
       stats.pending = false;
@@ -306,13 +269,8 @@ bool RayCameraShaderVariantCache::UpdateRayTracing(const uint32_t feature_mask) 
     stats.active_mask = kRayCameraFallbackMask;
     stats.active_key = VariantKey(RayCameraShaderTechnique::RayTracing, kRayCameraFallbackMask);
     stats.cache_source = "fallback";
-    stats.build_milliseconds = stats.fallback_build_milliseconds;
-    stats.request_to_ready_milliseconds = 0.0;
-    stats.fallback_active = true;
-    stats.activation_count += changed ? 1u : 0u;
     return changed;
   }
-  stats.fallback_active = ray_tracing_.active == ray_tracing_.fallback;
   return false;
 }
 
@@ -330,12 +288,8 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
     stats.active_mask = kRayCameraFallbackMask;
     stats.active_key = stats.requested_key;
     stats.cache_source = "fallback";
-    stats.build_milliseconds = stats.fallback_build_milliseconds;
-    stats.request_to_ready_milliseconds = 0.0;
     stats.pending = false;
     stats.ready = true;
-    stats.fallback_active = true;
-    stats.activation_count += changed ? 1u : 0u;
     return changed;
   }
   if (const auto search = ray_query_.entries.find(feature_mask); search != ray_query_.entries.end()) {
@@ -348,12 +302,8 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
       stats.active_mask = feature_mask;
       stats.active_key = stats.requested_key;
       stats.cache_source = entry->cache_source;
-      stats.build_milliseconds = entry->build_milliseconds;
-      stats.request_to_ready_milliseconds = entry->request_to_ready_milliseconds;
       stats.pending = false;
       stats.ready = true;
-      stats.fallback_active = false;
-      stats.activation_count += changed ? 1u : 0u;
       return changed;
     }
     if (entry->published) {
@@ -369,10 +319,6 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
         stats.active_mask = kRayCameraFallbackMask;
         stats.active_key = VariantKey(RayCameraShaderTechnique::RayQuery, kRayCameraFallbackMask);
         stats.cache_source = "fallback";
-        stats.build_milliseconds = stats.fallback_build_milliseconds;
-        stats.request_to_ready_milliseconds = 0.0;
-        stats.fallback_active = true;
-        stats.activation_count += changed ? 1u : 0u;
         return changed;
       }
       stats.pending = false;
@@ -394,13 +340,8 @@ bool RayCameraShaderVariantCache::UpdateRayQuery(const uint32_t feature_mask) {
     stats.active_mask = kRayCameraFallbackMask;
     stats.active_key = VariantKey(RayCameraShaderTechnique::RayQuery, kRayCameraFallbackMask);
     stats.cache_source = "fallback";
-    stats.build_milliseconds = stats.fallback_build_milliseconds;
-    stats.request_to_ready_milliseconds = 0.0;
-    stats.fallback_active = true;
-    stats.activation_count += changed ? 1u : 0u;
     return changed;
   }
-  stats.fallback_active = ray_query_.active == ray_query_.fallback;
   return false;
 }
 
@@ -441,7 +382,6 @@ RayCameraShaderVariantStats RayCameraShaderVariantCache::GetStats(const RayCamer
   auto result = technique == RayCameraShaderTechnique::RayTracing ? ray_tracing_.stats : ray_query_.stats;
   result.requested_mask &= kGltfSceneAllFeatures;
   result.active_mask &= kGltfSceneAllFeatures;
-  result.shader_cache = Shader::GetCompileCacheStats();
   if (technique == RayCameraShaderTechnique::RayTracing && ray_tracing_.active)
     result.pipeline_creation = ray_tracing_.active->GetCreationFeedback();
   if (technique == RayCameraShaderTechnique::RayQuery && ray_query_.active)
@@ -451,19 +391,6 @@ RayCameraShaderVariantStats RayCameraShaderVariantCache::GetStats(const RayCamer
 
 bool RayCameraShaderVariantCache::IsReady(const RayCameraShaderTechnique technique) const {
   return GetStats(technique).ready;
-}
-
-void RayCameraShaderVariantCache::RecordFallbackFrame(const RayCameraShaderTechnique technique) {
-  const std::lock_guard lock(mutex_);
-  auto& stats = technique == RayCameraShaderTechnique::RayTracing ? ray_tracing_.stats : ray_query_.stats;
-  if (!stats.ready)
-    ++stats.fallback_frame_count;
-}
-
-void RayCameraShaderVariantCache::RecordAccumulationReset(const RayCameraShaderTechnique technique) {
-  const std::lock_guard lock(mutex_);
-  auto& stats = technique == RayCameraShaderTechnique::RayTracing ? ray_tracing_.stats : ray_query_.stats;
-  ++stats.accumulation_reset_count;
 }
 
 void RayCameraShaderVariantCache::RecordActiveUse(const RayCameraShaderTechnique technique) {

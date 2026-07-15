@@ -116,12 +116,11 @@ TEST(StrandsMeshShader, LegacyBackendIsRemoved) {
             std::string::npos);
 }
 
-TEST(StrandsMeshShader, GizmosUseMeshShadersAndExactThreeModeFixture) {
+TEST(StrandsMeshShader, GizmosUseMeshShadersAndThreeModeCaptureFixture) {
   const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Gizmos/GizmosStrands.task"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Gizmos/GizmosStrands.mesh"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto inspection = ReadRepoFile("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp");
-  const auto platform = ReadRepoFile("EvoEngine_SDK/include/Rendering/Platform/Platform.hpp");
   const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
   const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
 
@@ -134,17 +133,13 @@ TEST(StrandsMeshShader, GizmosUseMeshShadersAndExactThreeModeFixture) {
   EXPECT_NE(render_layer.find("Graphics/Mesh/Gizmos/GizmosStrands.mesh"), std::string::npos);
   EXPECT_NE(render_layer.find("for (const auto& i : editor_layer->gizmo_strands_tasks_)"), std::string::npos);
   EXPECT_NE(render_layer.find("gizmos_pipeline->DrawMeshTasks"), std::string::npos);
-  EXPECT_NE(render_layer.find("Platform::CountStrandGizmoDraw"), std::string::npos);
+  EXPECT_NE(render_layer.find("Platform::CountRenderPassDraw(RenderPassDrawBucket::EditorGizmos"), std::string::npos);
   EXPECT_NE(inspection.find("Platform::MeshShaderEnabled() && ImGui::BeginTabItem(\"Strands\")"), std::string::npos);
-  EXPECT_NE(platform.find("std::array<size_t, 3> strand_gizmo_mode_draw_calls"), std::string::npos);
   EXPECT_NE(scene.find("ConfigureStrandGizmoValidation"), std::string::npos);
   EXPECT_NE(scene.find("RegisterStrandGizmoValidationUpdate"), std::string::npos);
   EXPECT_NE(scene.find("GizmoSettings::ColorMode::VertexColor"), std::string::npos);
   EXPECT_NE(scene.find("GizmoSettings::ColorMode::NormalColor"), std::string::npos);
   EXPECT_NE(editor.find("--preview-strand-gizmo-fixture"), std::string::npos);
-  EXPECT_NE(editor.find("StrandGizmoFixtureTelemetryJson"), std::string::npos);
-  EXPECT_NE(editor.find("expected_mode_draws = {1, 1, 1}"), std::string::npos);
-  EXPECT_NE(editor.find("Strand gizmo validation failed"), std::string::npos);
 }
 
 TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {
@@ -156,13 +151,10 @@ TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {
   EXPECT_NE(scene.find("glm::vec3(1.0f), false"), std::string::npos);
   EXPECT_NE(scene.find("UpdateStrandMeshShaderValidationGeometry"), std::string::npos);
   EXPECT_NE(editor.find("--preview-strand-fixture"), std::string::npos);
-  EXPECT_NE(editor.find("StrandFixtureTelemetryJson"), std::string::npos);
-  EXPECT_NE(editor.find("\"meshlet_count\""), std::string::npos);
-  EXPECT_NE(editor.find("\"directional_shadow_strand_cascades\""), std::string::npos);
-  EXPECT_NE(editor.find("GeometryStorage::HasPendingMeshUploads()"), std::string::npos);
+  EXPECT_NE(editor.find("UpdateStrandMeshShaderValidationGeometry"), std::string::npos);
 }
 
-TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndCasterAccounting) {
+TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndGenericAccounting) {
   const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Lighting/StrandsShadowMap.task"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh"));
   const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.glsl"));
@@ -177,17 +169,16 @@ TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndCasterAccountin
   EXPECT_NE(render_layer.find("strand_meshlet_descriptor_sets_[current_frame_index]"), std::string::npos);
   EXPECT_NE(pass.find("parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet()"), std::string::npos);
   EXPECT_NE(pass.find("ForEachStrandsRenderInstance"), std::string::npos);
-  EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands"), std::string::npos);
-  EXPECT_NE(pass.find("DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split"), std::string::npos);
+  EXPECT_NE(pass.find("AccountDraws(parameters.count_draw_calls"), std::string::npos);
+  EXPECT_NE(pass.find("Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow"), std::string::npos);
   EXPECT_NE(pass.find("states.cull_mode = render_instance->cull_mode"), std::string::npos);
 }
 
-TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndExactFixtureTelemetry) {
+TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndCaptureFixture) {
   const auto point = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/PointLightStrandsShadowMap.mesh"));
   const auto spot = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.mesh"));
   const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.glsl"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
-  const auto platform = ReadRepoFile("EvoEngine_SDK/include/Rendering/Platform/Platform.hpp");
   const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
   const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
 
@@ -203,18 +194,12 @@ TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndExactFixtureTelemetry)
   EXPECT_NE(render_layer.find("use_mesh_shader ? strands_point_light_shadow_pipeline : nullptr"), std::string::npos);
   EXPECT_NE(render_layer.find("use_mesh_shader ? strands_spot_light_shadow_pipeline : nullptr"), std::string::npos);
   EXPECT_NE(render_layer.find("pipeline->states.cull_mode = render_instance->cull_mode"), std::string::npos);
-  EXPECT_NE(render_layer.find("Platform::CountShadowStrandDraw"), std::string::npos);
-  EXPECT_NE(platform.find("point_shadow_strand_face_draw_calls"), std::string::npos);
-  EXPECT_NE(platform.find("spot_shadow_strand_draw_calls"), std::string::npos);
+  EXPECT_NE(render_layer.find("render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("Platform::CountRenderPassDraw(bucket, RenderDrawCallKind::Direct"), std::string::npos);
   EXPECT_NE(scene.find("ConfigureStrandPunctualShadowValidation"), std::string::npos);
   EXPECT_NE(scene.find("const std::array point_directions"), std::string::npos);
   EXPECT_NE(editor.find("--preview-strand-punctual-fixture"), std::string::npos);
-  EXPECT_NE(editor.find("StrandPunctualFixtureTelemetryJson"), std::string::npos);
-  EXPECT_NE(editor.find("\"point_shadow_strand_faces\""), std::string::npos);
-  EXPECT_NE(editor.find("\"spot_shadow_strands\""), std::string::npos);
-  EXPECT_NE(editor.find("\"draw_scope\"] = \"frame-global\""), std::string::npos);
-  EXPECT_NE(editor.find("expected_point_face_draws = {1, 1, 1, 1, 1, 1}"), std::string::npos);
-  EXPECT_NE(editor.find("result[\"pass\"] = failures.empty()"), std::string::npos);
-  EXPECT_NE(editor.find("!scene->IsEntityEnabled(owner) || !renderer"), std::string::npos);
-  EXPECT_NE(editor.find("Strand punctual-shadow validation failed"), std::string::npos);
 }

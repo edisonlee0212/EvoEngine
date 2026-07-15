@@ -15,14 +15,13 @@ using namespace evo_engine;
 
 namespace {
 void AccountDraws(const bool count_draw_calls, const uint32_t current_frame_index, const size_t prim_count,
-                  const DirectionalShadowCasterKind caster_kind = DirectionalShadowCasterKind::Regular,
                   const RenderDrawCallKind draw_kind = RenderDrawCallKind::Direct,
-                  const size_t indirect_draw_commands = 0, const uint32_t strand_cascade = 4) {
+                  const size_t indirect_draw_commands = 0) {
   if (!count_draw_calls) {
     return;
   }
   Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow, draw_kind, current_frame_index,
-                                prim_count, indirect_draw_commands, caster_kind, strand_cascade);
+                                prim_count, indirect_draw_commands);
 }
 
 bool LightCastsShadow(const glm::vec4& diffuse) {
@@ -171,8 +170,6 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                 target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 target_pipeline->states.ApplyAllStates(vk_command_buffer);
                 AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
-                             parameters.use_mesh_shader ? DirectionalShadowCasterKind::MeshShader
-                                                        : DirectionalShadowCasterKind::Regular,
                              RenderDrawCallKind::Indirect,
                              parameters.use_mesh_shader ? mesh_task_commands.size() : indexed_commands.size());
                 if (parameters.use_mesh_shader) {
@@ -204,8 +201,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                       push_constant.instance_index = render_instance->instance_index;
                       const auto prim_count = render_instance->Render(vk_command_buffer, push_constant,
                                                                       parameters.directional_opaque_pipeline);
-                      AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
-                                   DirectionalShadowCasterKind::Regular);
+                      AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                     });
               }
             }
@@ -223,8 +219,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     push_constant.instance_index = render_instance->instance_index;
                     const auto prim_count =
                         render_instance->Render(vk_command_buffer, push_constant, parameters.instanced_opaque_pipeline);
-                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
-                                 DirectionalShadowCasterKind::Instanced);
+                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }
           }
@@ -242,8 +237,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     push_constant.instance_index = render_instance->instance_index;
                     const auto prim_count =
                         render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_opaque_pipeline);
-                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
-                                 DirectionalShadowCasterKind::Skinned);
+                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }
           }
@@ -261,8 +255,7 @@ void DirectionalLightShadowPass::Execute(const RenderGraphExecutionContext& cont
                     parameters.strands_opaque_pipeline->states.cull_mode = render_instance->cull_mode;
                     const auto prim_count =
                         render_instance->Render(vk_command_buffer, push_constant, parameters.strands_opaque_pipeline);
-                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count,
-                                 DirectionalShadowCasterKind::Strands, RenderDrawCallKind::Direct, 0, split);
+                    AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
                   });
             }
           }

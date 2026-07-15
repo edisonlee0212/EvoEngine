@@ -62,35 +62,6 @@ struct RayCameraHistoryStats {
   uint64_t output_descriptor_reuse_count = 0;
 };
 
-struct PostProcessingRuntimeStats {
-  glm::uvec2 scratch_size = {};
-  uint64_t stack_handle = 0;
-  uint32_t stack_version = 0;
-  uint32_t render_technique = 0;
-  uint64_t scratch_generation = 0;
-  uint64_t source_texture = 0;
-  uint64_t result_texture = 0;
-  uint64_t swap_texture = 0;
-  uint64_t taa_color_textures[2] = {};
-  uint64_t taa_depth_textures[2] = {};
-  uint64_t smaa_edges_texture = 0;
-  uint64_t smaa_blend_texture = 0;
-  uint64_t histogram_buffer = 0;
-  uint64_t luminance_buffer = 0;
-  uint32_t taa_frame_index = 0;
-  uint32_t taa_last_processed_frame = 0;
-  bool taa_history_valid = false;
-  bool auto_exposure_time_initialized = false;
-  bool luminance_reset_pending = false;
-  uint64_t auto_exposure_process_count = 0;
-  uint64_t auto_exposure_reset_count = 0;
-  uint64_t temporal_reset_count = 0;
-  uint64_t version_reset_count = 0;
-  uint64_t resolution_reset_count = 0;
-  uint64_t technique_reset_count = 0;
-  std::vector<uint64_t> descriptor_sets;
-};
-
 /**
  * @brief Represents the camera information block with matrices and settings used for rendering.
  */
@@ -161,7 +132,7 @@ class Camera final : public IPrivateComponent {
 
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
-  static constexpr uint32_t kRayDebugViewCount = 21;
+  static constexpr uint32_t kRayDebugViewCount = 20;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
   [[nodiscard]] static const char* GetCameraRenderModeName(CameraRenderMode mode);
@@ -338,7 +309,6 @@ class Camera final : public IPrivateComponent {
 
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
-  [[nodiscard]] PostProcessingRuntimeStats GetPostProcessingRuntimeStats() const;
   [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;

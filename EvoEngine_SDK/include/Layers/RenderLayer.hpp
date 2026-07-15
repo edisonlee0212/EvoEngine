@@ -52,8 +52,6 @@ class RenderLayer final : public ILayer {
    */
   [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetPreviousRenderInstanceStorage() const;
 
-  [[nodiscard]] TopLevelAccelerationStructure::UploadTelemetry GetTlasUploadTelemetry() const;
-
   [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
   using DdgiSettings = evo_engine::DdgiSettings;
@@ -397,7 +395,6 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetLightingDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRayTracingDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRayTracingPointCloudDescriptorSetLayout() const;
-  [[nodiscard]] std::optional<uint32_t> GetRayTracingCameraMaxRecursionDepth() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetParticleInstancedDataDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetBoneMatricesDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;

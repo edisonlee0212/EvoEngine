@@ -1148,21 +1148,6 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
     uint32_t instance_count = 0;
   };
 
-  struct UploadTelemetry {
-    uint64_t source_bytes = 0;
-    uint64_t uploaded_bytes = 0;
-    uint64_t range_count = 0;
-    uint64_t operation_count = 0;
-    uint64_t build_count = 0;
-    uint64_t update_count = 0;
-    uint64_t no_op_count = 0;
-    uint64_t full_upload_count = 0;
-    uint64_t zero_instance_upload_update_count = 0;
-
-    UploadTelemetry& operator+=(const UploadTelemetry& other);
-    [[nodiscard]] UploadTelemetry DeltaFrom(const UploadTelemetry& baseline) const;
-  };
-
  private:
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ =
       VK_NULL_HANDLE;                                       /**< Vulkan top-level acceleration structure handle. */
@@ -1185,9 +1170,6 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_final_blas_references_{};
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> pending_retained_blas_references_{};
   std::vector<std::shared_ptr<Buffer>> pending_extra_staging_buffers_{};
-  UploadTelemetry upload_telemetry_{};
-  UploadTelemetry pending_upload_telemetry_{};
-
   void Allocate(uint32_t instance_capacity);
   void Destroy();
   void ResolvePendingUpdate();
@@ -1231,8 +1213,6 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
       bool full_upload, const std::vector<VkAccelerationStructureInstanceKHR>& previous_instances,
       const std::vector<VkAccelerationStructureInstanceKHR>& current_instances);
 
-  [[nodiscard]] UploadTelemetry GetUploadTelemetry();
-
   /**
    * @brief Retrieves the Vulkan handle for the top-level acceleration structure.
    * @return Vulkan top-level acceleration structure handle.
@@ -1255,14 +1235,6 @@ class DescriptorSet final : public IGraphicsResource {
   VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;            /**< Vulkan descriptor set handle. */
 
  public:
-  struct LifetimeStats {
-    uint64_t live_count = 0;
-    uint64_t peak_live_count = 0;
-    uint64_t creation_count = 0;
-  };
-
-  [[nodiscard]] static LifetimeStats GetLifetimeStats();
-
   /**
    * @brief Retrieves the Vulkan descriptor set handle.
    * @return Vulkan descriptor set handle.

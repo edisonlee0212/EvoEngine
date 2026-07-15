@@ -203,8 +203,7 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .value("PathDepth", CameraSettings::RayDebugView::PathDepth)
       .value("BsdfPdf", CameraSettings::RayDebugView::BsdfPdf)
       .value("LightPdf", CameraSettings::RayDebugView::LightPdf)
-      .value("EmissivePdf", CameraSettings::RayDebugView::EmissivePdf)
-      .value("ValidationAtlas", CameraSettings::RayDebugView::ValidationAtlas);
+      .value("EmissivePdf", CameraSettings::RayDebugView::EmissivePdf);
 
   py::class_<CameraSettings>(m, "CameraSettings")
       .def(py::init<>())

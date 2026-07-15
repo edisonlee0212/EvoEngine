@@ -1,7 +1,6 @@
 #include "Camera.hpp"
 #include <algorithm>
 #include <cctype>
-#include <type_traits>
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
@@ -16,23 +15,6 @@
 using namespace evo_engine;
 
 namespace {
-template <typename T>
-uint64_t VulkanHandleIdentity(const T handle) {
-  if constexpr (std::is_pointer_v<T>) {
-    return reinterpret_cast<uintptr_t>(handle);
-  } else {
-    return static_cast<uint64_t>(handle);
-  }
-}
-
-uint64_t ResourceIdentity(const std::shared_ptr<RenderTexture>& resource) {
-  return resource && resource->GetColorImage() ? VulkanHandleIdentity(resource->GetColorImage()->GetVkImage()) : 0;
-}
-
-uint64_t ResourceIdentity(const std::shared_ptr<Buffer>& resource) {
-  return resource ? VulkanHandleIdentity(resource->GetVkBuffer()) : 0;
-}
-
 bool SameExtent(const VkExtent3D left, const VkExtent3D right) {
   return left.width == right.width && left.height == right.height && left.depth == right.depth;
 }
@@ -201,7 +183,7 @@ const std::vector<std::string>& Camera::GetRayDebugViewNames() {
       "Beauty",          "Material ID",        "Base Color",      "Geometric Normal",  "Shading Normal", "Roughness",
       "Metallic",        "Specular F0",        "Alpha/Coverage",  "Transmission",      "Iridescence",    "Emission",
       "Direct Punctual", "Direct Environment", "Direct Emissive", "Indirect Radiance", "Path Depth",     "BSDF PDF",
-      "Light PDF",       "Emissive PDF",       "Validation Atlas"};
+      "Light PDF",       "Emissive PDF"};
   return view_names;
 }
 
@@ -214,10 +196,10 @@ CameraSettings::RayDebugView Camera::ParseRayDebugView(const std::string& value,
                                                        const CameraSettings::RayDebugView fallback) {
   const auto normalized = NormalizeRenderModeName(value);
   static const std::vector<std::string> names{
-      "beauty",         "materialid",        "basecolor",      "geometricnormal",  "shadingnormal", "roughness",
-      "metallic",       "specularf0",        "alphacoverage",  "transmission",     "iridescence",   "emission",
-      "directpunctual", "directenvironment", "directemissive", "indirectradiance", "pathdepth",     "bsdfpdf",
-      "lightpdf",       "emissivepdf",       "validationatlas"};
+      "beauty",           "materialid", "basecolor",      "geometricnormal",   "shadingnormal",
+      "roughness",        "metallic",   "specularf0",     "alphacoverage",     "transmission",
+      "iridescence",      "emission",   "directpunctual", "directenvironment", "directemissive",
+      "indirectradiance", "pathdepth",  "bsdfpdf",        "lightpdf",          "emissivepdf"};
   for (uint32_t index = 0; index < kRayDebugViewCount; ++index) {
     if (normalized == std::to_string(index)) {
       return static_cast<CameraSettings::RayDebugView>(index);
@@ -841,61 +823,6 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
         }));
   }
   stats.live_camera_count = stats.live_history_count == 0 ? 0u : 1u;
-  return stats;
-}
-
-PostProcessingRuntimeStats Camera::GetPostProcessingRuntimeStats() const {
-  PostProcessingRuntimeStats stats;
-  if (!post_processing_resources_) {
-    return stats;
-  }
-  const auto& resources = *post_processing_resources_;
-  stats.scratch_size = resources.stack.size;
-  stats.stack_handle = resources.stack_handle;
-  stats.stack_version = resources.stack_version;
-  stats.render_technique = resources.render_technique;
-  stats.scratch_generation = resources.stack.generation;
-  stats.source_texture = ResourceIdentity(resources.stack.source_color_texture);
-  stats.result_texture = ResourceIdentity(resources.stack.result_texture);
-  stats.swap_texture = ResourceIdentity(resources.stack.swap_texture);
-  for (size_t index = 0; index < 2; ++index) {
-    stats.taa_color_textures[index] = ResourceIdentity(resources.anti_aliasing.history.textures[index]);
-    stats.taa_depth_textures[index] = ResourceIdentity(resources.anti_aliasing.history.depth_textures[index]);
-  }
-  stats.smaa_edges_texture = ResourceIdentity(resources.anti_aliasing.smaa_edges_texture);
-  stats.smaa_blend_texture = ResourceIdentity(resources.anti_aliasing.smaa_blend_texture);
-  stats.histogram_buffer = ResourceIdentity(resources.tone_mapping.histogram_buffer);
-  stats.luminance_buffer = ResourceIdentity(resources.tone_mapping.luminance_buffer);
-  stats.taa_frame_index = resources.anti_aliasing.history.frame_index;
-  stats.taa_last_processed_frame = resources.anti_aliasing.history.last_processed_frame;
-  stats.taa_history_valid = resources.anti_aliasing.history.valid;
-  stats.auto_exposure_time_initialized = resources.tone_mapping.auto_exposure_time_initialized;
-  stats.luminance_reset_pending = resources.tone_mapping.luminance_reset_pending;
-  stats.auto_exposure_process_count = resources.tone_mapping.auto_exposure_process_count;
-  stats.auto_exposure_reset_count = resources.tone_mapping.auto_exposure_reset_count;
-  stats.temporal_reset_count = resources.temporal_reset_count;
-  stats.version_reset_count = resources.version_reset_count;
-  stats.resolution_reset_count = resources.resolution_reset_count;
-  stats.technique_reset_count = resources.technique_reset_count;
-  resources.stack.blur_horizontal_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.stack.blur_vertical_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.ambient_occlusion.blur_horizontal_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.ambient_occlusion.blur_vertical_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.ambient_occlusion.combine_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.ambient_occlusion.geometry_output_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.copy_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.resolve_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.smaa_prepare_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.smaa_edge_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.smaa_weight_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.anti_aliasing.smaa_neighborhood_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.screen_space_reflection.combine_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.screen_space_reflection.reflect_output_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.bloom.copy_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.bloom.mix_descriptor_set.AppendIdentities(stats.descriptor_sets);
-  resources.bloom.downsampling_descriptor_sets.AppendIdentities(stats.descriptor_sets);
-  resources.bloom.upsampling_descriptor_sets.AppendIdentities(stats.descriptor_sets);
-  resources.tone_mapping.auto_exposure_descriptor_set.AppendIdentities(stats.descriptor_sets);
   return stats;
 }
 

@@ -14,19 +14,9 @@
 #include "SmaaSearchTex.h"
 #include "WindowLayer.hpp"
 
-#include <type_traits>
 using namespace evo_engine;
 
 namespace {
-template <typename T>
-uint64_t VulkanHandleIdentity(const T handle) {
-  if constexpr (std::is_pointer_v<T>) {
-    return reinterpret_cast<uintptr_t>(handle);
-  } else {
-    return static_cast<uint64_t>(handle);
-  }
-}
-
 std::shared_ptr<Image> CreateSmaaLookupImage(const VkFormat format, const uint32_t width, const uint32_t height) {
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -118,19 +108,6 @@ void PerFrameDescriptorSet::Retain(RenderGraphTransientResourceStore& transient_
   }
 }
 
-void PerFrameDescriptorSet::AppendIdentities(std::vector<uint64_t>& identities) const {
-  for (const auto& slot : slots_) {
-    if (slot.descriptor_set) {
-      identities.emplace_back(VulkanHandleIdentity(slot.descriptor_set->GetVkDescriptorSet()));
-    }
-    for (const auto& descriptor_set : slot.duplicate_descriptor_sets) {
-      if (descriptor_set) {
-        identities.emplace_back(VulkanHandleIdentity(descriptor_set->GetVkDescriptorSet()));
-      }
-    }
-  }
-}
-
 void PerFrameDescriptorSet::Reset() {
   slots_.clear();
 }
@@ -156,23 +133,6 @@ void PerFrameDescriptorSetList::Retain(RenderGraphTransientResourceStore& transi
     for (const auto& descriptor_sets : slot.duplicate_descriptor_set_lists) {
       for (const auto& descriptor_set : descriptor_sets) {
         transient_resources.RetainDescriptorSet(descriptor_set);
-      }
-    }
-  }
-}
-
-void PerFrameDescriptorSetList::AppendIdentities(std::vector<uint64_t>& identities) const {
-  for (const auto& slot : slots_) {
-    for (const auto& descriptor_set : slot.descriptor_sets) {
-      if (descriptor_set) {
-        identities.emplace_back(VulkanHandleIdentity(descriptor_set->GetVkDescriptorSet()));
-      }
-    }
-    for (const auto& descriptor_sets : slot.duplicate_descriptor_set_lists) {
-      for (const auto& descriptor_set : descriptor_sets) {
-        if (descriptor_set) {
-          identities.emplace_back(VulkanHandleIdentity(descriptor_set->GetVkDescriptorSet()));
-        }
       }
     }
   }

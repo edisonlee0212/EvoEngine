@@ -45,28 +45,8 @@ vec3 EE_DEPTH_TO_CLIP_POS(vec2 tex_coords, float ndcDepth);
 vec3 EE_DEPTH_TO_WORLD_POS(int camera_index, vec2 tex_coords, float ndcDepth);
 vec3 EE_DEPTH_TO_VIEW_POS(int camera_index, vec2 tex_coords, float ndcDepth);
 
-vec3 EE_CAMERA_LEFT(int camera_index) {
-  return EE_CAMERAS[camera_index].view[0].xyz;
-}
-
-vec3 EE_CAMERA_RIGHT(int camera_index) {
-  return -EE_CAMERAS[camera_index].view[0].xyz;
-}
-
 vec3 EE_CAMERA_UP(int camera_index) {
   return EE_CAMERAS[camera_index].view[1].xyz;
-}
-
-vec3 EE_CAMERA_DOWN(int camera_index) {
-  return -EE_CAMERAS[camera_index].view[1].xyz;
-}
-
-vec3 EE_CAMERA_BACK(int camera_index) {
-  return EE_CAMERAS[camera_index].view[2].xyz;
-}
-
-vec3 EE_CAMERA_FRONT(int camera_index) {
-  return -EE_CAMERAS[camera_index].view[2].xyz;
 }
 
 vec3 EE_CAMERA_POSITION(int camera_index) {
@@ -103,10 +83,6 @@ float EE_CAMERA_RESOLUTION_RATIO(int camera_index) {
 
 float EE_CAMERA_FADE_RATIO(int camera_index) {
   return EE_CAMERAS[camera_index].fade_ratio;
-}
-
-float EE_CAMERA_FADE_FACTOR(int camera_index) {
-  return EE_CAMERAS[camera_index].fade_factor;
 }
 
 float EE_LINEARIZE_DEPTH(int camera_index, float ndcDepth) {

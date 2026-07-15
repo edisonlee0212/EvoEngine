@@ -1,8 +1,6 @@
 
 #extension GL_ARB_shading_language_include : enable
 
-#include "Vertex.glsl"
-
 //=========================================================================================
 //| Scene data definition                                                                 |
 //=========================================================================================
@@ -112,49 +110,6 @@ vec3 Barycentric(vec3 p, vec3 a, vec3 b, vec3 c) {
   float y = (d11 * d20 - d01 * d21) / denominator;
   float z = (d00 * d21 - d01 * d20) / denominator;
   return vec3(1.0f - y - z, y, z);
-}
-
-Vertex GetVertex(uint vertex_index) {
-  const uint vertices_offset = floatBitsToUint(scene_info_offsets_2.z);
-  const uint offset = vertices_offset + vertex_index * 7;
-  Vertex vertex;
-  vertex.position = scene_geometry_data[offset].xyz;
-  vertex.vertex_info1 = scene_geometry_data[offset].w;
-  vertex.normal = scene_geometry_data[offset + 1].xyz;
-  vertex.vertex_info2 = scene_geometry_data[offset + 1].w;
-  vertex.tangent = scene_geometry_data[offset + 2].xyz;
-  vertex.vertex_info3 = scene_geometry_data[offset + 2].w;
-  vertex.color = scene_geometry_data[offset + 3];
-  vertex.tex_coord = scene_geometry_data[offset + 4].xy;
-  vertex.vertex_info4 = scene_geometry_data[offset + 4].zw;
-  vertex.tex_coord_1 = scene_geometry_data[offset + 5].xy;
-  vertex.tex_coord_2 = scene_geometry_data[offset + 5].zw;
-  vertex.tex_coord_3 = scene_geometry_data[offset + 6].xy;
-  vertex.padding = scene_geometry_data[offset + 6].zw;
-  return vertex;
-}
-
-Vertex GetTriangleP0(uint triangle_index) {
-  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].x));
-}
-
-Vertex GetTriangleP1(uint triangle_index) {
-  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].y));
-}
-
-Vertex GetTriangleP2(uint triangle_index) {
-  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  return GetVertex(floatBitsToUint(scene_geometry_data[triangles_offset + triangle_index].z));
-}
-
-void GetTriangle(in uint triangle_index, out Vertex p0, out Vertex p1, out Vertex p2) {
-  const uint triangles_offset = floatBitsToUint(scene_info_offsets_2.y);
-  const vec3 triangle = scene_geometry_data[triangles_offset + triangle_index].xyz;
-  p0 = GetVertex(floatBitsToUint(triangle.x));
-  p1 = GetVertex(floatBitsToUint(triangle.y));
-  p2 = GetVertex(floatBitsToUint(triangle.z));
 }
 
 HitInfo Trace(in RayDescriptor ray_descriptor, in bool cull_back_face, in bool cull_front_face, out bool has_hit) {

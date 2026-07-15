@@ -12,9 +12,7 @@
 #include "Random.glsl"
 #define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
 #define EE_GLTF_TEXTURE_LOD 0.0
-#include "GltfRasterMaterial.glsl"
 #include "GltfRayTracingBsdf.glsl"
-#define EE_CAMERA_COMPACT_PAYLOAD
 #include "CameraRayTracingPayload.glsl"
 
 layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;

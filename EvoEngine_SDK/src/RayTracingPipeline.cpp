@@ -4,36 +4,10 @@
 #include "Platform.hpp"
 #include "Shader.hpp"
 
-#include <atomic>
-
 using namespace evo_engine;
-
-namespace {
-std::atomic<uint64_t> live_ray_tracing_pipeline_count = 0;
-std::atomic<uint64_t> peak_live_ray_tracing_pipeline_count = 0;
-std::atomic<uint64_t> ray_tracing_pipeline_creation_count = 0;
-std::atomic<uint64_t> live_shader_binding_table_count = 0;
-std::atomic<uint64_t> peak_live_shader_binding_table_count = 0;
-std::atomic<uint64_t> shader_binding_table_creation_count = 0;
-
-void UpdatePeak(std::atomic<uint64_t>& peak, const uint64_t value) {
-  auto current = peak.load(std::memory_order_relaxed);
-  while (current < value && !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
-  }
-}
-}  // namespace
 
 RayTracingPipeline::~RayTracingPipeline() {
   ReleaseResources();
-}
-
-RayTracingPipeline::LifetimeStats RayTracingPipeline::GetLifetimeStats() {
-  return {live_ray_tracing_pipeline_count.load(std::memory_order_relaxed),
-          peak_live_ray_tracing_pipeline_count.load(std::memory_order_relaxed),
-          ray_tracing_pipeline_creation_count.load(std::memory_order_relaxed),
-          live_shader_binding_table_count.load(std::memory_order_relaxed),
-          peak_live_shader_binding_table_count.load(std::memory_order_relaxed),
-          shader_binding_table_creation_count.load(std::memory_order_relaxed)};
 }
 
 void RayTracingPipeline::ReleaseResources() {
@@ -45,22 +19,10 @@ void RayTracingPipeline::ReleaseResources() {
   miss_shader_binding_table_.reset();
   closest_hit_shader_binding_table_.reset();
   pipeline_layout_.reset();
-  if (lifetime_pipeline_tracked_) {
-    live_ray_tracing_pipeline_count.fetch_sub(1, std::memory_order_relaxed);
-    lifetime_pipeline_tracked_ = false;
-  }
-  if (lifetime_shader_binding_table_count_ != 0) {
-    live_shader_binding_table_count.fetch_sub(lifetime_shader_binding_table_count_, std::memory_order_relaxed);
-    lifetime_shader_binding_table_count_ = 0;
-  }
 }
 
 void RayTracingPipeline::SetMaxRecursionDepth(const uint32_t depth) {
   max_recursion_depth_ = depth;
-}
-
-uint32_t RayTracingPipeline::GetMaxRecursionDepth() const {
-  return max_recursion_depth_;
 }
 
 bool RayTracingPipeline::IsRecursionDepthSupported(const uint32_t requested_depth, const uint32_t device_limit) {
@@ -222,10 +184,6 @@ void RayTracingPipeline::Initialize() {
     vk_ray_tracing_pipeline_ = nullptr;
     return;
   }
-  lifetime_pipeline_tracked_ = true;
-  const auto live_pipeline_count = live_ray_tracing_pipeline_count.fetch_add(1, std::memory_order_relaxed) + 1u;
-  ray_tracing_pipeline_creation_count.fetch_add(1, std::memory_order_relaxed);
-  UpdatePeak(peak_live_ray_tracing_pipeline_count, live_pipeline_count);
   const auto aligned_size = [&](const uint32_t value, const uint32_t alignment) {
     return value + alignment - 1 & ~(alignment - 1);
   };
@@ -254,12 +212,6 @@ void RayTracingPipeline::Initialize() {
   raygen_shader_binding_table_ = std::move(raygen_shader_binding_table);
   miss_shader_binding_table_ = std::move(miss_shader_binding_table);
   closest_hit_shader_binding_table_ = std::move(closest_hit_shader_binding_table);
-  lifetime_shader_binding_table_count_ = 3;
-  const auto live_sbt_count =
-      live_shader_binding_table_count.fetch_add(lifetime_shader_binding_table_count_, std::memory_order_relaxed) +
-      lifetime_shader_binding_table_count_;
-  shader_binding_table_creation_count.fetch_add(lifetime_shader_binding_table_count_, std::memory_order_relaxed);
-  UpdatePeak(peak_live_shader_binding_table_count, live_sbt_count);
 
   // Copy the pipeline's shader handles into a host buffer
   std::vector<uint8_t> shader_handle_storage(sbt_size);

@@ -26,7 +26,6 @@ struct PostProcessingRendererResources;
 class PerFrameDescriptorSet {
  public:
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetOrCreate(const std::shared_ptr<DescriptorSetLayout>& layout) const;
-  void AppendIdentities(std::vector<uint64_t>& identities) const;
   void Retain(RenderGraphTransientResourceStore& transient_resources) const;
   void Reset();
 
@@ -43,7 +42,6 @@ class PerFrameDescriptorSet {
 class PerFrameDescriptorSetList {
  public:
   [[nodiscard]] std::vector<std::shared_ptr<DescriptorSet>>& Get();
-  void AppendIdentities(std::vector<uint64_t>& identities) const;
   void Retain(RenderGraphTransientResourceStore& transient_resources) const;
   void Reset();
 

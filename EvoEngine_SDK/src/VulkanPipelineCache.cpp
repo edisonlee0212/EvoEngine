@@ -316,33 +316,30 @@ bool VulkanPipelineCache::Initialize(const VkDevice device, const VkPhysicalDevi
   device_ = device;
   identity_ = MakeIdentity(properties);
   path_ = ResolveCachePath(identity_);
-  stats_ = {};
-  stats_.path = path_.string();
-  stats_.feedback_supported = feedback_supported;
-  stats_.deferred_host_operations_supported = deferred_host_operations_supported;
+  feedback_supported_ = feedback_supported;
+  deferred_host_operations_supported_ = deferred_host_operations_supported;
   std::vector<uint8_t> payload;
   const auto load_result = LoadFile(path_, identity_, payload);
-  stats_.load_source = GetPipelineCacheLoadResultName(load_result);
-  stats_.initial_bytes = payload.size();
+  auto load_source = std::string(GetPipelineCacheLoadResultName(load_result));
+  auto initial_bytes = payload.size();
   VkPipelineCacheCreateInfo create_info{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
   create_info.initialDataSize = payload.size();
   create_info.pInitialData = payload.empty() ? nullptr : payload.data();
   auto result = vkCreatePipelineCache(device_, &create_info, nullptr, &cache_);
   if (result != VK_SUCCESS && !payload.empty()) {
-    stats_.load_source = "driver-rejected";
-    stats_.initial_bytes = 0;
+    load_source = "driver-rejected";
+    initial_bytes = 0;
     create_info.initialDataSize = 0;
     create_info.pInitialData = nullptr;
     result = vkCreatePipelineCache(device_, &create_info, nullptr, &cache_);
   }
-  stats_.initialized = result == VK_SUCCESS;
-  if (!stats_.initialized) {
+  if (result != VK_SUCCESS) {
     cache_ = VK_NULL_HANDLE;
     EVOENGINE_ERROR("Failed to create Vulkan pipeline cache: " + std::to_string(result))
     return false;
   }
-  EVOENGINE_LOG("Vulkan pipeline cache initialized: " + stats_.load_source + " (" +
-                std::to_string(stats_.initial_bytes) + " bytes) at " + stats_.path)
+  EVOENGINE_LOG("Vulkan pipeline cache initialized: " + load_source + " (" + std::to_string(initial_bytes) +
+                " bytes) at " + path_.string())
   return true;
 }
 
@@ -353,13 +350,11 @@ void VulkanPipelineCache::Shutdown() noexcept {
   try {
     SaveLocked();
   } catch (...) {
-    ++stats_.save_failure_count;
   }
   if (cache_ != VK_NULL_HANDLE)
     vkDestroyPipelineCache(device_, cache_, nullptr);
   cache_ = VK_NULL_HANDLE;
   device_ = VK_NULL_HANDLE;
-  stats_.initialized = false;
 }
 
 VkResult VulkanPipelineCache::CreateComputePipeline(const VkComputePipelineCreateInfo& create_info,
@@ -367,12 +362,11 @@ VkResult VulkanPipelineCache::CreateComputePipeline(const VkComputePipelineCreat
   const std::lock_guard lock(mutex_);
   feedback = {};
   const auto result = CreatePipelineLocked(
-      create_info, stats_.feedback_supported,
+      create_info, feedback_supported_,
       [&](const auto& local_info, VkPipeline& output) {
         return vkCreateComputePipelines(device_, cache_, 1, &local_info, nullptr, &output);
       },
       pipeline, feedback);
-  RecordCreation(feedback);
   return result;
 }
 
@@ -381,12 +375,11 @@ VkResult VulkanPipelineCache::CreateGraphicsPipeline(const VkGraphicsPipelineCre
   const std::lock_guard lock(mutex_);
   feedback = {};
   const auto result = CreatePipelineLocked(
-      create_info, stats_.feedback_supported,
+      create_info, feedback_supported_,
       [&](const auto& local_info, VkPipeline& output) {
         return vkCreateGraphicsPipelines(device_, cache_, 1, &local_info, nullptr, &output);
       },
       pipeline, feedback);
-  RecordCreation(feedback);
   return result;
 }
 
@@ -394,11 +387,11 @@ VkResult VulkanPipelineCache::CreateRayTracingPipeline(const VkRayTracingPipelin
                                                        VkPipeline& pipeline, PipelineCreationFeedback& feedback) {
   const std::lock_guard lock(mutex_);
   feedback = {};
-  feedback.deferred_requested = stats_.deferred_host_operations_supported;
+  feedback.deferred_requested = deferred_host_operations_supported_;
   VkPipelineCreationFeedback raw_feedback{};
   VkPipelineCreationFeedbackCreateInfo feedback_info{};
   auto local_info = create_info;
-  if (stats_.feedback_supported) {
+  if (feedback_supported_) {
     feedback_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATION_FEEDBACK_CREATE_INFO;
     feedback_info.pNext = local_info.pNext;
     feedback_info.pPipelineCreationFeedback = &raw_feedback;
@@ -441,23 +434,8 @@ VkResult VulkanPipelineCache::CreateRayTracingPipeline(const VkRayTracingPipelin
   feedback.result = IsRayTracingCreateSuccess(result) ? VK_SUCCESS : result;
   feedback.wall_milliseconds =
       std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-  PopulateFeedback(raw_feedback, stats_.feedback_supported, feedback);
-  RecordCreation(feedback);
+  PopulateFeedback(raw_feedback, feedback_supported_, feedback);
   return feedback.result;
-}
-
-VulkanPipelineCacheStats VulkanPipelineCache::GetStats() const {
-  const std::lock_guard lock(mutex_);
-  return stats_;
-}
-
-void VulkanPipelineCache::RecordCreation(const PipelineCreationFeedback& feedback) {
-  ++stats_.creation_count;
-  stats_.creation_failures += feedback.result < 0 ? 1u : 0u;
-  stats_.valid_feedback_count += feedback.feedback_valid ? 1u : 0u;
-  stats_.application_cache_hit_count += feedback.application_cache_hit ? 1u : 0u;
-  stats_.deferred_creation_count += feedback.deferred_used ? 1u : 0u;
-  stats_.synchronous_fallback_count += feedback.synchronous_fallback ? 1u : 0u;
 }
 
 bool VulkanPipelineCache::SaveLocked() {
@@ -466,7 +444,6 @@ bool VulkanPipelineCache::SaveLocked() {
   size_t size = 0;
   auto result = vkGetPipelineCacheData(device_, cache_, &size, nullptr);
   if (result != VK_SUCCESS || size == 0 || size > kMaxCacheFileBytes - kFileHeaderBytes) {
-    ++stats_.save_failure_count;
     return false;
   }
   std::vector<uint8_t> payload;
@@ -478,22 +455,17 @@ bool VulkanPipelineCache::SaveLocked() {
       break;
     }
     if (result != VK_INCOMPLETE || size > kMaxCacheFileBytes - kFileHeaderBytes) {
-      ++stats_.save_failure_count;
       return false;
     }
     size = 0;
     result = vkGetPipelineCacheData(device_, cache_, &size, nullptr);
     if (result != VK_SUCCESS || size == 0 || size > kMaxCacheFileBytes - kFileHeaderBytes) {
-      ++stats_.save_failure_count;
       return false;
     }
   }
   if (result != VK_SUCCESS || !PublishFile(path_, identity_, payload)) {
-    ++stats_.save_failure_count;
     return false;
   }
-  stats_.persisted_bytes = payload.size();
-  ++stats_.save_count;
   EVOENGINE_LOG("Vulkan pipeline cache saved (" + std::to_string(payload.size()) + " bytes) at " + path_.string())
   return true;
 }

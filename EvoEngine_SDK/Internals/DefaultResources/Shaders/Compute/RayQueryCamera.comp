@@ -6,9 +6,7 @@
 #include "Random.glsl"
 #define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
 #define EE_GLTF_TEXTURE_LOD 0.0
-#include "GltfRasterMaterial.glsl"
 #include "GltfRayTracingBsdf.glsl"
-#define EE_CAMERA_COMPACT_PAYLOAD
 #include "CameraRayTracingPayload.glsl"
 
 layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
@@ -21,7 +19,6 @@ layout(push_constant) uniform EE_CAMERA_CONSTANTS {
   uint EE_FRAME_ID;
   uint EE_TOTAL_SAMPLES;
   uint EE_FRAME_SAMPLE_SIZE;
-  uint EE_SHADER_EXECUTION_REORDERING;
 };
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;

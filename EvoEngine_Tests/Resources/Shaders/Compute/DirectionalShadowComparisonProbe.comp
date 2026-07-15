@@ -9,7 +9,6 @@ probe_output;
 float SampleDepthStep(const float u, const float receiver_depth) {
   return texture(depth_step, vec4(u, 0.5f, 0.0f, receiver_depth));
 }
-
 void main() {
   probe_output.values[0] = SampleDepthStep(0.25f, 0.5f);
   probe_output.values[1] = SampleDepthStep(0.375f, 0.5f);

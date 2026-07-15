@@ -59,7 +59,6 @@ const uint EE_CAMERA_DEBUG_PATH_DEPTH = 16u;
 const uint EE_CAMERA_DEBUG_BSDF_PDF = 17u;
 const uint EE_CAMERA_DEBUG_LIGHT_PDF = 18u;
 const uint EE_CAMERA_DEBUG_EMISSIVE_PDF = 19u;
-const uint EE_CAMERA_DEBUG_VALIDATION_ATLAS = 20u;
 const uint EE_CAMERA_LIGHT_KIND_NONE = 0u;
 const uint EE_CAMERA_LIGHT_KIND_PUNCTUAL = 1u;
 const uint EE_CAMERA_LIGHT_KIND_ENVIRONMENT = 2u;
@@ -415,29 +414,6 @@ mat3 EE_CAMERA_TANGENT_SPACE(const vec3 normal) {
   return mat3(tangent, bitangent, n);
 }
 
-float EE_CAMERA_HEMISPHERE_PDF(const float alpha, const vec3 normal, const vec3 direction) {
-  const float clamped_alpha = clamp(alpha, 0.0f, 1.0f);
-  const float cone_range = max((1.0f - clamped_alpha) * (1.0f - clamped_alpha), EE_CAMERA_PDF_EPSILON);
-  const float cone_cos_min = 1.0f - cone_range;
-  return dot(EE_CAMERA_SAFE_NORMALIZE(normal, vec3(0.0f, 1.0f, 0.0f)),
-             EE_CAMERA_SAFE_NORMALIZE(direction, vec3(0.0f, 1.0f, 0.0f))) >= cone_cos_min
-             ? 1.0f / (2.0f * EE_CAMERA_PI * cone_range)
-             : 0.0f;
-}
-
-EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_HEMISPHERE(inout uint seed, const vec3 normal, const float alpha) {
-  EE_CAMERA_DIRECTION_SAMPLE ray_sample;
-  const float clamped_alpha = clamp(alpha, 0.0f, 1.0f);
-  const float cone_range = max((1.0f - clamped_alpha) * (1.0f - clamped_alpha), EE_CAMERA_PDF_EPSILON);
-  const float cos_theta = 1.0f - EE_PCG_RANDOM(seed) * cone_range;
-  const float sin_theta = sqrt(max(0.0f, 1.0f - cos_theta * cos_theta));
-  const float phi = 2.0f * EE_CAMERA_PI * EE_PCG_RANDOM(seed);
-  const vec3 tangent_space_direction = vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta);
-  ray_sample.direction = EE_CAMERA_SAFE_NORMALIZE(EE_CAMERA_TANGENT_SPACE(normal) * tangent_space_direction, normal);
-  ray_sample.pdf = 1.0f / (2.0f * EE_CAMERA_PI * cone_range);
-  return ray_sample;
-}
-
 EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_SPHERE(inout uint seed) {
   EE_CAMERA_DIRECTION_SAMPLE ray_sample;
   const float z = 1.0f - 2.0f * EE_PCG_RANDOM(seed);
@@ -541,65 +517,6 @@ EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_PATH_ENVIRONMENT(inout uint seed) {
   EE_CAMERA_DIRECTION_SAMPLE ray_sample = EE_CAMERA_SAMPLE_ENVIRONMENT_MAP(seed);
   ray_sample.direction = EE_ENVIRONMENT_WORLD_DIRECTION(ray_sample.direction);
   return ray_sample;
-}
-
-float EE_CAMERA_COSINE_HEMISPHERE_PDF(const vec3 normal, const vec3 direction) {
-  return max(dot(EE_CAMERA_SAFE_NORMALIZE(normal, vec3(0.0f, 1.0f, 0.0f)),
-                 EE_CAMERA_SAFE_NORMALIZE(direction, vec3(0.0f, 1.0f, 0.0f))),
-             0.0f) /
-         EE_CAMERA_PI;
-}
-
-EE_CAMERA_DIRECTION_SAMPLE EE_CAMERA_SAMPLE_COSINE_HEMISPHERE(inout uint seed, const vec3 normal) {
-  EE_CAMERA_DIRECTION_SAMPLE ray_sample;
-  const float u0 = EE_PCG_RANDOM(seed);
-  const float u1 = EE_PCG_RANDOM(seed);
-  const float r = sqrt(u0);
-  const float phi = 2.0f * EE_CAMERA_PI * u1;
-  const vec3 tangent_space_direction = vec3(cos(phi) * r, sin(phi) * r, sqrt(max(0.0f, 1.0f - u0)));
-  ray_sample.direction = EE_CAMERA_SAFE_NORMALIZE(EE_CAMERA_TANGENT_SPACE(normal) * tangent_space_direction, normal);
-  ray_sample.pdf = EE_CAMERA_COSINE_HEMISPHERE_PDF(normal, ray_sample.direction);
-  return ray_sample;
-}
-
-float EE_CAMERA_DISTRIBUTION_GGX(const vec3 normal, const vec3 half_vector, const float roughness) {
-  const float a = roughness * roughness;
-  const float a2 = a * a;
-  const float n_dot_h = max(dot(normal, half_vector), 0.0f);
-  const float n_dot_h2 = n_dot_h * n_dot_h;
-  const float denominator = EE_CAMERA_PI * pow(n_dot_h2 * (a2 - 1.0f) + 1.0f, 2.0f);
-  return a2 / max(denominator, 0.001f);
-}
-
-float EE_CAMERA_GEOMETRY_SCHLICK_GGX(const float n_dot_v, const float roughness) {
-  const float r = roughness + 1.0f;
-  const float k = (r * r) / 8.0f;
-  return n_dot_v / max(n_dot_v * (1.0f - k) + k, 0.001f);
-}
-
-float EE_CAMERA_GEOMETRY_SMITH(const vec3 normal, const vec3 view_direction, const vec3 light_direction,
-                               const float roughness) {
-  const float n_dot_v = max(dot(normal, view_direction), 0.0f);
-  const float n_dot_l = max(dot(normal, light_direction), 0.0f);
-  return EE_CAMERA_GEOMETRY_SCHLICK_GGX(n_dot_v, roughness) *
-         EE_CAMERA_GEOMETRY_SCHLICK_GGX(n_dot_l, roughness);
-}
-
-vec3 EE_CAMERA_FRESNEL_SCHLICK(const float cos_theta, const vec3 f0) {
-  return f0 + (1.0f - f0) * pow(max(1.0f - cos_theta, 0.0f), 5.0f);
-}
-
-vec3 EE_CAMERA_FRESNEL_SCHLICK_ROUGHNESS(const float cos_theta, const vec3 f0, const float roughness) {
-  return f0 + (max(vec3(1.0f - roughness), f0) - f0) * pow(max(1.0f - cos_theta, 0.0f), 5.0f);
-}
-
-float EE_CAMERA_BSDF_PDF(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction, const vec3 light_direction) {
-  GltfRayTracingBsdfEvaluateData eval_data;
-  eval_data.k1 = view_direction;
-  eval_data.k2 = light_direction;
-  eval_data.xi = vec3(0.0f);
-  EE_GLTF_RT_BSDF_EVALUATE(eval_data, hit.pbr);
-  return eval_data.pdf;
 }
 
 vec3 EE_CAMERA_EVALUATE_DIRECT_BSDF(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction,
@@ -1266,14 +1183,6 @@ vec3 EE_CAMERA_RESOLVE_DIRECT_LIGHTING(const EE_CAMERA_BOUNCE_SCRATCH bounce, in
   return EE_CAMERA_SANITIZE_RADIANCE(bounce.contribution * shadow_transmission);
 }
 
-vec3 EE_CAMERA_DIRECT_LIGHTING(const EE_CAMERA_SURFACE_HIT hit, const vec3 view_direction, inout uint seed) {
-  EE_CAMERA_BOUNCE_SCRATCH bounce = EE_CAMERA_EMPTY_BOUNCE_SCRATCH();
-  uint bsdf_seed = seed;
-  EE_CAMERA_PREPARE_DIRECT_LIGHTING(hit, view_direction, vec3(1.0f), seed, bsdf_seed, bounce);
-  seed = bsdf_seed;
-  return EE_CAMERA_RESOLVE_DIRECT_LIGHTING(bounce, seed);
-}
-
 EE_CAMERA_VOLUME_MEDIUM EE_CAMERA_EMPTY_VOLUME_MEDIUM() {
   EE_CAMERA_VOLUME_MEDIUM medium;
   medium.extinction = vec3(0.0f);
@@ -1903,34 +1812,6 @@ void EE_CAMERA_RENDER_PIXEL(const uvec2 pixel_coordinate, const uvec2 image_size
   const Camera camera = EE_CAMERAS[EE_CAMERA_INDEX];
 #if EE_CAMERA_ENABLE_DEBUG_VIEWS
   uint debug_view = camera.ray_debug_view;
-  uvec2 trace_pixel_coordinate = pixel_coordinate;
-  uvec2 trace_image_size = image_size;
-  if (debug_view == EE_CAMERA_DEBUG_VALIDATION_ATLAS) {
-    const uvec2 grid_size = uvec2(5u, 4u);
-    const uvec2 tile = min(pixel_coordinate * grid_size / image_size, grid_size - uvec2(1u));
-    const uvec2 cell_min = tile * image_size / grid_size;
-    const uvec2 cell_max = (tile + uvec2(1u)) * image_size / grid_size;
-    const uvec2 cell_size = max(cell_max - cell_min, uvec2(1u));
-    uvec2 viewport_size = cell_size;
-    if (cell_size.x * 9u <= cell_size.y * 16u) {
-      viewport_size.y = max(cell_size.x * 9u / 16u, 1u);
-    } else {
-      viewport_size.x = max(cell_size.y * 16u / 9u, 1u);
-    }
-    const uvec2 viewport_offset = (cell_size - viewport_size) / 2u;
-    const uvec2 cell_pixel = pixel_coordinate - cell_min;
-    if (any(lessThan(cell_pixel, viewport_offset)) ||
-        any(greaterThanEqual(cell_pixel, viewport_offset + viewport_size))) {
-      imageStore(result_image, ivec2(pixel_coordinate), vec4(0.0f, 0.0f, 0.0f, 1.0f));
-      imageStore(radiance_history_image, ivec2(pixel_coordinate), vec4(0.0f));
-      imageStore(convergence_history_image, ivec2(pixel_coordinate), vec4(0.0f));
-      imageStore(ray_hit_distance_image, ivec2(pixel_coordinate), vec4(EE_CAMERA_FAR(int(EE_CAMERA_INDEX))));
-      return;
-    }
-    trace_pixel_coordinate = cell_pixel - viewport_offset;
-    trace_image_size = viewport_size;
-    debug_view = tile.y * grid_size.x + tile.x;
-  }
 #endif
 
   const bool auto_spp_enabled = camera.auto_spp_enabled != 0u;
@@ -1966,33 +1847,20 @@ void EE_CAMERA_RENDER_PIXEL(const uvec2 pixel_coordinate, const uvec2 image_size
   uint invalid_radiance_rejections = 0u;
   uint firefly_clamp_count = 0u;
   float primary_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
-#if EE_CAMERA_ENABLE_DEBUG_VIEWS
-  const float ray_spread_angle = EE_CAMERA_RAY_SPREAD_ANGLE(float(trace_image_size.y));
-#else
   const float ray_spread_angle = EE_CAMERA_RAY_SPREAD_ANGLE(float(image_size.y));
-#endif
 
   [[unroll]]
   for (uint i = 0u; i < sample_size; ++i) {
     const uint global_sample_index = previous_accumulated_samples + i;
-#if EE_CAMERA_ENABLE_DEBUG_VIEWS
-    const uint sample_seed = EE_XXHASH32(uvec3(trace_pixel_coordinate, global_sample_index));
-#else
     const uint sample_seed = EE_XXHASH32(uvec3(pixel_coordinate, global_sample_index));
-#endif
     uint camera_seed = EE_CAMERA_RANDOM_STREAM(sample_seed, EE_CAMERA_RANDOM_DOMAIN_CAMERA, 0u);
     const vec2 sample_offset =
         global_sample_index == 0u
             ? vec2(0.5f) + EE_CAMERA_ANTIALIASING_STANDARD_DEVIATION *
                                EE_CAMERA_SAMPLE_GAUSSIAN(EE_PCG_RANDOM_2(camera_seed))
             : EE_PCG_RANDOM_2(camera_seed);
-#if EE_CAMERA_ENABLE_DEBUG_VIEWS
-    const EE_CAMERA_PRIMARY_RAY primary_ray =
-        EE_CAMERA_CREATE_PRIMARY_RAY(camera, vec2(trace_pixel_coordinate), sample_offset, vec2(trace_image_size));
-#else
     const EE_CAMERA_PRIMARY_RAY primary_ray =
         EE_CAMERA_CREATE_PRIMARY_RAY(camera, vec2(pixel_coordinate), sample_offset, vec2(image_size));
-#endif
 
     float sample_hit_distance = EE_CAMERA_FAR(int(EE_CAMERA_INDEX));
 #if EE_CAMERA_ENABLE_DEBUG_VIEWS

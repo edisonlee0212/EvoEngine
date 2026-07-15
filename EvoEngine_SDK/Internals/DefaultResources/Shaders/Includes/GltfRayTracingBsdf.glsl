@@ -119,10 +119,6 @@ vec3 EE_GLTF_RT_SANITIZE(const vec3 value) {
               value.z >= 0.0f && value.z < 3.402823466e+38f ? value.z : 0.0f);
 }
 
-float EE_GLTF_RT_LUMINANCE(const vec3 color) {
-  return dot(color, vec3(0.2126f, 0.7152f, 0.0722f));
-}
-
 vec3 EE_GLTF_RT_MULTI_TO_SINGLE_SCATTER_ALBEDO(const vec3 rho_ms) {
   const vec3 clamped_rho = clamp(rho_ms, vec3(0.0f), vec3(1.0f));
   const vec3 t = 4.09712f + 4.20863f * clamped_rho -
@@ -135,25 +131,6 @@ vec3 EE_GLTF_RT_VOLUME_EXTINCTION_COEFFICIENT(const GltfRayTracingPbrMaterial ma
     return vec3(0.0f);
   }
   return -log(max(material.attenuation_color, vec3(0.001f))) / max(material.attenuation_distance, 0.001f);
-}
-
-float EE_GLTF_RT_DISTRIBUTION_GGX(const vec3 normal, const vec3 half_vector, const float alpha) {
-  const float a2 = max(alpha * alpha, EE_GLTF_RT_BSDF_EPSILON);
-  const float n_dot_h = max(dot(normal, half_vector), 0.0f);
-  const float n_dot_h2 = n_dot_h * n_dot_h;
-  const float denominator = EE_GLTF_RT_BSDF_PI * pow(n_dot_h2 * (a2 - 1.0f) + 1.0f, 2.0f);
-  return a2 / max(denominator, EE_GLTF_RT_BSDF_EPSILON);
-}
-
-float EE_GLTF_RT_GEOMETRY_SCHLICK_GGX(const float n_dot_v, const float alpha) {
-  const float k = (alpha + 1.0f) * (alpha + 1.0f) / 8.0f;
-  return n_dot_v / max(n_dot_v * (1.0f - k) + k, EE_GLTF_RT_BSDF_EPSILON);
-}
-
-float EE_GLTF_RT_GEOMETRY_SMITH(const vec3 normal, const vec3 view_direction, const vec3 light_direction,
-                                const float alpha) {
-  return EE_GLTF_RT_GEOMETRY_SCHLICK_GGX(max(dot(normal, view_direction), 0.0f), alpha) *
-         EE_GLTF_RT_GEOMETRY_SCHLICK_GGX(max(dot(normal, light_direction), 0.0f), alpha);
 }
 
 vec3 EE_GLTF_RT_WEIGHTED_SPECULAR_FRESNEL(const GltfRayTracingPbrMaterial material,

@@ -40,38 +40,14 @@ void ResolveFrameSubmissionStates(std::vector<std::weak_ptr<FrameSubmissionState
   states.clear();
 }
 
-void AddDrawStats(RenderPassDrawStats& stats, const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
-                  const size_t prim_count, const size_t indirect_draw_commands,
-                  const DirectionalShadowCasterKind directional_shadow_caster = DirectionalShadowCasterKind::Count,
-                  const uint32_t directional_shadow_cascade = 4, const bool shadow_strand = false,
-                  const uint32_t shadow_slice = 6, const size_t strand_gizmo_mode = 3) {
+void AddDrawStats(RenderPassDrawStats& stats, const RenderDrawCallKind kind, const size_t prim_count,
+                  const size_t indirect_draw_commands) {
   stats.prim_count += prim_count;
   if (kind == RenderDrawCallKind::Indirect) {
     stats.indirect_draw_calls++;
     stats.indirect_draw_commands += indirect_draw_commands;
   } else {
     stats.direct_draw_calls++;
-  }
-  const auto caster_index = static_cast<size_t>(directional_shadow_caster);
-  if (prim_count > 0 && caster_index < stats.directional_shadow_caster_draw_calls.size()) {
-    stats.directional_shadow_caster_draw_calls[caster_index]++;
-  }
-  if (prim_count > 0 && directional_shadow_caster == DirectionalShadowCasterKind::Strands &&
-      directional_shadow_cascade < stats.directional_shadow_strand_cascade_draw_calls.size()) {
-    stats.directional_shadow_strand_cascade_draw_calls[directional_shadow_cascade]++;
-  }
-  if (prim_count > 0 && bucket == RenderPassDrawBucket::EditorGizmos &&
-      strand_gizmo_mode < stats.strand_gizmo_mode_draw_calls.size()) {
-    stats.strand_gizmo_mode_draw_calls[strand_gizmo_mode]++;
-  }
-  if (prim_count == 0 || !shadow_strand) {
-    return;
-  }
-  if (bucket == RenderPassDrawBucket::PointLightShadow &&
-      shadow_slice < stats.point_shadow_strand_face_draw_calls.size()) {
-    stats.point_shadow_strand_face_draw_calls[shadow_slice]++;
-  } else if (bucket == RenderPassDrawBucket::SpotLightShadow && shadow_slice == 0) {
-    stats.spot_shadow_strand_draw_calls++;
   }
 }
 
@@ -93,10 +69,6 @@ const Platform::Capabilities& Platform::GetCapabilities() const {
   return capabilities_;
 }
 
-Platform::Capabilities& Platform::GetCapabilities() {
-  return capabilities_;
-}
-
 size_t RenderPassDrawStats::TotalDrawCalls() const {
   return direct_draw_calls + indirect_draw_calls;
 }
@@ -108,21 +80,6 @@ RenderPassDrawStats RenderCameraDrawStats::Total() const {
     total.indirect_draw_calls += stats.indirect_draw_calls;
     total.indirect_draw_commands += stats.indirect_draw_commands;
     total.prim_count += stats.prim_count;
-    for (size_t caster_index = 0; caster_index < total.directional_shadow_caster_draw_calls.size(); ++caster_index) {
-      total.directional_shadow_caster_draw_calls[caster_index] +=
-          stats.directional_shadow_caster_draw_calls[caster_index];
-    }
-    for (size_t cascade = 0; cascade < total.directional_shadow_strand_cascade_draw_calls.size(); ++cascade) {
-      total.directional_shadow_strand_cascade_draw_calls[cascade] +=
-          stats.directional_shadow_strand_cascade_draw_calls[cascade];
-    }
-    for (size_t face = 0; face < total.point_shadow_strand_face_draw_calls.size(); ++face) {
-      total.point_shadow_strand_face_draw_calls[face] += stats.point_shadow_strand_face_draw_calls[face];
-    }
-    total.spot_shadow_strand_draw_calls += stats.spot_shadow_strand_draw_calls;
-    for (size_t mode = 0; mode < total.strand_gizmo_mode_draw_calls.size(); ++mode) {
-      total.strand_gizmo_mode_draw_calls[mode] += stats.strand_gizmo_mode_draw_calls[mode];
-    }
   }
   return total;
 }
@@ -233,36 +190,12 @@ void Platform::EndRenderCameraDrawScope() {
 void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
                                    const uint32_t frame_index, const size_t prim_count,
                                    const size_t indirect_draw_commands) {
-  CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands,
-                              DirectionalShadowCasterKind::Count, 4, false, 6, 3);
-}
-
-void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
-                                   const uint32_t frame_index, const size_t prim_count,
-                                   const size_t indirect_draw_commands,
-                                   const DirectionalShadowCasterKind directional_shadow_caster,
-                                   const uint32_t directional_shadow_cascade) {
-  CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands, directional_shadow_caster,
-                              directional_shadow_cascade, false, 6, 3);
-}
-
-void Platform::CountShadowStrandDraw(const RenderPassDrawBucket bucket, const uint32_t frame_index,
-                                     const size_t prim_count, const uint32_t shadow_slice) {
-  CountRenderPassDrawInternal(bucket, RenderDrawCallKind::Direct, frame_index, prim_count, 0,
-                              DirectionalShadowCasterKind::Count, 4, true, shadow_slice, 3);
-}
-
-void Platform::CountStrandGizmoDraw(const uint32_t frame_index, const size_t prim_count, const size_t color_mode) {
-  CountRenderPassDrawInternal(RenderPassDrawBucket::EditorGizmos, RenderDrawCallKind::Direct, frame_index, prim_count,
-                              0, DirectionalShadowCasterKind::Count, 4, false, 6, color_mode);
+  CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands);
 }
 
 void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
                                            const uint32_t frame_index, const size_t prim_count,
-                                           const size_t indirect_draw_commands,
-                                           const DirectionalShadowCasterKind directional_shadow_caster,
-                                           const uint32_t directional_shadow_cascade, const bool shadow_strand,
-                                           const uint32_t shadow_slice, const size_t strand_gizmo_mode) {
+                                           const size_t indirect_draw_commands) {
   auto& graphics = GetInstance();
   if (frame_index < graphics.draw_call.size()) {
     graphics.draw_call[frame_index]++;
@@ -275,8 +208,7 @@ void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, co
     return;
   }
   auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
-  AddDrawStats(stats, bucket, kind, prim_count, indirect_draw_commands, directional_shadow_caster,
-               directional_shadow_cascade, shadow_strand, shadow_slice, strand_gizmo_mode);
+  AddDrawStats(stats, kind, prim_count, indirect_draw_commands);
   if (!graphics.active_render_camera_draw_scope_ ||
       graphics.active_render_camera_draw_scope_->frame_index != frame_index ||
       frame_index >= graphics.render_camera_draw_stats.size()) {
@@ -297,8 +229,7 @@ void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, co
   } else {
     camera_stats->entity_index = scope.entity_index;
   }
-  AddDrawStats(camera_stats->pass_stats[bucket_index], bucket, kind, prim_count, indirect_draw_commands,
-               directional_shadow_caster, directional_shadow_cascade, shadow_strand, shadow_slice, strand_gizmo_mode);
+  AddDrawStats(camera_stats->pass_stats[bucket_index], kind, prim_count, indirect_draw_commands);
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {
@@ -2781,14 +2712,6 @@ uint32_t Platform::GetPendingFrameSubmissionCount() {
       std::count(graphics.frame_slot_submitted_.begin(), graphics.frame_slot_submitted_.end(), true));
 }
 
-bool Platform::ValidationLayersEnabled() {
-#ifdef GRAPHICS_VALIDATION
-  return true;
-#else
-  return false;
-#endif
-}
-
 std::shared_ptr<FrameSubmissionState> Platform::TrackCurrentFrameSubmission() {
   auto& graphics = GetInstance();
   auto state = std::make_shared<FrameSubmissionState>();
@@ -2825,11 +2748,6 @@ VkResult Platform::CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfo
   feedback.result = vkCreateRayTracingPipelinesKHR(graphics.vk_device_, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &create_info,
                                                    nullptr, &pipeline);
   return feedback.result;
-}
-
-VulkanPipelineCacheStats Platform::GetPipelineCacheStats() {
-  const auto& pipeline_cache = GetInstance().pipeline_cache_;
-  return pipeline_cache ? pipeline_cache->GetStats() : VulkanPipelineCacheStats{};
 }
 
 bool Platform::CheckExtensionSupport(const std::string& extension_name) {

@@ -543,17 +543,6 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, vec2 tex
       material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), vec4(1.0));
 }
 
-vec3 EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint material_index, GltfRasterMaterial surface, vec3 base_color) {
-#if EE_GLTF_USE_SPECULAR_GLOSSINESS
-  if (EE_GLTF_MATERIALS[material_index].pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    return surface.specular_f0;
-  }
-#endif
-  const float metallic = clamp(surface.metallic, 0.0, 1.0);
-  return surface.specular_f0 +
-         metallic * (max(base_color, vec3(0.0)) - max(surface.base_color.rgb, vec3(0.0)));
-}
-
 vec3 EE_GLTF_SAFE_NORMALIZE(vec3 value, vec3 fallback) {
   float length_squared = dot(value, value);
   return length_squared > 1e-12 ? value * inversesqrt(length_squared) : fallback;

@@ -104,10 +104,6 @@ void SubtractDrawStats(RenderPassDrawStats& stats, const RenderPassDrawStats& su
   stats.indirect_draw_calls = SaturatingSubtract(stats.indirect_draw_calls, subtraction.indirect_draw_calls);
   stats.indirect_draw_commands = SaturatingSubtract(stats.indirect_draw_commands, subtraction.indirect_draw_commands);
   stats.prim_count = SaturatingSubtract(stats.prim_count, subtraction.prim_count);
-  for (size_t mode = 0; mode < stats.strand_gizmo_mode_draw_calls.size(); ++mode) {
-    stats.strand_gizmo_mode_draw_calls[mode] =
-        SaturatingSubtract(stats.strand_gizmo_mode_draw_calls[mode], subtraction.strand_gizmo_mode_draw_calls[mode]);
-  }
 }
 
 RenderPassDrawStats TotalDrawStats(
@@ -118,9 +114,6 @@ RenderPassDrawStats TotalDrawStats(
     total.indirect_draw_calls += stats.indirect_draw_calls;
     total.indirect_draw_commands += stats.indirect_draw_commands;
     total.prim_count += stats.prim_count;
-    for (size_t mode = 0; mode < total.strand_gizmo_mode_draw_calls.size(); ++mode) {
-      total.strand_gizmo_mode_draw_calls[mode] += stats.strand_gizmo_mode_draw_calls[mode];
-    }
   }
   return total;
 }

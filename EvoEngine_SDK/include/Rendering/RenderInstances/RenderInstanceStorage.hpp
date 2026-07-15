@@ -910,14 +910,6 @@ class RenderInstanceStorage {
   [[nodiscard]] static DirectionalShadowCascadeFitResult CalculateDirectionalShadowCascadeFit(
       const DirectionalShadowCascadeFitInput& input);
 
-  struct DirectionalShadowTelemetry {
-    glm::vec4 split_distances{};
-    int pcf_sample_amount = 0;
-    std::vector<DirectionalLightInfoBlock> lights{};
-  };
-
-  [[nodiscard]] DirectionalShadowTelemetry GetDirectionalShadowTelemetry(const Handle& camera_handle) const;
-
   /**
    * @brief Finds the entity handle via a render instance index.
    * @param render_instance_index The index of the render instance.

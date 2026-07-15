@@ -41,24 +41,6 @@ struct PipelineCreationFeedback {
   std::string fallback_reason;
 };
 
-struct VulkanPipelineCacheStats {
-  std::string path;
-  std::string load_source = "missing";
-  uint64_t initial_bytes = 0;
-  uint64_t persisted_bytes = 0;
-  uint64_t creation_count = 0;
-  uint64_t creation_failures = 0;
-  uint64_t valid_feedback_count = 0;
-  uint64_t application_cache_hit_count = 0;
-  uint64_t deferred_creation_count = 0;
-  uint64_t synchronous_fallback_count = 0;
-  uint64_t save_count = 0;
-  uint64_t save_failure_count = 0;
-  bool initialized = false;
-  bool feedback_supported = false;
-  bool deferred_host_operations_supported = false;
-};
-
 class VulkanPipelineCache final {
  public:
   static constexpr size_t kMaxCacheFileBytes = 256ull * 1024ull * 1024ull;
@@ -92,10 +74,7 @@ class VulkanPipelineCache final {
   VkResult CreateRayTracingPipeline(const VkRayTracingPipelineCreateInfoKHR& create_info, VkPipeline& pipeline,
                                     PipelineCreationFeedback& feedback);
 
-  [[nodiscard]] VulkanPipelineCacheStats GetStats() const;
-
  private:
-  void RecordCreation(const PipelineCreationFeedback& feedback);
   bool SaveLocked();
 
   mutable std::mutex mutex_;
@@ -103,7 +82,8 @@ class VulkanPipelineCache final {
   VkPipelineCache cache_ = VK_NULL_HANDLE;
   PipelineCacheIdentity identity_{};
   std::filesystem::path path_;
-  VulkanPipelineCacheStats stats_{};
+  bool feedback_supported_ = false;
+  bool deferred_host_operations_supported_ = false;
 };
 
 [[nodiscard]] const char* GetPipelineCacheLoadResultName(PipelineCacheLoadResult result);

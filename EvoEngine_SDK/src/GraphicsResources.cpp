@@ -11,7 +11,6 @@
 #include "Utilities.hpp"
 
 #include <algorithm>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <limits>
@@ -21,16 +20,6 @@
 using namespace evo_engine;
 
 namespace {
-std::atomic<uint64_t> live_descriptor_set_count = 0;
-std::atomic<uint64_t> peak_live_descriptor_set_count = 0;
-std::atomic<uint64_t> descriptor_set_creation_count = 0;
-
-void UpdatePeak(std::atomic<uint64_t>& peak, const uint64_t value) {
-  auto current = peak.load(std::memory_order_relaxed);
-  while (current < value && !peak.compare_exchange_weak(current, value, std::memory_order_relaxed)) {
-  }
-}
-
 constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
 constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
 constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
@@ -1689,16 +1678,9 @@ const VkDescriptorSet& DescriptorSet::GetVkDescriptorSet() const {
   return descriptor_set_;
 }
 
-DescriptorSet::LifetimeStats DescriptorSet::GetLifetimeStats() {
-  return {live_descriptor_set_count.load(std::memory_order_relaxed),
-          peak_live_descriptor_set_count.load(std::memory_order_relaxed),
-          descriptor_set_creation_count.load(std::memory_order_relaxed)};
-}
-
 DescriptorSet::~DescriptorSet() {
   if (descriptor_set_ == VK_NULL_HANDLE)
     return;
-  live_descriptor_set_count.fetch_sub(1, std::memory_order_relaxed);
   if (Platform::Initialized() && Platform::GetVkInstance() != VK_NULL_HANDLE) {
     Platform::CheckVk(vkFreeDescriptorSets(Platform::GetVkDevice(),
                                            Platform::GetDescriptorPool()->GetVkDescriptorPool(), 1, &descriptor_set_));
@@ -1720,9 +1702,6 @@ DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_
     throw std::runtime_error("failed to allocate descriptor sets!");
   }
   descriptor_set_layout_ = target_layout;
-  const auto live_count = live_descriptor_set_count.fetch_add(1, std::memory_order_relaxed) + 1u;
-  descriptor_set_creation_count.fetch_add(1, std::memory_order_relaxed);
-  UpdatePeak(peak_live_descriptor_set_count, live_count);
 }
 
 void DescriptorSet::UpdateImageDescriptorBinding(const uint32_t binding_index, const VkDescriptorImageInfo& image_info,
@@ -2678,39 +2657,6 @@ std::vector<TopLevelAccelerationStructure::InstanceUploadRange> TopLevelAccelera
   return ranges;
 }
 
-TopLevelAccelerationStructure::UploadTelemetry& TopLevelAccelerationStructure::UploadTelemetry::operator+=(
-    const UploadTelemetry& other) {
-  source_bytes += other.source_bytes;
-  uploaded_bytes += other.uploaded_bytes;
-  range_count += other.range_count;
-  operation_count += other.operation_count;
-  build_count += other.build_count;
-  update_count += other.update_count;
-  no_op_count += other.no_op_count;
-  full_upload_count += other.full_upload_count;
-  zero_instance_upload_update_count += other.zero_instance_upload_update_count;
-  return *this;
-}
-
-TopLevelAccelerationStructure::UploadTelemetry TopLevelAccelerationStructure::UploadTelemetry::DeltaFrom(
-    const UploadTelemetry& baseline) const {
-  const auto delta = [](const uint64_t current, const uint64_t previous) {
-    return current >= previous ? current - previous : current;
-  };
-  UploadTelemetry result;
-  result.source_bytes = delta(source_bytes, baseline.source_bytes);
-  result.uploaded_bytes = delta(uploaded_bytes, baseline.uploaded_bytes);
-  result.range_count = delta(range_count, baseline.range_count);
-  result.operation_count = delta(operation_count, baseline.operation_count);
-  result.build_count = delta(build_count, baseline.build_count);
-  result.update_count = delta(update_count, baseline.update_count);
-  result.no_op_count = delta(no_op_count, baseline.no_op_count);
-  result.full_upload_count = delta(full_upload_count, baseline.full_upload_count);
-  result.zero_instance_upload_update_count =
-      delta(zero_instance_upload_update_count, baseline.zero_instance_upload_update_count);
-  return result;
-}
-
 void TopLevelAccelerationStructure::Destroy() {
   if (Platform::Initialized() && vk_acceleration_structure_khr_ != VK_NULL_HANDLE) {
     vkDestroyAccelerationStructureKHR(Platform::GetVkDevice(), vk_acceleration_structure_khr_, nullptr);
@@ -2733,7 +2679,6 @@ void TopLevelAccelerationStructure::Destroy() {
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
-  pending_upload_telemetry_ = {};
 }
 
 void TopLevelAccelerationStructure::Allocate(const uint32_t instance_capacity) {
@@ -2813,7 +2758,6 @@ void TopLevelAccelerationStructure::ResolvePendingUpdate() {
     previous_instances_ = std::move(pending_instances_);
     previous_blas_content_versions_ = std::move(pending_blas_content_versions_);
     committed_blas_references_ = std::move(pending_final_blas_references_);
-    upload_telemetry_ += pending_upload_telemetry_;
   }
   pending_ = false;
   pending_submission_state_.reset();
@@ -2822,7 +2766,6 @@ void TopLevelAccelerationStructure::ResolvePendingUpdate() {
   pending_final_blas_references_.clear();
   pending_retained_blas_references_.clear();
   pending_extra_staging_buffers_.clear();
-  pending_upload_telemetry_ = {};
 }
 
 TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
@@ -2941,7 +2884,6 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   auto mode =
       ClassifyUpdateMode(base_built, base_instances, instances, base_blas_content_versions, blas_content_versions);
   if (mode == UpdateMode::NoOp) {
-    upload_telemetry_.no_op_count++;
     return mode;
   }
 
@@ -2986,19 +2928,6 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
         vmaFlushAllocation(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation(), 0, upload_byte_size));
     vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer->GetVmaAllocation());
   }
-
-  if (!same_pending_frame) {
-    pending_upload_telemetry_ = {};
-  }
-  pending_upload_telemetry_.source_bytes += byte_size;
-  pending_upload_telemetry_.uploaded_bytes += upload_byte_size;
-  pending_upload_telemetry_.range_count += upload_ranges.size();
-  pending_upload_telemetry_.operation_count++;
-  pending_upload_telemetry_.build_count += mode == UpdateMode::Build ? 1 : 0;
-  pending_upload_telemetry_.update_count += mode == UpdateMode::Update ? 1 : 0;
-  pending_upload_telemetry_.full_upload_count += full_upload ? 1 : 0;
-  pending_upload_telemetry_.zero_instance_upload_update_count +=
-      mode == UpdateMode::Update && upload_ranges.empty() ? 1 : 0;
 
   const auto existing_build = base_built;
   Platform::RecordCommandsMainQueue([this, staging_buffer, upload_ranges, instance_count, mode, existing_build,
@@ -3141,9 +3070,4 @@ VkAccelerationStructureKHR TopLevelAccelerationStructure::GetVkAccelerationStruc
 
 VkDeviceAddress TopLevelAccelerationStructure::GetDeviceAddress() const {
   return device_address_;
-}
-
-TopLevelAccelerationStructure::UploadTelemetry TopLevelAccelerationStructure::GetUploadTelemetry() {
-  ResolvePendingUpdate();
-  return upload_telemetry_;
 }

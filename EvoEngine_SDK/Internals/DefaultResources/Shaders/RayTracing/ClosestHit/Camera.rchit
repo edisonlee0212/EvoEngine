@@ -1,7 +1,6 @@
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_ray_tracing : require
 
-#define EE_CAMERA_COMPACT_PAYLOAD
 #include "CameraRayTracingPayload.glsl"
 
 layout(location = 0) rayPayloadInEXT CameraRayTracingPayload hit_value;

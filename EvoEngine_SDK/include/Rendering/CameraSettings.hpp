@@ -29,7 +29,6 @@ struct CameraSettings {
     BsdfPdf,
     LightPdf,
     EmissivePdf,
-    ValidationAtlas,
   };
 
   enum class ShaderExecutionReorderingMode {

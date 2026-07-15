@@ -22,9 +22,9 @@ void EE_CAMERA_RAY_QUERY_FILL_SURFACE_PAYLOAD(const rayQueryEXT ray_query) {
   hit_value.barycentrics = bary;
 }
 
-bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const vec3 ray_direction,
-                                           out uint material_index, out vec2 tex_coord_0, out vec2 tex_coord_1,
-                                           out vec2 tex_coord_2, out vec2 tex_coord_3, out vec4 vertex_color) {
+void EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, out uint material_index,
+                                           out vec2 tex_coord_0, out vec2 tex_coord_1, out vec2 tex_coord_2,
+                                           out vec2 tex_coord_3, out vec4 vertex_color) {
   const int instance_index = rayQueryGetIntersectionInstanceCustomIndexEXT(ray_query, false);
   const Instance instance = EE_INSTANCES[instance_index];
   material_index = uint(instance.material_index);
@@ -45,7 +45,6 @@ bool EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(const rayQueryEXT ray_query, const ve
   tex_coord_3 = v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y +
                 v2.tex_coord_3 * barycentrics.z;
   vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
-  return true;
 }
 
 void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const float min_distance, inout uint seed) {
@@ -62,8 +61,8 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
     vec2 tex_coord_2;
     vec2 tex_coord_3;
     vec4 vertex_color;
-    EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
-                                          tex_coord_2, tex_coord_3, vertex_color);
+    EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, material_index, tex_coord_0, tex_coord_1, tex_coord_2,
+                                          tex_coord_3, vertex_color);
     if (EE_PCG_RANDOM(seed) <=
         EE_GLTF_RASTER_OPACITY_LOD0(
             material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {
@@ -76,7 +75,6 @@ void EE_CAMERA_TRACE_SURFACE(const vec3 origin, const vec3 direction, const floa
   } else {
     EE_CAMERA_RAY_QUERY_APPLY_MISS();
   }
-  hit_value.seed = seed;
 }
 
 vec3 EE_CAMERA_RAY_QUERY_SHADOW_TRANSMISSION(const rayQueryEXT ray_query, const uint material_index,
@@ -137,8 +135,8 @@ vec3 EE_CAMERA_SHADOW_TRANSMISSION(const vec3 origin, const vec3 direction, cons
     vec2 tex_coord_2;
     vec2 tex_coord_3;
     vec4 vertex_color;
-    EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, direction, material_index, tex_coord_0, tex_coord_1,
-                                          tex_coord_2, tex_coord_3, vertex_color);
+    EE_CAMERA_RAY_QUERY_CANDIDATE_SURFACE(ray_query, material_index, tex_coord_0, tex_coord_1, tex_coord_2,
+                                          tex_coord_3, vertex_color);
     if (EE_PCG_RANDOM(seed) >
         EE_GLTF_RASTER_OPACITY_LOD0(
             material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a)) {

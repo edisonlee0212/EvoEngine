@@ -475,6 +475,8 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   ScopedGpuPlatform platform;
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                          "Shaders" / "Compute" / "GltfRayTracingNumericalProbe.comp";
   Shader::RegisterShaderIncludePath(shader_root / "Includes");
 
   auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
@@ -497,8 +499,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   auto descriptor_set = std::make_shared<DescriptorSet>(descriptor_layout);
   descriptor_set->UpdateBufferDescriptorBinding(0, output);
   auto shader = std::make_shared<Shader>();
-  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                 shader_root / "Compute" / "GltfRayTracingNumericalProbe.comp"));
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), probe_path));
   auto pipeline = std::make_shared<ComputePipeline>();
   pipeline->compute_shader = shader;
   pipeline->descriptor_set_layouts.emplace_back(descriptor_layout);
@@ -611,11 +612,10 @@ TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
   descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
   descriptor_set->UpdateBufferDescriptorBinding(1, output);
 
-  const auto shader_root =
-      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                          "Shaders" / "Compute" / "DirectionalShadowComparisonProbe.comp";
   auto shader = std::make_shared<Shader>();
-  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                 shader_root / "Compute" / "DirectionalShadowComparisonProbe.comp"));
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), probe_path));
   auto pipeline = std::make_shared<ComputePipeline>();
   pipeline->compute_shader = shader;
   pipeline->descriptor_set_layouts.emplace_back(descriptor_layout);
@@ -651,7 +651,7 @@ TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
   EXPECT_LT(values[2], 1.0f);
 }
 
-TEST(GpuService, M10CameraRayTransportShadersCompile) {
+TEST(GpuService, CameraRayTransportShadersCompile) {
   ScopedGpuPlatform platform;
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
