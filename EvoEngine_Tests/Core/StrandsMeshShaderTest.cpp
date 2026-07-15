@@ -92,19 +92,59 @@ TEST(StrandsMeshShader, ThicknessAwareBoundsUpdateWithGeometry) {
   evo_engine::Jobs::OnDestroy();
 }
 
-TEST(StrandsMeshShader, UnmigratedLegacyDrawsAreNotReachable) {
+TEST(StrandsMeshShader, LegacyBackendIsRemoved) {
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto strands = ReadRepoFile("EvoEngine_SDK/src/Strands.cpp");
+  const auto strands_header = ReadRepoFile("EvoEngine_SDK/include/Rendering/Geometry/Strands.hpp");
+  const auto geometry_storage = ReadRepoFile("EvoEngine_SDK/src/GeometryStorage.cpp");
+  const auto geometry = ReadRepoFile("EvoEngine_SDK/include/Rendering/Geometry/IGeometry.hpp");
   const auto render_instances = ReadRepoFile("EvoEngine_SDK/src/RenderInstanceStorage.cpp");
   const auto deferred = ReadRepoFile("EvoEngine_SDK/src/RenderPasses/DeferredGeometryPass.cpp");
   EXPECT_EQ(deferred.find("BindStrandPoints"), std::string::npos);
   EXPECT_EQ(deferred.find("strands->DrawIndexed"), std::string::npos);
-  EXPECT_EQ(render_layer.find("for (const auto& i : editor_layer->gizmo_strands_tasks_)"), std::string::npos);
+  EXPECT_EQ(strands.find("Strands::DrawIndexed"), std::string::npos);
+  EXPECT_EQ(strands_header.find("public IGeometry"), std::string::npos);
+  EXPECT_EQ(geometry_storage.find("segment_buffer_"), std::string::npos);
+  EXPECT_EQ(geometry.find("Strands"), std::string::npos);
+  EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);
+  EXPECT_EQ(render_layer.find("SpotLightShadowMapStrands"), std::string::npos);
+  EXPECT_EQ(render_layer.find("TessellationControl/Gizmos/GizmosStrands"), std::string::npos);
   EXPECT_NE(render_layer.find("StandardStrands.task"), std::string::npos);
   EXPECT_NE(render_layer.find("StandardStrands.mesh"), std::string::npos);
   EXPECT_NE(strands.find("Platform::Initialized() && Platform::MeshShaderEnabled()"), std::string::npos);
   EXPECT_NE(render_instances.find("if (!Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_"),
             std::string::npos);
+}
+
+TEST(StrandsMeshShader, GizmosUseMeshShadersAndExactThreeModeFixture) {
+  const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Gizmos/GizmosStrands.task"));
+  const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Gizmos/GizmosStrands.mesh"));
+  const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
+  const auto inspection = ReadRepoFile("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp");
+  const auto platform = ReadRepoFile("EvoEngine_SDK/include/Rendering/Platform/Platform.hpp");
+  const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
+  const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
+
+  EXPECT_NE(task.find("EE_STRAND_MESHLET_OFFSET + gl_WorkGroupID.x"), std::string::npos);
+  EXPECT_NE(task.find("EmitMeshTasksEXT(interval_count, 1, 1)"), std::string::npos);
+  EXPECT_NE(mesh.find("layout(max_vertices = 32, max_primitives = 30)"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_GIZMO_STRAND_VERTEX_COLOR"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_GIZMO_STRAND_NORMAL_COLOR"), std::string::npos);
+  EXPECT_NE(render_layer.find("Graphics/Task/Gizmos/GizmosStrands.task"), std::string::npos);
+  EXPECT_NE(render_layer.find("Graphics/Mesh/Gizmos/GizmosStrands.mesh"), std::string::npos);
+  EXPECT_NE(render_layer.find("for (const auto& i : editor_layer->gizmo_strands_tasks_)"), std::string::npos);
+  EXPECT_NE(render_layer.find("gizmos_pipeline->DrawMeshTasks"), std::string::npos);
+  EXPECT_NE(render_layer.find("Platform::CountStrandGizmoDraw"), std::string::npos);
+  EXPECT_NE(inspection.find("Platform::MeshShaderEnabled() && ImGui::BeginTabItem(\"Strands\")"), std::string::npos);
+  EXPECT_NE(platform.find("std::array<size_t, 3> strand_gizmo_mode_draw_calls"), std::string::npos);
+  EXPECT_NE(scene.find("ConfigureStrandGizmoValidation"), std::string::npos);
+  EXPECT_NE(scene.find("RegisterStrandGizmoValidationUpdate"), std::string::npos);
+  EXPECT_NE(scene.find("GizmoSettings::ColorMode::VertexColor"), std::string::npos);
+  EXPECT_NE(scene.find("GizmoSettings::ColorMode::NormalColor"), std::string::npos);
+  EXPECT_NE(editor.find("--preview-strand-gizmo-fixture"), std::string::npos);
+  EXPECT_NE(editor.find("StrandGizmoFixtureTelemetryJson"), std::string::npos);
+  EXPECT_NE(editor.find("expected_mode_draws = {1, 1, 1}"), std::string::npos);
+  EXPECT_NE(editor.find("Strand gizmo validation failed"), std::string::npos);
 }
 
 TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {

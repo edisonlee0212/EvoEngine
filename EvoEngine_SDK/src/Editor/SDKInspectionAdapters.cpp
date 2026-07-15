@@ -104,6 +104,10 @@ void SubtractDrawStats(RenderPassDrawStats& stats, const RenderPassDrawStats& su
   stats.indirect_draw_calls = SaturatingSubtract(stats.indirect_draw_calls, subtraction.indirect_draw_calls);
   stats.indirect_draw_commands = SaturatingSubtract(stats.indirect_draw_commands, subtraction.indirect_draw_commands);
   stats.prim_count = SaturatingSubtract(stats.prim_count, subtraction.prim_count);
+  for (size_t mode = 0; mode < stats.strand_gizmo_mode_draw_calls.size(); ++mode) {
+    stats.strand_gizmo_mode_draw_calls[mode] =
+        SaturatingSubtract(stats.strand_gizmo_mode_draw_calls[mode], subtraction.strand_gizmo_mode_draw_calls[mode]);
+  }
 }
 
 RenderPassDrawStats TotalDrawStats(
@@ -114,6 +118,9 @@ RenderPassDrawStats TotalDrawStats(
     total.indirect_draw_calls += stats.indirect_draw_calls;
     total.indirect_draw_commands += stats.indirect_draw_commands;
     total.prim_count += stats.prim_count;
+    for (size_t mode = 0; mode < total.strand_gizmo_mode_draw_calls.size(); ++mode) {
+      total.strand_gizmo_mode_draw_calls[mode] += stats.strand_gizmo_mode_draw_calls[mode];
+    }
   }
   return total;
 }
@@ -1666,14 +1673,10 @@ void InspectShadowSettings(RenderSettings& render_settings) {
 }
 
 void InspectStrandsSettings(RenderSettings& render_settings) {
-#ifdef EVOENGINE_WINDOWS
   ImGui::DragFloat("Curve subdivision factor", &render_settings.strands_subdivision_x_factor, 1.0f, 1.0f, 1000.0f);
   ImGui::DragFloat("Ring subdivision factor", &render_settings.strands_subdivision_y_factor, 1.0f, 1.0f, 1000.0f);
   ImGui::DragInt("Max curve subdivision", &render_settings.strands_subdivision_max_x, 1, 1, 15);
   ImGui::DragInt("Max ring subdivision", &render_settings.strands_subdivision_max_y, 1, 1, 15);
-#else
-  ImGui::TextUnformatted("Strands settings are only available on Windows.");
-#endif
 }
 
 bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
@@ -2235,7 +2238,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
       InspectShadowSettings(render_layer.render_settings);
       ImGui::EndTabItem();
     }
-    if (ImGui::BeginTabItem("Strands")) {
+    if (Platform::MeshShaderEnabled() && ImGui::BeginTabItem("Strands")) {
       InspectStrandsSettings(render_layer.render_settings);
       ImGui::EndTabItem();
     }

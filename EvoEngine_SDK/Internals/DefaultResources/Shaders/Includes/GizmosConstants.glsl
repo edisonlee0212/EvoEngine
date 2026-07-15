@@ -4,6 +4,7 @@ layout(push_constant) uniform EE_GIZMOS_CONSTANTS{
 	vec4 EE_GIZMO_COLOR;
 	float EE_GIZMO_SIZE;
 	int EE_CAMERA_INDEX;
+	uint EE_STRAND_MESHLET_OFFSET;
 };
 
 

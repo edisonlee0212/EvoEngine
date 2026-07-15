@@ -32,7 +32,7 @@ struct StrandPointAttributes {
 /**
  * @brief Represents a collection of hair strands.
  */
-class Strands final : public IAsset, public IGeometry {
+class Strands final : public IAsset {
  public:
   /**
    * @brief Provides unsafe access to the segments vector.
@@ -74,15 +74,6 @@ class Strands final : public IAsset, public IGeometry {
    * @brief Recalculates the normals for the strands.
    */
   void RecalculateNormal();
-
-  /**
-   * @brief Draws the indexed strands on the given Vulkan command buffer.
-   * @param vk_command_buffer The Vulkan command buffer.
-   * @param global_pipeline_state Global graphics pipeline states.
-   * @param instances_count Number of instances to draw.
-   */
-  void DrawIndexed(VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
-                   int instances_count) const override;
 
   /**
    * @brief Invoked upon creation of the strands object.

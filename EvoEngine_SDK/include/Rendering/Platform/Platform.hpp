@@ -49,6 +49,7 @@ enum class RenderPassDrawBucket : uint8_t {
   CameraExternal,
   DdgiProbeVisualization,
   DdgiProbeRayVisualization,
+  EditorGizmos,
   Count
 };
 
@@ -65,6 +66,7 @@ struct RenderPassDrawStats {
   std::array<size_t, 4> directional_shadow_strand_cascade_draw_calls{};
   std::array<size_t, 6> point_shadow_strand_face_draw_calls{};
   size_t spot_shadow_strand_draw_calls = 0;
+  std::array<size_t, 3> strand_gizmo_mode_draw_calls{};
 
   [[nodiscard]] size_t TotalDrawCalls() const;
 };
@@ -536,6 +538,7 @@ class Platform final {
                                   uint32_t directional_shadow_cascade = 4);
   static void CountShadowStrandDraw(RenderPassDrawBucket bucket, uint32_t frame_index, size_t prim_count,
                                     uint32_t shadow_slice);
+  static void CountStrandGizmoDraw(uint32_t frame_index, size_t prim_count, size_t color_mode);
   /**
    * @brief Checks if the platform is initialized.
    *
@@ -1014,7 +1017,7 @@ class Platform final {
                                           size_t prim_count, size_t indirect_draw_commands,
                                           DirectionalShadowCasterKind directional_shadow_caster,
                                           uint32_t directional_shadow_cascade, bool shadow_strand,
-                                          uint32_t shadow_slice);
+                                          uint32_t shadow_slice, size_t strand_gizmo_mode);
 
   struct PendingGpuTimestampScope {
     std::string name{};

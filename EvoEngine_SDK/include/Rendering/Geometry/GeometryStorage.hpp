@@ -284,17 +284,14 @@ class GeometryStorage final {
   std::vector<StrandPointDataChunk> strand_point_data_chunks_ = {};
   std::vector<StrandMeshlet> strand_meshlets_ = {};
   std::vector<std::shared_ptr<RangeDescriptor>> strand_meshlet_range_descriptor_;
-  std::vector<glm::uvec4> segments_;
   std::vector<std::shared_ptr<RangeDescriptor>> segment_range_descriptor_;
 
   std::shared_ptr<Buffer> strand_point_buffer_ = {};
   std::shared_ptr<Buffer> strand_meshlet_buffer_ = {};
-  std::shared_ptr<Buffer> segment_buffer_ = {};
   bool require_strand_mesh_data_device_update_ = {};
   PendingGeometryUpload pending_strand_upload_;
   DirtyRange strand_point_dirty_range_;
   DirtyRange strand_meshlet_dirty_range_;
-  DirtyRange segment_dirty_range_;
 
   void UploadData();
   void ClearMeshDirtyRanges();
@@ -343,7 +340,6 @@ class GeometryStorage final {
 
   static void BindVertices(VkCommandBuffer vk_command_buffer);
   static void BindSkinnedVertices(VkCommandBuffer vk_command_buffer);
-  static void BindStrandPoints(VkCommandBuffer vk_command_buffer);
 
   [[nodiscard]] static const Vertex& PeekVertex(size_t vertex_index);
   [[nodiscard]] static const glm::uvec3& PeekTriangle(size_t triangle_index);

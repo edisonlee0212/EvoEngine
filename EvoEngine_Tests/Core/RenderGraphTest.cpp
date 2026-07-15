@@ -48,10 +48,12 @@ TEST(RenderGraph, RenderPassDrawStatsExposeDirectIndirectBreakdown) {
   EXPECT_STREQ("Deferred geometry", Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DeferredGeometry));
   EXPECT_STREQ("Directional shadow",
                Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::DirectionalLightShadow));
+  EXPECT_STREQ("Editor gizmos", Platform::GetRenderPassDrawBucketName(RenderPassDrawBucket::EditorGizmos));
   EXPECT_EQ(stats.directional_shadow_caster_draw_calls.size(), static_cast<size_t>(DirectionalShadowCasterKind::Count));
   EXPECT_EQ(stats.directional_shadow_strand_cascade_draw_calls.size(), 4);
   EXPECT_EQ(stats.point_shadow_strand_face_draw_calls.size(), 6);
   EXPECT_EQ(stats.spot_shadow_strand_draw_calls, 0);
+  EXPECT_EQ(stats.strand_gizmo_mode_draw_calls.size(), 3);
 }
 
 TEST(RenderGraph, DirectionalShadowCasterPathsExposeValidationCategories) {

@@ -97,6 +97,7 @@ struct EditorCommandLine {
   bool preview_shadow_caster_fixture = false;
   bool preview_strand_fixture = false;
   bool preview_strand_punctual_fixture = false;
+  bool preview_strand_gizmo_fixture = false;
   bool preview_capture_deterministic = false;
   bool preview_capture_bistro_ddgi = false;
   bool preview_capture_m10_ray_transport = false;
@@ -550,6 +551,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_strand_fixture = true;
     } else if (argument == "--preview-strand-punctual-fixture") {
       command_line.preview_strand_punctual_fixture = true;
+    } else if (argument == "--preview-strand-gizmo-fixture") {
+      command_line.preview_strand_gizmo_fixture = true;
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -663,6 +666,18 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_strand_punctual_fixture &&
       (command_line.preview_strand_fixture || command_line.preview_shadow_caster_fixture)) {
     throw std::invalid_argument("--preview-strand-punctual-fixture cannot be combined with another shadow fixture.");
+  }
+  if (command_line.preview_strand_gizmo_fixture && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture requires --capture-demo-preview.");
+  }
+  if (command_line.preview_strand_gizmo_fixture && command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture requires --demo rendering-regression.");
+  }
+  if (command_line.preview_strand_gizmo_fixture &&
+      (command_line.preview_shadow_caster_fixture || command_line.preview_strand_fixture ||
+       command_line.preview_strand_punctual_fixture || command_line.preview_capture_m10_ray_transport ||
+       command_line.preview_post_processing_stress)) {
+    throw std::invalid_argument("--preview-strand-gizmo-fixture cannot be combined with another validation fixture.");
   }
   if ((command_line.preview_shadow_split_lambda || command_line.preview_shadow_cascade_transition_width ||
        command_line.preview_shadow_distance_fade) &&
@@ -1217,6 +1232,7 @@ nlohmann::ordered_json RenderPassDrawStatsJson(const RenderPassDrawStats& stats)
           {"directional_shadow_strand_cascades", stats.directional_shadow_strand_cascade_draw_calls},
           {"point_shadow_strand_faces", stats.point_shadow_strand_face_draw_calls},
           {"spot_shadow_strands", stats.spot_shadow_strand_draw_calls},
+          {"strand_gizmo_modes", stats.strand_gizmo_mode_draw_calls},
           {"directional_shadow_casters",
            {{"regular", caster_draws(DirectionalShadowCasterKind::Regular)},
             {"mesh_shader", caster_draws(DirectionalShadowCasterKind::MeshShader)},
@@ -1351,6 +1367,35 @@ nlohmann::ordered_json StrandPunctualFixtureTelemetryJson(const std::shared_ptr<
   require(spot_draws["indirect_draw_calls"].get<size_t>() == 0, "expected no spot-shadow indirect draws");
   require(spot_draws["primitive_count"].get<size_t>() == 1, "expected 1 spot-shadow primitive");
   require(spot_draws["spot_shadow_strands"].get<size_t>() == 1, "expected 1 spot-shadow strand draw");
+  result["pass"] = failures.empty();
+  result["failures"] = std::move(failures);
+  return result;
+}
+
+nlohmann::ordered_json StrandGizmoFixtureTelemetryJson(const std::shared_ptr<RenderLayer>& render_layer) {
+  constexpr std::array<size_t, 3> expected_mode_draws = {1, 1, 1};
+  const auto draws = RenderPassDrawStatsJson(RenderPassDrawBucket::EditorGizmos);
+  nlohmann::ordered_json result = {
+      {"mesh_shader_supported", Platform::GetInstance().GetCapabilities().support_mesh_shader},
+      {"mesh_shader_enabled", Platform::MeshShaderEnabled() && render_layer && render_layer->enable_meshlet},
+      {"geometry_uploads_pending", GeometryStorage::HasPendingMeshUploads()},
+      {"draw_scope", "frame-global"},
+      {"draws", draws},
+      {"expected", {{"direct_draw_calls", 3}, {"primitive_count", 3}, {"strand_gizmo_modes", expected_mode_draws}}}};
+  auto failures = nlohmann::ordered_json::array();
+  const auto require = [&](const bool condition, const char* message) {
+    if (!condition) {
+      failures.push_back(message);
+    }
+  };
+  require(result["mesh_shader_supported"].get<bool>(), "mesh shaders are not supported");
+  require(result["mesh_shader_enabled"].get<bool>(), "mesh shaders are not enabled");
+  require(!result["geometry_uploads_pending"].get<bool>(), "strand geometry uploads remain pending");
+  require(draws["direct_draw_calls"].get<size_t>() == 3, "expected 3 strand gizmo direct draws");
+  require(draws["indirect_draw_calls"].get<size_t>() == 0, "expected no strand gizmo indirect draws");
+  require(draws["primitive_count"].get<size_t>() == 3, "expected 3 strand gizmo primitives");
+  require(draws["strand_gizmo_modes"].get<std::array<size_t, 3>>() == expected_mode_draws,
+          "expected one draw for each strand gizmo mode");
   result["pass"] = failures.empty();
   result["failures"] = std::move(failures);
   return result;
@@ -1868,22 +1913,25 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
     const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
     const std::optional<int>& preview_shadow_light_count, const bool preview_shadow_caster_fixture,
-    const bool preview_strand_fixture, const bool preview_strand_punctual_fixture, const bool deterministic_capture,
-    const bool preview_bistro_ddgi, const bool preview_m10_ray_transport, const bool preview_post_processing_stress) {
+    const bool preview_strand_fixture, const bool preview_strand_punctual_fixture,
+    const bool preview_strand_gizmo_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi,
+    const bool preview_m10_ray_transport, const bool preview_post_processing_stress) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
-  if (preview_strand_fixture || preview_strand_punctual_fixture) {
+  if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
     if (!Platform::MeshShaderEnabled()) {
       throw std::runtime_error("Strand validation requires mesh-shader support.");
     }
     if (preview_strand_fixture) {
       ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
-    } else {
+    } else if (preview_strand_punctual_fixture) {
       ConfigureStrandPunctualShadowValidation(ApplicationContext::Get().GetActiveScene());
+    } else {
+      ConfigureStrandGizmoValidation(ApplicationContext::Get().GetActiveScene());
     }
   }
   if (preview_m10_ray_transport) {
@@ -1909,7 +1957,7 @@ void CaptureDemoPreview(
   }
   auto resolved_camera_position = preview_camera_position;
   auto resolved_camera_look_at = preview_camera_look_at;
-  if (preview_strand_fixture && !resolved_camera_position) {
+  if ((preview_strand_fixture || preview_strand_gizmo_fixture) && !resolved_camera_position) {
     resolved_camera_position = glm::vec3(0.0f, 0.45f, 4.5f);
     resolved_camera_look_at = glm::vec3(0.0f, 0.0f, -2.5f);
   } else if (preview_strand_punctual_fixture && !resolved_camera_position) {
@@ -2071,7 +2119,7 @@ void CaptureDemoPreview(
   }
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  if (preview_strand_fixture || preview_strand_punctual_fixture) {
+  if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
     if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
       throw std::runtime_error("Strand validation requires the raster RenderLayer path.");
     }
@@ -2357,6 +2405,7 @@ void CaptureDemoPreview(
   metrics["csm_caster_fixture"] = preview_shadow_caster_fixture;
   metrics["strand_fixture"] = preview_strand_fixture;
   metrics["strand_punctual_fixture"] = preview_strand_punctual_fixture;
+  metrics["strand_gizmo_fixture"] = preview_strand_gizmo_fixture;
   metrics["strand_validation"] =
       preview_strand_fixture
           ? StrandFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene(), 5, true)
@@ -2365,6 +2414,8 @@ void CaptureDemoPreview(
       preview_strand_punctual_fixture
           ? StrandPunctualFixtureTelemetryJson(render_layer, ApplicationContext::Get().GetActiveScene())
           : nullptr;
+  metrics["strand_gizmo_validation"] =
+      preview_strand_gizmo_fixture ? StrandGizmoFixtureTelemetryJson(render_layer) : nullptr;
   metrics["post_processing_stress"] = post_processing_stress;
   if (preview_m10_ray_transport) {
     metrics["m10_fixture_version"] = "isolated-v2";
@@ -2609,6 +2660,10 @@ void CaptureDemoPreview(
       preview_strand_punctual_fixture && !metrics["strand_punctual_validation"].value("pass", false);
   const auto strand_punctual_validation_failures =
       strand_punctual_validation_failed ? metrics["strand_punctual_validation"]["failures"].dump() : std::string{};
+  const bool strand_gizmo_validation_failed =
+      preview_strand_gizmo_fixture && !metrics["strand_gizmo_validation"].value("pass", false);
+  const auto strand_gizmo_validation_failures =
+      strand_gizmo_validation_failed ? metrics["strand_gizmo_validation"]["failures"].dump() : std::string{};
   std::cout << "RAY_CAPTURE_JSON " << metrics.dump() << std::endl;
   if (metrics_path) {
     if (const auto parent_path = metrics_path->parent_path(); !parent_path.empty()) {
@@ -2624,6 +2679,9 @@ void CaptureDemoPreview(
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
   if (strand_punctual_validation_failed) {
     throw std::runtime_error("Strand punctual-shadow validation failed: " + strand_punctual_validation_failures);
+  }
+  if (strand_gizmo_validation_failed) {
+    throw std::runtime_error("Strand gizmo validation failed: " + strand_gizmo_validation_failures);
   }
 }
 }  // namespace
@@ -2679,8 +2737,9 @@ int main(const int argc, char** argv) {
               command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
               command_line.preview_shadow_light_count, command_line.preview_shadow_caster_fixture,
               command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
-              command_line.preview_capture_m10_ray_transport, command_line.preview_post_processing_stress);
+              command_line.preview_strand_gizmo_fixture, command_line.preview_capture_deterministic,
+              command_line.preview_capture_bistro_ddgi, command_line.preview_capture_m10_ray_transport,
+              command_line.preview_post_processing_stress);
           ApplicationContext::Get().Terminate();
           std::cout.flush();
           std::cerr.flush();

@@ -44,7 +44,7 @@ void AddDrawStats(RenderPassDrawStats& stats, const RenderPassDrawBucket bucket,
                   const size_t prim_count, const size_t indirect_draw_commands,
                   const DirectionalShadowCasterKind directional_shadow_caster = DirectionalShadowCasterKind::Count,
                   const uint32_t directional_shadow_cascade = 4, const bool shadow_strand = false,
-                  const uint32_t shadow_slice = 6) {
+                  const uint32_t shadow_slice = 6, const size_t strand_gizmo_mode = 3) {
   stats.prim_count += prim_count;
   if (kind == RenderDrawCallKind::Indirect) {
     stats.indirect_draw_calls++;
@@ -59,6 +59,10 @@ void AddDrawStats(RenderPassDrawStats& stats, const RenderPassDrawBucket bucket,
   if (prim_count > 0 && directional_shadow_caster == DirectionalShadowCasterKind::Strands &&
       directional_shadow_cascade < stats.directional_shadow_strand_cascade_draw_calls.size()) {
     stats.directional_shadow_strand_cascade_draw_calls[directional_shadow_cascade]++;
+  }
+  if (prim_count > 0 && bucket == RenderPassDrawBucket::EditorGizmos &&
+      strand_gizmo_mode < stats.strand_gizmo_mode_draw_calls.size()) {
+    stats.strand_gizmo_mode_draw_calls[strand_gizmo_mode]++;
   }
   if (prim_count == 0 || !shadow_strand) {
     return;
@@ -116,6 +120,9 @@ RenderPassDrawStats RenderCameraDrawStats::Total() const {
       total.point_shadow_strand_face_draw_calls[face] += stats.point_shadow_strand_face_draw_calls[face];
     }
     total.spot_shadow_strand_draw_calls += stats.spot_shadow_strand_draw_calls;
+    for (size_t mode = 0; mode < total.strand_gizmo_mode_draw_calls.size(); ++mode) {
+      total.strand_gizmo_mode_draw_calls[mode] += stats.strand_gizmo_mode_draw_calls[mode];
+    }
   }
   return total;
 }
@@ -182,6 +189,8 @@ const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket buc
       return "DDGI probes";
     case RenderPassDrawBucket::DdgiProbeRayVisualization:
       return "DDGI probe rays";
+    case RenderPassDrawBucket::EditorGizmos:
+      return "Editor gizmos";
     case RenderPassDrawBucket::Count:
       break;
   }
@@ -225,7 +234,7 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
                                    const uint32_t frame_index, const size_t prim_count,
                                    const size_t indirect_draw_commands) {
   CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands,
-                              DirectionalShadowCasterKind::Count, 4, false, 6);
+                              DirectionalShadowCasterKind::Count, 4, false, 6, 3);
 }
 
 void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
@@ -234,13 +243,18 @@ void Platform::CountRenderPassDraw(const RenderPassDrawBucket bucket, const Rend
                                    const DirectionalShadowCasterKind directional_shadow_caster,
                                    const uint32_t directional_shadow_cascade) {
   CountRenderPassDrawInternal(bucket, kind, frame_index, prim_count, indirect_draw_commands, directional_shadow_caster,
-                              directional_shadow_cascade, false, 6);
+                              directional_shadow_cascade, false, 6, 3);
 }
 
 void Platform::CountShadowStrandDraw(const RenderPassDrawBucket bucket, const uint32_t frame_index,
                                      const size_t prim_count, const uint32_t shadow_slice) {
   CountRenderPassDrawInternal(bucket, RenderDrawCallKind::Direct, frame_index, prim_count, 0,
-                              DirectionalShadowCasterKind::Count, 4, true, shadow_slice);
+                              DirectionalShadowCasterKind::Count, 4, true, shadow_slice, 3);
+}
+
+void Platform::CountStrandGizmoDraw(const uint32_t frame_index, const size_t prim_count, const size_t color_mode) {
+  CountRenderPassDrawInternal(RenderPassDrawBucket::EditorGizmos, RenderDrawCallKind::Direct, frame_index, prim_count,
+                              0, DirectionalShadowCasterKind::Count, 4, false, 6, color_mode);
 }
 
 void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, const RenderDrawCallKind kind,
@@ -248,7 +262,7 @@ void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, co
                                            const size_t indirect_draw_commands,
                                            const DirectionalShadowCasterKind directional_shadow_caster,
                                            const uint32_t directional_shadow_cascade, const bool shadow_strand,
-                                           const uint32_t shadow_slice) {
+                                           const uint32_t shadow_slice, const size_t strand_gizmo_mode) {
   auto& graphics = GetInstance();
   if (frame_index < graphics.draw_call.size()) {
     graphics.draw_call[frame_index]++;
@@ -262,7 +276,7 @@ void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, co
   }
   auto& stats = graphics.render_pass_draw_stats[frame_index][bucket_index];
   AddDrawStats(stats, bucket, kind, prim_count, indirect_draw_commands, directional_shadow_caster,
-               directional_shadow_cascade, shadow_strand, shadow_slice);
+               directional_shadow_cascade, shadow_strand, shadow_slice, strand_gizmo_mode);
   if (!graphics.active_render_camera_draw_scope_ ||
       graphics.active_render_camera_draw_scope_->frame_index != frame_index ||
       frame_index >= graphics.render_camera_draw_stats.size()) {
@@ -284,7 +298,7 @@ void Platform::CountRenderPassDrawInternal(const RenderPassDrawBucket bucket, co
     camera_stats->entity_index = scope.entity_index;
   }
   AddDrawStats(camera_stats->pass_stats[bucket_index], bucket, kind, prim_count, indirect_draw_commands,
-               directional_shadow_caster, directional_shadow_cascade, shadow_strand, shadow_slice);
+               directional_shadow_caster, directional_shadow_cascade, shadow_strand, shadow_slice, strand_gizmo_mode);
 }
 
 void Platform::RegisterShaderIncludePath(const std::filesystem::path& path) {

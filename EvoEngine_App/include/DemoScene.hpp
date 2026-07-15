@@ -31,6 +31,7 @@ void ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene);
 void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);
+void ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene);
 void ConfigureCsmCasterValidation(const std::shared_ptr<Scene>& scene);
 void EnableCsmCasterValidation(const std::shared_ptr<Scene>& scene);
 void ConfigureM10RayTransportValidation(const std::shared_ptr<Scene>& scene);

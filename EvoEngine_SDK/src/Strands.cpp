@@ -462,12 +462,3 @@ void Strands::RecalculateNormal() {
     strand_points_[indices[3]].normal = glm::cross(glm::cross(tangent, strand_points_[indices[2]].normal), tangent);
   }
 }
-
-void Strands::DrawIndexed(const VkCommandBuffer vk_command_buffer, GraphicsPipelineStates& global_pipeline_state,
-                          const int instances_count) const {
-  if (instances_count == 0)
-    return;
-  global_pipeline_state.ApplyAllStates(vk_command_buffer);
-  Platform::DrawIndexed(vk_command_buffer, segment_range_->prev_frame_index_count * 4, instances_count,
-                        segment_range_->prev_frame_offset * 4);
-}

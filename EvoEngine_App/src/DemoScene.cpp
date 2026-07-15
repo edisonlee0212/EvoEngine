@@ -84,6 +84,42 @@ struct RenderingRegressionTemporalMotionState {
 std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
 bool rendering_regression_temporal_motion_registered = false;
 
+struct StrandGizmoValidationState {
+  std::weak_ptr<Scene> scene;
+  std::shared_ptr<Strands> strands;
+};
+
+std::shared_ptr<StrandGizmoValidationState> strand_gizmo_validation_state;
+bool strand_gizmo_validation_registered = false;
+
+void RegisterStrandGizmoValidationUpdate() {
+  if (strand_gizmo_validation_registered) {
+    return;
+  }
+  strand_gizmo_validation_registered = true;
+  ApplicationContext::Get().RegisterUpdateFunction([] {
+    const auto state = strand_gizmo_validation_state;
+    const auto scene = state ? state->scene.lock() : nullptr;
+    auto& application = ApplicationContext::Get();
+    const auto editor_layer = application.GetLayer<EditorLayer>();
+    const auto camera = editor_layer ? editor_layer->GetSceneCamera() : nullptr;
+    if (!state || !state->strands || !scene || application.GetActiveScene() != scene || !camera) {
+      return;
+    }
+
+    constexpr std::array modes = {GizmoSettings::ColorMode::Default, GizmoSettings::ColorMode::VertexColor,
+                                  GizmoSettings::ColorMode::NormalColor};
+    for (size_t mode = 0; mode < modes.size(); ++mode) {
+      GizmoSettings settings;
+      settings.color_mode = modes[mode];
+      const auto x = (static_cast<float>(mode) - 1.0f) * 1.5f;
+      const auto model = glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, -2.5f));
+      editor_layer->DrawGizmoStrands(state->strands, camera, glm::vec4(1.0f, 0.45f, 0.12f, 1.0f), model, 1.0f,
+                                     settings);
+    }
+  });
+}
+
 void RegisterRenderingRegressionTemporalMotionUpdate() {
   if (rendering_regression_temporal_motion_registered) {
     return;
@@ -1988,6 +2024,44 @@ void evo_engine::UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<
   attributes.tex_coord = true;
   attributes.color = true;
   strands->SetStrands(attributes, {0, static_cast<glm::uint>(points.size())}, points);
+}
+
+void evo_engine::ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return;
+  }
+  for (const auto* root_name :
+       {kRenderingRegressionRootName, kStrandValidationRootName, kStrandPunctualValidationRootName}) {
+    if (const auto root = FindEntityNamed(scene, root_name)) {
+      scene->SetEnable(*root, false);
+    }
+  }
+
+  scene->environment.environment_type = Scene::EnvironmentType::Color;
+  scene->environment.background_color = glm::vec3(0.025f, 0.03f, 0.04f);
+  scene->environment.background_intensity = 1.0f;
+  scene->environment.ambient_light_intensity = 0.0f;
+
+  const auto strands = CreateStrandValidationGeometry(4, glm::vec4(1.0f), 0.12f);
+  auto points = strands->PeekStrandPoints();
+  constexpr std::array colors = {glm::vec4(1.0f, 0.12f, 0.08f, 1.0f), glm::vec4(0.1f, 1.0f, 0.18f, 1.0f),
+                                 glm::vec4(0.08f, 0.3f, 1.0f, 1.0f), glm::vec4(1.0f, 0.9f, 0.08f, 1.0f)};
+  constexpr std::array normals = {glm::vec3(0.25f, 0.25f, 1.0f), glm::vec3(0.65f, 0.25f, 0.8f),
+                                  glm::vec3(0.25f, 0.75f, 0.7f), glm::vec3(0.8f, 0.55f, 0.35f)};
+  for (size_t index = 0; index < points.size(); ++index) {
+    points[index].color = colors[index];
+    points[index].normal = glm::normalize(normals[index]);
+  }
+  StrandPointAttributes attributes;
+  attributes.normal = true;
+  attributes.tex_coord = true;
+  attributes.color = true;
+  strands->SetSegments(attributes, {0}, points);
+
+  strand_gizmo_validation_state = std::make_shared<StrandGizmoValidationState>();
+  strand_gizmo_validation_state->scene = scene;
+  strand_gizmo_validation_state->strands = strands;
+  RegisterStrandGizmoValidationUpdate();
 }
 
 void evo_engine::ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene) {

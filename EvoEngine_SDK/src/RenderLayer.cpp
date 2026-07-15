@@ -2276,7 +2276,7 @@ void RenderLayer::OnCreate() {
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
-    strands_deferred_prepass_pipeline->geometry_type = GeometryType::Strands;
+    strands_deferred_prepass_pipeline->vertex_input_enabled = false;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
@@ -2498,101 +2498,46 @@ void RenderLayer::OnCreate() {
           CreateGaussianSplatPipeline(per_frame_layout_, gaussian_splat_layout_, VK_FORMAT_UNDEFINED, true);
     }
   }
-#ifdef EVOENGINE_WINDOWS
-  if (!gizmos_strands) {
-    gizmos_strands = std::make_shared<GraphicsPipeline>();
-    gizmos_strands->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosStrands.vert");
-    gizmos_strands->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrands.tesc");
-    gizmos_strands->tessellation_evaluation_shader = Shader::CreateTemporary(
-        ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrands.tese");
-    gizmos_strands->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Gizmos/GizmosStrands.geom");
-    gizmos_strands->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag");
-    gizmos_strands->geometry_type = GeometryType::Strands;
-    gizmos_strands->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_strands->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_strands->tessellation_patch_control_points = 4;
-    gizmos_strands->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    auto& push_constant_range = gizmos_strands->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    gizmos_strands->Initialize();
+  if (Platform::MeshShaderEnabled()) {
+    const auto create_gizmo_strands_pipeline = [&](const std::string& mesh_define,
+                                                   const std::filesystem::path& fragment_shader_path) {
+      auto pipeline = std::make_shared<GraphicsPipeline>();
+      pipeline->task_shader = Shader::CreateTemporary(
+          ShaderType::Task, Platform::GetShaderGlobalDefines(),
+          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Gizmos/GizmosStrands.task");
+      pipeline->mesh_shader = Shader::CreateTemporary(
+          ShaderType::Mesh, Platform::GetShaderGlobalDefines() + mesh_define,
+          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Gizmos/GizmosStrands.mesh");
+      pipeline->fragment_shader =
+          Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+      pipeline->vertex_input_enabled = false;
+      pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+      pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+      pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+      pipeline->descriptor_set_layouts = {per_frame_layout_, strand_meshlet_layout_};
+      auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
+      push_constant_range.size = sizeof(GizmosPushConstant);
+      push_constant_range.offset = 0;
+      push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
+      pipeline->Initialize();
+      return pipeline;
+    };
+    const auto gizmos_fragment_path =
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag";
+    const auto colored_fragment_path =
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag";
+    if (!gizmos_strands) {
+      gizmos_strands = create_gizmo_strands_pipeline({}, gizmos_fragment_path);
+    }
+    if (!gizmos_strands_normal_colored) {
+      gizmos_strands_normal_colored =
+          create_gizmo_strands_pipeline("#define EE_GIZMO_STRAND_NORMAL_COLOR 1\n", colored_fragment_path);
+    }
+    if (!gizmos_strands_vertex_colored) {
+      gizmos_strands_vertex_colored =
+          create_gizmo_strands_pipeline("#define EE_GIZMO_STRAND_VERTEX_COLOR 1\n", colored_fragment_path);
+    }
   }
-  if (!gizmos_strands_normal_colored) {
-    gizmos_strands_normal_colored = std::make_shared<GraphicsPipeline>();
-    gizmos_strands_normal_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsNormalColored.vert");
-    gizmos_strands_normal_colored->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
-    gizmos_strands_normal_colored->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
-    gizmos_strands_normal_colored->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
-    gizmos_strands_normal_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
-    gizmos_strands_normal_colored->geometry_type = GeometryType::Strands;
-    gizmos_strands_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_strands_normal_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_strands_normal_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands_normal_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    gizmos_strands_normal_colored->tessellation_patch_control_points = 4;
-    auto& push_constant_range = gizmos_strands_normal_colored->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-
-    gizmos_strands_normal_colored->Initialize();
-  }
-  if (!gizmos_strands_vertex_colored) {
-    gizmos_strands_vertex_colored = std::make_shared<GraphicsPipeline>();
-    gizmos_strands_vertex_colored->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosStrandsVertexColored.vert");
-    gizmos_strands_vertex_colored->tessellation_control_shader = Shader::CreateTemporary(
-        ShaderType::TessellationControl, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/TessellationControl/Gizmos/GizmosStrandsColored.tesc");
-    gizmos_strands_vertex_colored->tessellation_evaluation_shader =
-        Shader::CreateTemporary(ShaderType::TessellationEvaluation, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/TessellationEvaluation/Gizmos/GizmosStrandsColored.tese");
-    gizmos_strands_vertex_colored->geometry_shader = Shader::CreateTemporary(
-        ShaderType::Geometry, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Geometry/Gizmos/GizmosStrandsColored.geom");
-    gizmos_strands_vertex_colored->fragment_shader = Shader::CreateTemporary(
-        ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
-    gizmos_strands_vertex_colored->geometry_type = GeometryType::Strands;
-    gizmos_strands_vertex_colored->tessellation_patch_control_points = 4;
-    gizmos_strands_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
-    gizmos_strands_vertex_colored->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    gizmos_strands_vertex_colored->color_attachment_formats = {1, Platform::Constants::render_texture_color};
-    gizmos_strands_vertex_colored->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    gizmos_strands_vertex_colored->tessellation_patch_control_points = 4;
-    auto& push_constant_range = gizmos_strands_vertex_colored->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(GizmosPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    gizmos_strands_vertex_colored->Initialize();
-  }
-
-#endif
 #pragma endregion
 #pragma region Ray Tracing Pipelines
   constexpr auto ray_tracing_push_constant_stages = VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_MISS_BIT_KHR |
@@ -3835,9 +3780,60 @@ void RenderLayer::RenderGizmos() const {
                 push_constant.size = i.size;
                 push_constant.camera_index =
                     current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.strand_meshlet_offset = 0;
                 gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
                 i.mesh->DrawIndexed(vk_command_buffer, gizmos_pipeline->states, 1);
+              });
+        });
+      }
+    }
+    if (Platform::MeshShaderEnabled()) {
+      for (const auto& i : editor_layer->gizmo_strands_tasks_) {
+        if (!i.strands || !i.editor_camera_component || !i.editor_camera_component->IsEnabled() ||
+            !i.strands->strand_meshlet_range_ || !i.strands->segment_range_ ||
+            i.strands->strand_meshlet_range_->prev_frame_range == 0) {
+          continue;
+        }
+        if (editor_layer->editor_cameras_.find(i.editor_camera_component->GetHandle()) ==
+            editor_layer->editor_cameras_.end()) {
+          EVOENGINE_ERROR("Target camera not registered in editor!");
+          return;
+        }
+        Platform::RecordCommandsMainQueue([&](VkCommandBuffer vk_command_buffer) {
+          std::shared_ptr<GraphicsPipeline> gizmos_pipeline;
+          switch (i.gizmo_settings.color_mode) {
+            case GizmoSettings::ColorMode::Default:
+              gizmos_pipeline = gizmos_strands;
+              break;
+            case GizmoSettings::ColorMode::VertexColor:
+              gizmos_pipeline = gizmos_strands_vertex_colored;
+              break;
+            case GizmoSettings::ColorMode::NormalColor:
+              gizmos_pipeline = gizmos_strands_normal_colored;
+              break;
+          }
+          i.editor_camera_component->GetRenderTexture()->ApplyGraphicsPipelineStates(gizmos_pipeline->states);
+          i.gizmo_settings.ApplySettings(gizmos_pipeline->states);
+          gizmos_pipeline->Bind(vk_command_buffer);
+          gizmos_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                             per_frame_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+          gizmos_pipeline->BindDescriptorSet(
+              vk_command_buffer, 1, strand_meshlet_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
+
+          i.editor_camera_component->GetRenderTexture()->Render(
+              vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&]() {
+                GizmosPushConstant push_constant;
+                push_constant.model = i.model;
+                push_constant.color = i.color;
+                push_constant.size = i.size;
+                push_constant.camera_index =
+                    current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.strand_meshlet_offset = i.strands->strand_meshlet_range_->prev_frame_offset;
+                gizmos_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                gizmos_pipeline->DrawMeshTasks(vk_command_buffer, i.strands->strand_meshlet_range_->prev_frame_range);
+                Platform::CountStrandGizmoDraw(current_frame_index, i.strands->segment_range_->prev_frame_index_count,
+                                               static_cast<size_t>(i.gizmo_settings.color_mode));
               });
         });
       }
@@ -3867,6 +3863,7 @@ void RenderLayer::RenderGizmos() const {
                 push_constant.size = i.size;
                 push_constant.camera_index =
                     current_render_instances->GetCameraIndex(i.editor_camera_component->GetHandle());
+                push_constant.strand_meshlet_offset = 0;
                 gizmos_instanced_colored->PushConstant(vk_command_buffer, 0, push_constant);
                 GeometryStorage::BindVertices(vk_command_buffer);
                 i.mesh->DrawIndexed(vk_command_buffer, gizmos_instanced_colored->states,
