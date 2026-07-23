@@ -60,6 +60,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct MeshingSettings {
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
+    /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through knots).
+    float spline_tension = 0.5f;
   };
 
   static RenderSettings render_settings;

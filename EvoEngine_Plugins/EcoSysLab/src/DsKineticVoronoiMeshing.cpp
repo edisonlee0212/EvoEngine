@@ -348,16 +348,34 @@ glm::dvec2 WorldToProfile(const glm::dmat4& transform, const glm::dvec3& hit) {
 }
 
 void StrandCubicPowerCoeffs(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2, const glm::dvec3& v3,
-                            glm::dvec3& c0, glm::dvec3& c1, glm::dvec3& c2, glm::dvec3& c3) {
-  // Matches Strands::CubicInterpolation power expansion.
+                            glm::dvec3& c0, glm::dvec3& c1, glm::dvec3& c2, glm::dvec3& c3, double tension = 0.0) {
+  // Meshing-only blend between:
+  //   tension 0 → Strands::CubicInterpolation (does not pass through knots)
+  //   tension 1 → Catmull-Rom Hermite (passes through v1 and v2)
+  const double t = glm::clamp(tension, 0.0, 1.0);
+
+  // Strands::CubicInterpolation power expansion.
   const glm::dvec3 p0 = (v2 + v0) / 6.0 + v1 * (4.0 / 6.0);
   const glm::dvec3 p1 = v2 - v0;
   const glm::dvec3 p2 = v2 - v1;
   const glm::dvec3 p3 = v3 - v1;
-  c0 = p0;
-  c1 = 0.5 * p1;
-  c2 = -0.5 * p1 + p2;
-  c3 = (1.0 / 6.0) * p1 - (2.0 / 3.0) * p2 + (1.0 / 6.0) * p3;
+  const glm::dvec3 strands_c0 = p0;
+  const glm::dvec3 strands_c1 = 0.5 * p1;
+  const glm::dvec3 strands_c2 = -0.5 * p1 + p2;
+  const glm::dvec3 strands_c3 = (1.0 / 6.0) * p1 - (2.0 / 3.0) * p2 + (1.0 / 6.0) * p3;
+
+  // Catmull-Rom as Hermite through v1 → v2 with tangents 0.5*(v2-v0), 0.5*(v3-v1).
+  const glm::dvec3 m0 = 0.5 * (v2 - v0);
+  const glm::dvec3 m1 = 0.5 * (v3 - v1);
+  const glm::dvec3 catmull_c0 = v1;
+  const glm::dvec3 catmull_c1 = m0;
+  const glm::dvec3 catmull_c2 = -3.0 * v1 - 2.0 * m0 + 3.0 * v2 - m1;
+  const glm::dvec3 catmull_c3 = 2.0 * v1 + m0 - 2.0 * v2 + m1;
+
+  c0 = glm::mix(strands_c0, catmull_c0, t);
+  c1 = glm::mix(strands_c1, catmull_c1, t);
+  c2 = glm::mix(strands_c2, catmull_c2, t);
+  c3 = glm::mix(strands_c3, catmull_c3, t);
 }
 
 glm::dvec3 EvalStrandCubic(const glm::dvec3& c0, const glm::dvec3& c1, const glm::dvec3& c2, const glm::dvec3& c3,
@@ -431,9 +449,9 @@ double NewtonPolishPlaneRoot(const glm::dvec3& c0, const glm::dvec3& c1, const g
 std::optional<CubicPlaneHit> IntersectCubicSegmentWithPlane(const glm::dvec3& v0, const glm::dvec3& v1,
                                                            const glm::dvec3& v2, const glm::dvec3& v3,
                                                            const ProfilePlane& plane, int segment_index,
-                                                           double preferred_t = -1.0) {
+                                                           double preferred_t = -1.0, double tension = 0.0) {
   glm::dvec3 c0, c1, c2, c3;
-  StrandCubicPowerCoeffs(v0, v1, v2, v3, c0, c1, c2, c3);
+  StrandCubicPowerCoeffs(v0, v1, v2, v3, c0, c1, c2, c3, tension);
 
   const double f0 = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, 0.0), plane);
   const double f1 = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, 1.0), plane);
@@ -493,7 +511,7 @@ std::optional<CubicPlaneHit> IntersectCubicSegmentWithPlane(const glm::dvec3& v0
 
 std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGroup& strand_group, StrandHandle strand_handle,
                                                      const ProfilePlane& plane, int hint_segment_index,
-                                                     double preferred_t = -1.0) {
+                                                     double preferred_t = -1.0, double tension = 0.0) {
   const auto& strand = strand_group.PeekStrand(strand_handle);
   const auto& segment_handles = strand.PeekStrandSegmentHandles();
   if (segment_handles.empty()) {
@@ -507,7 +525,7 @@ std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGro
     glm::vec3 p0, p1, p2, p3;
     strand_group.GetPositionControlPoints(segment_handles[segment_index], p0, p1, p2, p3);
     return IntersectCubicSegmentWithPlane(glm::dvec3(p0), glm::dvec3(p1), glm::dvec3(p2), glm::dvec3(p3), plane,
-                                          segment_index, preferred_t);
+                                          segment_index, preferred_t, tension);
   };
 
   // Search outward from the height hint so successive samples advance monotonically.
@@ -534,9 +552,11 @@ std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGro
 
 glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group, StrandHandle strand_handle,
                                       const glm::dmat4& transform, int& hint_segment_index,
-                                      const glm::dvec2& fallback_profile, double preferred_t = -1.0) {
+                                      const glm::dvec2& fallback_profile, double preferred_t = -1.0,
+                                      double tension = 0.0) {
   const ProfilePlane plane = ExtractProfilePlane(transform);
-  const auto hit = IntersectStrandWithPlane(strand_group, strand_handle, plane, hint_segment_index, preferred_t);
+  const auto hit =
+      IntersectStrandWithPlane(strand_group, strand_handle, plane, hint_segment_index, preferred_t, tension);
   if (!hit.has_value()) {
     return fallback_profile;
   }
@@ -1563,7 +1583,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       const glm::dvec2 fallback = guide_points[h].profile_position;
       guide_points[h].profile_position = SampleStrandProfileAtPlane(
           strand_model_strand_group, static_cast<StrandHandle>(strand_index), transform, hint_segment_index, fallback,
-          preferred_t);
+          preferred_t, meshing_settings.spline_tension);
     }
   });
 
@@ -1744,6 +1764,14 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Export kinDS segment-builder debug SVGs during meshing.");
+  }
+  if (ImGui::DragFloat("Spline tension", &meshing_settings.spline_tension, 0.01f, 0.0f, 1.0f)) {
+    meshing_settings.spline_tension = glm::clamp(meshing_settings.spline_tension, 0.0f, 1.0f);
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Meshing-only blend for plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through "
+        "knots).");
   }
 
   FileUtils::SaveFile(
