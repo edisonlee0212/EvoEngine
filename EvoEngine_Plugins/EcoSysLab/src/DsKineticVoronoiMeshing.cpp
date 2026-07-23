@@ -1,8 +1,10 @@
 #include "DsKineticVoronoiMeshing.hpp"
 #include <algorithm>
+#include <cmath>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
+#include <optional>
 #include <queue>
 #include <utility>
 #include <vector>
@@ -15,6 +17,7 @@
 #include "kinDS/kinDS/KineticDelaunay.hpp"
 #include "kinDS/kinDS/MeshIntersection.hpp"
 #include "kinDS/kinDS/ObjExporter.hpp"
+#include "kinDS/kinDS/Polynomial.hpp"
 #include "kinDS/kinDS/SegmentBuilder.hpp"
 
 using namespace eco_sys_lab_plugin;
@@ -311,6 +314,247 @@ glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(
 
   const double fraction = (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
   return MixAffineTransforms(lower_transform, upper_transform, fraction);
+}
+
+struct ProfilePlane {
+  glm::dvec3 origin{0.0};
+  glm::dvec3 normal{0.0, 1.0, 0.0};
+};
+
+struct CubicPlaneHit {
+  double t = 0.0;
+  glm::dvec3 point{0.0};
+  int segment_index = 0;
+};
+
+constexpr double kPlaneSplineRootMargin = 1e-6;
+constexpr double kPlaneSplineImagEps = 1e-8;
+constexpr double kPlaneSplineResidualEps = 1e-4;
+constexpr double kPlaneSplineDegenerateEps = 1e-12;
+
+ProfilePlane ExtractProfilePlane(const glm::dmat4& transform) {
+  ProfilePlane plane;
+  plane.origin = glm::dvec3(transform[3]);
+  const glm::dvec3 front = glm::dvec3(transform[1]);
+  const double front_length = glm::length(front);
+  plane.normal = front_length > kPlaneSplineDegenerateEps ? front / front_length : glm::dvec3(0.0, 1.0, 0.0);
+  return plane;
+}
+
+glm::dvec2 WorldToProfile(const glm::dmat4& transform, const glm::dvec3& hit) {
+  const glm::dvec4 local = glm::inverse(transform) * glm::dvec4(hit, 1.0);
+  // ProfileToModelCoordinates uses local (x, 0, y) with the y/z swap convention.
+  return glm::dvec2(local.x, local.z);
+}
+
+void StrandCubicPowerCoeffs(const glm::dvec3& v0, const glm::dvec3& v1, const glm::dvec3& v2, const glm::dvec3& v3,
+                            glm::dvec3& c0, glm::dvec3& c1, glm::dvec3& c2, glm::dvec3& c3) {
+  // Matches Strands::CubicInterpolation power expansion.
+  const glm::dvec3 p0 = (v2 + v0) / 6.0 + v1 * (4.0 / 6.0);
+  const glm::dvec3 p1 = v2 - v0;
+  const glm::dvec3 p2 = v2 - v1;
+  const glm::dvec3 p3 = v3 - v1;
+  c0 = p0;
+  c1 = 0.5 * p1;
+  c2 = -0.5 * p1 + p2;
+  c3 = (1.0 / 6.0) * p1 - (2.0 / 3.0) * p2 + (1.0 / 6.0) * p3;
+}
+
+glm::dvec3 EvalStrandCubic(const glm::dvec3& c0, const glm::dvec3& c1, const glm::dvec3& c2, const glm::dvec3& c3,
+                           double t) {
+  return c0 + t * (c1 + t * (c2 + t * c3));
+}
+
+glm::dvec3 EvalStrandCubicDerivative(const glm::dvec3& c1, const glm::dvec3& c2, const glm::dvec3& c3, double t) {
+  return c1 + t * (2.0 * c2 + t * 3.0 * c3);
+}
+
+double PlaneResidual(const glm::dvec3& point, const ProfilePlane& plane) {
+  return glm::dot(plane.normal, point - plane.origin);
+}
+
+std::vector<double> CollectRealRootsIn01(const kinDS::Polynomial& poly) {
+  std::vector<double> roots_in_01;
+  if (poly.degree() <= 0) {
+    return roots_in_01;
+  }
+
+  const Eigen::VectorXcd complex_roots = poly.roots();
+  for (int i = 0; i < complex_roots.size(); ++i) {
+    if (std::abs(complex_roots[i].imag()) > kPlaneSplineImagEps) {
+      continue;
+    }
+    const double root = complex_roots[i].real();
+    if (root >= -kPlaneSplineRootMargin && root <= 1.0 + kPlaneSplineRootMargin) {
+      roots_in_01.push_back(glm::clamp(root, 0.0, 1.0));
+    }
+  }
+  return roots_in_01;
+}
+
+double BisectPlaneRoot(const glm::dvec3& c0, const glm::dvec3& c1, const glm::dvec3& c2, const glm::dvec3& c3,
+                       const ProfilePlane& plane, double t_min, double t_max, int iterations = 40) {
+  double f_min = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, t_min), plane);
+  double f_max = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, t_max), plane);
+  if (f_min * f_max > 0.0) {
+    return 0.5 * (t_min + t_max);
+  }
+
+  for (int i = 0; i < iterations; ++i) {
+    const double t_mid = 0.5 * (t_min + t_max);
+    const double f_mid = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, t_mid), plane);
+    if (f_min * f_mid <= 0.0) {
+      t_max = t_mid;
+      f_max = f_mid;
+    } else {
+      t_min = t_mid;
+      f_min = f_mid;
+    }
+  }
+  return 0.5 * (t_min + t_max);
+}
+
+double NewtonPolishPlaneRoot(const glm::dvec3& c0, const glm::dvec3& c1, const glm::dvec3& c2, const glm::dvec3& c3,
+                             const ProfilePlane& plane, double t, int iterations = 4) {
+  for (int i = 0; i < iterations; ++i) {
+    const glm::dvec3 point = EvalStrandCubic(c0, c1, c2, c3, t);
+    const double f = PlaneResidual(point, plane);
+    const double fp = glm::dot(plane.normal, EvalStrandCubicDerivative(c1, c2, c3, t));
+    if (std::abs(fp) < kPlaneSplineDegenerateEps) {
+      break;
+    }
+    t = glm::clamp(t - f / fp, 0.0, 1.0);
+  }
+  return t;
+}
+
+std::optional<CubicPlaneHit> IntersectCubicSegmentWithPlane(const glm::dvec3& v0, const glm::dvec3& v1,
+                                                           const glm::dvec3& v2, const glm::dvec3& v3,
+                                                           const ProfilePlane& plane, int segment_index,
+                                                           double preferred_t = -1.0) {
+  glm::dvec3 c0, c1, c2, c3;
+  StrandCubicPowerCoeffs(v0, v1, v2, v3, c0, c1, c2, c3);
+
+  const double f0 = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, 0.0), plane);
+  const double f1 = PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, 1.0), plane);
+
+  Eigen::VectorXd coeffs(4);
+  coeffs << (glm::dot(plane.normal, c0) - glm::dot(plane.normal, plane.origin)), glm::dot(plane.normal, c1),
+      glm::dot(plane.normal, c2), glm::dot(plane.normal, c3);
+  kinDS::Polynomial residual_poly(coeffs);
+
+  std::vector<double> candidate_ts = CollectRealRootsIn01(residual_poly);
+
+  // Degenerate / missed-root fallback: endpoints straddle the plane.
+  if (candidate_ts.empty() && f0 * f1 <= 0.0) {
+    candidate_ts.push_back(BisectPlaneRoot(c0, c1, c2, c3, plane, 0.0, 1.0));
+  }
+
+  // Near-coplanar segment: keep endpoint with smaller residual.
+  if (candidate_ts.empty()) {
+    if (std::abs(f0) <= kPlaneSplineResidualEps) {
+      candidate_ts.push_back(0.0);
+    } else if (std::abs(f1) <= kPlaneSplineResidualEps) {
+      candidate_ts.push_back(1.0);
+    } else {
+      return std::nullopt;
+    }
+  }
+
+  for (double& t : candidate_ts) {
+    t = NewtonPolishPlaneRoot(c0, c1, c2, c3, plane, t);
+  }
+
+  auto score = [&](double t) {
+    const double residual = std::abs(PlaneResidual(EvalStrandCubic(c0, c1, c2, c3, t), plane));
+    const double preference = preferred_t >= 0.0 ? std::abs(t - preferred_t) : 0.0;
+    return residual + 1e-3 * preference;
+  };
+
+  double best_t = candidate_ts.front();
+  double best_score = score(best_t);
+  for (size_t i = 1; i < candidate_ts.size(); ++i) {
+    const double candidate_score = score(candidate_ts[i]);
+    if (candidate_score < best_score) {
+      best_score = candidate_score;
+      best_t = candidate_ts[i];
+    }
+  }
+
+  CubicPlaneHit hit;
+  hit.t = best_t;
+  hit.point = EvalStrandCubic(c0, c1, c2, c3, best_t);
+  hit.segment_index = segment_index;
+  if (std::abs(PlaneResidual(hit.point, plane)) > 10.0 * kPlaneSplineResidualEps && f0 * f1 > 0.0) {
+    return std::nullopt;
+  }
+  return hit;
+}
+
+std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGroup& strand_group, StrandHandle strand_handle,
+                                                     const ProfilePlane& plane, int hint_segment_index,
+                                                     double preferred_t = -1.0) {
+  const auto& strand = strand_group.PeekStrand(strand_handle);
+  const auto& segment_handles = strand.PeekStrandSegmentHandles();
+  if (segment_handles.empty()) {
+    return std::nullopt;
+  }
+
+  const int segment_count = static_cast<int>(segment_handles.size());
+  const int clamped_hint = glm::clamp(hint_segment_index, 0, segment_count - 1);
+
+  auto try_segment = [&](int segment_index) -> std::optional<CubicPlaneHit> {
+    glm::vec3 p0, p1, p2, p3;
+    strand_group.GetPositionControlPoints(segment_handles[segment_index], p0, p1, p2, p3);
+    return IntersectCubicSegmentWithPlane(glm::dvec3(p0), glm::dvec3(p1), glm::dvec3(p2), glm::dvec3(p3), plane,
+                                          segment_index, preferred_t);
+  };
+
+  // Search outward from the height hint so successive samples advance monotonically.
+  if (auto hit = try_segment(clamped_hint)) {
+    return hit;
+  }
+
+  for (int radius = 1; radius < segment_count; ++radius) {
+    const int forward = clamped_hint + radius;
+    if (forward < segment_count) {
+      if (auto hit = try_segment(forward)) {
+        return hit;
+      }
+    }
+    const int backward = clamped_hint - radius;
+    if (backward >= 0) {
+      if (auto hit = try_segment(backward)) {
+        return hit;
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group, StrandHandle strand_handle,
+                                      const glm::dmat4& transform, int& hint_segment_index,
+                                      const glm::dvec2& fallback_profile, double preferred_t = -1.0) {
+  const ProfilePlane plane = ExtractProfilePlane(transform);
+  const auto hit = IntersectStrandWithPlane(strand_group, strand_handle, plane, hint_segment_index, preferred_t);
+  if (!hit.has_value()) {
+    return fallback_profile;
+  }
+
+  hint_segment_index = hit->segment_index;
+  const glm::dvec2 profile = WorldToProfile(transform, hit->point);
+
+#ifndef NDEBUG
+  const glm::dvec4 reconstructed = transform * glm::dvec4(profile.x, 0.0, profile.y, 1.0);
+  const double round_trip = std::abs(PlaneResidual(glm::dvec3(reconstructed), plane));
+  if (round_trip > kPlaneSplineResidualEps) {
+    EVOENGINE_WARNING("Plane-spline profile round-trip residual " << round_trip << " exceeds tolerance on strand "
+                                                                  << strand_handle << " segment "
+                                                                  << hit->segment_index);
+  }
+#endif
+
+  return profile;
 }
 
 // Legacy affine-fit helpers (retained for comparison; no longer used in InitData).
@@ -1282,6 +1526,80 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
           strand_model_skeleton, strand_guide_points[strand_ids.front()], h);
     }
   });
+
+  // Replace parametric 2D profile samples with 3D cubic-strand ∩ profile-plane samples.
+  Jobs::RunParallelFor(strand_guide_points.size(), [&](const size_t strand_index) {
+    auto& guide_points = strand_guide_points[strand_index];
+    if (guide_points.empty() || strand_index >= branch_indices.size()) {
+      return;
+    }
+
+    int hint_segment_index = 0;
+    double preferred_t = 0.0;
+    for (size_t h = 0; h < guide_points.size(); ++h) {
+      if (h >= branch_indices[strand_index].size()) {
+        break;
+      }
+
+      const size_t branch_index = branch_indices[strand_index][h];
+      if (h >= transforms_by_height_and_branch.size() ||
+          branch_index >= transforms_by_height_and_branch[h].size()) {
+        break;
+      }
+
+      if (guide_points[h].segment_handle >= 0) {
+        hint_segment_index =
+            static_cast<int>(uniformly_subdivided_strand_group.PeekStrandSegmentData(guide_points[h].segment_handle)
+                                 .original_segment_index);
+        if (h == 0) {
+          preferred_t = 0.0;
+        } else {
+          preferred_t = uniformly_subdivided_strand_group.PeekStrandSegmentData(guide_points[h].segment_handle)
+                            .original_segment_t;
+        }
+      }
+
+      const glm::dmat4& transform = transforms_by_height_and_branch[h][branch_index];
+      const glm::dvec2 fallback = guide_points[h].profile_position;
+      guide_points[h].profile_position = SampleStrandProfileAtPlane(
+          strand_model_strand_group, static_cast<StrandHandle>(strand_index), transform, hint_segment_index, fallback,
+          preferred_t);
+    }
+  });
+
+#ifndef NDEBUG
+  {
+    size_t residual_failures = 0;
+    double max_residual = 0.0;
+    for (size_t strand_index = 0; strand_index < strand_guide_points.size(); ++strand_index) {
+      const auto& guide_points = strand_guide_points[strand_index];
+      for (size_t h = 0; h < guide_points.size(); ++h) {
+        if (h >= branch_indices[strand_index].size()) {
+          break;
+        }
+        const size_t branch_index = branch_indices[strand_index][h];
+        if (h >= transforms_by_height_and_branch.size() ||
+            branch_index >= transforms_by_height_and_branch[h].size()) {
+          break;
+        }
+        const glm::dmat4& transform = transforms_by_height_and_branch[h][branch_index];
+        const ProfilePlane plane = ExtractProfilePlane(transform);
+        const glm::dvec2& profile = guide_points[h].profile_position;
+        const glm::dvec3 reconstructed = glm::dvec3(transform * glm::dvec4(profile.x, 0.0, profile.y, 1.0));
+        const double residual = std::abs(PlaneResidual(reconstructed, plane));
+        max_residual = std::max(max_residual, residual);
+        if (residual > kPlaneSplineResidualEps) {
+          ++residual_failures;
+        }
+      }
+    }
+    if (residual_failures > 0) {
+      EVOENGINE_WARNING("Plane-spline profile sampling: " << residual_failures
+                                                          << " samples exceed residual tolerance; max residual = "
+                                                          << max_residual);
+    }
+  }
+#endif
 
   std::vector<std::vector<glm::dvec2>> strand_splines;
   strand_splines.reserve(strand_guide_points.size());
