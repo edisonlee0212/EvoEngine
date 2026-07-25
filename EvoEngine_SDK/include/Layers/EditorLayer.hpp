@@ -156,6 +156,8 @@ struct EditorCameraFreeFlyState {
   bool was_dragging = false;
   float previous_mouse_x = 0.0f;
   float previous_mouse_y = 0.0f;
+  glm::vec3 smoothed_move_velocity = glm::vec3(0.0f);
+  float look_response = 0.0f;
 };
 
 /**
@@ -208,6 +210,7 @@ class EditorLayer : public ILayer {
   static std::shared_ptr<Texture2D> FindIcon(const std::string& name);
 
   void OpenAssetInspector(const std::shared_ptr<IAsset>& asset);
+  void OpenAssetInspector(const Handle& asset_handle);
   void ClearAssetInspectors();
 
   bool show_console_window = true; /**< Indicates whether the console window is visible. */
@@ -347,8 +350,10 @@ class EditorLayer : public ILayer {
   bool scene_camera_focus_override = false; /**< Indicates if the scene camera focus has been overridden. */
 
   int selected_hierarchy_display_mode = 1; /**< Selected display mode for the entity hierarchy. */
-  float velocity = 10.0f;                  /**< Velocity for camera movement. */
-  float sensitivity = 0.1f;                /**< Sensitivity for camera controls. */
+  float velocity = 10.0f;                  /**< Maximum velocity for camera movement. */
+  float sensitivity = 0.1f;                /**< Maximum sensitivity for camera controls. */
+  float camera_control_acceleration_time = 0.25f;
+  float camera_control_deceleration_time = 0.25f;
   EditorCameraControlKeyBindings editor_camera_control_key_bindings;
   bool apply_transform_to_main_camera = false; /**< Indicates whether transformations apply to the main camera. */
   bool lock_camera = false;                    /**< Indicates whether the camera is locked. */
@@ -876,6 +881,12 @@ class EditorLayer : public ILayer {
   };
 
   std::vector<AssetInspectorWindow> inspecting_assets_;
+  std::unordered_map<uint64_t, std::shared_future<std::shared_ptr<IAsset>>> pending_asset_inspector_loads_;
+
+  void PollPendingAssetInspectorLoads();
+  [[nodiscard]] static std::string GetAssetRefDisplayName(const AssetRef& target);
+  [[nodiscard]] static std::string GetAssetRefImGuiTag(const AssetRef& target);
+  static void DraggableAssetRef(const AssetRef& target);
 
   /**
    * @brief Loads icons for the editor.
@@ -1122,19 +1133,20 @@ template <typename T>
 bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, const bool modifiable) {
   ImGui::Text(name.c_str());
   ImGui::SameLine();
-  const auto ptr = target.Get<IAsset>();
+  const auto ptr = target.Peek<IAsset>();
+  const auto asset_handle = target.GetAssetHandle();
   bool status_changed = false;
   ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0.5f, 0, 1));
-  if (ptr) {
-    const std::string tag = "##" + ptr->GetTypeName() + std::to_string(ptr->GetHandle());
-    ImGui::Button((ptr->GetTitle() + tag).c_str());
+  if (ptr || asset_handle.GetValue() != 0) {
+    const std::string tag = GetAssetRefImGuiTag(target);
+    ImGui::Button((GetAssetRefDisplayName(target) + tag).c_str());
     Draggable(target);
     if (modifiable) {
-      status_changed = Rename(target);
+      status_changed = ptr ? RenameAsset(ptr) : false;
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      OpenAssetInspector(ptr);
+      OpenAssetInspector(ptr ? ptr->GetHandle() : asset_handle);
     }
   } else {
     ImGui::Button("none");
@@ -1202,7 +1214,7 @@ void EditorLayer::DraggableAsset(const std::shared_ptr<T>& target) {
 }
 template <typename T>
 void EditorLayer::Draggable(AssetRef& target) {
-  DraggableAsset(target.Get<IAsset>());
+  DraggableAssetRef(target);
 }
 template <typename T>
 bool EditorLayer::Droppable(AssetRef& target) {
@@ -1229,21 +1241,22 @@ bool EditorLayer::Droppable(AssetRef& target) {
 
 template <typename T>
 bool EditorLayer::Rename(AssetRef& target) {
-  return RenameAsset(target.Get<IAsset>());
+  const auto ptr = target.Peek<IAsset>();
+  return ptr ? RenameAsset(ptr) : false;
 }
 template <typename T>
 bool EditorLayer::Remove(AssetRef& target) {
   bool status_changed = false;
-  if (const auto ptr = target.Get<IAsset>()) {
-    const std::string type = ptr->GetTypeName();
-    const std::string tag = "##" + type + std::to_string(ptr->GetHandle());
-    if (ImGui::BeginPopupContextItem(tag.c_str())) {
-      if (ImGui::Button(("Remove" + tag).c_str())) {
-        target.Clear();
-        status_changed = true;
-      }
-      ImGui::EndPopup();
+  if (target.GetAssetHandle().GetValue() == 0) {
+    return false;
+  }
+  const std::string tag = GetAssetRefImGuiTag(target);
+  if (ImGui::BeginPopupContextItem(tag.c_str())) {
+    if (ImGui::Button(("Remove" + tag).c_str())) {
+      target.Clear();
+      status_changed = true;
     }
+    ImGui::EndPopup();
   }
   return status_changed;
 }

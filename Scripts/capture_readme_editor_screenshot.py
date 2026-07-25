@@ -26,7 +26,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, help="capture output path")
     parser.add_argument("--demo-setup", default="Rendering", choices=("Rendering", "CornellBox", "ThinWall"))
     parser.add_argument("--inspect-render-layer", action="store_true", help="open the RenderLayer inspection window")
-    parser.add_argument("--ddgi-atlas-preview", action="store_true", help="enable DDGI atlas preview/readout controls")
+    parser.add_argument("--ddgi-atlas-preview", action="store_true", help="force the DDGI atlas readout layout")
     parser.add_argument("--ddgi-ray-overlay", action="store_true", help="enable selected DDGI probe ray overlay")
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)

@@ -2,12 +2,14 @@
 struct Environment {
   vec4 background_color;
   float gamma;
-  float light_intensity;
-  float background_intensity;
+  float diffuse_sky_intensity;
+  float global_reflection_intensity;
   float environment_type;
   float environment_pdf_texture_index;
   float environment_cubemap_index;
   float environment_rotation;
+  float diffuse_fallback_intensity;
+  float specular_fallback_intensity;
 };
 
 layout(set = EE_ENVIRONMENT_BLOCK_SET, binding = EE_ENVIRONMENT_BLOCK_BINDING) uniform EE_ENVIRONMENT_BLOCK {

@@ -19,10 +19,6 @@
 #include "WindowLayer.hpp"
 #include "vk_mem_alloc.h"
 
-#ifndef NDEBUG
-#  define GRAPHICS_VALIDATION
-#endif
-
 using namespace evo_engine;
 
 namespace {
@@ -377,6 +373,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
           Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
                                                             "Shaders/Graphics/Fragment/TexturePassThrough.frag");
       graphics.render_texture_present_pipeline->geometry_type = GeometryType::Mesh;
+      graphics.render_texture_present_pipeline->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
       graphics.render_texture_present_pipeline->descriptor_set_layouts.emplace_back(
           render_layer->GetRenderTexturePresentDescriptorSetLayout());
 
@@ -552,8 +549,8 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
   return VK_FALSE;
 }
 
-void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags& mask,
-                                VkPipelineStageFlags& stage_flags) {
+void SelectStageFlagsAccessMask(const VkImageLayout image_layout, const VkImageAspectFlags image_aspect,
+                                VkAccessFlags& mask, VkPipelineStageFlags& stage_flags) {
   switch (image_layout) {
     case VK_IMAGE_LAYOUT_UNDEFINED: {
       mask = 0;
@@ -569,19 +566,28 @@ void SelectStageFlagsAccessMask(const VkImageLayout image_layout, VkAccessFlags&
     } break;
     case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL: {
       mask = VK_ACCESS_SHADER_READ_BIT;
-      stage_flags = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+      stage_flags = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     } break;
     case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL: {
       mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      stage_flags = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+      stage_flags = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
     } break;
     case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL: {
       mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
       stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     } break;
     case VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL: {
-      mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-      stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      if ((image_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0) {
+        mask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        stage_flags = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+      } else {
+        mask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        stage_flags = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+      }
+    } break;
+    case VK_IMAGE_LAYOUT_GENERAL: {
+      mask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+      stage_flags = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
     } break;
     case VK_IMAGE_LAYOUT_PRESENT_SRC_KHR: {
       mask = 0;
@@ -687,6 +693,7 @@ void Platform::ClearDepthStencilImage(const VkCommandBuffer vk_command_buffer, c
 
 void Platform::WaitForDeviceIdle() {
   const auto& graphics = GetInstance();
+  const std::lock_guard queue_lock(GetQueueHostMutex());
   CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
 }
 
@@ -715,6 +722,14 @@ void Platform::WaitForFrameSubmissions(const std::string& wait_name) {
       graphics.WaitForFrameSlotSubmission(frame_index, wait_name);
     }
   }
+}
+
+void Platform::WaitForFrameSubmission(const uint32_t frame_index, const std::string& wait_name) {
+  auto& graphics = GetInstance();
+  if (!graphics.initialized || graphics.vk_device_ == VK_NULL_HANDLE) {
+    return;
+  }
+  graphics.WaitForFrameSlotSubmission(frame_index, wait_name);
 }
 
 void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImage target_image,
@@ -749,8 +764,13 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
   VkPipelineStageFlags source_stage;
   VkPipelineStageFlags destination_stage;
 
-  SelectStageFlagsAccessMask(old_layout, barrier.srcAccessMask, source_stage);
-  SelectStageFlagsAccessMask(new_layout, barrier.dstAccessMask, destination_stage);
+  SelectStageFlagsAccessMask(old_layout, barrier.subresourceRange.aspectMask, barrier.srcAccessMask, source_stage);
+  SelectStageFlagsAccessMask(new_layout, barrier.subresourceRange.aspectMask, barrier.dstAccessMask, destination_stage);
+  if (const auto& swapchain = GetSwapchain(); swapchain && target_image == swapchain->GetVkImage() &&
+                                              old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+                                              new_layout == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL) {
+    source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+  }
   if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED || dst_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {
     if (release_barrier) {
       barrier.dstAccessMask = 0;
@@ -915,6 +935,40 @@ GpuMemorySnapshot Platform::GetGpuMemorySnapshot() {
   return result;
 }
 
+GpuDeviceFingerprint Platform::GetGpuDeviceFingerprint() {
+  GpuDeviceFingerprint fingerprint;
+  const auto& physical_device = GetSelectedPhysicalDevice();
+  if (!physical_device) {
+    return fingerprint;
+  }
+  const auto& properties = physical_device->properties;
+  const auto& vulkan11 = physical_device->vulkan11_properties;
+  const auto& vulkan12 = physical_device->vulkan12_properties;
+  fingerprint.device_name = properties.deviceName;
+  fingerprint.vendor_id = properties.vendorID;
+  fingerprint.device_id = properties.deviceID;
+  fingerprint.device_type = static_cast<uint32_t>(properties.deviceType);
+  fingerprint.driver_version = properties.driverVersion;
+  fingerprint.api_version = properties.apiVersion;
+  fingerprint.driver_id = static_cast<uint32_t>(vulkan12.driverID);
+  fingerprint.driver_name = vulkan12.driverName;
+  fingerprint.driver_info = vulkan12.driverInfo;
+  std::copy_n(properties.pipelineCacheUUID, VK_UUID_SIZE, fingerprint.pipeline_cache_uuid.begin());
+  std::copy_n(vulkan11.deviceUUID, VK_UUID_SIZE, fingerprint.device_uuid.begin());
+  std::copy_n(vulkan11.driverUUID, VK_UUID_SIZE, fingerprint.driver_uuid.begin());
+  fingerprint.conformance_version = {vulkan12.conformanceVersion.major, vulkan12.conformanceVersion.minor,
+                                     vulkan12.conformanceVersion.subminor, vulkan12.conformanceVersion.patch};
+  return fingerprint;
+}
+
+bool Platform::GraphicsValidationEnabled() {
+#ifdef GRAPHICS_VALIDATION
+  return true;
+#else
+  return false;
+#endif
+}
+
 GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk_command_buffer,
                                                         const std::string& name) {
   auto& graphics = GetInstance();
@@ -925,6 +979,10 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
   }
   auto& frame = graphics.gpu_timestamp_frames_[graphics.current_frame_index_];
   if (frame.query_pool == VK_NULL_HANDLE || frame.next_query + 2 > kGpuTimestampQueriesPerFrame) {
+    if (!frame.capacity_warning_reported) {
+      EVOENGINE_WARNING("GPU timestamp capacity exhausted for the current frame; remaining scopes were skipped.")
+      frame.capacity_warning_reported = true;
+    }
     return token;
   }
   if (!frame.reset_recorded) {
@@ -1002,6 +1060,59 @@ VkFormatProperties3 Platform::GetPhysicalDeviceFormatProperties(const VkFormat f
   format_properties_2.pNext = &format_properties;
   vkGetPhysicalDeviceFormatProperties2(physical_device->vk_physical_device, format, &format_properties_2);
   return format_properties;
+}
+
+bool Platform::SupportsCubemapFormat(const VkFormat format, const uint32_t resolution, const uint32_t mip_levels) {
+  const auto& physical_device = GetSelectedPhysicalDevice();
+  if (!physical_device || resolution == 0 || mip_levels == 0) {
+    return false;
+  }
+  constexpr VkFormatFeatureFlags2 required_features =
+      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+      VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT | VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT |
+      VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT;
+  if ((GetPhysicalDeviceFormatProperties(format).optimalTilingFeatures & required_features) != required_features) {
+    return false;
+  }
+
+  VkPhysicalDeviceImageFormatInfo2 image_info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_IMAGE_FORMAT_INFO_2};
+  image_info.format = format;
+  image_info.type = VK_IMAGE_TYPE_2D;
+  image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+  image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+
+  VkExternalImageFormatProperties external_properties{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES};
+  VkImageFormatProperties2 image_properties{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
+#if ENABLE_EXTERNAL_MEMORY
+  VkPhysicalDeviceExternalImageFormatInfo external_info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO};
+#  ifdef _WIN64
+  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
+#  else
+  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
+#  endif
+  image_info.pNext = &external_info;
+  image_properties.pNext = &external_properties;
+#endif
+  if (vkGetPhysicalDeviceImageFormatProperties2(physical_device->vk_physical_device, &image_info, &image_properties) !=
+      VK_SUCCESS) {
+    return false;
+  }
+  const auto& properties = image_properties.imageFormatProperties;
+  if (properties.maxExtent.width < resolution || properties.maxExtent.height < resolution ||
+      properties.maxMipLevels < mip_levels || properties.maxArrayLayers < 6 ||
+      (properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT) == 0) {
+    return false;
+  }
+#if ENABLE_EXTERNAL_MEMORY
+  const auto& external = external_properties.externalMemoryProperties;
+  if ((external.externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0 ||
+      (external.compatibleHandleTypes & external_info.handleType) == 0) {
+    return false;
+  }
+#endif
+  return true;
 }
 
 VkDevice Platform::GetVkDevice() {
@@ -1308,6 +1419,8 @@ void Platform::CreateInstance() {
 #ifdef GRAPHICS_VALIDATION
   required_extensions.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
   required_instance_extension_names_.emplace_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+  required_extensions.emplace_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
+  required_instance_extension_names_.emplace_back(VK_EXT_VALIDATION_FEATURES_EXTENSION_NAME);
 #endif
   instance_create_info.enabledExtensionCount = static_cast<uint32_t>(required_extensions.size());
   instance_create_info.ppEnabledExtensionNames = required_extensions.data();
@@ -1330,7 +1443,13 @@ void Platform::CreateInstance() {
 #  endif
   VkDebugUtilsMessengerCreateInfoEXT debug_create_info{};
   PopulateDebugMessengerCreateInfo(debug_create_info);
-  instance_create_info.pNext = &debug_create_info;
+  const VkValidationFeatureEnableEXT enabled_validation_feature =
+      VK_VALIDATION_FEATURE_ENABLE_SYNCHRONIZATION_VALIDATION_EXT;
+  VkValidationFeaturesEXT validation_features{VK_STRUCTURE_TYPE_VALIDATION_FEATURES_EXT};
+  validation_features.pNext = &debug_create_info;
+  validation_features.enabledValidationFeatureCount = 1u;
+  validation_features.pEnabledValidationFeatures = &enabled_validation_feature;
+  instance_create_info.pNext = &validation_features;
 #endif
 
 #pragma endregion
@@ -1363,6 +1482,8 @@ void Platform::CreateDebugMessenger() {
       VK_SUCCESS) {
     throw std::runtime_error("Failed to set up debug messenger!");
   }
+  EVOENGINE_LOG("EVOENGINE_VULKAN_VALIDATION enabled")
+  EVOENGINE_LOG("EVOENGINE_VULKAN_SYNCHRONIZATION_VALIDATION enabled")
 #endif
 
 #pragma endregion
@@ -2073,6 +2194,7 @@ void Platform::PrepareGpuTimestampFrame(const uint32_t frame_index) {
   auto& frame = gpu_timestamp_frames_[frame_index];
   frame.next_query = 0;
   frame.reset_recorded = false;
+  frame.capacity_warning_reported = false;
   frame.scopes.clear();
 }
 
@@ -2091,13 +2213,17 @@ void Platform::ResolveGpuTimestampFrame(const uint32_t frame_index) {
   if (result != VK_SUCCESS) {
     return;
   }
+  std::unordered_map<std::string, double> frame_totals;
   for (const auto& scope : frame.scopes) {
     if (scope.begin_query >= timestamps.size() || scope.end_query >= timestamps.size()) {
       continue;
     }
     const auto ticks =
         TimestampDelta(timestamps[scope.begin_query], timestamps[scope.end_query], gpu_timestamp_valid_bits_);
-    AccumulateGpuTimestamp(scope.name, static_cast<double>(ticks) * gpu_timestamp_period_nanoseconds_ / 1.0e6);
+    frame_totals[scope.name] += static_cast<double>(ticks) * gpu_timestamp_period_nanoseconds_ / 1.0e6;
+  }
+  for (const auto& [name, milliseconds] : frame_totals) {
+    AccumulateGpuTimestamp(name, milliseconds);
   }
 }
 
@@ -2453,7 +2579,7 @@ void Platform::WaitForFrameSlotSubmission(const uint32_t frame_index, const std:
 }
 
 void Platform::RecreateSwapChain() {
-  CheckVk(vkDeviceWaitIdle(vk_device_));
+  WaitForDeviceIdle();
   CreateSwapChain();
 }
 
@@ -2466,7 +2592,7 @@ void Platform::OnDestroy() {
   if (graphics.gpu_service_) {
     graphics.gpu_service_->Shutdown();
   }
-  CheckVk(vkDeviceWaitIdle(graphics.vk_device_));
+  WaitForDeviceIdle();
 
   graphics.ResetCommandBuffers();
   graphics.DestroyGpuTimestampResources();
@@ -2519,7 +2645,7 @@ void Platform::OnDestroy() {
   graphics.vk_device_ = VK_NULL_HANDLE;
   graphics.selected_physical_device.reset();
 #pragma region Debug Messenger
-#ifndef NDEBUG
+#ifdef GRAPHICS_VALIDATION
   DestroyDebugUtilsMessengerExt(graphics.vk_instance_, graphics.vk_debug_messenger_, nullptr);
 #endif
 #pragma endregion

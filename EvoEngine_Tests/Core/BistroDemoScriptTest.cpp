@@ -61,6 +61,15 @@ std::string ReadText(const std::filesystem::path& path) {
   return std::string(std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 }
 
+std::string ExtractTextRange(const std::string& source, const std::string& begin, const std::string& end) {
+  const auto begin_offset = source.find(begin);
+  if (begin_offset == std::string::npos) {
+    return {};
+  }
+  const auto end_offset = source.find(end, begin_offset + begin.size());
+  return end_offset == std::string::npos ? std::string{} : source.substr(begin_offset, end_offset - begin_offset);
+}
+
 void WriteMinimalBistroSource(const std::filesystem::path& source_root) {
   WriteText(source_root / "LICENSE", "Bistro fixture license\n");
   WriteText(source_root / "README.md", "Bistro fixture readme\n");
@@ -153,7 +162,7 @@ TEST(BistroDemoScript, PrefabImporterKeepsDdsFallbackAndResolvedFlipPolicy) {
       prefab_source.substr(add_candidate_begin, collect_candidates_begin - add_candidate_begin);
   EXPECT_LT(candidate_function.find("candidates.emplace_back(absolute_path)"),
             candidate_function.find("for (const auto* fallback_extension"));
-  EXPECT_NE(prefab_source.find("resolved_texture_uris"), std::string::npos);
+  EXPECT_NE(prefab_source.find("resolved_texture_indices"), std::string::npos);
   EXPECT_NE(prefab_source.find("target_material->SetGltfMaterialData(imported_material_data->material_data)"),
             std::string::npos);
   EXPECT_NE(prefab_source.find("target_material->RefTextureRefs() = imported_material_data->texture_refs"),
@@ -183,12 +192,11 @@ TEST(BistroDemoScript, TexturePipelineRegistersDdsAndBc7Upload) {
 TEST(BistroDemoScript, Texture2DStorageSamplerMatchesReferenceLodFiltering) {
   const auto storage_source =
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "TextureStorage.cpp");
-  const auto initialize_start =
-      storage_source.find("void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat format");
-  ASSERT_NE(initialize_start, std::string::npos);
-  const auto sampler_end = storage_source.find("sampler = std::make_shared<Sampler>(sampler_info);", initialize_start);
+  const auto sampler_start = storage_source.find("VkSamplerCreateInfo DefaultTextureSamplerCreateInfo()");
+  ASSERT_NE(sampler_start, std::string::npos);
+  const auto sampler_end = storage_source.find("return sampler_info;", sampler_start);
   ASSERT_NE(sampler_end, std::string::npos);
-  const auto initialize_sampler = storage_source.substr(initialize_start, sampler_end - initialize_start);
+  const auto initialize_sampler = storage_source.substr(sampler_start, sampler_end - sampler_start);
 
   EXPECT_NE(initialize_sampler.find("sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR"), std::string::npos);
   EXPECT_NE(initialize_sampler.find("sampler_info.anisotropyEnable = VK_FALSE"), std::string::npos);
@@ -200,6 +208,9 @@ TEST(BistroDemoScript, Texture2DStorageSamplerMatchesReferenceLodFiltering) {
 TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   const auto demo_scene_source =
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / "src" / "DemoScene.cpp");
+  const auto bistro_source = ExtractTextRange(demo_scene_source, "void evo_engine::ConfigureBistroDemoScene",
+                                              "std::filesystem::path evo_engine::FindDemoResourcesRoot");
+  ASSERT_FALSE(bistro_source.empty());
 
   EXPECT_NE(demo_scene_source.find("--gltfCamera 0"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroReferenceCameraPosition"), std::string::npos);
@@ -231,12 +242,17 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
             std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->DeleteEntity(*default_light_entity)"), std::string::npos);
   EXPECT_EQ(demo_scene_source.find("FindEntityNamed(scene, \"Sun\")"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene->environment.environment_type = Scene::EnvironmentType::Color"),
+  EXPECT_NE(bistro_source.find("ConfigureEnvironmentalLightingMapSource(*lighting, "
+                               "Resources::GetInstance().GetDefaultEnvironmentalMap(), 1.0f"),
             std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene->environment.background_color = glm::vec3(0.0f)"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene->environment.background_intensity = 0.0f"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene->environment.ambient_light_intensity = 0.0f"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene_camera->camera_settings.use_clear_color = true"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f)"),
+            std::string::npos);
+  EXPECT_EQ(bistro_source.find("scene->environment.environment_type"), std::string::npos);
+  EXPECT_EQ(bistro_source.find("scene->environment.indirect_lighting_intensity"), std::string::npos);
+  EXPECT_EQ(bistro_source.find("scene->environment.background_intensity"), std::string::npos);
+  EXPECT_NE(
+      bistro_source.find("scene_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor"),
+      std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping(scene_camera)"), std::string::npos);
 
   const auto scene_source =
@@ -254,8 +270,49 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(post_processing_source.find("enable_ambient_occlusion = true;\n  enable_bloom = false;\n  "
                                         "enable_screen_space_reflection = false;"),
             std::string::npos);
-  EXPECT_NE(demo_scene_source.find("scene->environment.ddgi_settings.runtime.enabled = true;"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("auto& ddgi = RequireEnvironmentalLightingDdgiSettings(scene);"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("camera->post_processing_stack_ref = "
                                    "AssetManager::CreateTemporaryAsset<PostProcessingStack>();"),
             std::string::npos);
+}
+
+TEST(BistroDemoScript, SmokeRunnerEnforcesValidatedInstalledLifecycle) {
+  const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
+  const auto runner_source = ReadText(source_root / "Scripts" / "run_bistro_smoke.py");
+  const auto editor_source = ReadText(source_root / "EvoEngine_App" / "src" / "EvoEngineEditor.cpp");
+  const auto application_source = ReadText(source_root / "EvoEngine_SDK" / "src" / "Application.cpp");
+
+  EXPECT_NE(runner_source.find("default=30"), std::string::npos);
+  EXPECT_NE(runner_source.find("default=1920"), std::string::npos);
+  EXPECT_NE(runner_source.find("default=1080"), std::string::npos);
+  EXPECT_NE(runner_source.find("out/install/vs2026-x64/bin/EvoEngineEditor.exe"), std::string::npos);
+  EXPECT_NE(runner_source.find("EVOENGINE_VULKAN_VALIDATION enabled"), std::string::npos);
+  EXPECT_NE(runner_source.find("EVOENGINE_BISTRO_DDGI_READY"), std::string::npos);
+  EXPECT_NE(runner_source.find("EVOENGINE_BISTRO_FRAME_READY resolution="), std::string::npos);
+  EXPECT_NE(runner_source.find("EVOENGINE_BISTRO_SMOKE_HEARTBEAT"), std::string::npos);
+  EXPECT_NE(runner_source.find("EVOENGINE_BISTRO_SMOKE_SHUTDOWN_COMPLETE"), std::string::npos);
+  EXPECT_NE(runner_source.find("PostMessageW(hwnd, WM_CLOSE, 0, 0)"), std::string::npos);
+  EXPECT_NE(runner_source.find("ready_time = time.monotonic()"), std::string::npos);
+  EXPECT_NE(runner_source.find("environment[\"EVOENGINE_IMGUI_INI_PATH\"] = str(isolated_imgui_path)"),
+            std::string::npos);
+  EXPECT_NE(runner_source.find("env=environment"), std::string::npos);
+  EXPECT_NE(runner_source.find("installed_imgui_after != installed_imgui_before"), std::string::npos);
+  EXPECT_NE(runner_source.find("Installed editor ImGui layout changed during Bistro smoke"), std::string::npos);
+
+  EXPECT_NE(editor_source.find("--bistro-smoke requires --preview-width 1920 --preview-height 1080."),
+            std::string::npos);
+  EXPECT_NE(editor_source.find("EVOENGINE_BISTRO_DDGI_READY active_probes="), std::string::npos);
+  EXPECT_NE(editor_source.find("stats.recorded_probe_update_count > 0"), std::string::npos);
+  EXPECT_NE(editor_source.find("stats.recorded_ray_sample_count > 0"), std::string::npos);
+  EXPECT_NE(editor_source.find("stats.lighting_descriptors_bound"), std::string::npos);
+  EXPECT_NE(editor_source.find("EVOENGINE_BISTRO_FRAME_READY resolution="), std::string::npos);
+  EXPECT_NE(editor_source.find("EVOENGINE_BISTRO_SMOKE_SHUTDOWN_COMPLETE"), std::string::npos);
+
+  const auto terminate = application_source.find("void Application::Terminate()");
+  const auto gpu_drain = application_source.find("Platform::DrainGpuResourceWork()", terminate);
+  const auto destroy_layers = application_source.find("for (auto i = this->layers_.rbegin()", terminate);
+  ASSERT_NE(terminate, std::string::npos);
+  ASSERT_NE(gpu_drain, std::string::npos);
+  ASSERT_NE(destroy_layers, std::string::npos);
+  EXPECT_LT(gpu_drain, destroy_layers);
 }

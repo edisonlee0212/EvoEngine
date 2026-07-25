@@ -1,6 +1,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace evo_engine {
 
 /**
@@ -8,6 +10,14 @@ namespace evo_engine {
  * @brief A structure to define the camera settings used in the engine.
  */
 struct CameraSettings {
+  enum class BackgroundSource : uint32_t {
+    ClearColor,
+    Cubemap,
+    EnvironmentalMap,
+    InheritEnvironmentalLighting,
+    EngineDefaultSkybox,
+  };
+
   enum class RayDebugView {
     Beauty,
     MaterialId,
@@ -52,10 +62,10 @@ struct CameraSettings {
   /** @brief The field of view (FOV) of the camera in degrees. */
   float fov = 120;
 
-  /** @brief Flag to determine if the camera uses a clear color or not. */
-  bool use_clear_color = false;
+  /** @brief Visible background source used by primary camera misses. */
+  BackgroundSource background_source = BackgroundSource::Cubemap;
 
-  /** @brief The clear color used when rendering if use_clear_color is true. */
+  /** @brief The clear color used when the background source is ClearColor. */
   glm::vec4 clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
 
   /** @brief The background intensity applied to the camera's view. */
@@ -84,7 +94,7 @@ struct CameraSettings {
   float firefly_clamp_threshold = 10.0f;
 
   /**
-   * \brief Enables static emissive-triangle next-event sampling for ray cameras.
+   * \brief Enables emissive-triangle next-event sampling for ray cameras.
    */
   bool emissive_triangle_nee_enabled = true;
 

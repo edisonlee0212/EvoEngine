@@ -4,6 +4,7 @@
 #include "ApplicationContext.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "GeometryStorage.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
@@ -204,12 +205,13 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
   if (!scene) {
     return {};
   }
-  scene->environment.environment_type = Scene::EnvironmentType::Color;
-  scene->environment.background_color = glm::vec3(settings.clear_color);
-  scene->environment.background_intensity = settings.clear_color.a;
-  scene->environment.ambient_light_intensity = 1.1f;
-  scene->environment.volumetric_cloud_settings.enabled = false;
-  scene->environment.ddgi_settings.runtime.enabled = false;
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting->indirect_environment_source.color = glm::vec3(settings.clear_color);
+  lighting->environment_lighting_intensity = 1.1f;
+  lighting->diffuse_fallback_intensity = 1.0f;
+  lighting->ddgi_settings.runtime.enabled = false;
+  scene->environmental_lighting = lighting;
   ConfigurePreviewLighting(scene);
 
   const auto subject = scene->CreateEntity("Preview Subject");
@@ -232,7 +234,7 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
     return {};
   }
   camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-  camera->camera_settings.use_clear_color = true;
+  camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
   camera->camera_settings.clear_color = settings.clear_color;
   camera->camera_settings.background_intensity = settings.clear_color.a;
   camera->camera_settings.fov = kPreviewCameraFov;

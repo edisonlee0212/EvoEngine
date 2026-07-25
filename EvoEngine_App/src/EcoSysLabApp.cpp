@@ -77,7 +77,7 @@ int main(const int argc, char** argv) {
   if (editor_layer) {
     editor_layer->velocity = 2.f;
     auto& camera_settings = editor_layer->GetSceneCamera()->camera_settings;
-    camera_settings.use_clear_color = true;
+    camera_settings.background_source = Camera::BackgroundSource::ClearColor;
     camera_settings.clear_color = glm::vec4(1.f);
     camera_settings.background_intensity = 3.f;
     const auto post_processing_stack =
@@ -103,7 +103,7 @@ void EngineSetup() {
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
     if (const auto main_camera = ApplicationContext::Get().GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
-      main_camera->camera_settings.use_clear_color = true;
+      main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
       main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
     }
 #pragma endregion

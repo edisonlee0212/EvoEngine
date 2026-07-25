@@ -6,6 +6,7 @@ This page is the high-level map for EvoEngine's rendering stack. Detailed DDGI b
 commands live in separate focused pages:
 
 - [DDGI](ddgi.md)
+- [Reflection probes](reflection-probes.md)
 - [Rendering demos](rendering-demos.md)
 - [Rendering validation](rendering-validation.md)
 - [CSM validation](csm_validation.md)
@@ -16,9 +17,19 @@ commands live in separate focused pages:
 render instance storage, records shadow and camera commands, invokes external render callbacks, renders gizmos, and hands
 camera textures to post-processing.
 
-Scene environment data owns scene-level lighting settings such as DDGI runtime state, authored probe volumes, environment
-lighting, and debug visualization. `RenderLayer` consumes those settings and exposes their runtime state in the editor
-inspector.
+The environmental-lighting ownership refactor separates visible background, scene-global specular fallback, local
+reflection probes, and DDGI authoring. The target ownership is:
+
+- `Camera` owns visible background source selection and `background_intensity`;
+- `Scene` owns the explicit global `GlobalReflectionProbe` fallback and an optional `EnvironmentalLighting` asset
+  reference;
+- `EnvironmentalLighting` owns local reflection-probe definitions, DDGI authoring/settings, the shared indirect
+  environment source, `environment_lighting_intensity`, `diffuse_fallback_intensity`, and
+  `specular_fallback_intensity`.
+
+`RenderLayer` remains the renderer orchestrator. It consumes resolved scene lighting inputs and exposes runtime state in
+the editor inspector, but it should not be the authoring owner for DDGI volumes, local probes, camera background, or global
+fallback selection.
 
 `Camera` owns the requested render technique. The supported render modes are:
 
@@ -29,6 +40,105 @@ inspector.
 | `RayQuery` | Compute ray-query path when the device supports RayQuery. |
 
 If a requested ray mode is unavailable, the camera falls back to the best supported mode and reports the fallback once.
+
+## Environmental Lighting Ownership Target
+
+The renderer resolves `Scene + EnvironmentalLighting` into a `ResolvedEnvironmentalLighting` runtime view. New scenes and
+loaded scenes with an empty `Scene::environmental_lighting` reference create a temporary `EnvironmentalLighting` asset and
+link it to the scene. That default asset resolves to the engine-default indirect environment source with
+`environment_lighting_intensity = 1.0f`, `diffuse_fallback_intensity = 0.0f`, and
+`specular_fallback_intensity = 0.0f`. The resolver still keeps a defensive no-asset default for malformed in-memory state;
+normal scene creation and loading should not hit it.
+
+Current implementation status: the `EnvironmentalLighting` asset schema, `Scene::environmental_lighting` reference,
+resolver, and renderer consumption path exist. Temporary scene-level environmental lighting and global reflection probe
+assets are serialized into the scene's `LocalAssets` storage. The renderer consumes the resolved `EnvironmentalLighting`
+asset for local probes and DDGI volumes. There is no scene-local `ReflectionProbe` or `DdgiVolume` runtime, inspector,
+serialization, or extraction path.
+
+Visible background and lighting are independent:
+
+```text
+Camera primary miss:
+  Camera::BackgroundSource * Camera::background_intensity
+```
+
+Camera background changes must not alter DDGI, diffuse IBL, global specular fallback, local probes, ray-camera environment
+lighting, or reflection-probe bake input.
+
+`Camera::BackgroundSource` currently resolves visible primary misses through these modes:
+
+| Source | Visible input |
+| --- | --- |
+| `Clear Color` | `CameraSettings::clear_color.rgb * CameraSettings::background_intensity`. |
+| `Cubemap` | `Camera::skybox`, falling back to the engine default skybox when unset. |
+| `Environmental Map` | `Camera::background_environment.environment_cubemap`, falling back to the engine default skybox when unset. |
+| `Inherit Environmental Lighting` | The scene/environmental-lighting indirect sky source for convenience, falling back to the engine default skybox when unset. |
+| `Engine Default Skybox` | The engine default skybox. |
+
+Raster diffuse indirect resolves as:
+
+```text
+valid finite DDGI gather at shaded point
+  -> accumulated DDGI irradiance
+
+otherwise:
+  -> ResolvedEnvironmentalLighting::indirect_environment_source
+     * environment_lighting_intensity
+     * diffuse_fallback_intensity
+```
+
+The engine-default indirect environment source supplies the source payload when no `EnvironmentalLighting` asset is
+assigned, but the fallback contribution still uses the resolved fallback intensity.
+
+`environment_lighting_intensity` is a source sampling/input scale, not a final surface-lighting multiplier. It scales
+environment radiance when the indirect source is sampled by DDGI miss rays, raster diffuse IBL fallback, ray-camera
+environment lighting, and reflection-probe baking. It does not multiply final valid DDGI irradiance. It also does not
+multiply final valid local reflection-probe samples; local probes use their captured prefiltered payload and per-probe
+local intensity.
+
+Raster specular IBL resolves as:
+
+```text
+valid local reflection probe at shaded point
+  -> baked prefiltered payload * local probe intensity
+
+otherwise, or for remaining local-probe blend weight:
+  -> scene global reflection probe fallback
+     * environment_lighting_intensity
+     * specular_fallback_intensity
+  -> engine default global reflection probe, when the scene fallback is missing or not ready
+     * environment_lighting_intensity
+     * specular_fallback_intensity
+```
+
+The engine default global reflection probe is a `Resources`-owned `GlobalReflectionProbe`, separate from the default
+`EnvironmentalMap`. `EnvironmentalMap` supplies diffuse irradiance, unfiltered cubemap radiance, and sampling PDF data; it
+does not own the prefiltered specular fallback.
+
+The shaded world position selects local probes. Ray cameras do not sample local reflection probes, because the ray path
+traces scene geometry directly. Ray-camera environment lighting resolves as:
+
+```text
+Primary ray miss:
+  Camera::BackgroundSource * Camera::background_intensity
+
+Surface/volume environment sampling and secondary misses:
+  ResolvedEnvironmentalLighting::indirect_environment_source * environment_lighting_intensity
+```
+
+Ray cameras do not use `Scene::global_reflection_probe_fallback` as their environment radiance source; that reference
+provides the raster/global prefiltered specular fallback payload. Ray cameras ignore `diffuse_fallback_intensity` and
+`specular_fallback_intensity` because they do not have a DDGI-missing or reflection-probe-missing fallback path.
+
+DDGI probe-ray misses and diffuse IBL fallback use the same indirect environment source. DDGI remains diffuse-only and
+does not become a hidden specular source. DDGI miss radiance is
+`indirect_environment_source * environment_lighting_intensity * diffuse_fallback_intensity`, while valid DDGI surface
+irradiance is used as accumulated. Reflection-probe baking uses scene/environmental-lighting inputs rather than the active
+camera's visible background. Bake environment input uses `environment_lighting_intensity` only; fallback factors do not
+affect bake input.
+
+The runtime model is asset-owned and has no legacy scene-component compatibility path.
 
 ## Frame Flow
 
@@ -66,7 +176,7 @@ after deferred lighting.
 ### Deferred GBuffer Contract
 
 The current GBuffer stores evaluated material attributes for ordinary opaque raster shading. Bindings 18 and 19 are
-intentionally absent; the old normal and UV/material-index compatibility attachments have been retired.
+intentionally absent.
 
 | Binding | Current image | Current payload |
 | --- | --- | --- |
@@ -82,8 +192,7 @@ intentionally absent; the old normal and UV/material-index compatibility attachm
 visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
 bindings 20-24. Editor picking reads the instance index from Utility.x.
 
-The target Unreal-style deferred path stores ordinary opaque shading state in the geometry pass. The first migration
-keeps depth as-is and introduces this logical schema:
+The deferred path stores ordinary opaque shading state in the geometry pass using this logical schema:
 
 | Logical attachment | Initial format target | Payload |
 | --- | --- | --- |
@@ -101,8 +210,7 @@ clearcoat, sheen, anisotropy, iridescence, and other special lobes stay on their
 documented fallback paths until their GBuffer representation is implemented.
 
 Ordinary opaque lighting must not call `EE_EVALUATE_GLTF_RASTER_SURFACE`; material texture sampling during lighting is
-allowed only for an explicitly documented fallback or debug path. The retired normal/material attachments should not be
-reintroduced for ordinary opaque shading.
+allowed only for an explicitly documented fallback or debug path.
 
 ### Raster Texture Descriptor Contract
 
@@ -111,9 +219,10 @@ meshlet/bone/instanced/strand data, and set 2 remains available for lighting or 
 material set but do not use intermediate sets should bind empty layouts for the unused set slots.
 
 Raster material texture sampling targets fixed individual texture bindings rather than bindless descriptor arrays.
-Raster shaders must not use descriptor arrays such as `sampler2D[]` or `samplerCube[]`, `nonuniformEXT`, or dynamic
-descriptor indexing for texture sampling. Fixed-binding image arrays and atlases are allowed for raster when the descriptor
-itself is a normal fixed binding, such as a shadow-map array or atlas texture.
+Raster material shaders must not use runtime bindless descriptor arrays, `nonuniformEXT`, or dynamic material-texture
+indexing. Fixed-size image arrays and atlases are allowed when the descriptor itself is a normal fixed binding, such as a
+shadow-map array, a DDGI atlas, or the 32-entry local-reflection-probe array. The local-probe sampler uses a bounded switch
+so it does not require descriptor-indexing features.
 
 | Material binding | Fixed raster texture | Fallback |
 | --- | --- | --- |
@@ -126,10 +235,10 @@ itself is a normal fixed binding, such as a shadow-map array or atlas texture.
 | 6 | Clearcoat roughness | White. |
 | 7 | Clearcoat normal | Flat normal. |
 
-Raster material descriptor sets are renderer-owned runtime state keyed by material index. The first migration intentionally
-does not deduplicate descriptor sets across material indices because material indices can change while the renderer is
-running. Each descriptor slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures
-bind the documented fallback textures.
+Raster material descriptor sets are renderer-owned runtime state keyed by material index. Descriptor sets are not
+deduplicated across material indices because material indices can change while the renderer is running. Each descriptor
+slot uses the texture's existing combined image sampler. Missing, ignored, or pending textures bind the documented
+fallback textures.
 
 glTF base-material evaluation shares one texture-info ABI across raster, RT-pipeline, and RayQuery. It carries UV0 through
 UV3 independently, applies `KHR_texture_transform` after selecting the extension-overridden coordinate set, multiplies
@@ -175,21 +284,18 @@ The implementation follows Khronos when the pinned reference differs:
   thickness texture remains a raster thickness estimate and does not turn a traced volume boundary on or off;
 - `KHR_materials_specular` keeps authored color components above 1 and applies the scalar factor after the colored,
   unweighted dielectric F0. Its grazing F90 is the scalar specular factor, so factor 0 disables dielectric reflection and
-  fractional factors do not incorrectly approach white. New material assets use the Khronos default of 1; schema-1
-  `.evematerial` values of 0 migrate to 1 because the old shader treated them as implicit full specular;
-- `KHR_materials_ior.ior: 0` retains the specification's positive-infinity compatibility mode: surface F0 is 1,
-  transmission uses a finite infinity surrogate for stable arithmetic, and dispersion is disabled. Invalid authored IORs
-  between 0 and 1 normalize to 1 rather than being interpreted as this compatibility mode;
+  fractional factors do not incorrectly approach white. New material assets use the Khronos default of 1;
+- `KHR_materials_ior.ior: 0` uses the specification's positive-infinity convention: surface F0 is 1, transmission uses a
+  finite infinity surrogate for stable arithmetic, and dispersion is disabled. Invalid authored IORs between 0 and 1
+  normalize to 1 rather than being interpreted as this convention;
 - unlit raster and ray materials return base color only, without adding emissive or lighting first. Diffuse or glossy
   transmission events both update the current volume medium.
 
-`KHR_materials_retroreflection` is not in the Khronos extension registry. EvoEngine accepts that spelling, plus the older
-`EXT_materials_retroreflection` spelling, only as experimental compatibility with `vk_gltf_renderer` at
-`f72d2f3711116261a76e7b8b0f4724e167703a55`. The inspected BSDF dependency was `nvpro_core2` revision
-`907fba3c5b7a9597e7e63a5388079b964bd6ddb4`. The shared ray BSDF applies the Minimal Retroreflective Microfacet Model view
-substitution to reflection lobes and leaves transmission conventional. Evaluation and sampling both report the same
-marginal forward/retro mixture BSDF and PDF. Sample throughput is the full mixture BSDF divided by that marginal PDF; it
-does not divide again by the selected branch probability, which would over-brighten fractional blends.
+EvoEngine's retroreflection material fields are experimental and not tied to a Khronos glTF extension registry entry. The
+shared ray BSDF applies the Minimal Retroreflective Microfacet Model view substitution to reflection lobes and leaves
+transmission conventional. Evaluation and sampling both report the same marginal forward/retro mixture BSDF and PDF.
+Sample throughput is the full mixture BSDF divided by that marginal PDF; it does not divide again by the selected branch
+probability, which would over-brighten fractional blends.
 
 Opaque raster stores IOR/specular-aware colored F0 plus scalar F90; the emissive attachment alpha carries F90, with a
 negative value reserved for the unlit lighting bypass. Ray shadow transmission samples the specular-transmission,
@@ -198,8 +304,8 @@ energy first, then layers diffuse transmission only over the `(1 - specularTrans
 material descriptors include clearcoat factor, roughness, and normal textures so authored clearcoat-normal scale and
 coated-emission attenuation work in opaque and transparent raster as well as RTX and RayQuery. The deferred raster
 lighting model still does not add a clearcoat reflection lobe or encode iridescence, anisotropy, dispersion, or
-retroreflection, so those effects remain ray-path features rather than claimed raster parity. The legacy CPU/compute ray
-display is likewise not an advanced-material integrator.
+retroreflection, so those effects remain ray-path features rather than claimed raster parity. The CPU/debug ray display is
+likewise not an advanced-material integrator.
 
 Native `KHR_materials_pbrSpecularGlossiness` remains a distinct diffuse/F0/glossiness model; EvoEngine does not reproduce
 the pinned reference's lossy metallic-roughness conversion. Khronos material extensions that explicitly exclude unlit or
@@ -212,21 +318,23 @@ clearcoat normal so MIS never combines differently coated radiance values.
 
 ### Emissive-Triangle Next-Event Sampling
 
-RT-pipeline and RayQuery cameras share one static emissive-triangle distribution. Eligible emitters are fill-mode,
-opaque, non-transmissive, non-unlit `MeshRenderer` instances with a valid BLAS. Skinned meshes, particle/instanced
-meshes, strands, Gaussian splats, external geometry, alpha-mask/blend materials, and transmissive materials are not in
-the distribution. They retain hit-time emission where their existing material path permits it.
+RT-pipeline and RayQuery cameras plus RT-pipeline DDGI share one emissive-triangle distribution. Eligible emitters are
+fill-mode rigid deferred/forward `MeshRenderer` instances with a valid owned BLAS and triangle range. Opaque and
+alpha-masked materials participate; blended, transmissive, diffuse-transmissive, and unlit materials do not. Moving rigid
+transforms are supported. Override-BLAS or override-range meshes, skinned and morph/deformed meshes, particle/instanced
+meshes, strands, Gaussian splats, and external geometry are excluded until sampled geometry can match the TLAS exactly.
+Excluded categories retain hit-time emission where their existing material path permits it.
 
 Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. Selection weight is
 world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable. The GPU
 samples the stored float CDF, and each entry's area PDF is derived from that exact quantized CDF interval so sampling and
 hit-side MIS have identical discrete support. Textures are deliberately excluded from the proposal distribution; the
-sampled UV0/UV1 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
+sampled UV0-UV3 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
 emitters use that same explicit-LOD radiance for the competing BSDF estimator; unsupported hit-only emitters retain their
 ray-footprint LOD. This keeps the MIS estimators on one integrand without requiring CPU texture readback.
 
 Each frame slot retains its distribution across `RenderInstanceStorage::Clear()`. An exact ordered signature of the
-eligible static mesh handle/version, packed triangle range, ray instance index, model transform, and derived importance
+eligible rigid mesh/material handles, packed triangle range, ray instance index, model transform, and derived importance
 gates the triangle walk; unchanged slots restore only the table count and do not transform, sort, compare, or upload the
 triangle records again. The key intentionally does not use the global geometry-storage revision, so unrelated skinned
 mesh updates cannot invalidate the static-emitter table. The storage buffer is uploaded only when that exact signature
@@ -238,6 +346,11 @@ table emitter perform a key lookup and apply the reciprocal MIS weight. Primary 
 zero-width CDF entries keep hit weight 1. The camera setting `emissive_triangle_nee_enabled` and
 `--preview-emissive-nee enabled|disabled` capture override disable only this estimator and its hit competitor; hit-time
 emission remains available for matched energy tests.
+
+DDGI reuses the same record lookup, CDF, reconstruction, material evaluation, and area-to-solid-angle PDF without camera
+BSDF MIS. It applies one Lambert receiver sample with binary visibility and light-technique weight one at each eligible
+non-fixed front-face probe hit; direct emitter hits remain unweighted. The default-on global DDGI setting and each
+volume's `Inherit`/`On`/`Off` override disable only this explicit estimator, never direct-hit emission.
 
 ### Camera-Ray Shader Variants
 
@@ -267,19 +380,57 @@ than material- and transform-aware logical facing. Alpha-cutout silhouettes and 
 therefore deliberate follow-up work. This keeps regular mesh shadow draws on the opaque shadow indirect command path when
 indirect rendering is enabled. Transparent mesh pipelines still use the fixed raster material backend and bind the
 material descriptor set before direct material-sampling draws. Package or external forward callbacks that evaluate glTF
-raster materials are explicit migration fallbacks until their owners provide fixed material descriptors or
-material-batched submission.
+raster materials are temporary fallback paths until their owners provide fixed material descriptors or material-batched
+submission.
 
 Raster lighting uses a fixed raster-global texture descriptor set for image-based lighting inputs instead of sampling the
 bindless texture arrays. Deferred lighting binds this set after the shared lighting descriptor set, and transparent mesh
-lighting binds it after the material descriptor set. The fixed slots are BRDF LUT, skybox cubemap, irradiance cubemap, and
-prefiltered environment cubemap. Set 2 still owns shared shadow-map and DDGI atlas bindings.
+lighting binds it after the material descriptor set. The fixed slots are BRDF LUT, skybox cubemap, irradiance cubemap,
+prefiltered global environment cubemap, ambient occlusion, and a fixed array of 32 placed reflection-probe cubemaps. Unused
+or unavailable local slots bind the scene/camera global prefiltered cubemap.
+Set 2 still owns shared shadow-map and DDGI atlas bindings.
+
+### Environment Lighting Controls
+
+The refactor replaces scattered scene-environment controls with three resolved environmental-lighting scalars:
+`environment_lighting_intensity`, `diffuse_fallback_intensity`, and `specular_fallback_intensity`.
+`environment_lighting_intensity` scales sampled indirect environment radiance for DDGI probe-ray misses, raster diffuse
+IBL fallback, ray-camera environment events, and reflection-probe bake environment input. It does not scale visible camera
+background, direct lights, primary emission, accumulated DDGI irradiance, or valid runtime local reflection-probe payloads.
+
+`diffuse_fallback_intensity` is diffuse-fallback-only. It scales DDGI miss radiance and raster diffuse IBL fallback after
+the indirect environment source has been scaled by `environment_lighting_intensity`. It does not scale accumulated DDGI
+surface irradiance, ray-camera environment lighting, reflection-probe baking, specular fallback, direct light, emission,
+or visible camera background.
+
+`specular_fallback_intensity` is specular-fallback-only. It scales the scene-global or engine-global prefiltered fallback
+when no local reflection probe covers the shaded point, or when local probe blending leaves remaining weight to the
+fallback. It does not scale valid local reflection-probe samples, ray-camera environment lighting, reflection-probe
+baking, diffuse fallback, direct light, emission, DDGI, or visible camera background.
+
+Local probes keep their own authored `reflection_intensity`. Selection uses the shaded world position, not the camera
+position, and blends at most one strictly lower-priority boundary probe before returning uncovered weight to the scene
+global fallback. Missing, unloaded, disabled, or invalid local payloads also return their weight to the same global
+fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material AO
+and eligible GTAO. SSAO remains diffuse-only, unavailable GTAO falls back to white, and the term never affects direct,
+emissive, background, diffuse, or DDGI energy.
+
+The scene-global `GlobalReflectionProbe` fallback supplies the prefiltered specular payload. If it is missing or not
+runtime-ready, raster lighting binds the engine default global reflection probe so descriptors remain valid. A zero
+`specular_fallback_intensity` makes that bound fallback contribute black. The indirect environment source supplies
+diffuse irradiance, unfiltered radiance, and sampling data for DDGI misses, diffuse IBL fallback, ray-camera environment
+lighting, and reflection-probe bake environment input. DDGI remains diffuse-only and does not become a specular source.
+See [Reflection probes](reflection-probes.md) for persistence, selection, baking, and format contracts.
 
 Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
-temporary scene, upload referenced preview textures, force a raster camera, disable preview-only volumetric clouds and
-DDGI state, and call `RenderLayer::RenderSceneToCameraImmediately`. These preview paths do not own separate glTF raster
-material pipelines, so material-sampling preview output inherits the same fixed material descriptor layouts and per-draw
-descriptor binding used by the normal RenderLayer camera passes.
+temporary scene, upload referenced preview textures, force a raster camera, disable DDGI state, and call
+`RenderLayer::RenderSceneToCameraImmediately`. These preview paths do not own separate glTF raster material pipelines, so
+material-sampling preview output inherits the same fixed material descriptor layouts and per-draw descriptor binding used
+by the normal RenderLayer camera passes.
+
+Volumetric cloud settings, shaders, render passes, and renderer resources remain compiled, but no scene-owned field
+currently configures or enables them. Scene serialization ignores old `environment:` cloud settings until a future
+ownership model relinks the feature.
 
 Bindless texture arrays are reserved for ray tracing and ray query paths. When ray tracing and ray query are unavailable
 or disabled, `RenderLayer` creates the ordinary per-frame descriptor layout without texture or cubemap descriptor arrays
@@ -340,7 +491,7 @@ Packages and services extend rendering through registered callbacks and explicit
 than by mutating built-in pass internals. External geometry can participate in DDGI only when it supplies compatible BLAS
 and triangle offset data.
 
-## Current Migration Notes
+## Current Rendering Notes
 
 The raster post-processing stack uses technique-specific ordering: ambient occlusion, SSR/reflections, TAA when selected,
 bloom, tone mapping, then SMAA when selected. `AmbientOcclusion` owns the SSAO/GTAO selection and `AntiAliasing` owns the
@@ -359,9 +510,8 @@ search textures. Low, Medium, High, and Ultra select the matching reference pres
 while neighborhood blending operates in linear light. When tone mapping is disabled, edge detection uses a bounded
 Reinhard perceptual proxy and neighborhood blending preserves the original HDR color.
 
-AA persistence uses `enable_anti_aliasing` and an `anti_aliasing` map containing `algorithm`, `taa`, and `smaa`. Missing,
-invalid-enum, and legacy-only AA data falls back to enabled SMAA Ultra. The removed TAA-only keys are intentionally not
-migrated.
+AA persistence uses `enable_anti_aliasing` and an `anti_aliasing` map containing `algorithm`, `taa`, and `smaa`. Missing or
+invalid current AA fields resolve to enabled SMAA Ultra with Best Quality TAA defaults.
 
 Motion vectors store `previous_pixel - current_pixel` in pixel units and
 `previous_normalized_linear_depth - current_normalized_linear_depth` in `z`. Camera and rigid motion use the deferred
@@ -387,7 +537,7 @@ is constrained to an expanded current 3x3 neighborhood envelope and re-encoded i
 frame highlights are not clamped. TAA history remains owned per camera by `AntiAliasing` and is invalidated on
 resize, skipped frames, toggles, preset or persistent-setting changes, unsupported camera-wide motion, and explicit reset.
 
-The renderer has moved many built-in resources into explicit graph resources, but some legacy areas remain:
+The renderer has moved many built-in resources into explicit graph resources, but some ownership work remains:
 
 - TAA currently owns its own per-camera history textures until graph history resources expose explicit ping-pong bindings.
 - The depth pyramid pass is a graph resource with hierarchical reduction and can be used by future post-processing

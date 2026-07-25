@@ -66,6 +66,8 @@ struct RayCameraHistoryStats {
  * @brief Represents the camera information block with matrices and settings used for rendering.
  */
 struct CameraInfoBlock {
+  static constexpr uint32_t kRasterLightingGtaoVisibility = 1u << 0u;
+
   glm::mat4 projection = {};                           ///< The projection matrix of the camera.
   glm::mat4 view = {};                                 ///< The view matrix of the camera.
   glm::mat4 projection_view = {};                      ///< The combined projection and view matrix.
@@ -83,7 +85,7 @@ struct CameraInfoBlock {
   int skybox_texture_index = 0;                        ///< Index of the skybox texture.
   int environmental_irradiance_texture_index = 0;      ///< Index of the environmental irradiance texture.
   int environmental_prefiltered_index = 0;             ///< Index of the environmental prefiltered texture.
-  int camera_use_clear_color = 0;                      ///< Flag to indicate if the camera uses the clear color.
+  int background_source = 0;                           ///< 0 samples the resolved cubemap, 1 uses clear color.
 
   // Ray tracing
   uint32_t firefly_clamp_enabled = 1;
@@ -97,7 +99,7 @@ struct CameraInfoBlock {
   float auto_spp_convergence_threshold = 0.01f;
   uint32_t emissive_triangle_nee_enabled = 1;
   uint32_t ray_debug_view = 0;
-  uint32_t auto_spp_padding2 = 0;
+  uint32_t raster_lighting_flags = 0;
   glm::vec4 shadow_split_distances = {};
 
   /**
@@ -121,6 +123,8 @@ struct CameraInfoBlock {
  */
 class Camera final : public IPrivateComponent {
  public:
+  using BackgroundSource = CameraSettings::BackgroundSource;
+
   /**
    * @brief Enum to define the camera rendering mode.
    */
@@ -133,9 +137,16 @@ class Camera final : public IPrivateComponent {
   static constexpr uint32_t kCameraRenderModeCount = 3;
   static constexpr uint32_t kShaderExecutionReorderingModeCount = 3;
   static constexpr uint32_t kRayDebugViewCount = 20;
+  static constexpr uint32_t kBackgroundSourceCount = 5;
 
   [[nodiscard]] static const std::vector<std::string>& GetCameraRenderModeNames();
   [[nodiscard]] static const char* GetCameraRenderModeName(CameraRenderMode mode);
+  [[nodiscard]] static const std::vector<std::string>& GetBackgroundSourceNames();
+  [[nodiscard]] static const char* GetBackgroundSourceName(BackgroundSource source);
+  [[nodiscard]] static BackgroundSource ParseBackgroundSource(const std::string& value,
+                                                              BackgroundSource fallback = BackgroundSource::Cubemap);
+  [[nodiscard]] static BackgroundSource NormalizeBackgroundSource(uint32_t source);
+  [[nodiscard]] static BackgroundSource ResolveBackgroundSource(const CameraSettings& settings);
   [[nodiscard]] static const std::vector<std::string>& GetShaderExecutionReorderingModeNames();
   [[nodiscard]] static const char* GetShaderExecutionReorderingModeName(
       CameraSettings::ShaderExecutionReorderingMode mode);
@@ -226,7 +237,8 @@ class Camera final : public IPrivateComponent {
   void SetRequireRendering(bool value);
 
   CameraSettings camera_settings{};    ///< Settings for the camera.
-  AssetRef skybox;                     ///< Reference to the skybox asset.
+  AssetRef skybox;                     ///< Explicit cubemap background source.
+  AssetRef background_environment;     ///< Explicit environmental-map background source.
   AssetRef post_processing_stack_ref;  ///< Reference to the post-processing stack.
 
   /**

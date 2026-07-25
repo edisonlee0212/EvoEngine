@@ -16,6 +16,7 @@ VkImageLayout ToVkImageLayout(const RenderResourceState state) {
     case RenderResourceState::ShaderRead:
       return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
     case RenderResourceState::StorageReadWrite:
+    case RenderResourceState::TransferDestinationGeneral:
     case RenderResourceState::AccelerationStructureRead:
     case RenderResourceState::General:
       return VK_IMAGE_LAYOUT_GENERAL;
@@ -85,6 +86,7 @@ VkPipelineStageFlags2 ResourceStages(const RenderResourceState state, const Rend
       return VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT;
     case RenderResourceState::TransferSource:
     case RenderResourceState::TransferDestination:
+    case RenderResourceState::TransferDestinationGeneral:
       return VK_PIPELINE_STAGE_2_TRANSFER_BIT;
     case RenderResourceState::AccelerationStructureRead:
       return VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR | ShaderStages(queue);
@@ -116,6 +118,7 @@ VkAccessFlags2 ResourceAccess(const RenderResourceState state, const RenderResou
     case RenderResourceState::TransferSource:
       return VK_ACCESS_2_TRANSFER_READ_BIT;
     case RenderResourceState::TransferDestination:
+    case RenderResourceState::TransferDestinationGeneral:
       return VK_ACCESS_2_TRANSFER_WRITE_BIT;
     case RenderResourceState::AccelerationStructureRead:
       return VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;

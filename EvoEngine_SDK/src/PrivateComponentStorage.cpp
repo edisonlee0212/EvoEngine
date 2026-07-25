@@ -63,6 +63,8 @@ std::shared_ptr<IPrivateComponent> PrivateComponentStorage::GetOrSetPrivateCompo
     const auto back = p_search->second.back();
     p_search->second.pop_back();
     back->handle_ = Handle();
+    back->enabled_ = true;
+    back->started_ = false;
     return back;
   }
   size_t temp;

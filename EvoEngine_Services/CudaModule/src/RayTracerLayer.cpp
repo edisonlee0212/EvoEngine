@@ -5,6 +5,7 @@
 #include "BtfMeshRenderer.hpp"
 #include "CudaSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "InspectorRegistry.hpp"
 #include "MeshRenderer.hpp"
 #include "OptiXRayTracer.hpp"
@@ -341,32 +342,58 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
   UpdateMeshesStorage(scene, material_storage, geometry_storage, instance_storage, rebuild_acceleration_structure,
                       update_shader_binding_table);
   auto& env_settings = scene->environment;
-  if (const bool use_env_map = env_settings.environment_type == Scene::EnvironmentType::EnvironmentalMap;
-      environment_properties.use_environmental_map != use_env_map) {
-    environment_properties.use_environmental_map = use_env_map;
+  const bool use_env_map = env_settings.environment_type == Scene::EnvironmentType::EnvironmentalMap;
+  const auto requested_environmental_map = env_settings.environmental_map.GetAssetHandle();
+  auto env_map = env_settings.environmental_map.Get<EnvironmentalMap>();
+  auto reflection_probe = scene->GetGlobalReflectionProbeFallback(false);
+  if (!reflection_probe || !reflection_probe->IsRuntimeReady()) {
+    env_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
+    reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe();
+  }
+  if (reflection_probe && !reflection_probe->IsRuntimeReady()) {
+    reflection_probe.reset();
+  }
+  const Handle requested_reflection_probe = reflection_probe ? reflection_probe->GetHandle() : Handle{};
+  const uint64_t requested_payload_hash = reflection_probe ? reflection_probe->GetPayloadHash() : 0u;
+  if (environmental_map_handle != requested_environmental_map ||
+      global_reflection_probe_handle != requested_reflection_probe ||
+      global_reflection_probe_payload_hash != requested_payload_hash) {
+    environmental_map_handle = requested_environmental_map;
+    global_reflection_probe_handle = requested_reflection_probe;
+    global_reflection_probe_payload_hash = requested_payload_hash;
+    environment_properties.environmental_map = 0;
+    environmental_map_image.reset();
     update_shader_binding_table = true;
   }
-  if (environmental_map_handle != env_settings.environmental_map.GetAssetHandle()) {
-    environmental_map_handle = env_settings.environmental_map.GetAssetHandle();
-    if (auto env_map = env_settings.environmental_map.Get<EnvironmentalMap>()) {
-      if (const auto reflection_probe = env_map->reflection_probe.Get<ReflectionProbe>()) {
-        environmental_map_image = CudaModule::ImportCubemap(reflection_probe->GetCubemap());
-        environment_properties.environmental_map = environmental_map_image->texture_object;
-      }
-    } else {
-      env_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
-      const auto reflection_probe = env_map->reflection_probe.Get<ReflectionProbe>();
-      environmental_map_image = CudaModule::ImportCubemap(reflection_probe->GetCubemap());
-      environment_properties.environmental_map = environmental_map_image->texture_object;
+  if (use_env_map && !environmental_map_image) {
+    const auto imported = reflection_probe ? CudaModule::ImportCubemap(reflection_probe->GetCubemap()) : nullptr;
+    if (imported) {
+      environmental_map_image = imported;
+      environment_properties.environmental_map = imported->texture_object;
     }
+    update_shader_binding_table = true;
+  }
+  const bool use_imported_env_map = use_env_map && environmental_map_image;
+  if (environment_properties.use_environmental_map != use_imported_env_map) {
+    environment_properties.use_environmental_map = use_imported_env_map;
     update_shader_binding_table = true;
   }
   if (env_settings.background_color != environment_properties.color) {
     environment_properties.color = env_settings.background_color;
     update_shader_binding_table = true;
   }
-  if (environment_properties.skylight_intensity != env_settings.ambient_light_intensity) {
-    environment_properties.skylight_intensity = env_settings.ambient_light_intensity;
+  const float sky_light_intensity_scale = glm::max(env_settings.sky_light_intensity_scale, 0.0f);
+  if (environment_properties.sky_light_intensity_scale != sky_light_intensity_scale) {
+    environment_properties.sky_light_intensity_scale = sky_light_intensity_scale;
+    update_shader_binding_table = true;
+  }
+  const float indirect_lighting_intensity = glm::max(env_settings.indirect_lighting_intensity, 0.0f);
+  if (environment_properties.indirect_lighting_intensity != indirect_lighting_intensity) {
+    environment_properties.indirect_lighting_intensity = indirect_lighting_intensity;
+    update_shader_binding_table = true;
+  }
+  if (environment_properties.environment_rotation != env_settings.environment_rotation) {
+    environment_properties.environment_rotation = env_settings.environment_rotation;
     update_shader_binding_table = true;
   }
   if (environment_properties.gamma != env_settings.environment_gamma) {

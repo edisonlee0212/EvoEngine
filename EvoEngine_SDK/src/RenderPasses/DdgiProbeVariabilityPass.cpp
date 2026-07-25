@@ -3,6 +3,7 @@
 #include "ComputePipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "Platform.hpp"
+#include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
 #include <chrono>
@@ -20,15 +21,14 @@ std::shared_ptr<DescriptorSet> CreateVariabilityDescriptorSet(const std::shared_
                                                               const std::shared_ptr<ImageView>& input_view,
                                                               const std::shared_ptr<Buffer>& state_buffer,
                                                               const std::shared_ptr<ImageView>& output_view) {
-  if (!layout || !input_view || !state_buffer || !output_view) {
-    return {};
-  }
   const auto descriptor_set = std::make_shared<DescriptorSet>(layout);
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.imageView = input_view->GetVkImageView();
   descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-  descriptor_set->UpdateBufferDescriptorBinding(1, state_buffer);
+  if (state_buffer) {
+    descriptor_set->UpdateBufferDescriptorBinding(1, state_buffer);
+  }
   image_info.imageView = output_view->GetVkImageView();
   descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   return descriptor_set;
@@ -41,14 +41,8 @@ void DispatchReduction(const VkCommandBuffer vk_command_buffer, const std::share
                        const std::shared_ptr<ImageView>& output_view, const glm::uvec2 input_extent,
                        const glm::uvec2 output_extent, const uint32_t tile_resolution, const uint32_t atlas_columns,
                        const uint32_t probe_count) {
-  if (!pipeline || !pipeline->Initialized()) {
-    return;
-  }
   const auto descriptor_set =
       CreateVariabilityDescriptorSet(descriptor_set_layout, input_view, state_buffer, output_view);
-  if (!descriptor_set) {
-    return;
-  }
   DdgiProbeVariabilityPushConstant push_constant;
   push_constant.input_output_extent = {glm::max(input_extent.x, 1u), glm::max(input_extent.y, 1u),
                                        glm::max(output_extent.x, 1u), glm::max(output_extent.y, 1u)};
@@ -60,15 +54,16 @@ void DispatchReduction(const VkCommandBuffer vk_command_buffer, const std::share
   pipeline->Dispatch(vk_command_buffer, Platform::DivUp(push_constant.input_output_extent.z, 8),
                      Platform::DivUp(push_constant.input_output_extent.w, 8));
   transient_resources.RetainDescriptorSet(descriptor_set);
-  Platform::EverythingBarrier(vk_command_buffer);
 }
 
-void CopyReductionResultToReadback(const VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,
+bool CopyReductionResultToReadback(const VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,
                                    const std::shared_ptr<Buffer>& readback_buffer) {
   if (!image || !readback_buffer || readback_buffer->GetSize() < sizeof(glm::vec2)) {
-    return;
+    return false;
   }
-  Platform::EverythingBarrier(vk_command_buffer);
+  ApplyDdgiImageDependency(vk_command_buffer, image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                           VK_ACCESS_2_TRANSFER_READ_BIT);
   VkBufferImageCopy copy_region{};
   copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   copy_region.imageSubresource.mipLevel = 0;
@@ -77,11 +72,13 @@ void CopyReductionResultToReadback(const VkCommandBuffer vk_command_buffer, cons
   copy_region.imageExtent = {1, 1, 1};
   vkCmdCopyImageToBuffer(vk_command_buffer, image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
                          readback_buffer->GetVkBuffer(), 1, &copy_region);
+  return true;
 }
 
 void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                             const DdgiProbeVariabilityPass::Parameters& parameters) {
-  if (!parameters.reduce_pipeline || !parameters.extra_reduce_pipeline || !parameters.descriptor_set_layout ||
+  if (!parameters.reduce_pipeline || !parameters.reduce_pipeline->Initialized() || !parameters.extra_reduce_pipeline ||
+      !parameters.extra_reduce_pipeline->Initialized() || !parameters.descriptor_set_layout ||
       !parameters.transient_resources) {
     return;
   }
@@ -93,8 +90,6 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
       !reduction_a_binding || !reduction_a_binding->image || !reduction_b_binding || !reduction_b_binding->image) {
     return;
   }
-  ApplyGraphResourceBarriers(vk_command_buffer, context);
-
   const auto variability_view = CreateGraphImageMipView(variability_binding->image, 0);
   const auto reduction_a_view = CreateGraphImageMipView(reduction_a_binding->image, 0);
   const auto reduction_b_view = CreateGraphImageMipView(reduction_b_binding->image, 0);
@@ -109,6 +104,8 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
   auto output_view = reduction_a_view;
   auto input_extent = glm::max(parameters.layout.resolution, glm::uvec2(1u));
   auto output_extent = glm::max(parameters.layout.reduction_extent, glm::uvec2(1u));
+  ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "DDGI Variability Reduction");
   DispatchReduction(vk_command_buffer, parameters.reduce_pipeline, parameters.descriptor_set_layout,
                     *parameters.transient_resources, input_view, state_binding->buffer, output_view, input_extent,
                     output_extent, parameters.layout.tile_resolution, parameters.layout.columns,
@@ -120,10 +117,13 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
   auto current_output_image = reduction_b_binding->image;
   auto current_input_extent = output_extent;
   while (current_input_extent.x > 1u || current_input_extent.y > 1u) {
+    ApplyDdgiImageDependency(vk_command_buffer, current_input_image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT);
     const glm::uvec2 current_output_extent{glm::max(1u, (current_input_extent.x + 15u) / 16u),
                                            glm::max(1u, (current_input_extent.y + 15u) / 16u)};
     DispatchReduction(vk_command_buffer, parameters.extra_reduce_pipeline, parameters.descriptor_set_layout,
-                      *parameters.transient_resources, current_input_view, state_binding->buffer, current_output_view,
+                      *parameters.transient_resources, current_input_view, {}, current_output_view,
                       current_input_extent, current_output_extent, parameters.layout.tile_resolution,
                       parameters.layout.columns, parameters.layout.probe_count);
     current_input_view = current_output_view;
@@ -133,8 +133,13 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
         current_input_image == reduction_a_binding->image ? reduction_b_binding->image : reduction_a_binding->image;
     current_input_extent = current_output_extent;
   }
-
-  CopyReductionResultToReadback(vk_command_buffer, current_input_image, parameters.readback_buffer);
+  if (CopyReductionResultToReadback(vk_command_buffer, current_input_image, parameters.readback_buffer)) {
+    parameters.transient_resources->RetainBuffer(parameters.readback_buffer);
+    if (parameters.readback_recorded) {
+      *parameters.readback_recorded = true;
+    }
+  }
+  Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace

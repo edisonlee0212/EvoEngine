@@ -16,11 +16,6 @@ layout(max_vertices = MESHLET_MAX_VERTICES_SIZE, max_primitives = MESHLET_MAX_TR
 const uint MESHLET_VERTEX_ITERATIONS    = ((MESHLET_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 const uint MESHLET_PRIMITIVE_ITERATIONS = ((MESHLET_MAX_TRIANGLES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-layout(location = 0) out MS_V_OUT {
-	vec2 TexCoord;
-} ms_v_out[];
-
-layout(location = 5) out flat uint currentInstanceIndex[];
 
 struct Task{
 	uint	instanceIndex;
@@ -54,8 +49,6 @@ void main()
 
 		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
 		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(v.position.xyz, 1.0);
-		ms_v_out[vert].TexCoord = v.tex_coord.xy;
-		currentInstanceIndex[vert] = instanceIndex;
 	}
 	[[unroll]]
 	for (uint i = 0; i < uint(MESHLET_PRIMITIVE_ITERATIONS); ++i)

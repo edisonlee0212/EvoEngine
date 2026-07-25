@@ -424,12 +424,6 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
     EVOENGINE_ERROR("No RenderLayer!")
     return;
   }
-  const auto scene = ApplicationContext::Get().GetActiveScene();
-  auto reflection_probe = scene->environment.GetReflectionProbe(glm::vec3(0.0f));
-  if (!reflection_probe) {
-    reflection_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->reflection_probe.Get<ReflectionProbe>();
-  }
-  const auto skybox = Resources::GetInstance().GetDefaultSkybox();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
   VkBufferCreateInfo buffer_create_info{};
@@ -459,13 +453,6 @@ void PointCloud::SampleCurrentScene(std::vector<PointCloudSample>& samples) {
         vk_command_buffer, 1, render_layer->ray_tracing_descriptor_sets_[current_frame_index]->GetVkDescriptorSet());
     render_layer->ray_tracing_point_cloud_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                                                       sample_descriptor->GetVkDescriptorSet());
-    RayTracingPointCloudPushConstant push_constant;
-    push_constant.bounce = 0;
-    push_constant.use_clear_color = 0;
-    push_constant.clear_color = glm::vec4(0.0f);
-    push_constant.envIndex = reflection_probe->GetCubemap()->GetTextureStorageIndex();
-    push_constant.skybox_tex_index = skybox->GetTextureStorageIndex();
-    render_layer->ray_tracing_point_cloud_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     render_layer->ray_tracing_point_cloud_pipeline->Trace(vk_command_buffer, samples.size(), 1, 1);
     Platform::EverythingBarrier(vk_command_buffer);
   });

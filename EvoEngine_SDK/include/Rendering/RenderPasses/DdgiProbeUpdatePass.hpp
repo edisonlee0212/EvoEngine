@@ -2,8 +2,6 @@
 #include "RenderGraph.hpp"
 #include "RenderInstanceStorage.hpp"
 
-#include <limits>
-
 namespace evo_engine {
 class Buffer;
 class ComputePipeline;
@@ -12,19 +10,30 @@ class DescriptorSetLayout;
 
 class DdgiProbeUpdatePass final {
  public:
+  struct DispatchSize {
+    uint32_t x = 0u;
+    uint32_t y = 0u;
+    bool valid = false;
+  };
+
   struct Parameters {
     std::shared_ptr<ComputePipeline> pipeline;
+    std::shared_ptr<ComputePipeline> parallel_irradiance_pipeline;
+    std::shared_ptr<ComputePipeline> parallel_visibility_pipeline;
+    bool use_parallel = false;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     DdgiProbeAtlasUpdatePushConstant push_constant;
     std::shared_ptr<Buffer> metadata_readback_buffer;
-    std::shared_ptr<Buffer> selected_ray_readback_buffer;
-    uint32_t selected_ray_local_probe_index = (std::numeric_limits<uint32_t>::max)();
-    uint32_t selected_ray_sample_count = 0;
+    bool* metadata_readback_recorded = nullptr;
+    uint32_t* recorded_probe_update_count = nullptr;
     float* record_time_ms = nullptr;
+    bool* path_reported = nullptr;
   };
 
+  [[nodiscard]] static DispatchSize CalculateDispatchSize(uint32_t probe_count, bool parallel,
+                                                          uint32_t max_group_count_x, uint32_t max_group_count_y);
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };

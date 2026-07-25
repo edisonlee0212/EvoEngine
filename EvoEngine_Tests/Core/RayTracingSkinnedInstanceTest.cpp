@@ -251,9 +251,11 @@ TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Platform/GraphicsResources.hpp"));
   const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   ASSERT_FALSE(header.empty());
   ASSERT_FALSE(source.empty());
   ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(render_storage.empty());
 
   EXPECT_NE(header.find("std::shared_ptr<FrameSubmissionState> UpdateVertices"), std::string::npos);
   EXPECT_NE(header.find("pending_content_version_"), std::string::npos);
@@ -267,7 +269,8 @@ TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
   EXPECT_NE(source.find("pending_content_version_ = content_version_ + 1"), std::string::npos);
   EXPECT_NE(source.find("pending_submission_state_ = Platform::TrackCurrentFrameSubmission()"), std::string::npos);
   EXPECT_NE(source.find("previous_blas_content_versions != current_blas_content_versions"), std::string::npos);
-  EXPECT_NE(render_layer.find("skinned->bone_matrices_snapshot"), std::string::npos);
+  EXPECT_NE(render_storage.find("bone_matrices_snapshot = skinned_mesh_renderer->bone_matrices->value"),
+            std::string::npos);
 }
 
 TEST(RayTracingSkinned, TopLevelAccelerationStructureRegistersSkinnedCollections) {

@@ -230,9 +230,6 @@ void EnvironmentProperties::DrawGui() {
     if (ImGui::DragFloat("Light Size", &light_size, 0.001f, 0.0f, 1.0f)) {
       light_size = glm::clamp(light_size, 0.0f, 1.0f);
     }
-    if (ImGui::DragFloat("Ambient light intensity", &ambient_light_intensity, 0.001f, 0.0f, 1.0f)) {
-      ambient_light_intensity = glm::clamp(ambient_light_intensity, 0.0f, 1.0f);
-    }
     static glm::vec3 angles = glm::vec3(90, 0, 0);
     if (ImGui::DragFloat3("Sun angle", &angles.x, 1.0f)) {
       sun_direction = glm::quat(glm::radians(angles)) * glm::vec3(0, 0, -1);
@@ -241,7 +238,7 @@ void EnvironmentProperties::DrawGui() {
 }
 
 void CameraProperties::SetSkybox(const std::shared_ptr<CudaImage> &cubemap) {
-  skybox = cubemap->texture_object;
+  skybox = cubemap ? cubemap->texture_object : 0;
 }
 
 void RayProperties::DrawGui() {

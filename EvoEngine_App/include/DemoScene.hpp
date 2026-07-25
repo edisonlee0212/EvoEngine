@@ -28,6 +28,15 @@ enum class DemoSetup {
 void ClearGeneratedDemoProjectFiles(const std::filesystem::path& resource_folder_path);
 void ClearGeneratedProceduralGalaxyProjectFiles(const std::filesystem::path& resource_folder_path);
 void ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Scene>& scene);
+void ConfigureEnvironmentLightingValidationScene(const std::shared_ptr<Scene>& scene);
+void ConfigureReflectionProbeValidationScene(const std::shared_ptr<Scene>& scene);
+void ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id);
+bool AdvanceDdgiValidationFixture(const std::shared_ptr<Scene>& scene, const std::string& fixture_id);
+bool RunEnvironmentLightingValidationFromEnvironment(int width, int height);
+bool RunReflectionProbeValidationFromEnvironment(int width, int height);
+bool RunRenderingSponzaProbeAuthoringFromEnvironment();
+bool RunDdgiEmissiveValidationFromEnvironment(int width, int height);
+bool RunDdgiMultiVolumeValidationFromEnvironment(int width, int height);
 void ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene);
 void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);

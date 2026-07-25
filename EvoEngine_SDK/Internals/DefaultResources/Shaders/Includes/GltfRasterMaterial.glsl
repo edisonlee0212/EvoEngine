@@ -698,13 +698,34 @@ vec3 EE_GLTF_RASTER_FRESNEL(const vec3 f0, const vec3 f90, const float cos_theta
   return f0 + (f90 - f0) * pow(max(1.0 - clamp(cos_theta, 0.0, 1.0), 0.0), 5.0);
 }
 
-float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
+float EE_GLTF_RASTER_BASE_COLOR_ALPHA(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  if (material.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE) {
-    return 1.0;
+  float base_color_alpha;
+#if EE_GLTF_USE_SPECULAR_GLOSSINESS
+  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
+    base_color_alpha = material.pbr_diffuse_factor.a;
+    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT(
+        material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, vec4(1.0)).a;
+  } else
+#endif
+  {
+    base_color_alpha = material.pbr_base_color_factor.a;
+    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT(
+        material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, vec4(1.0)).a;
   }
+  base_color_alpha *= vertex_alpha;
+  return base_color_alpha;
+}
 
-  float base_color_alpha = 1.0;
+bool EE_GLTF_RASTER_ALPHA_MASK_PASSES(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
+  return material.alpha_mode != EE_GLTF_ALPHA_MODE_MASK ||
+         EE_GLTF_RASTER_BASE_COLOR_ALPHA(material_index, tex_coords, vertex_alpha) >= material.alpha_cutoff;
+}
+
+float EE_GLTF_RASTER_BASE_COLOR_ALPHA_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
+  float base_color_alpha;
 #if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
     base_color_alpha = material.pbr_diffuse_factor.a;
@@ -717,8 +738,22 @@ float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, GltfTexCoords tex_coords,
     base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(
         material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, vec4(1.0)).a;
   }
-
   base_color_alpha *= vertex_alpha;
+  return base_color_alpha;
+}
+
+bool EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
+  return material.alpha_mode != EE_GLTF_ALPHA_MODE_MASK ||
+         EE_GLTF_RASTER_BASE_COLOR_ALPHA_LOD0(material_index, tex_coords, vertex_alpha) >= material.alpha_cutoff;
+}
+
+float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
+  const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
+  if (material.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE) {
+    return 1.0;
+  }
+  const float base_color_alpha = EE_GLTF_RASTER_BASE_COLOR_ALPHA_LOD0(material_index, tex_coords, vertex_alpha);
   if (material.alpha_mode == EE_GLTF_ALPHA_MODE_MASK) {
     return base_color_alpha >= material.alpha_cutoff ? 1.0 : 0.0;
   }

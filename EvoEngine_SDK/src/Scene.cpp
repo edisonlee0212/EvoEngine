@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "Jobs.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
@@ -19,350 +20,11 @@ using namespace evo_engine;
 void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
 
 namespace {
-glm::vec3 DeserializeDdgiProbeSpacing(const YAML::Node& in) {
-  if (in.IsSequence()) {
-    return in.as<glm::vec3>();
+void EnsureTemporaryEnvironmentalLighting(Scene& scene) {
+  if (scene.environmental_lighting.GetAssetHandle().GetValue() != 0u) {
+    return;
   }
-  return glm::vec3(in.as<float>());
-}
-
-void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings) {
-  out << YAML::BeginMap;
-
-  out << YAML::Key << "runtime" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "enabled" << YAML::Value << settings.runtime.enabled;
-  out << YAML::Key << "pause_updates" << YAML::Value << settings.runtime.pause_updates;
-  out << YAML::Key << "ray_count" << YAML::Value << settings.runtime.ray_count;
-  out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
-  out << YAML::Key << "hysteresis" << YAML::Value << settings.runtime.hysteresis;
-  out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
-  out << YAML::Key << "view_bias" << YAML::Value << settings.runtime.view_bias;
-  out << YAML::Key << "max_ray_distance" << YAML::Value << settings.runtime.max_ray_distance;
-  out << YAML::Key << "distance_exponent" << YAML::Value << settings.runtime.distance_exponent;
-  out << YAML::Key << "irradiance_gamma" << YAML::Value << settings.runtime.irradiance_gamma;
-  out << YAML::Key << "visibility_moment_bias" << YAML::Value << settings.runtime.visibility_moment_bias;
-  out << YAML::Key << "indirect_intensity" << YAML::Value << settings.runtime.indirect_intensity;
-  out << YAML::Key << "irradiance_threshold" << YAML::Value << settings.runtime.irradiance_threshold;
-  out << YAML::Key << "brightness_threshold" << YAML::Value << settings.runtime.brightness_threshold;
-  out << YAML::EndMap;
-
-  out << YAML::Key << "volume_defaults" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "probe_counts" << YAML::Value << settings.volume_defaults.probe_counts;
-  out << YAML::Key << "probe_spacing" << YAML::Value << settings.volume_defaults.probe_spacing;
-  out << YAML::Key << "volume_origin" << YAML::Value << settings.volume_defaults.volume_origin;
-  out << YAML::Key << "movement_type" << YAML::Value << settings.volume_defaults.movement_type;
-  out << YAML::Key << "enable_probe_relocation" << YAML::Value << settings.volume_defaults.enable_probe_relocation;
-  out << YAML::Key << "enable_probe_classification" << YAML::Value
-      << settings.volume_defaults.enable_probe_classification;
-  out << YAML::Key << "enable_probe_variability" << YAML::Value << settings.volume_defaults.enable_probe_variability;
-  out << YAML::Key << "enable_probe_variability_gating" << YAML::Value
-      << settings.volume_defaults.enable_probe_variability_gating;
-  out << YAML::Key << "relocation_distance" << YAML::Value << settings.volume_defaults.relocation_distance;
-  out << YAML::Key << "random_ray_backface_threshold" << YAML::Value
-      << settings.volume_defaults.random_ray_backface_threshold;
-  out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value
-      << settings.volume_defaults.fixed_ray_backface_threshold;
-  out << YAML::Key << "probe_variability_threshold" << YAML::Value
-      << settings.volume_defaults.probe_variability_threshold;
-  out << YAML::Key << "probe_variability_min_samples" << YAML::Value
-      << settings.volume_defaults.probe_variability_min_samples;
-  out << YAML::EndMap;
-
-  out << YAML::Key << "storage" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "max_probe_count" << YAML::Value << settings.storage.max_probe_count;
-  out << YAML::Key << "irradiance_tile_resolution" << YAML::Value << settings.storage.irradiance_tile_resolution;
-  out << YAML::Key << "visibility_tile_resolution" << YAML::Value << settings.storage.visibility_tile_resolution;
-  out << YAML::Key << "atlas_probe_columns" << YAML::Value << settings.storage.atlas_probe_columns;
-  out << YAML::EndMap;
-
-  out << YAML::Key << "debug" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "enabled" << YAML::Value << settings.debug.enabled;
-  out << YAML::Key << "visualize_volume_bounds" << YAML::Value << settings.debug.visualize_volume_bounds;
-  out << YAML::Key << "visualize_probe_positions" << YAML::Value << settings.debug.visualize_probe_positions;
-  out << YAML::Key << "visualize_selected_probe" << YAML::Value << settings.debug.visualize_selected_probe;
-  out << YAML::Key << "visualize_probe_state" << YAML::Value << settings.debug.visualize_probe_state;
-  out << YAML::Key << "visualize_probe_illumination" << YAML::Value << settings.debug.visualize_probe_illumination;
-  out << YAML::Key << "show_atlas_preview" << YAML::Value << settings.debug.show_atlas_preview;
-  out << YAML::Key << "show_update_age" << YAML::Value << settings.debug.show_update_age;
-  out << YAML::Key << "show_rays" << YAML::Value << settings.debug.show_rays;
-  out << YAML::Key << "show_irradiance" << YAML::Value << settings.debug.show_irradiance;
-  out << YAML::Key << "show_visibility" << YAML::Value << settings.debug.show_visibility;
-  out << YAML::Key << "show_sampling_weights" << YAML::Value << settings.debug.show_sampling_weights;
-  out << YAML::Key << "selected_probe_index" << YAML::Value << settings.debug.selected_probe_index;
-  out << YAML::Key << "atlas_layer" << YAML::Value << settings.debug.atlas_layer;
-  out << YAML::Key << "visualization_scale" << YAML::Value << settings.debug.visualization_scale;
-  out << YAML::Key << "probe_visualization_mode" << YAML::Value << settings.debug.probe_visualization_mode;
-  out << YAML::Key << "probe_visualization_depth_mode" << YAML::Value << settings.debug.probe_visualization_depth_mode;
-  out << YAML::Key << "probe_visualization_radius" << YAML::Value << settings.debug.probe_visualization_radius;
-  out << YAML::Key << "probe_visualization_intensity" << YAML::Value << settings.debug.probe_visualization_intensity;
-  out << YAML::Key << "probe_visualization_alpha" << YAML::Value << settings.debug.probe_visualization_alpha;
-  out << YAML::Key << "selected_probe_visualization_scale" << YAML::Value
-      << settings.debug.selected_probe_visualization_scale;
-  out << YAML::EndMap;
-
-  out << YAML::EndMap;
-}
-
-void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings) {
-  if (const auto runtime = in["runtime"]) {
-    if (runtime["enabled"])
-      settings.runtime.enabled = runtime["enabled"].as<bool>();
-    if (runtime["pause_updates"])
-      settings.runtime.pause_updates = runtime["pause_updates"].as<bool>();
-    if (runtime["ray_count"])
-      settings.runtime.ray_count = runtime["ray_count"].as<int>();
-    if (runtime["warmup_frames"])
-      settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
-    if (runtime["hysteresis"])
-      settings.runtime.hysteresis = runtime["hysteresis"].as<float>();
-    if (runtime["normal_bias"])
-      settings.runtime.normal_bias = runtime["normal_bias"].as<float>();
-    if (runtime["view_bias"])
-      settings.runtime.view_bias = runtime["view_bias"].as<float>();
-    if (runtime["max_ray_distance"])
-      settings.runtime.max_ray_distance = runtime["max_ray_distance"].as<float>();
-    if (runtime["distance_exponent"])
-      settings.runtime.distance_exponent = runtime["distance_exponent"].as<float>();
-    if (runtime["irradiance_gamma"])
-      settings.runtime.irradiance_gamma = runtime["irradiance_gamma"].as<float>();
-    if (runtime["visibility_moment_bias"])
-      settings.runtime.visibility_moment_bias = runtime["visibility_moment_bias"].as<float>();
-    if (runtime["indirect_intensity"])
-      settings.runtime.indirect_intensity = runtime["indirect_intensity"].as<float>();
-    if (runtime["irradiance_threshold"])
-      settings.runtime.irradiance_threshold = runtime["irradiance_threshold"].as<float>();
-    if (runtime["brightness_threshold"])
-      settings.runtime.brightness_threshold = runtime["brightness_threshold"].as<float>();
-  }
-  if (const auto volume_defaults = in["volume_defaults"]) {
-    if (volume_defaults["probe_counts"])
-      settings.volume_defaults.probe_counts = volume_defaults["probe_counts"].as<glm::ivec3>();
-    if (volume_defaults["probe_spacing"])
-      settings.volume_defaults.probe_spacing = DeserializeDdgiProbeSpacing(volume_defaults["probe_spacing"]);
-    if (volume_defaults["volume_origin"])
-      settings.volume_defaults.volume_origin = volume_defaults["volume_origin"].as<glm::vec3>();
-    else if (volume_defaults["volume_offset"])
-      settings.volume_defaults.volume_origin =
-          volume_defaults["volume_offset"].as<glm::vec3>() +
-          glm::vec3(glm::clamp(settings.volume_defaults.probe_counts.x, 1, 256) - 1,
-                    glm::clamp(settings.volume_defaults.probe_counts.y, 1, 256) - 1,
-                    glm::clamp(settings.volume_defaults.probe_counts.z, 1, 256) - 1) *
-              (glm::clamp(settings.volume_defaults.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f)) * 0.5f);
-    if (volume_defaults["movement_type"])
-      settings.volume_defaults.movement_type = volume_defaults["movement_type"].as<int>();
-    if (volume_defaults["enable_probe_relocation"])
-      settings.volume_defaults.enable_probe_relocation = volume_defaults["enable_probe_relocation"].as<bool>();
-    if (volume_defaults["enable_probe_classification"])
-      settings.volume_defaults.enable_probe_classification = volume_defaults["enable_probe_classification"].as<bool>();
-    if (volume_defaults["enable_probe_variability"])
-      settings.volume_defaults.enable_probe_variability = volume_defaults["enable_probe_variability"].as<bool>();
-    if (volume_defaults["enable_probe_variability_gating"])
-      settings.volume_defaults.enable_probe_variability_gating =
-          volume_defaults["enable_probe_variability_gating"].as<bool>();
-    if (volume_defaults["relocation_distance"])
-      settings.volume_defaults.relocation_distance = volume_defaults["relocation_distance"].as<float>();
-    if (volume_defaults["random_ray_backface_threshold"])
-      settings.volume_defaults.random_ray_backface_threshold =
-          volume_defaults["random_ray_backface_threshold"].as<float>();
-    if (volume_defaults["fixed_ray_backface_threshold"])
-      settings.volume_defaults.fixed_ray_backface_threshold =
-          volume_defaults["fixed_ray_backface_threshold"].as<float>();
-    if (volume_defaults["probe_variability_threshold"])
-      settings.volume_defaults.probe_variability_threshold = volume_defaults["probe_variability_threshold"].as<float>();
-    if (volume_defaults["probe_variability_min_samples"])
-      settings.volume_defaults.probe_variability_min_samples =
-          volume_defaults["probe_variability_min_samples"].as<int>();
-  }
-  if (const auto storage = in["storage"]) {
-    if (storage["max_probe_count"])
-      settings.storage.max_probe_count = storage["max_probe_count"].as<int>();
-    if (storage["irradiance_tile_resolution"])
-      settings.storage.irradiance_tile_resolution = storage["irradiance_tile_resolution"].as<int>();
-    if (storage["visibility_tile_resolution"])
-      settings.storage.visibility_tile_resolution = storage["visibility_tile_resolution"].as<int>();
-    if (storage["atlas_probe_columns"])
-      settings.storage.atlas_probe_columns = storage["atlas_probe_columns"].as<int>();
-  }
-  if (const auto debug = in["debug"]) {
-    if (debug["enabled"])
-      settings.debug.enabled = debug["enabled"].as<bool>();
-    if (debug["visualize_volume_bounds"])
-      settings.debug.visualize_volume_bounds = debug["visualize_volume_bounds"].as<bool>();
-    if (debug["visualize_probe_positions"])
-      settings.debug.visualize_probe_positions = debug["visualize_probe_positions"].as<bool>();
-    if (debug["visualize_selected_probe"])
-      settings.debug.visualize_selected_probe = debug["visualize_selected_probe"].as<bool>();
-    if (debug["visualize_probe_state"])
-      settings.debug.visualize_probe_state = debug["visualize_probe_state"].as<bool>();
-    if (debug["visualize_probe_illumination"])
-      settings.debug.visualize_probe_illumination = debug["visualize_probe_illumination"].as<bool>();
-    if (debug["show_atlas_preview"])
-      settings.debug.show_atlas_preview = debug["show_atlas_preview"].as<bool>();
-    if (debug["show_update_age"])
-      settings.debug.show_update_age = debug["show_update_age"].as<bool>();
-    if (debug["show_rays"])
-      settings.debug.show_rays = debug["show_rays"].as<bool>();
-    if (debug["show_irradiance"])
-      settings.debug.show_irradiance = debug["show_irradiance"].as<bool>();
-    if (debug["show_visibility"])
-      settings.debug.show_visibility = debug["show_visibility"].as<bool>();
-    if (debug["show_sampling_weights"])
-      settings.debug.show_sampling_weights = debug["show_sampling_weights"].as<bool>();
-    if (debug["selected_probe_index"])
-      settings.debug.selected_probe_index = debug["selected_probe_index"].as<int>();
-    if (debug["atlas_layer"])
-      settings.debug.atlas_layer = debug["atlas_layer"].as<int>();
-    if (debug["visualization_scale"])
-      settings.debug.visualization_scale = debug["visualization_scale"].as<float>();
-    if (debug["probe_visualization_mode"])
-      settings.debug.probe_visualization_mode = debug["probe_visualization_mode"].as<int>();
-    if (debug["probe_visualization_depth_mode"])
-      settings.debug.probe_visualization_depth_mode = debug["probe_visualization_depth_mode"].as<int>();
-    if (debug["probe_visualization_radius"])
-      settings.debug.probe_visualization_radius = debug["probe_visualization_radius"].as<float>();
-    if (debug["probe_visualization_intensity"])
-      settings.debug.probe_visualization_intensity = debug["probe_visualization_intensity"].as<float>();
-    if (debug["probe_visualization_alpha"])
-      settings.debug.probe_visualization_alpha = debug["probe_visualization_alpha"].as<float>();
-    if (debug["selected_probe_visualization_scale"])
-      settings.debug.selected_probe_visualization_scale = debug["selected_probe_visualization_scale"].as<float>();
-  }
-}
-
-void SerializeVolumetricCloudSettings(YAML::Emitter& out, const VolumetricCloudSettings& settings) {
-  out << YAML::BeginMap;
-  out << YAML::Key << "enabled" << YAML::Value << settings.enabled;
-  out << YAML::Key << "coverage" << YAML::Value << settings.coverage;
-  out << YAML::Key << "density" << YAML::Value << settings.density;
-  out << YAML::Key << "bottom_altitude" << YAML::Value << settings.bottom_altitude;
-  out << YAML::Key << "top_altitude" << YAML::Value << settings.top_altitude;
-  out << YAML::Key << "max_march_distance" << YAML::Value << settings.max_march_distance;
-  out << YAML::Key << "wind_direction" << YAML::Value << settings.wind_direction;
-  out << YAML::Key << "wind_speed" << YAML::Value << settings.wind_speed;
-  out << YAML::Key << "primary_step_count" << YAML::Value << settings.primary_step_count;
-  out << YAML::Key << "light_step_count" << YAML::Value << settings.light_step_count;
-  out << YAML::Key << "resolution_divisor" << YAML::Value << settings.resolution_divisor;
-  out << YAML::Key << "lighting_intensity" << YAML::Value << settings.lighting_intensity;
-  out << YAML::Key << "ambient_lighting_strength" << YAML::Value << settings.ambient_lighting_strength;
-  out << YAML::Key << "phase_anisotropy" << YAML::Value << settings.phase_anisotropy;
-  out << YAML::Key << "base_noise_scale" << YAML::Value << settings.base_noise_scale;
-  out << YAML::Key << "detail_noise_scale" << YAML::Value << settings.detail_noise_scale;
-  out << YAML::Key << "extinction_scale" << YAML::Value << settings.extinction_scale;
-  out << YAML::Key << "use_spherical_atmosphere" << YAML::Value << settings.use_spherical_atmosphere;
-  out << YAML::Key << "atmosphere_radius" << YAML::Value << settings.atmosphere_radius;
-  out << YAML::Key << "cloud_type" << YAML::Value << settings.cloud_type;
-  out << YAML::Key << "curl_strength" << YAML::Value << settings.curl_strength;
-  out << YAML::Key << "coarse_step_fraction" << YAML::Value << settings.coarse_step_fraction;
-  out << YAML::Key << "fine_step_scale" << YAML::Value << settings.fine_step_scale;
-  out << YAML::Key << "empty_step_fallback_count" << YAML::Value << settings.empty_step_fallback_count;
-  out << YAML::Key << "enable_temporal_reprojection" << YAML::Value << settings.enable_temporal_reprojection;
-  out << YAML::Key << "temporal_blend_factor" << YAML::Value << settings.temporal_blend_factor;
-  out << YAML::Key << "enable_cloud_shadows" << YAML::Value << settings.enable_cloud_shadows;
-  out << YAML::Key << "cloud_shadow_strength" << YAML::Value << settings.cloud_shadow_strength;
-  out << YAML::Key << "cloud_shadow_step_count" << YAML::Value << settings.cloud_shadow_step_count;
-  out << YAML::Key << "debug_visualization" << YAML::Value << settings.debug_visualization;
-  out << YAML::Key << "debug_mode" << YAML::Value << settings.debug_mode;
-  out << YAML::EndMap;
-}
-
-bool AlmostEqual(const float left, const float right) {
-  return glm::abs(left - right) <= 0.0001f;
-}
-
-bool MatchesLegacyVolumetricCloudDefaults(const VolumetricCloudSettings& settings) {
-  const bool common_default = AlmostEqual(settings.wind_direction.x, 1.0f) &&
-                              AlmostEqual(settings.wind_direction.y, 0.0f) && settings.debug_mode == 0 &&
-                              !settings.debug_visualization;
-  const bool first_visible_default =
-      AlmostEqual(settings.coverage, 0.82f) && AlmostEqual(settings.density, 2.0f) &&
-      AlmostEqual(settings.bottom_altitude, 0.0f) && AlmostEqual(settings.top_altitude, 160.0f) &&
-      AlmostEqual(settings.max_march_distance, 600.0f) && AlmostEqual(settings.wind_speed, 25.0f) &&
-      settings.primary_step_count == 64 && settings.light_step_count == 8 && settings.resolution_divisor == 1 &&
-      AlmostEqual(settings.lighting_intensity, 1.6f) && AlmostEqual(settings.ambient_lighting_strength, 0.35f) &&
-      AlmostEqual(settings.phase_anisotropy, 0.65f) && AlmostEqual(settings.base_noise_scale, 0.035f) &&
-      AlmostEqual(settings.detail_noise_scale, 0.14f) && AlmostEqual(settings.extinction_scale, 0.035f);
-  const bool high_altitude_default =
-      AlmostEqual(settings.coverage, 0.65f) && AlmostEqual(settings.density, 1.0f) &&
-      AlmostEqual(settings.bottom_altitude, 80.0f) && AlmostEqual(settings.top_altitude, 550.0f) &&
-      AlmostEqual(settings.max_march_distance, 5000.0f) && AlmostEqual(settings.wind_speed, 25.0f) &&
-      settings.primary_step_count == 64 && settings.light_step_count == 8 && settings.resolution_divisor == 1 &&
-      AlmostEqual(settings.lighting_intensity, 1.0f) && AlmostEqual(settings.ambient_lighting_strength, 0.2f) &&
-      AlmostEqual(settings.phase_anisotropy, 0.65f) && AlmostEqual(settings.base_noise_scale, 0.012f) &&
-      AlmostEqual(settings.detail_noise_scale, 0.05f) && AlmostEqual(settings.extinction_scale, 0.01f);
-  return common_default && (first_visible_default || high_altitude_default);
-}
-
-void UpgradeLegacyVolumetricCloudDefaults(VolumetricCloudSettings& settings) {
-  settings = VolumetricCloudSettings{};
-}
-
-void DeserializeVolumetricCloudSettings(const YAML::Node& in, VolumetricCloudSettings& settings) {
-  if (in["enabled"])
-    settings.enabled = in["enabled"].as<bool>();
-  if (in["coverage"])
-    settings.coverage = in["coverage"].as<float>();
-  if (in["density"])
-    settings.density = in["density"].as<float>();
-  if (in["bottom_altitude"])
-    settings.bottom_altitude = in["bottom_altitude"].as<float>();
-  if (in["top_altitude"])
-    settings.top_altitude = in["top_altitude"].as<float>();
-  if (in["max_march_distance"])
-    settings.max_march_distance = in["max_march_distance"].as<float>();
-  if (in["wind_direction"])
-    settings.wind_direction = in["wind_direction"].as<glm::vec2>();
-  if (in["wind_speed"])
-    settings.wind_speed = in["wind_speed"].as<float>();
-  if (in["primary_step_count"])
-    settings.primary_step_count = in["primary_step_count"].as<int>();
-  if (in["light_step_count"])
-    settings.light_step_count = in["light_step_count"].as<int>();
-  if (in["resolution_divisor"])
-    settings.resolution_divisor = in["resolution_divisor"].as<int>();
-  if (in["lighting_intensity"])
-    settings.lighting_intensity = in["lighting_intensity"].as<float>();
-  if (in["ambient_lighting_strength"])
-    settings.ambient_lighting_strength = in["ambient_lighting_strength"].as<float>();
-  if (in["phase_anisotropy"])
-    settings.phase_anisotropy = in["phase_anisotropy"].as<float>();
-  if (in["base_noise_scale"])
-    settings.base_noise_scale = in["base_noise_scale"].as<float>();
-  if (in["detail_noise_scale"])
-    settings.detail_noise_scale = in["detail_noise_scale"].as<float>();
-  if (in["extinction_scale"])
-    settings.extinction_scale = in["extinction_scale"].as<float>();
-  if (in["use_spherical_atmosphere"])
-    settings.use_spherical_atmosphere = in["use_spherical_atmosphere"].as<bool>();
-  if (in["atmosphere_radius"])
-    settings.atmosphere_radius = in["atmosphere_radius"].as<float>();
-  if (in["cloud_type"])
-    settings.cloud_type = in["cloud_type"].as<float>();
-  if (in["curl_strength"])
-    settings.curl_strength = in["curl_strength"].as<float>();
-  if (in["coarse_step_fraction"])
-    settings.coarse_step_fraction = in["coarse_step_fraction"].as<float>();
-  if (in["fine_step_scale"])
-    settings.fine_step_scale = in["fine_step_scale"].as<float>();
-  if (in["empty_step_fallback_count"])
-    settings.empty_step_fallback_count = in["empty_step_fallback_count"].as<int>();
-  if (in["enable_temporal_reprojection"])
-    settings.enable_temporal_reprojection = in["enable_temporal_reprojection"].as<bool>();
-  if (in["temporal_blend_factor"])
-    settings.temporal_blend_factor = in["temporal_blend_factor"].as<float>();
-  if (in["enable_cloud_shadows"])
-    settings.enable_cloud_shadows = in["enable_cloud_shadows"].as<bool>();
-  if (in["cloud_shadow_strength"])
-    settings.cloud_shadow_strength = in["cloud_shadow_strength"].as<float>();
-  if (in["cloud_shadow_step_count"])
-    settings.cloud_shadow_step_count = in["cloud_shadow_step_count"].as<int>();
-  if (in["debug_visualization"])
-    settings.debug_visualization = in["debug_visualization"].as<bool>();
-  if (in["debug_mode"])
-    settings.debug_mode = in["debug_mode"].as<int>();
-  settings.ClampSettings();
-  if (MatchesLegacyVolumetricCloudDefaults(settings)) {
-    UpgradeLegacyVolumetricCloudDefaults(settings);
-  }
+  scene.environmental_lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
 }
 }  // namespace
 
@@ -376,6 +38,8 @@ Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version)
 void Scene::Purge() {
   pressed_keys_.clear();
   main_camera.Clear();
+  global_reflection_probe_fallback.Clear();
+  environmental_lighting.Clear();
 
   scene_data_storage_.entity_private_component_storage = PrivateComponentStorage();
   scene_data_storage_.entity_private_component_storage.owner_scene = std::dynamic_pointer_cast<Scene>(GetSelf());
@@ -540,18 +204,21 @@ std::shared_ptr<ISystem> Scene::GetOrCreateSystem(const std::string& system_name
 }
 
 void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
-  const auto self = const_cast<Scene&>(scene).GetSelfScene();
-  const auto& environment = scene.environment;
+  auto& mutable_scene = const_cast<Scene&>(scene);
+  EnsureTemporaryEnvironmentalLighting(mutable_scene);
+  const auto self = mutable_scene.GetSelfScene();
   const auto& main_camera = scene.main_camera;
+  const auto& global_reflection_probe_fallback = scene.global_reflection_probe_fallback;
+  const auto& environmental_lighting = scene.environmental_lighting;
   const auto& scene_data_storage_ = scene.scene_data_storage_;
   const auto& systems_ = scene.systems_;
-  out << YAML::Key << "environment" << YAML::Value << YAML::BeginMap;
-  environment.Serialize(out);
-  out << YAML::EndMap;
+  global_reflection_probe_fallback.Save("global_reflection_probe_fallback", out);
+  environmental_lighting.Save("environmental_lighting", out);
   main_camera.Save("main_camera", out);
   std::unordered_map<Handle, std::shared_ptr<IAsset>> asset_map;
   std::vector<AssetRef> list;
-  list.push_back(environment.environmental_map);
+  list.push_back(global_reflection_probe_fallback);
+  list.push_back(environmental_lighting);
   auto& scene_data_storage = scene_data_storage_;
 #pragma region EntityInfo
   out << YAML::Key << "entity_metadata_list" << YAML::Value << YAML::BeginSeq;
@@ -634,7 +301,8 @@ void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
   out << YAML::EndMap;
 }
 void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
-  auto& environment = scene.environment;
+  auto& global_reflection_probe_fallback = scene.global_reflection_probe_fallback;
+  auto& environmental_lighting = scene.environmental_lighting;
   auto& main_camera = scene.main_camera;
   auto& scene_data_storage_ = scene.scene_data_storage_;
   auto& systems_ = scene.systems_;
@@ -717,8 +385,11 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
   EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
 #endif
 #pragma endregion
-  if (in["environment"])
-    environment.Deserialize(in["environment"]);
+  if (in["global_reflection_probe_fallback"]) {
+    global_reflection_probe_fallback.Load("global_reflection_probe_fallback", in);
+  }
+  environmental_lighting.Load("environmental_lighting", in);
+  EnsureTemporaryEnvironmentalLighting(scene);
   int entity_index = 1;
   for (const auto& in_entity_info : in_entity_metadata_list) {
     auto& entity_metadata = scene_data_storage_.entity_metadata_list.at(entity_index);
@@ -1056,6 +727,7 @@ void Scene::OnCreate() {
       return;
     }
   }
+  EnsureTemporaryEnvironmentalLighting(*this);
 
 #pragma region Main Camera
   const auto main_camera_entity = CreateEntity("Main Camera");
@@ -1066,6 +738,7 @@ void Scene::OnCreate() {
   SetDataComponent(main_camera_entity, ltw);
   const auto main_camera_component = GetOrSetPrivateComponent<Camera>(main_camera_entity).lock();
   main_camera = main_camera_component;
+  main_camera_component->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
   main_camera_component->skybox = Resources::GetInstance().GetDefaultSkybox();
 #pragma endregion
 
@@ -1137,7 +810,9 @@ std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
 }
 
 void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Scene>& new_scene) {
-  new_scene->environment = source->environment;
+  new_scene->global_reflection_probe_fallback = source->global_reflection_probe_fallback;
+  new_scene->environmental_lighting = source->environmental_lighting;
+  EnsureTemporaryEnvironmentalLighting(*new_scene);
   new_scene->saved_ = source->saved_;
   new_scene->world_bound_ = source->world_bound_;
   std::unordered_map<Handle, Handle> entity_map;
@@ -1161,57 +836,17 @@ void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Sc
   new_scene->main_camera.Relink(entity_map, new_scene);
 }
 
-std::shared_ptr<LightProbe> Scene::Environment::GetLightProbe(const glm::vec3& position) {
-  if (const auto em = environmental_map.Get<EnvironmentalMap>()) {
-    em->EnsureEnvironmentSource();
-    if (auto light_probe = em->light_probe.Get<LightProbe>())
-      return light_probe;
+std::shared_ptr<GlobalReflectionProbe> Scene::GetGlobalReflectionProbeFallback(const bool require_runtime_ready) {
+  const auto reflection_probe = global_reflection_probe_fallback.Get<GlobalReflectionProbe>();
+  if (!reflection_probe) {
+    return {};
   }
-  return nullptr;
+  if (!require_runtime_ready || reflection_probe->IsRuntimeReady()) {
+    return reflection_probe;
+  }
+  return {};
 }
 
-std::shared_ptr<ReflectionProbe> Scene::Environment::GetReflectionProbe(const glm::vec3& position) {
-  if (const auto em = environmental_map.Get<EnvironmentalMap>()) {
-    em->EnsureEnvironmentSource();
-    if (auto reflection_probe = em->reflection_probe.Get<ReflectionProbe>())
-      return reflection_probe;
-  }
-  return nullptr;
-}
-
-void Scene::Environment::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "background_color" << YAML::Value << background_color;
-  out << YAML::Key << "environment_gamma" << YAML::Value << environment_gamma;
-  out << YAML::Key << "environment_rotation" << YAML::Value << environment_rotation;
-  out << YAML::Key << "ambient_light_intensity" << YAML::Value << ambient_light_intensity;
-  out << YAML::Key << "environment_type" << YAML::Value << static_cast<unsigned>(environment_type);
-  environmental_map.Save("environmental_map", out);
-  out << YAML::Key << "volumetric_cloud_settings" << YAML::Value;
-  SerializeVolumetricCloudSettings(out, volumetric_cloud_settings);
-  out << YAML::Key << "ddgi_settings" << YAML::Value;
-  SerializeDdgiSettings(out, ddgi_settings);
-}
-void Scene::Environment::Deserialize(const YAML::Node& in) {
-  if (in["background_color"])
-    background_color = in["background_color"].as<glm::vec3>();
-  if (in["environment_gamma"])
-    environment_gamma = in["environment_gamma"].as<float>();
-  if (in["environment_rotation"])
-    environment_rotation = in["environment_rotation"].as<float>();
-  if (in["ambient_light_intensity"])
-    ambient_light_intensity = in["ambient_light_intensity"].as<float>();
-  if (in["environment_type"]) {
-    const auto serialized_type = in["environment_type"].as<unsigned>();
-    environment_type = serialized_type == static_cast<unsigned>(EnvironmentType::Color)
-                           ? EnvironmentType::Color
-                           : EnvironmentType::EnvironmentalMap;
-  }
-  environmental_map.Load("environmental_map", in);
-  if (in["volumetric_cloud_settings"])
-    DeserializeVolumetricCloudSettings(in["volumetric_cloud_settings"], volumetric_cloud_settings);
-  if (in["ddgi_settings"])
-    DeserializeDdgiSettings(in["ddgi_settings"], ddgi_settings);
-}
 void SceneDataStorage::Clone(std::unordered_map<Handle, Handle>& entity_links, const SceneDataStorage& source,
                              const std::shared_ptr<Scene>& new_scene) {
   entities = source.entities;

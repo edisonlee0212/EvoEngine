@@ -40,43 +40,40 @@ VkClearColorValue MakeClearColor(const float x, const float y, const float z, co
   return value;
 }
 
-void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
-                        const bool clear_persistent_resources) {
+void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context) {
   ApplyGraphResourceBarriers(vk_command_buffer, context);
-  FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_ray_output, 0u);
-  if (clear_persistent_resources) {
-    FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_metadata, 0u);
-    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_irradiance_atlas,
-                    MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_visibility_atlas,
-                    MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f));
-    ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_variability_atlas,
-                    MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
-  }
+  FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_metadata, 0u);
+  FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_state, 0u);
+  ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_irradiance_atlas,
+                  MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
+  ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_visibility_atlas,
+                  MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f));
+  ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_variability_atlas,
+                  MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace
 
 RenderPassDescriptor DdgiAtlasPreparePass::CreateDescriptor() {
-  return {RenderPassNames::ddgi_atlas_prepare,
-          RenderPassQueue::Graphics,
-          RenderPassScope::Frame,
-          {{RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
-            RenderResourceState::TransferDestination},
-           {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
-            RenderResourceState::TransferDestination},
-           {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
-            RenderResourceState::TransferDestination},
-           {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-            RenderResourceState::TransferDestination},
-           {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-            RenderResourceState::TransferDestination}}};
+  RenderPassDescriptor descriptor{RenderPassNames::ddgi_atlas_prepare, RenderPassQueue::Graphics,
+                                  RenderPassScope::Frame};
+  descriptor.resources = {{RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
+                           RenderResourceState::TransferDestination},
+                          {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Write,
+                           RenderResourceState::TransferDestination},
+                          {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
+                           RenderResourceState::TransferDestinationGeneral},
+                          {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
+                           RenderResourceState::TransferDestinationGeneral},
+                          {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
+                           RenderResourceState::TransferDestinationGeneral}};
+  return descriptor;
 }
 
 void DdgiAtlasPreparePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     const auto timer = Clock::now();
-    RecordAtlasPrepare(vk_command_buffer, context, parameters.clear_persistent_resources);
+    RecordAtlasPrepare(vk_command_buffer, context);
     if (parameters.record_time_ms) {
       *parameters.record_time_ms += ElapsedMilliseconds(timer);
     }

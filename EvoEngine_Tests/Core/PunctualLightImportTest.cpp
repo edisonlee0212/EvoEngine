@@ -55,16 +55,21 @@ TEST(PunctualLightImport, PrefabImporterConvertsAssimpPunctualLightsToNativeComp
 
 TEST(PunctualLightImport, NativePointAndSpotRangeReachGpuLightBlocks) {
   const auto lights_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/Lights.hpp"));
+  const auto lights_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Lights.cpp"));
   const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto application = ReadTextFile(SourcePath("EvoEngine_SDK/src/Application.cpp"));
   const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
 
   ASSERT_FALSE(lights_header.empty());
+  ASSERT_FALSE(lights_source.empty());
   ASSERT_FALSE(render_storage.empty());
   ASSERT_FALSE(application.empty());
   ASSERT_FALSE(inspector.empty());
 
-  EXPECT_NE(lights_header.find("float range = 0.0f"), std::string::npos);
+  EXPECT_NE(lights_header.find("float range;"), std::string::npos);
+  EXPECT_NE(lights_source.find("void SpotLight::OnCreate()"), std::string::npos);
+  EXPECT_NE(lights_source.find("void PointLight::OnCreate()"), std::string::npos);
+  EXPECT_NE(lights_source.find("range = 0.0f"), std::string::npos);
   EXPECT_NE(render_storage.find("plc->range > 0.0f ? plc->range : plc->GetFarPlane()"), std::string::npos);
   EXPECT_NE(render_storage.find("slc->range > 0.0f ? slc->range : slc->GetFarPlane()"), std::string::npos);
   EXPECT_NE(application.find("YAML::Key << \"range\""), std::string::npos);
@@ -78,17 +83,18 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
   const auto per_frame = ReadTextFile(ShaderPath("Includes/PerFrame.glsl"));
   const auto lights = ReadTextFile(ShaderPath("Includes/Lights.glsl"));
   const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
-  const auto camera_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/Camera.rchit"));
+  const auto camera_raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
 
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(ray_tracing_basic.empty());
   ASSERT_FALSE(per_frame.empty());
   ASSERT_FALSE(lights.empty());
   ASSERT_FALSE(ddgi_closest_hit.empty());
-  ASSERT_FALSE(camera_closest_hit.empty());
+  ASSERT_FALSE(camera_raygen.empty());
 
   EXPECT_NE(ray_tracing_basic.find("#include \"PerFrame.glsl\""), std::string::npos);
-  EXPECT_NE(camera_closest_hit.find("#include \"RayTracingBasic.glsl\""), std::string::npos);
+  EXPECT_NE(camera_raygen.find("#include \"RayTracingBasic.glsl\""), std::string::npos);
+  EXPECT_NE(camera_raygen.find("#include \"CameraRayIntegrator.glsl\""), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_DIRECTIONAL_LIGHT_BLOCK_BINDING 6"), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_POINT_LIGHT_BLOCK_BINDING 7"), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_SPOT_LIGHT_BLOCK_BINDING 8"), std::string::npos);
@@ -111,29 +117,29 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
 }
 
 TEST(PunctualLightImport, RayTracingCameraAdaptsSharedLightsToReferenceGltfShape) {
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
-  ASSERT_FALSE(raygen.empty());
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  ASSERT_FALSE(integrator.empty());
 
-  EXPECT_NE(raygen.find("struct EE_CAMERA_GLTF_LIGHT"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_DIRECTIONAL_TO_GLTF_LIGHT"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_POINT_TO_GLTF_LIGHT"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_SPOT_TO_GLTF_LIGHT"), std::string::npos);
-  EXPECT_NE(raygen.find("light.diffuse.rgb"), std::string::npos);
-  EXPECT_NE(raygen.find("light.diffuse.w"), std::string::npos);
-  EXPECT_NE(raygen.find("light.reserved_parameters.x"), std::string::npos);
-  EXPECT_NE(raygen.find("light.reserved_parameters.y"), std::string::npos);
-  EXPECT_NE(raygen.find("light.cutoff_outer_inner_size_bias.z"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_REFERENCE_INV_RANGE(light.constant_linear_quadratic_far.w)"), std::string::npos);
-  EXPECT_NE(raygen.find("gltf_light.attenuation = max(light.constant_linear_quadratic_far.xyz, vec3(0.0f))"),
+  EXPECT_NE(integrator.find("struct EE_CAMERA_GLTF_LIGHT"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_DIRECTIONAL_TO_GLTF_LIGHT"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_POINT_TO_GLTF_LIGHT"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_SPOT_TO_GLTF_LIGHT"), std::string::npos);
+  EXPECT_NE(integrator.find("light.diffuse.rgb"), std::string::npos);
+  EXPECT_NE(integrator.find("light.diffuse.w"), std::string::npos);
+  EXPECT_NE(integrator.find("light.reserved_parameters.x"), std::string::npos);
+  EXPECT_NE(integrator.find("light.reserved_parameters.y"), std::string::npos);
+  EXPECT_NE(integrator.find("light.cutoff_outer_inner_size_bias.z"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_REFERENCE_INV_RANGE(light.constant_linear_quadratic_far.w)"), std::string::npos);
+  EXPECT_NE(integrator.find("gltf_light.attenuation = max(light.constant_linear_quadratic_far.xyz, vec3(0.0f))"),
             std::string::npos);
-  EXPECT_NE(raygen.find("light.use_native_attenuation > 0.5f"), std::string::npos);
-  EXPECT_NE(
-      raygen.find("light.attenuation.x + light.attenuation.y * distance + light.attenuation.z * distance * distance"),
-      std::string::npos);
-  EXPECT_NE(raygen.find("light.cutoff_outer_inner_size_bias.x"), std::string::npos);
-  EXPECT_NE(raygen.find("light.cutoff_outer_inner_size_bias.y"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_GET_GLTF_LIGHT"), std::string::npos);
-  EXPECT_NE(raygen.find("EE_CAMERA_PUNCTUAL_LIGHT_COUNT"), std::string::npos);
+  EXPECT_NE(integrator.find("light.use_native_attenuation > 0.5f"), std::string::npos);
+  EXPECT_NE(integrator.find(
+                "light.attenuation.x + light.attenuation.y * distance + light.attenuation.z * distance * distance"),
+            std::string::npos);
+  EXPECT_NE(integrator.find("light.cutoff_outer_inner_size_bias.x"), std::string::npos);
+  EXPECT_NE(integrator.find("light.cutoff_outer_inner_size_bias.y"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_GET_GLTF_LIGHT"), std::string::npos);
+  EXPECT_NE(integrator.find("EE_CAMERA_PUNCTUAL_LIGHT_COUNT"), std::string::npos);
 }
 
 TEST(PunctualLightImport, DirectionalLightIntensityKeepsSceneUnitAcrossRenderPaths) {
@@ -141,13 +147,13 @@ TEST(PunctualLightImport, DirectionalLightIntensityKeepsSceneUnitAcrossRenderPat
   const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto raster_lighting = ReadTextFile(ShaderPath("Includes/Lighting.glsl"));
   const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
 
   ASSERT_FALSE(prefab_source.empty());
   ASSERT_FALSE(render_storage.empty());
   ASSERT_FALSE(raster_lighting.empty());
   ASSERT_FALSE(ddgi_closest_hit.empty());
-  ASSERT_FALSE(raygen.empty());
+  ASSERT_FALSE(integrator.empty());
 
   EXPECT_NE(prefab_source.find("diffuse = color_with_intensity / brightness"), std::string::npos);
   EXPECT_NE(prefab_source.find("diffuse_brightness = brightness"), std::string::npos);
@@ -159,8 +165,8 @@ TEST(PunctualLightImport, DirectionalLightIntensityKeepsSceneUnitAcrossRenderPat
   EXPECT_NE(ddgi_closest_hit.find("EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb"), std::string::npos);
 
   EXPECT_NE(
-      raygen.find("const EE_CAMERA_RADIANCE_SPLIT radiance = EE_CAMERA_SPLIT_LIGHT_RADIANCE(max(light.diffuse.rgb"),
+      integrator.find("const EE_CAMERA_RADIANCE_SPLIT radiance = EE_CAMERA_SPLIT_LIGHT_RADIANCE(max(light.diffuse.rgb"),
       std::string::npos);
-  EXPECT_NE(raygen.find("gltf_light.intensity = radiance.intensity"), std::string::npos);
-  EXPECT_NE(raygen.find("irradiance = light.intensity"), std::string::npos);
+  EXPECT_NE(integrator.find("gltf_light.intensity = radiance.intensity"), std::string::npos);
+  EXPECT_NE(integrator.find("irradiance = light.intensity"), std::string::npos);
 }

@@ -107,8 +107,6 @@ void EnvironmentalMap::BuildSkyIllumination(const SkyIllumination& sky_illuminat
 
   light_probe = AssetManager::CreateTemporaryAsset<LightProbe>();
   light_probe.Get<LightProbe>()->ConstructFromCubemap(cubemap);
-  reflection_probe = AssetManager::CreateTemporaryAsset<ReflectionProbe>();
-  reflection_probe.Get<ReflectionProbe>()->ConstructFromCubemap(cubemap);
 }
 
 void EnvironmentalMap::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {
@@ -119,14 +117,11 @@ void EnvironmentalMap::ConstructFromCubemap(const std::shared_ptr<Cubemap>& targ
   if (!target_cubemap || target_cubemap->GetResolution() == 0 || !target_cubemap->GetImage()) {
     environment_cubemap.Clear();
     light_probe.Clear();
-    reflection_probe.Clear();
     return;
   }
   environment_cubemap = target_cubemap;
   light_probe = AssetManager::CreateTemporaryAsset<LightProbe>();
   light_probe.Get<LightProbe>()->ConstructFromCubemap(target_cubemap);
-  reflection_probe = AssetManager::CreateTemporaryAsset<ReflectionProbe>();
-  reflection_probe.Get<ReflectionProbe>()->ConstructFromCubemap(target_cubemap);
 }
 
 void EnvironmentalMap::ConstructFromTexture2D(const std::shared_ptr<Texture2D>& target_texture_2d) {
@@ -137,7 +132,6 @@ void EnvironmentalMap::ConstructFromTexture2D(const std::shared_ptr<Texture2D>& 
     environment_pdf_texture.Clear();
     environment_cubemap.Clear();
     light_probe.Clear();
-    reflection_probe.Clear();
     return;
   }
   const auto pdf_texture = BuildEnvironmentPdfTexture(target_texture_2d);
@@ -148,8 +142,6 @@ void EnvironmentalMap::ConstructFromTexture2D(const std::shared_ptr<Texture2D>& 
   environment_cubemap = cubemap;
   light_probe = AssetManager::CreateTemporaryAsset<LightProbe>();
   light_probe.Get<LightProbe>()->ConstructFromCubemap(cubemap);
-  reflection_probe = AssetManager::CreateTemporaryAsset<ReflectionProbe>();
-  reflection_probe.Get<ReflectionProbe>()->ConstructFromCubemap(cubemap);
 }
 
 void EnvironmentalMap::ConstructFromRenderTexture(const std::shared_ptr<RenderTexture>& target_render_texture) {
@@ -177,9 +169,7 @@ void EnvironmentalMap::EnsureEnvironmentSource() {
                          environment_pdf_texture.Get<Texture2D>();
   const auto cubemap = environment_cubemap.Get<Cubemap>();
   const auto light = light_probe.Get<LightProbe>();
-  const auto reflection = reflection_probe.Get<ReflectionProbe>();
-  if (pdf_ready && cubemap && cubemap->GetImage() && light && light->GetCubemap() && light->GetCubemap()->GetImage() &&
-      reflection && reflection->GetCubemap() && reflection->GetCubemap()->GetImage()) {
+  if (pdf_ready && cubemap && cubemap->GetImage() && light && light->GetCubemap() && light->GetCubemap()->GetImage()) {
     return;
   }
   switch (environment_source_type) {

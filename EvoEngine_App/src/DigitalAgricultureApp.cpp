@@ -100,7 +100,7 @@ void EngineSetup() {
     transform.SetEulerRotation(glm::radians(glm::vec3(15, 0, 0)));
     if (const auto main_camera = ApplicationContext::Get().GetActiveScene()->main_camera.Get<Camera>()) {
       scene->SetDataComponent(main_camera->GetOwner(), transform);
-      main_camera->camera_settings.use_clear_color = true;
+      main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
       main_camera->camera_settings.clear_color = glm::vec4(0.5f, 0.5f, 0.5f, 1.f);
     }
 #pragma endregion

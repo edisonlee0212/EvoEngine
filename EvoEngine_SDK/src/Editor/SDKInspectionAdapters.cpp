@@ -7,8 +7,8 @@
 #include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
-#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
@@ -49,9 +49,12 @@
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <limits>
 #include <map>
+#include <numeric>
+#include <unordered_map>
 
 using namespace evo_engine;
 
@@ -581,18 +584,33 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
   }
 
   if (ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
+    uint32_t background_source = static_cast<uint32_t>(Camera::ResolveBackgroundSource(camera.camera_settings));
+    if (ImGui::Combo("Source", Camera::GetBackgroundSourceNames(), background_source)) {
+      camera.camera_settings.background_source = Camera::NormalizeBackgroundSource(background_source);
+      changed = true;
+    }
     if (ImGui::DragFloat("Intensity", &camera.camera_settings.background_intensity, 0.01f, 0.0f, 10.f)) {
       changed = true;
     }
-    if (ImGui::Checkbox("Use clear color", &camera.camera_settings.use_clear_color)) {
-      changed = true;
-    }
-    if (camera.camera_settings.use_clear_color) {
-      if (ImGui::ColorEdit4("Clear Color", reinterpret_cast<float*>(&camera.camera_settings.clear_color))) {
-        changed = true;
-      }
-    } else if (editor_layer->DragAndDropButton<Cubemap>(camera.skybox, "Skybox")) {
-      changed = true;
+    switch (Camera::ResolveBackgroundSource(camera.camera_settings)) {
+      case Camera::BackgroundSource::ClearColor:
+        if (ImGui::ColorEdit4("Clear Color", reinterpret_cast<float*>(&camera.camera_settings.clear_color))) {
+          changed = true;
+        }
+        break;
+      case Camera::BackgroundSource::Cubemap:
+        if (editor_layer->DragAndDropButton<Cubemap>(camera.skybox, "Skybox")) {
+          changed = true;
+        }
+        break;
+      case Camera::BackgroundSource::EnvironmentalMap:
+        if (editor_layer->DragAndDropButton<EnvironmentalMap>(camera.background_environment, "Environmental Map")) {
+          changed = true;
+        }
+        break;
+      case Camera::BackgroundSource::InheritEnvironmentalLighting:
+      case Camera::BackgroundSource::EngineDefaultSkybox:
+        break;
     }
     ImGui::TreePop();
   }
@@ -1445,6 +1463,14 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   }
   ImGui::Checkbox("Indirect Rendering", &render_layer.enable_indirect_rendering);
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
+  const char* indirect_lighting_debug_views[] = {"Beauty", "Diffuse Indirect", "Unoccluded Probe Specular",
+                                                 "Specular Visibility", "Occluded Probe Specular"};
+  auto indirect_lighting_debug_view = static_cast<int>(render_layer.render_settings.indirect_lighting_debug_view);
+  if (ImGui::Combo("Indirect lighting debug", &indirect_lighting_debug_view, indirect_lighting_debug_views,
+                   IM_ARRAYSIZE(indirect_lighting_debug_views))) {
+    render_layer.render_settings.indirect_lighting_debug_view = static_cast<RenderSettings::IndirectLightingDebugView>(
+        glm::clamp(indirect_lighting_debug_view, 0, static_cast<int>(IM_ARRAYSIZE(indirect_lighting_debug_views)) - 1));
+  }
   ImGui::Checkbox("Full camera-ray shaders", &render_layer.force_full_ray_camera_shader_variant);
   auto capture_gpu_timing = Platform::GpuTimestampCaptureEnabled();
   if (ImGui::Checkbox("Capture live GPU timing", &capture_gpu_timing)) {
@@ -1672,83 +1698,6 @@ void InspectStrandsSettings(RenderSettings& render_settings) {
   ImGui::DragInt("Max ring subdivision", &render_settings.strands_subdivision_max_y, 1, 1, 15);
 }
 
-bool InspectVolumetricCloudSettings(VolumetricCloudSettings& settings) {
-  settings.ClampSettings();
-  bool modified = false;
-  if (ImGui::Checkbox("Enable volumetric clouds", &settings.enabled))
-    modified = true;
-  if (ImGui::DragFloat("Coverage", &settings.coverage, 0.001f, 0.0f, 1.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Density", &settings.density, 0.001f, 0.0f, 10.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Bottom altitude", &settings.bottom_altitude, 10.0f, 0.0f, 100000.0f, "%.1f"))
-    modified = true;
-  if (ImGui::DragFloat("Top altitude", &settings.top_altitude, 10.0f, 1.0f, 100000.0f, "%.1f"))
-    modified = true;
-  if (ImGui::DragFloat("Max march distance", &settings.max_march_distance, 10.0f, 1.0f, 1000000.0f, "%.1f"))
-    modified = true;
-  if (ImGui::DragFloat2("Wind direction", &settings.wind_direction.x, 0.001f, -1.0f, 1.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Wind speed", &settings.wind_speed, 0.1f, 0.0f, 10000.0f, "%.1f"))
-    modified = true;
-  if (ImGui::DragInt("Primary steps", &settings.primary_step_count, 1.0f, 1, 512))
-    modified = true;
-  if (ImGui::DragInt("Light steps", &settings.light_step_count, 1.0f, 1, 128))
-    modified = true;
-  int resolution_mode = settings.resolution_divisor == 4 ? 2 : (settings.resolution_divisor == 2 ? 1 : 0);
-  const char* resolution_modes[] = {"Full", "Half", "Quarter"};
-  if (ImGui::Combo("Cloud resolution", &resolution_mode, resolution_modes, IM_ARRAYSIZE(resolution_modes))) {
-    settings.resolution_divisor = resolution_mode == 2 ? 4 : (resolution_mode == 1 ? 2 : 1);
-    modified = true;
-  }
-  if (ImGui::DragFloat("Lighting intensity", &settings.lighting_intensity, 0.01f, 0.0f, 100.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Ambient lighting", &settings.ambient_lighting_strength, 0.01f, 0.0f, 10.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Phase anisotropy", &settings.phase_anisotropy, 0.001f, -0.99f, 0.99f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Base noise scale", &settings.base_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
-    modified = true;
-  if (ImGui::DragFloat("Detail noise scale", &settings.detail_noise_scale, 0.001f, 0.00001f, 10.0f, "%.5f"))
-    modified = true;
-  if (ImGui::DragFloat("Extinction scale", &settings.extinction_scale, 0.001f, 0.00001f, 1.0f, "%.5f"))
-    modified = true;
-  if (ImGui::Checkbox("Spherical atmosphere", &settings.use_spherical_atmosphere))
-    modified = true;
-  if (ImGui::DragFloat("Atmosphere radius", &settings.atmosphere_radius, 10.0f, 10.0f, 10000000.0f, "%.1f"))
-    modified = true;
-  if (ImGui::DragFloat("Cloud type", &settings.cloud_type, 0.001f, 0.0f, 1.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Curl strength", &settings.curl_strength, 0.01f, 0.0f, 1000.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragFloat("Coarse step fraction", &settings.coarse_step_fraction, 0.001f, 0.0001f, 1.0f, "%.4f"))
-    modified = true;
-  if (ImGui::DragFloat("Fine step scale", &settings.fine_step_scale, 0.001f, 0.01f, 1.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragInt("Empty-step fallback", &settings.empty_step_fallback_count, 1.0f, 1, 64))
-    modified = true;
-  if (ImGui::Checkbox("Temporal reprojection", &settings.enable_temporal_reprojection))
-    modified = true;
-  if (ImGui::DragFloat("Temporal blend", &settings.temporal_blend_factor, 0.001f, 0.0f, 0.98f, "%.3f"))
-    modified = true;
-  if (ImGui::Checkbox("Cloud shadows", &settings.enable_cloud_shadows))
-    modified = true;
-  if (ImGui::DragFloat("Cloud shadow strength", &settings.cloud_shadow_strength, 0.001f, 0.0f, 1.0f, "%.3f"))
-    modified = true;
-  if (ImGui::DragInt("Cloud shadow steps", &settings.cloud_shadow_step_count, 1.0f, 1, 64))
-    modified = true;
-  if (ImGui::Checkbox("Cloud debug", &settings.debug_visualization))
-    modified = true;
-  const char* debug_modes[] = {"Final composite", "Final density",  "Transmittance",   "March depth",
-                               "Base shape",      "Detail erosion", "Weather coverage"};
-  if (ImGui::Combo("Cloud debug mode", &settings.debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes)))
-    modified = true;
-  if (modified) {
-    settings.ClampSettings();
-  }
-  return modified;
-}
-
 void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   auto& runtime = settings.runtime;
   runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
@@ -1760,14 +1709,10 @@ void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   runtime.distance_exponent = glm::clamp(runtime.distance_exponent, 0.0f, 256.0f);
   runtime.irradiance_gamma = glm::clamp(runtime.irradiance_gamma, 0.1f, 16.0f);
   runtime.visibility_moment_bias = glm::clamp(runtime.visibility_moment_bias, 0.0f, 10.0f);
-  runtime.indirect_intensity = glm::clamp(runtime.indirect_intensity, 0.0f, 10.0f);
   runtime.irradiance_threshold = glm::clamp(runtime.irradiance_threshold, 0.0f, 1.0f);
   runtime.brightness_threshold = glm::clamp(runtime.brightness_threshold, 0.0f, 1.0f);
 
   auto& volume = settings.volume_defaults;
-  volume.probe_counts.x = glm::clamp(volume.probe_counts.x, 1, 256);
-  volume.probe_counts.y = glm::clamp(volume.probe_counts.y, 1, 256);
-  volume.probe_counts.z = glm::clamp(volume.probe_counts.z, 1, 256);
   volume.probe_spacing = glm::clamp(volume.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f));
   volume.movement_type = glm::clamp(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
                                     static_cast<int>(DdgiVolumeMovementType::Scrolling));
@@ -1777,16 +1722,7 @@ void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   volume.probe_variability_threshold = glm::clamp(volume.probe_variability_threshold, 0.0f, 10.0f);
   volume.probe_variability_min_samples = glm::clamp(volume.probe_variability_min_samples, 0, 4096);
 
-  auto& storage = settings.storage;
-  storage.max_probe_count = glm::clamp(storage.max_probe_count, 1, 16777216);
-  storage.irradiance_tile_resolution = glm::clamp(storage.irradiance_tile_resolution, 1, 128);
-  storage.visibility_tile_resolution = glm::clamp(storage.visibility_tile_resolution, 1, 128);
-  storage.atlas_probe_columns = glm::clamp(storage.atlas_probe_columns, 1, 4096);
-
   auto& debug = settings.debug;
-  const auto probe_count = RenderLayer::GetDdgiAllocatedProbeCount(settings);
-  debug.selected_probe_index = glm::clamp(debug.selected_probe_index, 0, static_cast<int>(probe_count - 1u));
-  debug.atlas_layer = glm::clamp(debug.atlas_layer, 0, 4096);
   debug.visualization_scale = glm::clamp(debug.visualization_scale, 0.01f, 1000.0f);
   debug.probe_visualization_mode = glm::clamp(debug.probe_visualization_mode, 0, 3);
   debug.probe_visualization_depth_mode = glm::clamp(debug.probe_visualization_depth_mode, 0, 1);
@@ -1796,21 +1732,68 @@ void ClampDdgiSettings(RenderLayer::DdgiSettings& settings) {
   debug.selected_probe_visualization_scale = glm::clamp(debug.selected_probe_visualization_scale, 1.0f, 1000.0f);
 }
 
-bool DrawDdgiVolumeTriggerConditionCheckbox(const char* label, int& trigger_conditions, const int condition) {
-  bool enabled = (trigger_conditions & condition) != 0;
-  if (ImGui::Checkbox(label, &enabled)) {
-    if (enabled) {
-      trigger_conditions |= condition;
-    } else {
-      trigger_conditions &= ~condition;
-    }
-    trigger_conditions &= DdgiVolumeTriggerConditionAll;
-    return true;
+bool InspectDdgiRuntimeControls(DdgiSettings::RuntimeSettings& runtime) {
+  bool changed = false;
+  changed = ImGui::Checkbox("Enable DDGI", &runtime.enabled) || changed;
+  ImGui::SameLine();
+  changed = ImGui::Checkbox("Pause updates", &runtime.pause_updates) || changed;
+  if (ImGui::Button("Invalidate history now")) {
+    runtime.reset_probe_history = true;
+    changed = true;
   }
-  return false;
+  changed = ImGui::Checkbox("Invalidate history next frame", &runtime.reset_probe_history) || changed;
+  return changed;
 }
 
-void DrawDdgiAtlasReadout(const char* label, const RenderLayer::DdgiProbeDebugCoordinates& coordinates) {
+bool DrawDdgiVolumeTriggerConditionCheckbox(const char* label, int& conditions, const int condition) {
+  bool enabled = (conditions & condition) != 0;
+  if (!ImGui::Checkbox(label, &enabled)) {
+    return false;
+  }
+  if (enabled) {
+    conditions |= condition;
+  } else {
+    conditions &= ~condition;
+  }
+  conditions &= DdgiVolumeTriggerConditionAll;
+  return true;
+}
+
+bool InspectDdgiVolumeTriggerConditions(const char* label, int& conditions) {
+  bool changed = false;
+  conditions &= DdgiVolumeTriggerConditionAll;
+  if (ImGui::TreeNode(label)) {
+    changed = DrawDdgiVolumeTriggerConditionCheckbox("Light enable changed", conditions,
+                                                     DdgiVolumeTriggerConditionLightEnableChanged) ||
+              changed;
+    changed = DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition changed", conditions,
+                                                     DdgiVolumeTriggerConditionLightingConditionChanged) ||
+              changed;
+    changed = DrawDdgiVolumeTriggerConditionCheckbox("Geometry changed", conditions,
+                                                     DdgiVolumeTriggerConditionGeometryChanged) ||
+              changed;
+    if (ImGui::Button("Enable all")) {
+      changed = conditions != DdgiVolumeTriggerConditionAll || changed;
+      conditions = DdgiVolumeTriggerConditionAll;
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Disable all")) {
+      changed = conditions != DdgiVolumeTriggerConditionNone || changed;
+      conditions = DdgiVolumeTriggerConditionNone;
+    }
+    ImGui::TreePop();
+  }
+  return changed;
+}
+
+struct DdgiProbeDebugCoordinates {
+  uint32_t probe_index = 0;
+  glm::uvec3 grid_index = {0, 0, 0};
+  glm::uvec2 atlas_tile_offset = {0, 0};
+  RenderLayer::DdgiAtlasLayout atlas_layout{};
+};
+
+void DrawDdgiAtlasReadout(const char* label, const DdgiProbeDebugCoordinates& coordinates) {
   ImGui::Text("%s atlas: %u x %u", label, coordinates.atlas_layout.resolution.x, coordinates.atlas_layout.resolution.y);
   ImGui::Text("%s tile: %u, %u", label, coordinates.atlas_tile_offset.x, coordinates.atlas_tile_offset.y);
   const auto tile_stride = coordinates.atlas_layout.tile_resolution + 2u;
@@ -1839,24 +1822,36 @@ uint32_t GetScrolledDdgiProbeIndex(const glm::uvec3& logical_probe_grid, const g
   return GetDdgiProbeIndexFromGrid(glm::ivec3(logical_probe_grid) + probe_scroll_offset, probe_counts);
 }
 
-const RenderLayer::DdgiVolumeRuntimeInfo* GetSelectedDdgiVolumeInfo(
-    const std::vector<RenderLayer::DdgiVolumeRuntimeInfo>& volume_infos) {
-  if (volume_infos.empty()) {
-    return nullptr;
-  }
-  return &volume_infos.front();
+uint32_t GetDdgiMaxImageDimension2D() {
+  const auto device = Platform::GetSelectedPhysicalDevice();
+  return device ? device->properties.limits.maxImageDimension2D : 0u;
 }
 
-RenderLayer::DdgiProbeDebugCoordinates CalculateActiveDdgiProbeDebugCoordinates(
-    const RenderLayer::DdgiSettings& settings, const glm::ivec3& active_probe_counts, const uint32_t tile_resolution) {
-  RenderLayer::DdgiProbeDebugCoordinates coordinates;
+uint64_t GetDdgiMaxStorageBufferRange() {
+  const auto device = Platform::GetSelectedPhysicalDevice();
+  return device ? device->properties.limits.maxStorageBufferRange : 0u;
+}
+
+DdgiProbeDebugCoordinates CalculateActiveDdgiProbeDebugCoordinates(const RenderLayer::DdgiSettings& settings,
+                                                                   const glm::ivec3& active_probe_counts,
+                                                                   const uint32_t tile_resolution) {
+  DdgiProbeDebugCoordinates coordinates;
   const auto active_probe_count = RenderLayer::GetDdgiProbeCount(active_probe_counts);
   const auto allocated_probe_count = RenderLayer::GetDdgiAllocatedProbeCount(settings, active_probe_count);
+  if (active_probe_count == 0u || allocated_probe_count == 0u || tile_resolution == 0u ||
+      settings.storage.atlas_probe_columns <= 0) {
+    coordinates.atlas_layout.error = "Invalid DDGI probe or atlas configuration.";
+    return coordinates;
+  }
   coordinates.probe_index =
       glm::min(static_cast<uint32_t>(glm::max(settings.debug.selected_probe_index, 0)), active_probe_count - 1u);
   coordinates.grid_index = RenderLayer::GetDdgiProbeGridIndex(active_probe_counts, coordinates.probe_index);
   coordinates.atlas_layout = RenderLayer::CalculateDdgiAtlasLayout(
-      allocated_probe_count, tile_resolution, static_cast<uint32_t>(glm::max(settings.storage.atlas_probe_columns, 1)));
+      allocated_probe_count, tile_resolution, static_cast<uint32_t>(settings.storage.atlas_probe_columns),
+      GetDdgiMaxImageDimension2D());
+  if (!coordinates.atlas_layout.valid) {
+    return coordinates;
+  }
   const auto tile_stride = coordinates.atlas_layout.tile_resolution + 2u;
   coordinates.atlas_tile_offset = {(coordinates.probe_index % coordinates.atlas_layout.columns) * tile_stride,
                                    (coordinates.probe_index / coordinates.atlas_layout.columns) * tile_stride};
@@ -1886,9 +1881,6 @@ void DrawDdgiSelectedProbeStateReadout(const RenderLayer::DdgiProbeDebugDataView
   ImGui::Text("Selected visibility distance: %.3f", visibility_sample.x);
   ImGui::Text("Selected relocation: %.3f, %.3f, %.3f", state_sample.x, state_sample.y, state_sample.z);
   ImGui::Text("Selected relocation amount: %.3f", visibility_sample.z);
-  if (debug_data.update_ages && selected_physical_probe < debug_data.update_ages->size()) {
-    ImGui::Text("Selected update age: %.0f frames", (*debug_data.update_ages)[selected_physical_probe]);
-  }
 }
 
 enum class DdgiRaySampleType { Frontface, Backface, Miss, Inactive };
@@ -1982,9 +1974,7 @@ void DrawDdgiSelectedProbeRayReadout(const RenderLayer::DdgiProbeDebugDataView& 
 }
 
 void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& probe_scroll_offset,
-                         const glm::ivec3& last_probe_scroll_delta, const uint32_t pending_probe_update_count,
-                         const std::string& last_probe_update_reasons,
-                         const RenderLayer::DdgiProbeUpdateStats& last_probe_update_stats,
+                         const glm::ivec3& last_probe_scroll_delta, const std::string& last_probe_update_reasons,
                          const RenderLayer::DdgiPerformanceStats& performance_stats,
                          const RenderLayer::DdgiProbeDebugDataView& probe_debug_data, const bool show_header = true) {
   if (show_header && !ImGui::CollapsingHeader("DDGI", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1999,40 +1989,39 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
   auto& debug = settings.debug;
   const auto volume_infos =
       RenderLayer::CollectDdgiVolumeRuntimeInfos(ApplicationContext::Get().GetActiveScene(), settings);
-  const auto* selected_volume_info = GetSelectedDdgiVolumeInfo(volume_infos);
-  const auto active_probe_counts = selected_volume_info ? selected_volume_info->probe_counts : volume.probe_counts;
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto runtime_volume_stats =
+      render_layer ? render_layer->GetDdgiVolumeRuntimeStats() : std::vector<RenderLayer::DdgiVolumeRuntimeStats>{};
+  const auto* selected_volume_info = runtime_volume_stats.empty()
+                                         ? (volume_infos.empty() ? nullptr : &volume_infos.front())
+                                         : [&]() -> const RenderLayer::DdgiVolumeRuntimeInfo* {
+    const auto found = std::find_if(volume_infos.begin(), volume_infos.end(), [&](const auto& info) {
+      return info.stable_entity_id == runtime_volume_stats.front().stable_entity_id;
+    });
+    return found != volume_infos.end() ? &*found : nullptr;
+  }();
+  const auto active_probe_counts = !runtime_volume_stats.empty() ? runtime_volume_stats.front().probe_counts
+                                   : selected_volume_info        ? selected_volume_info->probe_counts
+                                                                 : volume.probe_counts;
   const auto active_probe_count = RenderLayer::GetDdgiProbeCount(active_probe_counts);
   auto probe_count = RenderLayer::GetDdgiAllocatedProbeCount(settings, active_probe_count);
   auto irradiance_coordinates = CalculateActiveDdgiProbeDebugCoordinates(
       settings, active_probe_counts, static_cast<uint32_t>(storage.irradiance_tile_resolution));
   auto visibility_coordinates = CalculateActiveDdgiProbeDebugCoordinates(
       settings, active_probe_counts, static_cast<uint32_t>(storage.visibility_tile_resolution));
-  auto frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings, active_probe_count);
+  auto frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(
+      settings, active_probe_count, GetDdgiMaxImageDimension2D(), GetDdgiMaxStorageBufferRange());
 
-  ImGui::Checkbox("Enable DDGI", &runtime.enabled);
-  ImGui::SameLine();
-  ImGui::Checkbox("Pause updates", &runtime.pause_updates);
-  ImGui::SameLine();
-  if (ImGui::Button("Reset history")) {
-    runtime.reset_probe_history = true;
-  }
-  ImGui::SameLine();
-  ImGui::Checkbox("Reset pending", &runtime.reset_probe_history);
+  InspectDdgiRuntimeControls(runtime);
 
   if (ImGui::TreeNodeEx("Runtime", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Text("Active probes: %u", active_probe_count);
     ImGui::Text("Storage probes: %u", probe_count);
     ImGui::Text("Selected probe: %u", irradiance_coordinates.probe_index);
     ImGui::Text("Last probe update: %s", last_probe_update_reasons.c_str());
-    ImGui::Text("Last update probes: %u", last_probe_update_stats.probe_count);
-    if (last_probe_update_stats.probe_count != 0u) {
-      ImGui::Text("Last update index range: %u - %u", last_probe_update_stats.first_probe_index,
-                  last_probe_update_stats.last_probe_index);
-    }
     ImGui::Text("DDGI scroll offset: %d, %d, %d", probe_scroll_offset.x, probe_scroll_offset.y, probe_scroll_offset.z);
     ImGui::Text("DDGI scroll delta: %d, %d, %d", last_probe_scroll_delta.x, last_probe_scroll_delta.y,
                 last_probe_scroll_delta.z);
-    ImGui::Text("DDGI pending probes: %u", pending_probe_update_count);
     ImGui::Text("DDGI frame CPU: %.3f ms", performance_stats.frame_graph_execute_ms);
     ImGui::Text("DDGI record CPU atlas/rays/update/relocate/classify: %.3f / %.3f / %.3f / %.3f / %.3f ms",
                 performance_stats.atlas_prepare_record_ms, performance_stats.ray_diagnostics_record_ms,
@@ -2044,6 +2033,9 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
                 performance_stats.probe_variability_stable_sample_count,
                 performance_stats.probe_variability_required_stable_sample_count,
                 performance_stats.probe_variability_converged ? "converged" : "updating");
+    ImGui::Text("DDGI refresh age: %u/%u, %s", performance_stats.probe_variability_refresh_age,
+                RenderLayer::kDdgiProbeRefreshInterval,
+                performance_stats.probe_variability_refresh_waiting ? "waiting for readback" : "idle");
     ImGui::Text("DDGI warm up: %u/%u, hysteresis %.3f, %s", performance_stats.probe_warmup_frame_index,
                 performance_stats.probe_warmup_frame_count, performance_stats.probe_update_hysteresis,
                 performance_stats.probe_warmup_active ? "active" : "complete");
@@ -2051,12 +2043,20 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
                 performance_stats.probe_ray_visualization_record_ms);
     ImGui::Text("DDGI ray samples: %u (%u rays/probe)", performance_stats.ray_sample_count,
                 performance_stats.ray_count);
+    ImGui::Text("DDGI emissive triangles/enabled volumes: %u / %u", performance_stats.emissive_triangle_count,
+                performance_stats.emissive_sampling_enabled_volume_count);
+    ImGui::Text("DDGI emissive candidate rays (upper bound): %llu",
+                static_cast<unsigned long long>(performance_stats.emissive_sampling_candidate_ray_count));
+    ImGui::Text("DDGI recorded probes/rays: %u / %u, lighting bind: %s", performance_stats.recorded_probe_update_count,
+                performance_stats.recorded_ray_sample_count,
+                performance_stats.lighting_descriptors_bound ? "ready" : "fallback");
     ImGui::Text("DDGI visualized probes/rays: %u / %u", performance_stats.visualized_probe_count,
                 performance_stats.selected_ray_sample_count);
-    ImGui::Text("DDGI buffer bytes metadata/state/rays: %llu / %llu / %llu",
+    ImGui::Text("DDGI buffer bytes metadata/state/rays/selected: %llu / %llu / %llu / %llu",
                 static_cast<unsigned long long>(performance_stats.probe_metadata_byte_size),
                 static_cast<unsigned long long>(performance_stats.probe_state_byte_size),
-                static_cast<unsigned long long>(performance_stats.ray_output_byte_size));
+                static_cast<unsigned long long>(performance_stats.ray_output_byte_size),
+                static_cast<unsigned long long>(performance_stats.selected_ray_diagnostics_byte_size));
     ImGui::Text("DDGI atlas sizes: %u x %u / %u x %u", performance_stats.irradiance_atlas_extent.x,
                 performance_stats.irradiance_atlas_extent.y, performance_stats.visibility_atlas_extent.x,
                 performance_stats.visibility_atlas_extent.y);
@@ -2075,17 +2075,27 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
     ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f, "%.3f");
     ImGui::DragFloat("Irradiance threshold", &runtime.irradiance_threshold, 0.001f, 0.0f, 1.0f, "%.3f");
     ImGui::DragFloat("Brightness threshold", &runtime.brightness_threshold, 0.001f, 0.0f, 1.0f, "%.3f");
-    ImGui::DragFloat("Indirect intensity", &runtime.indirect_intensity, 0.01f, 0.0f, 10.0f, "%.3f");
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Ray tracing", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragInt("Ray count", &runtime.ray_count, 1.0f, 1, 4096);
+    ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling);
+    const auto previous_ray_count = runtime.ray_count;
+    const bool ray_count_changed = ImGui::DragInt("Ray count", &runtime.ray_count, 1.0f, 1, 4096);
     ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f);
     ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f");
     ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f");
     ClampDdgiSettings(settings);
-    frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings, active_probe_count);
+    frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(
+        settings, active_probe_count, GetDdgiMaxImageDimension2D(), GetDdgiMaxStorageBufferRange());
+    if (ray_count_changed && !frame_layout.valid) {
+      const auto error = frame_layout.error;
+      runtime.ray_count = previous_ray_count;
+      frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(
+          settings, active_probe_count, GetDdgiMaxImageDimension2D(), GetDdgiMaxStorageBufferRange());
+      ImGui::TextColored({1.0f, 0.35f, 0.2f, 1.0f}, "%s", error.c_str());
+      EVOENGINE_ERROR("DDGI ray-count edit rejected: " + error)
+    }
     ImGui::Text("Ray samples: %llu",
                 static_cast<unsigned long long>(frame_layout.probe_count * static_cast<uint32_t>(runtime.ray_count)));
     ImGui::Text("Ray output bytes: %llu", static_cast<unsigned long long>(frame_layout.ray_output_byte_size));
@@ -2093,12 +2103,23 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
   }
 
   if (ImGui::TreeNodeEx("Atlas storage", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragInt("Max probe count", &storage.max_probe_count, 1.0f, 1, 16777216);
-    ImGui::DragInt("Atlas probe columns", &storage.atlas_probe_columns, 1.0f, 1, 4096);
-    ImGui::DragInt("Irradiance tile resolution", &storage.irradiance_tile_resolution, 1.0f, 1, 128);
-    ImGui::DragInt("Visibility tile resolution", &storage.visibility_tile_resolution, 1.0f, 1, 128);
-    ImGui::DragInt("Atlas layer", &debug.atlas_layer, 1.0f, 0, 4096);
+    const auto previous_storage = storage;
+    bool storage_changed = false;
+    storage_changed |= ImGui::DragInt("Max probe count", &storage.max_probe_count, 1.0f, 1, 16777216);
+    storage_changed |= ImGui::DragInt("Atlas probe columns", &storage.atlas_probe_columns, 1.0f, 1, 4096);
+    storage_changed |= ImGui::DragInt("Irradiance tile resolution", &storage.irradiance_tile_resolution, 1.0f, 1, 128);
+    storage_changed |= ImGui::DragInt("Visibility tile resolution", &storage.visibility_tile_resolution, 1.0f, 1, 128);
     ClampDdgiSettings(settings);
+    frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(
+        settings, active_probe_count, GetDdgiMaxImageDimension2D(), GetDdgiMaxStorageBufferRange());
+    if (storage_changed && !frame_layout.valid) {
+      const auto error = frame_layout.error;
+      storage = previous_storage;
+      frame_layout = RenderLayer::CalculateDdgiFrameResourceLayout(
+          settings, active_probe_count, GetDdgiMaxImageDimension2D(), GetDdgiMaxStorageBufferRange());
+      ImGui::TextColored({1.0f, 0.35f, 0.2f, 1.0f}, "%s", error.c_str());
+      EVOENGINE_ERROR("DDGI storage edit rejected: " + error)
+    }
     probe_count = RenderLayer::GetDdgiAllocatedProbeCount(settings, active_probe_count);
     irradiance_coordinates = CalculateActiveDdgiProbeDebugCoordinates(
         settings, active_probe_counts, static_cast<uint32_t>(storage.irradiance_tile_resolution));
@@ -2115,18 +2136,13 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
 
   if (ImGui::TreeNodeEx("Debug visualization", ImGuiTreeNodeFlags_DefaultOpen)) {
     ImGui::Checkbox("Enable debug visualization", &debug.enabled);
-    ImGui::Checkbox("Volume bounds", &debug.visualize_volume_bounds);
     ImGui::Checkbox("Probe positions", &debug.visualize_probe_positions);
     ImGui::Checkbox("Selected probe", &debug.visualize_selected_probe);
     ImGui::Checkbox("Probe state", &debug.visualize_probe_state);
     ImGui::Checkbox("Probe illumination", &debug.visualize_probe_illumination);
-    ImGui::Checkbox("Atlas preview", &debug.show_atlas_preview);
-    ImGui::Checkbox("Update age", &debug.show_update_age);
     ImGui::Checkbox("Rays", &debug.show_rays);
-    ImGui::Checkbox("Irradiance", &debug.show_irradiance);
-    ImGui::Checkbox("Visibility", &debug.show_visibility);
-    ImGui::Checkbox("Sampling weights", &debug.show_sampling_weights);
-    ImGui::DragInt("Selected probe index", &debug.selected_probe_index, 1.0f, 0, static_cast<int>(probe_count - 1u));
+    ImGui::DragInt("Selected probe index", &debug.selected_probe_index, 1.0f, 0,
+                   static_cast<int>(glm::max(probe_count, 1u) - 1u));
     ImGui::DragFloat("Visualization scale", &debug.visualization_scale, 0.01f, 0.01f, 1000.0f);
     const char* probe_visualization_modes[] = {"Atlas irradiance", "Probe metadata", "Visibility", "Hit ratio"};
     ImGui::Combo("Probe color mode", &debug.probe_visualization_mode, probe_visualization_modes,
@@ -2145,22 +2161,36 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
                 irradiance_coordinates.grid_index.z);
     ImGui::Text("Selected atlas column: %u", irradiance_coordinates.atlas_layout.columns);
     const auto selected_logical_probe =
-        GetDdgiProbeIndexFromGrid(glm::ivec3(irradiance_coordinates.grid_index), volume.probe_counts);
+        GetDdgiProbeIndexFromGrid(glm::ivec3(irradiance_coordinates.grid_index), active_probe_counts);
     const auto selected_physical_probe =
-        GetScrolledDdgiProbeIndex(irradiance_coordinates.grid_index, probe_scroll_offset, volume.probe_counts);
+        GetScrolledDdgiProbeIndex(irradiance_coordinates.grid_index, probe_scroll_offset, active_probe_counts);
     DrawDdgiSelectedProbeStateReadout(probe_debug_data, selected_logical_probe, selected_physical_probe);
     DrawDdgiSelectedProbeRayReadout(probe_debug_data, debug.show_rays);
     ImGui::TreePop();
   }
 
   if (ImGui::TreeNodeEx("Volume selection")) {
-    ImGui::Text("Active policy: single selected volume");
+    const auto aggregate_probe_count =
+        std::accumulate(volume_infos.begin(), volume_infos.end(), 0ull,
+                        [](const uint64_t total, const RenderLayer::DdgiVolumeRuntimeInfo& info) {
+                          return total + info.probe_count;
+                        });
+    ImGui::Text("Policy: priority, density, stable entity ID");
+    ImGui::Text("Influence: one primary; boundary: at most one secondary");
     ImGui::Text("Enabled volumes: %llu", static_cast<unsigned long long>(volume_infos.size()));
+    ImGui::Text("Resident probes: %llu / %u", static_cast<unsigned long long>(aggregate_probe_count),
+                RenderLayer::kDdgiMaxResidentProbeCount);
+    ImGui::Text("Volume limit: %u / %u", static_cast<uint32_t>(volume_infos.size()), RenderLayer::kDdgiMaxVolumeCount);
     if (selected_volume_info) {
-      ImGui::Text("Active owner index: %u", selected_volume_info->owner_index);
-      ImGui::Text("Active probes: %u (%d, %d, %d)", selected_volume_info->probe_count,
+      ImGui::Text("Primary priority: %d", selected_volume_info->artist_priority);
+      ImGui::Text("Primary density: %.6f", selected_volume_info->probe_density);
+      ImGui::Text("Primary probes: %u (%d, %d, %d)", selected_volume_info->probe_count,
                   selected_volume_info->probe_counts.x, selected_volume_info->probe_counts.y,
                   selected_volume_info->probe_counts.z);
+      if (!runtime_volume_stats.empty()) {
+        ImGui::Text("Primary emissive sampling: %s",
+                    runtime_volume_stats.front().emissive_mesh_sampling_enabled ? "enabled" : "disabled");
+      }
     }
     ImGui::TreePop();
   }
@@ -2168,7 +2198,31 @@ void InspectDdgiSettings(RenderLayer::DdgiSettings& settings, const glm::ivec3& 
   ClampDdgiSettings(settings);
 }
 
-bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
+void RenderEnvironmentalLightingProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer,
+                                            const EnvironmentalLighting& lighting, const glm::vec4& color);
+
+void RenderReflectionProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene,
+                                 const glm::vec4& color);
+
+void InspectRenderLayerDebugRendering(InspectorContext& context) {
+  if (!ImGui::TreeNodeEx("Debug rendering##RenderLayer")) {
+    return;
+  }
+  static bool display_reflection_probe_bounds = false;
+  static auto reflection_probe_bounds_color = glm::vec4(1.0f, 0.78f, 0.1f, 0.35f);
+  ImGui::Checkbox("Display all reflection probe bounds##RenderLayer", &display_reflection_probe_bounds);
+  ImGui::ColorEdit4("Reflection probe bounds color##RenderLayer",
+                    static_cast<float*>(static_cast<void*>(&reflection_probe_bounds_color)));
+  if (display_reflection_probe_bounds) {
+    const auto scene = context.scene ? context.scene : ApplicationContext::Get().GetActiveScene();
+    const auto editor_layer =
+        context.editor_layer ? context.editor_layer : ApplicationContext::Get().GetLayer<EditorLayer>();
+    RenderReflectionProbeBounds(editor_layer, scene, reflection_probe_bounds_color);
+  }
+  ImGui::TreePop();
+}
+
+bool InspectRenderLayer(InspectorContext& context, RenderLayer& render_layer) {
   const auto window_title =
       render_layer.force_ddgi_inspection_layout ? "RenderLayer DDGI Atlas" : render_layer.GetLayerName();
   bool open = render_layer.enable_inspection;
@@ -2202,8 +2256,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
         ImGui::SetScrollY(520.0f);
       }
       InspectDdgiSettings(ddgi_settings, render_layer.GetDdgiProbeScrollOffset(),
-                          render_layer.GetDdgiLastProbeScrollDelta(), render_layer.GetDdgiPendingProbeUpdateCount(),
-                          render_layer.GetDdgiLastProbeUpdateReasonText(), render_layer.GetDdgiLastProbeUpdateStats(),
+                          render_layer.GetDdgiLastProbeScrollDelta(), render_layer.GetDdgiLastProbeUpdateReasonText(),
                           render_layer.GetDdgiLastPerformanceStats(), probe_debug_data, false);
       if (use_forced_scroll) {
         ImGui::EndChild();
@@ -2218,6 +2271,7 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
     }
     if (ImGui::BeginTabItem("General")) {
       InspectRenderLayerGeneralSettings(render_layer);
+      InspectRenderLayerDebugRendering(context);
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Stats")) {
@@ -2242,6 +2296,10 @@ bool InspectRenderLayer(InspectorContext&, RenderLayer& render_layer) {
   return false;
 }
 
+std::shared_ptr<Scene> ResolveInspectorScene(InspectorContext& context) {
+  return context.scene ? context.scene : ApplicationContext::Get().GetActiveScene();
+}
+
 bool InspectScene(InspectorContext& context, Scene& scene) {
   const auto& editor_layer = context.editor_layer;
   if (!editor_layer) {
@@ -2254,36 +2312,11 @@ bool InspectScene(InspectorContext& context, Scene& scene) {
       modified = true;
   }
   if (ImGui::TreeNodeEx("Environment Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const char* environment_types[]{"Environmental Map", "Color"};
-    int type = static_cast<int>(scene.environment.environment_type);
-    if (ImGui::Combo("Environment type", &type, environment_types, IM_ARRAYSIZE(environment_types))) {
-      scene.environment.environment_type = static_cast<Scene::EnvironmentType>(type);
+    if (editor_layer->DragAndDropButton<GlobalReflectionProbe>(scene.global_reflection_probe_fallback,
+                                                               "Global Reflection Probe Fallback"))
       modified = true;
-    }
-    switch (scene.environment.environment_type) {
-      case Scene::EnvironmentType::EnvironmentalMap: {
-        if (editor_layer->DragAndDropButton<EnvironmentalMap>(scene.environment.environmental_map, "Environmental Map"))
-          modified = true;
-      } break;
-      case Scene::EnvironmentType::Color: {
-        if (ImGui::ColorEdit3("Background Color", &scene.environment.background_color.x))
-          modified = true;
-      } break;
-    }
-    if (ImGui::DragFloat("Environmental light intensity", &scene.environment.ambient_light_intensity, 0.01f, 0.0f,
-                         10.0f))
+    if (editor_layer->DragAndDropButton<EnvironmentalLighting>(scene.environmental_lighting, "Environmental Lighting"))
       modified = true;
-    if (ImGui::DragFloat("Environmental light gamma", &scene.environment.environment_gamma, 0.01f, 0.0f, 10.0f)) {
-      modified = true;
-    }
-    if (ImGui::SliderAngle("Environment rotation", &scene.environment.environment_rotation, -360.0f, 360.0f)) {
-      modified = true;
-    }
-    if (ImGui::TreeNodeEx("Volumetric clouds", ImGuiTreeNodeFlags_DefaultOpen)) {
-      if (InspectVolumetricCloudSettings(scene.environment.volumetric_cloud_settings))
-        modified = true;
-      ImGui::TreePop();
-    }
     ImGui::TreePop();
   }
   if (ImGui::TreeNodeEx("Systems")) {
@@ -2534,9 +2567,100 @@ bool InspectLightProbe(InspectorContext&, LightProbe& light_probe) {
   return cubemap ? InspectCubemapPreviewFaces(*cubemap) : false;
 }
 
-bool InspectReflectionProbe(InspectorContext&, ReflectionProbe& reflection_probe) {
+bool InspectGlobalReflectionProbe(InspectorContext& context, GlobalReflectionProbe& reflection_probe) {
+  bool changed = false;
+  if (context.editor_layer) {
+    AssetRef source;
+    if (context.editor_layer->DragAndDropButton<Cubemap>(source, "Import Cubemap")) {
+      changed |= reflection_probe.ConstructFromCubemap(source.Get<Cubemap>());
+    }
+    if (context.editor_layer->DragAndDropButton<Texture2D>(source, "Import Equirectangular HDR")) {
+      const auto cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
+      cubemap->ConvertFromEquirectangularTexture(source.Get<Texture2D>());
+      changed |= reflection_probe.ConstructFromCubemap(cubemap);
+    }
+  }
+  ImGui::Text("Canonical: 256x256, 9 mips, RGBA16F");
+  ImGui::Text("Payload: %zu bytes", reflection_probe.GetCanonicalPayloadByteSize());
+  ImGui::Text("Source: %s", reflection_probe.GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked ? "baked"
+                            : reflection_probe.GetSourceKind() == GlobalReflectionProbe::SourceKind::Imported
+                                ? "imported"
+                                : "empty");
+
+  if (ImGui::TreeNode("Packed runtime quality")) {
+    struct PackedMetrics {
+      uint64_t payload_hash = 0;
+      float normalized_rms_error = 0.0f;
+      float relative_peak_error = 0.0f;
+      bool valid = false;
+    };
+    static std::unordered_map<uint64_t, PackedMetrics> packed_metrics;
+    auto& metrics = packed_metrics[reflection_probe.GetHandle().GetValue()];
+    if (metrics.payload_hash != reflection_probe.GetPayloadHash()) {
+      metrics.payload_hash = reflection_probe.GetPayloadHash();
+      metrics.valid = GlobalReflectionProbe::EvaluatePackedRuntimeQuality(
+          reflection_probe.GetCanonicalPayload(), metrics.normalized_rms_error, metrics.relative_peak_error);
+    }
+    if (metrics.valid) {
+      ImGui::Text("B10G11R11 exact-usage capability: %s",
+                  reflection_probe.PackedRuntimeFormatSupported() ? "yes" : "no");
+      ImGui::Text("Packed NRMSE / peak: %.6f / %.6f", metrics.normalized_rms_error, metrics.relative_peak_error);
+      ImGui::Text("Active runtime format: RGBA16F (packed path lacks required 5%% GPU-time evidence)");
+    } else {
+      ImGui::Text("Packed quality unavailable.");
+    }
+    ImGui::TreePop();
+  }
   const auto cubemap = reflection_probe.GetCubemap();
-  return cubemap ? InspectCubemapPreviewFaces(*cubemap) : false;
+  if (cubemap && ImGui::TreeNode("Cubemap face preview")) {
+    InspectCubemapPreviewFaces(*cubemap);
+    ImGui::TreePop();
+  }
+  return changed;
+}
+
+GizmoSettings MakeBoundingVolumeGizmoSettings(const float line_width) {
+  GizmoSettings gizmo_settings;
+  gizmo_settings.draw_settings.cull_mode = VK_CULL_MODE_NONE;
+  gizmo_settings.draw_settings.blending = true;
+  gizmo_settings.draw_settings.polygon_mode = VK_POLYGON_MODE_LINE;
+  gizmo_settings.draw_settings.line_width = line_width;
+  return gizmo_settings;
+}
+
+void RenderEnvironmentalLightingProbeBound(const std::shared_ptr<EditorLayer>& editor_layer,
+                                           const EnvironmentalLighting::LocalReflectionProbe& probe,
+                                           const glm::vec4& color) {
+  if (!editor_layer || !probe.enabled) {
+    return;
+  }
+  const auto gizmo_settings = MakeBoundingVolumeGizmoSettings(4.0f);
+  if (probe.shape == static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere)) {
+    editor_layer->DrawGizmoSphere(color, probe.transform, glm::max(probe.sphere_radius, 0.001f), gizmo_settings);
+    return;
+  }
+  editor_layer->DrawGizmoCube(color, probe.transform * glm::scale(glm::max(probe.box_extents, glm::vec3(0.001f))), 1.0f,
+                              gizmo_settings);
+}
+
+void RenderEnvironmentalLightingProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer,
+                                            const EnvironmentalLighting& lighting, const glm::vec4& color) {
+  if (!editor_layer) {
+    return;
+  }
+  for (const auto& probe : lighting.local_reflection_probes) {
+    RenderEnvironmentalLightingProbeBound(editor_layer, probe, color);
+  }
+}
+
+void RenderReflectionProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene,
+                                 const glm::vec4& color) {
+  if (!editor_layer || !scene) {
+    return;
+  }
+  if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
+    RenderEnvironmentalLightingProbeBounds(editor_layer, *lighting, color);
+  }
 }
 
 bool InspectSkinnedMesh(InspectorContext&, SkinnedMesh& mesh) {
@@ -2551,6 +2675,238 @@ bool InspectSkinnedMesh(InspectorContext&, SkinnedMesh& mesh) {
         false);
   }
   return false;
+}
+
+bool InspectAuthoringTransform(const char* label, glm::mat4& transform) {
+  bool changed = false;
+  if (ImGui::TreeNode(label)) {
+    changed = ImGui::DragFloat4("Column 0", &transform[0].x, 0.01f) || changed;
+    changed = ImGui::DragFloat4("Column 1", &transform[1].x, 0.01f) || changed;
+    changed = ImGui::DragFloat4("Column 2", &transform[2].x, 0.01f) || changed;
+    changed = ImGui::DragFloat4("Column 3", &transform[3].x, 0.01f) || changed;
+    ImGui::TreePop();
+  }
+  return changed;
+}
+
+const char* GetGlobalReflectionProbeSourceKindName(const GlobalReflectionProbe::SourceKind source_kind) {
+  switch (source_kind) {
+    case GlobalReflectionProbe::SourceKind::Imported:
+      return "imported";
+    case GlobalReflectionProbe::SourceKind::Baked:
+      return "baked";
+    case GlobalReflectionProbe::SourceKind::Empty:
+    default:
+      return "empty";
+  }
+}
+
+bool QueueEnvironmentalLightingLocalProbeBake(InspectorContext& context,
+                                              const EnvironmentalLighting::LocalReflectionProbe& probe) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_ERROR("Environmental lighting reflection probe bake was not queued: the render layer is unavailable.")
+    return false;
+  }
+  auto payload_ref = probe.global_reflection_probe;
+  return render_layer->QueueGlobalReflectionProbeBake(ResolveInspectorScene(context), glm::vec3(probe.transform[3]),
+                                                      payload_ref.Get<GlobalReflectionProbe>());
+}
+
+void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
+                                                   const EnvironmentalLighting::LocalReflectionProbe& probe) {
+  const auto payload = probe.global_reflection_probe.Peek<GlobalReflectionProbe>();
+  const auto payload_handle = probe.global_reflection_probe.GetAssetHandle();
+  if (!payload && payload_handle.GetValue() == 0) {
+    ImGui::TextColored({1.0f, 0.35f, 0.2f, 1.0f}, "Payload: missing GlobalReflectionProbe");
+  } else if (!payload) {
+    ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Payload: assigned, not loaded");
+    if (context.editor_layer && ImGui::Button("Load / Inspect Probe Payload")) {
+      context.editor_layer->OpenAssetInspector(payload_handle);
+    }
+  } else {
+    ImGui::Text("Payload: %s (%s)", payload->IsRuntimeReady() ? "runtime ready" : "not ready",
+                GetGlobalReflectionProbeSourceKindName(payload->GetSourceKind()));
+  }
+
+  if (ImGui::Button("Bake Local Probe Payload")) {
+    if (QueueEnvironmentalLightingLocalProbeBake(context, probe)) {
+      EVOENGINE_LOG("Queued environmental lighting reflection probe bake.")
+    }
+  }
+}
+
+bool InspectEnvironmentalLightingSource(InspectorContext& context,
+                                        EnvironmentalLighting::IndirectEnvironmentSource& source) {
+  const auto& editor_layer = context.editor_layer;
+  if (!editor_layer) {
+    return false;
+  }
+  bool changed = false;
+  const char* source_types[]{"Engine Default", "Color", "Environmental Map"};
+  auto type = static_cast<int>(source.kind);
+  if (ImGui::Combo("Indirect source", &type, source_types, IM_ARRAYSIZE(source_types))) {
+    source.kind = static_cast<EnvironmentalLighting::IndirectEnvironmentSourceKind>(type);
+    changed = true;
+  }
+  switch (source.kind) {
+    case EnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault:
+      break;
+    case EnvironmentalLighting::IndirectEnvironmentSourceKind::Color:
+      changed = ImGui::ColorEdit3("Indirect color", &source.color.x) || changed;
+      changed = ImGui::DragFloat("Indirect gamma", &source.gamma, 0.01f, 0.0f, 10.0f) || changed;
+      break;
+    case EnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap:
+      changed =
+          editor_layer->DragAndDropButton<EnvironmentalMap>(source.environmental_map, "Indirect Environmental Map") ||
+          changed;
+      changed = ImGui::DragFloat("Indirect gamma", &source.gamma, 0.01f, 0.0f, 10.0f) || changed;
+      changed = ImGui::SliderAngle("Indirect rotation", &source.rotation, -360.0f, 360.0f) || changed;
+      break;
+  }
+  return changed;
+}
+
+bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighting& lighting) {
+  const auto& editor_layer = context.editor_layer;
+  if (!editor_layer) {
+    return false;
+  }
+  bool changed = false;
+  changed = InspectEnvironmentalLightingSource(context, lighting.indirect_environment_source) || changed;
+  changed = ImGui::DragFloat("Environment lighting intensity", &lighting.environment_lighting_intensity, 0.01f, 0.0f,
+                             10000.0f) ||
+            changed;
+  changed =
+      ImGui::DragFloat("Diffuse fallback intensity", &lighting.diffuse_fallback_intensity, 0.01f, 0.0f, 10000.0f) ||
+      changed;
+  changed =
+      ImGui::DragFloat("Specular fallback intensity", &lighting.specular_fallback_intensity, 0.01f, 0.0f, 10000.0f) ||
+      changed;
+
+  if (ImGui::TreeNodeEx("DDGI settings", ImGuiTreeNodeFlags_DefaultOpen)) {
+    changed = InspectDdgiRuntimeControls(lighting.ddgi_settings.runtime) || changed;
+    changed = ImGui::DragInt("Ray count", &lighting.ddgi_settings.runtime.ray_count, 1.0f, 1, 4096) || changed;
+    changed = ImGui::DragInt("Warm up frames", &lighting.ddgi_settings.runtime.warmup_frames, 1.0f, 0, 4096) || changed;
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Local reflection probes", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Add Local Reflection Probe")) {
+      lighting.local_reflection_probes.emplace_back();
+      changed = true;
+    }
+    for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
+      auto& probe = lighting.local_reflection_probes[index];
+      ImGui::PushID(static_cast<int>(index));
+      const auto label = probe.name + "##EnvironmentalLightingLocalProbe";
+      if (ImGui::TreeNode(label.c_str())) {
+        changed = ImGui::Checkbox("Enabled", &probe.enabled) || changed;
+        changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &probe.stable_id) || changed;
+        changed = editor_layer->DragAndDropButton<GlobalReflectionProbe>(probe.global_reflection_probe,
+                                                                         "Global Reflection Probe") ||
+                  changed;
+        if (ImGui::TreeNode("Payload status")) {
+          InspectEnvironmentalLightingLocalProbePayload(context, probe);
+          ImGui::TreePop();
+        }
+        changed = InspectAuthoringTransform("Transform", probe.transform) || changed;
+        const char* shapes[]{"Box", "Sphere"};
+        changed = ImGui::Combo("Shape", &probe.shape, shapes, IM_ARRAYSIZE(shapes)) || changed;
+        changed = ImGui::DragInt("Artist priority", &probe.artist_priority) || changed;
+        changed = ImGui::DragFloat3("Box half extents", &probe.box_extents.x, 0.05f, 0.001f, 10000.0f) || changed;
+        changed = ImGui::DragFloat("Sphere radius", &probe.sphere_radius, 0.05f, 0.001f, 10000.0f) || changed;
+        changed = ImGui::DragFloat("Blend distance", &probe.blend_distance, 0.05f, 0.0f, 10000.0f) || changed;
+        changed =
+            ImGui::DragFloat("Reflection intensity", &probe.reflection_intensity, 0.01f, 0.0f, 10000.0f) || changed;
+        changed = ImGui::Checkbox("Box projection", &probe.box_projection) || changed;
+        changed =
+            ImGui::DragFloat3("Projection half extents", &probe.box_projection_extents.x, 0.05f, 0.001f, 10000.0f) ||
+            changed;
+        if (ImGui::Button("Remove")) {
+          lighting.local_reflection_probes.erase(lighting.local_reflection_probes.begin() +
+                                                 static_cast<std::ptrdiff_t>(index));
+          changed = true;
+          ImGui::TreePop();
+          ImGui::PopID();
+          break;
+        }
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+    ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("DDGI volumes", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Add DDGI Volume")) {
+      lighting.ddgi_volumes.emplace_back();
+      changed = true;
+    }
+    for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
+      auto& volume = lighting.ddgi_volumes[index];
+      ImGui::PushID(static_cast<int>(index));
+      const auto label = volume.name + "##EnvironmentalLightingDdgiVolume";
+      if (ImGui::TreeNode(label.c_str())) {
+        changed = ImGui::Checkbox("Enabled", &volume.enabled) || changed;
+        changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id) || changed;
+        changed = InspectAuthoringTransform("Transform", volume.transform) || changed;
+        changed = ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256) || changed;
+        changed = ImGui::DragFloat3("Probe spacing", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f) || changed;
+        changed = ImGui::DragFloat3("Volume origin", &volume.volume_origin.x, 0.05f) || changed;
+        changed = ImGui::DragInt("Artist priority", &volume.artist_priority) || changed;
+        const char* movement_types[]{"Default", "Scrolling"};
+        changed = ImGui::Combo("Movement type", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types)) ||
+                  changed;
+        const char* emissive_modes[]{"Inherit", "On", "Off"};
+        changed = ImGui::Combo("Emissive mesh sampling", &volume.emissive_mesh_sampling_mode, emissive_modes,
+                               IM_ARRAYSIZE(emissive_modes)) ||
+                  changed;
+        changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
+        changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
+        changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
+        changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
+        changed =
+            ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
+        changed = ImGui::DragFloat("Random ray backface threshold", &volume.random_ray_backface_threshold, 0.01f, 0.0f,
+                                   1.0f) ||
+                  changed;
+        changed =
+            ImGui::DragFloat("Fixed ray backface threshold", &volume.fixed_ray_backface_threshold, 0.01f, 0.0f, 1.0f) ||
+            changed;
+        changed = ImGui::DragFloat("Probe variability threshold", &volume.probe_variability_threshold, 0.01f, 0.0f,
+                                   10000.0f) ||
+                  changed;
+        changed =
+            ImGui::DragInt("Probe variability min samples", &volume.probe_variability_min_samples, 1, 0, 1000000) ||
+            changed;
+        changed = InspectDdgiVolumeTriggerConditions("Auto invalidate history on scene changes",
+                                                     volume.auto_invalidate_trigger_conditions) ||
+                  changed;
+        changed = InspectDdgiVolumeTriggerConditions("Warmup triggers", volume.warmup_trigger_conditions) || changed;
+        changed = InspectDdgiVolumeTriggerConditions("Variability reset triggers",
+                                                     volume.variability_reset_trigger_conditions) ||
+                  changed;
+        if (ImGui::Button("Remove")) {
+          lighting.ddgi_volumes.erase(lighting.ddgi_volumes.begin() + static_cast<std::ptrdiff_t>(index));
+          changed = true;
+          ImGui::TreePop();
+          ImGui::PopID();
+          break;
+        }
+        ImGui::TreePop();
+      }
+      ImGui::PopID();
+    }
+    ImGui::TreePop();
+  }
+  if (changed) {
+    ClampDdgiSettings(lighting.ddgi_settings);
+    for (auto& volume : lighting.ddgi_volumes) {
+      volume.ClampSettings();
+    }
+  }
+  return changed;
 }
 
 bool InspectEnvironmentalMap(InspectorContext& context, EnvironmentalMap& environmental_map) {
@@ -2581,8 +2937,6 @@ bool InspectEnvironmentalMap(InspectorContext& context, EnvironmentalMap& enviro
   }
 
   if (editor_layer->DragAndDropButton<LightProbe>(environmental_map.light_probe, "LightProbe"))
-    changed = true;
-  if (editor_layer->DragAndDropButton<LightProbe>(environmental_map.reflection_probe, "ReflectionProbe"))
     changed = true;
 
   return changed;
@@ -2641,85 +2995,6 @@ bool InspectPointCloud(InspectorContext&, PointCloud& point_cloud) {
     changed = true;
   }
 
-  return changed;
-}
-
-bool InspectDdgiVolume(InspectorContext& context, DdgiVolume& volume) {
-  const auto& editor_layer = context.editor_layer;
-  if (!editor_layer) {
-    return false;
-  }
-
-  volume.ClampSettings();
-  bool changed = false;
-  if (ImGui::DragInt3("Probe counts##DdgiVolume", &volume.probe_counts.x, 1.0f, 1, 256))
-    changed = true;
-  if (ImGui::DragFloat3("Probe spacing##DdgiVolume", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f))
-    changed = true;
-  if (ImGui::DragFloat3("Volume origin##DdgiVolume", &volume.volume_origin.x, 0.1f))
-    changed = true;
-  const char* movement_types[] = {"Default", "Scrolling"};
-  if (ImGui::Combo("Movement type##DdgiVolume", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types)))
-    changed = true;
-
-  if (ImGui::TreeNodeEx("Probe update##DdgiVolume", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::Checkbox("Probe relocation##DdgiVolume", &volume.enable_probe_relocation))
-      changed = true;
-    if (ImGui::Checkbox("Probe classification##DdgiVolume", &volume.enable_probe_classification))
-      changed = true;
-    if (ImGui::Checkbox("Probe variability##DdgiVolume", &volume.enable_probe_variability))
-      changed = true;
-    if (ImGui::Checkbox("Variability update gating##DdgiVolume", &volume.enable_probe_variability_gating))
-      changed = true;
-    if (ImGui::DragFloat("Relocation distance##DdgiVolume", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f))
-      changed = true;
-    if (ImGui::DragFloat("Random-ray backface threshold##DdgiVolume", &volume.random_ray_backface_threshold, 0.001f,
-                         0.0f, 1.0f, "%.3f"))
-      changed = true;
-    if (ImGui::DragFloat("Fixed-ray backface threshold##DdgiVolume", &volume.fixed_ray_backface_threshold, 0.001f, 0.0f,
-                         1.0f, "%.3f"))
-      changed = true;
-    if (ImGui::DragFloat("Variability threshold##DdgiVolume", &volume.probe_variability_threshold, 0.001f, 0.0f, 10.0f,
-                         "%.3f"))
-      changed = true;
-    if (ImGui::DragInt("Variability min samples##DdgiVolume", &volume.probe_variability_min_samples, 1.0f, 0, 4096))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Update triggers##DdgiVolume", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::TextUnformatted("Warm-up triggers");
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Light enable/disable##DdgiVolumeWarmup",
-                                               volume.warmup_trigger_conditions,
-                                               DdgiVolumeTriggerConditionLightEnableChanged))
-      changed = true;
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition##DdgiVolumeWarmup", volume.warmup_trigger_conditions,
-                                               DdgiVolumeTriggerConditionLightingConditionChanged))
-      changed = true;
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Geometry##DdgiVolumeWarmup", volume.warmup_trigger_conditions,
-                                               DdgiVolumeTriggerConditionGeometryChanged))
-      changed = true;
-    ImGui::TextUnformatted("Variability reset triggers");
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Light enable/disable##DdgiVolumeVariability",
-                                               volume.variability_reset_trigger_conditions,
-                                               DdgiVolumeTriggerConditionLightEnableChanged))
-      changed = true;
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition##DdgiVolumeVariability",
-                                               volume.variability_reset_trigger_conditions,
-                                               DdgiVolumeTriggerConditionLightingConditionChanged))
-      changed = true;
-    if (DrawDdgiVolumeTriggerConditionCheckbox("Geometry##DdgiVolumeVariability",
-                                               volume.variability_reset_trigger_conditions,
-                                               DdgiVolumeTriggerConditionGeometryChanged))
-      changed = true;
-    ImGui::TreePop();
-  }
-
-  ImGui::Text("Probe amount: %u", volume.GetProbeAmount());
-
-  if (changed) {
-    volume.ClampSettings();
-  }
   return changed;
 }
 
@@ -3554,8 +3829,9 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<Animator>(InspectAnimator, {}, "Animator");
   InspectorRegistry::GetInstance().RegisterInspector<Camera>(InspectCamera, {}, "Camera");
   InspectorRegistry::GetInstance().RegisterInspector<Cubemap>(InspectCubemap, {}, "Cubemap");
-  InspectorRegistry::GetInstance().RegisterInspector<DdgiVolume>(InspectDdgiVolume, {}, "DdgiVolume");
   InspectorRegistry::GetInstance().RegisterInspector<DirectionalLight>(InspectDirectionalLight, {}, "DirectionalLight");
+  InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalLighting>(InspectEnvironmentalLighting, {},
+                                                                            "EnvironmentalLighting");
   InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalMap>(InspectEnvironmentalMap, {}, "EnvironmentalMap");
   InspectorRegistry::GetInstance().RegisterInspector<EditorLayer>(InspectEditorLayer, {}, "EditorLayer");
   InspectorRegistry::GetInstance().RegisterInspector<LightProbe>(InspectLightProbe, {}, "LightProbe");
@@ -3566,6 +3842,8 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<Particles>(InspectParticles, {}, "Particles");
   InspectorRegistry::GetInstance().RegisterInspector<PointCloud>(InspectPointCloud, {}, "PointCloud");
   InspectorRegistry::GetInstance().RegisterInspector<GaussianSplat>(InspectGaussianSplat, {}, "GaussianSplat");
+  InspectorRegistry::GetInstance().RegisterInspector<GlobalReflectionProbe>(InspectGlobalReflectionProbe, {},
+                                                                            "GlobalReflectionProbe");
   InspectorRegistry::GetInstance().RegisterInspector<PointCloudScanner>(InspectPointCloudScanner, {},
                                                                         "PointCloudScanner");
   InspectorRegistry::GetInstance().RegisterInspector<Prefab>(InspectPrefab, {}, "Prefab");
@@ -3579,7 +3857,6 @@ void evo_engine::RegisterSdkInspectionAdapters() {
                                                                             "ProceduralNoise4D");
   InspectorRegistry::GetInstance().RegisterInspector<PointLight>(InspectPointLight, {}, "PointLight");
   InspectorRegistry::GetInstance().RegisterInspector<PlayerController>(InspectPlayerController, {}, "PlayerController");
-  InspectorRegistry::GetInstance().RegisterInspector<ReflectionProbe>(InspectReflectionProbe, {}, "ReflectionProbe");
   InspectorRegistry::GetInstance().RegisterInspector<RenderLayer>(InspectRenderLayer, {}, "RenderLayer");
   InspectorRegistry::GetInstance().RegisterInspector<Scene>(InspectScene, {}, "Scene");
   InspectorRegistry::GetInstance().RegisterInspector<Shader>(InspectShader, {}, "Shader");

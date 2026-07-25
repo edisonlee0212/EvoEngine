@@ -28,7 +28,7 @@ struct TextureStorageHandle;
 class Cubemap final : public IAsset {
   friend class RenderLayer;
   friend class LightProbe;
-  friend class ReflectionProbe;
+  friend class GlobalReflectionProbe;
   friend class TextureStorage;
 
   /**
@@ -39,7 +39,9 @@ class Cubemap final : public IAsset {
   mutable std::shared_ptr<GraphicsPipeline> equirectangular_to_cubemap_pipeline_;
   mutable uint32_t resolution_ = 0;
   mutable uint32_t mip_levels_ = 1;
+  mutable VkFormat format_ = Platform::Constants::texture_2d;
   mutable std::vector<glm::vec4> local_data_;
+  mutable std::vector<uint16_t> local_rgba16f_data_;
   mutable bool local_data_dirty_ = false;
   mutable bool gpu_content_valid_ = false;
 
@@ -95,7 +97,8 @@ class Cubemap final : public IAsset {
    * @param resolution The resolution of the cubemap.
    * @param mip_levels The number of mip levels (default is 1).
    */
-  void Initialize(uint32_t resolution, uint32_t mip_levels = 1) const;
+  void Initialize(uint32_t resolution, uint32_t mip_levels = 1,
+                  VkFormat format = Platform::Constants::texture_2d) const;
 
   /**
    * @brief Stores all cubemap texels in Vulkan face order (+X, -X, +Y, -Y, +Z, -Z), then mip-major order per face.
@@ -103,17 +106,25 @@ class Cubemap final : public IAsset {
    */
   bool SetRgbaChannelData(const std::vector<glm::vec4>& pixels, uint32_t resolution, uint32_t mip_levels = 1);
 
+  /** Stores a raw RGBA16F cubemap payload in face-major, then mip-major order. */
+  bool SetRgba16fData(const std::vector<uint16_t>& pixels, uint32_t resolution, uint32_t mip_levels);
+
   /** @brief Restores the canonical empty state while retaining a valid GPU placeholder. */
   void Reset();
 
   /** @brief Reads texels in the same face/mip order, optionally bypassing the valid CPU cache. */
   void GetRgbaChannelData(std::vector<glm::vec4>& pixels, bool force_gpu_readback = false) const;
 
+  /** Reads a raw RGBA16F payload without creating a persistent FP32 cache. */
+  void GetRgba16fData(std::vector<uint16_t>& pixels, bool force_gpu_readback = false) const;
+
   [[nodiscard]] static size_t CalculatePixelCount(uint32_t resolution, uint32_t mip_levels);
 
   [[nodiscard]] const std::vector<glm::vec4>& PeekLocalData() const;
+  [[nodiscard]] const std::vector<uint16_t>& PeekRgba16fData() const;
   [[nodiscard]] uint32_t GetResolution() const;
   [[nodiscard]] uint32_t GetMipLevels() const;
+  [[nodiscard]] VkFormat GetFormat() const;
 
   /**
    * @brief Gets the texture storage index associated with this cubemap.

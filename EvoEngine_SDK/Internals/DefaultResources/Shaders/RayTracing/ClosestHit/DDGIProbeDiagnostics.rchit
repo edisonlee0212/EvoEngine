@@ -5,7 +5,9 @@
 #define EE_GLTF_TEXTURE_LOD 0.0
 #include "PointCloudRayTracingPayload.glsl"
 #include "RayTracingBasic.glsl"
-#include "GltfRasterMaterial.glsl"
+#include "Random.glsl"
+#include "RayTracingMaterial.glsl"
+#include "EmissiveTriangleSampling.glsl"
 #include "DDGI.glsl"
 
 layout(location = 0) rayPayloadInEXT PointCloudRayTracingPayload hit_value;
@@ -24,139 +26,37 @@ layout(push_constant) uniform EE_DDGI_PROBE_RAY_CONSTANTS {
   vec4 probe_step_y;
   vec4 probe_step_z;
   uvec4 probe_counts_and_ray_count;
-  uvec4 probe_offset_and_update_count;
+  uvec4 selected_probe_volume_flags_environment;
   vec4 trace_parameters;
+  ivec4 probe_scroll_offset;
 };
 
-vec3 EE_DDGI_RECURSIVE_IRRADIANCE(const vec3 albedo, const vec3 normal, const vec3 position) {
-  const float intensity = EE_RENDER_INFO.ddgi_indirect_intensity;
-  if (intensity <= 0.0f) {
-    return vec3(0.0f);
-  }
+#define EE_DDGI_SINGLE_VOLUME_GATHER
+#include "DDGIGather.glsl"
 
-  const uvec3 probe_counts = max(uvec3(EE_RENDER_INFO.ddgi_probe_counts.xyz), uvec3(1u));
-  const vec3 view_direction = -normalize(gl_WorldRayDirectionEXT);
-  const vec3 biased_position =
-      EE_DDGI_SURFACE_BIASED_POSITION(position, normal, view_direction, EE_RENDER_INFO.ddgi_volume_parameters.z,
-                                      EE_RENDER_INFO.ddgi_volume_parameters.w);
-  const vec3 volume_probe_coordinate =
-      EE_DDGI_PROBE_COORDINATE(position, EE_RENDER_INFO.ddgi_first_probe.xyz,
-                               EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
-                               EE_RENDER_INFO.ddgi_probe_step_z.xyz);
-  const float volume_blend_weight =
-      EE_DDGI_VOLUME_BLEND_WEIGHT(volume_probe_coordinate, probe_counts, EE_RENDER_INFO.ddgi_probe_step_x.xyz,
-                                  EE_RENDER_INFO.ddgi_probe_step_y.xyz, EE_RENDER_INFO.ddgi_probe_step_z.xyz);
-  if (volume_blend_weight <= 0.0f) {
-    return vec3(0.0f);
-  }
-
-  const vec3 biased_probe_coordinate =
-      EE_DDGI_PROBE_COORDINATE(biased_position, EE_RENDER_INFO.ddgi_first_probe.xyz,
-                               EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
-                               EE_RENDER_INFO.ddgi_probe_step_z.xyz);
-
-  const uint irradiance_tile_size = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.x), 1u);
-  const uint irradiance_atlas_columns = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.y), 1u);
-  const uint visibility_tile_size = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.z), 1u);
-  const uint visibility_atlas_columns = max(uint(EE_RENDER_INFO.ddgi_atlas_parameters.w), 1u);
-  const vec2 irradiance_atlas_size = vec2(textureSize(EE_DDGI_IRRADIANCE_ATLAS, 0));
-  const vec2 visibility_atlas_size = vec2(textureSize(EE_DDGI_VISIBILITY_ATLAS, 0));
-  const ivec3 probe_scroll_offset = ivec3(round(EE_RENDER_INFO.ddgi_probe_scroll_offset.xyz));
-  const float irradiance_gamma = max(EE_RENDER_INFO.ddgi_probe_counts.w, 1.0f);
-  const float visibility_bias = max(EE_RENDER_INFO.ddgi_volume_parameters.y, 0.0f);
-  const vec3 max_probe_grid = vec3(probe_counts - uvec3(1u));
-  const vec3 base_probe_grid = clamp(floor(biased_probe_coordinate), vec3(0.0f), max_probe_grid);
-  const vec3 base_probe_world_position =
-      EE_DDGI_PROBE_WORLD_POSITION(base_probe_grid, EE_RENDER_INFO.ddgi_first_probe.xyz,
-                                   EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
-                                   EE_RENDER_INFO.ddgi_probe_step_z.xyz);
-  const vec3 base_probe_to_biased_position = biased_position - base_probe_world_position;
-  const vec3 probe_fraction =
-      clamp(vec3(EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_x.xyz),
-                 EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_y.xyz),
-                 EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, EE_RENDER_INFO.ddgi_probe_step_z.xyz)),
-            vec3(0.0f), vec3(1.0f));
-
-  vec3 diffuse = vec3(0.0f);
-  float weight_sum = 0.0f;
-  for (uint z = 0u; z < 2u; ++z) {
-    for (uint y = 0u; y < 2u; ++y) {
-      for (uint x = 0u; x < 2u; ++x) {
-        const uvec3 corner = uvec3(x, y, z);
-        const vec3 corner_weight = max(vec3(0.001f), mix(vec3(1.0f) - probe_fraction, probe_fraction, vec3(corner)));
-        const float trilinear_weight = corner_weight.x * corner_weight.y * corner_weight.z;
-
-        const vec3 probe_grid = clamp(base_probe_grid + vec3(corner), vec3(0.0f), max_probe_grid);
-        const uvec3 probe_index_3d = uvec3(probe_grid);
-        const uint probe_index = EE_DDGI_SCROLL_PROBE_INDEX(probe_index_3d, probe_scroll_offset, probe_counts);
-        const vec4 probe_state = EE_DDGI_PROBE_STATE[probe_index];
-        const float probe_active = 1.0f - clamp(probe_state.w, 0.0f, 1.0f);
-        if (probe_active <= 0.0f) {
-          continue;
-        }
-        const vec3 probe_position =
-            EE_DDGI_PROBE_WORLD_POSITION(probe_grid, EE_RENDER_INFO.ddgi_first_probe.xyz,
-                                         EE_RENDER_INFO.ddgi_probe_step_x.xyz, EE_RENDER_INFO.ddgi_probe_step_y.xyz,
-                                         EE_RENDER_INFO.ddgi_probe_step_z.xyz) +
-            probe_state.xyz;
-
-        const vec3 surface_to_probe = probe_position - position;
-        const float probe_distance = length(surface_to_probe);
-        const vec3 biased_surface_to_probe = probe_position - biased_position;
-        const float biased_probe_distance = length(biased_surface_to_probe);
-        const vec3 surface_to_probe_direction = probe_distance > 0.001f ? surface_to_probe / probe_distance : normal;
-        const vec3 biased_surface_to_probe_direction =
-            biased_probe_distance > 0.001f ? biased_surface_to_probe / biased_probe_distance : normal;
-        const vec3 probe_to_surface = -biased_surface_to_probe_direction;
-        const vec2 irradiance_atlas_uv =
-            EE_DDGI_ATLAS_UV(probe_index, irradiance_atlas_columns, irradiance_tile_size, normal, irradiance_atlas_size);
-        const vec2 visibility_atlas_uv = EE_DDGI_ATLAS_UV(probe_index, visibility_atlas_columns, visibility_tile_size,
-                                                          probe_to_surface, visibility_atlas_size);
-        const vec4 irradiance = texture(EE_DDGI_IRRADIANCE_ATLAS, irradiance_atlas_uv);
-        const vec4 visibility_sample = texture(EE_DDGI_VISIBILITY_ATLAS, visibility_atlas_uv);
-        const float wrap_shading = (dot(surface_to_probe_direction, normal) + 1.0f) * 0.5f;
-        float visibility_weight = wrap_shading * wrap_shading + 0.2f;
-        const float distance_visibility =
-            EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias);
-        visibility_weight *= max(0.05f, distance_visibility);
-        visibility_weight = max(0.000001f, visibility_weight);
-        visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(visibility_weight);
-        const float sample_weight = trilinear_weight * visibility_weight;
-        const vec3 decoded_irradiance = pow(max(irradiance.rgb, vec3(0.0f)), vec3(irradiance_gamma * 0.5f));
-        diffuse += decoded_irradiance * sample_weight;
-        weight_sum += sample_weight;
-      }
-    }
-  }
-  if (weight_sum <= 0.0f) {
-    return vec3(0.0f);
-  }
-  diffuse /= weight_sum;
-  diffuse *= diffuse * (2.0f * EE_DDGI_PI);
-  return albedo / EE_DDGI_PI * diffuse * intensity * volume_blend_weight;
-}
-
-bool EE_DDGI_OCCLUDED(const vec3 origin, const vec3 direction, const float max_distance) {
+bool EE_DDGI_OCCLUDED(const vec3 origin, const vec3 direction, const float max_distance,
+                      const uint shadow_seed) {
   if (max_distance <= trace_parameters.y) {
     return false;
   }
   const PointCloudRayTracingPayload primary_hit = hit_value;
   hit_value.hit_count = 1u;
-  traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+  hit_value.seed = shadow_seed;
+  traceRayEXT(EE_TLAS, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsSkipClosestHitShaderEXT,
               EE_DDGI_RAY_MASK_SHADOW, 0, 0, 0, origin, trace_parameters.y, direction, max_distance, 0);
   const bool occluded = hit_value.hit_count != 0u;
   hit_value = primary_hit;
   return occluded;
 }
 
-float EE_DDGI_SHADOW_VISIBILITY(const vec3 origin, const vec3 direction, const float max_distance) {
-  return EE_DDGI_OCCLUDED(origin, direction, max_distance) ? 0.0f : 1.0f;
+float EE_DDGI_SHADOW_VISIBILITY(const vec3 origin, const vec3 direction, const float max_distance,
+                                const uint shadow_seed) {
+  return EE_DDGI_OCCLUDED(origin, direction, max_distance, shadow_seed) ? 0.0f : 1.0f;
 }
 
 vec3 EE_DDGI_LAMBERT_IRRADIANCE(const vec3 albedo, const vec3 light_radiance, const vec3 normal,
                                 const vec3 light_direction) {
-  const float diffuse_weight = max(dot(normal, light_direction), 0.0f);
-  return albedo / EE_DDGI_PI * light_radiance * diffuse_weight;
+  return albedo / EE_DDGI_PI * light_radiance * max(dot(normal, light_direction), 0.0f);
 }
 
 float EE_DDGI_DISTANCE_LIGHT_ATTENUATION(const vec4 constant_linear_quadratic_far, const float light_distance) {
@@ -168,21 +68,23 @@ float EE_DDGI_DISTANCE_LIGHT_ATTENUATION(const vec4 constant_linear_quadratic_fa
                    0.001f);
 }
 
-vec3 EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(const DirectionalLight light, const vec3 albedo, const vec3 normal,
+vec3 EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(const DirectionalLight light, const vec3 albedo,
+                                                   const vec3 normal, const vec3 geometric_normal,
                                                    const vec3 position) {
   const vec3 light_direction = normalize(-light.direction);
-  const float diffuse_weight = max(dot(normal, light_direction), 0.0f);
-  if (diffuse_weight <= 0.0f) {
+  if (dot(normal, light_direction) <= 0.0f) {
     return vec3(0.0f);
   }
-  const float visibility = light.diffuse.w == 1.0f ? EE_DDGI_SHADOW_VISIBILITY(position + normal * trace_parameters.y,
-                                                                               light_direction, trace_parameters.x)
-                                                   : 1.0f;
+  const vec3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
+  const float visibility = light.diffuse.w == 1.0f
+                               ? EE_DDGI_SHADOW_VISIBILITY(
+                                     shadow_origin, light_direction, trace_parameters.x, hit_value.seed)
+                               : 1.0f;
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb, normal, light_direction) * visibility;
 }
 
 vec3 EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(const PointLight light, const vec3 albedo, const vec3 normal,
-                                             const vec3 position) {
+                                             const vec3 geometric_normal, const vec3 position) {
   const vec3 light_delta = light.position - position;
   const float light_distance = length(light_delta);
   const float attenuation = EE_DDGI_DISTANCE_LIGHT_ATTENUATION(light.constant_linear_quadratic_far, light_distance);
@@ -190,19 +92,20 @@ vec3 EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(const PointLight light, const vec3 
     return vec3(0.0f);
   }
   const vec3 light_direction = light_delta / light_distance;
-  const float diffuse_weight = max(dot(normal, light_direction), 0.0f);
-  if (diffuse_weight <= 0.0f) {
+  if (dot(normal, light_direction) <= 0.0f) {
     return vec3(0.0f);
   }
+  const vec3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
   const float visibility = light.diffuse.w == 1.0f
-                               ? EE_DDGI_SHADOW_VISIBILITY(position + normal * trace_parameters.y, light_direction,
-                                                           light_distance - trace_parameters.y)
+                               ? EE_DDGI_SHADOW_VISIBILITY(shadow_origin, light_direction,
+                                                           light_distance - trace_parameters.y,
+                                                           hit_value.seed)
                                : 1.0f;
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb * attenuation, normal, light_direction) * visibility;
 }
 
 vec3 EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(const SpotLight light, const vec3 albedo, const vec3 normal,
-                                            const vec3 position) {
+                                            const vec3 geometric_normal, const vec3 position) {
   const vec3 light_delta = light.position - position;
   const float light_distance = length(light_delta);
   const float attenuation = EE_DDGI_DISTANCE_LIGHT_ATTENUATION(light.constant_linear_quadratic_far, light_distance);
@@ -210,64 +113,119 @@ vec3 EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(const SpotLight light, const vec3 al
     return vec3(0.0f);
   }
   const vec3 light_direction = light_delta / light_distance;
-  const float diffuse_weight = max(dot(normal, light_direction), 0.0f);
-  if (diffuse_weight <= 0.0f) {
+  if (dot(normal, light_direction) <= 0.0f) {
     return vec3(0.0f);
   }
   const float theta = dot(light_direction, normalize(-light.direction));
   const float epsilon = max(light.cutoff_outer_inner_size_bias.x - light.cutoff_outer_inner_size_bias.y, 0.001f);
   const float spot_intensity = clamp((theta - light.cutoff_outer_inner_size_bias.y) / epsilon, 0.0f, 1.0f);
+  const vec3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
   const float visibility = light.diffuse.w == 1.0f
-                               ? EE_DDGI_SHADOW_VISIBILITY(position + normal * trace_parameters.y, light_direction,
-                                                           light_distance - trace_parameters.y)
+                               ? EE_DDGI_SHADOW_VISIBILITY(shadow_origin, light_direction,
+                                                           light_distance - trace_parameters.y,
+                                                           hit_value.seed)
                                : 1.0f;
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb * attenuation * spot_intensity, normal,
                                     light_direction) *
          visibility;
 }
 
-vec3 EE_DDGI_DIRECT_IRRADIANCE(const vec3 albedo, const vec3 normal, const vec3 position) {
+vec3 EE_DDGI_DIRECT_IRRADIANCE(const vec3 albedo, const vec3 normal, const vec3 geometric_normal,
+                               const vec3 position) {
   vec3 irradiance = vec3(0.0f);
   for (int i = 0; i < EE_RENDER_INFO.directional_light_size; ++i) {
-    irradiance += EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(EE_DIRECTIONAL_LIGHTS[i], albedo, normal, position);
+    irradiance += EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(
+        EE_DIRECTIONAL_LIGHTS[i], albedo, normal, geometric_normal, position);
   }
   for (int i = 0; i < EE_RENDER_INFO.point_light_size; ++i) {
-    irradiance += EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(EE_POINT_LIGHTS[i], albedo, normal, position);
+    irradiance += EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(
+        EE_POINT_LIGHTS[i], albedo, normal, geometric_normal, position);
   }
   for (int i = 0; i < EE_RENDER_INFO.spot_light_size; ++i) {
-    irradiance += EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(EE_SPOT_LIGHTS[i], albedo, normal, position);
+    irradiance += EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(
+        EE_SPOT_LIGHTS[i], albedo, normal, geometric_normal, position);
   }
   return irradiance;
+}
+
+vec3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const vec3 diffuse_albedo, const vec3 normal,
+                                      const vec3 geometric_normal, const vec3 position,
+                                      const uint primary_ray_seed) {
+  if (EE_EMISSIVE_TRIANGLE_COUNT() == 0u || max(max(diffuse_albedo.x, diffuse_albedo.y), diffuse_albedo.z) <= 0.0f) {
+    return vec3(0.0f);
+  }
+  uint selection_seed = EE_XXHASH32(uvec3(primary_ray_seed, 0x68bc21ebu, 0x02e5be93u));
+  uint barycentric_seed = EE_XXHASH32(uvec3(primary_ray_seed, 0x967a889bu, 0x368cc8b7u));
+  const uint shadow_seed = EE_XXHASH32(uvec3(primary_ray_seed, 0x1b56c4e9u, 0xa54ff53au));
+  EeEmissiveTriangleSample emissive_sample;
+  if (!EE_SAMPLE_EMISSIVE_TRIANGLE(position, EE_PCG_RANDOM(selection_seed),
+                                   EE_PCG_RANDOM_2(barycentric_seed), emissive_sample)) {
+    return vec3(0.0f);
+  }
+  const float receiver_cosine = max(dot(normal, emissive_sample.direction), 0.0f);
+  if (receiver_cosine <= 0.0f) {
+    return vec3(0.0f);
+  }
+  const vec3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, emissive_sample.direction);
+  const float origin_advance = max(dot(shadow_origin - position, emissive_sample.direction), 0.0f);
+  const float shadow_distance =
+      max(emissive_sample.distance - origin_advance - EE_EMISSIVE_TRIANGLE_RAY_EPSILON, 0.0f);
+  const float visibility =
+      EE_DDGI_SHADOW_VISIBILITY(shadow_origin, emissive_sample.direction, shadow_distance, shadow_seed);
+  return diffuse_albedo / EE_DDGI_PI * emissive_sample.radiance_over_pdf * receiver_cosine * visibility;
 }
 
 void main() {
   const int instance_index = int(gl_InstanceCustomIndexEXT);
   const Instance instance = EE_INSTANCES[instance_index];
   const int triangle_offset = instance.triangle_offset + gl_PrimitiveID;
-
   const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
   const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
   const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
   const vec3 barycentrics = vec3(1.0f - attribs.x - attribs.y, attribs.x, attribs.y);
+  const vec3 object_shading_normal = EE_RT_SAFE_NORMALIZE(
+      v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z,
+      vec3(0.0f, 1.0f, 0.0f));
+  const vec3 object_geometric_normal =
+      EE_RT_GEOMETRIC_NORMAL(v1.position - v0.position, v2.position - v0.position, object_shading_normal);
+  const vec3 unflipped_world_geometric_normal =
+      EE_RT_WORLD_NORMAL(instance.model, object_geometric_normal, vec3(0.0f, 1.0f, 0.0f));
+  const vec3 ray_direction = normalize(gl_WorldRayDirectionEXT);
+  const vec4 tex_gradients = EE_RT_TEXTURE_GRADIENTS(
+      0.0f, gl_HitTEXT, unflipped_world_geometric_normal, ray_direction, instance.model, v0, v1, v2,
+      EE_RT_SPHERICAL_RAY_SPREAD(probe_counts_and_ray_count.w));
+  const EeRayTracingSurfaceAttributes attributes =
+      EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(v0, v1, v2, barycentrics, tex_gradients);
   const uint material_index = uint(instance.material_index);
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-
-  const vec3 position = v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
-  const vec2 tex_coord = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
-  vec3 normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
-  const vec3 tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
-  const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
-  normal = EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, normal, tangent);
-  const vec3 world_position = vec3(gl_ObjectToWorldEXT * vec4(position, 1.0f));
-  const vec3 triangle_world_normal =
-      EE_DDGI_SAFE_NORMALIZE(vec3(normal * gl_WorldToObjectEXT), vec3(0.0f, 1.0f, 0.0f));
-  const vec3 world_tangent = EE_DDGI_SAFE_NORMALIZE(vec3(tangent * gl_WorldToObjectEXT), vec3(1.0f, 0.0f, 0.0f));
+  const GltfRasterMaterial surface =
+      EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, attributes.tex_coords, attributes.vertex_color);
+  const vec3 unflipped_world_shading_normal =
+      EE_RT_WORLD_NORMAL(instance.model, attributes.normal, unflipped_world_geometric_normal);
+  const vec3 unflipped_world_tangent =
+      EE_RT_WORLD_TANGENT(instance.model, attributes.tangent, unflipped_world_shading_normal);
+  const float world_tangent_handedness =
+      EE_RT_WORLD_TANGENT_HANDEDNESS(attributes.tangent_handedness, instance.model);
+  const vec3 unflipped_world_surface_normal = EE_EVALUATE_GLTF_RASTER_NORMAL(
+      material_index, attributes.tex_coords, unflipped_world_shading_normal, unflipped_world_tangent,
+      world_tangent_handedness);
   const bool ray_backface_hit = gl_HitKindEXT == gl_HitKindBackFacingTriangleEXT;
   const bool hit_face_is_culled = ray_backface_hit && material.double_sided == 0;
   const bool visible_backface = ray_backface_hit && material.double_sided != 0;
-  const vec3 world_normal = visible_backface ? -triangle_world_normal : triangle_world_normal;
-  const bool backface_hit = ray_backface_hit || hit_face_is_culled;
+  const float facing_sign = visible_backface ? -1.0f : 1.0f;
+  const vec3 world_geometric_normal = facing_sign * unflipped_world_geometric_normal;
+  vec3 world_normal = facing_sign * unflipped_world_surface_normal;
+  if (dot(world_normal, world_geometric_normal) < 0.0f) {
+    world_normal = world_geometric_normal;
+  }
+  const vec3 facing_world_tangent = facing_sign * unflipped_world_tangent;
+  const vec3 world_tangent = EE_RT_SAFE_NORMALIZE(
+      facing_world_tangent - world_normal * dot(facing_world_tangent, world_normal),
+      EE_GLTF_FALLBACK_TANGENT(world_normal));
+  const vec3 world_position = vec3(instance.model * vec4(attributes.position, 1.0f));
   const bool fixed_probe_ray = hit_value.seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG;
+  const bool signed_backface_hit =
+      ray_backface_hit && (material.double_sided == 0 || fixed_probe_ray);
 
   hit_value.hit_count = 1u;
   hit_value.handle = instance.renderer_handle;
@@ -275,18 +233,38 @@ void main() {
   hit_value.hit_info.normal = world_normal;
   hit_value.hit_info.tangent = world_tangent;
   const vec3 albedo = max(surface.base_color.rgb, vec3(0.0f));
-  const vec3 recursive_albedo = min(albedo, vec3(0.9f));
-  const vec3 emissive_radiance = surface.emissive;
+  const vec3 surface_fresnel = EE_GLTF_RASTER_FRESNEL(
+      surface.specular_f0, vec3(surface.specular_f90), max(dot(world_normal, -ray_direction), 0.0f));
+  const vec3 diffuse_albedo =
+      albedo * (vec3(1.0f) - surface_fresnel) * (1.0f - clamp(surface.metallic, 0.0f, 1.0f));
   const bool skip_recursive_ddgi = trace_parameters.w > 0.5f;
-  const vec3 recursive_irradiance =
-      skip_recursive_ddgi ? vec3(0.0f) : EE_DDGI_RECURSIVE_IRRADIANCE(recursive_albedo, world_normal, world_position);
-  const vec3 frontface_radiance =
-      backface_hit || fixed_probe_ray
-          ? vec3(0.0f)
-          : emissive_radiance + EE_DDGI_DIRECT_IRRADIANCE(albedo, world_normal, world_position) +
-                recursive_irradiance;
-  hit_value.hit_info.color = vec4(max(frontface_radiance, vec3(0.0f)), backface_hit ? -1.0f : 1.0f);
-  hit_value.hit_info.tex_coord = tex_coord;
+  vec3 shaded_radiance = vec3(0.0f);
+  if (!hit_face_is_culled && !fixed_probe_ray) {
+    const vec3 emissive_radiance = EE_RT_COATED_EMISSION(
+        material_index, surface, attributes.tex_coords, unflipped_world_shading_normal,
+        unflipped_world_tangent, world_tangent_handedness, facing_sign, world_geometric_normal,
+        -ray_direction);
+    vec3 recursive_irradiance = vec3(0.0f);
+    if (!skip_recursive_ddgi) {
+      const EeDdgiGatherResult recursive_gather =
+          EE_DDGI_GATHER_IRRADIANCE(world_normal, -ray_direction, world_position);
+      recursive_irradiance =
+          EE_DDGI_WEIGHTED_DIFFUSE(recursive_gather, min(diffuse_albedo, vec3(0.9f)));
+    }
+    vec3 emissive_mesh_irradiance = vec3(0.0f);
+    if ((selected_probe_volume_flags_environment.z & (1u << 1u)) != 0u) {
+      emissive_mesh_irradiance = EE_DDGI_EMISSIVE_MESH_IRRADIANCE(
+          diffuse_albedo, world_normal, world_geometric_normal, world_position, hit_value.seed);
+    }
+    shaded_radiance =
+        emissive_radiance +
+        EE_DDGI_DIRECT_IRRADIANCE(diffuse_albedo, world_normal, world_geometric_normal, world_position) +
+        emissive_mesh_irradiance +
+        recursive_irradiance;
+  }
+  hit_value.hit_info.color =
+      vec4(max(shaded_radiance, vec3(0.0f)), signed_backface_hit ? -1.0f : 1.0f);
+  hit_value.hit_info.tex_coord = attributes.tex_coords.uv0;
   hit_value.hit_info.vertex_info1 = gl_HitTEXT;
   hit_value.hit_info.vertex_info2 = float(instance_index);
   hit_value.hit_info.vertex_info3 = float(gl_PrimitiveID);

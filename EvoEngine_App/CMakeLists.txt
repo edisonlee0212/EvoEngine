@@ -109,6 +109,7 @@ function(register_evoengine_app app_name default_enable)
 				PRIVATE
 				${DEFAULT_PROJECT_DEF}
 				${EVOENGINE_DEFS}
+				EVOENGINE_BUILD_CONFIGURATION="$<CONFIG>"
 				)
 			target_include_directories(${app_name}
 				PRIVATE

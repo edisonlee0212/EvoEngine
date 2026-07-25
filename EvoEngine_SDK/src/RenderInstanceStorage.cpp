@@ -2,22 +2,68 @@
 
 #include "Application.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "LodGroup.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Texture2D.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <unordered_map>
 
 using namespace evo_engine;
 
 namespace {
+uint64_t MixDdgiInventorySignature(const uint64_t seed, const uint64_t value) {
+  return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
+}
+
+template <typename Signatures>
+uint64_t HashDdgiEmissiveInventorySignature(const Signatures& signatures) {
+  std::vector<uint64_t> entry_hashes;
+  entry_hashes.reserve(signatures.size());
+  for (const auto& entry : signatures) {
+    auto hash = MixDdgiInventorySignature(entry.mesh_handle, entry.renderer_handle);
+    hash = MixDdgiInventorySignature(hash, entry.material_handle);
+    hash = MixDdgiInventorySignature(hash, entry.geometry_version);
+    hash = MixDdgiInventorySignature(hash, entry.triangle_count);
+    for (int column = 0; column < 4; ++column) {
+      for (int row = 0; row < 4; ++row) {
+        hash = MixDdgiInventorySignature(hash, glm::floatBitsToUint(entry.model.value[column][row]));
+      }
+    }
+    uint64_t importance_bits = 0;
+    std::memcpy(&importance_bits, &entry.importance, sizeof(importance_bits));
+    entry_hashes.push_back(MixDdgiInventorySignature(hash, importance_bits));
+  }
+  std::sort(entry_hashes.begin(), entry_hashes.end());
+  auto result = static_cast<uint64_t>(entry_hashes.size());
+  for (const auto hash : entry_hashes) {
+    result = MixDdgiInventorySignature(result, hash);
+  }
+  return result;
+}
+
 bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial& shade_material) {
   return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
+}
+
+std::shared_ptr<EnvironmentalMap> ResolveIndirectEnvironmentMap(
+    const ResolvedEnvironmentalLighting::IndirectEnvironmentSource& source) {
+  if (source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault) {
+    return Resources::GetInstance().GetDefaultEnvironmentalMap();
+  }
+  if (source.kind != ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap) {
+    return {};
+  }
+  auto map_ref = source.environmental_map;
+  return map_ref.Get<EnvironmentalMap>();
 }
 
 VkCullModeFlags SwapCullModeFaces(const VkCullModeFlags cull_mode) {
@@ -838,9 +884,11 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
                                        glm::clamp(target_render_settings.shadow_debug_selected_cascade, 0, 3),
                                        glm::max(target_render_settings.shadow_debug_selected_light, 0),
                                        glm::clamp(target_render_settings.directional_pcf_sample_amount, 1, 64));
-  shadow_fade_parameters = glm::vec4(glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
-                                                glm::max(target_render_settings.max_shadow_distance, 0.0f)),
-                                     0.0f, 0.0f, 0.0f);
+  shadow_fade_parameters = glm::vec4(
+      glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
+                 glm::max(target_render_settings.max_shadow_distance, 0.0f)),
+      static_cast<float>(glm::clamp(static_cast<int>(target_render_settings.indirect_lighting_debug_view), 0, 4)), 0.0f,
+      0.0f);
   strands_subdivision_x_factor = target_render_settings.strands_subdivision_x_factor;
   strands_subdivision_y_factor = target_render_settings.strands_subdivision_y_factor;
   strands_subdivision_max_x = target_render_settings.strands_subdivision_max_x;
@@ -856,7 +904,7 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (shadow_cascade_transition_width != other.shadow_cascade_transition_width)
     return true;
-  if (ddgi_indirect_intensity != other.ddgi_indirect_intensity)
+  if (indirect_lighting_intensity != other.indirect_lighting_intensity)
     return true;
 
   if (strands_subdivision_x_factor != other.strands_subdivision_x_factor)
@@ -879,39 +927,49 @@ bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& o
 
   if (debug_visualization != other.debug_visualization)
     return true;
-  if (ddgi_first_probe != other.ddgi_first_probe)
-    return true;
-  if (ddgi_probe_step_x != other.ddgi_probe_step_x)
-    return true;
-  if (ddgi_probe_step_y != other.ddgi_probe_step_y)
-    return true;
-  if (ddgi_probe_step_z != other.ddgi_probe_step_z)
-    return true;
-  if (ddgi_probe_counts != other.ddgi_probe_counts)
-    return true;
-  if (ddgi_probe_scroll_offset != other.ddgi_probe_scroll_offset)
-    return true;
-  if (ddgi_atlas_parameters != other.ddgi_atlas_parameters)
-    return true;
-  if (ddgi_volume_parameters != other.ddgi_volume_parameters)
-    return true;
-  if (ddgi_sampling_parameters != other.ddgi_sampling_parameters)
-    return true;
   if (shadow_debug_parameters != other.shadow_debug_parameters)
     return true;
   if (shadow_fade_parameters != other.shadow_fade_parameters)
     return true;
   if (emissive_triangle_parameters != other.emissive_triangle_parameters)
     return true;
+  if (ddgi_volume_header != other.ddgi_volume_header)
+    return true;
+  for (size_t i = 0; i < ddgi_volumes.size(); ++i) {
+    if (ddgi_volumes[i] != other.ddgi_volumes[i])
+      return true;
+  }
+  if (reflection_probe_header != other.reflection_probe_header)
+    return true;
+  for (size_t i = 0; i < reflection_probes.size(); ++i) {
+    if (reflection_probes[i] != other.reflection_probes[i])
+      return true;
+  }
 
   return false;
 }
 
+bool RenderInstanceStorage::DdgiVolumeInfoBlock::operator!=(const DdgiVolumeInfoBlock& other) const {
+  return first_probe != other.first_probe || probe_step_x != other.probe_step_x || probe_step_y != other.probe_step_y ||
+         probe_step_z != other.probe_step_z || probe_counts != other.probe_counts ||
+         probe_scroll_and_priority != other.probe_scroll_and_priority || atlas_parameters != other.atlas_parameters ||
+         volume_parameters != other.volume_parameters || lighting_parameters != other.lighting_parameters ||
+         identity_and_flags != other.identity_and_flags;
+}
+
+bool RenderInstanceStorage::ReflectionProbeInfoBlock::operator!=(const ReflectionProbeInfoBlock& other) const {
+  return world_to_probe != other.world_to_probe || shape_parameters != other.shape_parameters ||
+         projection_parameters != other.projection_parameters || lighting_parameters != other.lighting_parameters ||
+         identity_and_flags != other.identity_and_flags;
+}
+
 bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==(
     const EmissiveTriangleInstanceSignature& other) const {
-  return mesh_handle == other.mesh_handle && geometry_version == other.geometry_version &&
-         instance_index == other.instance_index && triangle_offset == other.triangle_offset &&
-         triangle_count == other.triangle_count && model == other.model && importance == other.importance;
+  return mesh_handle == other.mesh_handle && renderer_handle == other.renderer_handle &&
+         material_handle == other.material_handle && geometry_version == other.geometry_version &&
+         instance_index == other.instance_index && material_index == other.material_index &&
+         triangle_offset == other.triangle_offset && triangle_count == other.triangle_count && model == other.model &&
+         importance == other.importance;
 }
 
 std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
@@ -959,9 +1017,9 @@ bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentIn
     return true;
   if (environmental_map_gamma != other.environmental_map_gamma)
     return true;
-  if (environmental_lighting_intensity != other.environmental_lighting_intensity)
+  if (diffuse_sky_intensity != other.diffuse_sky_intensity)
     return true;
-  if (background_intensity != other.background_intensity)
+  if (global_reflection_intensity != other.global_reflection_intensity)
     return true;
   if (environment_type != other.environment_type)
     return true;
@@ -970,6 +1028,10 @@ bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentIn
   if (environment_cubemap_index != other.environment_cubemap_index)
     return true;
   if (environment_rotation != other.environment_rotation)
+    return true;
+  if (diffuse_fallback_intensity != other.diffuse_fallback_intensity)
+    return true;
+  if (specular_fallback_intensity != other.specular_fallback_intensity)
     return true;
 
   return false;
@@ -1306,6 +1368,7 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
     emissive_triangle_info_dirty_ = !emissive_triangle_info_blocks_.empty();
     emissive_triangle_info_blocks_.clear();
     emissive_triangle_instance_signatures_.clear();
+    ddgi_emissive_inventory_signature_ = 0;
     render_info_block.emissive_triangle_parameters.x = 0u;
     return;
   }
@@ -1324,14 +1387,16 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
       if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_ ||
           !render_instance->mesh->triangle_range_ || !render_instance->material ||
           render_instance->instance_index < 0 || render_instance->polygon_mode != VK_POLYGON_MODE_FILL ||
+          render_instance->ray_tracing_blas || render_instance->ray_tracing_triangle_range ||
           render_instance->material->draw_settings.blending || render_instance->material_index < 0 ||
           static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
         return;
       }
 
       const auto& material = shade_materials[render_instance->material_index];
-      if (material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque) || material.transmission_factor > 0.0f ||
-          material.diffuse_transmission_factor > 0.0f || material.unlit != 0) {
+      if ((material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque) &&
+           material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Mask)) ||
+          material.transmission_factor > 0.0f || material.diffuse_transmission_factor > 0.0f || material.unlit != 0) {
         return;
       }
       const float transform_determinant = glm::determinant(glm::mat3(render_instance->model.value));
@@ -1349,9 +1414,10 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
 
       const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
       const auto triangle_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
-      signatures.push_back({render_instance->mesh->GetHandle().GetValue(), render_instance->geometry_version,
-                            render_instance->instance_index, triangle_offset, triangle_count, render_instance->model,
-                            importance});
+      signatures.push_back({render_instance->mesh->GetHandle().GetValue(), render_instance->renderer_handle,
+                            render_instance->material->GetHandle().GetValue(), render_instance->geometry_version,
+                            render_instance->instance_index, render_instance->material_index, triangle_offset,
+                            triangle_count, render_instance->model, importance});
       emissive_instances.push_back({render_instance, triangle_offset, triangle_count, importance});
     });
   };
@@ -1381,6 +1447,7 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
   }
   emissive_triangle_info_blocks_ = BuildEmissiveTriangleInfoBlocks(std::move(candidates));
   emissive_triangle_instance_signatures_ = std::move(signatures);
+  ddgi_emissive_inventory_signature_ = HashDdgiEmissiveInventorySignature(emissive_triangle_instance_signatures_);
   emissive_triangle_info_dirty_ = true;
   render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
 }
@@ -1646,32 +1713,43 @@ void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_s
 }
 
 void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& target_scene) {
+  environment_info_block = {};
   environment_info_block.environment_pdf_texture_index = -1.0f;
   environment_info_block.environment_cubemap_index = -1.0f;
-  switch (target_scene->environment.environment_type) {
-    case Scene::EnvironmentType::EnvironmentalMap: {
-      environment_info_block.background_color.w = 0.0f;
-      environment_info_block.environment_type = 0.0f;
-      if (const auto environmental_map = target_scene->environment.environmental_map.Get<EnvironmentalMap>()) {
-        environmental_map->EnsureEnvironmentSource();
-        if (const auto pdf_texture = environmental_map->environment_pdf_texture.Get<Texture2D>()) {
-          environment_info_block.environment_pdf_texture_index =
-              static_cast<float>(pdf_texture->GetTextureStorageIndex());
-        }
-        if (const auto cubemap = environmental_map->environment_cubemap.Get<Cubemap>()) {
-          environment_info_block.environment_cubemap_index = static_cast<float>(cubemap->GetTextureStorageIndex());
-        }
-      }
-    } break;
-    case Scene::EnvironmentType::Color: {
-      environment_info_block.background_color = glm::vec4(target_scene->environment.background_color, 1.0f);
-      environment_info_block.environment_type = 1.0f;
-    } break;
+  if (!target_scene) {
+    render_info_block.indirect_lighting_intensity = 1.0f;
+    return;
   }
-  environment_info_block.environmental_map_gamma = target_scene->environment.environment_gamma;
-  environment_info_block.environment_rotation = target_scene->environment.environment_rotation;
-  environment_info_block.environmental_lighting_intensity = target_scene->environment.ambient_light_intensity;
-  environment_info_block.background_intensity = target_scene->environment.background_intensity;
+  const auto resolved_lighting = ResolveEnvironmentalLighting(target_scene);
+  const auto& source = resolved_lighting.indirect_environment_source;
+  if (source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color) {
+    environment_info_block.background_color = glm::vec4(source.color, 1.0f);
+    environment_info_block.environment_type = 1.0f;
+  } else {
+    environment_info_block.background_color.w = 0.0f;
+    environment_info_block.environment_type = 0.0f;
+    if (const auto environmental_map = ResolveIndirectEnvironmentMap(source)) {
+      environmental_map->EnsureEnvironmentSource();
+      if (auto pdf_ref = environmental_map->environment_pdf_texture;
+          const auto pdf_texture = pdf_ref.Get<Texture2D>()) {
+        environment_info_block.environment_pdf_texture_index =
+            static_cast<float>(pdf_texture->GetTextureStorageIndex());
+      }
+      if (auto cubemap_ref = environmental_map->environment_cubemap; const auto cubemap = cubemap_ref.Get<Cubemap>()) {
+        environment_info_block.environment_cubemap_index = static_cast<float>(cubemap->GetTextureStorageIndex());
+      }
+    }
+  }
+  environment_info_block.environmental_map_gamma = source.gamma;
+  environment_info_block.environment_rotation = source.rotation;
+  const float environment_lighting_intensity = glm::max(resolved_lighting.environment_lighting_intensity, 0.0f);
+  const float diffuse_fallback_intensity = glm::max(resolved_lighting.diffuse_fallback_intensity, 0.0f);
+  const float specular_fallback_intensity = glm::max(resolved_lighting.specular_fallback_intensity, 0.0f);
+  environment_info_block.diffuse_sky_intensity = environment_lighting_intensity;
+  environment_info_block.global_reflection_intensity = environment_lighting_intensity;
+  environment_info_block.diffuse_fallback_intensity = environment_lighting_intensity * diffuse_fallback_intensity;
+  environment_info_block.specular_fallback_intensity = environment_lighting_intensity * specular_fallback_intensity;
+  render_info_block.indirect_lighting_intensity = 1.0f;
 }
 
 void RenderInstanceStorage::CollectEditorCameras(
@@ -1877,6 +1955,10 @@ const std::vector<GltfShadeMaterial>& RenderInstanceStorage::GetGltfShadeMateria
 
 const std::vector<GltfTextureInfo>& RenderInstanceStorage::GetGltfTextureInfos() const {
   return gltf_material_cache_.GetTextureInfos();
+}
+
+uint64_t RenderInstanceStorage::GetDdgiEmissiveInventorySignature() const {
+  return ddgi_emissive_inventory_signature_;
 }
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {
@@ -2283,14 +2365,25 @@ int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& mat
 }
 
 void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene,
-                                           Bound& world_bound, const bool include_editor_cameras) {
+                                           Bound& world_bound, const bool include_editor_cameras,
+                                           const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera,
+                                           const bool include_reflection_probes) {
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
   CollectEnvironment(scene);
+  if (include_reflection_probes) {
+    CollectReflectionProbes(scene);
+  } else {
+    render_info_block.reflection_probe_header = glm::uvec4(0u);
+    render_info_block.reflection_probes = {};
+  }
   if (include_editor_cameras) {
     CollectEditorCameras(scene, cameras);
   }
   CollectCameras(scene, cameras);
+  if (injected_camera && injected_camera->second) {
+    cameras.emplace_back(*injected_camera);
+  }
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;
     camera_info.second->UpdateCameraInfoBlock(camera_info_block, camera_info.first);
@@ -2302,6 +2395,47 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
   BuildRenderInstanceBlocks();
   BuildEmissiveTriangleInfoBlocks();
   CollectLights(scene, world_bound);
+}
+
+void RenderInstanceStorage::CollectReflectionProbes(const std::shared_ptr<Scene>& target_scene) {
+  render_info_block.reflection_probe_header = glm::uvec4(0u);
+  render_info_block.reflection_probes = {};
+  if (!target_scene) {
+    return;
+  }
+  const auto resolved_lighting = ResolveEnvironmentalLighting(target_scene);
+  render_info_block.reflection_probe_header.x = static_cast<uint32_t>(
+      std::min(resolved_lighting.local_reflection_probes.size(), static_cast<size_t>(kReflectionProbeMaxCount)));
+  for (size_t index = 0; index < render_info_block.reflection_probe_header.x; ++index) {
+    const auto& probe = resolved_lighting.local_reflection_probes[index];
+    auto& info = render_info_block.reflection_probes[index];
+    info.world_to_probe = glm::inverse(probe.transform);
+    info.shape_parameters = glm::vec4(probe.box_extents, probe.sphere_radius);
+    info.projection_parameters = glm::vec4(probe.box_projection_extents, probe.blend_distance);
+    info.lighting_parameters = glm::vec4(probe.reflection_intensity, static_cast<float>(probe.artist_priority),
+                                         static_cast<float>(probe.shape), probe.box_projection ? 1.0f : 0.0f);
+    info.identity_and_flags.z = static_cast<uint32_t>(probe.stable_id);
+    info.identity_and_flags.w = static_cast<uint32_t>(probe.stable_id >> 32u);
+    auto probe_payload_ref = probe.global_reflection_probe;
+    if (const auto asset = probe_payload_ref.Get<GlobalReflectionProbe>(); asset && asset->IsRuntimeReady()) {
+      VkDescriptorImageInfo descriptor_info{};
+      if (const auto cubemap = asset->GetCubemap();
+          cubemap &&
+          TextureStorage::TryGetCubemapDescriptorImageInfo(cubemap->GetTextureStorageIndex(), descriptor_info)) {
+        info.identity_and_flags.x = cubemap->GetTextureStorageIndex();
+        info.identity_and_flags.y = 1u;
+      }
+    }
+  }
+}
+
+uint32_t RenderInstanceStorage::GetReflectionProbeCount() const {
+  return render_info_block.reflection_probe_header.x;
+}
+
+const std::array<RenderInstanceStorage::ReflectionProbeInfoBlock, RenderInstanceStorage::kReflectionProbeMaxCount>&
+RenderInstanceStorage::GetReflectionProbeInfoBlocks() const {
+  return render_info_block.reflection_probes;
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure() {

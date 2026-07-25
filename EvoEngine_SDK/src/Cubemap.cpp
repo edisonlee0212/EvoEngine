@@ -8,6 +8,7 @@
 #include "Shader.hpp"
 #include "TextureStorage.hpp"
 
+#include <glm/gtc/packing.hpp>
 #include <limits>
 
 using namespace evo_engine;
@@ -61,7 +62,8 @@ size_t CalculateCubemapPixelCount(const uint32_t resolution, const uint32_t mip_
   return pixel_count <= std::numeric_limits<size_t>::max() / sizeof(glm::vec4) ? pixel_count : 0;
 }
 
-std::vector<VkBufferImageCopy> BuildCubemapCopyRegions(const uint32_t resolution, const uint32_t mip_levels) {
+std::vector<VkBufferImageCopy> BuildCubemapCopyRegions(const uint32_t resolution, const uint32_t mip_levels,
+                                                       const size_t bytes_per_texel) {
   std::vector<VkBufferImageCopy> regions;
   regions.reserve(static_cast<size_t>(mip_levels) * 6);
   VkDeviceSize offset = 0;
@@ -76,7 +78,7 @@ std::vector<VkBufferImageCopy> BuildCubemapCopyRegions(const uint32_t resolution
       region.imageSubresource.layerCount = 1;
       region.imageExtent = {size, size, 1};
       regions.emplace_back(region);
-      offset += static_cast<VkDeviceSize>(size) * size * sizeof(glm::vec4);
+      offset += static_cast<VkDeviceSize>(size) * size * bytes_per_texel;
       size = glm::max(size / 2, 1u);
     }
   }
@@ -125,33 +127,42 @@ Cubemap::~Cubemap() {
   TextureStorage::UnRegisterCubemap(texture_storage_handle_);
 }
 
-void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels) const {
+void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels, const VkFormat format) const {
   if (Platform::Initialized() && PeekStorage().image) {
     SynchronizeCubemapResourceMutation();
   }
   resolution_ = resolution;
   mip_levels_ = mip_levels;
+  format_ = format;
   local_data_.clear();
+  local_rgba16f_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;
-  RefStorage().Initialize(resolution, mip_levels);
+  RefStorage().Initialize(resolution, mip_levels, format);
 }
 
 void Cubemap::UploadLocalData() const {
   const size_t pixel_count = CalculatePixelCount(resolution_, mip_levels_);
-  if (!Platform::Initialized() || !local_data_dirty_ || local_data_.size() != pixel_count) {
+  const bool rgba32f = format_ == VK_FORMAT_R32G32B32A32_SFLOAT && local_data_.size() == pixel_count;
+  const bool rgba16f = format_ == VK_FORMAT_R16G16B16A16_SFLOAT && local_rgba16f_data_.size() == pixel_count * 4;
+  if (!Platform::Initialized() || !local_data_dirty_ || (!rgba32f && !rgba16f)) {
     return;
   }
   SynchronizeCubemapResourceMutation();
   auto& storage = RefStorage();
   gpu_content_valid_ = false;
-  storage.Initialize(resolution_, mip_levels_);
+  storage.Initialize(resolution_, mip_levels_, format_);
   if (!storage.image) {
     return;
   }
-  Buffer staging_buffer(pixel_count * sizeof(glm::vec4));
-  staging_buffer.UploadVector(local_data_);
-  const auto copy_regions = BuildCubemapCopyRegions(resolution_, mip_levels_);
+  const size_t bytes_per_texel = rgba16f ? sizeof(uint16_t) * 4 : sizeof(glm::vec4);
+  Buffer staging_buffer(pixel_count * bytes_per_texel);
+  if (rgba16f) {
+    staging_buffer.UploadVector(local_rgba16f_data_);
+  } else {
+    staging_buffer.UploadVector(local_data_);
+  }
+  const auto copy_regions = BuildCubemapCopyRegions(resolution_, mip_levels_, bytes_per_texel);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
     storage.image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer(), copy_regions);
@@ -163,6 +174,7 @@ void Cubemap::UploadLocalData() const {
 
 void Cubemap::MarkGpuContentValid() const {
   gpu_content_valid_ = true;
+  ++RefStorage().content_generation;
 }
 
 void Cubemap::BeginGpuWrite() const {
@@ -170,6 +182,7 @@ void Cubemap::BeginGpuWrite() const {
     SynchronizeCubemapResourceMutation();
   }
   local_data_.clear();
+  local_rgba16f_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;
 }
@@ -182,7 +195,27 @@ bool Cubemap::SetRgbaChannelData(const std::vector<glm::vec4>& pixels, const uin
   }
   resolution_ = resolution;
   mip_levels_ = mip_levels;
+  format_ = VK_FORMAT_R32G32B32A32_SFLOAT;
   local_data_ = pixels;
+  local_rgba16f_data_.clear();
+  local_data_dirty_ = true;
+  gpu_content_valid_ = false;
+  UploadLocalData();
+  SetUnsaved();
+  return true;
+}
+
+bool Cubemap::SetRgba16fData(const std::vector<uint16_t>& pixels, const uint32_t resolution,
+                             const uint32_t mip_levels) {
+  const size_t pixel_count = CalculatePixelCount(resolution, mip_levels);
+  if (pixel_count == 0 || pixels.size() != pixel_count * 4) {
+    return false;
+  }
+  resolution_ = resolution;
+  mip_levels_ = mip_levels;
+  format_ = VK_FORMAT_R16G16B16A16_SFLOAT;
+  local_data_.clear();
+  local_rgba16f_data_ = pixels;
   local_data_dirty_ = true;
   gpu_content_valid_ = false;
   UploadLocalData();
@@ -193,12 +226,14 @@ bool Cubemap::SetRgbaChannelData(const std::vector<glm::vec4>& pixels, const uin
 void Cubemap::Reset() {
   resolution_ = 0;
   mip_levels_ = 1;
+  format_ = Platform::Constants::texture_2d;
   local_data_.clear();
+  local_rgba16f_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;
   if (Platform::Initialized()) {
     SynchronizeCubemapResourceMutation();
-    RefStorage().Initialize(1, 1);
+    RefStorage().Initialize(1, 1, format_);
   }
   SetUnsaved();
 }
@@ -213,6 +248,24 @@ void Cubemap::GetRgbaChannelData(std::vector<glm::vec4>& pixels, const bool forc
     pixels = local_data_;
     return;
   }
+  if (format_ == VK_FORMAT_R16G16B16A16_SFLOAT) {
+    std::vector<uint16_t> rgba16f;
+    GetRgba16fData(rgba16f, force_gpu_readback);
+    if (rgba16f.size() != pixel_count * 4) {
+      pixels.clear();
+      return;
+    }
+    pixels.resize(pixel_count);
+    for (size_t i = 0; i < pixel_count; ++i) {
+      pixels[i] = {glm::unpackHalf1x16(rgba16f[i * 4]), glm::unpackHalf1x16(rgba16f[i * 4 + 1]),
+                   glm::unpackHalf1x16(rgba16f[i * 4 + 2]), glm::unpackHalf1x16(rgba16f[i * 4 + 3])};
+    }
+    return;
+  }
+  if (format_ != VK_FORMAT_R32G32B32A32_SFLOAT) {
+    pixels.clear();
+    return;
+  }
   const auto& storage = PeekStorage();
   if (!Platform::Initialized() || !storage.image || !gpu_content_valid_ ||
       storage.image->GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED) {
@@ -221,7 +274,7 @@ void Cubemap::GetRgbaChannelData(std::vector<glm::vec4>& pixels, const bool forc
   }
   SynchronizeCubemapResourceMutation();
   Buffer image_buffer(pixel_count * sizeof(glm::vec4));
-  const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels());
+  const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels(), sizeof(glm::vec4));
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
     const auto previous_layout = storage.image->GetLayout();
     storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -234,8 +287,43 @@ void Cubemap::GetRgbaChannelData(std::vector<glm::vec4>& pixels, const bool forc
   pixels = local_data_;
 }
 
+void Cubemap::GetRgba16fData(std::vector<uint16_t>& pixels, const bool force_gpu_readback) const {
+  const size_t pixel_count = CalculatePixelCount(GetResolution(), GetMipLevels());
+  if (pixel_count == 0 || format_ != VK_FORMAT_R16G16B16A16_SFLOAT) {
+    pixels.clear();
+    return;
+  }
+  if (!force_gpu_readback && local_rgba16f_data_.size() == pixel_count * 4) {
+    pixels = local_rgba16f_data_;
+    return;
+  }
+  const auto& storage = PeekStorage();
+  if (!Platform::Initialized() || !storage.image || !gpu_content_valid_ ||
+      storage.image->GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED) {
+    pixels = local_rgba16f_data_.size() == pixel_count * 4 ? local_rgba16f_data_ : std::vector<uint16_t>{};
+    return;
+  }
+  SynchronizeCubemapResourceMutation();
+  Buffer image_buffer(pixel_count * sizeof(uint16_t) * 4);
+  const auto copy_regions = BuildCubemapCopyRegions(GetResolution(), GetMipLevels(), sizeof(uint16_t) * 4);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+    const auto previous_layout = storage.image->GetLayout();
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkCmdCopyImageToBuffer(vk_command_buffer, storage.image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           image_buffer.GetVkBuffer(), static_cast<uint32_t>(copy_regions.size()), copy_regions.data());
+    storage.image->TransitImageLayout(vk_command_buffer, previous_layout);
+  });
+  image_buffer.DownloadVector(local_rgba16f_data_, pixel_count * 4);
+  local_data_dirty_ = false;
+  pixels = local_rgba16f_data_;
+}
+
 const std::vector<glm::vec4>& Cubemap::PeekLocalData() const {
   return local_data_;
+}
+
+const std::vector<uint16_t>& Cubemap::PeekRgba16fData() const {
+  return local_rgba16f_data_;
 }
 
 size_t Cubemap::CalculatePixelCount(const uint32_t resolution, const uint32_t mip_levels) {
@@ -250,6 +338,10 @@ uint32_t Cubemap::GetMipLevels() const {
   return mip_levels_;
 }
 
+VkFormat Cubemap::GetFormat() const {
+  return format_;
+}
+
 uint32_t Cubemap::GetTextureStorageIndex() const {
   return texture_storage_handle_->value;
 }
@@ -258,7 +350,8 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer)
     return;
-  Initialize(resolution);
+  const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(resolution))) + 1;
+  Initialize(resolution, mip_levels);
   auto& storage = RefStorage();
 #pragma region Depth
   VkImageCreateInfo depth_image_info{};
@@ -327,6 +420,7 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
         ShaderType::Fragment,
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.frag");
     atmosphere_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
+    atmosphere_to_cubemap_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
 
     atmosphere_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
     atmosphere_to_cubemap_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -413,7 +507,8 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
 #pragma endregion
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->GenerateMipmaps(vk_command_buffer);
   });
   MarkGpuContentValid();
 }
@@ -426,7 +521,9 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     EVOENGINE_ERROR("Target texture doesn't contain any content!");
     return;
   }
-  Initialize(1024);
+  constexpr uint32_t resolution = 1024;
+  constexpr uint32_t mip_levels = 11;
+  Initialize(resolution, mip_levels);
   auto& storage = RefStorage();
   const float environment_pdf_scale = CalculateEnvironmentPdfScale(target_texture);
 #pragma region Depth
@@ -489,6 +586,7 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
         ShaderType::Fragment,
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
     equirectangular_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
+    equirectangular_to_cubemap_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
 
     equirectangular_to_cubemap_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
     equirectangular_to_cubemap_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -579,7 +677,8 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
 
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    storage.image->GenerateMipmaps(vk_command_buffer);
   });
   MarkGpuContentValid();
 }

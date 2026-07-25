@@ -42,6 +42,16 @@ BICYCLE_FOLDER_HANDLE = 13041787869273319741
 
 README_IMAGE = Path("Resources/GitHub/RenderingDemo.png")
 DEFAULT_BUILD_DIR = Path("out/build/vs2026-x64")
+SPONZA_LIGHTING_FILES = (
+    "SponzaEnvironment.eveenvironmentalmap",
+    "SponzaGlobal.evereflectionprobe",
+    "SponzaLeftGallery.evereflectionprobe",
+    "SponzaRightGallery.evereflectionprobe",
+    "SponzaCentralFront.evereflectionprobe",
+    "SponzaCentralMiddle.evereflectionprobe",
+    "SponzaCentralRear.evereflectionprobe",
+)
+SPONZA_PROBE_BASE64_PAYLOAD_SIZE = 5_592_384
 
 
 def repo_root() -> Path:
@@ -107,6 +117,13 @@ def validate_directory(path: Path, label: str, missing: list[str]) -> None:
         missing.append(label)
 
 
+def validate_sponza_lighting_assets(root: Path, missing: list[str]) -> None:
+    for index, name in enumerate(SPONZA_LIGHTING_FILES):
+        path = root / name
+        if not path.is_file() or path.stat().st_size <= (0 if index == 0 else SPONZA_PROBE_BASE64_PAYLOAD_SIZE):
+            missing.append(name)
+
+
 def preview_path(resource_root: Path, demo_id: str) -> Path:
     return resource_root / "Launcher" / "DemoPreviews" / f"{demo_id}.png"
 
@@ -168,6 +185,9 @@ def validate_rendering(args: argparse.Namespace) -> list[str]:
     resource_root = args.resource_root
     missing: list[str] = []
     validate_file(resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Rendering.eveproj", "Rendering.eveproj", missing)
+    validate_sponza_lighting_assets(
+        resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza", missing
+    )
     if args.rendering_readme:
         validate_nonempty_file(repo_root() / README_IMAGE, "Resources/GitHub/RenderingDemo.png", missing)
     if args.previews:
@@ -222,6 +242,16 @@ def rendering_regression_project_path(resource_root: Path) -> Path:
 def validate_rendering_regression(args: argparse.Namespace) -> list[str]:
     missing: list[str] = []
     validate_file(rendering_regression_project_path(args.resource_root), "RenderingRegression.eveproj", missing)
+    validate_sponza_lighting_assets(
+        args.resource_root
+        / ".generated"
+        / "EvoEngine-DemoProjects"
+        / "RenderingRegression"
+        / "Assets"
+        / "Lighting"
+        / "Sponza",
+        missing,
+    )
     if args.previews:
         validate_nonempty_file(
             preview_path(args.resource_root, "rendering-regression"),

@@ -68,6 +68,10 @@ class PostProcessingStack : public IAsset {
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::shared_ptr<ImageView>& motion_vectors_image_view = {},
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
+  void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
+                               const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
+                               const std::shared_ptr<ImageView>& scratch_image_view,
+                               const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
   std::shared_ptr<AmbientOcclusion> ambient_occlusion{};
   std::shared_ptr<Bloom> bloom{};
   std::shared_ptr<ScreenSpaceReflection> screen_space_reflection{};
@@ -376,7 +380,6 @@ struct PostProcessingCameraResources {
   struct AmbientOcclusionResources {
     PerFrameDescriptorSet blur_horizontal_descriptor_set;
     PerFrameDescriptorSet blur_vertical_descriptor_set;
-    PerFrameDescriptorSet combine_descriptor_set;
     PerFrameDescriptorSet geometry_output_descriptor_set;
   } ambient_occlusion;
 
@@ -457,10 +460,9 @@ struct PostProcessingRendererResources {
   struct AmbientOcclusionResources {
     std::shared_ptr<DescriptorSetLayout> blur_layout;
     std::shared_ptr<ComputePipeline> blur_pipeline;
-    std::shared_ptr<DescriptorSetLayout> combine_layout;
     std::shared_ptr<DescriptorSetLayout> geometry_output_layout;
     std::shared_ptr<ComputePipeline> geometry_pipeline;
-    std::shared_ptr<ComputePipeline> combine_pipeline;
+    std::shared_ptr<Sampler> sampler;
   } ambient_occlusion;
 
   struct AntiAliasingResources {
@@ -512,6 +514,8 @@ struct PostProcessingExecutionContext {
   PostProcessingCameraResources& camera;
   PostProcessingRendererResources& renderer;
   std::shared_ptr<ImageView> motion_vectors_image_view;
+  std::shared_ptr<ImageView> ambient_occlusion_image_view;
+  std::shared_ptr<ImageView> ambient_occlusion_scratch_image_view;
 };
 
 }  // namespace evo_engine

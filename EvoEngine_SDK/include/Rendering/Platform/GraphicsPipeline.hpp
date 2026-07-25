@@ -241,6 +241,8 @@ class GraphicsPipeline final : public IGraphicsResource {
   std::shared_ptr<Shader> mesh_shader;              ///< Mesh shader.
   std::shared_ptr<Shader> fragment_shader;          ///< Fragment shader.
   GeometryType geometry_type = GeometryType::Mesh;  ///< Type of geometry used by the pipeline.
+  VertexInputAttributeSet vertex_input_attribute_set =
+      VertexInputAttributeSet::Full;  ///< Vertex attributes consumed by the pipeline.
   bool vertex_input_enabled = true;
   VkPrimitiveTopology primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 

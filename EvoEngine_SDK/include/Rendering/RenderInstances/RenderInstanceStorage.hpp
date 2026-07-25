@@ -10,6 +10,7 @@
 #include "StrandsRenderer.hpp"
 
 #include <array>
+#include <cstddef>
 
 namespace evo_engine {
 
@@ -33,13 +34,22 @@ struct RenderSettings {
     TightLightSpaceAabb,
   };
 
+  enum class IndirectLightingDebugView : int {
+    Beauty = 0,
+    DiffuseIndirect = 1,
+    UnoccludedProbeSpecular = 2,
+    SpecularVisibility = 3,
+    OccludedProbeSpecular = 4,
+  };
+
   float max_shadow_distance = 400;           ///< Maximum shadow distance in the scene.
-  float shadow_cascade_split_lambda = 0.5f;  ///< Blend factor for practical log/uniform cascade splits.
+  float shadow_cascade_split_lambda = 0.9f;  ///< Blend factor for practical log/uniform cascade splits.
   ShadowCascadeFitMode shadow_cascade_fit_mode = ShadowCascadeFitMode::StableSphere;
   bool enable_debug_visualization = false;  ///< Whether debug visualization is enabled.
   int shadow_debug_mode = 0;                ///< CSM debug visualization mode.
   int shadow_debug_selected_cascade = 0;    ///< Selected cascade for CSM diagnostics.
   int shadow_debug_selected_light = 0;      ///< Selected directional light for CSM diagnostics.
+  IndirectLightingDebugView indirect_lighting_debug_view = IndirectLightingDebugView::Beauty;
 
   int pcf_sample_amount = 32;                    ///< Sample amount for point and spot PCF shadow filtering.
   int directional_pcf_sample_amount = 16;        ///< Sample amount for directional PCF shadow filtering.
@@ -78,40 +88,35 @@ struct RayTracingCameraPushConstant {
   uint32_t shader_execution_reordering = 0;
 };
 
-/**
- * @brief Struct containing push constants for ray tracing.
- */
-struct RayTracingPointCloudPushConstant {
-  uint32_t bounce = 0;  ///< Current bounce count for ray tracing.
-  uint32_t envIndex;
-  uint32_t skybox_tex_index;
-  uint32_t use_clear_color;
-  glm::vec4 clear_color;
-};
-
 struct DdgiProbeRayTracingPushConstant {
   glm::vec4 first_probe = glm::vec4(0.0f);
   glm::vec4 probe_step_x = glm::vec4(0.0f);
   glm::vec4 probe_step_y = glm::vec4(0.0f);
   glm::vec4 probe_step_z = glm::vec4(0.0f);
   glm::uvec4 probe_counts_and_ray_count = glm::uvec4(1, 1, 1, 1);
-  glm::uvec4 probe_offset_and_update_count = glm::uvec4(0, 1, 0, 0);
+  glm::uvec4 selected_probe_volume_flags_environment = glm::uvec4(~0u, 0u, 0u, 0u);
   glm::vec4 trace_parameters = glm::vec4(1e27f, 0.001f, 0.0f, 0.0f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
 };
 
 struct DdgiProbeAtlasUpdatePushConstant {
   glm::uvec4 probe_count_ray_count_and_tile_sizes = glm::uvec4(1, 1, 1, 1);
-  glm::uvec4 atlas_columns_and_rows = glm::uvec4(1, 1, 1, 1);
-  glm::uvec4 probe_offset_and_total_count = glm::uvec4(0, 1, 0, 0);
-  glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
-  glm::vec4 update_parameters = glm::vec4(1e27f, 0.97f, 0.2f, 5.0f);
-  glm::vec4 probe_state_parameters = glm::vec4(0.0f);
-  glm::vec4 probe_blend_parameters = glm::vec4(0.1f, 0.25f, 50.0f, 0.10f);
+  glm::uvec4 atlas_columns_fixed_ray_count_and_update_mode = glm::uvec4(1, 1, 0, 0);
+  glm::uvec4 probe_counts_and_rotation = glm::uvec4(1, 1, 1, 0);
+  glm::vec4 update_parameters = glm::vec4(1e27f, 0.97f, 5.0f, 0.0f);
+  glm::vec4 blend_parameters = glm::vec4(0.1f, 50.0f, 0.10f, 0.2f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::ivec4 probe_scroll_delta = glm::ivec4(0);
   glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
   glm::vec4 probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
   glm::vec4 probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+};
+
+struct DdgiProbeScrollPushConstant {
+  glm::uvec4 probe_counts_and_irradiance_tile_size = glm::uvec4(1, 1, 1, 1);
+  glm::uvec4 atlas_columns_visibility_tile_and_probe_count = glm::uvec4(1, 1, 1, 1);
+  glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::ivec4 probe_scroll_delta = glm::ivec4(0);
 };
 
 struct DdgiProbeVariabilityPushConstant {
@@ -120,7 +125,7 @@ struct DdgiProbeVariabilityPushConstant {
 };
 
 struct DdgiProbeRelocationPushConstant {
-  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 1, 0);
+  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 0, 0);
   glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
   glm::vec4 relocation_parameters = glm::vec4(1.0f, 0.25f, 0.0f, 0.0f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
@@ -130,7 +135,7 @@ struct DdgiProbeRelocationPushConstant {
 };
 
 struct DdgiProbeClassificationPushConstant {
-  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 1, 0);
+  glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 0, 0);
   glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
   glm::vec4 classification_parameters = glm::vec4(0.25f, 0.0f, 0.0f, 0.0f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
@@ -164,16 +169,43 @@ enum class RenderInstanceType {
 class RenderInstanceStorage {
  public:
   static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
+  static constexpr uint32_t kDdgiMaxVolumeCount = 8;
+  static constexpr uint32_t kReflectionProbeMaxCount = 32;
+
+  struct alignas(16) DdgiVolumeInfoBlock {
+    glm::vec4 first_probe = glm::vec4(0.0f);
+    glm::vec4 probe_step_x = glm::vec4(0.0f);
+    glm::vec4 probe_step_y = glm::vec4(0.0f);
+    glm::vec4 probe_step_z = glm::vec4(0.0f);
+    glm::vec4 probe_counts = glm::vec4(1.0f);
+    glm::ivec4 probe_scroll_and_priority = glm::ivec4(0);
+    glm::uvec4 atlas_parameters = glm::uvec4(1u);
+    glm::vec4 volume_parameters = glm::vec4(0.0f);
+    glm::vec4 lighting_parameters = glm::vec4(0.0f);
+    glm::uvec4 identity_and_flags = glm::uvec4(0u);
+
+    bool operator!=(const DdgiVolumeInfoBlock& other) const;
+  };
+
+  struct alignas(16) ReflectionProbeInfoBlock {
+    glm::mat4 world_to_probe = glm::mat4(1.0f);
+    glm::vec4 shape_parameters = glm::vec4(0.0f);
+    glm::vec4 projection_parameters = glm::vec4(0.0f);
+    glm::vec4 lighting_parameters = glm::vec4(0.0f);
+    glm::uvec4 identity_and_flags = glm::uvec4(0u);
+
+    bool operator!=(const ReflectionProbeInfoBlock& other) const;
+  };
 
   /**
    * @brief Struct to hold information related to render settings applied.
    */
-  struct RenderInfoBlock {
+  struct alignas(16) RenderInfoBlock {
     glm::vec4 split_distances = {};                           ///< Distances for shadow cascade splits.
     alignas(4) int pcf_sample_amount = 32;                    ///< PCF sampling amount.
     alignas(4) int debug_visualization = 0;                   ///< Debug visualization flag.
     alignas(4) float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width.
-    alignas(4) float ddgi_indirect_intensity = 0.0f;
+    alignas(4) float indirect_lighting_intensity = 1.0f;
 
     alignas(4) float strands_subdivision_x_factor = 50.0f;  ///< X factor for strands subdivision.
     alignas(4) float strands_subdivision_y_factor = 50.0f;  ///< Y factor for strands subdivision.
@@ -185,18 +217,13 @@ class RenderInstanceStorage {
     alignas(4) int spot_light_size = 0;         ///< Number of spot lights.
     alignas(4) int brdflut_texture_index = 0;   ///< Texture index for BRDF LUT.
 
-    glm::vec4 ddgi_first_probe = glm::vec4(0.0f);
-    glm::vec4 ddgi_probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-    glm::vec4 ddgi_probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    glm::vec4 ddgi_probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
-    glm::vec4 ddgi_probe_counts = glm::vec4(1.0f);
-    glm::vec4 ddgi_probe_scroll_offset = glm::vec4(0.0f);
-    glm::vec4 ddgi_atlas_parameters = glm::vec4(1.0f);
-    glm::vec4 ddgi_volume_parameters = glm::vec4(0.0f);
-    glm::vec4 ddgi_sampling_parameters = glm::vec4(1.0f);
     glm::ivec4 shadow_debug_parameters = glm::ivec4(0);  ///< Debug mode/cascade/light and directional PCF samples.
     glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
     glm::uvec4 emissive_triangle_parameters = glm::uvec4(0);
+    glm::uvec4 ddgi_volume_header = glm::uvec4(0u);
+    std::array<DdgiVolumeInfoBlock, kDdgiMaxVolumeCount> ddgi_volumes{};
+    glm::uvec4 reflection_probe_header = glm::uvec4(0u);
+    std::array<ReflectionProbeInfoBlock, kReflectionProbeMaxCount> reflection_probes{};
 
     /**
      * @brief Applies the settings from the target RenderSettings.
@@ -211,6 +238,24 @@ class RenderInstanceStorage {
      */
     bool operator!=(const RenderInfoBlock& other) const;
   };
+
+  static_assert(sizeof(glm::vec4) == 16);
+  static_assert(sizeof(glm::mat4) == 64);
+  static_assert(alignof(DdgiVolumeInfoBlock) == 16);
+  static_assert(sizeof(DdgiVolumeInfoBlock) == 160);
+  static_assert(alignof(ReflectionProbeInfoBlock) == 16);
+  static_assert(sizeof(ReflectionProbeInfoBlock) == 128);
+  static_assert(offsetof(ReflectionProbeInfoBlock, world_to_probe) == 0);
+  static_assert(offsetof(ReflectionProbeInfoBlock, shape_parameters) == 64);
+  static_assert(offsetof(ReflectionProbeInfoBlock, projection_parameters) == 80);
+  static_assert(offsetof(ReflectionProbeInfoBlock, lighting_parameters) == 96);
+  static_assert(offsetof(ReflectionProbeInfoBlock, identity_and_flags) == 112);
+  static_assert(offsetof(RenderInfoBlock, indirect_lighting_intensity) == 28);
+  static_assert(offsetof(RenderInfoBlock, ddgi_volume_header) == 112);
+  static_assert(offsetof(RenderInfoBlock, ddgi_volumes) == 128);
+  static_assert(offsetof(RenderInfoBlock, reflection_probe_header) == 1408);
+  static_assert(offsetof(RenderInfoBlock, reflection_probes) == 1424);
+  static_assert(sizeof(RenderInfoBlock) == 5520);
 
   struct EmissiveTriangleInfoBlock {
     uint32_t instance_index = 0;
@@ -235,12 +280,14 @@ class RenderInstanceStorage {
   struct EnvironmentInfoBlock {
     glm::vec4 background_color = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);  ///< Background color of the environment.
     alignas(4) float environmental_map_gamma = 2.2f;                 ///< Gamma correction for the environmental map.
-    alignas(4) float environmental_lighting_intensity = 0.8f;        ///< Intensity of the environmental lighting.
-    alignas(4) float background_intensity = 1.0f;                    ///< Intensity of the background.
-    alignas(4) float environment_type = 0.0f;                        ///< Scene::EnvironmentType value.
+    alignas(4) float diffuse_sky_intensity = 1.0f;                   ///< Effective diffuse sky-source scale.
+    alignas(4) float global_reflection_intensity = 1.0f;             ///< Effective global sky-reflection scale.
+    alignas(4) float environment_type = 0.0f;                        ///< GPU environment source type.
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
-    alignas(4) float environment_cubemap_index = -1.0f;  ///< Cubemap index for ray-traced environment light.
-    alignas(4) float environment_rotation = 0.0f;        ///< Y-axis rotation in radians.
+    alignas(4) float environment_cubemap_index = -1.0f;   ///< Cubemap index for ray-traced environment light.
+    alignas(4) float environment_rotation = 0.0f;         ///< Y-axis rotation in radians.
+    alignas(4) float diffuse_fallback_intensity = 0.0f;   ///< Effective raster/DDGI diffuse fallback scale.
+    alignas(4) float specular_fallback_intensity = 0.0f;  ///< Effective raster specular fallback scale.
 
     /**
      * @brief Compares two EnvironmentInfoBlock objects for inequality.
@@ -862,7 +909,9 @@ class RenderInstanceStorage {
    * @param world_bound The world bounds for the scene.
    */
   void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
-                      bool include_editor_cameras = true);
+                      bool include_editor_cameras = true,
+                      const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera = nullptr,
+                      bool include_reflection_probes = true);
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
@@ -933,12 +982,17 @@ class RenderInstanceStorage {
 
   [[nodiscard]] const std::vector<GltfTextureInfo>& GetGltfTextureInfos() const;
 
+  [[nodiscard]] uint64_t GetDdgiEmissiveInventorySignature() const;
+
   /**
    * @brief Retrieves the list of instance information blocks.
    * @return Reference to the vector of InstanceInfoBlock objects.
    */
   [[nodiscard]] const std::vector<InstanceInfoBlock>& GetInstanceInfoBlocks() const;
   [[nodiscard]] const std::vector<PreviousInstanceInfoBlock>& GetPreviousInstanceInfoBlocks() const;
+  [[nodiscard]] uint32_t GetReflectionProbeCount() const;
+  [[nodiscard]] const std::array<ReflectionProbeInfoBlock, kReflectionProbeMaxCount>& GetReflectionProbeInfoBlocks()
+      const;
   void BuildPreviousInstanceInfoBlocks(const std::shared_ptr<RenderInstanceStorage>& previous_render_instances);
   [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
 
@@ -979,8 +1033,11 @@ class RenderInstanceStorage {
 
   struct EmissiveTriangleInstanceSignature {
     uint64_t mesh_handle = 0;
+    uint64_t renderer_handle = 0;
+    uint64_t material_handle = 0;
     uint32_t geometry_version = 0;
     int32_t instance_index = -1;
+    int32_t material_index = -1;
     uint32_t triangle_offset = 0;
     uint32_t triangle_count = 0;
     GlobalTransform model{};
@@ -988,9 +1045,9 @@ class RenderInstanceStorage {
 
     bool operator==(const EmissiveTriangleInstanceSignature& other) const;
   };
-
   std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
   std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
+  uint64_t ddgi_emissive_inventory_signature_ = 0;
   bool emissive_triangle_info_dirty_ = false;
 
   /**
@@ -1063,6 +1120,7 @@ class RenderInstanceStorage {
    * @param target_scene The scene containing the environment settings.
    */
   void CollectEnvironment(const std::shared_ptr<Scene>& target_scene);
+  void CollectReflectionProbes(const std::shared_ptr<Scene>& target_scene);
 
   /**
    * @brief Registers an entity with a mesh renderer.

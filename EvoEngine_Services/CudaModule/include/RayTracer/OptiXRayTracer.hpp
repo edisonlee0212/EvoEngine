@@ -77,7 +77,7 @@ struct CameraProperties {
   float aperture = 0.0f;
   float focal_length = 1.0f;
 
-  cudaTextureObject_t skybox;
+  cudaTextureObject_t skybox = 0;
   void SetBackgroundType(BackgroundType background_type);
   void SetBackgroundColor(const glm::vec4& background_color);
   void SetAperture(float value);
@@ -104,8 +104,9 @@ enum class EnvironmentalLightingType { Scene, Skydome, SingleLightSource };
 
 struct EnvironmentProperties {
   EnvironmentalLightingType environmental_lighting_type = EnvironmentalLightingType::Scene;
-  float skylight_intensity = 1.0f;
-  float ambient_light_intensity = 0.1f;
+  float sky_light_intensity_scale = 1.0f;
+  float indirect_lighting_intensity = 1.0f;
+  float environment_rotation = 0.0f;
   float light_size = 0.0f;
   float gamma = 1.0f;
   glm::vec3 sun_direction = glm::vec3(0, 1, 0);
@@ -125,8 +126,9 @@ struct EnvironmentProperties {
   [[nodiscard]] bool Changed(const EnvironmentProperties& properties) const {
     return properties.environmental_lighting_type != environmental_lighting_type ||
            properties.use_environmental_map != use_environmental_map || properties.light_size != light_size ||
-           properties.ambient_light_intensity != ambient_light_intensity ||
-           properties.skylight_intensity != skylight_intensity || properties.gamma != gamma ||
+           properties.sky_light_intensity_scale != sky_light_intensity_scale ||
+           properties.indirect_lighting_intensity != indirect_lighting_intensity ||
+           properties.environment_rotation != environment_rotation || properties.gamma != gamma ||
            properties.sun_direction != sun_direction || properties.color != color ||
            properties.environmental_map != environmental_map ||
            properties.atmosphere.earth_radius != atmosphere.earth_radius ||

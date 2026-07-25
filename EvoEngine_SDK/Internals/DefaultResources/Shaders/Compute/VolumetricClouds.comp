@@ -77,9 +77,11 @@ float EE_VOLUMETRIC_CLOUD_SCENE_DISTANCE(in int camera_index, in vec2 tex_coord,
 }
 
 void EE_VOLUMETRIC_CLOUD_SUN_LIGHT(out vec3 sun_direction, out vec3 sun_radiance, out vec3 ambient_radiance) {
-  ambient_radiance = max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f)) * max(EE_ENVIRONMENT.light_intensity, 0.0f);
+  ambient_radiance = max(EE_ENVIRONMENT.background_color.rgb, vec3(0.0f)) *
+                     max(EE_ENVIRONMENT.diffuse_sky_intensity, 0.0f) *
+                     max(EE_RENDER_INFO.indirect_lighting_intensity, 0.0f);
   sun_direction = normalize(vec3(0.35f, 1.0f, 0.2f));
-  sun_radiance = max(ambient_radiance, vec3(1.0f));
+  sun_radiance = vec3(1.0f);
   if (EE_RENDER_INFO.directional_light_size > 0) {
     DirectionalLight light = EE_DIRECTIONAL_LIGHTS[0];
     sun_direction = normalize(-light.direction);

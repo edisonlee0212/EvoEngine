@@ -3,7 +3,9 @@
 #include "AssetManager.hpp"
 #include "Cubemap.hpp"
 #include "EditorTheme.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
+#include "FileManager.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
 #include "ILayer.hpp"
@@ -33,6 +35,7 @@
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <functional>
@@ -81,6 +84,47 @@ struct TitleBarSearchResult {
   Handle asset_handle = Handle(0);
   std::shared_ptr<ILayer> layer;
 };
+
+float ClampFiniteNonnegative(const float value, const float fallback) {
+  return std::isfinite(value) && value >= 0.0f ? value : fallback;
+}
+
+float MoveTowards(const float current, const float target, const float max_delta) {
+  const float delta = target - current;
+  if (std::abs(delta) <= max_delta) {
+    return target;
+  }
+  return current + std::copysign(max_delta, delta);
+}
+
+glm::vec3 MoveTowards(const glm::vec3& current, const glm::vec3& target, const float max_delta) {
+  const glm::vec3 delta = target - current;
+  const float distance = glm::length(delta);
+  if (!std::isfinite(distance) || distance <= glm::epsilon<float>() || distance <= max_delta) {
+    return target;
+  }
+  return current + delta / distance * max_delta;
+}
+
+void ResetEditorCameraFreeFlyState(EditorCameraFreeFlyState& state) {
+  state.was_dragging = false;
+  state.previous_mouse_x = 0.0f;
+  state.previous_mouse_y = 0.0f;
+  state.smoothed_move_velocity = glm::vec3(0.0f);
+  state.look_response = 0.0f;
+}
+
+float CameraControlResponseStep(const float response_time, const float delta_time) {
+  if (response_time <= glm::epsilon<float>()) {
+    return 1.0f;
+  }
+  return std::clamp(delta_time / response_time, 0.0f, 1.0f);
+}
+
+glm::vec3 SanitizeVelocity(const glm::vec3& velocity) {
+  return std::isfinite(velocity.x) && std::isfinite(velocity.y) && std::isfinite(velocity.z) ? velocity
+                                                                                             : glm::vec3(0.0f);
+}
 
 struct AspectFitRect {
   ImVec2 offset = {0.0f, 0.0f};
@@ -974,7 +1018,8 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "fade_ratio" << YAML::Value << settings.fade_ratio;
   out << YAML::Key << "fade_factor" << YAML::Value << settings.fade_factor;
   out << YAML::Key << "fov" << YAML::Value << settings.fov;
-  out << YAML::Key << "use_clear_color" << YAML::Value << settings.use_clear_color;
+  out << YAML::Key << "background_source" << YAML::Value
+      << Camera::GetBackgroundSourceName(Camera::ResolveBackgroundSource(settings));
   out << YAML::Key << "clear_color" << YAML::Value << settings.clear_color;
   out << YAML::Key << "background_intensity" << YAML::Value << settings.background_intensity;
   out << YAML::Key << "sample_size" << YAML::Value << settings.sample_size;
@@ -998,7 +1043,9 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "fade_ratio", settings.fade_ratio);
   ReadYamlValue(in, "fade_factor", settings.fade_factor);
   ReadYamlValue(in, "fov", settings.fov);
-  ReadYamlValue(in, "use_clear_color", settings.use_clear_color);
+  if (const auto source = in["background_source"]) {
+    settings.background_source = Camera::ParseBackgroundSource(source.as<std::string>(), settings.background_source);
+  }
   ReadYamlValue(in, "clear_color", settings.clear_color);
   ReadYamlValue(in, "background_intensity", settings.background_intensity);
   ReadYamlValue(in, "sample_size", settings.sample_size);
@@ -1252,7 +1299,7 @@ void EditorLayer::OnCreate() {
 
   const auto scene_camera = Serialization::ProduceSerializable<Camera>();
   scene_camera->camera_settings.clear_color = glm::vec4(59.0f / 255.0f, 85 / 255.0f, 143 / 255.f, 1.f);
-  scene_camera->camera_settings.use_clear_color = false;
+  scene_camera->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
   scene_camera->OnCreate();
   scene_camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
   RegisterEditorCamera(scene_camera);
@@ -1278,6 +1325,8 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "selected_hierarchy_display_mode" << YAML::Value << selected_hierarchy_display_mode;
   out << YAML::Key << "velocity" << YAML::Value << velocity;
   out << YAML::Key << "sensitivity" << YAML::Value << sensitivity;
+  out << YAML::Key << "camera_control_acceleration_time" << YAML::Value << camera_control_acceleration_time;
+  out << YAML::Key << "camera_control_deceleration_time" << YAML::Value << camera_control_deceleration_time;
   out << YAML::Key << "editor_camera_control_key_bindings" << YAML::Value << YAML::BeginMap;
   SerializeEditorCameraControlKeyBindings(out, editor_camera_control_key_bindings);
   out << YAML::EndMap;
@@ -1371,6 +1420,10 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
   ReadYamlValue(in, "selected_hierarchy_display_mode", selected_hierarchy_display_mode);
   ReadYamlValue(in, "velocity", velocity);
   ReadYamlValue(in, "sensitivity", sensitivity);
+  ReadYamlValue(in, "camera_control_acceleration_time", camera_control_acceleration_time);
+  ReadYamlValue(in, "camera_control_deceleration_time", camera_control_deceleration_time);
+  camera_control_acceleration_time = ClampFiniteNonnegative(camera_control_acceleration_time, 0.25f);
+  camera_control_deceleration_time = ClampFiniteNonnegative(camera_control_deceleration_time, 0.25f);
   if (const auto node = in["editor_camera_control_key_bindings"]; node && node.IsMap()) {
     DeserializeEditorCameraControlKeyBindings(node, editor_camera_control_key_bindings);
   }
@@ -1545,11 +1598,105 @@ void EditorLayer::OpenAssetInspector(const std::shared_ptr<IAsset>& asset) {
   inspecting_assets_.push_back({asset, true, true});
 }
 
+void EditorLayer::OpenAssetInspector(const Handle& asset_handle) {
+  if (asset_handle.GetValue() == 0) {
+    return;
+  }
+  if (const auto asset = AssetManager::PeekAssetImpl(asset_handle)) {
+    OpenAssetInspector(asset);
+    return;
+  }
+  const auto file = FileManager::GetFile(asset_handle);
+  if (!file || file->GetAssetTypeName() == "Binary") {
+    return;
+  }
+  auto& pending_load = pending_asset_inspector_loads_[asset_handle.GetValue()];
+  if (pending_load.valid()) {
+    return;
+  }
+  try {
+    pending_load = AssetManager::RequestAssetLoad(asset_handle);
+  } catch (const std::exception& e) {
+    EVOENGINE_ERROR("Failed to queue asset inspector load: " + std::string(e.what()))
+    pending_asset_inspector_loads_.erase(asset_handle.GetValue());
+  } catch (...) {
+    EVOENGINE_ERROR("Failed to queue asset inspector load.")
+    pending_asset_inspector_loads_.erase(asset_handle.GetValue());
+  }
+}
+
 void EditorLayer::ClearAssetInspectors() {
   inspecting_assets_.clear();
+  pending_asset_inspector_loads_.clear();
+}
+
+void EditorLayer::PollPendingAssetInspectorLoads() {
+  for (auto it = pending_asset_inspector_loads_.begin(); it != pending_asset_inspector_loads_.end();) {
+    auto& future = it->second;
+    if (!future.valid()) {
+      it = pending_asset_inspector_loads_.erase(it);
+      continue;
+    }
+    if (future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+      ++it;
+      continue;
+    }
+    try {
+      OpenAssetInspector(future.get());
+    } catch (const std::exception& e) {
+      EVOENGINE_ERROR("Failed to open queued asset inspector: " + std::string(e.what()))
+    } catch (...) {
+      EVOENGINE_ERROR("Failed to open queued asset inspector.")
+    }
+    it = pending_asset_inspector_loads_.erase(it);
+  }
+}
+
+std::string EditorLayer::GetAssetRefDisplayName(const AssetRef& target) {
+  if (const auto asset = target.Peek<IAsset>()) {
+    return asset->GetTitle();
+  }
+  const auto asset_handle = target.GetAssetHandle();
+  if (asset_handle.GetValue() == 0) {
+    return "none";
+  }
+  if (const auto file = FileManager::GetFile(asset_handle)) {
+    const auto stem = file->GetAssetsFolderRelativePath().stem().string();
+    if (!stem.empty()) {
+      return stem;
+    }
+    return file->GetAssetFileName() + file->GetAssetExtension();
+  }
+  const auto type_name = target.GetAssetTypeName();
+  return type_name.empty() ? "Missing asset" : type_name;
+}
+
+std::string EditorLayer::GetAssetRefImGuiTag(const AssetRef& target) {
+  auto type_name = target.GetAssetTypeName();
+  if (type_name.empty()) {
+    type_name = "Asset";
+  }
+  return "##" + type_name + std::to_string(target.GetAssetHandle().GetValue());
+}
+
+void EditorLayer::DraggableAssetRef(const AssetRef& target) {
+  if (const auto asset = target.Peek<IAsset>()) {
+    DraggableAsset(asset);
+    return;
+  }
+  const auto asset_handle = target.GetAssetHandle();
+  if (asset_handle.GetValue() == 0) {
+    return;
+  }
+  if (ImGui::BeginDragDropSource()) {
+    ImGui::SetDragDropPayload("Asset", &asset_handle, sizeof(Handle));
+    ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextLink), GetAssetRefDisplayName(target).c_str());
+    ImGui::EndDragDropSource();
+  }
 }
 
 void EditorLayer::DrawAssetInspectorWindows() {
+  PollPendingAssetInspectorLoads();
   const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
   for (size_t i = 0; i < inspecting_assets_.size(); ++i) {
     const auto asset = inspecting_assets_[i].asset;
@@ -2003,7 +2150,10 @@ void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
           scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
             if (skip)
               return;
-            ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(), &data.private_component_data->enabled_);
+            bool component_enabled = data.private_component_data->IsEnabled();
+            if (ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(), &component_enabled)) {
+              data.private_component_data->SetEnabled(component_enabled);
+            }
             DraggablePrivateComponent(data.private_component_data);
             const std::string tag = "##" + data.private_component_data->GetTypeName() +
                                     std::to_string(data.private_component_data->GetHandle());
@@ -2843,8 +2993,10 @@ void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& ed
         default_scene_camera_position = sceneCameraPosition;
         default_scene_camera_rotation = sceneCameraRotation;
       }
-      ImGui::DragFloat("Move speed", &velocity, 0.1f, 0, 0, "%.1f");
-      ImGui::DragFloat("Mouse sensitivity", &sensitivity, 0.1f, 0, 0, "%.1f");
+      ImGui::DragFloat("Max move speed", &velocity, 0.1f, 0.0f, 0.0f, "%.1f");
+      ImGui::DragFloat("Max mouse sensitivity", &sensitivity, 0.1f, 0.0f, 0.0f, "%.1f");
+      ImGui::DragFloat("Acceleration time", &camera_control_acceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
+      ImGui::DragFloat("Deceleration time", &camera_control_deceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
       ImGui::DragFloat3("Position", &sceneCameraPosition.x, 0.1f);
       if (ImGui::DragFloat4("Rotation", &sceneCameraRotation.x, 0.01f)) {
         const float length_squared = glm::dot(sceneCameraRotation, sceneCameraRotation);
@@ -4004,73 +4156,111 @@ bool EditorLayer::ApplyEditorCameraFreeFlyControl(const Handle& camera_handle, E
                                                   const glm::vec2& mouse_position, const glm::vec2& viewport_size,
                                                   const bool window_focused) {
   if (!window_focused) {
-    state.was_dragging = false;
+    ResetEditorCameraFreeFlyState(state);
     return false;
   }
 
   const auto search = editor_cameras_.find(camera_handle);
   if (search == editor_cameras_.end()) {
-    state.was_dragging = false;
+    ResetEditorCameraFreeFlyState(state);
+    return false;
+  }
+
+  if (lock_camera) {
+    ResetEditorCameraFreeFlyState(state);
     return false;
   }
 
   const auto& key_bindings = editor_camera_control_key_bindings;
-  const bool mouse_drag = mouse_position.x >= 0.0f && mouse_position.y >= 0.0f && mouse_position.x <= viewport_size.x &&
-                          mouse_position.y <= viewport_size.y &&
-                          GetKey(key_bindings.rotate_mouse_button) == Input::KeyActionType::Hold;
-  if (!mouse_drag) {
-    state.was_dragging = false;
-    return false;
-  }
+  const bool mouse_in_viewport = mouse_position.x >= 0.0f && mouse_position.y >= 0.0f &&
+                                 mouse_position.x <= viewport_size.x && mouse_position.y <= viewport_size.y;
+  const bool mouse_drag = mouse_in_viewport && GetKey(key_bindings.rotate_mouse_button) == Input::KeyActionType::Hold;
 
+  float x_offset = 0.0f;
+  float y_offset = 0.0f;
   if (!state.was_dragging) {
     state.previous_mouse_x = mouse_position.x;
     state.previous_mouse_y = mouse_position.y;
   }
-  const float x_offset = mouse_position.x - state.previous_mouse_x;
-  const float y_offset = mouse_position.y - state.previous_mouse_y;
-  state.previous_mouse_x = mouse_position.x;
-  state.previous_mouse_y = mouse_position.y;
-  state.was_dragging = true;
-
-  if (lock_camera) {
-    return false;
+  if (mouse_drag) {
+    x_offset = mouse_position.x - state.previous_mouse_x;
+    y_offset = mouse_position.y - state.previous_mouse_y;
+    state.previous_mouse_x = mouse_position.x;
+    state.previous_mouse_y = mouse_position.y;
+    state.was_dragging = true;
+  } else {
+    state.was_dragging = false;
   }
 
   auto& editor_camera = search->second;
   glm::vec3 front = editor_camera.rotation * glm::vec3(0, 0, -1);
   const glm::vec3 right = editor_camera.rotation * glm::vec3(1, 0, 0);
-  const float delta_time = static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
+  const float raw_delta_time = static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime());
+  const float delta_time = std::isfinite(raw_delta_time) && raw_delta_time > 0.0f ? raw_delta_time : 0.0f;
+  const float max_move_speed = ClampFiniteNonnegative(velocity, 0.0f);
+  const float acceleration_time = ClampFiniteNonnegative(camera_control_acceleration_time, 0.25f);
+  const float deceleration_time = ClampFiniteNonnegative(camera_control_deceleration_time, 0.25f);
   bool changed = false;
-  if (GetKey(key_bindings.move_forward_key) == Input::KeyActionType::Hold) {
-    editor_camera.position += front * delta_time * velocity;
+
+  glm::vec3 target_direction(0.0f);
+  if (mouse_drag) {
+    if (GetKey(key_bindings.move_forward_key) == Input::KeyActionType::Hold) {
+      target_direction += front;
+    }
+    if (GetKey(key_bindings.move_backward_key) == Input::KeyActionType::Hold) {
+      target_direction -= front;
+    }
+    if (GetKey(key_bindings.move_left_key) == Input::KeyActionType::Hold) {
+      target_direction -= right;
+    }
+    if (GetKey(key_bindings.move_right_key) == Input::KeyActionType::Hold) {
+      target_direction += right;
+    }
+    if (GetKey(key_bindings.move_up_key) == Input::KeyActionType::Hold) {
+      target_direction.y += 1.0f;
+    }
+    if (GetKey(key_bindings.move_down_key) == Input::KeyActionType::Hold) {
+      target_direction.y -= 1.0f;
+    }
+  }
+
+  glm::vec3 target_move_velocity(0.0f);
+  if (glm::dot(target_direction, target_direction) > glm::epsilon<float>() && max_move_speed > 0.0f) {
+    target_move_velocity = glm::normalize(target_direction) * max_move_speed;
+  }
+
+  state.smoothed_move_velocity = SanitizeVelocity(state.smoothed_move_velocity);
+  const float current_speed = glm::length(state.smoothed_move_velocity);
+  const float target_speed = glm::length(target_move_velocity);
+  const float move_response_time = target_speed > current_speed ? acceleration_time : deceleration_time;
+  const float reference_speed = std::max({max_move_speed, current_speed, target_speed});
+  if (move_response_time <= glm::epsilon<float>()) {
+    state.smoothed_move_velocity = target_move_velocity;
+  } else if (reference_speed > glm::epsilon<float>()) {
+    state.smoothed_move_velocity = MoveTowards(state.smoothed_move_velocity, target_move_velocity,
+                                               reference_speed * delta_time / move_response_time);
+  }
+
+  if (delta_time > 0.0f &&
+      glm::dot(state.smoothed_move_velocity, state.smoothed_move_velocity) > glm::epsilon<float>()) {
+    editor_camera.position += state.smoothed_move_velocity * delta_time;
     changed = true;
   }
-  if (GetKey(key_bindings.move_backward_key) == Input::KeyActionType::Hold) {
-    editor_camera.position -= front * delta_time * velocity;
-    changed = true;
+
+  const float target_look_response = mouse_drag ? 1.0f : 0.0f;
+  if (!std::isfinite(state.look_response)) {
+    state.look_response = 0.0f;
   }
-  if (GetKey(key_bindings.move_left_key) == Input::KeyActionType::Hold) {
-    editor_camera.position -= right * delta_time * velocity;
-    changed = true;
-  }
-  if (GetKey(key_bindings.move_right_key) == Input::KeyActionType::Hold) {
-    editor_camera.position += right * delta_time * velocity;
-    changed = true;
-  }
-  if (GetKey(key_bindings.move_up_key) == Input::KeyActionType::Hold) {
-    editor_camera.position.y += velocity * delta_time;
-    changed = true;
-  }
-  if (GetKey(key_bindings.move_down_key) == Input::KeyActionType::Hold) {
-    editor_camera.position.y -= velocity * delta_time;
-    changed = true;
-  }
-  if (x_offset != 0.0f || y_offset != 0.0f) {
-    front = glm::rotate(front, glm::radians(-x_offset * sensitivity), glm::vec3(0, 1, 0));
+  const float look_response_time = target_look_response > state.look_response ? acceleration_time : deceleration_time;
+  state.look_response =
+      MoveTowards(state.look_response, target_look_response, CameraControlResponseStep(look_response_time, delta_time));
+
+  const float look_sensitivity = ClampFiniteNonnegative(sensitivity, 0.0f) * state.look_response;
+  if ((x_offset != 0.0f || y_offset != 0.0f) && look_sensitivity > glm::epsilon<float>()) {
+    front = glm::rotate(front, glm::radians(-x_offset * look_sensitivity), glm::vec3(0, 1, 0));
     const glm::vec3 camera_right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
     if ((front.y < 0.99f && y_offset < 0.0f) || (front.y > -0.99f && y_offset > 0.0f)) {
-      front = glm::rotate(front, glm::radians(-y_offset * sensitivity), camera_right);
+      front = glm::rotate(front, glm::radians(-y_offset * look_sensitivity), camera_right);
     }
     const glm::vec3 up = glm::normalize(glm::cross(camera_right, front));
     editor_camera.rotation = glm::quatLookAt(front, up);
@@ -4425,21 +4615,21 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
                                     const std::vector<std::string>& acceptable_type_names, bool modifiable) {
   ImGui::Text(name.c_str());
   ImGui::SameLine();
-  const auto ptr = target.Get<IAsset>();
+  const auto ptr = target.Peek<IAsset>();
+  const auto asset_handle = target.GetAssetHandle();
   bool status_changed = false;
   ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Header));
   ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
-  if (ptr) {
-    const auto title = ptr->GetTitle();
-    ImGui::Button(title.c_str());
-    DraggableAsset(ptr);
+  if (ptr || asset_handle.GetValue() != 0) {
+    ImGui::Button((GetAssetRefDisplayName(target) + GetAssetRefImGuiTag(target)).c_str());
+    DraggableAssetRef(target);
     if (modifiable) {
-      status_changed = Rename(target);
+      status_changed = ptr ? RenameAsset(ptr) : false;
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      OpenAssetInspector(ptr);
+      OpenAssetInspector(ptr ? ptr->GetHandle() : asset_handle);
     }
   } else {
     const std::string none_title = "None##" + name;
@@ -4539,9 +4729,17 @@ void EditorLayer::CameraWindowDragAndDrop() const {
       const auto gaussian_splat_renderer = scene->GetOrSetPrivateComponent<GaussianSplatRenderer>(entity).lock();
       gaussian_splat_renderer->gaussian_splat.Set<GaussianSplat>(std::dynamic_pointer_cast<GaussianSplat>(asset));
     } else if (asset->GetTypeName() == "EnvironmentalMap") {
-      scene->environment.environmental_map = std::dynamic_pointer_cast<EnvironmentalMap>(asset);
+      auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+      if (!lighting || !lighting->IsTemporary()) {
+        lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+        scene->environmental_lighting = lighting;
+      }
+      lighting->indirect_environment_source.kind =
+          EnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap;
+      lighting->indirect_environment_source.environmental_map = std::dynamic_pointer_cast<EnvironmentalMap>(asset);
     } else if (asset->GetTypeName() == "Cubemap") {
       const auto main_camera = scene->main_camera.Get<Camera>();
+      main_camera->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
       main_camera->skybox = std::dynamic_pointer_cast<Cubemap>(asset);
     }
   }

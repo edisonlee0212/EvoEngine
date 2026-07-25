@@ -3,6 +3,7 @@
 #include "ComputePipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "Platform.hpp"
+#include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
 #include <chrono>
@@ -25,7 +26,6 @@ void DispatchClassification(const VkCommandBuffer vk_command_buffer,
   }
   parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(probe_count, 32));
-  Platform::EverythingBarrier(vk_command_buffer);
 }
 
 void RecordProbeClassification(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
@@ -36,9 +36,7 @@ void RecordProbeClassification(const VkCommandBuffer vk_command_buffer, const Re
   }
   const auto* ray_output_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_output);
   const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
-  const auto* update_indices_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_update_indices);
-  if (!ray_output_binding || !ray_output_binding->buffer || !state_binding || !state_binding->buffer ||
-      !update_indices_binding || !update_indices_binding->buffer) {
+  if (!ray_output_binding || !ray_output_binding->buffer || !state_binding || !state_binding->buffer) {
     return;
   }
   ApplyGraphResourceBarriers(vk_command_buffer, context);
@@ -46,16 +44,22 @@ void RecordProbeClassification(const VkCommandBuffer vk_command_buffer, const Re
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
   descriptor_set->UpdateBufferDescriptorBinding(0, ray_output_binding->buffer);
   descriptor_set->UpdateBufferDescriptorBinding(1, state_binding->buffer);
-  descriptor_set->UpdateBufferDescriptorBinding(2, update_indices_binding->buffer);
 
   parameters.pipeline->Bind(vk_command_buffer);
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+  const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "DDGI Probe Classification");
   if (parameters.reset_classification) {
     DispatchClassification(vk_command_buffer, parameters, parameters.reset_push_constant);
+  }
+  if (parameters.reset_classification && parameters.classify_probes) {
+    ApplyDdgiBufferDependency(vk_command_buffer, state_binding->buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                              VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
   }
   if (parameters.classify_probes) {
     DispatchClassification(vk_command_buffer, parameters, parameters.update_push_constant);
   }
+  Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
@@ -67,8 +71,6 @@ RenderPassDescriptor DdgiProbeClassificationPass::CreateDescriptor() {
       RenderPassQueue::Graphics,
       RenderPassScope::Frame,
       {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_update_indices, RenderResourceUsage::Read,
-        RenderResourceState::ShaderRead},
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::ReadWrite,
         RenderResourceState::StorageReadWrite}}};
   descriptor.dependencies = {RenderPassNames::ddgi_probe_update};

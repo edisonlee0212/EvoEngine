@@ -21,17 +21,17 @@ void RecordProbeRayVisualization(const VkCommandBuffer vk_command_buffer, const 
                                  const DdgiProbeRayVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
       !parameters.descriptor_set_layout || !parameters.transient_resources || !parameters.camera ||
-      !parameters.camera->GetRenderTexture() ||
-      parameters.push_constant.camera_selected_probe_ray_count_flags.z == 0u) {
+      !parameters.camera->GetRenderTexture() || parameters.push_constant.camera_ray_count.y == 0u) {
     return;
   }
-  const auto* ray_output_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_output);
-  if (!ray_output_binding || !ray_output_binding->buffer) {
+  const auto* diagnostics_binding =
+      context.GetResourceBinding(RenderResourceNames::frame_ddgi_selected_ray_diagnostics);
+  if (!diagnostics_binding || !diagnostics_binding->buffer) {
     return;
   }
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
-  descriptor_set->UpdateBufferDescriptorBinding(0, ray_output_binding->buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(0, diagnostics_binding->buffer);
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
@@ -71,10 +71,8 @@ void RecordProbeRayVisualization(const VkCommandBuffer vk_command_buffer, const 
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
-    auto push_constant = parameters.push_constant;
-    push_constant.camera_selected_probe_ray_count_flags.x = parameters.camera_index;
-    parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    vkCmdDraw(vk_command_buffer, push_constant.camera_selected_probe_ray_count_flags.z * 2u, 1, 0, 0);
+    parameters.pipeline->PushConstant(vk_command_buffer, 0, parameters.push_constant);
+    vkCmdDraw(vk_command_buffer, parameters.push_constant.camera_ray_count.y * 2u, 1, 0, 0);
   });
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
@@ -88,7 +86,8 @@ RenderPassDescriptor DdgiProbeRayVisualizationPass::CreateDescriptor(const char*
       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
-       {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}};
+       {RenderResourceNames::frame_ddgi_selected_ray_diagnostics, RenderResourceUsage::Read,
+        RenderResourceState::ShaderRead}}};
   descriptor.dependencies = {dependency ? dependency : RenderPassNames::deferred_camera};
   return descriptor;
 }

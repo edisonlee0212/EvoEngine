@@ -11,6 +11,7 @@ class Texture2D;
 class Mesh;
 class Cubemap;
 class EnvironmentalMap;
+class GlobalReflectionProbe;
 class Scene;
 
 /**
@@ -53,6 +54,7 @@ class Resources {
   std::shared_ptr<Texture2D> missing_texture_;
   std::shared_ptr<Cubemap> default_skybox_;
   std::shared_ptr<EnvironmentalMap> default_environmental_map_;
+  std::shared_ptr<GlobalReflectionProbe> default_global_reflection_probe_;
   std::shared_ptr<Texture2D> default_environmental_map_texture_;
   std::shared_ptr<Texture2D> default_skybox_texture_;
   std::shared_ptr<Mesh> texture_pass_through_quad_;
@@ -93,7 +95,7 @@ class Resources {
   friend class Scene;
   friend class Cubemap;
   friend class LightProbe;
-  friend class ReflectionProbe;
+  friend class GlobalReflectionProbe;
   friend class Bloom;
   friend class PostProcessingStack;
   friend class AmbientOcclusion;
@@ -151,6 +153,7 @@ class Resources {
   [[nodiscard]] const std::shared_ptr<Texture2D>& GetMissingTexture() const;
   [[nodiscard]] const std::shared_ptr<Cubemap>& GetDefaultSkybox() const;
   [[nodiscard]] const std::shared_ptr<EnvironmentalMap>& GetDefaultEnvironmentalMap() const;
+  [[nodiscard]] const std::shared_ptr<GlobalReflectionProbe>& GetDefaultGlobalReflectionProbe() const;
   [[nodiscard]] const std::shared_ptr<Mesh>& GetTexturePassThroughQuad() const;
   [[nodiscard]] const std::shared_ptr<Mesh>& GetRenderingCube() const;
   [[nodiscard]] const Primitives& GetPrimitives() const;

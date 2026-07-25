@@ -18,7 +18,7 @@ struct Camera {
   int skybox_tex_index;
   int irradiance_map_index;
   int prefiltered_map_index;
-  int use_clear_color;
+  int background_source;
 
   // Ray tracing
   uint firefly_clamp_enabled;
@@ -32,7 +32,7 @@ struct Camera {
   float auto_spp_convergence_threshold;
   uint emissive_triangle_nee_enabled;
   uint ray_debug_view;
-  uint auto_spp_padding2;
+  uint raster_lighting_flags;
   vec4 shadow_split_distances;
 };
 

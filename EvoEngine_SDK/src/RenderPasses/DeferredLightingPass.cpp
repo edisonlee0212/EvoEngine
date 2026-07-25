@@ -12,8 +12,8 @@
 
 using namespace evo_engine;
 
-RenderPassDescriptor DeferredLightingPass::CreateDescriptor() {
-  return {
+RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_occlusion_enabled) {
+  RenderPassDescriptor descriptor{
       RenderPassNames::deferred_camera,
       RenderPassQueue::Graphics,
       RenderPassScope::Camera,
@@ -25,6 +25,12 @@ RenderPassDescriptor DeferredLightingPass::CreateDescriptor() {
        {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
       {RenderPassNames::depth_pyramid}};
+  if (ambient_occlusion_enabled) {
+    descriptor.resources.push_back(
+        {RenderResourceNames::camera_ambient_occlusion, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+    descriptor.dependencies = {RenderPassNames::ambient_occlusion};
+  }
+  return descriptor;
 }
 
 void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {

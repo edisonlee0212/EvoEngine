@@ -155,3 +155,25 @@ TEST(TaskRuntime, PropagatesTaskExceptionsOnWait) {
   const auto stats = runtime.GetStats();
   EXPECT_EQ(stats.failed_task_size, 1);
 }
+
+TEST(TaskRuntime, DependentOnSameExecutorCanObserveTaskFailure) {
+  TaskRuntime runtime;
+  runtime.Initialize(TestRuntimeSettings());
+
+  TaskOptions background_options;
+  background_options.executor = TaskExecutorType::Background;
+  const auto failing_task = runtime.Schedule({}, background_options, []() {
+    throw std::runtime_error("dependency failure");
+  });
+  std::atomic_bool failure_observed = false;
+  const auto observer_task = runtime.Schedule({failing_task}, background_options, [&]() {
+    try {
+      runtime.Wait(failing_task);
+    } catch (const std::runtime_error&) {
+      failure_observed = true;
+    }
+  });
+
+  runtime.Wait(observer_task);
+  EXPECT_TRUE(failure_observed);
+}

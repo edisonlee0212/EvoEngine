@@ -2,7 +2,6 @@
 #pragma once
 #include "AssetRef.hpp"
 #include "LightProbe.hpp"
-#include "ReflectionProbe.hpp"
 #include "RenderTexture.hpp"
 #include "SkyIllumination.hpp"
 
@@ -41,11 +40,6 @@ class EnvironmentalMap final : public IAsset {
    * @brief Reference to the light probe used in the environment.
    */
   AssetRef light_probe;
-
-  /**
-   * @brief Reference to the reflection probe used in the environment.
-   */
-  AssetRef reflection_probe;
 
   /**
    * @brief Reference to the HDR/environment-map sampling CDF used by ray tracing.

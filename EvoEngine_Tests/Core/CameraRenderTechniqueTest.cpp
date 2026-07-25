@@ -61,34 +61,59 @@ TEST(GraphicsInitializationSettings, ExplicitQualityUpdatesAllShadowResolutions)
   EXPECT_EQ(settings.spot_light_shadow_map_resolution, 2048u);
 }
 
-TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
+TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracingAndRayQuery) {
   const auto& names = Camera::GetCameraRenderModeNames();
   ASSERT_EQ(names.size(), Camera::kCameraRenderModeCount);
   EXPECT_EQ(names[static_cast<uint32_t>(Camera::CameraRenderMode::Rasterization)], "Rasterization");
   EXPECT_EQ(names[static_cast<uint32_t>(Camera::CameraRenderMode::RayTracing)], "RayTracing");
   EXPECT_EQ(names[static_cast<uint32_t>(Camera::CameraRenderMode::RayQuery)], "RayQuery");
 
-  EXPECT_EQ(Camera::ParseCameraRenderMode("raster"), Camera::CameraRenderMode::Rasterization);
+  EXPECT_EQ(Camera::ParseCameraRenderMode("Rasterization", Camera::CameraRenderMode::RayTracing),
+            Camera::CameraRenderMode::Rasterization);
   EXPECT_EQ(Camera::ParseCameraRenderMode("RayTracing"), Camera::CameraRenderMode::RayTracing);
-  EXPECT_EQ(Camera::ParseCameraRenderMode("ray-tracing"), Camera::CameraRenderMode::RayTracing);
-  EXPECT_EQ(Camera::ParseCameraRenderMode("path tracing"), Camera::CameraRenderMode::RayTracing);
   EXPECT_EQ(Camera::ParseCameraRenderMode("RayQuery"), Camera::CameraRenderMode::RayQuery);
-  EXPECT_EQ(Camera::ParseCameraRenderMode("ray query"), Camera::CameraRenderMode::RayQuery);
-  EXPECT_EQ(Camera::ParseCameraRenderMode("2"), Camera::CameraRenderMode::RayQuery);
+  EXPECT_EQ(Camera::ParseCameraRenderMode("rasterization", Camera::CameraRenderMode::RayTracing),
+            Camera::CameraRenderMode::RayTracing);
+  EXPECT_EQ(Camera::ParseCameraRenderMode("2", Camera::CameraRenderMode::RayTracing),
+            Camera::CameraRenderMode::RayTracing);
   EXPECT_EQ(Camera::NormalizeCameraRenderMode(999), Camera::CameraRenderMode::Rasterization);
   EXPECT_FALSE(Camera::IsRayCameraRenderMode(Camera::CameraRenderMode::Rasterization));
   EXPECT_TRUE(Camera::IsRayCameraRenderMode(Camera::CameraRenderMode::RayTracing));
   EXPECT_TRUE(Camera::IsRayCameraRenderMode(Camera::CameraRenderMode::RayQuery));
+
+  const auto& background_names = Camera::GetBackgroundSourceNames();
+  ASSERT_EQ(background_names.size(), Camera::kBackgroundSourceCount);
+  EXPECT_EQ(background_names[static_cast<uint32_t>(Camera::BackgroundSource::ClearColor)], "Clear Color");
+  EXPECT_EQ(background_names[static_cast<uint32_t>(Camera::BackgroundSource::Cubemap)], "Cubemap");
+  EXPECT_EQ(background_names[static_cast<uint32_t>(Camera::BackgroundSource::EnvironmentalMap)], "Environmental Map");
+  EXPECT_EQ(background_names[static_cast<uint32_t>(Camera::BackgroundSource::InheritEnvironmentalLighting)],
+            "Inherit Environmental Lighting");
+  EXPECT_EQ(background_names[static_cast<uint32_t>(Camera::BackgroundSource::EngineDefaultSkybox)],
+            "Engine Default Skybox");
+  EXPECT_EQ(Camera::ParseBackgroundSource("Clear Color"), Camera::BackgroundSource::ClearColor);
+  EXPECT_EQ(Camera::ParseBackgroundSource("Cubemap"), Camera::BackgroundSource::Cubemap);
+  EXPECT_EQ(Camera::ParseBackgroundSource("Environmental Map"), Camera::BackgroundSource::EnvironmentalMap);
+  EXPECT_EQ(Camera::ParseBackgroundSource("Inherit Environmental Lighting"),
+            Camera::BackgroundSource::InheritEnvironmentalLighting);
+  EXPECT_EQ(Camera::ParseBackgroundSource("Engine Default Skybox"), Camera::BackgroundSource::EngineDefaultSkybox);
+  EXPECT_EQ(Camera::ParseBackgroundSource("clear color", Camera::BackgroundSource::Cubemap),
+            Camera::BackgroundSource::Cubemap);
+  EXPECT_EQ(Camera::ParseBackgroundSource("4", Camera::BackgroundSource::Cubemap), Camera::BackgroundSource::Cubemap);
+  EXPECT_EQ(Camera::NormalizeBackgroundSource(999), Camera::BackgroundSource::Cubemap);
 
   const auto& ser_names = Camera::GetShaderExecutionReorderingModeNames();
   ASSERT_EQ(ser_names.size(), Camera::kShaderExecutionReorderingModeCount);
   EXPECT_EQ(ser_names[static_cast<uint32_t>(CameraSettings::ShaderExecutionReorderingMode::Disabled)], "Disabled");
   EXPECT_EQ(ser_names[static_cast<uint32_t>(CameraSettings::ShaderExecutionReorderingMode::Automatic)], "Automatic");
   EXPECT_EQ(ser_names[static_cast<uint32_t>(CameraSettings::ShaderExecutionReorderingMode::Enabled)], "Enabled");
-  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("off"), CameraSettings::ShaderExecutionReorderingMode::Disabled);
-  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("auto"),
+  EXPECT_EQ(
+      Camera::ParseShaderExecutionReorderingMode("Disabled", CameraSettings::ShaderExecutionReorderingMode::Enabled),
+      CameraSettings::ShaderExecutionReorderingMode::Disabled);
+  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("Automatic"),
             CameraSettings::ShaderExecutionReorderingMode::Automatic);
-  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("enabled"),
+  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("Enabled"),
+            CameraSettings::ShaderExecutionReorderingMode::Enabled);
+  EXPECT_EQ(Camera::ParseShaderExecutionReorderingMode("1", CameraSettings::ShaderExecutionReorderingMode::Enabled),
             CameraSettings::ShaderExecutionReorderingMode::Enabled);
   EXPECT_EQ(Camera::NormalizeShaderExecutionReorderingMode(999),
             CameraSettings::ShaderExecutionReorderingMode::Disabled);
@@ -100,14 +125,15 @@ TEST(CameraRenderTechnique, NamesAndAliasesExposeRasterRayTracingAndRayQuery) {
   for (uint32_t index = 0; index < debug_views.size(); ++index) {
     EXPECT_EQ(Camera::ParseRayDebugView(debug_views[index]), static_cast<CameraSettings::RayDebugView>(index));
   }
-  EXPECT_EQ(Camera::ParseRayDebugView("specular-f0"), CameraSettings::RayDebugView::SpecularF0);
-  EXPECT_EQ(Camera::ParseRayDebugView("alpha coverage"), CameraSettings::RayDebugView::AlphaCoverage);
-  EXPECT_EQ(Camera::ParseRayDebugView("19"), CameraSettings::RayDebugView::EmissivePdf);
-  EXPECT_EQ(Camera::ParseRayDebugView("20"), CameraSettings::RayDebugView::Beauty);
+  EXPECT_EQ(Camera::ParseRayDebugView("specular-f0", CameraSettings::RayDebugView::Emission),
+            CameraSettings::RayDebugView::Emission);
+  EXPECT_EQ(Camera::ParseRayDebugView("19", CameraSettings::RayDebugView::Emission),
+            CameraSettings::RayDebugView::Emission);
   EXPECT_EQ(Camera::NormalizeRayDebugView(999), CameraSettings::RayDebugView::Beauty);
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
+  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 684u);
   EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 688u);
   EXPECT_EQ(sizeof(CameraInfoBlock), 704u);
   EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_enabled), offsetof(CameraInfoBlock, gamma));
@@ -121,6 +147,24 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
             offsetof(CameraInfoBlock, emissive_triangle_nee_enabled));
   EXPECT_LT(offsetof(CameraInfoBlock, emissive_triangle_nee_enabled), offsetof(CameraInfoBlock, ray_debug_view));
+  EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
+}
+
+TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane) {
+  EXPECT_EQ(CameraInfoBlock::kRasterLightingGtaoVisibility, 1u);
+  CameraInfoBlock first;
+  CameraInfoBlock second = first;
+  second.raster_lighting_flags = CameraInfoBlock::kRasterLightingGtaoVisibility;
+  EXPECT_TRUE(first != second);
+
+  const auto cameras =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+  const auto lighting =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+  const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
+  EXPECT_NE(cameras.find("uint raster_lighting_flags"), std::string::npos);
+  EXPECT_NE(lighting.find("raster_lighting_flags & 1u"), std::string::npos);
+  EXPECT_NE(camera_source.find("AmbientOcclusion::Algorithm::Gtao"), std::string::npos);
 }
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
@@ -159,10 +203,12 @@ TEST(CameraRenderTechnique, DirectionalAndPunctualPcfCountsUseSeparateRenderInfo
   RenderSettings settings;
   settings.directional_pcf_sample_amount = 7;
   settings.pcf_sample_amount = 23;
+  settings.indirect_lighting_debug_view = RenderSettings::IndirectLightingDebugView::SpecularVisibility;
   RenderInstanceStorage::RenderInfoBlock render_info;
   render_info.Apply(settings);
   EXPECT_EQ(render_info.shadow_debug_parameters.w, 7);
   EXPECT_EQ(render_info.pcf_sample_amount, 23);
+  EXPECT_FLOAT_EQ(render_info.shadow_fade_parameters.y, 3.0f);
 }
 
 TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
@@ -176,6 +222,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
   for (const auto render_mode : render_modes) {
     Camera camera;
     camera.camera_render_mode = render_mode;
+    camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
     camera.camera_settings.firefly_clamp_enabled = false;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
@@ -193,6 +240,8 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     const auto node = YAML::Load(out.c_str());
     ASSERT_TRUE(node["render_mode"]);
     EXPECT_EQ(node["render_mode"].as<std::string>(), Camera::GetCameraRenderModeName(render_mode));
+    ASSERT_TRUE(node["background_source"]);
+    EXPECT_EQ(node["background_source"].as<std::string>(), "Environmental Map");
     ASSERT_TRUE(node["shader_execution_reordering_mode"]);
     EXPECT_EQ(node["shader_execution_reordering_mode"].as<std::string>(), "Enabled");
     ASSERT_TRUE(node["firefly_clamp_enabled"]);
@@ -216,6 +265,7 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     restored_camera.camera_render_mode = Camera::CameraRenderMode::Rasterization;
     Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored_camera));
     EXPECT_EQ(restored_camera.camera_render_mode, render_mode);
+    EXPECT_EQ(restored_camera.camera_settings.background_source, Camera::BackgroundSource::EnvironmentalMap);
     EXPECT_EQ(restored_camera.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
     EXPECT_FALSE(restored_camera.camera_settings.firefly_clamp_enabled);
@@ -228,19 +278,29 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FLOAT_EQ(restored_camera.camera_settings.auto_spp_convergence_threshold, 0.025f);
   }
 
-  Camera legacy_numeric_camera;
+  Camera invalid_numeric_camera;
+  invalid_numeric_camera.camera_render_mode = Camera::CameraRenderMode::RayTracing;
   Serialization::DeserializeObject(YAML::Load("{render_mode: 2}"),
-                                   static_cast<IPrivateComponent&>(legacy_numeric_camera));
-  EXPECT_EQ(legacy_numeric_camera.camera_render_mode, Camera::CameraRenderMode::RayQuery);
+                                   static_cast<IPrivateComponent&>(invalid_numeric_camera));
+  EXPECT_EQ(invalid_numeric_camera.camera_render_mode, Camera::CameraRenderMode::RayTracing);
 
-  Camera legacy_ser_camera;
+  Camera numeric_background_camera;
+  numeric_background_camera.camera_settings.background_source = Camera::BackgroundSource::ClearColor;
+  Serialization::DeserializeObject(YAML::Load("{background_source: 4}"),
+                                   static_cast<IPrivateComponent&>(numeric_background_camera));
+  EXPECT_EQ(numeric_background_camera.camera_settings.background_source, Camera::BackgroundSource::ClearColor);
+
+  Camera invalid_ser_camera;
+  invalid_ser_camera.camera_settings.shader_execution_reordering_mode =
+      CameraSettings::ShaderExecutionReorderingMode::Enabled;
   Serialization::DeserializeObject(YAML::Load("{shader_execution_reordering_mode: 1}"),
-                                   static_cast<IPrivateComponent&>(legacy_ser_camera));
-  EXPECT_EQ(legacy_ser_camera.camera_settings.shader_execution_reordering_mode,
-            CameraSettings::ShaderExecutionReorderingMode::Automatic);
+                                   static_cast<IPrivateComponent&>(invalid_ser_camera));
+  EXPECT_EQ(invalid_ser_camera.camera_settings.shader_execution_reordering_mode,
+            CameraSettings::ShaderExecutionReorderingMode::Enabled);
 
   Camera numeric_debug_camera;
+  numeric_debug_camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::Emission;
   Serialization::DeserializeObject(YAML::Load("{ray_debug_view: 19}"),
                                    static_cast<IPrivateComponent&>(numeric_debug_camera));
-  EXPECT_EQ(numeric_debug_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::EmissivePdf);
+  EXPECT_EQ(numeric_debug_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::Emission);
 }

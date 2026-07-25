@@ -1644,7 +1644,6 @@ void Prefab::AttachChildrenPrivateComponent(const std::shared_ptr<Scene>& scene,
     AttachChildrenPrivateComponent(scene, i, entity, map);
     index++;
   }
-  scene->SetEnable(entity, enabled_);
 }
 void Prefab::AttachChildren(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Prefab>& model_node,
                             Entity parent_entity, std::unordered_map<Handle, Handle>& map) {
@@ -1655,6 +1654,7 @@ void Prefab::AttachChildren(const std::shared_ptr<Scene>& scene, const std::shar
   auto archetype = Entities::CreateEntityArchetype("", types);
   auto entity = scene->CreateEntity(archetype, model_node->instance_name);
   map[model_node->entity_handle] = scene->GetEntityHandle(entity);
+  scene->SetEnable(entity, model_node->enabled_);
   scene->SetParent(entity, parent_entity);
   for (auto& i : model_node->data_components) {
     scene->SetDataComponent(entity.GetIndex(), i.data_component_type.type_index, i.data_component_type.type_size,
@@ -2143,6 +2143,7 @@ Entity Prefab::ToEntity(const std::shared_ptr<Scene>& scene, bool rescale, bool 
   auto archetype = Entities::CreateEntityArchetype("", types);
   const Entity entity = scene->CreateEntity(archetype, instance_name);
   entity_map[entity_handle] = scene->GetEntityHandle(entity);
+  scene->SetEnable(entity, enabled_);
   for (auto& i : data_components) {
     scene->SetDataComponent(entity.GetIndex(), i.data_component_type.type_index, i.data_component_type.type_size,
                             i.data_component.get());
@@ -2168,8 +2169,6 @@ Entity Prefab::ToEntity(const std::shared_ptr<Scene>& scene, bool rescale, bool 
   }
 
   RelinkChildren(scene, entity, entity_map);
-
-  scene->SetEnable(entity, enabled_);
 
   TransformGraph::CalculateTransformGraphForDescendants(scene, entity);
 

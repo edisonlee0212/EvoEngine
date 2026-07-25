@@ -162,6 +162,7 @@ VkImageUsageFlags ToVkImageUsage(const std::vector<RenderResourceState>& require
         usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         break;
       case RenderResourceState::TransferDestination:
+      case RenderResourceState::TransferDestinationGeneral:
         usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         break;
       case RenderResourceState::Undefined:
@@ -187,6 +188,7 @@ VkBufferUsageFlags ToVkBufferUsage(const std::vector<RenderResourceState>& requi
         usage |= VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
         break;
       case RenderResourceState::TransferDestination:
+      case RenderResourceState::TransferDestinationGeneral:
         usage |= VK_BUFFER_USAGE_TRANSFER_DST_BIT;
         break;
       case RenderResourceState::ShaderRead:
@@ -768,12 +770,6 @@ void RenderGraph::AddResource(const RenderResourceDescriptor& descriptor) {
   resources_.emplace_back(descriptor);
 }
 
-void RenderGraph::AddPass(const RenderPassDescriptor& descriptor, LegacyExecuteFunction execute) {
-  AddPass(descriptor, [execute = std::move(execute)](const RenderGraphExecutionContext&) {
-    execute();
-  });
-}
-
 void RenderGraph::AddPass(const RenderPassDescriptor& descriptor, ExecuteFunction execute) {
   passes_.emplace_back(descriptor);
   execute_functions_.emplace_back(std::move(execute));
@@ -1176,6 +1172,22 @@ void evo_engine::AddAdvancedFrameResources(RenderGraph& graph) {
 }
 
 void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
+  graph.AddResource({RenderResourceNames::camera_ambient_occlusion,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "R16F",
+                     1,
+                     1,
+                     true});
+  graph.AddResource({RenderResourceNames::camera_ambient_occlusion_scratch,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "R16F",
+                     1,
+                     1,
+                     true});
   graph.AddResource({RenderResourceNames::camera_motion_vectors,
                      RenderResourceType::Image,
                      RenderResourceLifetime::Camera,
@@ -1205,6 +1217,14 @@ void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
                      RenderResourceLifetime::Camera,
                      {RenderResourceSizeMode::CameraRelative, 0, 0, 1, 1, 0},
                      "DepthPyramid",
+                     1,
+                     1,
+                     true});
+  graph.AddResource({RenderResourceNames::camera_ddgi_gather_timing,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     "RGBA16F",
                      1,
                      1,
                      true});

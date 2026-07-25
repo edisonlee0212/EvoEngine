@@ -38,6 +38,8 @@ extern "C" __global__ void __raygen__CR() {
 
   PerRayData<glm::vec3> camera_ray_data;
   camera_ray_data.hit_count = 0;
+  camera_ray_data.primary_background_visible = true;
+  camera_ray_data.diffuse_indirect_path = false;
   camera_ray_data.random.Init(ix + cameraRenderingLaunchParams.camera_properties.target_frame.size.x * iy,
                               cameraRenderingLaunchParams.camera_properties.target_frame.frame_id);
   camera_ray_data.energy = glm::vec3(0);
@@ -112,6 +114,7 @@ extern "C" __global__ void __raygen__CR() {
     camera_ray_data.albedo = glm::vec3(0.0f);
     camera_ray_data.position = glm::vec3(0.0f);
     camera_ray_data.hit_count = 0;
+    camera_ray_data.diffuse_indirect_path = false;
   }
   pixel_color /= samples;
   pixel_normal /= samples;

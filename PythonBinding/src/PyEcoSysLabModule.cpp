@@ -1,3 +1,5 @@
+#include "AssetManager.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "ImGuiLayer.hpp"
 #include "PyEcoSysLab.hpp"
 #include "PyEvoEngine.hpp"
@@ -6,6 +8,8 @@
 #if DATASET_GENERATION_PACKAGE
 #  include "DatasetGenerationSerializationAdapters.hpp"
 #endif
+
+#include <algorithm>
 
 #ifdef ECOSYSLAB_PACKAGE
 namespace py = pybind11;
@@ -149,10 +153,10 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
   global_transform.SetEulerRotation(glm::radians(glm::vec3(angle_x, angle_y, angle_z)));
   scene->SetDataComponent(main_camera_entity, global_transform);
   main_camera->Resize({resolution_x, resolution_y});
-  const auto use_clear_color = main_camera->camera_settings.use_clear_color;
+  const auto background_source = main_camera->camera_settings.background_source;
   const auto clear_color = main_camera->camera_settings.clear_color;
   if (white_background) {
-    main_camera->camera_settings.use_clear_color = true;
+    main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
     main_camera->camera_settings.clear_color = glm::vec4(1, 1, 1, 1);
   }
   ApplicationContext::Get().Loop();
@@ -162,7 +166,7 @@ void scene_capture(const float pos_x, const float pos_y, const float pos_z, cons
   } else {
     scene->SetDataComponent(main_camera_entity, original_transform);
     if (white_background) {
-      main_camera->camera_settings.use_clear_color = use_clear_color;
+      main_camera->camera_settings.background_source = background_source;
       main_camera->camera_settings.clear_color = clear_color;
     }
   }
@@ -430,9 +434,23 @@ void rbv_space_colonization_tree_data(const std::string& rbv_path, const std::st
   scene->DeleteEntity(temp_entity);
 }
 
-void scene_light_settings(const float ambient_light_intensity, const float directional_light_intensity) {
+void scene_environment_lighting_settings(const float sky_light_intensity_scale,
+                                         const float indirect_lighting_intensity) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
-  scene->environment.ambient_light_intensity = ambient_light_intensity;
+  if (!scene) {
+    return;
+  }
+  auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting || !lighting->IsTemporary()) {
+    lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+    scene->environmental_lighting = lighting;
+  }
+  lighting->environment_lighting_intensity = std::max(sky_light_intensity_scale, 0.0f);
+  lighting->diffuse_fallback_intensity = std::max(indirect_lighting_intensity, 0.0f);
+}
+
+void scene_directional_light_intensity(const float directional_light_intensity) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
   const auto directional_light_entities = scene->GetPrivateComponentOwnersList<DirectionalLight>();
   for (const auto& directional_light_entity : directional_light_entities) {
     const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(directional_light_entity).lock();
@@ -473,6 +491,9 @@ PYBIND11_MODULE(PyEcoSysLab, m) {
 
   m.def("generate_tree_data", &generate_tree_data, "Generate data for single tree");
   m.def("generate_tree_growth_data", &generate_tree_growth_data, "Generate data for single tree growth");
-  m.def("scene_light_settings", &scene_light_settings, "Configure scene lighting");
+  m.def("scene_environment_lighting_settings", &scene_environment_lighting_settings,
+        "Configure sky-light and diffuse-indirect intensity scales");
+  m.def("scene_directional_light_intensity", &scene_directional_light_intensity,
+        "Configure directional-light intensity");
 }
 #endif

@@ -8,6 +8,41 @@
 #include "Shader.hpp"
 using namespace evo_engine;
 
+namespace {
+std::shared_ptr<Sampler> CreateAmbientOcclusionSampler() {
+  VkSamplerCreateInfo sampler_info{};
+  sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+  sampler_info.magFilter = VK_FILTER_LINEAR;
+  sampler_info.minFilter = VK_FILTER_LINEAR;
+  sampler_info.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+  sampler_info.maxLod = 1.0f;
+  return std::make_shared<Sampler>(sampler_info);
+}
+
+void ComputeWriteToReadBarrier(const VkCommandBuffer command_buffer, const std::shared_ptr<Image>& image) {
+  VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+  barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = image->GetVkImage();
+  barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  barrier.subresourceRange.levelCount = 1;
+  barrier.subresourceRange.layerCount = 1;
+  VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency.imageMemoryBarrierCount = 1;
+  dependency.pImageMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command_buffer, &dependency);
+}
+}  // namespace
+
 void AmbientOcclusion::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "algorithm" << YAML::Value << static_cast<int>(algorithm);
   out << YAML::Key << "avoid_distance" << YAML::Value << avoid_distance;
@@ -58,68 +93,48 @@ void AmbientOcclusion::Deserialize(const YAML::Node& in) {
     denoise_radius = in["denoise_radius"].as<float>();
 }
 
-void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
-                               const std::shared_ptr<Camera>& target_camera,
+void AmbientOcclusion::Process(const PostProcessingStack&, const std::shared_ptr<Camera>& target_camera,
                                PostProcessingExecutionContext& context) const {
-  const auto& source_color_texture = context.camera.stack.source_color_texture;
-  const auto& result_texture = context.camera.stack.result_texture;
-  const auto& swap_texture = context.camera.stack.swap_texture;
-  auto& combine_descriptor_set = context.camera.ambient_occlusion.combine_descriptor_set;
+  const auto& ambient_occlusion_view = context.ambient_occlusion_image_view;
+  const auto& scratch_view = context.ambient_occlusion_scratch_image_view;
   auto& geometry_output_descriptor_set = context.camera.ambient_occlusion.geometry_output_descriptor_set;
   auto& blur_horizontal_descriptor_set = context.camera.ambient_occlusion.blur_horizontal_descriptor_set;
   auto& blur_vertical_descriptor_set = context.camera.ambient_occlusion.blur_vertical_descriptor_set;
-  const auto& combine_layout = context.renderer.ambient_occlusion.combine_layout;
   const auto& geometry_output_layout = context.renderer.ambient_occlusion.geometry_output_layout;
   const auto& blur_layout = context.renderer.ambient_occlusion.blur_layout;
   const auto& geometry_pipeline = context.renderer.ambient_occlusion.geometry_pipeline;
   const auto& blur_pipeline = context.renderer.ambient_occlusion.blur_pipeline;
-  const auto& combine_pipeline = context.renderer.ambient_occlusion.combine_pipeline;
-  if (!geometry_pipeline || !geometry_pipeline->Initialized() || !blur_pipeline || !blur_pipeline->Initialized() ||
-      !combine_pipeline || !combine_pipeline->Initialized())
+  const auto& sampler = context.renderer.ambient_occlusion.sampler;
+  if (!ambient_occlusion_view || !scratch_view || !sampler || !geometry_pipeline || !geometry_pipeline->Initialized() ||
+      !blur_pipeline || !blur_pipeline->Initialized()) {
     return;
+  }
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  const auto& combine_frame_descriptor_set = combine_descriptor_set.GetOrCreate(combine_layout);
   const auto& geometry_output_frame_descriptor_set = geometry_output_descriptor_set.GetOrCreate(geometry_output_layout);
   const auto& blur_horizontal_frame_descriptor_set = blur_horizontal_descriptor_set.GetOrCreate(blur_layout);
   const auto& blur_vertical_frame_descriptor_set = blur_vertical_descriptor_set.GetOrCreate(blur_layout);
   {
-    VkDescriptorImageInfo image_info;
+    VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = source_color_texture->GetColorSampler()->GetVkSampler();
-    combine_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    combine_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-  }
-  {
-    VkDescriptorImageInfo image_info;
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = source_color_texture->GetColorSampler()->GetVkSampler();
+    image_info.imageView = ambient_occlusion_view->GetVkImageView();
     geometry_output_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
-    geometry_output_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
-    VkDescriptorImageInfo image_info;
+    VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
+    image_info.imageView = ambient_occlusion_view->GetVkImageView();
+    image_info.sampler = sampler->GetVkSampler();
     blur_horizontal_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
+    image_info.imageView = scratch_view->GetVkImageView();
     blur_horizontal_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   {
-    VkDescriptorImageInfo image_info;
+    VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = swap_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = swap_texture->GetColorSampler()->GetVkSampler();
+    image_info.imageView = scratch_view->GetVkImageView();
+    image_info.sampler = sampler->GetVkSampler();
     blur_vertical_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = result_texture->GetColorSampler()->GetVkSampler();
+    image_info.imageView = ambient_occlusion_view->GetVkImageView();
     blur_vertical_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
   }
   const auto size = target_camera->GetSize();
@@ -136,31 +151,21 @@ void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
   push_constant.camera_index =
       render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     geometry_pipeline->Bind(vk_command_buffer);
     geometry_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                          render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
     geometry_pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                          target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
-    geometry_pipeline->BindDescriptorSet(
-        vk_command_buffer, 2, target_camera->GetRenderTexture()->GetColorPresentDescriptorSet()->GetVkDescriptorSet());
-    geometry_pipeline->BindDescriptorSet(vk_command_buffer, 3,
+    geometry_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                          geometry_output_frame_descriptor_set->GetVkDescriptorSet());
     geometry_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     geometry_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-  BlurPushConstant blur_push_constant{};
-  blur_push_constant.avoid_distance = algorithm == Algorithm::Gtao ? denoise_radius : avoid_distance;
-  blur_push_constant.camera_near = target_camera->camera_settings.near_distance;
-  blur_push_constant.camera_far = target_camera->camera_settings.far_distance;
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    ComputeWriteToReadBarrier(vk_command_buffer, ambient_occlusion_view->GetImage());
 
+    BlurPushConstant blur_push_constant{};
+    blur_push_constant.avoid_distance = algorithm == Algorithm::Gtao ? denoise_radius : avoid_distance;
+    blur_push_constant.camera_near = target_camera->camera_settings.near_distance;
+    blur_push_constant.camera_far = target_camera->camera_settings.far_distance;
     blur_pipeline->Bind(vk_command_buffer);
     blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_horizontal_frame_descriptor_set->GetVkDescriptorSet());
     blur_pipeline->BindDescriptorSet(vk_command_buffer, 1,
@@ -168,7 +173,7 @@ void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
     blur_push_constant.horizontal = true;
     blur_pipeline->PushConstant(vk_command_buffer, 0, blur_push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
-    Platform::EverythingBarrier(vk_command_buffer);
+    ComputeWriteToReadBarrier(vk_command_buffer, scratch_view->GetImage());
 
     blur_pipeline->BindDescriptorSet(vk_command_buffer, 0, blur_vertical_frame_descriptor_set->GetVkDescriptorSet());
     blur_pipeline->BindDescriptorSet(vk_command_buffer, 1,
@@ -176,40 +181,18 @@ void AmbientOcclusion::Process(const PostProcessingStack& post_processing_stack,
     blur_push_constant.horizontal = false;
     blur_pipeline->PushConstant(vk_command_buffer, 0, blur_push_constant);
     blur_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    combine_pipeline->Bind(vk_command_buffer);
-    combine_pipeline->BindDescriptorSet(vk_command_buffer, 0, combine_frame_descriptor_set->GetVkDescriptorSet());
-    combine_pipeline->BindDescriptorSet(
-        vk_command_buffer, 1, target_camera->GetRenderTexture()->GetStorageDescriptorSet()->GetVkDescriptorSet());
-    combine_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
-    Platform::EverythingBarrier(vk_command_buffer);
   });
 }
 
-void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources, const bool) const {
-  constexpr bool force_rebuild = false;
-  auto& combine_layout = resources.ambient_occlusion.combine_layout;
+void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
   auto& geometry_output_layout = resources.ambient_occlusion.geometry_output_layout;
   auto& blur_layout = resources.ambient_occlusion.blur_layout;
   auto& geometry_pipeline = resources.ambient_occlusion.geometry_pipeline;
   auto& blur_pipeline = resources.ambient_occlusion.blur_pipeline;
-  auto& combine_pipeline = resources.ambient_occlusion.combine_pipeline;
-  if (force_rebuild || !combine_layout) {
-    combine_layout = std::make_shared<DescriptorSetLayout>();
-    combine_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    combine_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    combine_layout->Initialize();
-  }
+  auto& sampler = resources.ambient_occlusion.sampler;
   if (force_rebuild || !geometry_output_layout) {
     geometry_output_layout = std::make_shared<DescriptorSetLayout>();
     geometry_output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    geometry_output_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     geometry_output_layout->Initialize();
   }
   if (force_rebuild || !geometry_pipeline) {
@@ -221,24 +204,12 @@ void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     geometry_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());
-    geometry_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTexturePresentDescriptorSetLayout());
     geometry_pipeline->descriptor_set_layouts.emplace_back(geometry_output_layout);
     auto& ssr_reflect_pipeline_push_constant_range = geometry_pipeline->push_constant_ranges.emplace_back();
     ssr_reflect_pipeline_push_constant_range.size = sizeof(PushConstant);
     ssr_reflect_pipeline_push_constant_range.offset = 0;
     ssr_reflect_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     geometry_pipeline->Initialize();
-  }
-  if (force_rebuild || !combine_pipeline) {
-    combine_pipeline = std::make_shared<ComputePipeline>();
-    combine_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionCombine.comp");
-    combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);
-    combine_pipeline->descriptor_set_layouts.emplace_back(
-        ApplicationContext::Get().GetLayer<RenderLayer>()->GetRenderTextureStorageDescriptorSetLayout());
-    combine_pipeline->Initialize();
   }
   if (force_rebuild || !blur_layout) {
     blur_layout = std::make_shared<DescriptorSetLayout>();
@@ -260,5 +231,8 @@ void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources
     ssr_blur_pipeline_push_constant_range.offset = 0;
     ssr_blur_pipeline_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     blur_pipeline->Initialize();
+  }
+  if (force_rebuild || !sampler) {
+    sampler = CreateAmbientOcclusionSampler();
   }
 }

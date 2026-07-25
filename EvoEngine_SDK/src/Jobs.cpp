@@ -13,7 +13,8 @@ std::function<void()> BindApplicationContext(std::function<void()> func) {
   return [application, func = std::move(func)]() mutable {
     if (application) {
       const ApplicationContextScope scope(*application);
-      func();
+      auto scoped_func = std::move(func);
+      scoped_func();
       return;
     }
     func();

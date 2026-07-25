@@ -43,6 +43,9 @@ Entity IPrivateComponent::GetOwner() const {
 
 void IPrivateComponent::SetEnabled(const bool &value) {
   if (enabled_ != value) {
+    if (value && !CanEnable()) {
+      return;
+    }
     if (value) {
       OnEnable();
     } else {

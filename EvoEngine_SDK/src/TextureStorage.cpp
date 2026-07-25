@@ -30,6 +30,15 @@ bool AreViewFormatsCompatible(const VkFormat image_format, const VkFormat view_f
   return view_format == formats[0] || view_format == formats[1];
 }
 
+bool IsSampledDescriptorImageLayout(const VkImageLayout layout) {
+  return layout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL || layout == VK_IMAGE_LAYOUT_READ_ONLY_OPTIMAL ||
+         layout == VK_IMAGE_LAYOUT_GENERAL;
+}
+
+uint64_t MixTextureContentSignature(const uint64_t seed, const uint64_t value) {
+  return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
+}
+
 void RemoveImGuiTexture(const ImTextureID texture_id) {
   if (texture_id != 0 && ImGui::GetCurrentContext()) {
     ImGui_ImplVulkan_RemoveTexture(reinterpret_cast<VkDescriptorSet>(texture_id));
@@ -327,7 +336,7 @@ GpuWorkHandle EnqueueTextureUpload(const std::shared_ptr<Image>& target_image,
 }
 }  // namespace
 
-void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
+void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const VkFormat format) {
   if (!Platform::Initialized())
     return;
   Clear();
@@ -339,7 +348,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   image_info.extent.depth = 1;
   image_info.mipLevels = mip_levels;
   image_info.arrayLayers = 6;
-  image_info.format = Platform::Constants::texture_2d;
+  image_info.format = format;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -353,7 +362,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
   view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
   view_info.image = image->GetVkImage();
   view_info.viewType = VK_IMAGE_VIEW_TYPE_CUBE;
-  view_info.format = Platform::Constants::texture_2d;
+  view_info.format = format;
   view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
   view_info.subresourceRange.baseMipLevel = 0;
   view_info.subresourceRange.levelCount = mip_levels;
@@ -391,7 +400,7 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels) {
     face_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     face_view_info.image = image->GetVkImage();
     face_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    face_view_info.format = Platform::Constants::texture_2d;
+    face_view_info.format = format;
     face_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     face_view_info.subresourceRange.baseMipLevel = 0;
     face_view_info.subresourceRange.levelCount = 1;
@@ -796,6 +805,62 @@ uint32_t TextureStorage::GetVersion() {
   return GetInstance().version_;
 }
 
+bool TextureStorage::TryGetTexture2DContentSignature(const uint32_t texture_index, uint64_t& signature) {
+  const auto& textures = GetInstance().texture_2ds_;
+  if (texture_index >= textures.size() || textures[texture_index].pending_delete || !textures[texture_index].handle) {
+    return false;
+  }
+  const auto& texture = textures[texture_index];
+  signature = static_cast<uint64_t>(static_cast<uint32_t>(texture.handle->value));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(texture.image.get()));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(texture.image_view.get()));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(texture.sampler.get()));
+  signature = MixTextureContentSignature(signature, static_cast<uint32_t>(texture.view_format_));
+  signature = MixTextureContentSignature(signature, texture.samples_linear_srgb_ ? 1u : 0u);
+  signature = MixTextureContentSignature(signature, texture.gpu_upload_generation->load());
+  const auto& sampler = texture.sampler_create_info_;
+  signature = MixTextureContentSignature(signature, sampler.flags);
+  signature = MixTextureContentSignature(signature, sampler.magFilter);
+  signature = MixTextureContentSignature(signature, sampler.minFilter);
+  signature = MixTextureContentSignature(signature, sampler.mipmapMode);
+  signature = MixTextureContentSignature(signature, sampler.addressModeU);
+  signature = MixTextureContentSignature(signature, sampler.addressModeV);
+  signature = MixTextureContentSignature(signature, sampler.addressModeW);
+  signature = MixTextureContentSignature(signature, glm::floatBitsToUint(sampler.mipLodBias));
+  signature = MixTextureContentSignature(signature, sampler.anisotropyEnable);
+  signature = MixTextureContentSignature(signature, glm::floatBitsToUint(sampler.maxAnisotropy));
+  signature = MixTextureContentSignature(signature, sampler.compareEnable);
+  signature = MixTextureContentSignature(signature, sampler.compareOp);
+  signature = MixTextureContentSignature(signature, glm::floatBitsToUint(sampler.minLod));
+  signature = MixTextureContentSignature(signature, glm::floatBitsToUint(sampler.maxLod));
+  signature = MixTextureContentSignature(signature, sampler.borderColor);
+  signature = MixTextureContentSignature(signature, sampler.unnormalizedCoordinates);
+  return true;
+}
+
+bool TextureStorage::TryGetCubemapContentSignature(const uint32_t texture_index, uint64_t& signature) {
+  const auto& cubemaps = GetInstance().cubemaps_;
+  if (texture_index >= cubemaps.size() || cubemaps[texture_index].pending_delete || !cubemaps[texture_index].handle) {
+    return false;
+  }
+  const auto& cubemap = cubemaps[texture_index];
+  signature = static_cast<uint64_t>(static_cast<uint32_t>(cubemap.handle->value));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(cubemap.image.get()));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(cubemap.image_view.get()));
+  signature = MixTextureContentSignature(signature, reinterpret_cast<uintptr_t>(cubemap.sampler.get()));
+  signature = MixTextureContentSignature(signature, cubemap.content_generation);
+  return true;
+}
+
+bool TextureStorage::HasPendingTexture2DUpload(const uint32_t texture_index) {
+  const auto& textures = GetInstance().texture_2ds_;
+  if (texture_index >= textures.size() || textures[texture_index].pending_delete) {
+    return false;
+  }
+  const auto& texture = textures[texture_index];
+  return !texture.new_data_.empty() || !texture.new_compressed_data_.empty() || texture.IsGpuUploadPending();
+}
+
 bool TextureStorage::HasPendingUploads() {
   const auto& storage = GetInstance();
   for (const auto& texture_storage : storage.texture_2ds_) {
@@ -938,7 +1003,7 @@ bool TextureStorage::TryGetTexture2DDescriptorImageInfo(const uint32_t texture_i
     return false;
   }
   const auto layout = texture_storage.GetLayout();
-  if (layout == VK_IMAGE_LAYOUT_UNDEFINED || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
+  if (!IsSampledDescriptorImageLayout(layout) || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
       texture_storage.GetVkSampler() == VK_NULL_HANDLE) {
     return false;
   }
@@ -955,7 +1020,7 @@ bool TextureStorage::TryGetCubemapDescriptorImageInfo(const uint32_t texture_ind
   }
   const auto& texture_storage = storage.cubemaps_[texture_index];
   const auto layout = texture_storage.GetLayout();
-  if (layout == VK_IMAGE_LAYOUT_UNDEFINED || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
+  if (!IsSampledDescriptorImageLayout(layout) || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
       texture_storage.GetVkSampler() == VK_NULL_HANDLE) {
     return false;
   }
@@ -969,14 +1034,10 @@ void TextureStorage::BindCubemapToDescriptorSet(const std::shared_ptr<Descriptor
                                                 const uint32_t binding) {
   const auto& storage = GetInstance();
   for (int texture_index = 0; texture_index < storage.cubemaps_.size(); texture_index++) {
-    auto& texture_storage = storage.cubemaps_[texture_index];
-    if (texture_storage.GetLayout() == VK_IMAGE_LAYOUT_UNDEFINED)
-      continue;
     VkDescriptorImageInfo image_info;
-    image_info.imageLayout = texture_storage.GetLayout();
-    image_info.imageView = texture_storage.GetVkImageView();
-    image_info.sampler = texture_storage.GetVkSampler();
-    descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+    if (TryGetCubemapDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) {
+      descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+    }
   }
 }
 
@@ -1030,7 +1091,7 @@ std::shared_ptr<TextureStorageHandle> TextureStorage::RegisterCubemap() {
   storage.cubemaps_.emplace_back();
   auto& new_cubemap_storage = storage.cubemaps_.back();
   new_cubemap_storage.handle = ret_val;
-  storage.cubemaps_.back().Initialize(1, 1);
+  storage.cubemaps_.back().Initialize(1, 1, Platform::Constants::texture_2d);
   return ret_val;
 }
 

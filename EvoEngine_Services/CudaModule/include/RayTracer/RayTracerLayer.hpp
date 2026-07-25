@@ -45,6 +45,8 @@ class RayTracerLayer : public ILayer {
   EnvironmentProperties environment_properties;
   std::shared_ptr<CudaImage> environmental_map_image;
   Handle environmental_map_handle = 0;
+  Handle global_reflection_probe_handle = 0;
+  uint64_t global_reflection_probe_payload_hash = 0;
 
   bool show_scene_window = false;
   bool show_camera_window = false;

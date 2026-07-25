@@ -6,54 +6,9 @@
 #include "RayTracingBasic.glsl"
 #include "GltfRasterMaterial.glsl"
 #include "PointCloudRayTracingPayload.glsl"
-#include "Random.glsl"
 layout(location = 0) rayPayloadInEXT PointCloudRayTracingPayload hit_value;
 
 hitAttributeEXT vec2 attribs;
-
-vec3 Reflect(in vec3 incident, in vec3 normal) {
-  return incident - 2.0f * dot(incident, normal) * normal;
-}
-
-layout(push_constant) uniform EE_POINT_CLOUD_CONSTANTS {
-  uint bounce;
-  uint envIndex;
-  uint skybox_tex_index;
-  uint use_clear_color;
-  vec4 clear_color;
-};
-
-vec3 EE_SKY_COLOR(vec3 direction) {
-	return use_clear_color == 1 ?
-		clear_color.xyz * clear_color.w
-		: pow(texture(EE_CUBEMAPS[skybox_tex_index], normalize(direction)).rgb, vec3(1.0f / EE_ENVIRONMENT.gamma)) * clear_color.w;
-}
-
-mat3 GetTangentSpace(in vec3 normal) {
-  // Choose a helper vector for the cross product
-  vec3 helper = vec3(1.0f, 0.0f, 0.0f);
-  if (abs(normal.x) > 0.99f)
-    helper = vec3(0.0f, 0.0f, 1.0f);
-  // Generate vectors
-  const vec3 tangent = normalize(cross(normal, helper));
-  const vec3 binormal = normalize(cross(normal, tangent));
-  return mat3(tangent, binormal, normal);
-}
-
-vec3 RandomSampleHemisphere(inout uint seed, in vec3 normal, in float alpha) {
-  // Uniformly sample hemisphere direction
-  const float cosTheta = 1.0f - EE_RANDOM(seed) * (1.0f - alpha) * (1.0f - alpha);
-  const float sinTheta = sqrt(max(0.0f, 1.0f - cosTheta * cosTheta));
-  const float phi = 2.0f * 3.1415926f * EE_RANDOM(seed);
-  const vec3 tangentSpaceDir = vec3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-  // Transform direction to world space
-  return GetTangentSpace(normal) * tangentSpaceDir;
-}
-
-vec3 BRDF(in float metallic, inout uint seed, in vec3 inDirection, in vec3 inNormal) {
-  const vec3 reflected = Reflect(inDirection, inNormal);
-  return RandomSampleHemisphere(seed, reflected, metallic);
-}
 
 void main() 
 {
@@ -80,29 +35,10 @@ void main()
 	const vec3 worldNormal = normalize(vec3(normal * gl_WorldToObjectEXT));  // Transforming the normal to world space
 	const vec3 worldTangent = normalize(vec3(tangent * gl_WorldToObjectEXT));  // Transforming the normal to world space
 	
-	float roughness = surface.roughness;
-	float metallic = surface.metallic;
-	float ao = surface.occlusion;
 	vec4 albedo = surface.base_color;
 
-	//Proceed...
-	float f = 1.0f;
-	if (metallic >= 0.0f){
-		f = (metallic + 2) / (metallic + 1);
-	}
-
 	hit_value.hit_count += 1;
-
-	vec3 combined_color = vec3(0.0f, 0.0f, 0.0f);
-	if(hit_value.hit_count <= bounce){
-		const vec3 sample_direction = BRDF(metallic, hit_value.seed, gl_WorldRayDirectionEXT, worldNormal);
-		traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, worldPosition, 1e-3f, sample_direction, 1e20f, 0);
-		const vec3 received_color = hit_value.hit_info.color.xyz;
-		combined_color = albedo.xyz * clamp(abs(dot(worldNormal, sample_direction)) * roughness + (1.f - roughness) * f, 0.0f, 1.0f) * received_color;
-	}else{
-		combined_color = EE_SKY_COLOR(worldNormal) * 1e-3f;
-	}
-	hit_value.hit_info.color = vec4(combined_color + surface.emissive * albedo.xyz, 1.0f);
+	hit_value.hit_info.color = vec4(surface.emissive * albedo.xyz, 1.0f);
 
 	hit_value.hit_info.position = worldPosition;
 	hit_value.hit_info.normal = worldNormal;

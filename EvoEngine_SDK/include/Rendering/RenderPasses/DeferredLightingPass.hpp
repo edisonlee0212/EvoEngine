@@ -29,7 +29,7 @@ class DeferredLightingPass final {
     RecordCommands record_commands;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled = false);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine

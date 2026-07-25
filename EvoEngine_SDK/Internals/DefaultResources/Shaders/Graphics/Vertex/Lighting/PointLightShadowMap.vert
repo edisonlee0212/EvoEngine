@@ -5,19 +5,9 @@
 #include "Basic.glsl"
 
 layout (location = 0) in vec3 inPosition;
-layout (location = 1) in vec3 inNormal;
-layout (location = 2) in vec3 inTangent;
-layout (location = 3) in vec2 inTexCoord;
-layout (location = 4) in vec2 inColor;
-layout(location = 0) out VS_OUT {
-	vec2 TexCoord;
-} vs_out;
-
-layout(location = 5) out flat uint currentInstanceIndex;
 
 void main()
 {
-    currentInstanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
-    vs_out.TexCoord = inTexCoord;
-    gl_Position = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * EE_INSTANCES[currentInstanceIndex].model * vec4(inPosition, 1.0);
+    const uint current_instance_index = gl_DrawID + EE_INSTANCE_INDEX;
+    gl_Position = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * EE_INSTANCES[current_instance_index].model * vec4(inPosition, 1.0);
 }
