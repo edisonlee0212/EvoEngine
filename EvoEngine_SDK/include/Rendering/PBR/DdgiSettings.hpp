@@ -1,9 +1,16 @@
 #pragma once
 
+#include <cstdint>
 #include <glm/glm.hpp>
+
+namespace YAML {
+class Emitter;
+class Node;
+}  // namespace YAML
 
 namespace evo_engine {
 enum class DdgiVolumeMovementType : int { Default = 0, Scrolling = 1 };
+enum class DdgiEmissiveMeshSamplingMode : int { Inherit = 0, On = 1, Off = 2 };
 
 enum DdgiVolumeTriggerCondition : int {
   DdgiVolumeTriggerConditionNone = 0,
@@ -20,6 +27,7 @@ struct DdgiSettings {
     bool enabled = false;
     bool pause_updates = false;
     bool reset_probe_history = false;
+    bool enable_emissive_mesh_sampling = true;
     int ray_count = 256;
     int warmup_frames = 16;
     float hysteresis = 0.97f;
@@ -29,9 +37,10 @@ struct DdgiSettings {
     float distance_exponent = 50.0f;
     float irradiance_gamma = 5.0f;
     float visibility_moment_bias = 0.02f;
-    float indirect_intensity = 1.0f;
     float irradiance_threshold = 0.25f;
     float brightness_threshold = 0.10f;
+    bool deterministic_ray_seed_enabled = false;
+    uint32_t deterministic_ray_seed = 0;
   };
 
   struct VolumeDefaults {
@@ -59,19 +68,12 @@ struct DdgiSettings {
 
   struct DebugSettings {
     bool enabled = false;
-    bool visualize_volume_bounds = true;
     bool visualize_probe_positions = true;
     bool visualize_selected_probe = false;
     bool visualize_probe_state = false;
     bool visualize_probe_illumination = true;
-    bool show_atlas_preview = false;
-    bool show_update_age = false;
     bool show_rays = false;
-    bool show_irradiance = false;
-    bool show_visibility = false;
-    bool show_sampling_weights = false;
     int selected_probe_index = 0;
-    int atlas_layer = 0;
     float visualization_scale = 2.0f;
     int probe_visualization_mode = 0;
     int probe_visualization_depth_mode = 0;
@@ -86,4 +88,7 @@ struct DdgiSettings {
   StorageSettings storage{};
   DebugSettings debug{};
 };
+
+void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings);
+void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings);
 }  // namespace evo_engine

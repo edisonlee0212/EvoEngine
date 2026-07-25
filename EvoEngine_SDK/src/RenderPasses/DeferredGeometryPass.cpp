@@ -83,7 +83,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
         const bool use_material_batched_indirect_deferred_draws =
             parameters.enable_indirect_rendering && parameters.bind_raster_material_descriptor_sets &&
             !parameters.render_instances->deferred_mesh_indirect_batches.empty();
-        const bool use_legacy_indirect_deferred_draws =
+        const bool use_unbatched_indirect_deferred_draws =
             parameters.enable_indirect_rendering && !parameters.bind_raster_material_descriptor_sets;
         if (use_material_batched_indirect_deferred_draws) {
           for (const auto& batch : parameters.render_instances->deferred_mesh_indirect_batches) {
@@ -115,7 +115,7 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                                             batch.command_count, sizeof(VkDrawIndexedIndirectCommand));
             }
           }
-        } else if (use_legacy_indirect_deferred_draws &&
+        } else if (use_unbatched_indirect_deferred_draws &&
                    !parameters.render_instances->deferred_render_instances->Empty()) {
           RenderInstancePushConstant push_constant;
           push_constant.camera_index = parameters.camera_index;

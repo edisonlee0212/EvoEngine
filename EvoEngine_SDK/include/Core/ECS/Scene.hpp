@@ -1,22 +1,18 @@
 
 #pragma once
 #include "Bound.hpp"
-#include "DdgiSettings.hpp"
 #include "Entities.hpp"
 #include "Entity.hpp"
 #include "EntityMetadata.hpp"
-#include "EnvironmentalMap.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "IAsset.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISystem.hpp"
 #include "Input.hpp"
 #include "Jobs.hpp"
-#include "LightProbe.hpp"
 #include "PrivateComponentRef.hpp"
 #include "PrivateComponentStorage.hpp"
-#include "ReflectionProbe.hpp"
 #include "Utilities.hpp"
-#include "VolumetricCloudSettings.hpp"
 
 namespace evo_engine {
 
@@ -228,72 +224,19 @@ class Scene final : public IAsset {
    * @return A shared pointer to the system.
    */
   std::shared_ptr<ISystem> GetOrCreateSystem(const std::string& system_name, float order);
-  /**
-   * @brief Enum class for defining different environment types.
-   */
-  enum class EnvironmentType {
-    EnvironmentalMap,  ///< Uses an environmental map for rendering the environment.
-    Color              ///< Uses a color for rendering the environment.
-  };
+  /// Explicit scene-global prefiltered specular fallback used after local reflection probes.
+  AssetRef global_reflection_probe_fallback;
+
+  /// Optional authoring asset for local reflection probes, DDGI volumes, and shared indirect environment lighting.
+  AssetRef environmental_lighting;
 
   /**
-   * @brief Represents the environment of the engine, storing environmental properties.
+   * @brief Retrieves the explicit scene-global reflection fallback.
+   * @param require_runtime_ready If true, only returns a probe whose runtime cubemap payload is ready.
+   * @return Shared pointer to the assigned global reflection fallback, or nullptr.
    */
-  class Environment {
-   public:
-    /// Reference to the environmental map asset.
-    AssetRef environmental_map;
-
-    /**
-     * @brief Retrieves the light probe for a specified position.
-     * @param position The position in the scene to query the light probe.
-     * @return Shared pointer to the light probe found at the given position.
-     */
-    [[nodiscard]] std::shared_ptr<LightProbe> GetLightProbe(const glm::vec3& position);
-
-    /**
-     * @brief Retrieves the reflection probe for a specified position.
-     * @param position The position in the scene to query the reflection probe.
-     * @return Shared pointer to the reflection probe found at the given position.
-     */
-    [[nodiscard]] std::shared_ptr<ReflectionProbe> GetReflectionProbe(const glm::vec3& position);
-
-    /// The background color of the environment.
-    glm::vec3 background_color = glm::vec3(1.0f, 1.0f, 1.0f);
-
-    /// Intensity of the background lighting.
-    float background_intensity = 1.0f;
-
-    /// Gamma value for color correction in the environment.
-    float environment_gamma = 2.2f;
-
-    /// Rotation around the world Y axis in radians.
-    float environment_rotation = 0.0f;
-
-    /// Intensity of the ambient light in the environment.
-    float ambient_light_intensity = 0.8f;
-
-    /// The type of environment to render.
-    EnvironmentType environment_type = EnvironmentType::EnvironmentalMap;
-
-    /// Scene-owned global DDGI runtime, defaults, storage, and debug settings.
-    DdgiSettings ddgi_settings{};
-
-    /// Scene-owned global volumetric cloud settings.
-    VolumetricCloudSettings volumetric_cloud_settings{};
-
-    /**
-     * @brief Serializes the environment's data to a YAML emitter.
-     * @param out The YAML emitter to serialize to.
-     */
-    void Serialize(YAML::Emitter& out) const;
-
-    /**
-     * @brief Deserializes the environment's data from a YAML node.
-     * @param in The YAML node to deserialize from.
-     */
-    void Deserialize(const YAML::Node& in);
-  } environment;  /// The environment associated with the scene.
+  [[nodiscard]] std::shared_ptr<GlobalReflectionProbe> GetGlobalReflectionProbeFallback(
+      bool require_runtime_ready = true);
 
   /// Reference to the main camera used in the scene.
   PrivateComponentRef main_camera;

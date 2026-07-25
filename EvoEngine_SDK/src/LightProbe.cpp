@@ -93,6 +93,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
         ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
                                   "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");
     irradiance_construct_pipeline_->geometry_type = GeometryType::Mesh;
+    irradiance_construct_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
     irradiance_construct_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;
     irradiance_construct_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     irradiance_construct_pipeline_->color_attachment_formats = {1, Platform::Constants::texture_2d};

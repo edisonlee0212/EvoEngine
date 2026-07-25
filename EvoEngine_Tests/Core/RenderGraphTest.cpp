@@ -3,6 +3,14 @@
 #include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
+#include "RenderPasses/DdgiAtlasPreparePass.hpp"
+#include "RenderPasses/DdgiProbeClassificationPass.hpp"
+#include "RenderPasses/DdgiProbeRelocationPass.hpp"
+#include "RenderPasses/DdgiProbeScrollPass.hpp"
+#include "RenderPasses/DdgiProbeUpdatePass.hpp"
+#include "RenderPasses/DdgiProbeVariabilityPass.hpp"
+#include "RenderPasses/DdgiRayDiagnosticsPass.hpp"
+#include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
@@ -131,7 +139,7 @@ TEST(RenderGraph, ExecutesPassesInInsertionOrderAndKeepsDescriptors) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment}}},
-      [&]() {
+      [&](const RenderGraphExecutionContext&) {
         EXPECT_EQ(sequence++, 0);
       });
   graph.AddPass(
@@ -140,7 +148,7 @@ TEST(RenderGraph, ExecutesPassesInInsertionOrderAndKeepsDescriptors) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
         {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      [&]() {
+      [&](const RenderGraphExecutionContext&) {
         EXPECT_EQ(sequence++, 1);
       });
 
@@ -155,69 +163,79 @@ TEST(RenderGraph, ExecutesPassesInInsertionOrderAndKeepsDescriptors) {
   EXPECT_EQ(sequence, 2);
 }
 
-TEST(RenderGraph, ValidateRejectsUnknownResources) {
-  RenderGraph graph;
-  graph.AddPass(
-      {"Lighting",
-       RenderPassQueue::Graphics,
-       RenderPassScope::Camera,
-       {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
-      });
+TEST(RenderGraph, ValidateRejectsInvalidGraphDescriptors) {
+  {
+    SCOPED_TRACE("unknown resource");
+    RenderGraph graph;
+    graph.AddPass(
+        {"Lighting",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Camera,
+         {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+        [](const RenderGraphExecutionContext&) {
+        });
 
-  EXPECT_FALSE(graph.Validate());
+    EXPECT_FALSE(graph.Validate());
+  }
+
+  {
+    SCOPED_TRACE("unknown or forward dependency");
+    RenderGraph graph;
+    graph.AddResource({RenderResourceNames::camera_color, RenderResourceType::Image, RenderResourceLifetime::Camera});
+    graph.AddPass(
+        {"Lighting",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Camera,
+         {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
+         {"DepthPrepass"}},
+        [](const RenderGraphExecutionContext&) {
+        });
+
+    EXPECT_FALSE(graph.Validate());
+
+    graph.AddPass({"DepthPrepass",
+                   RenderPassQueue::Graphics,
+                   RenderPassScope::Camera,
+                   {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+
+    EXPECT_FALSE(graph.Validate());
+  }
+
+  {
+    SCOPED_TRACE("duplicate pass names");
+    RenderGraph graph;
+    graph.AddResource({RenderResourceNames::camera_color, RenderResourceType::Image, RenderResourceLifetime::Camera});
+    graph.AddPass({"Copy",
+                   RenderPassQueue::Graphics,
+                   RenderPassScope::Camera,
+                   {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    graph.AddPass(
+        {"Copy",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Camera,
+         {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+        [](const RenderGraphExecutionContext&) {
+        });
+
+    EXPECT_FALSE(graph.Validate());
+  }
 }
 
-TEST(RenderGraph, ValidateRejectsUnknownOrForwardDependencies) {
-  RenderGraph graph;
-  graph.AddResource({RenderResourceNames::camera_color, RenderResourceType::Image, RenderResourceLifetime::Camera});
-  graph.AddPass(
-      {"Lighting",
-       RenderPassQueue::Graphics,
-       RenderPassScope::Camera,
-       {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
-       {"DepthPrepass"}},
-      []() {
-      });
-
-  EXPECT_FALSE(graph.Validate());
-
-  graph.AddPass({"DepthPrepass",
-                 RenderPassQueue::Graphics,
-                 RenderPassScope::Camera,
-                 {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
-                []() {
-                });
-
-  EXPECT_FALSE(graph.Validate());
-}
-
-TEST(RenderGraph, ValidateRejectsDuplicatePassNames) {
-  RenderGraph graph;
-  graph.AddResource({RenderResourceNames::camera_color, RenderResourceType::Image, RenderResourceLifetime::Camera});
-  graph.AddPass({"Copy",
-                 RenderPassQueue::Graphics,
-                 RenderPassScope::Camera,
-                 {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
-                []() {
-                });
-  graph.AddPass(
-      {"Copy",
-       RenderPassQueue::Graphics,
-       RenderPassScope::Camera,
-       {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
-      });
-
-  EXPECT_FALSE(graph.Validate());
+TEST(RenderGraph, DdgiIncrementalScrollDoesNotRequireAtlasClearPass) {
+  EXPECT_TRUE(DdgiProbeScrollPass::CreateDescriptor().dependencies.empty());
 }
 
 TEST(RenderGraph, ClearRemovesResourcesAndPasses) {
   RenderGraph graph;
   graph.AddResource(
       {RenderResourceNames::frame_render_instances, RenderResourceType::Buffer, RenderResourceLifetime::Frame});
-  graph.AddPass({"Prepare", RenderPassQueue::Compute, RenderPassScope::Frame, {}}, []() {
-  });
+  graph.AddPass({"Prepare", RenderPassQueue::Compute, RenderPassScope::Frame, {}},
+                [](const RenderGraphExecutionContext&) {
+                });
 
   graph.Clear();
 
@@ -233,7 +251,7 @@ TEST(RenderGraph, ReportsPassQueuesForFutureSchedulers) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass(
       {"Denoise",
@@ -241,7 +259,7 @@ TEST(RenderGraph, ReportsPassQueuesForFutureSchedulers) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
        {"Raster"}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
 
   const auto graphics_passes = graph.GetPassIndices(RenderPassQueue::Graphics);
@@ -276,13 +294,13 @@ TEST(RenderGraph, CompileBuildsQueueScheduleFromResourceHazards) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment},
         {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass({"DebugOverlay",
                  RenderPassQueue::Compute,
                  RenderPassScope::Frame,
                  {{kTestDebugOutputResource, RenderResourceUsage::Write, RenderResourceState::General}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"BuildDepthPyramid",
                  RenderPassQueue::Compute,
@@ -290,7 +308,7 @@ TEST(RenderGraph, CompileBuildsQueueScheduleFromResourceHazards) {
                  {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
                   {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write,
                    RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass(
       {"Lighting",
@@ -298,7 +316,7 @@ TEST(RenderGraph, CompileBuildsQueueScheduleFromResourceHazards) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
         {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
 
   RenderGraphCompileContext context;
@@ -344,21 +362,21 @@ TEST(RenderGraph, ExecuteUsesCompiledScheduleSteps) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment}}},
-      [&]() {
+      [&](const RenderGraphExecutionContext&) {
         execution_order.emplace_back(0);
       });
   graph.AddPass({"DepthPyramid",
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}},
-                [&]() {
+                [&](const RenderGraphExecutionContext&) {
                   execution_order.emplace_back(1);
                 });
   graph.AddPass({"Debug",
                  RenderPassQueue::Compute,
                  RenderPassScope::Frame,
                  {{kTestDebugOutputResource, RenderResourceUsage::Write, RenderResourceState::General}}},
-                [&]() {
+                [&](const RenderGraphExecutionContext&) {
                   execution_order.emplace_back(2);
                 });
 
@@ -402,7 +420,7 @@ TEST(RenderGraph, CompileTracksResourceLifetimesAndDependencies) {
                  RenderPassScope::Camera,
                  {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment},
                   {temporary_radiance, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass(
       {"TemporalResolve",
@@ -412,7 +430,7 @@ TEST(RenderGraph, CompileTracksResourceLifetimesAndDependencies) {
         {temporary_radiance, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite},
         {RenderResourceNames::camera_color_history, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
        {"Raster"}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
 
   const auto plan = graph.Compile();
@@ -450,7 +468,7 @@ TEST(RenderGraph, ValidateRejectsManagedImagesWithoutSizeMode) {
                  RenderPassQueue::Graphics,
                  RenderPassScope::Camera,
                  {{"Camera.InvalidTransient", RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   EXPECT_FALSE(graph.Validate());
@@ -481,14 +499,14 @@ TEST(RenderGraph, CompileAliasesCompatibleNonOverlappingTransients) {
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{bloom_a, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"BloomUpsample",
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{bloom_b, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
                  {"BloomDownsample"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -522,7 +540,7 @@ TEST(RenderGraph, CompileSeparatesOverlappingTransients) {
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{ping, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"WritePongReadPing",
                  RenderPassQueue::Compute,
@@ -530,7 +548,7 @@ TEST(RenderGraph, CompileSeparatesOverlappingTransients) {
                  {{ping, RenderResourceUsage::Read, RenderResourceState::StorageReadWrite},
                   {pong, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
                  {"WritePing"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -547,7 +565,7 @@ TEST(RenderGraph, CompileRecordsStateAndQueueTransitions) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass(
       {"Denoise",
@@ -555,14 +573,14 @@ TEST(RenderGraph, CompileRecordsStateAndQueueTransitions) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
        {"Raster"}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass({"Sample",
                  RenderPassQueue::Graphics,
                  RenderPassScope::Camera,
                  {{RenderResourceNames::camera_color, RenderResourceUsage::Read, RenderResourceState::ShaderRead}},
                  {"Denoise"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -697,144 +715,6 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
                      1,
                      false,
                      layout.probe_metadata_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_probe_update_indices,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Persistent,
-                     {},
-                     {},
-                     1,
-                     1,
-                     false,
-                     layout.probe_update_index_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_ray_output,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Frame,
-                     {},
-                     {},
-                     1,
-                     1,
-                     true,
-                     layout.ray_output_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_irradiance_atlas,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Persistent,
-                     {RenderResourceSizeMode::Absolute, layout.irradiance_atlas.resolution.x,
-                      layout.irradiance_atlas.resolution.y, 1, 1, 1},
-                     "RGBA16F",
-                     1,
-                     1,
-                     false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_visibility_atlas,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Persistent,
-                     {RenderResourceSizeMode::Absolute, layout.visibility_atlas.resolution.x,
-                      layout.visibility_atlas.resolution.y, 1, 1, 1},
-                     "RG16F",
-                     1,
-                     1,
-                     false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_atlas,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Persistent,
-                     {RenderResourceSizeMode::Absolute, layout.variability_atlas.resolution.x,
-                      layout.variability_atlas.resolution.y, 1, 1, 1},
-                     "R16F",
-                     1,
-                     1,
-                     false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_a,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
-                     1,
-                     1,
-                     true});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_b,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
-                     1,
-                     1,
-                     true});
-  graph.AddPass({RenderPassNames::ddgi_atlas_prepare,
-                 RenderPassQueue::Compute,
-                 RenderPassScope::Frame,
-                 {{RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination}}},
-                []() {
-                });
-
-  const auto plan = graph.Compile();
-  ASSERT_TRUE(plan.valid);
-  EXPECT_TRUE(plan.uses_compute_queue);
-  EXPECT_TRUE(plan.resources[0].imported);
-  EXPECT_TRUE(plan.resources[1].imported);
-  EXPECT_FALSE(plan.resources[2].imported);
-  EXPECT_TRUE(plan.resources[3].imported);
-  EXPECT_TRUE(plan.resources[4].imported);
-  ASSERT_EQ(plan.allocations.size(), 1);
-  EXPECT_EQ(plan.allocations[0].resource_indices, std::vector<size_t>({2}));
-  ASSERT_EQ(plan.barriers.size(), 3);
-  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
-                         [&](const RenderResourceBarrierPlan& barrier) {
-                           return graph.GetResources()[barrier.resource_index].name ==
-                                      RenderResourceNames::frame_ddgi_irradiance_atlas &&
-                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::TransferDestination;
-                         }),
-            plan.barriers.end());
-  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
-                         [&](const RenderResourceBarrierPlan& barrier) {
-                           return graph.GetResources()[barrier.resource_index].name ==
-                                      RenderResourceNames::frame_ddgi_visibility_atlas &&
-                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::TransferDestination;
-                         }),
-            plan.barriers.end());
-  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
-                         [&](const RenderResourceBarrierPlan& barrier) {
-                           return graph.GetResources()[barrier.resource_index].name ==
-                                      RenderResourceNames::frame_ddgi_variability_atlas &&
-                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::TransferDestination;
-                         }),
-            plan.barriers.end());
-}
-
-TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsAfterAtlasPrepare) {
-  RenderLayer::DdgiSettings settings;
-  settings.volume_defaults.probe_counts = {2, 2, 2};
-  settings.runtime.ray_count = 16;
-  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
-
-  RenderGraph graph;
-  graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
-                     RenderResourceLifetime::Frame});
-  graph.AddResource({RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceType::DescriptorSet,
-                     RenderResourceLifetime::Frame});
-  graph.AddResource(
-      {RenderResourceNames::scene_mesh_tlas, RenderResourceType::AccelerationStructure, RenderResourceLifetime::Frame});
-  graph.AddResource({RenderResourceNames::frame_ddgi_ray_output,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Frame,
-                     {},
-                     {},
-                     1,
-                     1,
-                     true,
-                     layout.ray_output_byte_size});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -871,76 +751,23 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsAfterAtlasPrepare) {
                      1,
                      1,
                      false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_a,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
-                     1,
-                     1,
-                     true});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_b,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
-                     1,
-                     1,
-                     true});
-  graph.AddPass({RenderPassNames::ddgi_atlas_prepare,
-                 RenderPassQueue::Compute,
-                 RenderPassScope::Frame,
-                 {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination}}},
-                []() {
-                });
-  graph.AddPass(
-      {RenderPassNames::ddgi_ray_diagnostics,
-       RenderPassQueue::RayTracing,
-       RenderPassScope::Frame,
-       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
-        {RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceUsage::Read,
-         RenderResourceState::General},
-        {RenderResourceNames::scene_mesh_tlas, RenderResourceUsage::Read,
-         RenderResourceState::AccelerationStructureRead},
-        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-        {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-        {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-        {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::ReadWrite,
-         RenderResourceState::StorageReadWrite}}},
-      []() {
-      });
+  graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
 
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
-  EXPECT_TRUE(plan.uses_compute_queue);
-  EXPECT_TRUE(plan.uses_ray_tracing_queue);
-  ASSERT_EQ(plan.passes.size(), 2);
-  EXPECT_EQ(plan.passes[1].resource_dependency_indices, std::vector<size_t>({0}));
-  ASSERT_EQ(plan.allocations.size(), 1);
-  EXPECT_EQ(plan.allocations[0].byte_size, layout.ray_output_byte_size);
-  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
-                         [&](const RenderResourceBarrierPlan& barrier) {
-                           return graph.GetResources()[barrier.resource_index].name ==
-                                      RenderResourceNames::frame_ddgi_ray_output &&
-                                  barrier.barrier_type == RenderGraphBarrierType::BufferMemory &&
-                                  barrier.next_state == RenderResourceState::StorageReadWrite;
-                         }),
-            plan.barriers.end());
+  EXPECT_TRUE(plan.uses_graphics_queue);
+  EXPECT_TRUE(std::all_of(plan.resources.begin(), plan.resources.end(), [](const auto& resource) {
+    return resource.imported;
+  }));
+  EXPECT_TRUE(plan.allocations.empty());
+  ASSERT_EQ(plan.barriers.size(), 3);
   EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
                          [&](const RenderResourceBarrierPlan& barrier) {
                            return graph.GetResources()[barrier.resource_index].name ==
                                       RenderResourceNames::frame_ddgi_irradiance_atlas &&
                                   barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::ShaderRead;
+                                  barrier.next_state == RenderResourceState::TransferDestinationGeneral;
                          }),
             plan.barriers.end());
   EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
@@ -948,7 +775,116 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsAfterAtlasPrepare) {
                            return graph.GetResources()[barrier.resource_index].name ==
                                       RenderResourceNames::frame_ddgi_visibility_atlas &&
                                   barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::ShaderRead;
+                                  barrier.next_state == RenderResourceState::TransferDestinationGeneral;
+                         }),
+            plan.barriers.end());
+  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
+                         [&](const RenderResourceBarrierPlan& barrier) {
+                           return graph.GetResources()[barrier.resource_index].name ==
+                                      RenderResourceNames::frame_ddgi_variability_atlas &&
+                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
+                                  barrier.next_state == RenderResourceState::TransferDestinationGeneral;
+                         }),
+            plan.barriers.end());
+}
+
+TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
+  RenderLayer::DdgiSettings settings;
+  settings.volume_defaults.probe_counts = {2, 2, 2};
+  settings.runtime.ray_count = 16;
+  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+
+  RenderGraph graph;
+  graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
+                     RenderResourceLifetime::Frame});
+  graph.AddResource({RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceType::DescriptorSet,
+                     RenderResourceLifetime::Frame});
+  graph.AddResource(
+      {RenderResourceNames::scene_mesh_tlas, RenderResourceType::AccelerationStructure, RenderResourceLifetime::Frame});
+  graph.AddResource({RenderResourceNames::frame_ddgi_ray_output,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Frame,
+                     {},
+                     {},
+                     1,
+                     1,
+                     true,
+                     layout.ray_output_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_selected_ray_diagnostics,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Persistent,
+                     {},
+                     {},
+                     1,
+                     1,
+                     false,
+                     layout.selected_ray_diagnostics_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Persistent,
+                     {},
+                     {},
+                     1,
+                     1,
+                     false,
+                     layout.probe_state_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_irradiance_atlas,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Persistent,
+                     {RenderResourceSizeMode::Absolute, layout.irradiance_atlas.resolution.x,
+                      layout.irradiance_atlas.resolution.y, 1, 1, 1},
+                     "RGBA16F",
+                     1,
+                     1,
+                     false});
+  graph.AddResource({RenderResourceNames::frame_ddgi_visibility_atlas,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Persistent,
+                     {RenderResourceSizeMode::Absolute, layout.visibility_atlas.resolution.x,
+                      layout.visibility_atlas.resolution.y, 1, 1, 1},
+                     "RG16F",
+                     1,
+                     1,
+                     false});
+  graph.AddPass(DdgiRayDiagnosticsPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
+
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  EXPECT_TRUE(plan.uses_ray_tracing_queue);
+  ASSERT_EQ(plan.passes.size(), 1);
+  EXPECT_TRUE(plan.passes[0].resource_dependency_indices.empty());
+  ASSERT_EQ(plan.allocations.size(), 1);
+  EXPECT_EQ(plan.allocations[0].byte_size, layout.ray_output_byte_size);
+  const auto diagnostics_resource = std::find_if(
+      graph.GetResources().begin(), graph.GetResources().end(), [](const RenderResourceDescriptor& resource) {
+        return resource.name == RenderResourceNames::frame_ddgi_selected_ray_diagnostics;
+      });
+  ASSERT_NE(diagnostics_resource, graph.GetResources().end());
+  EXPECT_TRUE(
+      plan.resources[static_cast<size_t>(std::distance(graph.GetResources().begin(), diagnostics_resource))].imported);
+  const auto ray_output_resource = std::find_if(graph.GetResources().begin(), graph.GetResources().end(),
+                                                [](const RenderResourceDescriptor& resource) {
+                                                  return resource.name == RenderResourceNames::frame_ddgi_ray_output;
+                                                });
+  ASSERT_NE(ray_output_resource, graph.GetResources().end());
+  const auto ray_output_index = static_cast<size_t>(std::distance(graph.GetResources().begin(), ray_output_resource));
+  EXPECT_EQ(plan.resources[ray_output_index].writer_pass_indices, std::vector<size_t>({0}));
+  EXPECT_TRUE(plan.resources[ray_output_index].reader_pass_indices.empty());
+  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
+                         [&](const RenderResourceBarrierPlan& barrier) {
+                           return graph.GetResources()[barrier.resource_index].name ==
+                                      RenderResourceNames::frame_ddgi_irradiance_atlas &&
+                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
+                                  barrier.next_state == RenderResourceState::General;
+                         }),
+            plan.barriers.end());
+  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
+                         [&](const RenderResourceBarrierPlan& barrier) {
+                           return graph.GetResources()[barrier.resource_index].name ==
+                                      RenderResourceNames::frame_ddgi_visibility_atlas &&
+                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
+                                  barrier.next_state == RenderResourceState::General;
                          }),
             plan.barriers.end());
 }
@@ -975,6 +911,15 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      true,
                      layout.ray_output_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_selected_ray_diagnostics,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Persistent,
+                     {},
+                     {},
+                     1,
+                     1,
+                     false,
+                     layout.selected_ray_diagnostics_byte_size});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -993,15 +938,6 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      false,
                      layout.probe_metadata_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_probe_update_indices,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Persistent,
-                     {},
-                     {},
-                     1,
-                     1,
-                     false,
-                     layout.probe_update_index_byte_size});
   graph.AddResource({RenderResourceNames::frame_ddgi_irradiance_atlas,
                      RenderResourceType::Image,
                      RenderResourceLifetime::Persistent,
@@ -1047,120 +983,42 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      1,
                      true});
-  graph.AddPass({RenderPassNames::ddgi_atlas_prepare,
-                 RenderPassQueue::Compute,
-                 RenderPassScope::Frame,
-                 {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination},
-                  {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-                   RenderResourceState::TransferDestination}}},
-                []() {
-                });
-  graph.AddPass(
-      {RenderPassNames::ddgi_ray_diagnostics,
-       RenderPassQueue::RayTracing,
-       RenderPassScope::Frame,
-       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
-        {RenderResourceNames::frame_ray_tracing_descriptor_set, RenderResourceUsage::Read,
-         RenderResourceState::General},
-        {RenderResourceNames::scene_mesh_tlas, RenderResourceUsage::Read,
-         RenderResourceState::AccelerationStructureRead},
-        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-        {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::ReadWrite,
-         RenderResourceState::StorageReadWrite}}},
-      []() {
-      });
-  RenderPassDescriptor update_descriptor{
-      RenderPassNames::ddgi_probe_update,
-      RenderPassQueue::Compute,
-      RenderPassScope::Frame,
-      {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_update_indices, RenderResourceUsage::Read,
-        RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite},
-       {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite},
-       {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-        RenderResourceState::StorageReadWrite}}};
-  update_descriptor.resources.push_back({RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
-                                         RenderResourceState::StorageReadWrite});
-  update_descriptor.resources.push_back(
-      {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
-  update_descriptor.dependencies = {RenderPassNames::ddgi_ray_diagnostics};
-  graph.AddPass(update_descriptor, []() {
+  graph.AddPass(DdgiRayDiagnosticsPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  RenderPassDescriptor relocation_descriptor{
-      RenderPassNames::ddgi_probe_relocation,
-      RenderPassQueue::Compute,
-      RenderPassScope::Frame,
-      {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_update_indices, RenderResourceUsage::Read,
-        RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite}}};
-  relocation_descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
-  graph.AddPass(relocation_descriptor, []() {
+  graph.AddPass(DdgiProbeUpdatePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  RenderPassDescriptor classification_descriptor{
-      RenderPassNames::ddgi_probe_classification,
-      RenderPassQueue::Compute,
-      RenderPassScope::Frame,
-      {{RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_update_indices, RenderResourceUsage::Read,
-        RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite}}};
-  classification_descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
-  graph.AddPass(classification_descriptor, []() {
+  graph.AddPass(DdgiProbeRelocationPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  RenderPassDescriptor variability_descriptor{
-      RenderPassNames::ddgi_probe_variability,
-      RenderPassQueue::Compute,
-      RenderPassScope::Frame,
-      {{RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Read,
-        RenderResourceState::StorageReadWrite},
-       {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_variability_reduction_a, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite},
-       {RenderResourceNames::frame_ddgi_variability_reduction_b, RenderResourceUsage::ReadWrite,
-        RenderResourceState::StorageReadWrite}}};
-  variability_descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
-  graph.AddPass(variability_descriptor, []() {
+  graph.AddPass(DdgiProbeClassificationPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
+  graph.AddPass(DdgiProbeVariabilityPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
 
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
-  EXPECT_TRUE(plan.uses_compute_queue);
+  EXPECT_TRUE(plan.uses_graphics_queue);
   EXPECT_TRUE(plan.uses_ray_tracing_queue);
-  ASSERT_EQ(plan.passes.size(), 6);
+  ASSERT_EQ(plan.passes.size(), 5);
+  EXPECT_NE(std::find(plan.passes[1].dependency_indices.begin(), plan.passes[1].dependency_indices.end(), 0),
+            plan.passes[1].dependency_indices.end());
+  EXPECT_NE(std::find(plan.passes[1].resource_dependency_indices.begin(),
+                      plan.passes[1].resource_dependency_indices.end(), 0),
+            plan.passes[1].resource_dependency_indices.end());
   EXPECT_NE(std::find(plan.passes[2].dependency_indices.begin(), plan.passes[2].dependency_indices.end(), 1),
             plan.passes[2].dependency_indices.end());
   EXPECT_NE(std::find(plan.passes[2].resource_dependency_indices.begin(),
                       plan.passes[2].resource_dependency_indices.end(), 1),
             plan.passes[2].resource_dependency_indices.end());
-  EXPECT_NE(std::find(plan.passes[2].resource_dependency_indices.begin(),
-                      plan.passes[2].resource_dependency_indices.end(), 0),
-            plan.passes[2].resource_dependency_indices.end());
-  EXPECT_NE(std::find(plan.passes[3].dependency_indices.begin(), plan.passes[3].dependency_indices.end(), 2),
+  EXPECT_NE(std::find(plan.passes[3].dependency_indices.begin(), plan.passes[3].dependency_indices.end(), 1),
             plan.passes[3].dependency_indices.end());
   EXPECT_NE(std::find(plan.passes[3].resource_dependency_indices.begin(),
                       plan.passes[3].resource_dependency_indices.end(), 2),
             plan.passes[3].resource_dependency_indices.end());
-  EXPECT_NE(std::find(plan.passes[4].dependency_indices.begin(), plan.passes[4].dependency_indices.end(), 2),
+  EXPECT_NE(std::find(plan.passes[4].dependency_indices.begin(), plan.passes[4].dependency_indices.end(), 1),
             plan.passes[4].dependency_indices.end());
   EXPECT_NE(std::find(plan.passes[4].resource_dependency_indices.begin(),
                       plan.passes[4].resource_dependency_indices.end(), 3),
             plan.passes[4].resource_dependency_indices.end());
-  EXPECT_NE(std::find(plan.passes[5].dependency_indices.begin(), plan.passes[5].dependency_indices.end(), 2),
-            plan.passes[5].dependency_indices.end());
-  EXPECT_NE(std::find(plan.passes[5].resource_dependency_indices.begin(),
-                      plan.passes[5].resource_dependency_indices.end(), 4),
-            plan.passes[5].resource_dependency_indices.end());
   EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
                          [&](const RenderResourceBarrierPlan& barrier) {
                            return graph.GetResources()[barrier.resource_index].name ==
@@ -1202,26 +1060,11 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
                layout.probe_metadata_byte_size);
     add_buffer(RenderResourceNames::frame_ddgi_probe_state, RenderResourceLifetime::Persistent, false,
                layout.probe_state_byte_size);
-    add_buffer(RenderResourceNames::frame_ddgi_ray_output, RenderResourceLifetime::Frame, true,
-               layout.ray_output_byte_size);
     add_atlas(RenderResourceNames::frame_ddgi_irradiance_atlas, layout.irradiance_atlas, "RGBA16F");
     add_atlas(RenderResourceNames::frame_ddgi_visibility_atlas, layout.visibility_atlas, "RG16F");
     add_atlas(RenderResourceNames::frame_ddgi_variability_atlas, layout.variability_atlas, "R16F");
-    graph.AddPass({RenderPassNames::ddgi_atlas_prepare,
-                   RenderPassQueue::Compute,
-                   RenderPassScope::Frame,
-                   {{RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
-                     RenderResourceState::TransferDestination},
-                    {RenderResourceNames::frame_ddgi_ray_output, RenderResourceUsage::Write,
-                     RenderResourceState::TransferDestination},
-                    {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
-                     RenderResourceState::TransferDestination},
-                    {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                     RenderResourceState::TransferDestination},
-                    {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-                     RenderResourceState::TransferDestination}}},
-                  []() {
-                  });
+    graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+    });
     graph.AddPass(
         {"DDGIAtlasPreviewRead",
          RenderPassQueue::Compute,
@@ -1234,7 +1077,7 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
           {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Read,
            RenderResourceState::ShaderRead}},
          {RenderPassNames::ddgi_atlas_prepare}},
-        []() {
+        [](const RenderGraphExecutionContext&) {
         });
 
     const auto plan = graph.Compile();
@@ -1249,29 +1092,23 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
     };
     const auto metadata_index = find_resource_index(RenderResourceNames::frame_ddgi_probe_metadata);
     const auto state_index = find_resource_index(RenderResourceNames::frame_ddgi_probe_state);
-    const auto ray_output_index = find_resource_index(RenderResourceNames::frame_ddgi_ray_output);
     const auto irradiance_index = find_resource_index(RenderResourceNames::frame_ddgi_irradiance_atlas);
     const auto visibility_index = find_resource_index(RenderResourceNames::frame_ddgi_visibility_atlas);
     const auto variability_index = find_resource_index(RenderResourceNames::frame_ddgi_variability_atlas);
     ASSERT_NE(metadata_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(state_index, RenderGraphConstants::invalid_resource_index);
-    ASSERT_NE(ray_output_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(irradiance_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(visibility_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(variability_index, RenderGraphConstants::invalid_resource_index);
 
     EXPECT_TRUE(plan.resources[metadata_index].imported);
     EXPECT_TRUE(plan.resources[state_index].imported);
-    EXPECT_FALSE(plan.resources[ray_output_index].imported);
     EXPECT_TRUE(plan.resources[irradiance_index].imported);
     EXPECT_TRUE(plan.resources[visibility_index].imported);
     EXPECT_TRUE(plan.resources[variability_index].imported);
     EXPECT_EQ(graph.GetResources()[metadata_index].byte_size, layout.probe_metadata_byte_size);
     EXPECT_EQ(graph.GetResources()[state_index].byte_size, layout.probe_state_byte_size);
-    ASSERT_EQ(plan.allocations.size(), 1);
-    ASSERT_EQ(plan.allocations[0].resource_indices.size(), 1);
-    EXPECT_EQ(plan.allocations[0].resource_indices[0], ray_output_index);
-    EXPECT_EQ(plan.allocations[0].byte_size, layout.ray_output_byte_size);
+    EXPECT_TRUE(plan.allocations.empty());
     EXPECT_EQ(plan.resources[irradiance_index].resolved_dimensions.width, layout.irradiance_atlas.resolution.x);
     EXPECT_EQ(plan.resources[irradiance_index].resolved_dimensions.height, layout.irradiance_atlas.resolution.y);
     EXPECT_EQ(plan.resources[visibility_index].resolved_dimensions.width, layout.visibility_atlas.resolution.x);
@@ -1287,15 +1124,22 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
              }) != plan.barriers.end();
     };
     EXPECT_TRUE(has_barrier(metadata_index, RenderGraphBarrierType::BufferMemory, RenderResourceState::ShaderRead));
-    EXPECT_TRUE(
-        has_barrier(irradiance_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::TransferDestination));
+    EXPECT_TRUE(has_barrier(irradiance_index, RenderGraphBarrierType::ImageLayout,
+                            RenderResourceState::TransferDestinationGeneral));
     EXPECT_TRUE(has_barrier(irradiance_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::ShaderRead));
-    EXPECT_TRUE(
-        has_barrier(visibility_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::TransferDestination));
+    EXPECT_TRUE(has_barrier(visibility_index, RenderGraphBarrierType::ImageLayout,
+                            RenderResourceState::TransferDestinationGeneral));
     EXPECT_TRUE(has_barrier(visibility_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::ShaderRead));
-    EXPECT_TRUE(
-        has_barrier(variability_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::TransferDestination));
+    EXPECT_TRUE(has_barrier(variability_index, RenderGraphBarrierType::ImageLayout,
+                            RenderResourceState::TransferDestinationGeneral));
     EXPECT_TRUE(has_barrier(variability_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::ShaderRead));
+    EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
+                           [&](const auto& barrier) {
+                             return barrier.resource_index == irradiance_index && barrier.memory_dependency &&
+                                    barrier.previous_state == RenderResourceState::TransferDestinationGeneral &&
+                                    barrier.next_state == RenderResourceState::ShaderRead;
+                           }),
+              plan.barriers.end());
   };
 
   RenderLayer::DdgiSettings settings;
@@ -1315,7 +1159,6 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
   const auto resized_layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
   ASSERT_NE(resized_layout.irradiance_atlas.resolution, initial_layout.irradiance_atlas.resolution);
   ASSERT_NE(resized_layout.visibility_atlas.resolution, initial_layout.visibility_atlas.resolution);
-  ASSERT_NE(resized_layout.ray_output_byte_size, initial_layout.ray_output_byte_size);
   validate_layout(resized_layout);
 }
 
@@ -1327,7 +1170,7 @@ TEST(RenderGraph, ExecuteExposesCurrentPassTransitions) {
                  RenderPassQueue::Graphics,
                  RenderPassScope::Camera,
                  {{target, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"Denoise",
                  RenderPassQueue::Compute,
@@ -1351,7 +1194,7 @@ TEST(RenderGraph, ExecuteExposesCurrentPassTransitions) {
                  RenderPassScope::Camera,
                  {{target, RenderResourceUsage::Read, RenderResourceState::ShaderRead}},
                  {"Denoise"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -1368,7 +1211,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansPostProcessingBoundary) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass(
       {RenderPassNames::post_processing,
@@ -1376,7 +1219,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansPostProcessingBoundary) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
        {RenderPassNames::deferred_camera}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
 
   const auto plan = graph.Compile();
@@ -1401,7 +1244,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment},
         {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass(
       {RenderPassNames::depth_pyramid,
@@ -1410,7 +1253,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
        {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
         {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
        {RenderPassNames::deferred_geometry}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
   graph.AddPass(
       {RenderPassNames::deferred_camera,
@@ -1421,7 +1264,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
         {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
         {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
        {RenderPassNames::depth_pyramid}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
 
   RenderGraphCompileContext context;
@@ -1454,6 +1297,50 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
   EXPECT_EQ(plan.resources[depth_pyramid_index].resolved_dimensions.mip_levels, 11);
 }
 
+TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderReadImage) {
+  RenderGraph graph;
+  AddDefaultRasterCameraResources(graph);
+  AddAdvancedCameraResources(graph);
+  graph.AddPass(
+      {RenderPassNames::deferred_geometry,
+       RenderPassQueue::Graphics,
+       RenderPassScope::Camera,
+       {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment},
+        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+      [](const RenderGraphExecutionContext&) {
+      });
+  graph.AddPass(
+      {RenderPassNames::depth_pyramid,
+       RenderPassQueue::Graphics,
+       RenderPassScope::Camera,
+       {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+        {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
+       {RenderPassNames::deferred_geometry}},
+      [](const RenderGraphExecutionContext&) {
+      });
+  graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
+  graph.AddPass(DeferredLightingPass::CreateDescriptor(true), [](const RenderGraphExecutionContext&) {
+  });
+
+  RenderGraphCompileContext context;
+  context.camera_width = 640;
+  context.camera_height = 360;
+  const auto plan = graph.Compile(context);
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(plan.passes.size(), 4);
+  EXPECT_EQ(plan.passes[2].dependency_indices, std::vector<size_t>({1}));
+  EXPECT_EQ(plan.passes[3].dependency_indices, std::vector<size_t>({2}));
+
+  const auto transition = std::find_if(plan.transitions.begin(), plan.transitions.end(), [](const auto& candidate) {
+    return candidate.pass_index == 3 && candidate.previous_pass_index == 2 &&
+           candidate.previous_state == RenderResourceState::StorageReadWrite &&
+           candidate.next_state == RenderResourceState::ShaderRead;
+  });
+  ASSERT_NE(transition, plan.transitions.end());
+  EXPECT_TRUE(transition->memory_dependency);
+}
+
 TEST(RenderGraph, CompileResolvesCameraRelativeAllocationDimensions) {
   constexpr const char* resolved_target = "Camera.ResolvedTarget";
   RenderGraph graph;
@@ -1469,7 +1356,7 @@ TEST(RenderGraph, CompileResolvesCameraRelativeAllocationDimensions) {
                  RenderPassQueue::Graphics,
                  RenderPassScope::Camera,
                  {{resolved_target, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   RenderGraphCompileContext context;
@@ -1507,7 +1394,7 @@ TEST(RenderGraph, CompileComputesFullMipChainForZeroMipRelativeImages) {
                  RenderPassScope::Camera,
                  {{RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write,
                    RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   RenderGraphCompileContext context;
@@ -1548,14 +1435,14 @@ TEST(RenderGraph, CompileMergesRequiredStatesForAliasedAllocations) {
                  RenderPassQueue::Graphics,
                  RenderPassScope::Camera,
                  {{color_target, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"ComputePass",
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{compute_target, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
                  {"ColorPass"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -1649,14 +1536,14 @@ TEST(RenderGraph, CompilePlansAliasedImageResourcesForTransientStore) {
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{bloom_a, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
   graph.AddPass({"WriteBloomB",
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{bloom_b, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
                  {"WriteBloomA"}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   RenderGraphCompileContext context;
@@ -1686,7 +1573,7 @@ TEST(RenderGraph, CompilePlansManagedBuffersWithByteSize) {
                  RenderPassQueue::Compute,
                  RenderPassScope::Frame,
                  {{visibility_buffer, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   const auto plan = graph.Compile();
@@ -1711,7 +1598,7 @@ TEST(RenderGraph, TransientResourceStoreSkipsAllocationWithoutPlatform) {
                  RenderPassQueue::Compute,
                  RenderPassScope::Camera,
                  {{transient_target, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}},
-                []() {
+                [](const RenderGraphExecutionContext&) {
                 });
 
   RenderGraphCompileContext context;
@@ -1903,18 +1790,23 @@ TEST(RenderGraph, GaussianSplatPassRunsAfterCloudsBeforePostProcessing) {
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
-  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera), []() {
-  });
-  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
-  });
-  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
-  });
-  graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort), []() {
-  });
-  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::gaussian_splat), []() {
-  });
+  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatPass::CreateDescriptor(RenderPassNames::gaussian_splat_sort),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::gaussian_splat),
+                [](const RenderGraphExecutionContext&) {
+                });
 
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
@@ -1972,12 +1864,14 @@ TEST(RenderGraph, VolumetricCloudRasterPassRunsBetweenDeferredLightingAndPostPro
        RenderPassQueue::Graphics,
        RenderPassScope::Camera,
        {{RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
-      []() {
+      [](const RenderGraphExecutionContext&) {
       });
-  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera), []() {
-  });
-  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
-  });
+  graph.AddPass(VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(PostProcessingPass::CreateDescriptor(RenderPassNames::volumetric_clouds),
+                [](const RenderGraphExecutionContext&) {
+                });
 
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
@@ -2006,10 +1900,11 @@ TEST(RenderGraph, VolumetricCloudRayTracingPassConsumesRayHitDistanceAfterRayTra
   AddDefaultRayTracingCameraResources(graph);
   AddVolumetricCloudCameraResources(graph);
 
-  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), []() {
+  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera), []() {
-  });
+  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
+                [](const RenderGraphExecutionContext&) {
+                });
 
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
@@ -2044,16 +1939,20 @@ TEST(RenderGraph, GaussianSplatOverlayRunsAfterRayTracingClouds) {
   AddVolumetricCloudCameraResources(graph);
   AddGaussianSplatCameraResources(graph);
 
-  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), []() {
+  graph.AddPass(RayTracingCameraPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera), []() {
-  });
-  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds), []() {
-  });
-  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull), []() {
-  });
-  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort), []() {
-  });
+  graph.AddPass(VolumetricCloudsPass::CreateRayTracingDescriptor(RenderPassNames::ray_tracing_camera),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatCullPass::CreateDescriptor(RenderPassNames::volumetric_clouds),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatSortPass::CreateDescriptor(RenderPassNames::gaussian_splat_cull),
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(GaussianSplatPass::CreateOverlayDescriptor(RenderPassNames::gaussian_splat_sort),
+                [](const RenderGraphExecutionContext&) {
+                });
 
   ASSERT_TRUE(graph.Validate());
   const auto plan = graph.Compile();
@@ -2110,80 +2009,86 @@ TEST(RenderGraph, AdvancedResourcesDescribeHistoryAndVisibilityInputs) {
   EXPECT_EQ(color_history->history_length, 2);
 }
 
-TEST(RenderGraph, PlanCacheReusesTopologyWithoutCachingCallbacks) {
-  RenderGraphPlanCache cache(4);
-  RenderGraphResourceRegistry resources;
-  int first_calls = 0;
-  int second_calls = 0;
-  const auto make_graph = [](int& calls) {
+TEST(RenderGraph, PlanCacheTracksHitsMissesAndEvictsByTopology) {
+  {
+    SCOPED_TRACE("reuses topology without caching callbacks");
+    RenderGraphPlanCache cache(4);
+    RenderGraphResourceRegistry resources;
+    int first_calls = 0;
+    int second_calls = 0;
+    const auto make_graph = [](int& calls) {
+      RenderGraph graph;
+      graph.AddPass({"CachedPass", RenderPassQueue::Graphics, RenderPassScope::Camera},
+                    [&](const RenderGraphExecutionContext&) {
+                      ++calls;
+                    });
+      return graph;
+    };
+
+    auto first = make_graph(first_calls);
+    const auto& first_plan = cache.GetOrCompile(first, {1280, 720, 640, 360});
+    first.Execute(first_plan, resources);
+    auto second = make_graph(second_calls);
+    const auto& second_plan = cache.GetOrCompile(second, {1280, 720, 640, 360});
+    second.Execute(second_plan, resources);
+
+    EXPECT_EQ(first_calls, 1);
+    EXPECT_EQ(second_calls, 1);
+    const auto stats = cache.GetStats();
+    EXPECT_EQ(stats.entry_count, 1u);
+    EXPECT_EQ(stats.hit_count, 1u);
+    EXPECT_EQ(stats.miss_count, 1u);
+    EXPECT_EQ(stats.compilation_count, 1u);
+  }
+
+  {
+    SCOPED_TRACE("compile context and exact topology changes miss");
+    RenderGraphPlanCache cache(4);
     RenderGraph graph;
-    graph.AddPass({"CachedPass", RenderPassQueue::Graphics, RenderPassScope::Camera}, [&]() {
-      ++calls;
-    });
-    return graph;
-  };
-
-  auto first = make_graph(first_calls);
-  const auto& first_plan = cache.GetOrCompile(first, {1280, 720, 640, 360});
-  first.Execute(first_plan, resources);
-  auto second = make_graph(second_calls);
-  const auto& second_plan = cache.GetOrCompile(second, {1280, 720, 640, 360});
-  second.Execute(second_plan, resources);
-
-  EXPECT_EQ(first_calls, 1);
-  EXPECT_EQ(second_calls, 1);
-  const auto stats = cache.GetStats();
-  EXPECT_EQ(stats.entry_count, 1u);
-  EXPECT_EQ(stats.hit_count, 1u);
-  EXPECT_EQ(stats.miss_count, 1u);
-  EXPECT_EQ(stats.compilation_count, 1u);
-}
-
-TEST(RenderGraph, PlanCacheMissesOnCompileContextAndExactTopologyChanges) {
-  RenderGraphPlanCache cache(4);
-  RenderGraph graph;
-  graph.AddResource({"External", RenderResourceType::External, RenderResourceLifetime::Imported});
-  graph.AddPass({"Read",
-                 RenderPassQueue::Graphics,
-                 RenderPassScope::Camera,
-                 {{"External", RenderResourceUsage::Read, RenderResourceState::General}}},
-                []() {
-                });
-
-  (void)cache.GetOrCompile(graph, {1280, 720, 640, 360});
-  (void)cache.GetOrCompile(graph, {1280, 720, 800, 450});
-  RenderGraph changed;
-  changed.AddResource(
-      {"External", RenderResourceType::External, RenderResourceLifetime::Imported, {}, {}, 1, 1, false, 16});
-  changed.AddPass({"Read",
+    graph.AddResource({"External", RenderResourceType::External, RenderResourceLifetime::Imported});
+    graph.AddPass({"Read",
                    RenderPassQueue::Graphics,
                    RenderPassScope::Camera,
                    {{"External", RenderResourceUsage::Read, RenderResourceState::General}}},
-                  []() {
+                  [](const RenderGraphExecutionContext&) {
                   });
-  (void)cache.GetOrCompile(changed, {1280, 720, 800, 450});
 
-  const auto stats = cache.GetStats();
-  EXPECT_EQ(stats.entry_count, 3u);
-  EXPECT_EQ(stats.hit_count, 0u);
-  EXPECT_EQ(stats.miss_count, 3u);
-}
+    (void)cache.GetOrCompile(graph, {1280, 720, 640, 360});
+    (void)cache.GetOrCompile(graph, {1280, 720, 800, 450});
+    RenderGraph changed;
+    changed.AddResource(
+        {"External", RenderResourceType::External, RenderResourceLifetime::Imported, {}, {}, 1, 1, false, 16});
+    changed.AddPass({"Read",
+                     RenderPassQueue::Graphics,
+                     RenderPassScope::Camera,
+                     {{"External", RenderResourceUsage::Read, RenderResourceState::General}}},
+                    [](const RenderGraphExecutionContext&) {
+                    });
+    (void)cache.GetOrCompile(changed, {1280, 720, 800, 450});
 
-TEST(RenderGraph, PlanCacheEvictsLeastRecentlyUsedTopologyAtCapacity) {
-  RenderGraphPlanCache cache(2);
-  RenderGraph graph;
-  graph.AddPass({"Pass", RenderPassQueue::Graphics, RenderPassScope::Camera}, []() {
-  });
-  (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
-  (void)cache.GetOrCompile(graph, {1, 1, 2, 1});
-  (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
-  (void)cache.GetOrCompile(graph, {1, 1, 3, 1});
+    const auto stats = cache.GetStats();
+    EXPECT_EQ(stats.entry_count, 3u);
+    EXPECT_EQ(stats.hit_count, 0u);
+    EXPECT_EQ(stats.miss_count, 3u);
+  }
 
-  const auto stats = cache.GetStats();
-  EXPECT_EQ(stats.entry_count, 2u);
-  EXPECT_EQ(stats.hit_count, 1u);
-  EXPECT_EQ(stats.miss_count, 3u);
-  EXPECT_EQ(stats.eviction_count, 1u);
+  {
+    SCOPED_TRACE("capacity eviction");
+    RenderGraphPlanCache cache(2);
+    RenderGraph graph;
+    graph.AddPass({"Pass", RenderPassQueue::Graphics, RenderPassScope::Camera}, [](const RenderGraphExecutionContext&) {
+    });
+    (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
+    (void)cache.GetOrCompile(graph, {1, 1, 2, 1});
+    (void)cache.GetOrCompile(graph, {1, 1, 1, 1});
+    (void)cache.GetOrCompile(graph, {1, 1, 3, 1});
+
+    const auto stats = cache.GetStats();
+    EXPECT_EQ(stats.entry_count, 2u);
+    EXPECT_EQ(stats.hit_count, 1u);
+    EXPECT_EQ(stats.miss_count, 3u);
+    EXPECT_EQ(stats.eviction_count, 1u);
+  }
 }
 
 TEST(PlatformFrameScheduling, WaitsOnSlotReuseAndFlushesCaptureTail) {
@@ -2216,9 +2121,13 @@ TEST(PlatformFrameScheduling, WaitsOnSlotReuseAndFlushesCaptureTail) {
   EXPECT_EQ(timestamp_scope.find("VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT"), std::string::npos);
   EXPECT_NE(timestamp_scope.find("vkCmdWriteTimestamp2"), std::string::npos);
   EXPECT_NE(timestamp_scope.find("VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT"), std::string::npos);
-  EXPECT_NE(editor_source.find("WaitForFrameSubmissions(\"Capture Warmup Fence Wait\")"), std::string::npos);
-  EXPECT_NE(editor_source.find("WaitForFrameSubmissions(\"Capture Completion Fence Wait\")"), std::string::npos);
-  EXPECT_NE(editor_source.find("pending_submissions_after_capture_flush"), std::string::npos);
+  const auto capture_warmup_flush =
+      editor_source.find("WaitForFrameSubmissions(\"DDGI Validation Warmup Fence Wait\")");
+  const auto capture_completion_flush =
+      editor_source.find("WaitForFrameSubmissions(\"Capture Completion Fence Wait\")");
+  ASSERT_NE(capture_warmup_flush, std::string::npos);
+  ASSERT_NE(capture_completion_flush, std::string::npos);
+  EXPECT_LT(capture_warmup_flush, capture_completion_flush);
   const auto camera_source = ReadTextFile(SdkPath("src/Camera.cpp"));
   EXPECT_NE(camera_source.find("WaitForFrameSubmissions(\"Required Camera Resize Fence Wait\")"), std::string::npos);
   EXPECT_NE(render_layer_header.find("std::vector<std::vector<RenderGraphTransientResourceStore>>"), std::string::npos);
@@ -2240,6 +2149,28 @@ TEST(PlatformFrameScheduling, WaitsOnSlotReuseAndFlushesCaptureTail) {
   EXPECT_NE(platform_source.find("if (graphics.vk_surface_ != VK_NULL_HANDLE)"), std::string::npos);
 }
 
+TEST(PlatformFrameScheduling, SynchronizesAcquiredSwapchainTransitionAtSemaphoreWaitStage) {
+  const auto platform_source = ReadTextFile(SdkPath("src/Platform.cpp"));
+
+  const auto undefined_layout = platform_source.find("case VK_IMAGE_LAYOUT_UNDEFINED:");
+  const auto generic_undefined_stage =
+      platform_source.find("stage_flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT", undefined_layout);
+  const auto acquired_image = platform_source.find("target_image == swapchain->GetVkImage()");
+  const auto acquired_image_stage =
+      platform_source.find("source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT", acquired_image);
+  const auto acquire_wait = platform_source.find("graphics.image_available_semaphores_[graphics.current_frame_index_]");
+  const auto acquire_wait_stage = platform_source.find("VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT", acquire_wait);
+
+  ASSERT_NE(undefined_layout, std::string::npos);
+  ASSERT_NE(generic_undefined_stage, std::string::npos);
+  ASSERT_NE(acquired_image, std::string::npos);
+  ASSERT_NE(acquired_image_stage, std::string::npos);
+  ASSERT_NE(acquire_wait, std::string::npos);
+  EXPECT_NE(acquire_wait_stage, std::string::npos);
+  EXPECT_LT(undefined_layout, generic_undefined_stage);
+  EXPECT_LT(acquired_image, acquired_image_stage);
+}
+
 TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer_source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
@@ -2253,6 +2184,9 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto window_source = ReadTextFile(SdkPath("src/WindowLayer.cpp"));
   const auto editor_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
+  const auto ddgi_probe_update_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeUpdatePass.cpp"));
+  const auto ddgi_ray_diagnostics_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiRayDiagnosticsPass.cpp"));
+  const auto ddgi_variability_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeVariabilityPass.cpp"));
 
   EXPECT_NE(lighting_header.find("lighting_descriptor_sets_"), std::string::npos);
   EXPECT_NE(post_processing_header.find("class PerFrameDescriptorSet"), std::string::npos);
@@ -2260,8 +2194,16 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(post_processing_header.find("duplicate_descriptor_set_lists"), std::string::npos);
   EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_sets"), std::string::npos);
   EXPECT_NE(post_processing_header.find("struct PostProcessingCameraResources"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("ddgi_variability_readback_buffers_"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("Required DDGI Resource Rebuild Fence Wait"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("struct DdgiReadbackTicket"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("variability_readback_tickets"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("Required DDGI"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("Platform::WaitForFrameSubmission(ticket.frame_index"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("FrameSubmissionState::Status::Pending"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("FrameSubmissionState::Status::Submitted"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("FrameSubmissionState::Status::Discarded"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("runtime_state.metadata_readback_ticket = {};"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("runtime_state.ray_readback_ticket = {};"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("runtime_state.probe_debug_ray_samples.clear();"), std::string::npos);
   EXPECT_NE(render_graph_header.find("void RetainAsset(std::shared_ptr<IAsset> asset)"), std::string::npos);
   EXPECT_NE(render_graph_header.find("void RetainBuffer(std::shared_ptr<Buffer> buffer)"), std::string::npos);
   EXPECT_NE(
@@ -2269,6 +2211,9 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
       std::string::npos);
   EXPECT_NE(post_processing_pass.find("RetainAsset(post_processing_stack)"), std::string::npos);
   EXPECT_NE(post_processing_pass.find("RetainPostProcessingResources"), std::string::npos);
+  EXPECT_NE(ddgi_probe_update_pass.find("RetainBuffer(parameters.metadata_readback_buffer)"), std::string::npos);
+  EXPECT_NE(ddgi_ray_diagnostics_pass.find("RetainBuffer(parameters.selected_ray_readback_buffer)"), std::string::npos);
+  EXPECT_NE(ddgi_variability_pass.find("RetainBuffer(parameters.readback_buffer)"), std::string::npos);
   const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
   const auto ray_retention = post_processing_pass.find("RetainPostProcessingResources", ray_process);
   const auto raster_process =
@@ -2288,11 +2233,33 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
 
 TEST(RenderGraph, ImageMemoryBarriersCoverRayTracingAndComputeShaderAccess) {
   const auto utilities = ReadTextFile(SdkPath("src/RenderPasses/RenderPassUtilities.cpp"));
+  const auto platform = ReadTextFile(SdkPath("src/Platform.cpp"));
   const auto ray_camera = ReadTextFile(SdkPath("src/RenderPasses/RayTracingCameraPass.cpp"));
   EXPECT_NE(utilities.find("VkImageMemoryBarrier2"), std::string::npos);
   EXPECT_NE(utilities.find("VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR"), std::string::npos);
   EXPECT_NE(utilities.find("VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT"), std::string::npos);
   EXPECT_NE(utilities.find("VK_ACCESS_2_SHADER_WRITE_BIT"), std::string::npos);
+  EXPECT_NE(utilities.find("case RenderResourceState::TransferDestinationGeneral:"), std::string::npos);
+  EXPECT_NE(utilities.find("VK_ACCESS_2_TRANSFER_WRITE_BIT"), std::string::npos);
+  EXPECT_NE(platform.find("case VK_IMAGE_LAYOUT_GENERAL:"), std::string::npos);
+  EXPECT_NE(platform.find("VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT"), std::string::npos);
+  EXPECT_NE(platform.find("VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"), std::string::npos);
+  EXPECT_NE(platform.find("(image_aspect & VK_IMAGE_ASPECT_DEPTH_BIT) != 0"), std::string::npos);
+  EXPECT_NE(platform.find("VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | "
+                          "VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT"),
+            std::string::npos);
+  EXPECT_NE(platform.find("SelectStageFlagsAccessMask(old_layout, barrier.subresourceRange.aspectMask"),
+            std::string::npos);
+  EXPECT_NE(platform.find("SelectStageFlagsAccessMask(new_layout, barrier.subresourceRange.aspectMask"),
+            std::string::npos);
+  const auto shader_read_layout = platform.find("case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:");
+  const auto depth_attachment_layout = platform.find("case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:");
+  ASSERT_NE(shader_read_layout, std::string::npos);
+  ASSERT_NE(depth_attachment_layout, std::string::npos);
+  ASSERT_LT(shader_read_layout, depth_attachment_layout);
+  EXPECT_NE(platform.substr(shader_read_layout, depth_attachment_layout - shader_read_layout)
+                .find("VK_PIPELINE_STAGE_ALL_COMMANDS_BIT"),
+            std::string::npos);
   EXPECT_NE(ray_camera.find("ApplyRayCameraStorageDependencies"), std::string::npos);
   EXPECT_NE(ray_camera.find("VK_ACCESS_2_MEMORY_WRITE_BIT"), std::string::npos);
   EXPECT_EQ(ray_camera.find("Platform::EverythingBarrier"), std::string::npos);

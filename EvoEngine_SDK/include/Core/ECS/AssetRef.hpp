@@ -54,14 +54,7 @@ class AssetRef final : public ISerializable {
    * @brief Deserializes the `AssetRef` object from a YAML node.
    * @param in The YAML node to deserialize from.
    */
-  void Deserialize(const YAML::Node &in) {
-    value_.reset();
-    if (in["asset_handle_"])
-      asset_handle_ = Handle(in["asset_handle_"].as<uint64_t>());
-    if (in["type_name_"])
-      asset_type_name_ = in["type_name_"].as<std::string>();
-    Update();
-  }
+  void Deserialize(const YAML::Node &in);
 
   /**
    * @brief Default constructor for `AssetRef`.
@@ -145,6 +138,28 @@ class AssetRef final : public ISerializable {
     }
     return nullptr;
   }
+
+  /**
+   * @brief Retrieves the referenced asset only if it is already resident.
+   * @tparam T The asset type, defaults to `IAsset`.
+   * @return Shared pointer to the resident asset if available, otherwise `nullptr`.
+   */
+  template <typename T = IAsset>
+  [[nodiscard]] std::shared_ptr<T> Peek() const {
+    return std::dynamic_pointer_cast<T>(PeekAsset());
+  }
+
+  /**
+   * @brief Retrieves the referenced asset only if it is already resident.
+   * @return Shared pointer to the resident asset if available, otherwise `nullptr`.
+   */
+  [[nodiscard]] std::shared_ptr<IAsset> PeekAsset() const;
+
+  /**
+   * @brief Retrieves the referenced asset type name from the resident asset, serialized reference, or file metadata.
+   * @return The referenced asset type name if known.
+   */
+  [[nodiscard]] std::string GetAssetTypeName() const;
 
   /**
    * @brief Assigns an asset to this `AssetRef`.

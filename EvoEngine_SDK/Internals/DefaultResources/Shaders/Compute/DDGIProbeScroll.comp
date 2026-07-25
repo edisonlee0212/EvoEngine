@@ -1,0 +1,90 @@
+#extension GL_ARB_shading_language_include : enable
+#include "DDGI.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 1, rgba16f) writeonly uniform image2D EE_DDGI_IRRADIANCE_ATLAS;
+layout(set = 0, binding = 2, rg16f) writeonly uniform image2D EE_DDGI_VISIBILITY_ATLAS;
+layout(set = 0, binding = 3) writeonly buffer EE_DDGI_PROBE_METADATA_BLOCK {
+  vec4 EE_DDGI_PROBE_METADATA[];
+};
+layout(set = 0, binding = 4) writeonly buffer EE_DDGI_PROBE_STATE_BLOCK {
+  vec4 EE_DDGI_PROBE_STATE[];
+};
+layout(set = 0, binding = 5, r16f) writeonly uniform image2D EE_DDGI_PROBE_VARIABILITY_ATLAS;
+
+layout(push_constant) uniform EE_DDGI_PROBE_SCROLL_CONSTANTS {
+  uvec4 probe_counts_and_irradiance_tile_size;
+  uvec4 atlas_columns_visibility_tile_and_probe_count;
+  ivec4 probe_scroll_offset;
+  ivec4 probe_scroll_delta;
+};
+
+void EE_DDGI_CLEAR_IRRADIANCE_TILE(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      imageStore(EE_DDGI_IRRADIANCE_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(0.0f));
+    }
+  }
+}
+
+void EE_DDGI_CLEAR_VISIBILITY_TILE(const uvec2 tile_origin, const uint tile_size) {
+  const uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  for (uint y = 0u; y < tile_stride; ++y) {
+    for (uint x = 0u; x < tile_stride; ++x) {
+      imageStore(EE_DDGI_VISIBILITY_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(1.0f, 0.0f, 0.0f, 1.0f));
+    }
+  }
+}
+
+void EE_DDGI_CLEAR_VARIABILITY_TILE(const uvec2 tile_origin, const uint tile_size) {
+  for (uint y = 0u; y < tile_size; ++y) {
+    for (uint x = 0u; x < tile_size; ++x) {
+      imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS, ivec2(tile_origin + uvec2(x, y)), vec4(0.0f));
+    }
+  }
+}
+
+void main() {
+  const uint logical_probe_index = gl_GlobalInvocationID.x;
+  const uvec3 probe_counts = max(probe_counts_and_irradiance_tile_size.xyz, uvec3(1u));
+  const uint probe_count = max(atlas_columns_visibility_tile_and_probe_count.w, 1u);
+  if (logical_probe_index >= probe_count) {
+    return;
+  }
+
+  const uint probes_per_layer = probe_counts.x * probe_counts.y;
+  const uvec3 logical_probe_grid =
+      uvec3(logical_probe_index % probe_counts.x, (logical_probe_index / probe_counts.x) % probe_counts.y,
+            logical_probe_index / probes_per_layer);
+  if (!EE_DDGI_PROBE_IS_NEWLY_EXPOSED(logical_probe_grid, probe_scroll_delta.xyz, probe_counts)) {
+    return;
+  }
+
+  const uvec3 physical_probe_grid =
+      EE_DDGI_SCROLL_PROBE_GRID(logical_probe_grid, probe_scroll_offset.xyz, probe_counts);
+  const uint physical_probe_index = EE_DDGI_PROBE_INDEX(physical_probe_grid, probe_counts);
+  const uint irradiance_tile_size = max(probe_counts_and_irradiance_tile_size.w, 1u);
+  const uint irradiance_columns = max(atlas_columns_visibility_tile_and_probe_count.x, 1u);
+  const uint visibility_columns = max(atlas_columns_visibility_tile_and_probe_count.y, 1u);
+  const uint visibility_tile_size = max(atlas_columns_visibility_tile_and_probe_count.z, 1u);
+  const uvec2 irradiance_tile_origin = uvec2(physical_probe_index % irradiance_columns,
+                                              physical_probe_index / irradiance_columns) *
+                                        EE_DDGI_ATLAS_TILE_STRIDE(irradiance_tile_size);
+  const uvec2 variability_tile_origin = uvec2(physical_probe_index % irradiance_columns,
+                                               physical_probe_index / irradiance_columns) *
+                                         irradiance_tile_size;
+  const uvec2 visibility_tile_origin = uvec2(physical_probe_index % visibility_columns,
+                                              physical_probe_index / visibility_columns) *
+                                        EE_DDGI_ATLAS_TILE_STRIDE(visibility_tile_size);
+
+  EE_DDGI_PROBE_STATE[physical_probe_index] = vec4(0.0f);
+  const uint metadata_offset = physical_probe_index * 3u;
+  EE_DDGI_PROBE_METADATA[metadata_offset] = vec4(0.0f);
+  EE_DDGI_PROBE_METADATA[metadata_offset + 1u] = vec4(1.0f, 0.0f, 0.0f, 1.0f);
+  EE_DDGI_PROBE_METADATA[metadata_offset + 2u] = vec4(0.0f);
+  EE_DDGI_CLEAR_IRRADIANCE_TILE(irradiance_tile_origin, irradiance_tile_size);
+  EE_DDGI_CLEAR_VISIBILITY_TILE(visibility_tile_origin, visibility_tile_size);
+  EE_DDGI_CLEAR_VARIABILITY_TILE(variability_tile_origin, irradiance_tile_size);
+}

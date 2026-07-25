@@ -6,9 +6,10 @@
 #include "ApplicationInitializationSettings.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
-#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
 #include "Entity.hpp"
+#include "EnvironmentalLighting.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
@@ -22,8 +23,9 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstdint>
+#include <cstdlib>
 #include <filesystem>
-#include <optional>
 
 namespace evo_engine {
 namespace {
@@ -35,6 +37,27 @@ constexpr float kDdgiCornellBoxProbeSpacing = 0.14333334f;
 constexpr float kDdgiCornellBoxCeilingLightEmission = 6.0f;
 constexpr float kDdgiCornellBoxNormalBias = 0.02f;
 constexpr float kDdgiCornellBoxViewBias = 0.05f;
+
+uint64_t StableEnvironmentalLightingId(const std::string& name) {
+  uint64_t hash = 1469598103934665603ull;
+  for (const char value : name) {
+    hash ^= static_cast<uint8_t>(value);
+    hash *= 1099511628211ull;
+  }
+  return hash == 0u ? 1u : hash;
+}
+
+std::shared_ptr<EnvironmentalLighting> GetOrCreateTemporaryEnvironmentalLighting(const std::shared_ptr<Scene>& scene) {
+  if (!scene) {
+    return {};
+  }
+  auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting || !lighting->IsTemporary()) {
+    lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+    scene->environmental_lighting = lighting;
+  }
+  return lighting;
+}
 
 std::filesystem::path ExistingResourcesRoot(const std::filesystem::path& preferred_root) {
   if (!preferred_root.empty() && std::filesystem::exists(preferred_root)) {
@@ -162,18 +185,6 @@ void FrameSceneCameraOnTarget(const std::shared_ptr<EditorLayer>& editor_layer, 
   editor_layer->SetSceneCameraRotation(glm::quat(glm::vec3(0.0f)));
 }
 
-std::optional<Entity> FindEntityByName(const std::shared_ptr<Scene>& scene, const std::string& name) {
-  if (!scene) {
-    return {};
-  }
-  for (const auto& entity : scene->UnsafeGetAllEntities()) {
-    if (scene->IsEntityValid(entity) && scene->GetEntityName(entity) == name) {
-      return entity;
-    }
-  }
-  return {};
-}
-
 void EnableMainCameraRayTracing(const std::shared_ptr<Scene>& scene) {
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
@@ -182,26 +193,41 @@ void EnableMainCameraRayTracing(const std::shared_ptr<Scene>& scene) {
 }
 
 bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene) {
-  const auto ddgi_volume_entity = FindEntityByName(scene, "DDGI Probe Volume");
-  if (!ddgi_volume_entity) {
+  const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+  if (!lighting) {
+    return false;
+  }
+  auto* asset_volume = [&]() -> EnvironmentalLighting::DdgiVolume* {
+    for (auto& volume : lighting->ddgi_volumes) {
+      if (volume.enabled && volume.name == "DDGI Probe Volume") {
+        return &volume;
+      }
+    }
+    return nullptr;
+  }();
+  if (!asset_volume) {
     return false;
   }
 
-  auto& settings = scene->environment.ddgi_settings;
+  auto& settings = lighting->ddgi_settings;
   settings.runtime.enabled = true;
   settings.debug.enabled = true;
-  settings.debug.visualize_volume_bounds = true;
   settings.debug.visualize_probe_positions = true;
   settings.debug.visualize_selected_probe = true;
   settings.debug.visualization_scale = 2.0f;
   settings.debug.selected_probe_index = 129;
 
-  if (const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(*ddgi_volume_entity).lock()) {
-    volume->visualize_bounds = true;
-    volume->visualize_probe_positions = true;
-    volume->max_visualized_probes = 512;
-    volume->probe_visualization_size = 0.14f;
-    volume->ClampSettings();
+  if (asset_volume->probe_spacing.x < 0.05f) {
+    asset_volume->probe_spacing.x = 0.05f;
+  }
+  if (asset_volume->probe_spacing.y < 0.05f) {
+    asset_volume->probe_spacing.y = 0.05f;
+  }
+  if (asset_volume->probe_spacing.z < 0.05f) {
+    asset_volume->probe_spacing.z = 0.05f;
+  }
+  if (asset_volume->relocation_distance < 0.0f) {
+    asset_volume->relocation_distance = 0.0f;
   }
 
   const glm::vec3 camera_position(0.0f, 0.0f, 3.0f);
@@ -223,7 +249,7 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
     scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
     scene_camera->ResetFrameCount();
   }
-  editor_layer->SetSelectedEntity(*ddgi_volume_entity, false);
+  editor_layer->SetSelectedEntity(Entity(), false);
   OpenShowcaseAssetInspector(editor_layer, FindShowcaseInspectorTarget(scene).material);
   return true;
 }
@@ -497,8 +523,31 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     missing.emplace_back("Resources folder");
     return missing;
   }
-  if (id == DemoProfileId::Rendering || id == DemoProfileId::RenderingRegression || id == DemoProfileId::Ddgi ||
-      id == DemoProfileId::ProceduralGalaxy) {
+  if (id == DemoProfileId::Rendering || id == DemoProfileId::RenderingRegression) {
+    constexpr std::array<const char*, 7> required_files = {
+        "SponzaEnvironment.eveenvironmentalmap", "SponzaGlobal.evereflectionprobe",
+        "SponzaLeftGallery.evereflectionprobe",  "SponzaRightGallery.evereflectionprobe",
+        "SponzaCentralFront.evereflectionprobe", "SponzaCentralMiddle.evereflectionprobe",
+        "SponzaCentralRear.evereflectionprobe"};
+    constexpr auto minimum_probe_file_size = 4u * ((GlobalReflectionProbe::kCanonicalPayloadByteSize + 2u) / 3u);
+    const auto lighting_root =
+        resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza";
+    const auto* authoring_mode = std::getenv("EVOENGINE_SPONZA_PROBE_AUTHORING");
+    const bool authoring_bootstrap =
+        id == DemoProfileId::RenderingRegression && authoring_mode && std::string(authoring_mode) == "overwrite";
+    for (size_t index = 0; index < required_files.size(); ++index) {
+      const auto path = lighting_root / required_files[index];
+      std::error_code error;
+      const auto size =
+          std::filesystem::is_regular_file(path, error) && !error ? std::filesystem::file_size(path, error) : 0u;
+      const bool valid = !error && (index == 0u ? size > 0u : authoring_bootstrap || size > minimum_probe_file_size);
+      if (!valid) {
+        missing.emplace_back(required_files[index]);
+      }
+    }
+    return missing;
+  }
+  if (id == DemoProfileId::Ddgi || id == DemoProfileId::ProceduralGalaxy) {
     return missing;
   }
   if (id == DemoProfileId::GaussianSplat) {
@@ -613,38 +662,37 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   }
   DisablePostProcessing(scene);
 
-  scene->environment.environment_type = Scene::EnvironmentType::Color;
-  scene->environment.background_color = glm::vec3(0.0f);
-  scene->environment.background_intensity = 0.0f;
-  scene->environment.ambient_light_intensity = 0.0f;
+  const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);
+  if (!lighting) {
+    return;
+  }
+  lighting->indirect_environment_source = {};
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting->indirect_environment_source.color = glm::vec3(0.0f);
+  lighting->environment_lighting_intensity = 0.0f;
+  lighting->diffuse_fallback_intensity = NonNegative(settings.indirect_lighting_intensity);
+  lighting->specular_fallback_intensity = 0.0f;
 
-  auto& ddgi_settings = scene->environment.ddgi_settings;
+  auto& ddgi_settings = lighting->ddgi_settings;
   ddgi_settings.runtime.enabled = true;
   ddgi_settings.runtime.pause_updates = false;
   ddgi_settings.runtime.ray_count = 256;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
   ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.runtime.indirect_intensity = NonNegative(settings.ddgi_indirect_intensity);
   ddgi_settings.storage.max_probe_count =
       kDdgiCornellBoxProbeCounts.x * kDdgiCornellBoxProbeCounts.y * kDdgiCornellBoxProbeCounts.z;
   ddgi_settings.debug.enabled = false;
-  ddgi_settings.debug.visualize_volume_bounds = false;
   ddgi_settings.debug.visualize_probe_positions = false;
   ddgi_settings.debug.visualize_selected_probe = false;
   ddgi_settings.debug.visualize_probe_state = false;
   ddgi_settings.debug.visualize_probe_illumination = false;
-  ddgi_settings.debug.show_atlas_preview = false;
-  ddgi_settings.debug.show_update_age = false;
   ddgi_settings.debug.show_rays = false;
-  ddgi_settings.debug.show_irradiance = false;
-  ddgi_settings.debug.show_visibility = false;
-  ddgi_settings.debug.show_sampling_weights = false;
 
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->Resize(kDdgiCornellBoxExtent);
     main_camera->skybox.Clear();
-    main_camera->camera_settings.use_clear_color = true;
+    main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
     main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
     main_camera->camera_settings.background_intensity = 0.0f;
 
@@ -653,21 +701,21 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
     scene->SetDataComponent(main_camera->GetOwner(), camera_transform);
   }
 
-  if (const auto* volume_owners = scene->UnsafeGetPrivateComponentOwnersList<DdgiVolume>()) {
-    for (const auto& owner : *volume_owners) {
-      if (const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(owner).lock()) {
-        volume->visualize_bounds = false;
-        volume->visualize_probe_positions = false;
-        volume->probe_counts = kDdgiCornellBoxProbeCounts;
-        volume->probe_spacing = glm::vec3(kDdgiCornellBoxProbeSpacing);
-        volume->volume_origin = kDdgiCornellBoxVolumeOrigin;
-        volume->relocation_distance = kDdgiCornellBoxProbeSpacing * 0.5f;
-        volume->enable_probe_relocation = settings.enable_probe_relocation;
-        volume->enable_probe_classification = settings.enable_probe_classification;
-        volume->max_visualized_probes = 0;
-        volume->ClampSettings();
-      }
-    }
+  if (lighting) {
+    lighting->ddgi_volumes.clear();
+    auto& target_volume = lighting->ddgi_volumes.emplace_back();
+    target_volume.name = "DDGI Probe Volume";
+    target_volume.stable_id = StableEnvironmentalLightingId(target_volume.name);
+    target_volume.enabled = true;
+    target_volume.probe_counts = kDdgiCornellBoxProbeCounts;
+    target_volume.probe_spacing = glm::vec3(kDdgiCornellBoxProbeSpacing);
+    target_volume.volume_origin = kDdgiCornellBoxVolumeOrigin;
+    target_volume.relocation_distance = kDdgiCornellBoxProbeSpacing * 0.5f;
+    target_volume.enable_probe_relocation = settings.enable_probe_relocation;
+    target_volume.enable_probe_classification = settings.enable_probe_classification;
+    Transform ddgi_volume_transform;
+    ddgi_volume_transform.SetPosition(glm::vec3(0.0f, 0.0f, -3.0f));
+    target_volume.transform = ddgi_volume_transform.value;
   }
 
   if (const auto* point_light_owners = scene->UnsafeGetPrivateComponentOwnersList<PointLight>()) {

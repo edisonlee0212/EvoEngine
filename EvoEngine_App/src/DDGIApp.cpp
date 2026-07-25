@@ -1,13 +1,18 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
+#include "Camera.hpp"
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
 #include "ProjectManager.hpp"
+#include "RenderLayer.hpp"
+#include "Scene.hpp"
 #include "WindowLayer.hpp"
 
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -24,6 +29,8 @@ struct DdgiAppCommandLine {
   size_t exit_after_frames = 0;
   size_t max_load_frames = 600;
   size_t screenshot_warmup_frames = 360;
+  uint32_t width = 1024;
+  uint32_t height = 1024;
   std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   DdgiCornellBoxDemoSettings scene_settings;
   std::filesystem::path screenshot_path;
@@ -44,6 +51,15 @@ struct DdgiAppCommandLine {
   return static_cast<size_t>(value);
 }
 
+[[nodiscard]] uint32_t ParseDimensionArgument(const int argc, char** argv, int& arg_index,
+                                              const std::string& argument) {
+  const auto value = ParseSizeArgument(argc, argv, arg_index, argument);
+  if (value == 0 || value > static_cast<size_t>(std::numeric_limits<int>::max())) {
+    throw std::invalid_argument(argument + " must be a positive 32-bit signed integer.");
+  }
+  return static_cast<uint32_t>(value);
+}
+
 [[nodiscard]] DdgiAppCommandLine ParseCommandLine(const int argc, char** argv) {
   DdgiAppCommandLine command_line;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
@@ -57,6 +73,10 @@ struct DdgiAppCommandLine {
       command_line.max_load_frames = ParseSizeArgument(argc, argv, arg_index, argument);
     } else if (argument == "--screenshot-warmup-frames") {
       command_line.screenshot_warmup_frames = ParseSizeArgument(argc, argv, arg_index, argument);
+    } else if (argument == "--width") {
+      command_line.width = ParseDimensionArgument(argc, argv, arg_index, argument);
+    } else if (argument == "--height") {
+      command_line.height = ParseDimensionArgument(argc, argv, arg_index, argument);
     } else if (argument == "--shadow-map-resolution" || argument == "--shadow-resolution") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires low, medium, high, or very-high.");
@@ -65,8 +85,8 @@ struct DdgiAppCommandLine {
           ParseShadowMapResolutionQualityName(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--point-light-brightness") {
       command_line.scene_settings.point_light_brightness = ParseFloatArgument(argc, argv, arg_index, argument);
-    } else if (argument == "--ddgi-indirect-intensity") {
-      command_line.scene_settings.ddgi_indirect_intensity = ParseFloatArgument(argc, argv, arg_index, argument);
+    } else if (argument == "--indirect-lighting-intensity") {
+      command_line.scene_settings.indirect_lighting_intensity = ParseFloatArgument(argc, argv, arg_index, argument);
     } else if (argument == "--enable-probe-relocation") {
       command_line.scene_settings.enable_probe_relocation = true;
     } else if (argument == "--disable-probe-relocation") {
@@ -119,11 +139,40 @@ int FailDdgiApp(const std::string& reason) {
 }
 
 [[nodiscard]] int CaptureWindowScreenshot(Application& application, const DdgiAppCommandLine& command_line) {
-  if (const auto warmup_result = LoopFrames(application, command_line.screenshot_warmup_frames,
-                                            "application ended before DDGIApp screenshot warmup completed");
-      warmup_result != 0) {
-    return warmup_result;
+  uint32_t observed_probe_update_count = 0;
+  uint32_t observed_ray_sample_count = 0;
+  for (size_t frame_index = 0; frame_index < command_line.screenshot_warmup_frames; ++frame_index) {
+    if (!application.Loop()) {
+      return FailDdgiApp("application ended before DDGIApp screenshot warmup completed");
+    }
+    if (const auto render_layer = application.GetLayer<RenderLayer>()) {
+      const auto performance = render_layer->GetDdgiLastPerformanceStats();
+      observed_probe_update_count = glm::max(observed_probe_update_count, performance.recorded_probe_update_count);
+      observed_ray_sample_count = glm::max(observed_ray_sample_count, performance.recorded_ray_sample_count);
+    }
   }
+
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!render_layer || !main_camera) {
+    return FailDdgiApp("DDGI renderer or main camera is missing after screenshot warmup");
+  }
+  const auto resolution = main_camera->GetSize();
+  if (resolution.x != command_line.width || resolution.y != command_line.height || !main_camera->Rendered()) {
+    return FailDdgiApp("main camera did not render at the requested screenshot resolution");
+  }
+  const auto performance = render_layer->GetDdgiLastPerformanceStats();
+  if (performance.active_probe_count == 0 || performance.storage_probe_count < performance.active_probe_count ||
+      observed_probe_update_count == 0 || observed_ray_sample_count == 0 || !performance.lighting_descriptors_bound) {
+    return FailDdgiApp("DDGI did not reach a render-ready state before screenshot capture");
+  }
+  std::cout << "DDGI_APP_DDGI_READY resolution=" << resolution.x << "x" << resolution.y
+            << " active_probes=" << performance.active_probe_count
+            << " storage_probes=" << performance.storage_probe_count
+            << " recorded_updated_probes=" << observed_probe_update_count
+            << " recorded_ray_samples=" << observed_ray_sample_count
+            << " lighting_descriptors_bound=" << performance.lighting_descriptors_bound << std::endl;
 
   const auto window_layer = application.GetLayer<WindowLayer>();
   if (!window_layer) {
@@ -157,6 +206,8 @@ int main(const int argc, char** argv) {
     ApplicationInitializationSettings application_info;
     SetupDemoScene(DemoSetup::CornellBox, application_info);
     ConfigureDdgiCornellBoxApplication(application_info, command_line.application_mode);
+    application_info.default_window_size = {static_cast<int>(command_line.width),
+                                            static_cast<int>(command_line.height)};
     ApplyApplicationModeDefaults(application_info);
     if (command_line.shadow_map_resolution_quality) {
       application_info.graphics_settings.SetShadowMapResolutionQuality(*command_line.shadow_map_resolution_quality);
@@ -171,7 +222,13 @@ int main(const int argc, char** argv) {
       return load_result;
     }
 
-    ConfigureDdgiCornellBoxScene(ApplicationContext::Get().GetActiveScene(), command_line.scene_settings);
+    {
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      ConfigureDdgiCornellBoxScene(scene, command_line.scene_settings);
+      if (const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr) {
+        main_camera->Resize({command_line.width, command_line.height});
+      }
+    }
     if (command_line.application_mode == ApplicationMode::Player) {
       ApplicationContext::Get().Play();
     }
@@ -180,6 +237,7 @@ int main(const int argc, char** argv) {
       const auto screenshot_result = CaptureWindowScreenshot(ApplicationContext::Get(), command_line);
       ApplicationContext::Get().End();
       ApplicationContext::Get().Terminate();
+      std::cout << "DDGI_APP_SHUTDOWN_COMPLETE" << std::endl;
       if (screenshot_result == 0) {
         std::cout << "DDGI_APP_RESULT passed" << std::endl;
       }
@@ -195,6 +253,7 @@ int main(const int argc, char** argv) {
       }
       ApplicationContext::Get().End();
       ApplicationContext::Get().Terminate();
+      std::cout << "DDGI_APP_SHUTDOWN_COMPLETE" << std::endl;
       std::cout << "DDGI_APP_RESULT passed" << std::endl;
       return 0;
     }

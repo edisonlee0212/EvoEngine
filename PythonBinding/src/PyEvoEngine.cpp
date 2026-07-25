@@ -1,12 +1,11 @@
 #include "PyEvoEngine.hpp"
-#include "DdgiVolume.hpp"
+#include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
 #include "TextureStorage.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif
-#include <algorithm>
 using namespace py_evo_engine;
 namespace py = pybind11;
 
@@ -368,19 +367,13 @@ bool PyEvoEngine::IsCurrentSceneDdgiEnabled() {
     return false;
   }
 
-  const auto& settings = scene->environment.ddgi_settings;
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  const auto& settings = resolved_lighting.ddgi_settings;
   if (!settings.runtime.enabled || settings.runtime.pause_updates) {
     return false;
   }
 
-  const auto* volume_owners = scene->UnsafeGetPrivateComponentOwnersList<DdgiVolume>();
-  if (!volume_owners) {
-    return false;
-  }
-  return std::any_of(volume_owners->begin(), volume_owners->end(), [&](const Entity& owner) {
-    const auto volume = scene->GetOrSetPrivateComponent<DdgiVolume>(owner).lock();
-    return volume && volume->IsEnabled() && volume->GetProbeAmount() > 0;
-  });
+  return !resolved_lighting.ddgi_volumes.empty();
 }
 
 void PyEvoEngine::Run(const std::filesystem::path& project_path) {

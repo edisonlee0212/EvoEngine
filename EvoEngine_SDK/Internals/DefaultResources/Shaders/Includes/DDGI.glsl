@@ -6,12 +6,6 @@ const float EE_DDGI_INACTIVE_RAY_ALPHA = -2.0f;
 const uint EE_DDGI_FIXED_RAY_PAYLOAD_FLAG = 1u;
 const uint EE_DDGI_RAY_MASK_GEOMETRY = 0x01u;
 const uint EE_DDGI_RAY_MASK_SHADOW = 0x02u;
-const int EE_DDGI_SCROLL_CLEAR_X_BIT = 1 << 0;
-const int EE_DDGI_SCROLL_CLEAR_Y_BIT = 1 << 1;
-const int EE_DDGI_SCROLL_CLEAR_Z_BIT = 1 << 2;
-const int EE_DDGI_SCROLL_POSITIVE_X_BIT = 1 << 3;
-const int EE_DDGI_SCROLL_POSITIVE_Y_BIT = 1 << 4;
-const int EE_DDGI_SCROLL_POSITIVE_Z_BIT = 1 << 5;
 
 vec3 EE_DDGI_SAFE_NORMALIZE(const vec3 value, const vec3 fallback) {
   const float length_squared = dot(value, value);
@@ -21,10 +15,6 @@ vec3 EE_DDGI_SAFE_NORMALIZE(const vec3 value, const vec3 fallback) {
 float EE_DDGI_AXIS_COORDINATE(const vec3 delta, const vec3 axis) {
   const float axis_length_squared = dot(axis, axis);
   return axis_length_squared > 1e-6f ? dot(delta, axis) / axis_length_squared : 0.0f;
-}
-
-float EE_DDGI_AXIS_INDEX(const vec3 delta, const vec3 axis) {
-  return round(EE_DDGI_AXIS_COORDINATE(delta, axis));
 }
 
 float EE_DDGI_VOLUME_BLEND_WEIGHT(const vec3 probe_coordinate, const uvec3 probe_counts, const vec3 probe_step_x,
@@ -72,34 +62,18 @@ uint EE_DDGI_SCROLL_PROBE_INDEX(const uvec3 probe_grid, const ivec3 scroll_offse
   return EE_DDGI_PROBE_INDEX(EE_DDGI_SCROLL_PROBE_GRID(probe_grid, scroll_offset, safe_counts), safe_counts);
 }
 
-bool EE_DDGI_SCROLL_CLEAR_ENABLED(const ivec4 scroll_offset_and_flags, const int plane_index) {
-  return (scroll_offset_and_flags.w & (1 << plane_index)) != 0;
-}
-
-bool EE_DDGI_SCROLL_DIRECTION_POSITIVE(const ivec4 scroll_offset_and_flags, const int plane_index) {
-  return (scroll_offset_and_flags.w & (1 << (plane_index + 3))) != 0;
-}
-
-bool EE_DDGI_CLEAR_SCROLLED_PLANE(const uvec3 probe_grid, const int plane_index,
-                                  const ivec4 scroll_offset_and_flags, const uvec3 probe_counts) {
-  if (!EE_DDGI_SCROLL_CLEAR_ENABLED(scroll_offset_and_flags, plane_index)) {
-    return false;
+bool EE_DDGI_PROBE_IS_NEWLY_EXPOSED(const uvec3 logical_probe_grid, const ivec3 scroll_delta,
+                                    const uvec3 probe_counts) {
+  for (int axis = 0; axis < 3; ++axis) {
+    if (scroll_delta[axis] > 0 &&
+        logical_probe_grid[axis] >= probe_counts[axis] - uint(scroll_delta[axis])) {
+      return true;
+    }
+    if (scroll_delta[axis] < 0 && logical_probe_grid[axis] < uint(-scroll_delta[axis])) {
+      return true;
+    }
   }
-
-  const int offset = scroll_offset_and_flags[plane_index];
-  const int probe_count = int(max(probe_counts[plane_index], 1u));
-  const bool positive_direction = EE_DDGI_SCROLL_DIRECTION_POSITIVE(scroll_offset_and_flags, plane_index);
-  const int coord =
-      positive_direction ? (probe_count + ((offset - 1) % probe_count)) % probe_count
-                         : (probe_count + (offset % probe_count)) % probe_count;
-  return int(probe_grid[plane_index]) == coord;
-}
-
-bool EE_DDGI_CLEAR_SCROLLED_PROBE(const uvec3 probe_grid, const ivec4 scroll_offset_and_flags,
-                                  const uvec3 probe_counts) {
-  return EE_DDGI_CLEAR_SCROLLED_PLANE(probe_grid, 0, scroll_offset_and_flags, probe_counts) ||
-         EE_DDGI_CLEAR_SCROLLED_PLANE(probe_grid, 1, scroll_offset_and_flags, probe_counts) ||
-         EE_DDGI_CLEAR_SCROLLED_PLANE(probe_grid, 2, scroll_offset_and_flags, probe_counts);
+  return false;
 }
 
 vec3 EE_DDGI_PROBE_WORLD_POSITION(const vec3 probe_grid, const vec3 first_probe, const vec3 probe_step_x,
@@ -123,6 +97,19 @@ vec3 EE_DDGI_PROBE_RAY_DIRECTION(const uint ray_index, const uint ray_count, con
   const float cos_theta = 1.0f - 2.0f * sample_offset / sample_count_float;
   const float sin_theta = sqrt(max(0.0f, 1.0f - cos_theta * cos_theta));
   return normalize(vec3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta));
+}
+
+vec3 EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION(const vec3 direction, const vec4 quaternion) {
+  const vec3 vector = -quaternion.xyz;
+  return direction + 2.0f * cross(vector, cross(vector, direction) + quaternion.w * direction);
+}
+
+vec3 EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(const uint ray_index, const uint ray_count, const uint fixed_ray_count,
+                                         const vec4 rotation) {
+  const vec3 direction = EE_DDGI_PROBE_RAY_DIRECTION(ray_index, ray_count, fixed_ray_count);
+  return ray_index < fixed_ray_count
+             ? direction
+             : normalize(EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION(direction, normalize(rotation)));
 }
 
 float EE_DDGI_SIGN_NOT_ZERO(const float value) {
@@ -193,10 +180,6 @@ float EE_DDGI_CRUSH_LOW_WEIGHT(float weight) {
     weight *= weight * weight / (crush_threshold * crush_threshold);
   }
   return max(weight, 0.0f);
-}
-
-uint EE_DDGI_FIXED_RAY_COUNT(const uint ray_count, const bool fixed_rays_enabled) {
-  return fixed_rays_enabled && ray_count > 1u ? min(32u, ray_count - 1u) : 0u;
 }
 
 bool EE_DDGI_IS_INACTIVE_PROBE_RAY(const uint hit_count, const float ray_alpha) {

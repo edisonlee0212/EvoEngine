@@ -1,7 +1,8 @@
 environment:
   background_color: [1, 1, 1]
   environment_gamma: 2.2
-  ambient_light_intensity: 0.8
+  sky_light_intensity_scale: 1
+  indirect_lighting_intensity: 1
   environment_type: 0
   environmental_map:
     asset_handle_: 0

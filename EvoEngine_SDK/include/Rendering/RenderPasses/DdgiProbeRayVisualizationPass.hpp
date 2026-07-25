@@ -11,8 +11,8 @@ class DescriptorSetLayout;
 class GraphicsPipeline;
 
 struct DdgiProbeRayVisualizationPushConstant {
-  glm::uvec4 camera_selected_probe_ray_count_flags = glm::uvec4(0, 0, 0, 0);
-  glm::vec4 miss_distance_alpha_padding = glm::vec4(1.0f, 0.85f, 0.0f, 0.0f);
+  glm::uvec2 camera_ray_count = glm::uvec2(0);
+  glm::vec2 miss_distance_alpha = glm::vec2(1.0f, 0.85f);
 };
 
 class DdgiProbeRayVisualizationPass final {
@@ -23,7 +23,6 @@ class DdgiProbeRayVisualizationPass final {
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     std::shared_ptr<Camera> camera;
-    uint32_t camera_index = 0;
     bool depth_test = false;
     DdgiProbeRayVisualizationPushConstant push_constant;
     float* record_time_ms = nullptr;

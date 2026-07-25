@@ -50,6 +50,8 @@ extern "C" __global__ void __raygen__IE() {
     for (int sampleID = 0; sampleID < numPointSamples; sampleID++) {
       perRayData.energy = glm::vec3(0.0f);
       perRayData.hit_count = 0;
+      perRayData.primary_background_visible = false;
+      perRayData.diffuse_indirect_path = true;
       glm::vec3 rayDir, rayOrigin;
       float coordA = perRayData.random();
       float coordB = perRayData.random();
@@ -79,6 +81,8 @@ extern "C" __global__ void __raygen__IE() {
     for (int sampleID = 0; sampleID < numPointSamples; sampleID++) {
       perRayData.energy = glm::vec3(0.0f);
       perRayData.hit_count = 0;
+      perRayData.primary_background_visible = false;
+      perRayData.diffuse_indirect_path = true;
       glm::vec3 rayDir, rayOrigin;
       float coordA = perRayData.random();
       float coordB = perRayData.random();

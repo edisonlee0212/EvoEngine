@@ -4,6 +4,9 @@
 #include "Application.hpp"
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalLightingResolver.hpp"
+#include "EnvironmentalMap.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
@@ -54,17 +57,52 @@ float Halton(uint32_t index, const uint32_t base) {
   return result;
 }
 
-std::string NormalizeRenderModeName(std::string value) {
-  value.erase(std::remove_if(value.begin(), value.end(),
-                             [](const char character) {
-                               return character == '-' || character == '_' || character == '/' ||
-                                      std::isspace(static_cast<unsigned char>(character));
-                             }),
-              value.end());
-  std::transform(value.begin(), value.end(), value.begin(), [](const char character) {
-    return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
-  });
-  return value;
+std::shared_ptr<Cubemap> ResolveEnvironmentalMapCubemap(AssetRef& environmental_map_ref) {
+  if (const auto environmental_map = environmental_map_ref.Get<EnvironmentalMap>()) {
+    environmental_map->EnsureEnvironmentSource();
+    if (const auto cubemap = environmental_map->environment_cubemap.Get<Cubemap>()) {
+      return cubemap;
+    }
+  }
+  return {};
+}
+
+std::shared_ptr<EnvironmentalMap> ResolveIndirectEnvironmentalMap(
+    const ResolvedEnvironmentalLighting::IndirectEnvironmentSource& source) {
+  if (source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault) {
+    return Resources::GetInstance().GetDefaultEnvironmentalMap();
+  }
+  if (source.kind != ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap) {
+    return {};
+  }
+  auto map_ref = source.environmental_map;
+  return map_ref.Get<EnvironmentalMap>();
+}
+
+std::shared_ptr<Cubemap> ResolveEnvironmentalLightingCubemap(const std::shared_ptr<Scene>& scene) {
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  if (const auto environmental_map = ResolveIndirectEnvironmentalMap(resolved_lighting.indirect_environment_source)) {
+    environmental_map->EnsureEnvironmentSource();
+    auto cubemap_ref = environmental_map->environment_cubemap;
+    return cubemap_ref.Get<Cubemap>();
+  }
+  return {};
+}
+
+std::shared_ptr<Cubemap> ResolveCameraBackgroundCubemap(Camera& camera, const std::shared_ptr<Scene>& scene) {
+  switch (Camera::ResolveBackgroundSource(camera.camera_settings)) {
+    case Camera::BackgroundSource::ClearColor:
+      return {};
+    case Camera::BackgroundSource::Cubemap:
+      return camera.skybox.Get<Cubemap>();
+    case Camera::BackgroundSource::EnvironmentalMap:
+      return ResolveEnvironmentalMapCubemap(camera.background_environment);
+    case Camera::BackgroundSource::InheritEnvironmentalLighting:
+      return ResolveEnvironmentalLightingCubemap(scene);
+    case Camera::BackgroundSource::EngineDefaultSkybox:
+      return Resources::GetInstance().GetDefaultSkybox();
+  }
+  return {};
 }
 
 void ReportCameraRenderModeFallback(const Camera::CameraRenderMode requested_mode,
@@ -168,6 +206,38 @@ const char* Camera::GetCameraRenderModeName(const CameraRenderMode mode) {
   return GetCameraRenderModeNames()[index].c_str();
 }
 
+const std::vector<std::string>& Camera::GetBackgroundSourceNames() {
+  static const std::vector<std::string> source_names{"Clear Color", "Cubemap", "Environmental Map",
+                                                     "Inherit Environmental Lighting", "Engine Default Skybox"};
+  return source_names;
+}
+
+const char* Camera::GetBackgroundSourceName(const BackgroundSource source) {
+  const auto index = static_cast<uint32_t>(NormalizeBackgroundSource(static_cast<uint32_t>(source)));
+  return GetBackgroundSourceNames()[index].c_str();
+}
+
+Camera::BackgroundSource Camera::ParseBackgroundSource(const std::string& value, const BackgroundSource fallback) {
+  const auto& names = GetBackgroundSourceNames();
+  for (uint32_t index = 0; index < kBackgroundSourceCount; ++index) {
+    if (value == names[index]) {
+      return static_cast<BackgroundSource>(index);
+    }
+  }
+  return fallback;
+}
+
+Camera::BackgroundSource Camera::NormalizeBackgroundSource(const uint32_t source) {
+  if (source >= kBackgroundSourceCount) {
+    return BackgroundSource::Cubemap;
+  }
+  return static_cast<BackgroundSource>(source);
+}
+
+Camera::BackgroundSource Camera::ResolveBackgroundSource(const CameraSettings& settings) {
+  return NormalizeBackgroundSource(static_cast<uint32_t>(settings.background_source));
+}
+
 const std::vector<std::string>& Camera::GetShaderExecutionReorderingModeNames() {
   static const std::vector<std::string> mode_names{"Disabled", "Automatic", "Enabled"};
   return mode_names;
@@ -194,32 +264,11 @@ const char* Camera::GetRayDebugViewName(const CameraSettings::RayDebugView view)
 
 CameraSettings::RayDebugView Camera::ParseRayDebugView(const std::string& value,
                                                        const CameraSettings::RayDebugView fallback) {
-  const auto normalized = NormalizeRenderModeName(value);
-  static const std::vector<std::string> names{
-      "beauty",           "materialid", "basecolor",      "geometricnormal",   "shadingnormal",
-      "roughness",        "metallic",   "specularf0",     "alphacoverage",     "transmission",
-      "iridescence",      "emission",   "directpunctual", "directenvironment", "directemissive",
-      "indirectradiance", "pathdepth",  "bsdfpdf",        "lightpdf",          "emissivepdf"};
+  const auto& names = GetRayDebugViewNames();
   for (uint32_t index = 0; index < kRayDebugViewCount; ++index) {
-    if (normalized == std::to_string(index)) {
+    if (value == names[index]) {
       return static_cast<CameraSettings::RayDebugView>(index);
     }
-  }
-  const auto match = std::find(names.begin(), names.end(), normalized);
-  if (match != names.end()) {
-    return static_cast<CameraSettings::RayDebugView>(std::distance(names.begin(), match));
-  }
-  if (normalized == "none" || normalized == "off" || normalized == "disabled") {
-    return CameraSettings::RayDebugView::Beauty;
-  }
-  if (normalized == "material") {
-    return CameraSettings::RayDebugView::MaterialId;
-  }
-  if (normalized == "alpha" || normalized == "opacity" || normalized == "coverage") {
-    return CameraSettings::RayDebugView::AlphaCoverage;
-  }
-  if (normalized == "f0") {
-    return CameraSettings::RayDebugView::SpecularF0;
   }
   return fallback;
 }
@@ -231,15 +280,11 @@ CameraSettings::RayDebugView Camera::NormalizeRayDebugView(const uint32_t view) 
 
 CameraSettings::ShaderExecutionReorderingMode Camera::ParseShaderExecutionReorderingMode(
     const std::string& value, const CameraSettings::ShaderExecutionReorderingMode fallback) {
-  const auto normalized = NormalizeRenderModeName(value);
-  if (normalized == "0" || normalized == "off" || normalized == "disabled" || normalized == "disable") {
-    return CameraSettings::ShaderExecutionReorderingMode::Disabled;
-  }
-  if (normalized == "1" || normalized == "auto" || normalized == "automatic") {
-    return CameraSettings::ShaderExecutionReorderingMode::Automatic;
-  }
-  if (normalized == "2" || normalized == "on" || normalized == "enabled" || normalized == "enable") {
-    return CameraSettings::ShaderExecutionReorderingMode::Enabled;
+  const auto& names = GetShaderExecutionReorderingModeNames();
+  for (uint32_t index = 0; index < kShaderExecutionReorderingModeCount; ++index) {
+    if (value == names[index]) {
+      return static_cast<CameraSettings::ShaderExecutionReorderingMode>(index);
+    }
   }
   return fallback;
 }
@@ -261,15 +306,11 @@ bool Camera::ResolveShaderExecutionReorderingEnabled(
 }
 
 Camera::CameraRenderMode Camera::ParseCameraRenderMode(const std::string& value, const CameraRenderMode fallback) {
-  const auto normalized = NormalizeRenderModeName(value);
-  if (normalized == "0" || normalized == "raster" || normalized == "rasterization") {
-    return CameraRenderMode::Rasterization;
-  }
-  if (normalized == "1" || normalized == "raytracing" || normalized == "pathtracing" || normalized == "pathtrace") {
-    return CameraRenderMode::RayTracing;
-  }
-  if (normalized == "2" || normalized == "rayquery") {
-    return CameraRenderMode::RayQuery;
+  const auto& names = GetCameraRenderModeNames();
+  for (uint32_t index = 0; index < kCameraRenderModeCount; ++index) {
+    if (value == names[index]) {
+      return static_cast<CameraRenderMode>(index);
+    }
   }
   return fallback;
 }
@@ -329,7 +370,7 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (environmental_irradiance_texture_index != other.environmental_irradiance_texture_index)
     return true;
-  if (camera_use_clear_color != other.camera_use_clear_color)
+  if (background_source != other.background_source)
     return true;
   if (gamma != other.gamma)
     return true;
@@ -344,6 +385,8 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
   if (emissive_triangle_nee_enabled != other.emissive_triangle_nee_enabled)
     return true;
   if (ray_debug_view != other.ray_debug_view)
+    return true;
+  if (raster_lighting_flags != other.raster_lighting_flags)
     return true;
   if (auto_spp_enabled != other.auto_spp_enabled)
     return true;
@@ -483,20 +526,28 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
     post_processing_resources->previous_unjittered_projection_view = camera_info_block.unjittered_projection_view;
     post_processing_resources->previous_matrices_valid = true;
   }
+  auto scene = GetScene();
+  if (!scene) {
+    scene = ApplicationContext::Get().GetActiveScene();
+  }
+  const auto background_source = ResolveBackgroundSource(camera_settings);
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  const bool inherit_background_color = background_source == BackgroundSource::InheritEnvironmentalLighting &&
+                                        resolved_lighting.indirect_environment_source.kind ==
+                                            ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
   camera_info_block.clear_color =
-      glm::vec4(glm::vec3(camera_settings.clear_color), camera_settings.background_intensity);
+      glm::vec4(inherit_background_color ? resolved_lighting.indirect_environment_source.color
+                                         : glm::vec3(camera_settings.clear_color),
+                camera_settings.background_intensity);
   camera_info_block.jitter = post_processing_resources ? glm::vec4(post_processing_resources->current_jitter,
                                                                    post_processing_resources->previous_jitter)
                                                        : glm::vec4(0.0f);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;
-  if (camera_settings.use_clear_color) {
-    camera_info_block.camera_use_clear_color = 1;
-  } else {
-    camera_info_block.camera_use_clear_color = 0;
-  }
-  if (const auto camera_skybox = skybox.Get<Cubemap>()) {
+  camera_info_block.background_source =
+      background_source == BackgroundSource::ClearColor || inherit_background_color ? 1 : 0;
+  if (const auto camera_skybox = ResolveCameraBackgroundCubemap(*this, scene)) {
     camera_info_block.skybox_texture_index = camera_skybox->GetTextureStorageIndex();
   } else {
     const auto default_cubemap = Resources::GetInstance().GetDefaultSkybox();
@@ -504,22 +555,23 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto camera_position = global_transform.GetPosition();
-    auto scene = GetScene();
-    if (!scene) {
-      scene = ApplicationContext::Get().GetActiveScene();
-    }
     std::shared_ptr<LightProbe> light_probe;
-    std::shared_ptr<ReflectionProbe> reflection_probe;
+    std::shared_ptr<GlobalReflectionProbe> reflection_probe;
     if (scene) {
-      light_probe = scene->environment.GetLightProbe(camera_position);
-      reflection_probe = scene->environment.GetReflectionProbe(camera_position);
+      if (const auto environmental_map =
+              ResolveIndirectEnvironmentalMap(resolved_lighting.indirect_environment_source)) {
+        environmental_map->EnsureEnvironmentSource();
+        auto light_probe_ref = environmental_map->light_probe;
+        light_probe = light_probe_ref.Get<LightProbe>();
+      }
+      reflection_probe = scene->GetGlobalReflectionProbeFallback();
     }
     if (!light_probe) {
       light_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->light_probe.Get<LightProbe>();
     }
     camera_info_block.environmental_irradiance_texture_index = light_probe->cubemap_->GetTextureStorageIndex();
     if (!reflection_probe) {
-      reflection_probe = Resources::GetInstance().GetDefaultEnvironmentalMap()->reflection_probe.Get<ReflectionProbe>();
+      reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe();
     }
     camera_info_block.environmental_prefiltered_index = reflection_probe->cubemap_->GetTextureStorageIndex();
   }
@@ -532,6 +584,13 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.emissive_triangle_nee_enabled = camera_settings.emissive_triangle_nee_enabled ? 1u : 0u;
   camera_info_block.ray_debug_view =
       static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
+  camera_info_block.raster_lighting_flags = 0u;
+  if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
+      post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
+      post_processing_stack->ambient_occlusion &&
+      post_processing_stack->ambient_occlusion->algorithm == AmbientOcclusion::Algorithm::Gtao) {
+    camera_info_block.raster_lighting_flags |= CameraInfoBlock::kRasterLightingGtaoVisibility;
+  }
   const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));
   const auto auto_spp_max_samples =
       static_cast<uint32_t>(glm::max(camera_settings.auto_spp_max_samples, static_cast<int>(auto_spp_min_samples)));
@@ -781,6 +840,7 @@ void Camera::OnDestroy() {
   ReleaseRayCameraHistory();
   ReleasePostProcessingResources();
   post_processing_stack_ref.Clear();
+  background_environment.Clear();
   skybox.Clear();
 }
 
@@ -790,6 +850,7 @@ void Camera::PostCloneAction(const std::shared_ptr<IPrivateComponent>& source) {
 
 void Camera::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(skybox);
+  list.push_back(background_environment);
   list.push_back(post_processing_stack_ref);
 }
 

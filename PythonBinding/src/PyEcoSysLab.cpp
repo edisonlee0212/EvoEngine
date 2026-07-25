@@ -205,6 +205,13 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .value("LightPdf", CameraSettings::RayDebugView::LightPdf)
       .value("EmissivePdf", CameraSettings::RayDebugView::EmissivePdf);
 
+  py::enum_<CameraSettings::BackgroundSource>(m, "CameraBackgroundSource")
+      .value("ClearColor", CameraSettings::BackgroundSource::ClearColor)
+      .value("Cubemap", CameraSettings::BackgroundSource::Cubemap)
+      .value("EnvironmentalMap", CameraSettings::BackgroundSource::EnvironmentalMap)
+      .value("InheritEnvironmentalLighting", CameraSettings::BackgroundSource::InheritEnvironmentalLighting)
+      .value("EngineDefaultSkybox", CameraSettings::BackgroundSource::EngineDefaultSkybox);
+
   py::class_<CameraSettings>(m, "CameraSettings")
       .def(py::init<>())
       .def_readwrite("near_distance", &CameraSettings::near_distance)
@@ -212,7 +219,7 @@ void PyEcoSysLab::Initialize(pybind11::module& m) {
       .def_readwrite("fade_ratio", &CameraSettings::fade_ratio)
       .def_readwrite("fade_factor", &CameraSettings::fade_factor)
       .def_readwrite("fov", &CameraSettings::fov)
-      .def_readwrite("use_clear_color", &CameraSettings::use_clear_color)
+      .def_readwrite("background_source", &CameraSettings::background_source)
       .def_readwrite("clear_color", &CameraSettings::clear_color)
       .def_readwrite("background_intensity", &CameraSettings::background_intensity)
       .def_readwrite("sample_size", &CameraSettings::sample_size)

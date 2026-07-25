@@ -7,9 +7,7 @@ layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
 
 layout(set = 1, binding = 17) uniform sampler2D inDepth;
 layout(set = 1, binding = 21) uniform sampler2D inNormalRoughness;
-layout(set = 2, binding = 0) uniform sampler2D inColor;
-layout(set = 3, binding = 0, rgba32f) uniform writeonly image2D outSrcColor;
-layout(set = 3, binding = 1, rgba32f) uniform writeonly image2D outAmbientOcclusion;
+layout(set = 2, binding = 0, r16f) uniform writeonly image2D outAmbientOcclusion;
 
 layout(push_constant) uniform EE_AO_CONSTANTS {
   int EE_CAMERA_INDEX;
@@ -182,14 +180,12 @@ float ComputeGtao(in vec2 texCoord, in vec3 viewPos, in vec3 normal, in vec2 res
 
 void main() {
   uvec2 pixel = gl_GlobalInvocationID.xy;
-  uvec2 resolution = uvec2(imageSize(outSrcColor));
+  uvec2 resolution = uvec2(imageSize(outAmbientOcclusion));
   if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
     return;
   }
 
   vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
-  imageStore(outSrcColor, ivec2(pixel), texture(inColor, texCoord));
-
   vec3 viewPos;
   if (!GetViewPosition(texCoord, viewPos)) {
     imageStore(outAmbientOcclusion, ivec2(pixel), vec4(1, 1, 1, 1));

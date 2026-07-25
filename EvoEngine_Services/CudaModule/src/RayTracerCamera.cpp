@@ -205,7 +205,7 @@ void RayTracerCamera::ApplyCameraSettings(const CameraSettings &camera_settings)
   camera_properties_.SetFov(camera_settings.fov);
 
   camera_properties_.SetBackgroundColor(camera_settings.clear_color);
-  if (camera_settings.use_clear_color) {
+  if (camera_settings.background_source == CameraSettings::BackgroundSource::ClearColor) {
     camera_properties_.SetBackgroundType(BackgroundType::Color);
   }
 

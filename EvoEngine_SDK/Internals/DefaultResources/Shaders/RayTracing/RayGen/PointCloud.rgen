@@ -1,6 +1,5 @@
 #extension GL_ARB_shading_language_include : enable
 #include "RayTracingBasic.glsl"
-#include "Random.glsl"
 
 #include "PointCloudRayTracingPayload.glsl"
 
@@ -23,22 +22,12 @@ layout(set = 2, binding = 0) buffer EE_POINT_CLOUD_SAMPLE_BLOCK {
 };
 
 
-layout(push_constant) uniform EE_POINT_CLOUD_CONSTANTS {
-  uint bounce;
-  uint envIndex;
-  uint skybox_tex_index;
-  uint use_clear_color;
-  vec4 clear_color;
-};
-
 layout(location = 0) rayPayloadEXT PointCloudRayTracingPayload hit_value;
-#define FLT_MAX 3.402823466e+38
 
 void main() 
 {
 	uint sample_index = gl_LaunchIDEXT.x;
-	hit_value.seed = 1664525u * sample_index;
-	hit_value.seed = uint(1664525u * EE_RANDOM(hit_value.seed));
+	hit_value.hit_count = 0;
 	PointCloudSample point_cloud_sample = EE_POINT_CLOUD_SAMPLES[sample_index];
 	
 	traceRayEXT(EE_TLAS, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, point_cloud_sample.start, 0, point_cloud_sample.direction, 1e20f, 0);

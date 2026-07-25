@@ -39,7 +39,7 @@ struct DemoProfileDescriptor {
 
 struct DdgiCornellBoxDemoSettings {
   float point_light_brightness = 2.0f;
-  float ddgi_indirect_intensity = 1.0f;
+  float indirect_lighting_intensity = 1.0f;
   bool enable_probe_relocation = true;
   bool enable_probe_classification = true;
 };

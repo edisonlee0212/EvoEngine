@@ -26,6 +26,8 @@ typedef LinearCongruenceGenerator<16> Random;
 template <typename T>
 struct PerRayData {
   unsigned hit_count;
+  bool primary_background_visible;
+  bool diffuse_indirect_path;
   Random random;
   T energy;
   glm::vec3 normal;

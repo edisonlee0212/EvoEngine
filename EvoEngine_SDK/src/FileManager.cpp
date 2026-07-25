@@ -78,6 +78,18 @@ void HideFileOnWindows(const std::filesystem::path& path) {
   (void)path;
 #endif
 }
+
+void UnhideFileOnWindows(const std::filesystem::path& path) {
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  const auto path_string = path.string();
+  const DWORD attributes = GetFileAttributes(path_string.c_str());
+  if (attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_HIDDEN) != 0) {
+    SetFileAttributes(path_string.c_str(), attributes & ~FILE_ATTRIBUTE_HIDDEN);
+  }
+#else
+  (void)path;
+#endif
+}
 }  // namespace
 
 std::string File::GetAssetTypeName() const {
@@ -156,6 +168,7 @@ void File::SetAssetExtension(const std::string& new_extension) {
 }
 void File::Save() const {
   const auto path = FileMetadataPath(GetAbsolutePath());
+  UnhideFileOnWindows(path);
   YAML::Emitter out;
   out << YAML::BeginMap;
   out << YAML::Key << "asset_extension_" << YAML::Value << asset_extension_;
@@ -180,18 +193,20 @@ void File::Load(const std::filesystem::path& path) {
     EVOENGINE_ERROR("Metadata not exist!")
     return;
   }
-  const std::ifstream stream(path.string());
-  std::stringstream string_stream;
-  string_stream << stream.rdbuf();
-  YAML::Node in = YAML::Load(string_stream.str());
-  if (in["asset_file_name_"])
-    asset_file_name_ = in["asset_file_name_"].as<std::string>();
-  if (in["asset_extension_"])
-    asset_extension_ = in["asset_extension_"].as<std::string>();
-  if (in["asset_type_name_"])
-    asset_type_name_ = in["asset_type_name_"].as<std::string>();
-  if (in["asset_handle_"])
-    asset_handle_ = in["asset_handle_"].as<uint64_t>();
+  {
+    const std::ifstream stream(path.string());
+    std::stringstream string_stream;
+    string_stream << stream.rdbuf();
+    YAML::Node in = YAML::Load(string_stream.str());
+    if (in["asset_file_name_"])
+      asset_file_name_ = in["asset_file_name_"].as<std::string>();
+    if (in["asset_extension_"])
+      asset_extension_ = in["asset_extension_"].as<std::string>();
+    if (in["asset_type_name_"])
+      asset_type_name_ = in["asset_type_name_"].as<std::string>();
+    if (in["asset_handle_"])
+      asset_handle_ = in["asset_handle_"].as<uint64_t>();
+  }
 
   if (!Serialization::HasSerializableType(asset_type_name_)) {
     asset_type_name_ = "Binary";
@@ -337,6 +352,7 @@ void Folder::Rename(const std::string& new_name) {
 }
 void Folder::Save() const {
   const auto path = FolderMetadataPath(GetAbsolutePath());
+  UnhideFileOnWindows(path);
   YAML::Emitter out;
   out << YAML::BeginMap;
   out << YAML::Key << "handle_" << YAML::Value << handle_;

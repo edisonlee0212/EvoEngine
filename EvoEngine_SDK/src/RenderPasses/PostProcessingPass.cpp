@@ -7,6 +7,46 @@
 
 using namespace evo_engine;
 
+RenderPassDescriptor AmbientOcclusionPass::CreateDescriptor() {
+  return {RenderPassNames::ambient_occlusion,
+          RenderPassQueue::Graphics,
+          RenderPassScope::Camera,
+          {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_ambient_occlusion, RenderResourceUsage::ReadWrite,
+            RenderResourceState::StorageReadWrite},
+           {RenderResourceNames::camera_ambient_occlusion_scratch, RenderResourceUsage::ReadWrite,
+            RenderResourceState::StorageReadWrite}},
+          {RenderPassNames::depth_pyramid}};
+}
+
+void AmbientOcclusionPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  if (!parameters.camera) {
+    return;
+  }
+  const auto post_processing_stack = parameters.camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  const auto* ambient_occlusion = context.GetResourceBinding(RenderResourceNames::camera_ambient_occlusion);
+  const auto* scratch = context.GetResourceBinding(RenderResourceNames::camera_ambient_occlusion_scratch);
+  if (!post_processing_stack || !post_processing_stack->enable_ambient_occlusion || !ambient_occlusion ||
+      !ambient_occlusion->image || !scratch || !scratch->image) {
+    return;
+  }
+  const auto ambient_occlusion_view = CreateGraphImageMipView(ambient_occlusion->image, 0);
+  const auto scratch_view = CreateGraphImageMipView(scratch->image, 0);
+  if (parameters.transient_resources) {
+    parameters.transient_resources->RetainAsset(post_processing_stack);
+    parameters.transient_resources->RetainImageView(ambient_occlusion_view);
+    parameters.transient_resources->RetainImageView(scratch_view);
+  }
+  post_processing_stack->ProcessAmbientOcclusion(parameters.camera, ambient_occlusion_view, scratch_view,
+                                                 [&](const VkCommandBuffer vk_command_buffer) {
+                                                   ApplyGraphResourceBarriers(vk_command_buffer, context);
+                                                 });
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+    ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+  });
+}
+
 RenderPassDescriptor PostProcessingPass::CreateDescriptor(const char* dependency) {
   return {RenderPassNames::post_processing,
           RenderPassQueue::Graphics,

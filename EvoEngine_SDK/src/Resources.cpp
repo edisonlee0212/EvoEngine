@@ -2,7 +2,9 @@
 
 #include "Cubemap.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GeometryStorage.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "GpuService.hpp"
 #include "PathUtils.hpp"
 #include "ProjectManager.hpp"
@@ -42,6 +44,10 @@ const std::shared_ptr<Cubemap>& Resources::GetDefaultSkybox() const {
 
 const std::shared_ptr<EnvironmentalMap>& Resources::GetDefaultEnvironmentalMap() const {
   return default_environmental_map_;
+}
+
+const std::shared_ptr<GlobalReflectionProbe>& Resources::GetDefaultGlobalReflectionProbe() const {
+  return default_global_reflection_probe_;
 }
 
 const std::shared_ptr<Mesh>& Resources::GetTexturePassThroughQuad() const {
@@ -180,6 +186,11 @@ void Resources::Initialize() {
 
   resources.default_environmental_map_ = CreateResource<EnvironmentalMap>();
   resources.default_environmental_map_->ConstructFromTexture2D(resources.default_environmental_map_texture_);
+  resources.default_global_reflection_probe_ = CreateResource<GlobalReflectionProbe>();
+  if (auto cubemap_ref = resources.default_environmental_map_->environment_cubemap;
+      const auto environment_cubemap = cubemap_ref.Get<Cubemap>()) {
+    resources.default_global_reflection_probe_->ConstructFromCubemap(environment_cubemap);
+  }
 }
 
 Handle Resources::GenerateNewHandle() {
@@ -201,6 +212,8 @@ void Resources::Draw(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::CollapsingHeader("Environmental Map")) {
         ImGui::Button("Default Env map");
         editor_layer->DraggableAsset<EnvironmentalMap>(resources.default_environmental_map_);
+        ImGui::Button("Default Global Reflection Probe");
+        editor_layer->DraggableAsset<GlobalReflectionProbe>(resources.default_global_reflection_probe_);
       }
       if (ImGui::CollapsingHeader("Primitives")) {
         ImGui::Button("Quad");
@@ -253,6 +266,7 @@ void Resources::OnDestroy() {
 
   resources.default_skybox_.reset();
   resources.default_environmental_map_.reset();
+  resources.default_global_reflection_probe_.reset();
 
   resources.texture_pass_through_quad_.reset();
   resources.rendering_cube_.reset();

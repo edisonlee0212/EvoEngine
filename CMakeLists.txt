@@ -22,6 +22,7 @@ set(EVOENGINE_INSTALL_PYTHON_RUNTIME_DIR python CACHE STRING
 	"Install directory for EvoEngine Python binding runtimes.")
 option(EVOENGINE_INSTALL_PDBS "Install available MSVC PDB files with EvoEngine runtimes." ON)
 option(EVOENGINE_ENABLE_RUNTIME_PACKAGES "Build EvoEngine runtime package support and package targets." ON)
+option(EVOENGINE_ENABLE_GRAPHICS_VALIDATION "Enable Vulkan validation in Debug and RelWithDebInfo builds." ON)
 
 # ------------------------------------------------------------------
 # Build types

@@ -154,30 +154,46 @@ static __forceinline__ __device__ glm::vec3 NishitaSkyIncidentLight(const glm::v
   return result;
 }
 
-static __forceinline__ __device__ glm::vec3 CalculateEnvironmentalLight(const glm::vec3 &position,
-                                                                        const glm::vec3 &rayDir,
-                                                                        const EnvironmentProperties &environment) {
+static __forceinline__ __device__ glm::vec3 EnvironmentLocalDirection(const glm::vec3 &worldDirection,
+                                                                      const float environmentRotation) {
+  const float c = glm::cos(environmentRotation);
+  const float s = glm::sin(environmentRotation);
+  return glm::vec3(c * worldDirection.x - s * worldDirection.z, worldDirection.y,
+                   s * worldDirection.x + c * worldDirection.z);
+}
+
+static __forceinline__ __device__ glm::vec3 CalculateEnvironmentSourceRadiance(
+    const glm::vec3 &position, const glm::vec3 &rayDir, const EnvironmentProperties &environment) {
   glm::vec3 environmentalLightColor = glm::vec3(1.0f);
   switch (environment.environmental_lighting_type) {
     case EnvironmentalLightingType::Scene:
       if (environment.use_environmental_map && environment.environmental_map) {
-        float4 color = texCubemap<float4>(environment.environmental_map, rayDir.x, rayDir.y, rayDir.z);
+        const glm::vec3 localDirection = EnvironmentLocalDirection(rayDir, environment.environment_rotation);
+        float4 color =
+            texCubemap<float4>(environment.environmental_map, localDirection.x, localDirection.y, localDirection.z);
         environmentalLightColor = glm::vec3(color.x, color.y, color.z);
       } else {
         environmentalLightColor = environment.color;
       }
-      environmentalLightColor *= environment.skylight_intensity;
       break;
     case EnvironmentalLightingType::Skydome:
       environmentalLightColor = NishitaSkyIncidentLight(position, rayDir, environment);
-      environmentalLightColor *= environment.skylight_intensity;
       break;
     case EnvironmentalLightingType::SingleLightSource:
-      environmentalLightColor = glm::vec3(environment.color * environment.skylight_intensity);
+      environmentalLightColor = environment.color;
       break;
   }
-  environmentalLightColor = pow(environmentalLightColor, glm::vec3(1.0f / environment.gamma));
+  environmentalLightColor = pow(glm::max(environmentalLightColor, glm::vec3(0.0f)),
+                                glm::vec3(1.0f / environment.gamma));
   return glm::max(glm::vec3(0.0f), environmentalLightColor);
+}
+
+static __forceinline__ __device__ glm::vec3 CalculateEnvironmentalLight(
+    const glm::vec3 &position, const glm::vec3 &rayDir, const EnvironmentProperties &environment,
+    const bool diffuseIndirectPath) {
+  const float indirectScale = diffuseIndirectPath ? environment.indirect_lighting_intensity : 1.0f;
+  return CalculateEnvironmentSourceRadiance(position, rayDir, environment) *
+         glm::max(environment.sky_light_intensity_scale, 0.0f) * glm::max(indirectScale, 0.0f);
 }
 
 #pragma endregion

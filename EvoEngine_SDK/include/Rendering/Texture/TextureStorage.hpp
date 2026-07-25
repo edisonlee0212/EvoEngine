@@ -173,6 +173,7 @@ class CubemapStorage {
   std::shared_ptr<Image> image = {};           ///< GPU image resource.
   std::shared_ptr<ImageView> image_view = {};  ///< GPU image view resource.
   std::shared_ptr<Sampler> sampler = {};       ///< GPU sampler resource.
+  uint64_t content_generation = 0;             ///< Completed in-place GPU content revisions.
 
   /**
    * @brief Clears the cubemap resources and data.
@@ -187,7 +188,7 @@ class CubemapStorage {
    * @param resolution The resolution of the cubemap.
    * @param mip_levels The number of mip levels.
    */
-  void Initialize(uint32_t resolution, uint32_t mip_levels);
+  void Initialize(uint32_t resolution, uint32_t mip_levels, VkFormat format);
 
   /**
    * @brief Retrieves the Vulkan image layout of the cubemap.
@@ -253,6 +254,15 @@ class TextureStorage final {
    * @return The version as a 32-bit unsigned integer.
    */
   [[nodiscard]] static uint32_t GetVersion();
+
+  /** Returns a stable signature for the selected 2D texture storage and its latest synchronized upload. */
+  [[nodiscard]] static bool TryGetTexture2DContentSignature(uint32_t texture_index, uint64_t& signature);
+
+  /** Returns a stable signature for the selected cubemap storage. */
+  [[nodiscard]] static bool TryGetCubemapContentSignature(uint32_t texture_index, uint64_t& signature);
+
+  /** Returns whether the selected 2D texture has queued or in-flight GPU upload work. */
+  [[nodiscard]] static bool HasPendingTexture2DUpload(uint32_t texture_index);
 
   /**
    * @brief Returns whether any texture storage still has queued or in-flight GPU upload work.

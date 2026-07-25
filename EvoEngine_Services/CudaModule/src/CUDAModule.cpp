@@ -200,10 +200,26 @@ std::shared_ptr<CudaImage> CudaModule::ImportTexture2D(const std::shared_ptr<evo
 }
 
 std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_engine::Cubemap>& cubemap) {
-  if (!ApplicationContext::Get().GetLayer<RenderLayer>())
+  if (!ApplicationContext::Get().GetLayer<RenderLayer>() || !cubemap || !cubemap->GetImage())
     return nullptr;
 
   auto image = cubemap->GetImage();
+
+  int bit_size = 0;
+  switch (image->GetFormat()) {
+    case VK_FORMAT_R64G64B64A64_SFLOAT:
+      bit_size = 64;
+      break;
+    case VK_FORMAT_R32G32B32A32_SFLOAT:
+      bit_size = 32;
+      break;
+    case VK_FORMAT_R16G16B16A16_SFLOAT:
+      bit_size = 16;
+      break;
+    default:
+      EVOENGINE_ERROR("CUDA cubemap import rejected an unsupported Vulkan image format.")
+      return nullptr;
+  }
 
   auto cudaImage = std::make_shared<CudaImage>();
 
@@ -232,22 +248,6 @@ std::shared_ptr<CudaImage> CudaModule::ImportCubemap(const std::shared_ptr<evo_e
   VkExtent3D imageExtent = image->GetExtent();
   cudaExtent extent = make_cudaExtent(imageExtent.width, imageExtent.height, 6);
   cudaChannelFormatDesc formatDesc;
-  int bit_size = 32;
-  switch (Platform::Constants::texture_2d) {
-    case VK_FORMAT_R64G64B64A64_SFLOAT: {
-      bit_size = 64;
-      break;
-    }
-    case VK_FORMAT_R32G32B32A32_SFLOAT: {
-      bit_size = 32;
-      break;
-    }
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
-      bit_size = 16;
-      break;
-    }
-  }
-
   formatDesc.x = bit_size;
   formatDesc.y = bit_size;
   formatDesc.z = bit_size;

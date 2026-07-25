@@ -27,9 +27,9 @@ coverage, material-preview coverage, directional/point light checks, and general
 
 Key scene defaults:
 
-- static environment light disabled for the Sponza baseline;
+- tracked Sponza sky, global reflection probe, and five asset-owned hallway/gallery reflection probes;
 - imported Sponza punctual lights disabled;
-- scene-owned DDGI volume enabled;
+- asset-owned DDGI volume enabled through the scene's `EnvironmentalLighting` asset;
 - top-down directional light brightness `5.0`;
 - yellow point light and non-shadow-casting visualizer for light-response checks;
 - main camera configured for ray tracing by the README/smoke editor setup;
@@ -86,7 +86,8 @@ branch evidence instead of Resources submodule content.
 
 The profile matches `vk_gltf_renderer` Bistro screenshot framing by using glTF camera 0, applying the corresponding
 scene-root offset, and preserving a shared EvoEngine demo camera pose. It is both a scene/import validation target and the
-long-form path-tracing parity scene.
+long-form path-tracing parity scene. Its optional DDGI setup authors a temporary `EnvironmentalLighting` asset directly
+instead of creating a scene-local `DdgiVolume` component.
 
 ## 3DGS And 3DGS-Bicycle
 

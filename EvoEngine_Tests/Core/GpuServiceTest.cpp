@@ -6,6 +6,7 @@
 #include "ApplicationContext.hpp"
 #include "ComputePipeline.hpp"
 #include "Cubemap.hpp"
+#include "GeometryStorage.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
@@ -15,6 +16,7 @@
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
 #include "Texture2D.hpp"
+#include "TextureStorage.hpp"
 
 #include <array>
 #include <atomic>
@@ -160,6 +162,9 @@ class ScopedGpuPlatform {
   ~ScopedGpuPlatform() {
     application_->PopLayer<RenderLayer>();
     if (platform_initialized_) {
+      Platform::DrainGpuResourceWork();
+      TextureStorage::OnDestroy();
+      GeometryStorage::OnDestroy();
       PlatformLifecycleTestAccess::OnDestroy();
     }
     if (jobs_initialized_) {
@@ -669,6 +674,96 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
       closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.rchit"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.rmiss"));
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.comp"));
+}
+
+TEST(GpuService, EnvironmentLightingShadersCompile) {
+  ScopedGpuPlatform platform;
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto header = Platform::GetShaderGlobalDefines();
+
+  Shader point_cloud_raygen;
+  Shader point_cloud_miss;
+  Shader point_cloud_closest_hit;
+  Shader volumetric_clouds;
+  Shader volumetric_clouds_composite;
+  EXPECT_TRUE(
+      point_cloud_raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/PointCloud.rgen"));
+  EXPECT_TRUE(point_cloud_miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/PointCloud.rmiss"));
+  EXPECT_TRUE(point_cloud_closest_hit.TryCompile(ShaderType::ClosestHit, header,
+                                                 shader_root / "RayTracing/ClosestHit/PointCloud.rchit"));
+  EXPECT_TRUE(volumetric_clouds.TryCompile(ShaderType::Compute, header, shader_root / "Compute/VolumetricClouds.comp"));
+  EXPECT_TRUE(volumetric_clouds_composite.TryCompile(ShaderType::Compute, header,
+                                                     shader_root / "Compute/VolumetricCloudsComposite.comp"));
+}
+
+TEST(GpuService, DdgiMaterialShadersCompile) {
+  ScopedGpuPlatform platform;
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto header = Platform::GetShaderGlobalDefines();
+  const auto fixed_lighting_header =
+      header +
+      "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
+      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 3\n";
+  const auto fixed_material_lighting_header =
+      header +
+      "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
+      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+
+  Shader raygen;
+  Shader any_hit;
+  Shader closest_hit;
+  Shader miss;
+  Shader deferred;
+  Shader scene_camera;
+  Shader transparent;
+  Shader gather_timing;
+  Shader ambient_occlusion_geometry;
+  Shader ambient_occlusion_blur;
+  EXPECT_TRUE(
+      raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/DDGIProbeDiagnostics.rgen"));
+  EXPECT_TRUE(
+      any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/DDGIProbeDiagnostics.rahit"));
+  EXPECT_TRUE(closest_hit.TryCompile(ShaderType::ClosestHit, header,
+                                     shader_root / "RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
+  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeDiagnostics.rmiss"));
+  EXPECT_TRUE(deferred.TryCompile(ShaderType::Fragment, fixed_lighting_header,
+                                  shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.frag"));
+  EXPECT_TRUE(
+      scene_camera.TryCompile(ShaderType::Fragment, fixed_lighting_header,
+                              shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag"));
+  EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, fixed_material_lighting_header,
+                                     shader_root / "Graphics/Fragment/Standard/StandardTransparent.frag"));
+  EXPECT_TRUE(gather_timing.TryCompile(ShaderType::Fragment, fixed_lighting_header,
+                                       shader_root / "Graphics/Fragment/Standard/DDGIGatherTiming.frag"));
+  EXPECT_TRUE(ambient_occlusion_geometry.TryCompile(
+      ShaderType::Compute, header, shader_root / "Compute/PostProcessing/AmbientOcclusionGeometry.comp"));
+  EXPECT_TRUE(ambient_occlusion_blur.TryCompile(ShaderType::Compute, header,
+                                                shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.comp"));
+}
+
+TEST(GpuService, DdgiProbeUpdateVariantsCompile) {
+  ScopedGpuPlatform platform;
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto shader_path = shader_root / "Compute/DDGIProbeUpdate.comp";
+  const auto base_header = Platform::GetShaderGlobalDefines();
+  const auto compile_variant = [&](const uint32_t mode, const bool shared) {
+    Shader shader;
+    const auto header = base_header + "\n#define EE_DDGI_PROBE_UPDATE_MODE " + std::to_string(mode) +
+                        "\n#define EE_DDGI_PROBE_USE_SHARED_RAYS " + (shared ? "1\n" : "0\n");
+    return shader.TryCompile(ShaderType::Compute, header, shader_path);
+  };
+
+  EXPECT_TRUE(compile_variant(0u, false));
+  EXPECT_TRUE(compile_variant(1u, false));
+  EXPECT_TRUE(compile_variant(2u, false));
+  EXPECT_TRUE(compile_variant(1u, true));
+  EXPECT_TRUE(compile_variant(2u, true));
 }
 
 TEST(GpuService, BufferUploadSubrangeRoundTrip) {

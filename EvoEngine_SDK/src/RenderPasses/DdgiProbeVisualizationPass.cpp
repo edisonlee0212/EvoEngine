@@ -5,7 +5,6 @@
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "Mesh.hpp"
-#include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
 
@@ -24,37 +23,31 @@ void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const Ren
                               const DdgiProbeVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
       !parameters.descriptor_set_layout || !parameters.transient_resources || !parameters.camera ||
-      !parameters.camera->GetRenderTexture() || parameters.probe_count == 0u) {
+      !parameters.camera->GetRenderTexture() || !parameters.atlas_sampler || parameters.probe_count == 0u) {
     return;
   }
   const auto* metadata_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_metadata);
   const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
   const auto* irradiance_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
-  const auto* visibility_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
   if (!metadata_binding || !metadata_binding->buffer || !state_binding || !state_binding->buffer ||
-      !irradiance_binding || !irradiance_binding->image || !visibility_binding || !visibility_binding->image) {
+      !irradiance_binding || !irradiance_binding->image) {
     return;
   }
 
-  const auto fallback_info = CreateDdgiFallbackImageInfo();
   const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
-  const auto visibility_view = CreateGraphImageMipView(visibility_binding->image, 0);
-  if (!IsValidDescriptorImageInfo(fallback_info) || !irradiance_view || !visibility_view) {
+  if (!irradiance_view) {
     return;
   }
   parameters.transient_resources->RetainImageView(irradiance_view);
-  parameters.transient_resources->RetainImageView(visibility_view);
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
   descriptor_set->UpdateBufferDescriptorBinding(0, metadata_binding->buffer);
   descriptor_set->UpdateBufferDescriptorBinding(1, state_binding->buffer);
   VkDescriptorImageInfo image_info{};
-  image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-  image_info.sampler = parameters.atlas_sampler ? parameters.atlas_sampler->GetVkSampler() : fallback_info.sampler;
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  image_info.sampler = parameters.atlas_sampler->GetVkSampler();
   image_info.imageView = irradiance_view->GetVkImageView();
   descriptor_set->UpdateImageDescriptorBinding(17, image_info);
-  image_info.imageView = visibility_view->GetVkImageView();
-  descriptor_set->UpdateImageDescriptorBinding(18, image_info);
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
@@ -93,10 +86,7 @@ void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const Ren
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
-    auto push_constant = parameters.push_constant;
-    push_constant.camera_probe_selected_mode.x = parameters.camera_index;
-    push_constant.camera_probe_selected_mode.y = parameters.probe_count;
-    parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    parameters.pipeline->PushConstant(vk_command_buffer, 0, parameters.push_constant);
     GeometryStorage::BindVertices(vk_command_buffer);
     Resources::GetInstance().GetPrimitives().sphere->DrawIndexed(vk_command_buffer, parameters.pipeline->states,
                                                                  parameters.probe_count);
@@ -115,8 +105,7 @@ RenderPassDescriptor DdgiProbeVisualizationPass::CreateDescriptor() {
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
        {RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Read, RenderResourceState::ShaderRead}},
+       {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Read, RenderResourceState::General}},
       {RenderPassNames::deferred_camera}};
 }
 

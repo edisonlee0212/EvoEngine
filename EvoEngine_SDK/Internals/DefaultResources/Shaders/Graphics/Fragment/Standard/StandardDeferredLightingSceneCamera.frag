@@ -16,11 +16,13 @@ layout(set = EE_PER_PASS_SET, binding = 21) uniform sampler2D inNormalRoughness;
 layout(set = EE_PER_PASS_SET, binding = 22) uniform sampler2D inPbrFlags;
 layout(set = EE_PER_PASS_SET, binding = 23) uniform sampler2D inEmissive;
 layout(set = EE_PER_PASS_SET, binding = 24) uniform sampler2D inUtility;
+layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 4) uniform sampler2D inAmbientOcclusion;
 
 layout (location = 0) out vec4 FragColor;
 
 void main()
 {
+    const int indirectLightingDebugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
     float ndcDepth = texture(inDepth, fs_in.TexCoord).x;
 
     vec4 utilitySample = texture(inUtility, fs_in.TexCoord);
@@ -45,6 +47,10 @@ void main()
     vec2 texOffset  = 1.0 / texelSize;
 
     if (ndcDepth == 1.0) {
+        if (indirectLightingDebugView != 0) {
+            FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            return;
+        }
         if (!instance_selected && EE_INSTANCE_INDEX == 1) {
             bool foundNeighbor = false;
 
@@ -79,15 +85,18 @@ void main()
     bool unlit = emissiveSample.a < 0.0;
 
     float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
-    vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
-    if (shadowDebugColor.a > 0.0f) {
-        FragColor = shadowDebugColor;
-        return;
+    if (indirectLightingDebugView == 0) {
+        vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
+        if (shadowDebugColor.a > 0.0f) {
+            FragColor = shadowDebugColor;
+            return;
+        }
     }
 
     float roughness = normalRoughness.a;
 	float metallic = pbrFlags.x;
-	float ao = baseColorAO.a;
+	float materialOcclusion = baseColorAO.a;
+	float screenSpaceVisibility = texture(inAmbientOcclusion, fs_in.TexCoord).r;
 	vec4 albedo = vec4(baseColorAO.rgb, 1.0);
 
     vec3 base  = baseColorAO.rgb;
@@ -102,7 +111,7 @@ void main()
     float is2 = float(dv == 2.0);
     float is3 = float(dv == 3.0);
 
-    float anyDebug = clamp(is0 + is1 + is2 + is3, 0.0, 1.0);
+    float anyDebug = indirectLightingDebugView == 0 ? clamp(is0 + is1 + is2 + is3, 0.0, 1.0) : 0.0f;
 
     vec3 debugColor =
           base  * is0 +
@@ -113,7 +122,7 @@ void main()
     vec3 finalAlbedoRGB = mix(albedo.rgb, debugColor, anyDebug);
     albedo = vec4(finalAlbedoRGB, albedo.a);
 
-    vec3 color = albedo.rgb;
+    vec3 color = indirectLightingDebugView == 0 ? albedo.rgb : vec3(0.0f);
     if (!unlit) {
         vec3 viewDir = normalize(cameraPosition - fragPos);
         bool receiveShadow = true;
@@ -121,10 +130,19 @@ void main()
         float F90 = emissiveSample.a;
         vec3 direct = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.rgb, 1.0, depth, normal, viewDir, fragPos,
                                                metallic, roughness, F0, F90);
-        vec3 ambient = EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(albedo.rgb, normal, viewDir, metallic, roughness, F0,
-                                                             F90) +
-                       EE_FUNC_CALCULATE_DDGI_DIFFUSE(albedo.rgb, normal, viewDir, fragPos);
-        color = direct + emissive + ambient * ao;
+        vec3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+            albedo.rgb, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
+            screenSpaceVisibility);
+        if (indirectLightingDebugView != 0) {
+            FragColor = vec4(ambient, 1.0f);
+            return;
+        }
+        color = direct + emissive + ambient;
+    }
+
+    if (indirectLightingDebugView != 0) {
+        FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        return;
     }
 
     vec4 outputColor;

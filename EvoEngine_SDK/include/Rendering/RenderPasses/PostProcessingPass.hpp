@@ -4,6 +4,17 @@
 namespace evo_engine {
 class Camera;
 
+class AmbientOcclusionPass final {
+ public:
+  struct Parameters {
+    std::shared_ptr<Camera> camera;
+    RenderGraphTransientResourceStore* transient_resources = nullptr;
+  };
+
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
+};
+
 class PostProcessingPass final {
  public:
   struct Parameters {

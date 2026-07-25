@@ -143,7 +143,8 @@ void GraphicsPipeline::Initialize() {
   VkPipelineVertexInputStateCreateInfo vertex_input_info{};
   vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
   const auto* binding_description = &IGeometry::GetVertexBindingDescriptions(geometry_type);
-  const auto* attribute_descriptions = &IGeometry::GetVertexAttributeDescriptions(geometry_type);
+  const auto* attribute_descriptions =
+      &IGeometry::GetVertexAttributeDescriptions(geometry_type, vertex_input_attribute_set);
   if (vertex_input_enabled) {
     vertex_input_info.vertexBindingDescriptionCount = static_cast<uint32_t>(binding_description->size());
     vertex_input_info.vertexAttributeDescriptionCount = static_cast<uint32_t>(attribute_descriptions->size());

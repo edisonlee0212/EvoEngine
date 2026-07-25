@@ -229,6 +229,14 @@ class SkinnedMesh : public IAsset, public IGeometry {
 
   [[nodiscard]] const std::vector<glm::uvec3>& PeekTriangles() const;
 
+  [[nodiscard]] const std::shared_ptr<RangeDescriptor>& GetRayTracingTriangleRange() const {
+    return ray_tracing_triangle_range_;
+  }
+
+  [[nodiscard]] std::shared_ptr<BottomLevelAccelerationStructure> GetBlas() const {
+    return blas_;
+  }
+
   /**
    * @brief Recalculates the normals of the skinned mesh.
    */

@@ -12,6 +12,7 @@
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "IAsset.hpp"
 #include "ILayer.hpp"
 #include "IPrivateComponent.hpp"
@@ -29,7 +30,6 @@
 #include "PointCloud.hpp"
 #include "PointCloudScanner.hpp"
 #include "Prefab.hpp"
-#include "ReflectionProbe.hpp"
 #include "RenderLayer.hpp"
 #include "Scene.hpp"
 #include "Shader.hpp"
@@ -167,7 +167,7 @@ TEST(InspectorRegistry, ApplicationRegistersSdkInspectorsExternally) {
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Prefab)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(PointLight)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(PlayerController)), nullptr);
-  EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(ReflectionProbe)), nullptr);
+  EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(GlobalReflectionProbe)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(RenderLayer)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Scene)), nullptr);
   EXPECT_NE(InspectorRegistry::GetInstance().FindInspector(typeid(Shader)), nullptr);

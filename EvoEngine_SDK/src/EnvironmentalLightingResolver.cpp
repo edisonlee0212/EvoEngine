@@ -1,0 +1,291 @@
+#include "EnvironmentalLightingResolver.hpp"
+
+#include "DdgiRuntime.hpp"
+#include "Scene.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <glm/gtc/constants.hpp>
+#include <limits>
+#include <vector>
+
+using namespace evo_engine;
+
+namespace {
+constexpr float kMinimumExtent = 1.0e-4f;
+
+bool IsFinite(const float value) {
+  return std::isfinite(value);
+}
+
+bool IsFinite(const glm::vec3& value) {
+  return IsFinite(value.x) && IsFinite(value.y) && IsFinite(value.z);
+}
+
+bool IsFinite(const glm::mat4& value) {
+  for (glm::length_t column = 0; column < 4; ++column) {
+    for (glm::length_t row = 0; row < 4; ++row) {
+      if (!IsFinite(value[column][row])) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+float FiniteOr(const float value, const float fallback) {
+  return IsFinite(value) ? value : fallback;
+}
+
+glm::vec3 FiniteOr(const glm::vec3& value, const glm::vec3& fallback) {
+  return {IsFinite(value.x) ? value.x : fallback.x, IsFinite(value.y) ? value.y : fallback.y,
+          IsFinite(value.z) ? value.z : fallback.z};
+}
+
+float NonNegativeFiniteOr(const float value, const float fallback) {
+  return glm::max(FiniteOr(value, fallback), 0.0f);
+}
+
+glm::vec3 ClampProbeSpacing(const glm::vec3& value) {
+  return glm::clamp(FiniteOr(value, glm::vec3(1.5f)), glm::vec3(0.05f), glm::vec3(10000.0f));
+}
+
+glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector) {
+  return glm::vec3(transform * glm::vec4(vector, 0.0f));
+}
+
+float CalculateLocalProbeInfluenceVolume(const ResolvedEnvironmentalLighting::LocalReflectionProbe& probe) {
+  if (probe.shape == static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere)) {
+    return 4.0f / 3.0f * glm::pi<float>() * probe.sphere_radius * probe.sphere_radius * probe.sphere_radius;
+  }
+  return 8.0f * probe.box_extents.x * probe.box_extents.y * probe.box_extents.z;
+}
+
+float CalculateTransformedLocalProbeInfluenceVolume(const ResolvedEnvironmentalLighting::LocalReflectionProbe& probe) {
+  if (!IsFinite(probe.transform)) {
+    return 0.0f;
+  }
+  const auto world_to_probe = glm::inverse(probe.transform);
+  if (!IsFinite(world_to_probe)) {
+    return 0.0f;
+  }
+  const float volume_scale = glm::abs(glm::determinant(glm::mat3(probe.transform)));
+  const float influence_volume = CalculateLocalProbeInfluenceVolume(probe) * volume_scale;
+  return std::isfinite(volume_scale) && volume_scale > 1.0e-8f && std::isfinite(influence_volume) ? influence_volume
+                                                                                                  : 0.0f;
+}
+
+float CalculateDdgiProbeDensity(const EnvironmentalLighting::DdgiVolume& volume) {
+  if (!IsFinite(volume.transform)) {
+    return 0.0f;
+  }
+  const auto spacing = ClampProbeSpacing(volume.probe_spacing);
+  return DdgiRuntime::CalculateProbeDensity(TransformVector(volume.transform, {spacing.x, 0.0f, 0.0f}),
+                                            TransformVector(volume.transform, {0.0f, spacing.y, 0.0f}),
+                                            TransformVector(volume.transform, {0.0f, 0.0f, spacing.z}));
+}
+
+ResolvedEnvironmentalLighting::IndirectEnvironmentSource ToResolvedSource(
+    const EnvironmentalLighting::IndirectEnvironmentSource& source) {
+  ResolvedEnvironmentalLighting::IndirectEnvironmentSource resolved;
+  resolved.kind = static_cast<ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind>(source.kind);
+  resolved.environmental_map = source.environmental_map;
+  resolved.color = FiniteOr(source.color, glm::vec3(0.0f));
+  resolved.gamma = NonNegativeFiniteOr(source.gamma, 2.2f);
+  resolved.rotation = FiniteOr(source.rotation, 0.0f);
+  if (resolved.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap &&
+      resolved.environmental_map.GetAssetHandle().GetValue() == 0u) {
+    resolved.kind = ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault;
+  }
+  return resolved;
+}
+
+ResolvedEnvironmentalLighting::LocalReflectionProbe ToResolvedLocalProbe(
+    const EnvironmentalLighting::LocalReflectionProbe& source) {
+  ResolvedEnvironmentalLighting::LocalReflectionProbe probe;
+  probe.global_reflection_probe = source.global_reflection_probe;
+  probe.transform = source.transform;
+  probe.box_extents = glm::max(FiniteOr(source.box_extents, glm::vec3(5.0f)), glm::vec3(kMinimumExtent));
+  probe.box_projection_extents =
+      glm::max(FiniteOr(source.box_projection_extents, probe.box_extents), glm::vec3(kMinimumExtent));
+  probe.sphere_radius = glm::max(FiniteOr(source.sphere_radius, 5.0f), kMinimumExtent);
+  probe.blend_distance = NonNegativeFiniteOr(source.blend_distance, 1.0f);
+  probe.reflection_intensity = NonNegativeFiniteOr(source.reflection_intensity, 1.0f);
+  probe.stable_id = source.stable_id;
+  probe.artist_priority =
+      glm::clamp(source.artist_priority, -EnvironmentalLighting::kMaxExactLocalReflectionProbePriority,
+                 EnvironmentalLighting::kMaxExactLocalReflectionProbePriority);
+  probe.shape = glm::clamp(source.shape, static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Box),
+                           static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere));
+  probe.box_projection = source.box_projection;
+  probe.enabled = source.enabled;
+  const float maximum_blend = probe.shape == static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Box)
+                                  ? glm::min(probe.box_extents.x, glm::min(probe.box_extents.y, probe.box_extents.z))
+                                  : probe.sphere_radius;
+  probe.blend_distance = glm::min(probe.blend_distance, maximum_blend);
+  return probe;
+}
+
+ResolvedEnvironmentalLighting::DdgiVolume ToResolvedDdgiVolume(const EnvironmentalLighting::DdgiVolume& source) {
+  ResolvedEnvironmentalLighting::DdgiVolume volume;
+  volume.transform = IsFinite(source.transform) ? source.transform : glm::mat4(1.0f);
+  volume.probe_counts = source.probe_counts;
+  volume.probe_spacing = ClampProbeSpacing(source.probe_spacing);
+  volume.volume_origin = FiniteOr(source.volume_origin, glm::vec3(0.0f));
+  volume.stable_id = source.stable_id;
+  volume.artist_priority = source.artist_priority;
+  volume.movement_type = glm::clamp(source.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
+                                    static_cast<int>(DdgiVolumeMovementType::Scrolling));
+  volume.emissive_mesh_sampling_mode =
+      glm::clamp(source.emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit),
+                 static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
+  volume.enabled = source.enabled;
+  volume.enable_probe_relocation = source.enable_probe_relocation;
+  volume.enable_probe_classification = source.enable_probe_classification;
+  volume.enable_probe_variability = source.enable_probe_variability;
+  volume.enable_probe_variability_gating = source.enable_probe_variability_gating;
+  volume.relocation_distance = glm::clamp(FiniteOr(source.relocation_distance, 0.25f), 0.0f, 10000.0f);
+  volume.random_ray_backface_threshold = glm::clamp(FiniteOr(source.random_ray_backface_threshold, 0.1f), 0.0f, 1.0f);
+  volume.fixed_ray_backface_threshold = glm::clamp(FiniteOr(source.fixed_ray_backface_threshold, 0.25f), 0.0f, 1.0f);
+  volume.probe_variability_threshold = glm::clamp(FiniteOr(source.probe_variability_threshold, 0.2f), 0.0f, 10.0f);
+  volume.probe_variability_min_samples = glm::clamp(source.probe_variability_min_samples, 0, 4096);
+  volume.auto_invalidate_trigger_conditions = source.auto_invalidate_trigger_conditions & DdgiVolumeTriggerConditionAll;
+  volume.warmup_trigger_conditions = source.warmup_trigger_conditions & DdgiVolumeTriggerConditionAll;
+  volume.variability_reset_trigger_conditions =
+      source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll;
+  return volume;
+}
+
+struct LocalProbeCandidate {
+  ResolvedEnvironmentalLighting::LocalReflectionProbe probe;
+  size_t source_index = 0;
+  float influence_volume = 0.0f;
+};
+
+struct DdgiVolumeCandidate {
+  EnvironmentalLighting::DdgiVolume volume;
+  size_t source_index = 0;
+  float probe_density = 0.0f;
+};
+
+void SortLocalProbeCandidates(std::vector<LocalProbeCandidate>& candidates) {
+  std::sort(candidates.begin(), candidates.end(), [](const LocalProbeCandidate& lhs, const LocalProbeCandidate& rhs) {
+    if (lhs.probe.artist_priority != rhs.probe.artist_priority) {
+      return lhs.probe.artist_priority > rhs.probe.artist_priority;
+    }
+    if (lhs.influence_volume != rhs.influence_volume) {
+      return lhs.influence_volume < rhs.influence_volume;
+    }
+    if (lhs.probe.stable_id != rhs.probe.stable_id) {
+      return lhs.probe.stable_id < rhs.probe.stable_id;
+    }
+    return lhs.source_index < rhs.source_index;
+  });
+}
+
+void SortDdgiVolumeCandidates(std::vector<DdgiVolumeCandidate>& candidates) {
+  std::sort(candidates.begin(), candidates.end(), [](const DdgiVolumeCandidate& lhs, const DdgiVolumeCandidate& rhs) {
+    if (lhs.volume.artist_priority != rhs.volume.artist_priority) {
+      return lhs.volume.artist_priority > rhs.volume.artist_priority;
+    }
+    if (lhs.probe_density != rhs.probe_density) {
+      return lhs.probe_density > rhs.probe_density;
+    }
+    if (lhs.volume.stable_id != rhs.volume.stable_id) {
+      return lhs.volume.stable_id < rhs.volume.stable_id;
+    }
+    return lhs.source_index < rhs.source_index;
+  });
+}
+
+void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
+  std::vector<LocalProbeCandidate> candidates;
+  candidates.reserve(lighting.local_reflection_probes.size());
+  for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
+    if (!lighting.local_reflection_probes[index].enabled) {
+      continue;
+    }
+    auto probe = ToResolvedLocalProbe(lighting.local_reflection_probes[index]);
+    const float influence_volume = CalculateTransformedLocalProbeInfluenceVolume(probe);
+    if (influence_volume <= 0.0f) {
+      continue;
+    }
+    candidates.push_back({std::move(probe), index, influence_volume});
+  }
+  SortLocalProbeCandidates(candidates);
+  if (candidates.size() > ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount) {
+    resolved.truncated_local_reflection_probe_count =
+        static_cast<uint32_t>(candidates.size() - ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount);
+    candidates.resize(ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount);
+  }
+  resolved.local_reflection_probes.reserve(candidates.size());
+  for (auto& candidate : candidates) {
+    resolved.local_reflection_probes.push_back(std::move(candidate.probe));
+  }
+}
+
+void ResolveDdgiVolumes(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
+  std::vector<DdgiVolumeCandidate> candidates;
+  candidates.reserve(lighting.ddgi_volumes.size());
+  const auto max_probe_count = lighting.ddgi_settings.storage.max_probe_count > 0
+                                   ? static_cast<uint32_t>(lighting.ddgi_settings.storage.max_probe_count)
+                                   : 0u;
+  for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
+    const auto& volume = lighting.ddgi_volumes[index];
+    if (!volume.enabled || !IsFinite(volume.transform) ||
+        !DdgiRuntime::ValidateProbeGrid(volume.probe_counts, max_probe_count)) {
+      continue;
+    }
+    const float probe_density = CalculateDdgiProbeDensity(volume);
+    if (!(probe_density > 0.0f) || !std::isfinite(probe_density)) {
+      continue;
+    }
+    candidates.push_back({volume, index, probe_density});
+  }
+  SortDdgiVolumeCandidates(candidates);
+  if (candidates.size() > ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount) {
+    resolved.truncated_ddgi_volume_count =
+        static_cast<uint32_t>(candidates.size() - ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
+    candidates.resize(ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
+  }
+  resolved.ddgi_volumes.reserve(candidates.size());
+  for (const auto& candidate : candidates) {
+    resolved.ddgi_volumes.push_back(ToResolvedDdgiVolume(candidate.volume));
+  }
+}
+
+void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
+  resolved.indirect_environment_source = ToResolvedSource(lighting.indirect_environment_source);
+  resolved.uses_engine_default_indirect_environment_source =
+      resolved.indirect_environment_source.kind ==
+      ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault;
+  resolved.environment_lighting_intensity = NonNegativeFiniteOr(
+      lighting.environment_lighting_intensity, ResolvedEnvironmentalLighting::kDefaultEnvironmentLightingIntensity);
+  resolved.diffuse_fallback_intensity = NonNegativeFiniteOr(
+      lighting.diffuse_fallback_intensity, ResolvedEnvironmentalLighting::kDefaultDiffuseFallbackIntensity);
+  resolved.specular_fallback_intensity = NonNegativeFiniteOr(
+      lighting.specular_fallback_intensity, ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
+  resolved.ddgi_settings = lighting.ddgi_settings;
+  ResolveLocalProbes(lighting, resolved);
+  ResolveDdgiVolumes(lighting, resolved);
+}
+}  // namespace
+
+ResolvedEnvironmentalLighting evo_engine::ResolveEnvironmentalLighting(const std::shared_ptr<Scene>& scene) {
+  ResolvedEnvironmentalLighting resolved;
+  if (!scene) {
+    return resolved;
+  }
+  resolved.scene_global_reflection_probe_fallback = scene->global_reflection_probe_fallback;
+  resolved.environmental_lighting_asset_assigned = scene->environmental_lighting.GetAssetHandle().GetValue() != 0u;
+  if (!resolved.environmental_lighting_asset_assigned) {
+    return resolved;
+  }
+  const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting) {
+    resolved.environmental_lighting_asset_missing = true;
+    return resolved;
+  }
+  ResolveFromAsset(*lighting, resolved);
+  return resolved;
+}

@@ -59,6 +59,11 @@ class IPrivateComponent : public ISerializable {
    */
   void SetEnabled(const bool& value);
 
+  /** @brief Returns whether this component may transition to enabled state. */
+  [[nodiscard]] virtual bool CanEnable() const {
+    return true;
+  }
+
   /**
    * @brief Get current enabled status of the component.
    * @return True if the component is enabled, false otherwise.

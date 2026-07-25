@@ -142,6 +142,11 @@ TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DebugAccumulation"), std::string::npos);
   EXPECT_NE(shader_source.find("cloud.march_distance"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_ENVIRONMENT.diffuse_sky_intensity"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_RENDER_INFO.indirect_lighting_intensity"), std::string::npos);
+  EXPECT_EQ(shader_source.find("EE_ENVIRONMENT.global_reflection_intensity"), std::string::npos);
+  EXPECT_NE(shader_source.find("sun_radiance = vec3(1.0f)"), std::string::npos);
+  EXPECT_EQ(shader_source.find("sun_radiance = max(ambient_radiance"), std::string::npos);
   EXPECT_EQ(shader_source.find("imageStore(inOutColor"), std::string::npos);
   EXPECT_EQ(shader_source.find("DDGI"), std::string::npos);
   EXPECT_EQ(shader_source.find("HLSL"), std::string::npos);
@@ -182,6 +187,11 @@ TEST(VolumetricCloudShader, CompositeComputeUpsamplesDepthAwareClouds) {
   EXPECT_NE(shader_source.find("if (debug_mode == 1) {\n    return vec4(cloud_radiance, 1.0f);"), std::string::npos);
   EXPECT_NE(shader_source.find("debug_mode == 4 || debug_mode == 5 || debug_mode == 6"), std::string::npos);
   EXPECT_NE(shader_source.find("cloud_radiance + scene_color * transmittance"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_ENVIRONMENT.diffuse_sky_intensity"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_RENDER_INFO.indirect_lighting_intensity"), std::string::npos);
+  EXPECT_EQ(shader_source.find("EE_ENVIRONMENT.global_reflection_intensity"), std::string::npos);
+  EXPECT_NE(shader_source.find("sun_radiance = vec3(1.0f)"), std::string::npos);
+  EXPECT_EQ(shader_source.find("sun_radiance = max(ambient_radiance"), std::string::npos);
   EXPECT_NE(shader_source.find("imageStore(inOutColor"), std::string::npos);
 }
 
@@ -247,13 +257,17 @@ TEST(VolumetricCloudShader, RayTracingCameraWritesHitDistanceForCloudPass) {
   const auto raygen_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
                    "DefaultResources" / "Shaders" / "RayTracing" / "RayGen" / "Camera.rgen");
+  const auto integrator_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
+                   "DefaultResources" / "Shaders" / "Includes" / "CameraRayIntegrator.glsl");
   ASSERT_FALSE(raygen_source.empty());
+  ASSERT_FALSE(integrator_source.empty());
   EXPECT_NE(raygen_source.find("layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image"),
             std::string::npos);
-  EXPECT_NE(raygen_source.find("primary_hit_distance"), std::string::npos);
-  EXPECT_NE(raygen_source.find("EE_CAMERA_FAR"), std::string::npos);
-  EXPECT_NE(raygen_source.find("hit_value.initial_position = vec3(0.0f)"), std::string::npos);
-  EXPECT_NE(raygen_source.find("imageStore(ray_hit_distance_image"), std::string::npos);
+  EXPECT_NE(integrator_source.find("primary_hit_distance"), std::string::npos);
+  EXPECT_NE(integrator_source.find("EE_CAMERA_FAR"), std::string::npos);
+  EXPECT_NE(integrator_source.find("EE_CAMERA_RESET_PAYLOAD"), std::string::npos);
+  EXPECT_NE(integrator_source.find("imageStore(ray_hit_distance_image"), std::string::npos);
 
   const auto ray_pass_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" /
                                             "RenderPasses" / "RayTracingCameraPass.cpp");
@@ -279,7 +293,7 @@ TEST(VolumetricCloudShader, RenderLayerSharesCloudPassBetweenRasterAndRayTracing
   ASSERT_FALSE(pass_source.empty());
 
   EXPECT_EQ(CountOccurrences(render_layer_source, "VolumetricCloudsPass::Execute("), 2u);
-  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRasterDescriptor(RenderPassNames::deferred_camera)"),
+  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRasterDescriptor(post_lighting_dependency)"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("use_ray_query ? RenderPassNames::ray_query_camera : "
                                      "RenderPassNames::ray_tracing_camera"),

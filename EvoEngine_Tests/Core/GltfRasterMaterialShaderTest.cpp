@@ -2,8 +2,12 @@
 
 #include <gtest/gtest.h>
 
+#include "EnvironmentalLighting.hpp"
+
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <string>
 
@@ -50,9 +54,39 @@ size_t CountOccurrences(const std::string& source, const std::string& needle) {
   }
   return count;
 }
+
+std::string RemoveAsciiWhitespace(const std::string& source) {
+  std::string result;
+  result.reserve(source.size());
+  for (const char c : source) {
+    if (c != ' ' && c != '\n' && c != '\r' && c != '\t') {
+      result.push_back(c);
+    }
+  }
+  return result;
+}
+
+bool ContainsIgnoringWhitespace(const std::string& source, const std::string& needle) {
+  return RemoveAsciiWhitespace(source).find(RemoveAsciiWhitespace(needle)) != std::string::npos;
+}
+
+bool HasShaderInputLocation(const std::string& shader, const int location) {
+  const auto suffix = std::to_string(location) + ") in";
+  return shader.find("layout (location = " + suffix) != std::string::npos ||
+         shader.find("layout(location = " + suffix) != std::string::npos;
+}
+
+void ExpectShaderInputLocations(const std::string& shader, const std::filesystem::path& shader_path,
+                                const std::initializer_list<int> expected_locations) {
+  for (int location = 0; location <= 12; ++location) {
+    const bool expected =
+        std::find(expected_locations.begin(), expected_locations.end(), location) != expected_locations.end();
+    EXPECT_EQ(HasShaderInputLocation(shader, location), expected) << shader_path.string() << " location=" << location;
+  }
+}
 }  // namespace
 
-TEST(GltfRasterMaterial, EvaluatorUsesCanonicalGltfTextureInfo) {
+TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   const auto source = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
   ASSERT_FALSE(source.empty());
 
@@ -64,11 +98,6 @@ TEST(GltfRasterMaterial, EvaluatorUsesCanonicalGltfTextureInfo) {
   EXPECT_NE(source.find("EE_GLTF_SAMPLE_BINDLESS_TEXTURE"), std::string::npos);
   EXPECT_NE(source.find("EE_TEXTURE_2DS[nonuniformEXT(texture_info.index)]"), std::string::npos);
   EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos);
-}
-
-TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
-  const auto source = ReadTextFile(ShaderPath("Includes/GltfRasterMaterial.glsl"));
-  ASSERT_FALSE(source.empty());
 
   EXPECT_NE(source.find("EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS"), std::string::npos);
   EXPECT_NE(source.find("pbr_specular_glossiness_texture"), std::string::npos);
@@ -84,8 +113,8 @@ TEST(GltfRasterMaterial, EvaluatorCoversSpecGlossAndPbrTerms) {
   EXPECT_NE(source.find("surface.specular_f0 = mix(dielectric_specular_f0"), std::string::npos);
   EXPECT_NE(source.find("surface.specular_f90 = mix(dielectric_specular_f90, 1.0, surface.metallic)"),
             std::string::npos);
-  EXPECT_NE(source.find("return surface.specular_f0 +"), std::string::npos);
-  EXPECT_NE(source.find("metallic * (max(base_color"), std::string::npos);
+  EXPECT_NE(source.find("return f0 + (f90 - f0) * pow"), std::string::npos);
+  EXPECT_NE(source.find("mix(dielectric_specular_f0, max(surface.base_color.rgb"), std::string::npos);
   EXPECT_EQ(source.find("return mix(vec3(0.04)"), std::string::npos);
   EXPECT_NE(source.find("surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("material.normal_texture_scale"), std::string::npos);
@@ -126,16 +155,38 @@ TEST(GltfRasterMaterial, FractionalSpecularF90AndUnlitSurviveDeferredAndTranspar
   EXPECT_NE(lighting.find("vec3(F90 * (1.0f - roughness))"), std::string::npos);
   EXPECT_NE(lighting.find("vec3(F90 * brdf.y)"), std::string::npos);
   EXPECT_NE(deferred.find("vec4 emissiveSample = texture(inEmissive"), std::string::npos);
-  EXPECT_NE(deferred.find("if (emissiveSample.a < 0.0"), std::string::npos);
-  EXPECT_NE(deferred.find("FragColor = vec4(baseColorAO.rgb, 1.0"), std::string::npos);
+  const auto deferred_unlit =
+      ExtractSourceRange(deferred, "if (emissiveSample.a < 0.0f) {", "vec3 normal = normalize(normalRoughness.xyz);");
+  EXPECT_NE(
+      deferred_unlit.find("FragColor = vec4(indirectLightingDebugView == 0 ? baseColorAO.rgb : vec3(0.0f), 1.0f)"),
+      std::string::npos);
+  EXPECT_NE(deferred_unlit.find("return;"), std::string::npos);
+  EXPECT_EQ(deferred_unlit.find("EE_FUNC_CALCULATE_"), std::string::npos);
   EXPECT_NE(deferred.find("float F90 = emissiveSample.a"), std::string::npos);
+
   EXPECT_NE(scene_deferred.find("bool unlit = emissiveSample.a < 0.0"), std::string::npos);
-  EXPECT_NE(scene_deferred.find("vec3 color = albedo.rgb"), std::string::npos);
-  EXPECT_NE(scene_deferred.find("if (!unlit)"), std::string::npos);
-  EXPECT_NE(scene_deferred.find("float F90 = emissiveSample.a"), std::string::npos);
-  EXPECT_NE(transparent.find("EE_GLTF_MATERIALS[material_index].unlit != 0"), std::string::npos);
-  EXPECT_NE(transparent.find("FragColor = vec4(surface.base_color.rgb, EE_GLTF_RASTER_OPACITY(surface))"),
+  EXPECT_NE(scene_deferred.find("vec3 color = indirectLightingDebugView == 0 ? albedo.rgb : vec3(0.0f)"),
             std::string::npos);
+  const auto scene_lit_only =
+      ExtractSourceRange(scene_deferred, "if (!unlit) {", "\n    }\n\n    if (indirectLightingDebugView != 0) {");
+  EXPECT_NE(scene_lit_only.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
+  EXPECT_NE(scene_lit_only.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
+  EXPECT_NE(scene_deferred.find("if (indirectLightingDebugView != 0) {\n"
+                                "        FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);\n"
+                                "        return;\n"
+                                "    }\n\n"
+                                "    vec4 outputColor;"),
+            std::string::npos);
+  EXPECT_NE(scene_deferred.find("float F90 = emissiveSample.a"), std::string::npos);
+
+  const auto transparent_unlit = ExtractSourceRange(transparent, "if (EE_GLTF_MATERIALS[material_index].unlit != 0) {",
+                                                    "vec3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL");
+  EXPECT_NE(transparent_unlit.find("indirectLightingDebugView == 0 ? surface.base_color.rgb : vec3(0.0f)"),
+            std::string::npos);
+  EXPECT_NE(transparent_unlit.find("indirectLightingDebugView == 0 ? EE_GLTF_RASTER_OPACITY(surface) : 1.0f"),
+            std::string::npos);
+  EXPECT_NE(transparent_unlit.find("return;"), std::string::npos);
+  EXPECT_EQ(transparent_unlit.find("EE_FUNC_CALCULATE_"), std::string::npos);
   EXPECT_NE(transparent.find("surface.specular_f90"), std::string::npos);
 }
 
@@ -156,7 +207,7 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
   EXPECT_NE(material.find("layout(scalar, set = EE_GLTF_TEXTURE_INFOS_BLOCK_SET"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
+TEST(GltfRasterMaterial, RasterDescriptorContractIsDocumented) {
   const auto rendering_docs = ReadTextFile(RepoPath("docs/rendering.md"));
   ASSERT_FALSE(rendering_docs.empty());
 
@@ -164,10 +215,9 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
   EXPECT_NE(rendering_docs.find("set 1 remains available for"), std::string::npos);
   EXPECT_NE(rendering_docs.find("instanced/strand data"), std::string::npos);
   EXPECT_NE(rendering_docs.find("set 2 remains available for lighting or pass descriptors"), std::string::npos);
-  EXPECT_NE(
-      rendering_docs.find("Raster shaders must not use descriptor arrays such as `sampler2D[]` or `samplerCube[]`"),
-      std::string::npos);
-  EXPECT_NE(rendering_docs.find("Fixed-binding image arrays and atlases are allowed for raster"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("Raster material shaders must not use runtime bindless descriptor arrays"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("Fixed-size image arrays and atlases are allowed"), std::string::npos);
   EXPECT_NE(rendering_docs.find("| 0 | Base color or diffuse | White. |"), std::string::npos);
   EXPECT_NE(rendering_docs.find("| 1 | Metallic-roughness or specular-glossiness | White. |"), std::string::npos);
   EXPECT_NE(rendering_docs.find("| 2 | Normal | Flat normal. |"), std::string::npos);
@@ -177,9 +227,9 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
   EXPECT_NE(rendering_docs.find("| 6 | Clearcoat roughness | White. |"), std::string::npos);
   EXPECT_NE(rendering_docs.find("| 7 | Clearcoat normal | Flat normal. |"), std::string::npos);
   EXPECT_NE(rendering_docs.find("renderer-owned runtime state keyed by material index"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("does not deduplicate descriptor sets across material indices"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Each descriptor slot uses the texture's existing combined image sampler"),
-            std::string::npos);
+  EXPECT_NE(rendering_docs.find("Descriptor sets are not"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("deduplicated across material indices"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("texture's existing combined image sampler"), std::string::npos);
   EXPECT_NE(rendering_docs.find("uses material-batched indirect ranges"), std::string::npos);
   EXPECT_NE(rendering_docs.find("restores deferred mesh indirect rendering"), std::string::npos);
   EXPECT_NE(rendering_docs.find("material per-frame descriptor set that keeps the shared per-frame buffers"),
@@ -192,7 +242,8 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
   EXPECT_NE(rendering_docs.find("opaque shadow indirect command path"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Raster lighting uses a fixed raster-global texture descriptor set"),
             std::string::npos);
-  EXPECT_NE(rendering_docs.find("BRDF LUT, skybox cubemap, irradiance cubemap, and"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("prefiltered global environment cubemap, ambient occlusion, and a fixed array of 32"),
+            std::string::npos);
   EXPECT_NE(rendering_docs.find("Set 2 still owns shared shadow-map and DDGI atlas bindings"), std::string::npos);
   EXPECT_NE(rendering_docs.find("external forward callbacks"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Bindless texture arrays are reserved for ray tracing and ray query paths"),
@@ -203,7 +254,7 @@ TEST(GltfRasterMaterial, RasterDescriptorMigrationContractIsDocumented) {
             std::string::npos);
 }
 
-TEST(GltfRasterMaterial, RasterMaterialDescriptorCompatibilityResourcesArePresent) {
+TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto render_instance_header =
@@ -261,6 +312,11 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorCompatibilityResourcesArePresen
   EXPECT_NE(texture_storage.find("TextureStorage::TryGetTexture2DDescriptorImageInfo"), std::string::npos);
   EXPECT_NE(texture_storage.find("TextureStorage::TryGetCubemapDescriptorImageInfo"), std::string::npos);
   EXPECT_NE(texture_storage.find("texture_storage.IsGpuUploadPending()"), std::string::npos);
+  EXPECT_NE(texture_storage.find("bool IsSampledDescriptorImageLayout"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(texture_storage, "!IsSampledDescriptorImageLayout(layout)"), 2u);
+  const auto bind_cubemaps = ExtractSourceRange(texture_storage, "void TextureStorage::BindCubemapToDescriptorSet",
+                                                "const Texture2DStorage& TextureStorage::PeekTexture2DStorage");
+  EXPECT_NE(bind_cubemaps.find("TryGetCubemapDescriptorImageInfo"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
@@ -327,7 +383,8 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_NE(strands_pipeline.find("raster_material_layout_"), std::string::npos);
 
   EXPECT_NE(render_layer.find("raster_material_per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
-  EXPECT_NE(render_layer.find("enable_indirect_rendering, true, count_draw_calls, wire_frame"), std::string::npos);
+  EXPECT_NE(render_layer.find("enable_indirect_rendering, true, count_draw_calls,"), std::string::npos);
+  EXPECT_NE(render_layer.find("reflection_probe_capture ? false : wire_frame"), std::string::npos);
 
   EXPECT_NE(pass_header.find("bind_raster_material_descriptor_sets"), std::string::npos);
   EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
@@ -439,15 +496,19 @@ TEST(GltfRasterMaterial, ShadowPassesUseOpaqueDepthPipelinesAndTransparentPasses
 
 TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   const auto lighting_shader = ReadTextFile(ShaderPath("Includes/Lighting.glsl"));
+  const auto render_info_shader = ReadTextFile(ShaderPath("Includes/RenderInfo.glsl"));
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
   const auto deferred_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredLightingPass.hpp"));
   const auto deferred = ReadTextFile(SdkPath("src/RenderPasses/DeferredLightingPass.cpp"));
   const auto transparent_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/TransparentGeometryPass.hpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(lighting_shader.empty());
+  ASSERT_FALSE(render_info_shader.empty());
   ASSERT_FALSE(render_layer_header.empty());
   ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(render_instance_storage.empty());
   ASSERT_FALSE(deferred_header.empty());
   ASSERT_FALSE(deferred.empty());
   ASSERT_FALSE(transparent_header.empty());
@@ -460,6 +521,34 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(lighting_shader.find("EE_RASTER_PREFILTERED_MAP"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_CUBEMAPS[camera.skybox_tex_index]"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index]"), std::string::npos);
+  EXPECT_NE(render_info_shader.find("const uint EE_REFLECTION_PROBE_MAX_COUNT = 32u"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("binding = 5"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT]"), std::string::npos);
+  const auto environmental_components =
+      ExtractSourceRange(lighting_shader, "EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS",
+                         "vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT");
+  EXPECT_EQ(CountOccurrences(environmental_components, "vec3(1.0f / EE_ENVIRONMENT.gamma)"), 4u);
+  EXPECT_NE(lighting_shader.find("case 31:"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_REFLECTION_PROBE_INFLUENCE"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_REFLECTION_PROBE_DIRECTION"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("any(greaterThan(abs(localPosition), projectionExtents))"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("primaryWeight < 1.0f"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("lighting_parameters.y >="), std::string::npos);
+  EXPECT_NE(lighting_shader.find("globalWeight = (1.0f - primaryWeight) * (1.0f - secondaryRawWeight)"),
+            std::string::npos);
+  EXPECT_NE(lighting_shader.find("result += globalPrefiltered * primaryWeight"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_SPATIAL_REFLECTION_PREFILTERED(fragPos, R, roughness, globalPrefiltered)"),
+            std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
+  EXPECT_EQ(environmental_components.find("diffuse_environment_intensity"), std::string::npos);
+  EXPECT_EQ(environmental_components.find("specular_reflection_intensity"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("diffuse * clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f) *"),
+            std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_ROUGH_SPECULAR_VISIBILITY"), std::string::npos);
+  EXPECT_NE(environmental_components.find("result.unoccluded_specular"), std::string::npos);
+  EXPECT_NE(environmental_components.find("result.specular = result.unoccluded_specular * result.specular_visibility"),
+            std::string::npos);
 
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_layout_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_descriptor_sets_"), std::string::npos);
@@ -472,6 +561,34 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(render_layer.find("kRasterLightingSkyboxBinding"), std::string::npos);
   EXPECT_NE(render_layer.find("kRasterLightingIrradianceBinding"), std::string::npos);
   EXPECT_NE(render_layer.find("kRasterLightingPrefilteredBinding"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingReflectionProbesBinding = 5"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingDescriptorSamplerCount = 37"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingMaxPerStageSamplerCount = 64"), std::string::npos);
+  EXPECT_NE(render_layer.find("maxDescriptorSetSampledImages < kRasterLightingDescriptorSamplerCount"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("RenderInstanceStorage::kReflectionProbeMaxCount"), std::string::npos);
+  EXPECT_NE(render_layer.find("image_info = global_prefiltered_info"), std::string::npos);
+
+  EXPECT_NE(render_instance_storage.find("ResolveEnvironmentalLighting(target_scene)"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("resolved_lighting.local_reflection_probes"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("std::min(resolved_lighting.local_reflection_probes.size()"),
+            std::string::npos);
+  EXPECT_NE(render_instance_storage.find("const auto& probe = resolved_lighting.local_reflection_probes[index]"),
+            std::string::npos);
+  EXPECT_NE(render_instance_storage.find("info.lighting_parameters = glm::vec4"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("static_cast<float>(probe.artist_priority)"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("asset && asset->IsRuntimeReady()"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("auto probe_payload_ref = probe.global_reflection_probe"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("info.world_to_probe = glm::inverse(probe.transform)"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("inverse(mat3(probe.world_to_probe)) * localHit"), std::string::npos);
+  const std::string probe_collection =
+      ExtractSourceRange(render_instance_storage, "void RenderInstanceStorage::CollectReflectionProbes",
+                         "void RenderInstanceStorage::UpdateTopLevelAccelerationStructure");
+  EXPECT_EQ(probe_collection.find("GetPrivateComponentOwnersList<ReflectionProbe>"), std::string::npos);
+  EXPECT_EQ(probe_collection.find("GetSanitizedSettings("), std::string::npos);
+  EXPECT_EQ(probe_collection.find("SetEnabled("), std::string::npos);
+  EXPECT_EQ(probe_collection.find("ClampSettings("), std::string::npos);
+  EXPECT_EQ(probe_collection.find("EnforceSceneLimit("), std::string::npos);
 
   const std::string deferred_pipeline = ExtractSourceRange(render_layer, "if (!deferred_lighting_pass_pipeline)",
                                                            "deferred_lighting_pass_pipeline->depth_attachment_format");
@@ -520,8 +637,8 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
   EXPECT_NE(thumbnail_provider.find("Serialization::GenerateAssetThumbnail(asset, settings)"), std::string::npos);
 
   EXPECT_NE(offscreen_preview.find("RenderMeshWithMaterial(mesh, material"), std::string::npos);
-  EXPECT_NE(offscreen_preview.find("scene->environment.volumetric_cloud_settings.enabled = false"), std::string::npos);
-  EXPECT_NE(offscreen_preview.find("scene->environment.ddgi_settings.runtime.enabled = false"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("scene->environment."), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("lighting->ddgi_settings.runtime.enabled = false"), std::string::npos);
   EXPECT_NE(offscreen_preview.find("UploadPreviewResources(mesh, material)"), std::string::npos);
   EXPECT_NE(offscreen_preview.find("camera->camera_render_mode = Camera::CameraRenderMode::Rasterization"),
             std::string::npos);
@@ -536,8 +653,12 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
   const std::string immediate_render = ExtractSourceRange(
       render_layer, "void RenderLayer::RenderSceneToCameraImmediately", "void RenderLayer::RenderAll");
   EXPECT_NE(immediate_render.find("std::make_shared<RenderInstanceStorage>()"), std::string::npos);
-  EXPECT_NE(immediate_render.find("PrepareSceneForRendering(scene, false, false, false, false)"), std::string::npos);
-  EXPECT_NE(immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true)"), std::string::npos);
+  EXPECT_NE(immediate_render.find("PrepareSceneForRendering(scene, false, false, false, false,"), std::string::npos);
+  EXPECT_NE(immediate_render.find("reflection_probe_capture ? &injected_camera : nullptr"), std::string::npos);
+  EXPECT_NE(immediate_render.find("!reflection_probe_capture"), std::string::npos);
+  EXPECT_NE(
+      immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture)"),
+      std::string::npos);
   EXPECT_NE(immediate_render.find("BindRenderInstanceStorage(current_frame_index, previous_render_instances)"),
             std::string::npos);
 }
@@ -636,9 +757,31 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
         << path.string();
     EXPECT_NE(source.find("float metallic = texture(inPbrFlags, texCoord).x"), std::string::npos) << path.string();
   }
+
+  const auto ambient_occlusion_geometry =
+      ReadTextFile(ShaderPath("Compute/PostProcessing/AmbientOcclusionGeometry.comp"));
+  const auto ambient_occlusion_source = ReadTextFile(SdkPath("src/ScreenSpaceAmbientOcclusion.cpp"));
+  ASSERT_FALSE(ambient_occlusion_geometry.empty());
+  ASSERT_FALSE(ambient_occlusion_source.empty());
+  EXPECT_EQ(std::filesystem::exists(ShaderPath("Compute/PostProcessing/AmbientOcclusionCombine.comp")), false);
+  EXPECT_EQ(ambient_occlusion_geometry.find("inColor"), std::string::npos);
+  EXPECT_EQ(ambient_occlusion_geometry.find("outSrcColor"), std::string::npos);
+  EXPECT_EQ(ambient_occlusion_source.find("EverythingBarrier"), std::string::npos);
+
+  const auto compose_lighting = [](const float direct, const float emission, const float indirect_diffuse,
+                                   const float specular, const float material_ao, const float screen_ao,
+                                   const float roughness) {
+    const float visibility =
+        evo_engine::EnvironmentalLighting::EvaluateRoughSpecularVisibility(material_ao, screen_ao, roughness, 1.0f);
+    return direct + emission + indirect_diffuse * glm::clamp(material_ao * screen_ao, 0.0f, 1.0f) +
+           specular * visibility;
+  };
+  EXPECT_FLOAT_EQ(compose_lighting(2.0f, 3.0f, 4.0f, 5.0f, 1.0f, 0.0f, 1.0f), 5.0f);
+  EXPECT_FLOAT_EQ(compose_lighting(2.0f, 3.0f, 4.0f, 5.0f, 1.0f, 0.25f, 1.0f), 7.25f);
+  EXPECT_FLOAT_EQ(compose_lighting(0.0f, 0.0f, 0.0f, 5.0f, 1.0f, 0.0f, 0.0f), 5.0f);
 }
 
-TEST(GltfRasterMaterial, DeferredLightingReadsExpandedGBuffer) {
+TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
   const std::filesystem::path paths[] = {
       ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.frag"),
       ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag"),
@@ -653,15 +796,17 @@ TEST(GltfRasterMaterial, DeferredLightingReadsExpandedGBuffer) {
     EXPECT_NE(source.find("binding = 21) uniform sampler2D inNormalRoughness"), std::string::npos) << path.string();
     EXPECT_NE(source.find("binding = 22) uniform sampler2D inPbrFlags"), std::string::npos) << path.string();
     EXPECT_NE(source.find("binding = 23) uniform sampler2D inEmissive"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("binding = 4) uniform sampler2D inAmbientOcclusion"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float roughness = normalRoughness.a"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float metallic = pbrFlags.x"), std::string::npos) << path.string();
     EXPECT_NE(source.find("vec3 F0 = pbrFlags.yzw"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float ao = baseColorAO.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float materialOcclusion = baseColorAO.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float screenSpaceVisibility = texture(inAmbientOcclusion, fs_in.TexCoord).r"),
+              std::string::npos)
+        << path.string();
     EXPECT_NE(source.find("vec4 albedo = vec4(baseColorAO.rgb, 1.0)"), std::string::npos) << path.string();
   }
-}
 
-TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
   const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.frag"));
   ASSERT_FALSE(deferred.empty());
 
@@ -684,7 +829,7 @@ TEST(GltfRasterMaterial, DeferredPrepassDeclaresExpandedGBufferOutputs) {
             std::string::npos);
 }
 
-TEST(GltfRasterMaterial, DeferredGBufferLegacyBindingsAreRetired) {
+TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   const auto platform = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
   const auto camera_header = ReadTextFile(SdkPath("include/Rendering/Camera.hpp"));
   const auto camera = ReadTextFile(SdkPath("src/Camera.cpp"));
@@ -892,6 +1037,144 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(inspection_adapters.find("InspectDrawSettings(material.draw_settings, false)"), std::string::npos);
   EXPECT_NE(scots_pine.find("needle_material->material_data.shade_material.double_sided = 1"), std::string::npos);
   EXPECT_EQ(CountOccurrences(soil, "material->material_data.shade_material.double_sided = 1"), 2);
+}
+
+TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
+  const auto geometry_header = ReadTextFile(SdkPath("include/Rendering/Geometry/IGeometry.hpp"));
+  const auto geometry_source = ReadTextFile(SdkPath("src/IGeometry.cpp"));
+  const auto pipeline_header = ReadTextFile(SdkPath("include/Rendering/Platform/GraphicsPipeline.hpp"));
+  const auto pipeline_source = ReadTextFile(SdkPath("src/GraphicsPipeline.cpp"));
+  const auto platform = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto cubemap = ReadTextFile(SdkPath("src/Cubemap.cpp"));
+  const auto global_reflection_probe = ReadTextFile(SdkPath("src/GlobalReflectionProbe.cpp"));
+  const auto light_probe = ReadTextFile(SdkPath("src/LightProbe.cpp"));
+
+  ASSERT_FALSE(geometry_header.empty());
+  ASSERT_FALSE(geometry_source.empty());
+  ASSERT_FALSE(pipeline_header.empty());
+  ASSERT_FALSE(pipeline_source.empty());
+  ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(cubemap.empty());
+  ASSERT_FALSE(global_reflection_probe.empty());
+  ASSERT_FALSE(light_probe.empty());
+
+  EXPECT_NE(geometry_header.find("enum class VertexInputAttributeSet"), std::string::npos);
+  EXPECT_NE(geometry_header.find("VertexInputAttributeSet::Full"), std::string::npos);
+  EXPECT_NE(geometry_header.find("PositionTexCoord"), std::string::npos);
+  EXPECT_NE(geometry_header.find("MotionVectors"), std::string::npos);
+  EXPECT_NE(pipeline_header.find("VertexInputAttributeSet vertex_input_attribute_set"), std::string::npos);
+  EXPECT_NE(pipeline_source.find("GetVertexAttributeDescriptions(geometry_type, vertex_input_attribute_set)"),
+            std::string::npos);
+  EXPECT_NE(geometry_source.find("mesh_base.assign(mesh.begin(), mesh.begin() + 5)"), std::string::npos);
+  EXPECT_NE(geometry_source.find("skinned_mesh_base.assign(skinned_mesh.begin(), skinned_mesh.begin() + 9)"),
+            std::string::npos);
+  EXPECT_NE(geometry_source.find("mesh_position = {mesh[0]}"), std::string::npos);
+  EXPECT_NE(geometry_source.find("mesh_position_tex_coord = {mesh[0], mesh[3]}"), std::string::npos);
+  EXPECT_NE(geometry_source.find("mesh_motion_vectors = {mesh[0], mesh[3], mesh[4], mesh[6], mesh[7], mesh[8]}"),
+            std::string::npos);
+
+  const auto shadow_pipeline =
+      ExtractSourceRange(render_layer, "std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline",
+                         "std::shared_ptr<GraphicsPipeline> CreateStrandShadowMeshPipeline");
+  ASSERT_FALSE(shadow_pipeline.empty());
+  EXPECT_NE(shadow_pipeline.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::Position"),
+            std::string::npos);
+
+  EXPECT_NE(platform.find("graphics.render_texture_present_pipeline->vertex_input_attribute_set = "
+                          "VertexInputAttributeSet::PositionTexCoord"),
+            std::string::npos);
+  for (const auto* pipeline : {"deferred_lighting_pass_pipeline", "ddgi_gather_timing_pipeline_",
+                               "deferred_lighting_pass_pipeline_scene_camera", "environmental_brdf_pipeline"}) {
+    EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) +
+                                                             "->vertex_input_attribute_set = "
+                                                             "VertexInputAttributeSet::PositionTexCoord"))
+        << pipeline;
+  }
+  for (const auto* pipeline : {"transparent_motion_vectors_pipeline_", "skinned_motion_vectors_pipeline_"}) {
+    EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) +
+                                                             "->vertex_input_attribute_set = "
+                                                             "VertexInputAttributeSet::MotionVectors"))
+        << pipeline;
+  }
+  for (const auto* pipeline : {"gizmos", "gizmos_instanced_colored"}) {
+    EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) + "->vertex_input_attribute_set = "
+                                                                                 "VertexInputAttributeSet::Position"))
+        << pipeline;
+  }
+  EXPECT_NE(render_layer.find("gizmos_normal_colored->vertex_input_attribute_set = "
+                              "VertexInputAttributeSet::PositionNormal"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("gizmos_vertex_colored->vertex_input_attribute_set = "
+                              "VertexInputAttributeSet::PositionColor"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("ddgi_probe_visualization_pipeline_->vertex_input_attribute_set = "
+                              "VertexInputAttributeSet::PositionNormal"),
+            std::string::npos);
+  EXPECT_EQ(CountOccurrences(cubemap, "vertex_input_attribute_set = VertexInputAttributeSet::Position"), 2);
+  EXPECT_NE(global_reflection_probe.find("prefilter_construct_pipeline_->vertex_input_attribute_set = "
+                                         "VertexInputAttributeSet::Position"),
+            std::string::npos);
+  EXPECT_NE(light_probe.find("irradiance_construct_pipeline_->vertex_input_attribute_set = "
+                             "VertexInputAttributeSet::Position"),
+            std::string::npos);
+
+  const std::filesystem::path mesh_lightweight_shaders[] = {
+      ShaderPath("Graphics/Vertex/Lighting/PointLightShadowMap.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/SpotLightShadowMap.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/CubemapProcess.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/AtmosphereToCubemap.vert"),
+  };
+  for (const auto& shader_path : mesh_lightweight_shaders) {
+    const auto shader = ReadTextFile(shader_path);
+    ASSERT_FALSE(shader.empty()) << shader_path.string();
+    ExpectShaderInputLocations(shader, shader_path, {0});
+    EXPECT_EQ(shader.find("out VS_OUT"), std::string::npos) << shader_path.string();
+    EXPECT_EQ(shader.find("currentInstanceIndex"), std::string::npos) << shader_path.string();
+  }
+
+  const std::filesystem::path skinned_shadow_shaders[] = {
+      ShaderPath("Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert"),
+      ShaderPath("Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert"),
+  };
+  for (const auto& shader_path : skinned_shadow_shaders) {
+    const auto shader = ReadTextFile(shader_path);
+    ASSERT_FALSE(shader.empty()) << shader_path.string();
+    ExpectShaderInputLocations(shader, shader_path, {0, 5, 6, 7, 8});
+    EXPECT_EQ(shader.find("out VS_OUT"), std::string::npos) << shader_path.string();
+    EXPECT_EQ(shader.find("currentInstanceIndex"), std::string::npos) << shader_path.string();
+  }
+
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/TexturePassThrough.vert")),
+                             ShaderPath("Graphics/Vertex/TexturePassThrough.vert"), {0, 3});
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/Gizmos.vert")),
+                             ShaderPath("Graphics/Vertex/Gizmos/Gizmos.vert"), {0});
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.vert")),
+                             ShaderPath("Graphics/Vertex/Gizmos/GizmosInstancedColored.vert"), {0});
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.vert")),
+                             ShaderPath("Graphics/Vertex/Gizmos/GizmosNormalColored.vert"), {0, 1});
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.vert")),
+                             ShaderPath("Graphics/Vertex/Gizmos/GizmosVertexColored.vert"), {0, 4});
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/DDGI/DDGIProbeVisualization.vert")),
+                             ShaderPath("Graphics/Vertex/DDGI/DDGIProbeVisualization.vert"), {0, 1});
+
+  const std::filesystem::path mesh_shadow_shaders[] = {
+      ShaderPath("Graphics/Mesh/Lighting/PointLightShadowMap.mesh"),
+      ShaderPath("Graphics/Mesh/Lighting/SpotLightShadowMap.mesh"),
+      ShaderPath("Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh"),
+  };
+  for (const auto& shader_path : mesh_shadow_shaders) {
+    const auto shader = ReadTextFile(shader_path);
+    ASSERT_FALSE(shader.empty()) << shader_path.string();
+    EXPECT_EQ(shader.find("out MS_V_OUT"), std::string::npos) << shader_path.string();
+    EXPECT_EQ(shader.find("currentInstanceIndex"), std::string::npos) << shader_path.string();
+  }
 }
 
 TEST(GltfRasterMaterial, PrefabImporterPreservesMissingTexCoordAttributes) {

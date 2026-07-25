@@ -114,6 +114,22 @@ struct GpuMemorySnapshot {
   std::vector<GpuMemoryHeapStats> heaps{};
 };
 
+struct GpuDeviceFingerprint {
+  std::string device_name{};
+  uint32_t vendor_id = 0;
+  uint32_t device_id = 0;
+  uint32_t device_type = 0;
+  uint32_t driver_version = 0;
+  uint32_t api_version = 0;
+  uint32_t driver_id = 0;
+  std::string driver_name{};
+  std::string driver_info{};
+  std::array<uint8_t, VK_UUID_SIZE> pipeline_cache_uuid{};
+  std::array<uint8_t, VK_UUID_SIZE> device_uuid{};
+  std::array<uint8_t, VK_UUID_SIZE> driver_uuid{};
+  std::array<uint8_t, 4> conformance_version{};
+};
+
 struct GpuTimestampScopeToken {
   std::string name{};
   uint32_t frame_index = 0;
@@ -649,6 +665,7 @@ class Platform final {
    * @brief Drains pending resource upload work and waits for GPU/device idle.
    */
   static void DrainGpuResourceWork();
+  static void WaitForFrameSubmission(uint32_t frame_index, const std::string& wait_name);
   static void WaitForFrameSubmissions(const std::string& wait_name);
 
   /// List of primitive counts for debugging purposes.
@@ -815,6 +832,8 @@ class Platform final {
   [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();
   static void RecordCpuTimingSample(const std::string& name, double milliseconds);
   [[nodiscard]] static GpuMemorySnapshot GetGpuMemorySnapshot();
+  [[nodiscard]] static GpuDeviceFingerprint GetGpuDeviceFingerprint();
+  [[nodiscard]] static bool GraphicsValidationEnabled();
   [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
                                                                      const std::string& name);
   static void EndGpuTimestampScope(VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token);
@@ -863,6 +882,9 @@ class Platform final {
    * @return Extended format properties.
    */
   [[nodiscard]] static VkFormatProperties3 GetPhysicalDeviceFormatProperties(VkFormat format);
+
+  /** Checks exact sampled/renderable/exportable cubemap image support for a format and layout. */
+  [[nodiscard]] static bool SupportsCubemapFormat(VkFormat format, uint32_t resolution, uint32_t mip_levels);
 
   /**
    * @brief Gets the Vulkan logical device handle.
@@ -1008,10 +1030,11 @@ class Platform final {
     VkQueryPool query_pool = VK_NULL_HANDLE;
     uint32_t next_query = 0;
     bool reset_recorded = false;
+    bool capacity_warning_reported = false;
     std::vector<PendingGpuTimestampScope> scopes{};
   };
 
-  static constexpr uint32_t kGpuTimestampQueriesPerFrame = 128;
+  static constexpr uint32_t kGpuTimestampQueriesPerFrame = 256;
   bool gpu_timestamp_capture_enabled_ = false;
   bool gpu_timestamp_capture_available_ = false;
   uint32_t gpu_timestamp_valid_bits_ = 0;

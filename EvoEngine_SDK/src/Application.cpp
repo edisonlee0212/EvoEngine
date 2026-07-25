@@ -9,11 +9,12 @@
 #include "AssetRef.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
-#include "DdgiVolume.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "Input.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
@@ -35,7 +36,6 @@
 #include "ProceduralNoise.hpp"
 #include "Profiler.hpp"
 #include "ProjectManager.hpp"
-#include "ReflectionProbe.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SDKInspectionAdapters.hpp"
@@ -69,13 +69,6 @@ using namespace evo_engine;
 
 namespace {
 constexpr auto kMainThreadAssetTaskFrameBudget = std::chrono::milliseconds(2);
-
-glm::vec3 DeserializeDdgiProbeSpacing(const YAML::Node& in) {
-  if (in.IsSequence()) {
-    return in.as<glm::vec3>();
-  }
-  return glm::vec3(in.as<float>());
-}
 
 void AddUniqueStartupPackage(ApplicationInitializationSettings& settings, const std::string& package_name) {
   if (!package_name.empty() &&
@@ -141,8 +134,9 @@ void RegisterBuiltInAssetIoHandlers() {
   RegisterYamlStagedAssetIoHandler<procedural_noise::ProceduralNoise4D>("ProceduralNoise4D");
   RegisterYamlStagedAssetIoHandler<Cubemap>("Cubemap");
   RegisterYamlStagedAssetIoHandler<LightProbe>("LightProbe");
-  RegisterYamlStagedAssetIoHandler<ReflectionProbe>("ReflectionProbe");
   RegisterYamlStagedAssetIoHandler<EnvironmentalMap>("EnvironmentalMap");
+  RegisterYamlStagedAssetIoHandler<EnvironmentalLighting>("EnvironmentalLighting");
+  GlobalReflectionProbe::RegisterAssetIoHandlers();
   Shader::RegisterAssetIoHandlers();
   Mesh::RegisterAssetIoHandlers();
   Strands::RegisterAssetIoHandlers();
@@ -173,7 +167,8 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "x" << YAML::Value << size.x;
   out << YAML::Key << "y" << YAML::Value << size.y;
   out << YAML::Key << "render_mode" << YAML::Value << Camera::GetCameraRenderModeName(camera.camera_render_mode);
-  out << YAML::Key << "use_clear_color" << YAML::Value << camera.camera_settings.use_clear_color;
+  out << YAML::Key << "background_source" << YAML::Value
+      << Camera::GetBackgroundSourceName(Camera::ResolveBackgroundSource(camera.camera_settings));
   out << YAML::Key << "clear_color" << YAML::Value << camera.camera_settings.clear_color;
   out << YAML::Key << "near_distance" << YAML::Value << camera.camera_settings.near_distance;
   out << YAML::Key << "far_distance" << YAML::Value << camera.camera_settings.far_distance;
@@ -198,6 +193,7 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "shader_execution_reordering_mode" << YAML::Value
       << Camera::GetShaderExecutionReorderingModeName(camera.camera_settings.shader_execution_reordering_mode);
   camera.skybox.Save("skybox", out);
+  camera.background_environment.Save("background_environment", out);
   camera.post_processing_stack_ref.Save("post_processing_stack_ref", out);
 }
 
@@ -205,12 +201,11 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
   if (in["render_mode"]) {
     camera.camera_render_mode =
         Camera::ParseCameraRenderMode(in["render_mode"].as<std::string>(), camera.camera_render_mode);
-  } else if (in["camera_render_mode"]) {
-    camera.camera_render_mode =
-        Camera::ParseCameraRenderMode(in["camera_render_mode"].as<std::string>(), camera.camera_render_mode);
   }
-  if (in["use_clear_color"])
-    camera.camera_settings.use_clear_color = in["use_clear_color"].as<bool>();
+  if (in["background_source"]) {
+    camera.camera_settings.background_source = Camera::ParseBackgroundSource(in["background_source"].as<std::string>(),
+                                                                             camera.camera_settings.background_source);
+  }
   if (in["clear_color"])
     camera.camera_settings.clear_color = in["clear_color"].as<glm::vec4>();
   if (in["near_distance"])
@@ -226,6 +221,7 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
   if (in["x"] && in["y"])
     camera.Resize({in["x"].as<uint32_t>(), in["y"].as<uint32_t>()});
   camera.skybox.Load("skybox", in);
+  camera.background_environment.Load("background_environment", in);
   camera.post_processing_stack_ref.Load("post_processing_stack_ref", in);
   camera.ResetRenderState();
   if (in["background_intensity"])
@@ -393,23 +389,38 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
 }
 
 void SerializeCubemap(YAML::Emitter& out, const Cubemap& cubemap) {
-  std::vector<glm::vec4> pixels;
-  cubemap.GetRgbaChannelData(pixels);
   const uint32_t resolution = cubemap.GetResolution();
   const uint32_t mip_levels = cubemap.GetMipLevels();
+  const VkFormat format = cubemap.GetFormat();
   const size_t expected_pixel_count = Cubemap::CalculatePixelCount(resolution, mip_levels);
-  const bool canonical_empty = resolution == 0 && mip_levels == 1 && pixels.empty();
-  if (!canonical_empty && (expected_pixel_count == 0 || expected_pixel_count != pixels.size())) {
-    throw std::runtime_error("Cubemap pixel data is unavailable or incomplete.");
-  }
   out << YAML::Key << "resolution" << YAML::Value << resolution;
   out << YAML::Key << "mip_levels" << YAML::Value << mip_levels;
-  Serialization::SerializeVector("pixels", pixels, out);
+  out << YAML::Key << "format" << YAML::Value << static_cast<uint32_t>(format);
+  if (format == VK_FORMAT_R16G16B16A16_SFLOAT) {
+    std::vector<uint16_t> pixels;
+    cubemap.GetRgba16fData(pixels);
+    if ((resolution != 0 || !pixels.empty()) &&
+        (expected_pixel_count == 0 || pixels.size() != expected_pixel_count * 4)) {
+      throw std::runtime_error("Cubemap RGBA16F pixel data is unavailable or incomplete.");
+    }
+    Serialization::SerializeVector("pixels", pixels, out);
+  } else if (format == VK_FORMAT_R32G32B32A32_SFLOAT) {
+    std::vector<glm::vec4> pixels;
+    cubemap.GetRgbaChannelData(pixels);
+    if ((resolution != 0 || !pixels.empty()) && (expected_pixel_count == 0 || expected_pixel_count != pixels.size())) {
+      throw std::runtime_error("Cubemap RGBA32F pixel data is unavailable or incomplete.");
+    }
+    Serialization::SerializeVector("pixels", pixels, out);
+  } else {
+    throw std::runtime_error("Cubemap serialization does not support its Vulkan format.");
+  }
 }
 
 void DeserializeCubemap(const YAML::Node& in, Cubemap& cubemap) {
   const uint32_t resolution = in["resolution"] ? in["resolution"].as<uint32_t>() : 0u;
   const uint32_t mip_levels = in["mip_levels"] ? in["mip_levels"].as<uint32_t>() : 1u;
+  const VkFormat format =
+      in["format"] ? static_cast<VkFormat>(in["format"].as<uint32_t>()) : VK_FORMAT_R32G32B32A32_SFLOAT;
   if (resolution == 0 && !in["pixels"]) {
     cubemap.Reset();
     return;
@@ -419,19 +430,39 @@ void DeserializeCubemap(const YAML::Node& in, Cubemap& cubemap) {
     throw std::invalid_argument("Cubemap dimensions or pixel payload are invalid.");
   }
   const auto& binary = in["pixels"].as<YAML::Binary>();
-  if (binary.size() != pixel_count * sizeof(glm::vec4)) {
-    throw std::invalid_argument("Cubemap pixel payload size does not match its faces and mip levels.");
+  if (format == VK_FORMAT_R16G16B16A16_SFLOAT) {
+    if (binary.size() != pixel_count * sizeof(uint16_t) * 4) {
+      throw std::invalid_argument("Cubemap RGBA16F payload size does not match its faces and mip levels.");
+    }
+    std::vector<uint16_t> pixels(pixel_count * 4);
+    std::memcpy(pixels.data(), binary.data(), binary.size());
+    if (!cubemap.SetRgba16fData(pixels, resolution, mip_levels)) {
+      throw std::invalid_argument("Cubemap RGBA16F payload could not be applied.");
+    }
+  } else if (format == VK_FORMAT_R32G32B32A32_SFLOAT) {
+    if (binary.size() != pixel_count * sizeof(glm::vec4)) {
+      throw std::invalid_argument("Cubemap RGBA32F payload size does not match its faces and mip levels.");
+    }
+    std::vector<glm::vec4> pixels(pixel_count);
+    std::memcpy(pixels.data(), binary.data(), binary.size());
+    if (!cubemap.SetRgbaChannelData(pixels, resolution, mip_levels)) {
+      throw std::invalid_argument("Cubemap RGBA32F payload could not be applied.");
+    }
+  } else {
+    throw std::invalid_argument("Cubemap payload uses an unsupported Vulkan format.");
   }
-  std::vector<glm::vec4> pixels(pixel_count);
-  std::memcpy(pixels.data(), binary.data(), binary.size());
-  if (!cubemap.SetRgbaChannelData(pixels, resolution, mip_levels)) {
-    throw std::invalid_argument("Cubemap pixel payload could not be applied.");
-  }
+}
+
+void SerializeGlobalReflectionProbe(YAML::Emitter& out, const GlobalReflectionProbe& probe) {
+  probe.Serialize(out);
+}
+
+void DeserializeGlobalReflectionProbe(const YAML::Node& in, GlobalReflectionProbe& probe) {
+  probe.Deserialize(in);
 }
 
 void SerializeEnvironmentalMap(YAML::Emitter& out, const EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Save("light_probe", out);
-  environmental_map.reflection_probe.Save("reflection_probe", out);
   environmental_map.environment_pdf_texture.Save("environment_pdf_texture", out);
   environmental_map.environment_cubemap.Save("environment_cubemap", out);
   environmental_map.environment_source.Save("environment_source", out);
@@ -459,7 +490,6 @@ void SerializeEnvironmentalMap(YAML::Emitter& out, const EnvironmentalMap& envir
 
 void DeserializeEnvironmentalMap(const YAML::Node& in, EnvironmentalMap& environmental_map) {
   environmental_map.light_probe.Load("light_probe", in);
-  environmental_map.reflection_probe.Load("reflection_probe", in);
   environmental_map.environment_pdf_texture.Load("environment_pdf_texture", in);
   environmental_map.environment_cubemap.Load("environment_cubemap", in);
   environmental_map.environment_source.Load("environment_source", in);
@@ -854,76 +884,6 @@ void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vec
   }
 }
 
-float LegacyFloat(const YAML::Node& node, const char* key, const float fallback) {
-  return node && node[key] ? node[key].as<float>() : fallback;
-}
-
-glm::vec3 LegacyVec3(const YAML::Node& node, const char* key, const glm::vec3& fallback) {
-  return node && node[key] ? node[key].as<glm::vec3>() : fallback;
-}
-
-glm::vec3 LegacyEmissionFactor(const glm::vec3& albedo_color, const float emission) {
-  if (emission <= 0.0f) {
-    return glm::vec3(0.0f);
-  }
-  const auto tint = glm::max(albedo_color, glm::vec3(0.0f));
-  const auto length = glm::length(tint);
-  return length <= 0.0f ? glm::vec3(0.0f) : tint / length * emission;
-}
-
-void MigrateLegacyEveMaterial(const YAML::Node& in, Material& material) {
-  material.draw_settings.Load("draw_settings", in);
-  const auto old_fields = in["material_properties"];
-  auto data = GltfMaterialData{};
-  auto& shade = data.shade_material;
-  const auto albedo = LegacyVec3(old_fields, "albedo_color", glm::vec3(1.0f));
-  const auto transmission = LegacyFloat(old_fields, "transmission", 0.0f);
-  shade.pbr_base_color_factor = glm::vec4(albedo, material.draw_settings.blending ? 1.0f - transmission : 1.0f);
-  shade.alpha_mode = material.draw_settings.blending ? static_cast<int32_t>(GltfAlphaMode::Blend)
-                                                     : static_cast<int32_t>(GltfAlphaMode::Opaque);
-  shade.double_sided = material.draw_settings.cull_mode == VK_CULL_MODE_NONE ? 1 : 0;
-  shade.pbr_metallic_factor = LegacyFloat(old_fields, "metallic", 0.0f);
-  shade.pbr_roughness_factor = LegacyFloat(old_fields, "roughness", 1.0f);
-  shade.emissive_factor = LegacyEmissionFactor(albedo, LegacyFloat(old_fields, "emission", 0.0f));
-#if MAT_EXT_IOR
-  shade.ior = LegacyFloat(old_fields, "ior", shade.ior);
-#endif
-#if MAT_EXT_TRANSMISSION
-  shade.transmission_factor = transmission;
-#endif
-#if MAT_EXT_CLEARCOAT
-  shade.clearcoat_factor = LegacyFloat(old_fields, "clear_coat", shade.clearcoat_factor);
-  shade.clearcoat_roughness = LegacyFloat(old_fields, "clear_coat_roughness", shade.clearcoat_roughness);
-#endif
-#if MAT_EXT_SPECULAR
-  shade.specular_factor = LegacyFloat(old_fields, "specular", shade.specular_factor);
-  if (shade.specular_factor == 0.0f) {
-    shade.specular_factor = 1.0f;
-  }
-#endif
-#if MAT_EXT_SHEEN
-  shade.sheen_color_factor = glm::vec3(LegacyFloat(old_fields, "sheen", 0.0f));
-  shade.sheen_roughness_factor = LegacyFloat(old_fields, "sheen_tint", 0.0f);
-#endif
-  material.SetGltfMaterialData(data);
-
-  AssetRef albedo_texture;
-  AssetRef normal_texture;
-  AssetRef metallic_texture;
-  AssetRef roughness_texture;
-  AssetRef ao_texture;
-  albedo_texture.Load("albedo_texture_", in);
-  normal_texture.Load("normal_texture_", in);
-  metallic_texture.Load("metallic_texture_", in);
-  roughness_texture.Load("roughness_texture_", in);
-  ao_texture.Load("ao_texture_", in);
-  material.SetTextureRef(&GltfShadeMaterial::pbr_base_color_texture, albedo_texture);
-  material.SetTextureRef(&GltfShadeMaterial::normal_texture, normal_texture);
-  material.SetTextureRef(&GltfShadeMaterial::pbr_metallic_roughness_texture,
-                         roughness_texture.GetAssetHandle() != 0 ? roughness_texture : metallic_texture);
-  material.SetTextureRef(&GltfShadeMaterial::occlusion_texture, ao_texture);
-}
-
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
   out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "schema_version" << YAML::Value << 2;
@@ -940,29 +900,11 @@ void DeserializeMaterial(const YAML::Node& in, Material& material) {
     std::vector<AssetRef> texture_refs;
     const auto gltf_material = in["gltf_material"];
     LoadGltfShadeMaterial(gltf_material["shade_material"], data.shade_material);
-    const int schema_version = gltf_material["schema_version"] ? gltf_material["schema_version"].as<int>() : 1;
-    if (schema_version < 2) {
-#if MAT_EXT_SPECULAR
-      if (data.shade_material.specular_factor == 0.0f) {
-        data.shade_material.specular_factor = 1.0f;
-      }
-#endif
-#if MAT_EXT_ANISOTROPY
-      const auto legacy_rotation = data.shade_material.anisotropy_rotation;
-      if (glm::dot(legacy_rotation, legacy_rotation) == 0.0f) {
-        data.shade_material.anisotropy_rotation = glm::vec2(1.0f, 0.0f);
-      } else {
-        data.shade_material.anisotropy_rotation = glm::vec2(legacy_rotation.y, -legacy_rotation.x);
-      }
-#endif
-    }
     LoadGltfTextureInfos(gltf_material["texture_infos"], data, texture_refs);
     material.SetGltfMaterialData(data);
     material.RefTextureRefs() = std::move(texture_refs);
     material.draw_settings.Load("draw_settings", in);
     material.SyncRenderStateFromGltfMaterial();
-  } else if (in["material_properties"] || in["albedo_texture_"] || in["normal_texture_"]) {
-    MigrateLegacyEveMaterial(in, material);
   }
   if (in["vertex_color_only"])
     material.vertex_color_only = in["vertex_color_only"].as<bool>();
@@ -1611,9 +1553,11 @@ void DeserializePrefab(const YAML::Node& in, Prefab& prefab) {
   if (const auto in_local_assets = in["LocalAssets"]) {
     int index = 0;
     for (const auto& i : in_local_assets) {
-      if (const auto type_name = i["TypeName"].as<std::string>(); Serialization::HasSerializableType(type_name)) {
-        auto asset = AssetManager::CreateTemporaryAsset(type_name, Handle(i["Handle"].as<uint64_t>()));
-        local_assets.emplace_back(index, asset);
+      const auto type_name = i["TypeName"].as<std::string>();
+      if (Serialization::HasSerializableType(type_name)) {
+        if (auto asset = AssetManager::CreateTemporaryAsset(type_name, Handle(i["Handle"].as<uint64_t>()))) {
+          local_assets.emplace_back(index, asset);
+        }
       }
       index++;
     }
@@ -1866,77 +1810,6 @@ void DeserializeDirectionalLight(const YAML::Node& in, DirectionalLight& light) 
   light.normal_offset = in["normal_offset"].as<float>();
 }
 
-void SerializeDdgiVolume(YAML::Emitter& out, const DdgiVolume& volume) {
-  out << YAML::Key << "probe_counts" << YAML::Value << volume.probe_counts;
-  out << YAML::Key << "probe_spacing" << YAML::Value << volume.probe_spacing;
-  out << YAML::Key << "volume_origin" << YAML::Value << volume.volume_origin;
-  out << YAML::Key << "movement_type" << YAML::Value << volume.movement_type;
-  out << YAML::Key << "enable_probe_relocation" << YAML::Value << volume.enable_probe_relocation;
-  out << YAML::Key << "enable_probe_classification" << YAML::Value << volume.enable_probe_classification;
-  out << YAML::Key << "enable_probe_variability" << YAML::Value << volume.enable_probe_variability;
-  out << YAML::Key << "enable_probe_variability_gating" << YAML::Value << volume.enable_probe_variability_gating;
-  out << YAML::Key << "relocation_distance" << YAML::Value << volume.relocation_distance;
-  out << YAML::Key << "random_ray_backface_threshold" << YAML::Value << volume.random_ray_backface_threshold;
-  out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
-  out << YAML::Key << "probe_variability_threshold" << YAML::Value << volume.probe_variability_threshold;
-  out << YAML::Key << "probe_variability_min_samples" << YAML::Value << volume.probe_variability_min_samples;
-  out << YAML::Key << "warmup_trigger_conditions" << YAML::Value << volume.warmup_trigger_conditions;
-  out << YAML::Key << "variability_reset_trigger_conditions" << YAML::Value
-      << volume.variability_reset_trigger_conditions;
-  out << YAML::Key << "visualize_bounds" << YAML::Value << volume.visualize_bounds;
-  out << YAML::Key << "visualize_probe_positions" << YAML::Value << volume.visualize_probe_positions;
-  out << YAML::Key << "max_visualized_probes" << YAML::Value << volume.max_visualized_probes;
-  out << YAML::Key << "probe_visualization_size" << YAML::Value << volume.probe_visualization_size;
-}
-
-void DeserializeDdgiVolume(const YAML::Node& in, DdgiVolume& volume) {
-  if (in["probe_counts"])
-    volume.probe_counts = in["probe_counts"].as<glm::ivec3>();
-  if (in["probe_spacing"])
-    volume.probe_spacing = DeserializeDdgiProbeSpacing(in["probe_spacing"]);
-  if (in["volume_origin"])
-    volume.volume_origin = in["volume_origin"].as<glm::vec3>();
-  else if (in["probe_offset"])
-    volume.volume_origin =
-        in["probe_offset"].as<glm::vec3>() +
-        glm::vec3(glm::clamp(volume.probe_counts.x, 1, 256) - 1, glm::clamp(volume.probe_counts.y, 1, 256) - 1,
-                  glm::clamp(volume.probe_counts.z, 1, 256) - 1) *
-            (glm::clamp(volume.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f)) * 0.5f);
-  if (in["movement_type"])
-    volume.movement_type = in["movement_type"].as<int>();
-  if (in["enable_probe_relocation"])
-    volume.enable_probe_relocation = in["enable_probe_relocation"].as<bool>();
-  if (in["enable_probe_classification"])
-    volume.enable_probe_classification = in["enable_probe_classification"].as<bool>();
-  if (in["enable_probe_variability"])
-    volume.enable_probe_variability = in["enable_probe_variability"].as<bool>();
-  if (in["enable_probe_variability_gating"])
-    volume.enable_probe_variability_gating = in["enable_probe_variability_gating"].as<bool>();
-  if (in["relocation_distance"])
-    volume.relocation_distance = in["relocation_distance"].as<float>();
-  if (in["random_ray_backface_threshold"])
-    volume.random_ray_backface_threshold = in["random_ray_backface_threshold"].as<float>();
-  if (in["fixed_ray_backface_threshold"])
-    volume.fixed_ray_backface_threshold = in["fixed_ray_backface_threshold"].as<float>();
-  if (in["probe_variability_threshold"])
-    volume.probe_variability_threshold = in["probe_variability_threshold"].as<float>();
-  if (in["probe_variability_min_samples"])
-    volume.probe_variability_min_samples = in["probe_variability_min_samples"].as<int>();
-  if (in["warmup_trigger_conditions"])
-    volume.warmup_trigger_conditions = in["warmup_trigger_conditions"].as<int>();
-  if (in["variability_reset_trigger_conditions"])
-    volume.variability_reset_trigger_conditions = in["variability_reset_trigger_conditions"].as<int>();
-  if (in["visualize_bounds"])
-    volume.visualize_bounds = in["visualize_bounds"].as<bool>();
-  if (in["visualize_probe_positions"])
-    volume.visualize_probe_positions = in["visualize_probe_positions"].as<bool>();
-  if (in["max_visualized_probes"])
-    volume.max_visualized_probes = in["max_visualized_probes"].as<int>();
-  if (in["probe_visualization_size"])
-    volume.probe_visualization_size = in["probe_visualization_size"].as<float>();
-  volume.ClampSettings();
-}
-
 void SerializePointCloudScanner(YAML::Emitter&, const PointCloudScanner&) {
 }
 
@@ -2096,8 +1969,12 @@ void RegisterBuiltInSerializationHandlers() {
       SerializePostProcessingStack, DeserializePostProcessingStack, {}, "PostProcessingStack");
   Serialization::RegisterSerializationHandler<Material>(SerializeMaterial, DeserializeMaterial, {}, "Material");
   Serialization::RegisterSerializationHandler<Cubemap>(SerializeCubemap, DeserializeCubemap, {}, "Cubemap");
+  Serialization::RegisterSerializationHandler<GlobalReflectionProbe>(
+      SerializeGlobalReflectionProbe, DeserializeGlobalReflectionProbe, {}, "GlobalReflectionProbe");
   Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
                                                                 {}, "EnvironmentalMap");
+  Serialization::RegisterSerializationHandler<EnvironmentalLighting>(
+      SerializeEnvironmentalLighting, DeserializeEnvironmentalLighting, {}, "EnvironmentalLighting");
   Serialization::RegisterSerializationHandler<Shader>(SerializeShader, DeserializeShader, {}, "Shader");
   Serialization::RegisterSerializationHandler<procedural_noise::ProceduralNoise2D>(
       SerializeProceduralNoise<procedural_noise::ProceduralNoise2D>,
@@ -2134,7 +2011,6 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<PointLight>(SerializePointLight, DeserializePointLight, {}, "PointLight");
   Serialization::RegisterSerializationHandler<DirectionalLight>(SerializeDirectionalLight, DeserializeDirectionalLight,
                                                                 {}, "DirectionalLight");
-  Serialization::RegisterSerializationHandler<DdgiVolume>(SerializeDdgiVolume, DeserializeDdgiVolume, {}, "DdgiVolume");
   Serialization::RegisterSerializationHandler<PointCloudScanner>(SerializePointCloudScanner,
                                                                  DeserializePointCloudScanner, {}, "PointCloudScanner");
   Serialization::RegisterSerializationHandler<PlayerController>(SerializePlayerController, DeserializePlayerController,
@@ -2457,7 +2333,6 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterPrivateComponent<PointLight>("PointLight");
   RegisterPrivateComponent<SpotLight>("SpotLight");
   RegisterPrivateComponent<DirectionalLight>("DirectionalLight");
-  RegisterPrivateComponent<DdgiVolume>("DdgiVolume");
   RegisterPrivateComponent<WayPoints>("WayPoints");
   RegisterWayPointsHandlers();
   RegisterPrivateComponent<LodGroup>("LodGroup");
@@ -2475,8 +2350,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<procedural_noise::ProceduralNoise4D>("ProceduralNoise4D", {".evenoise4d"});
   RegisterAsset<Cubemap>("Cubemap", {".evecubemap"});
   RegisterAsset<LightProbe>("LightProbe", {".evelightprobe"});
-  RegisterAsset<ReflectionProbe>("ReflectionProbe", {".evereflectionprobe"});
+  RegisterAsset<GlobalReflectionProbe>("GlobalReflectionProbe", {".evereflectionprobe"});
   RegisterAsset<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
+  RegisterAsset<EnvironmentalLighting>("EnvironmentalLighting", {".eveenvironmentallighting"});
   RegisterAsset<Shader>(
       "Shader", {".eveshader", ".glsl", ".vert", ".frag", ".comp", ".geom", ".task", ".mesh", ".tesc", ".tese"});
   RegisterAsset<Mesh>("Mesh", {".evemesh"});
@@ -2648,6 +2524,9 @@ void Application::Terminate() {
   this->execution_status_ = ExecutionStatus::OnDestroy;
   pending_player_autoplay_ = false;
   const bool has_render_layer = GetLayer<RenderLayer>() != nullptr;
+  if (has_render_layer) {
+    Platform::DrainGpuResourceWork();
+  }
   for (auto i = this->layers_.rbegin(); i != this->layers_.rend(); ++i) {
     (*i)->OnDestroy();
   }

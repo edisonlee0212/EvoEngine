@@ -1,10 +1,10 @@
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
-layout(set = 0, binding = 0, r16f) uniform image2D EE_DDGI_PROBE_VARIABILITY_ATLAS;
+layout(set = 0, binding = 0, r16f) readonly uniform image2D EE_DDGI_PROBE_VARIABILITY_ATLAS;
 layout(set = 0, binding = 1) readonly buffer EE_DDGI_PROBE_STATE_BLOCK {
   vec4 EE_DDGI_PROBE_STATE[];
 };
-layout(set = 0, binding = 2, rg32f) uniform image2D EE_DDGI_VARIABILITY_REDUCTION_OUTPUT;
+layout(set = 0, binding = 2, rg32f) writeonly uniform image2D EE_DDGI_VARIABILITY_REDUCTION_OUTPUT;
 
 layout(push_constant) uniform EE_DDGI_VARIABILITY_CONSTANTS {
   uvec4 input_output_extent;

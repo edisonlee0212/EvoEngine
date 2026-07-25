@@ -44,6 +44,9 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RenderGraphTest.cpp
 	Core/StrandsMeshShaderTest.cpp
 	Core/DdgiVolumeTest.cpp
+	Core/ReflectionProbeTest.cpp
+	Core/EnvironmentalLightingContractTest.cpp
+	Core/EnvironmentalLightingAssetTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
 	Core/InspectorRegistryTest.cpp
@@ -52,12 +55,6 @@ set(EVOENGINE_TEST_SOURCES
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoProfiles.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
 	)
-
-if(TARGET EcoSysLabPackage)
-	list(APPEND EVOENGINE_TEST_SOURCES
-		EcoSysLab/EcoSysLabTreeStrandsTest.cpp
-		)
-endif()
 
 add_executable(EvoEngine_Tests
 	${EVOENGINE_TEST_SOURCES}
@@ -68,26 +65,6 @@ target_link_libraries(EvoEngine_Tests
 	EvoEngine_DemoScene
 	GTest::gtest_main
 	)
-if(TARGET EcoSysLabPackage)
-	target_link_libraries(EvoEngine_Tests
-		PRIVATE
-		EcoSysLabPackage
-		)
-	foreach(package_runtime_target EcoSysLabPackage BillboardCloudsPackage)
-		if(TARGET ${package_runtime_target})
-			add_custom_command(TARGET EvoEngine_Tests POST_BUILD
-				COMMAND ${CMAKE_COMMAND} -E copy_if_different
-					"$<TARGET_FILE:${package_runtime_target}>"
-					"$<TARGET_FILE_DIR:EvoEngine_Tests>"
-				VERBATIM)
-		endif()
-	endforeach()
-	add_custom_command(TARGET EvoEngine_Tests POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory
-			"${CMAKE_SOURCE_DIR}/EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources"
-			"$<TARGET_FILE_DIR:EvoEngine_Tests>/EcoSysLabResources"
-		VERBATIM)
-endif()
 target_include_directories(EvoEngine_Tests
 	PRIVATE
 	${EVOENGINE_SDK_INCLUDES}
@@ -252,6 +229,16 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER ReflectionProbe.*
+	PROPERTIES LABELS "core,render,reflection-probe"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER EnvironmentalLightingContract.*
+	PROPERTIES LABELS "core,render,environmental-lighting"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER VolumetricCloudSettings.*
 	PROPERTIES LABELS "core,render,volumetric-cloud"
 	)
@@ -260,13 +247,6 @@ gtest_discover_tests(EvoEngine_Tests
 	TEST_FILTER VolumetricCloudShader.*
 	PROPERTIES LABELS "core,render,volumetric-cloud"
 	)
-if(TARGET EcoSysLabPackage)
-	gtest_discover_tests(EvoEngine_Tests
-		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-		TEST_FILTER EcoSysLab.*
-		PROPERTIES LABELS "render,gpu,ecosyslab"
-		)
-endif()
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER InspectorRegistry.*

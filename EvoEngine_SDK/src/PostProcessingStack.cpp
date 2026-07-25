@@ -165,7 +165,6 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
   stack.blur_vertical_descriptor_set.Retain(transient_resources);
   ambient_occlusion.blur_horizontal_descriptor_set.Retain(transient_resources);
   ambient_occlusion.blur_vertical_descriptor_set.Retain(transient_resources);
-  ambient_occlusion.combine_descriptor_set.Retain(transient_resources);
   ambient_occlusion.geometry_output_descriptor_set.Retain(transient_resources);
   anti_aliasing.copy_descriptor_set.Retain(transient_resources);
   anti_aliasing.resolve_descriptor_set.Retain(transient_resources);
@@ -1184,9 +1183,6 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
     Platform::RecordCommandsMainQueue(pre_process);
   }
 
-  if (enable_ambient_occlusion) {
-    ambient_occlusion->Process(*this, target_camera, context);
-  }
   if (enable_screen_space_reflection) {
     screen_space_reflection->Process(*this, target_camera, context);
   }
@@ -1205,6 +1201,29 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
   if (enable_anti_aliasing && anti_aliasing->algorithm == AntiAliasing::Algorithm::Smaa) {
     anti_aliasing->Process(*this, target_camera, context);
   }
+}
+
+void PostProcessingStack::ProcessAmbientOcclusion(
+    const std::shared_ptr<Camera>& target_camera, const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
+    const std::shared_ptr<ImageView>& scratch_image_view,
+    const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
+  if (!target_camera || !enable_ambient_occlusion || !ambient_occlusion || !ambient_occlusion_image_view ||
+      !scratch_image_view) {
+    return;
+  }
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer || !render_layer->GetPostProcessingRendererResources()) {
+    return;
+  }
+  auto& renderer = *render_layer->GetPostProcessingRendererResources();
+  ambient_occlusion->BuildPipelines(renderer);
+  auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
+  PostProcessingExecutionContext context{camera, renderer, {}, ambient_occlusion_image_view, scratch_image_view};
+  if (pre_process) {
+    Platform::RecordCommandsMainQueue(pre_process);
+  }
+  ambient_occlusion->Process(*this, target_camera, context);
 }
 
 void PostProcessingStack::ProcessRayCamera(const std::shared_ptr<Camera>& target_camera,

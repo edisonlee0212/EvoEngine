@@ -17,6 +17,7 @@
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "IAsset.hpp"
 #include "IPrivateComponent.hpp"
 #include "ISerializable.hpp"
@@ -795,7 +796,8 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   environmental_map_out << YAML::EndMap;
   const auto environmental_map_node = YAML::Load(environmental_map_out.c_str());
   EXPECT_TRUE(environmental_map_node["light_probe"]);
-  EXPECT_TRUE(environmental_map_node["reflection_probe"]);
+  EXPECT_FALSE(environmental_map_node["global_reflection_probe"]);
+  EXPECT_FALSE(environmental_map_node["reflection_probe"]);
   EXPECT_TRUE(environmental_map_node["environment_pdf_texture"]);
   EXPECT_TRUE(environmental_map_node["environment_cubemap"]);
   EXPECT_TRUE(environmental_map_node["environment_source"]);
@@ -804,11 +806,9 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_EQ(environmental_map_node["sky_illumination_resolution"].as<uint32_t>(), 384u);
   EXPECT_FLOAT_EQ(environmental_map_node["sky_illumination_source"]["earth_radius"].as<float>(), 6200.0f);
   const auto generated_light_probe = AssetManager::CreateTemporaryAsset<LightProbe>();
-  const auto generated_reflection_probe = AssetManager::CreateTemporaryAsset<ReflectionProbe>();
   const auto generated_pdf = AssetManager::CreateTemporaryAsset<Texture2D>();
   const auto generated_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
   environmental_map.light_probe = generated_light_probe;
-  environmental_map.reflection_probe = generated_reflection_probe;
   environmental_map.environment_pdf_texture = generated_pdf;
   environmental_map.environment_cubemap = generated_cubemap;
   std::vector<AssetRef> environmental_map_refs;
@@ -839,7 +839,6 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EnvironmentalMap restored_environmental_map;
   Serialization::DeserializeObject(environmental_map_node, static_cast<IAsset&>(restored_environmental_map));
   EXPECT_EQ(restored_environmental_map.light_probe.GetAssetHandle().GetValue(), 0);
-  EXPECT_EQ(restored_environmental_map.reflection_probe.GetAssetHandle().GetValue(), 0);
   EXPECT_EQ(restored_environmental_map.environment_pdf_texture.GetAssetHandle().GetValue(), 0);
   EXPECT_EQ(restored_environmental_map.environment_cubemap.GetAssetHandle().GetValue(), 0);
   EXPECT_EQ(restored_environmental_map.environment_source_type, EnvironmentalMap::SourceType::SkyIllumination);
@@ -1099,44 +1098,6 @@ tone_mapping:
   ASSERT_TRUE(missing_anti_aliasing_stack.anti_aliasing);
   EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->algorithm, AntiAliasing::Algorithm::Smaa);
   EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->smaa.preset, AntiAliasing::SmaaPreset::Ultra);
-
-  PostProcessingStack legacy_taa_stack;
-  legacy_taa_stack.enable_anti_aliasing = false;
-  legacy_taa_stack.anti_aliasing = std::make_shared<AntiAliasing>();
-  legacy_taa_stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Taa;
-  legacy_taa_stack.anti_aliasing->smaa.preset = AntiAliasing::SmaaPreset::Low;
-  const auto existing_anti_aliasing = legacy_taa_stack.anti_aliasing;
-  Serialization::DeserializeObject(YAML::Load(R"(
-enable_temporal_anti_aliasing: false
-temporal_anti_aliasing:
-  feedback: 0.9
-  clamp_strength: 4.0
-)"),
-                                   static_cast<IAsset&>(legacy_taa_stack));
-  EXPECT_TRUE(legacy_taa_stack.enable_anti_aliasing);
-  ASSERT_TRUE(legacy_taa_stack.anti_aliasing);
-  EXPECT_EQ(legacy_taa_stack.anti_aliasing, existing_anti_aliasing);
-  const auto& legacy_anti_aliasing = *legacy_taa_stack.anti_aliasing;
-  EXPECT_EQ(legacy_anti_aliasing.algorithm, AntiAliasing::Algorithm::Smaa);
-  EXPECT_EQ(legacy_anti_aliasing.smaa.preset, AntiAliasing::SmaaPreset::Ultra);
-  const auto& legacy_taa = legacy_anti_aliasing.taa;
-  EXPECT_EQ(legacy_taa.preset, AntiAliasing::TaaPreset::BestQuality);
-  EXPECT_EQ(legacy_taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Intersection);
-  EXPECT_EQ(legacy_taa.history_color_mode, AntiAliasing::HistoryColorMode::ToneMapped);
-  EXPECT_EQ(legacy_taa.variance_sample_count, 9);
-  EXPECT_EQ(legacy_taa.longest_velocity_sample_count, 9);
-  EXPECT_TRUE(legacy_taa.use_ycocg);
-  EXPECT_TRUE(legacy_taa.use_neighborhood_sampling);
-  EXPECT_TRUE(legacy_taa.use_bicubic_filter);
-  EXPECT_TRUE(legacy_taa.use_longest_velocity);
-  EXPECT_TRUE(legacy_taa.use_depth_threshold);
-  EXPECT_TRUE(legacy_taa.use_tgsm);
-  EXPECT_FALSE(legacy_taa.use_fp16);
-  EXPECT_FLOAT_EQ(legacy_taa.min_variance_gamma, 0.75f);
-  EXPECT_FLOAT_EQ(legacy_taa.max_variance_gamma, 2.0f);
-  EXPECT_FLOAT_EQ(legacy_taa.velocity_rejection_threshold, 128.0f);
-  EXPECT_FLOAT_EQ(legacy_taa.depth_threshold, 0.002f);
-  EXPECT_FLOAT_EQ(legacy_taa.sharpen, 0.0f);
 
   PostProcessingStack invalid_anti_aliasing_stack;
   Serialization::DeserializeObject(YAML::Load(R"(
@@ -2669,40 +2630,6 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   EXPECT_EQ(restored->material_data.texture_infos[10].tex_coord, 1);
   EXPECT_EQ(restored->material_data.texture_infos[10].color_space, static_cast<int32_t>(GltfTextureColorSpace::Linear));
   EXPECT_NE(std::string(out.c_str()).find("schema_version: 2"), std::string::npos);
-}
-
-TEST(SerializationRegistry, LegacyMaterialSchemasPreservePreviousSpecularAndAnisotropyBehavior) {
-  Application app;
-  ApplicationContextScope scope(app);
-  app.Initialize(EmptyProjectSettings());
-
-  const auto rotated = AssetManager::CreateTemporaryAsset<Material>();
-  Serialization::DeserializeObject(YAML::Load(R"(
-gltf_material:
-  shade_material:
-    specular_factor: 0.0
-    anisotropy_rotation: [0.5, 0.8660254]
-  texture_infos: []
-)"),
-                                   static_cast<IAsset&>(*rotated));
-  EXPECT_FLOAT_EQ(rotated->material_data.shade_material.specular_factor, 1.0f);
-  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.x, 0.8660254f, 0.000001f);
-  EXPECT_NEAR(rotated->material_data.shade_material.anisotropy_rotation.y, -0.5f, 0.000001f);
-
-  const auto default_rotation = AssetManager::CreateTemporaryAsset<Material>();
-  Serialization::DeserializeObject(YAML::Load(R"(
-gltf_material:
-  shade_material:
-    anisotropy_rotation: [0.0, 0.0]
-  texture_infos: []
-)"),
-                                   static_cast<IAsset&>(*default_rotation));
-  EXPECT_EQ(default_rotation->material_data.shade_material.anisotropy_rotation, glm::vec2(1.0f, 0.0f));
-
-  const auto legacy_eve = AssetManager::CreateTemporaryAsset<Material>();
-  Serialization::DeserializeObject(YAML::Load("{material_properties: {specular: 0.0}}"),
-                                   static_cast<IAsset&>(*legacy_eve));
-  EXPECT_FLOAT_EQ(legacy_eve->material_data.shade_material.specular_factor, 1.0f);
 }
 
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {

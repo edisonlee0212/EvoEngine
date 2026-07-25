@@ -20,6 +20,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <mutex>
 #include <thread>
 
@@ -43,6 +44,16 @@ constexpr auto kStagedAssetExtension = ".evestagedasset";
 constexpr uint64_t kGpuPendingAssetHandle = 0xE701'0000'0000'0003ull;
 constexpr auto kGpuPendingAssetTypeName = "GpuPendingLoadAsset";
 constexpr auto kGpuPendingAssetExtension = ".evegpupendingasset";
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+}
 
 struct BlockingLoadState {
   std::mutex mutex;
@@ -809,6 +820,8 @@ TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresen
   RegisterDefaultEditorSceneCamera(*editor_layer);
   editor_layer->velocity = 4.5f;
   editor_layer->sensitivity = 0.25f;
+  editor_layer->camera_control_acceleration_time = 0.75f;
+  editor_layer->camera_control_deceleration_time = 0.8f;
   editor_layer->SetSceneCameraPosition({1.0f, 2.0f, 3.0f});
   editor_layer->SetSceneCameraRotation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
   editor_layer->editor_camera_control_key_bindings.rotate_mouse_button = GLFW_MOUSE_BUTTON_LEFT;
@@ -826,6 +839,8 @@ TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresen
   ASSERT_TRUE(editor_yaml);
   EXPECT_FLOAT_EQ(editor_yaml["velocity"].as<float>(), 4.5f);
   EXPECT_FLOAT_EQ(editor_yaml["sensitivity"].as<float>(), 0.25f);
+  EXPECT_FLOAT_EQ(editor_yaml["camera_control_acceleration_time"].as<float>(), 0.75f);
+  EXPECT_FLOAT_EQ(editor_yaml["camera_control_deceleration_time"].as<float>(), 0.8f);
   ASSERT_TRUE(editor_yaml["scene_camera_position"]);
   EXPECT_FLOAT_EQ(editor_yaml["scene_camera_position"][0].as<float>(), 1.0f);
   EXPECT_FLOAT_EQ(editor_yaml["scene_camera_position"][1].as<float>(), 2.0f);
@@ -882,6 +897,8 @@ TEST(EditorLayer, MissingEditorStateKeepsDefaultsAndRequestsDefaultLayout) {
   EXPECT_TRUE(editor_layer.show_camera_window);
   EXPECT_FLOAT_EQ(editor_layer.velocity, 10.0f);
   EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.25f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_backward_key, GLFW_KEY_S);
@@ -904,6 +921,8 @@ velocity: 3.5
   EXPECT_TRUE(editor_layer.show_camera_window);
   EXPECT_FLOAT_EQ(editor_layer.velocity, 3.5f);
   EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.1f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.25f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
   EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
@@ -916,6 +935,8 @@ TEST(EditorLayer, DeserializesEditorCameraControlsAndSceneCameraPose) {
   editor_layer.Deserialize(YAML::Load(R"(
 velocity: 2.5
 sensitivity: 0.35
+camera_control_acceleration_time: 0.25
+camera_control_deceleration_time: 0.6
 scene_camera_position: [4.0, 5.0, 6.0]
 scene_camera_rotation: [0.0, 0.0, 0.0, 1.0]
 editor_camera_control_key_bindings:
@@ -930,6 +951,8 @@ editor_camera_control_key_bindings:
 
   EXPECT_FLOAT_EQ(editor_layer.velocity, 2.5f);
   EXPECT_FLOAT_EQ(editor_layer.sensitivity, 0.35f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.6f);
   const auto position = editor_layer.GetSceneCameraPosition();
   EXPECT_FLOAT_EQ(position.x, 4.0f);
   EXPECT_FLOAT_EQ(position.y, 5.0f);
@@ -946,6 +969,34 @@ editor_camera_control_key_bindings:
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_right_key, GLFW_KEY_RIGHT);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_up_key, GLFW_KEY_PAGE_UP);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_down_key, GLFW_KEY_PAGE_DOWN);
+}
+
+TEST(EditorLayer, ClampsInvalidCameraControlRampTimes) {
+  EditorLayer editor_layer;
+
+  editor_layer.Deserialize(YAML::Load(R"(
+camera_control_acceleration_time: -1.0
+camera_control_deceleration_time: -2.0
+)"));
+
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
+  EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.25f);
+}
+
+TEST(EditorLayer, CameraFreeFlyControlUsesRampedRuntimeState) {
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+
+  EXPECT_NE(header.find("smoothed_move_velocity"), std::string::npos);
+  EXPECT_NE(header.find("look_response"), std::string::npos);
+  EXPECT_NE(header.find("camera_control_acceleration_time = 0.25f"), std::string::npos);
+  EXPECT_NE(header.find("camera_control_deceleration_time = 0.25f"), std::string::npos);
+  EXPECT_NE(source.find("MoveTowards(state.smoothed_move_velocity, target_move_velocity"), std::string::npos);
+  EXPECT_NE(source.find("target_look_response = mouse_drag ? 1.0f : 0.0f"), std::string::npos);
+  EXPECT_NE(source.find("CameraControlResponseStep(look_response_time, delta_time)"), std::string::npos);
+  EXPECT_NE(source.find("ResetEditorCameraFreeFlyState(state);"), std::string::npos);
+  EXPECT_EQ(source.find("editor_camera.position += front * delta_time * velocity"), std::string::npos);
+  EXPECT_EQ(source.find("x_offset * sensitivity"), std::string::npos);
 }
 
 TEST(EditorLayer, MissingEmptyOrNonDockingImGuiIniRequestsDefaultLayout) {

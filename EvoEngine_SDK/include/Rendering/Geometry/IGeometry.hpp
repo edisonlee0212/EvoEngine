@@ -16,6 +16,19 @@ enum class GeometryType {
 };
 
 /**
+ * @brief Specifies how many attributes a graphics pipeline consumes from a geometry vertex buffer.
+ */
+enum class VertexInputAttributeSet {
+  Full,              ///< All material-facing vertex attributes.
+  Base,              ///< Position/normal/tangent/UV/color, plus skinning attributes for skinned meshes.
+  Position,          ///< Position only, plus skinning attributes for skinned meshes.
+  PositionNormal,    ///< Position and normal, plus skinning attributes for skinned meshes.
+  PositionColor,     ///< Position and vertex color.
+  PositionTexCoord,  ///< Position and primary UV.
+  MotionVectors      ///< Motion-vector pass attributes, excluding tangent handedness.
+};
+
+/**
  * @brief Interface for geometry objects in the engine.
  */
 class IGeometry {
@@ -48,11 +61,12 @@ class IGeometry {
    * @brief Gets the vertex attribute descriptions for the specified geometry type.
    *
    * @param geometry_type The type of geometry (e.g., Mesh or SkinnedMesh).
+   * @param attribute_set The subset of vertex attributes consumed by the shader.
    * @return A reference to a vector of vertex input attribute descriptions.
    * These define how vertex attributes (e.g., position, normal, UV) are fetched.
    */
   static const std::vector<VkVertexInputAttributeDescription>& GetVertexAttributeDescriptions(
-      GeometryType geometry_type);
+      GeometryType geometry_type, VertexInputAttributeSet attribute_set = VertexInputAttributeSet::Full);
 };
 
 }  // namespace evo_engine

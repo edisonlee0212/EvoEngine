@@ -84,7 +84,7 @@ data_generation_parameters.generate_ground_mesh = False
 
 camera_capture_settings = tree_framework.CameraCaptureSettings()
 camera_capture_settings.camera_settings.fov = 60
-camera_capture_settings.camera_settings.use_clear_color = True
+camera_capture_settings.camera_settings.background_source = tree_framework.CameraBackgroundSource.ClearColor
 camera_capture_settings.camera_settings.clear_color.x = 1
 camera_capture_settings.camera_settings.clear_color.y = 1
 camera_capture_settings.camera_settings.clear_color.z = 1
@@ -111,8 +111,9 @@ point_cloud_capture_settings = tree_framework.TreePointCloudCircularCaptureSetti
 point_cloud_capture_settings.distance_from_trees = 4.0
 point_cloud_capture_settings.capture_height = 3.0
 
-#Ambient light & directional light intensity
-tree_framework.scene_light_settings(0.2, 4)
+# Sky, indirect, and directional light intensity
+tree_framework.scene_environment_lighting_settings(0.2, 1.0)
+tree_framework.scene_directional_light_intensity(4)
 
 for x in range(3):
 	#The seed for random tree generator. Same seed will result in same tree geometry.

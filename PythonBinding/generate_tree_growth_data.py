@@ -67,7 +67,7 @@ data_generation_parameters.export_rendering = True
 data_generation_parameters.max_iteration = 250
 camera_capture_settings = tree_framework.CameraCaptureSettings()
 camera_capture_settings.camera_settings.fov = 90
-camera_capture_settings.camera_settings.use_clear_color = True
+camera_capture_settings.camera_settings.background_source = tree_framework.CameraBackgroundSource.ClearColor
 camera_capture_settings.camera_settings.clear_color.x = 0
 camera_capture_settings.camera_settings.clear_color.y = 0
 camera_capture_settings.camera_settings.clear_color.z = 0
@@ -99,8 +99,9 @@ data_generation_parameters.tree_descriptor_path = "./TreeDescriptors/Basic/RootS
 #data_generation_parameters.overriding_reproduction_module_descriptor_path = ""
 #data_generation_parameters.overriding_bark_descriptor_path = ""
 
-#Ambient light & directional light intensity
-tree_framework.scene_light_settings(0.3, 7)
+# Sky, indirect, and directional light intensity
+tree_framework.scene_environment_lighting_settings(0.3, 1.0)
+tree_framework.scene_directional_light_intensity(7)
 
 #The seed for random tree generator. Same seed will result in same tree geometry.
 data_generation_parameters.seed = 0

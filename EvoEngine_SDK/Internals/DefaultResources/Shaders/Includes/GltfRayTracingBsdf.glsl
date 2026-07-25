@@ -14,7 +14,7 @@ const float EE_GLTF_RT_BSDF_EPSILON = 1e-6f;
 const float EE_GLTF_RT_BSDF_MIN_PDF = 0.00001f;
 const float EE_GLTF_RT_BSDF_MIN_ROUGHNESS = 0.0014142f;
 const float EE_GLTF_RT_BSDF_DIRAC_PDF = -1.0f;
-const float EE_GLTF_RT_IOR_COMPATIBILITY_INFINITY = 1000000.0f;
+const float EE_GLTF_RT_IOR_INFINITY_SURROGATE = 1000000.0f;
 
 const int EE_GLTF_RT_BSDF_EVENT_ABSORB = 0;
 const int EE_GLTF_RT_BSDF_EVENT_DIFFUSE = 1;
@@ -818,7 +818,7 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
   float dielectric_ior = 1.5f;
 #if EE_GLTF_USE_IOR
   dielectric_ior = material.ior == 0.0f ? 0.0f : max(material.ior, 1.0f);
-  pbr.ior2 = material.ior == 0.0f ? EE_GLTF_RT_IOR_COMPATIBILITY_INFINITY : max(material.ior, 1.0f);
+  pbr.ior2 = material.ior == 0.0f ? EE_GLTF_RT_IOR_INFINITY_SURROGATE : max(material.ior, 1.0f);
 #endif
 #if EE_GLTF_USE_SPECULAR_GLOSSINESS
   if (material.pbr_model != EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS)
