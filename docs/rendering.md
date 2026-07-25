@@ -43,13 +43,16 @@ If a requested ray mode is unavailable, the camera falls back to the best suppor
 
 ## Environmental Lighting Ownership Target
 
-The renderer resolves `Scene + optional EnvironmentalLighting` into a `ResolvedEnvironmentalLighting` runtime view. A
-scene without an `EnvironmentalLighting` asset resolves to the engine-default indirect environment source with
+The renderer resolves `Scene + EnvironmentalLighting` into a `ResolvedEnvironmentalLighting` runtime view. New scenes and
+loaded scenes with an empty `Scene::environmental_lighting` reference create a temporary `EnvironmentalLighting` asset and
+link it to the scene. That default asset resolves to the engine-default indirect environment source with
 `environment_lighting_intensity = 1.0f`, `diffuse_fallback_intensity = 0.0f`, and
-`specular_fallback_intensity = 0.0f`. This no-asset path is a default, not a legacy compatibility layer.
+`specular_fallback_intensity = 0.0f`. The resolver still keeps a defensive no-asset default for malformed in-memory state;
+normal scene creation and loading should not hit it.
 
-Current implementation status: the `EnvironmentalLighting` asset schema, optional `Scene::environmental_lighting`
-reference, resolver, and renderer consumption path exist. The renderer consumes the resolved `EnvironmentalLighting`
+Current implementation status: the `EnvironmentalLighting` asset schema, `Scene::environmental_lighting` reference,
+resolver, and renderer consumption path exist. Temporary scene-level environmental lighting and global reflection probe
+assets are serialized into the scene's `LocalAssets` storage. The renderer consumes the resolved `EnvironmentalLighting`
 asset for local probes and DDGI volumes. There is no scene-local `ReflectionProbe` or `DdgiVolume` runtime, inspector,
 serialization, or extraction path.
 

@@ -73,6 +73,20 @@ std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
   return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
 }
 
+bool ContainsLocalAsset(const YAML::Node& scene_node, const std::string& type_name, const Handle handle) {
+  const auto local_assets = scene_node["LocalAssets"];
+  if (!local_assets) {
+    return false;
+  }
+  for (const auto& asset_node : local_assets) {
+    if (asset_node["type_name"].as<std::string>() == type_name &&
+        Handle(asset_node["handle"].as<uint64_t>()) == handle) {
+      return true;
+    }
+  }
+  return false;
+}
+
 std::string ExtractBetween(const std::string& source, const std::string& begin, const std::string& end) {
   const auto begin_position = source.find(begin);
   EXPECT_NE(begin_position, std::string::npos) << begin;
@@ -209,6 +223,7 @@ TEST(ReflectionProbe, SceneGlobalFallbackSerializesAndFiltersRuntimeReadiness) {
   const auto node = YAML::Load(out.c_str());
   ASSERT_TRUE(node["global_reflection_probe_fallback"]);
   EXPECT_EQ(node["global_reflection_probe_fallback"]["asset_handle_"].as<uint64_t>(), fallback->GetHandle().GetValue());
+  EXPECT_TRUE(ContainsLocalAsset(node, "GlobalReflectionProbe", fallback->GetHandle()));
 
   const auto restored = AssetManager::CreateTemporaryAsset<Scene>();
   ASSERT_TRUE(restored);

@@ -5,6 +5,7 @@
 #include "EditorLayer.hpp"
 #include "Entities.hpp"
 #include "EntityMetadata.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "Jobs.hpp"
 #include "MeshRenderer.hpp"
 #include "Resources.hpp"
@@ -17,6 +18,15 @@
 using namespace evo_engine;
 
 void WriteSceneSystem(const std::shared_ptr<ISystem>& system, YAML::Emitter& out);
+
+namespace {
+void EnsureTemporaryEnvironmentalLighting(Scene& scene) {
+  if (scene.environmental_lighting.GetAssetHandle().GetValue() != 0u) {
+    return;
+  }
+  scene.environmental_lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+}
+}  // namespace
 
 Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version) {
   Entity entity;
@@ -194,7 +204,9 @@ std::shared_ptr<ISystem> Scene::GetOrCreateSystem(const std::string& system_name
 }
 
 void evo_engine::SerializeScene(YAML::Emitter& out, const Scene& scene) {
-  const auto self = const_cast<Scene&>(scene).GetSelfScene();
+  auto& mutable_scene = const_cast<Scene&>(scene);
+  EnsureTemporaryEnvironmentalLighting(mutable_scene);
+  const auto self = mutable_scene.GetSelfScene();
   const auto& main_camera = scene.main_camera;
   const auto& global_reflection_probe_fallback = scene.global_reflection_probe_fallback;
   const auto& environmental_lighting = scene.environmental_lighting;
@@ -377,6 +389,7 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
     global_reflection_probe_fallback.Load("global_reflection_probe_fallback", in);
   }
   environmental_lighting.Load("environmental_lighting", in);
+  EnsureTemporaryEnvironmentalLighting(scene);
   int entity_index = 1;
   for (const auto& in_entity_info : in_entity_metadata_list) {
     auto& entity_metadata = scene_data_storage_.entity_metadata_list.at(entity_index);
@@ -714,6 +727,7 @@ void Scene::OnCreate() {
       return;
     }
   }
+  EnsureTemporaryEnvironmentalLighting(*this);
 
 #pragma region Main Camera
   const auto main_camera_entity = CreateEntity("Main Camera");
@@ -798,6 +812,7 @@ std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
 void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Scene>& new_scene) {
   new_scene->global_reflection_probe_fallback = source->global_reflection_probe_fallback;
   new_scene->environmental_lighting = source->environmental_lighting;
+  EnsureTemporaryEnvironmentalLighting(*new_scene);
   new_scene->saved_ = source->saved_;
   new_scene->world_bound_ = source->world_bound_;
   std::unordered_map<Handle, Handle> entity_map;

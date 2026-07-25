@@ -918,6 +918,30 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
   }
 }
 
+TEST(GltfRasterMaterial, EcoSysLabDynamicFoliageMeshShadersGuardLeafOutputIndices) {
+  const std::filesystem::path shader_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/Rendering.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/PointLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/SpotLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/DirectionalLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Visualization/Foliage.mesh"),
+  };
+
+  for (const auto& path : shader_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("vertex_index > LEAF_VERTICES_SIZE"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("triangle_index <= LEAF_TRIANGLE_SIZE"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("vertex_index >= LEAF_VERTICES_SIZE"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("triangle_index < LEAF_TRIANGLE_SIZE"), std::string::npos) << path.string();
+  }
+}
+
 TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto geometry = ReadTextFile(SdkPath("src/IGeometry.cpp"));
   const auto standard = ReadTextFile(ShaderPath("Graphics/Vertex/Standard/Standard.vert"));

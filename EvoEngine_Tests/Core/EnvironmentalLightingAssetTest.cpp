@@ -49,6 +49,20 @@ bool ContainsAssetHandle(const std::vector<AssetRef>& refs, const Handle handle)
   });
 }
 
+bool ContainsLocalAsset(const YAML::Node& scene_node, const std::string& type_name, const Handle handle) {
+  const auto local_assets = scene_node["LocalAssets"];
+  if (!local_assets) {
+    return false;
+  }
+  for (const auto& asset_node : local_assets) {
+    if (asset_node["type_name"].as<std::string>() == type_name &&
+        Handle(asset_node["handle"].as<uint64_t>()) == handle) {
+      return true;
+    }
+  }
+  return false;
+}
+
 bool ContainsStableId(const std::vector<ResolvedEnvironmentalLighting::LocalReflectionProbe>& probes,
                       const uint64_t stable_id) {
   return std::any_of(probes.begin(), probes.end(), [stable_id](const auto& probe) {
@@ -200,6 +214,56 @@ TEST(EnvironmentalLightingAsset, SceneReferenceSerializesAndClonesWithoutRendere
   ASSERT_TRUE(cloned);
   Scene::Clone(scene, cloned);
   EXPECT_EQ(cloned->environmental_lighting.GetAssetHandle(), lighting->GetHandle());
+}
+
+TEST(EnvironmentalLightingAsset, SceneCreatesAndEmbedsTemporaryEnvironmentalLightingWhenMissing) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(scene);
+  app.Attach(scene);
+
+  const auto created_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(created_lighting);
+  EXPECT_TRUE(created_lighting->IsTemporary());
+
+  const auto resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_TRUE(resolved.environmental_lighting_asset_assigned);
+  EXPECT_FALSE(resolved.environmental_lighting_asset_missing);
+  EXPECT_EQ(resolved.indirect_environment_source.kind,
+            ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault);
+  EXPECT_TRUE(resolved.uses_engine_default_indirect_environment_source);
+  EXPECT_FLOAT_EQ(resolved.environment_lighting_intensity,
+                  ResolvedEnvironmentalLighting::kDefaultEnvironmentLightingIntensity);
+  EXPECT_FLOAT_EQ(resolved.diffuse_fallback_intensity, ResolvedEnvironmentalLighting::kDefaultDiffuseFallbackIntensity);
+  EXPECT_FLOAT_EQ(resolved.specular_fallback_intensity,
+                  ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
+
+  scene->environmental_lighting.Clear();
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  Serialization::SerializeObject(out, static_cast<IAsset&>(*scene));
+  out << YAML::EndMap;
+  const auto node = YAML::Load(out.c_str());
+  const auto serialized_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(serialized_lighting);
+  ASSERT_TRUE(node["environmental_lighting"]);
+  EXPECT_EQ(node["environmental_lighting"]["asset_handle_"].as<uint64_t>(),
+            serialized_lighting->GetHandle().GetValue());
+  EXPECT_TRUE(ContainsLocalAsset(node, "EnvironmentalLighting", serialized_lighting->GetHandle()));
+
+  const auto restored = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(restored);
+  Serialization::DeserializeObject(YAML::Load(R"(
+entity_metadata_list: []
+systems_: []
+data_component_storage_list: []
+)"),
+                                   static_cast<IAsset&>(*restored));
+  const auto restored_lighting = restored->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(restored_lighting);
+  EXPECT_TRUE(restored_lighting->IsTemporary());
 }
 
 TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE6) {
@@ -399,7 +463,7 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_TRUE(resolved.ddgi_volumes[1].enable_probe_classification);
 }
 
-TEST(EnvironmentalLightingAsset, ResolverDefaultsRequireAssignedEnvironmentalLightingAsset) {
+TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalLightingAsset) {
   Application app;
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
@@ -407,8 +471,13 @@ TEST(EnvironmentalLightingAsset, ResolverDefaultsRequireAssignedEnvironmentalLig
   ASSERT_TRUE(scene);
   app.Attach(scene);
 
+  const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(lighting);
+  EXPECT_TRUE(lighting->IsTemporary());
+
   const auto resolved = ResolveEnvironmentalLighting(scene);
-  EXPECT_FALSE(resolved.environmental_lighting_asset_assigned);
+  EXPECT_TRUE(resolved.environmental_lighting_asset_assigned);
+  EXPECT_FALSE(resolved.environmental_lighting_asset_missing);
   EXPECT_EQ(resolved.indirect_environment_source.kind,
             ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault);
   EXPECT_TRUE(resolved.uses_engine_default_indirect_environment_source);
