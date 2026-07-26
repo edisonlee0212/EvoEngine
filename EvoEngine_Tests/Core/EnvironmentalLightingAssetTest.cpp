@@ -490,7 +490,7 @@ TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalL
   EXPECT_TRUE(resolved.ddgi_volumes.empty());
 }
 
-TEST(EnvironmentalLightingAsset, ResolverClampsInvalidFallbackIntensitiesToDefaults) {
+TEST(EnvironmentalLightingAsset, ResolverUsesDefaultsForNonFiniteFallbackIntensities) {
   Application app;
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
@@ -501,7 +501,7 @@ TEST(EnvironmentalLightingAsset, ResolverClampsInvalidFallbackIntensitiesToDefau
   scene->environmental_lighting = lighting;
 
   lighting->environment_lighting_intensity = std::numeric_limits<float>::quiet_NaN();
-  lighting->diffuse_fallback_intensity = -1.0f;
+  lighting->diffuse_fallback_intensity = std::numeric_limits<float>::quiet_NaN();
   lighting->specular_fallback_intensity = std::numeric_limits<float>::infinity();
 
   const auto resolved = ResolveEnvironmentalLighting(scene);

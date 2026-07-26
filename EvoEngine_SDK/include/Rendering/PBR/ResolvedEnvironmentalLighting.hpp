@@ -34,8 +34,8 @@ struct ResolvedEnvironmentalLighting {
   static constexpr uint32_t kMaxLocalReflectionProbeCount = 32u;
   static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
-  static constexpr float kDefaultDiffuseFallbackIntensity = 0.0f;
-  static constexpr float kDefaultSpecularFallbackIntensity = 0.0f;
+  static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
+  static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
 
   struct IndirectEnvironmentSource {
     IndirectEnvironmentSourceKind kind = IndirectEnvironmentSourceKind::EngineDefault;

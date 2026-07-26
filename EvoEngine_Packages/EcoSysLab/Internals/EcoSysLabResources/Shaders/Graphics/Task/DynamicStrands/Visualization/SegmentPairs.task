@@ -56,11 +56,11 @@ void main() {
     uint segment_pair_index_local = laneID + i * WORKGROUP_SIZE;
     uint segment_pair_index_global = baseID + segment_pair_index_local;
 
-    SegmentPair segment_pair = segment_pairs[segment_pair_index_global];
-    Segment segment0 = segments[segment_pair.segment0_handle];
-    Segment segment1 = segments[segment_pair.segment1_handle];
-    bool render = !(segment_pair_index_global >= segment_pairs_size) &&
-                  (segment_pair.connectivity_integrity > 0.0f || segment_pair.bend_twist_bundle_integrity > 0.0f);
+    bool render = segment_pair_index_global < segment_pairs_size;
+    if (render) {
+      SegmentPair segment_pair = segment_pairs[segment_pair_index_global];
+      render = segment_pair.connectivity_integrity > 0.0f || segment_pair.bend_twist_bundle_integrity > 0.0f;
+    }
 
     uvec4 vote_segment_pairs = subgroupBallot(render);
     uint num_segment_pairs = subgroupBallotBitCount(vote_segment_pairs);

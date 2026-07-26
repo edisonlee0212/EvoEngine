@@ -19,6 +19,8 @@ using namespace evo_engine;
  */
 class EcoSysLabLayer : public ILayer {
  public:
+  void OnDestroy() override;
+
   /**
    * @brief Enables drag and drop functionality for the visualization camera.
    */

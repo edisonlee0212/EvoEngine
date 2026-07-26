@@ -33,11 +33,15 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float HL_threshold;
   uint treespace;
   float padding1;
-  mat4 matrixAw4;
-  mat4 matrixAb4;
-  mat4 matrixAc4;
-  mat4 matrixAm4;
+  vec4 matrixAw[3];
+  vec4 matrixAb[3];
+  vec4 matrixAc[3];
+  vec4 matrixAm[3];
 };
+
+mat3 unpackMat3(vec4 c0, vec4 c1, vec4 c2) {
+  return mat3(c0.xyz, c1.xyz, c2.xyz);
+}
 
 // void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_distance, float target_distance, float
 // max_b, float max_w,
@@ -55,9 +59,9 @@ layout(push_constant) uniform PUSH_CONSTANTS {
 //
 //   edge_dir /= d;
 //
-//   mat3 matrixAw = mat3(matrixAw4);
-//   mat3 matrixAb = mat3(matrixAb4);
-//   mat3 matrixAc = mat3(matrixAc4);
+//   mat3 matrixAw = unpackMat3(matrixAw[0], matrixAw[1], matrixAw[2]);
+//   mat3 matrixAb = unpackMat3(matrixAb[0], matrixAb[1], matrixAb[2]);
+//   mat3 matrixAc = unpackMat3(matrixAc[0], matrixAc[1], matrixAc[2]);
 //   //mat3 matrixAm = mat3(2.0, 0.0, 0.0, 0.0, 0.1, 0.0, 0.0, 0.0, 0.1);
 //   mat3 matrixAm = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0);
 //
@@ -105,10 +109,10 @@ void computeDiffusionWeights(vec3 source_pos, vec3 target_pos, float source_dist
   // mat3 M_w = mat3(100.0, 0.0, 0.0, 0.0, 0.20, 0.0, 0.0, 0.0, 0.20);
   // mat3 M_b = mat3(100.0, 0.0, 0.0, 0.0, 0.20, 0.0, 0.0, 0.0, 0.20); //log
   if (global_parameter == 1) {
-    M_w = mat3(matrixAw4);
-    M_b = mat3(matrixAb4);
-    M_c = mat3(matrixAc4);
-    M_m = mat3(matrixAm4);
+    M_w = unpackMat3(matrixAw[0], matrixAw[1], matrixAw[2]);
+    M_b = unpackMat3(matrixAb[0], matrixAb[1], matrixAb[2]);
+    M_c = unpackMat3(matrixAc[0], matrixAc[1], matrixAc[2]);
+    M_m = unpackMat3(matrixAm[0], matrixAm[1], matrixAm[2]);
   }
 
   float rho2_w = max(dot(dvec * M_w, dvec), 0.0);
@@ -184,10 +188,10 @@ void computeDiffusionWeights_Tspace(vec3 source_pos, vec3 target_pos, float sour
   // mat3 M_w = mat3(100.0, 0.0, 0.0, 0.0, 0.20, 0.0, 0.0, 0.0, 0.20);
   // mat3 M_b = mat3(100.0, 0.0, 0.0, 0.0, 0.20, 0.0, 0.0, 0.0, 0.20); //log
   if (global_parameter == 1) {
-    M_w = mat3(matrixAw4);
-    M_b = mat3(matrixAb4);
-    M_c = mat3(matrixAc4);
-    M_m = mat3(matrixAm4);
+    M_w = unpackMat3(matrixAw[0], matrixAw[1], matrixAw[2]);
+    M_b = unpackMat3(matrixAb[0], matrixAb[1], matrixAb[2]);
+    M_c = unpackMat3(matrixAc[0], matrixAc[1], matrixAc[2]);
+    M_m = unpackMat3(matrixAm[0], matrixAm[1], matrixAm[2]);
 
      ////M_b = mat3(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 20.0); //For elm
      //M_b = mat3(1000.0, 0.0, 0.0, 0.0, 1000.0, 0.0, 0.0, 0.0, 1000.0);

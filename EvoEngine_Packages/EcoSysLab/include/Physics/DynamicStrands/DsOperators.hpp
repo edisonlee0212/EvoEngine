@@ -593,7 +593,9 @@ class DsFungusInjection : public IDsOperator {
       find_closest_pipeline{};  ///< Compute pipeline for minimum distance calculations.
   inline static std::shared_ptr<ComputePipeline> inject_pipeline{};  ///< Compute pipeline for fungus injection.
   inline static std::shared_ptr<DescriptorSet>
-      min_distance_descriptor_set{};          ///< Descriptor set for minimum distance calculations.
+      min_distance_descriptor_set{};  ///< Descriptor set for minimum distance calculations.
+  inline static std::shared_ptr<Buffer> min_distance_buffer{};
+  inline static std::shared_ptr<DescriptorSetLayout> min_distance_layout{};
   FungusInjectionPushConstant push_constant;  ///< Push constant controlling the fungus injection operation.
  public:
   glm::vec3 target_position;  ///< Target position for fungus injection.
@@ -601,6 +603,11 @@ class DsFungusInjection : public IDsOperator {
    * @brief Constructor initializing default values.
    */
   DsFungusInjection();
+
+  /**
+   * @brief Releases static GPU resources before the EcoSysLab package unloads.
+   */
+  static void ReleaseStaticGpuResources();
 
   /**
    * @brief Updates the fungus injection parameters.

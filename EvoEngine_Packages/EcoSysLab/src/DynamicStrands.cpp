@@ -15,6 +15,20 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
+
+void DynamicStrands::ReleaseStaticGpuResources() {
+  foliage_visualization_render_pipeline.reset();
+  segment_pairs_visualization_render_pipeline.reset();
+  segment_visualization_render_pipeline.reset();
+
+  foliage_render_pipeline.reset();
+  foliage_directional_light_render_pipeline.reset();
+  foliage_spot_light_render_pipeline.reset();
+  foliage_point_light_render_pipeline.reset();
+
+  strands_layout.reset();
+}
+
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
                              const std::function<void()>& pre_step_action) {
   if (pre_step)
@@ -547,19 +561,17 @@ bool DynamicStrands::PhysicsParameters::DrawGui(const std::shared_ptr<EditorLaye
 }
 
 void DynamicStrands::UpdateBindings() const {
-  if (segments.empty())
-    return;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto& descriptor_set = strands_descriptor_sets[current_frame_index];
 
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(1, device_nodes_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(2, device_segments_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(3, device_segment_pairs_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(4, device_segment_data_list_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(5, device_hashed_grid_elements_buffer, 0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(6, device_hashed_grid_cell_starts_buffer,
-                                                                              0);
-  strands_descriptor_sets[current_frame_index]->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(0, device_strands_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(1, device_nodes_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(2, device_segments_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(3, device_segment_pairs_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(4, device_segment_data_list_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(5, device_hashed_grid_elements_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(6, device_hashed_grid_cell_starts_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
 
   meshing->UpdateBindings();
   for (const auto& c : constraints) {

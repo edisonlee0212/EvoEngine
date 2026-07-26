@@ -28,11 +28,13 @@ class DsFungus {
     float HL_threshold = 0.4f;
     uint32_t treespace = 1;
     float padding1 = 0.0f;
-    glm::mat4 matrixAw4;
-    glm::mat4 matrixAb4;
-    glm::mat4 matrixAc4;
-    glm::mat4 matrixAm4;
+    glm::vec4 matrixAw[3] = {};
+    glm::vec4 matrixAb[3] = {};
+    glm::vec4 matrixAc[3] = {};
+    glm::vec4 matrixAm[3] = {};
   };
+  static_assert(sizeof(FungusDiffusionEdgePushConstant) == 224,
+                "Fungus diffusion edge push constants must stay packed as 32 scalar bytes plus 12 vec4 columns.");
 
   /**
    * @struct FungusDiffusionNodePushConstant

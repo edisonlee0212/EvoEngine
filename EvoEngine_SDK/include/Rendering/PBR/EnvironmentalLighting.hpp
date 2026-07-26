@@ -28,8 +28,8 @@ class EnvironmentalLighting final : public IAsset {
   static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
   static constexpr int kMaxExactLocalReflectionProbePriority = 1 << 24;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
-  static constexpr float kDefaultDiffuseFallbackIntensity = 0.0f;
-  static constexpr float kDefaultSpecularFallbackIntensity = 0.0f;
+  static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
+  static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
   static constexpr float kSpecularVisibilityGrazingOcclusionCap = 0.04f;
   static constexpr float kSpecularVisibilityFullTrustStart = 0.8f;
 
