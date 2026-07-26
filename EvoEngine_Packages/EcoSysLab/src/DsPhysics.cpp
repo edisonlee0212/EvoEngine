@@ -46,6 +46,14 @@ bool DsFungus::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   return changed;
 }
 
+namespace {
+void PackMat3Columns(glm::vec4 (&target)[3], const glm::mat3& source) {
+  target[0] = glm::vec4(source[0], 0.0f);
+  target[1] = glm::vec4(source[1], 0.0f);
+  target[2] = glm::vec4(source[2], 0.0f);
+}
+}  // namespace
+
 void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_parameters,
                        const DynamicStrands& target_dynamic_strands) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -60,10 +68,10 @@ void DsFungus::Execute(const DynamicStrands::PhysicsParameters& physics_paramete
   edge_push_constant.HC_threshold = physics_parameters.HC_threshold;
   edge_push_constant.HL_threshold = physics_parameters.HL_threshold;
   edge_push_constant.treespace = physics_parameters.treespace;
-  edge_push_constant.matrixAw4 = glm::mat4(physics_parameters.matrixAw);
-  edge_push_constant.matrixAb4 = glm::mat4(physics_parameters.matrixAb);
-  edge_push_constant.matrixAc4 = glm::mat4(physics_parameters.matrixAc);
-  edge_push_constant.matrixAm4 = glm::mat4(physics_parameters.matrixAm);
+  PackMat3Columns(edge_push_constant.matrixAw, physics_parameters.matrixAw);
+  PackMat3Columns(edge_push_constant.matrixAb, physics_parameters.matrixAb);
+  PackMat3Columns(edge_push_constant.matrixAc, physics_parameters.matrixAc);
+  PackMat3Columns(edge_push_constant.matrixAm, physics_parameters.matrixAm);
 
   // Then, update fungal properties on nodes (segments)
   FungusDiffusionNodePushConstant node_push_constant;

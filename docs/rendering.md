@@ -46,8 +46,8 @@ If a requested ray mode is unavailable, the camera falls back to the best suppor
 The renderer resolves `Scene + EnvironmentalLighting` into a `ResolvedEnvironmentalLighting` runtime view. New scenes and
 loaded scenes with an empty `Scene::environmental_lighting` reference create a temporary `EnvironmentalLighting` asset and
 link it to the scene. That default asset resolves to the engine-default indirect environment source with
-`environment_lighting_intensity = 1.0f`, `diffuse_fallback_intensity = 0.0f`, and
-`specular_fallback_intensity = 0.0f`. The resolver still keeps a defensive no-asset default for malformed in-memory state;
+`environment_lighting_intensity = 1.0f`, `diffuse_fallback_intensity = 1.0f`, and
+`specular_fallback_intensity = 1.0f`. The resolver still keeps a defensive no-asset default for malformed in-memory state;
 normal scene creation and loading should not hit it.
 
 Current implementation status: the `EnvironmentalLighting` asset schema, `Scene::environmental_lighting` reference,

@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <future>
+#include <iterator>
 #include <memory>
 #include <optional>
 #include <string>
@@ -21,6 +22,16 @@
 using namespace evo_engine;
 
 namespace {
+std::filesystem::path RepoPath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+}
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
 void SetEnvironment(const char* name, const std::string& value) {
 #ifdef _WIN32
   _putenv_s(name, value.c_str());
@@ -75,6 +86,13 @@ class ShaderCacheScope {
 constexpr const char* kComputeShader = R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {}
+)";
+
+constexpr const char* kComputeShaderGlobalDefines = R"(
+#define SUBGROUP_SIZE 32
+#define COMPUTE_SUBGROUP_COUNT 8
+#define COMPUTE_WORK_GROUP_INVOCATIONS 256
+#define MAX_COMPUTE_WORK_GROUP_INVOCATIONS 1024
 )";
 
 size_t CacheFileCount(const std::filesystem::path& root) {
@@ -164,6 +182,22 @@ TEST(ShaderCache, StageAndSourceChangesCreateDistinctEntries) {
       changed_source));
   EXPECT_EQ(CacheFileCount(scope.Root()), 3u);
   EXPECT_EQ(Shader::GetCompileCacheStats().compilations, 3u);
+}
+
+TEST(ShaderCache, EcoSysLabPackedFungusEdgeShaderCompiles) {
+  ShaderCacheScope scope;
+  Shader::RegisterShaderIncludePath(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes"));
+  Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes"));
+
+  const auto shader_path = RepoPath(
+      "EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Compute/DynamicStrands/Fungus/"
+      "FungusDiffusion_edge.comp");
+  const auto source = std::string(kComputeShaderGlobalDefines) + ReadTextFile(shader_path);
+
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, shader_path));
+  EXPECT_FALSE(binaries.empty());
 }
 
 TEST(ShaderCache, IncludeContentInvalidatesDeterministicKey) {

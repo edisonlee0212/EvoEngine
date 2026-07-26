@@ -520,13 +520,16 @@ class DynamicStrands {
   void RenderCompute() const;
   static void BuildFoliageRenderingPipelines();
   static void BuildSegmentPairsRenderingPipeline();
+  static void ReleaseStaticGpuResources();
 
   inline static std::shared_ptr<GraphicsPipeline> foliage_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
 
+  inline static std::shared_ptr<GraphicsPipeline> segment_visualization_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_pairs_visualization_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> foliage_visualization_render_pipeline{};
 
   DsMaterials& materials;
 

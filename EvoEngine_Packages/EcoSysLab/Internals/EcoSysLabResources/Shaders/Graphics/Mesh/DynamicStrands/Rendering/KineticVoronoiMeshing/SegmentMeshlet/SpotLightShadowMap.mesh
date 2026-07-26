@@ -27,15 +27,6 @@ layout(max_vertices = MAX_VERTEX_COUNT, max_primitives = MAX_PRIMITIVE_COUNT) ou
 const uint TETRAHEDRON_VERTEX_ITERATIONS = ((MAX_VERTEX_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 const uint TETRAHEDRON_PRIMITIVE_ITERATIONS = ((MAX_PRIMITIVE_COUNT + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-layout(location = 0) out MS_V_OUT {
-  vec3 FragPos;
-  vec3 Normal;
-  vec3 Tangent;
-  vec2 TexCoord;
-  vec4 Color;
-}
-ms_v_out[];
-
 struct Task {
   uint baseID;
   uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
@@ -53,15 +44,10 @@ uint laneID = gl_LocalInvocationID.x;
 
 #include "KineticVoronoiRenderingConstants.glsl"
 
-void SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex) {
+void SetUpTriangleVertex(uint vertex_index, in SegmentMeshletVertex segment_meshlet_vertex) {
   mat4 transform = EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix;
 
   vec3 pos = segment_meshlet_vertex.x - fracture_distance * segment_meshlet_vertex.shift;
-  ms_v_out[vertex_index].FragPos = pos;
-
-  ms_v_out[vertex_index].Normal = vertex_normal;
-  ms_v_out[vertex_index].Tangent = vec3(0.0, 1.0, 0.0);     // TODO
-  ms_v_out[vertex_index].Color = vec4(1.0, 1.0, 1.0, 1.0);  // TODO
   gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(pos, 1.0);
 }
 
@@ -79,8 +65,7 @@ void main() {
       for (int j = 0; j < 3; j++) {
         uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
-        vec3 normal = vec3(1, 0, 0);
-        SetUpTriangleVertex(j, normal, segment_meshlet_vertex);
+        SetUpTriangleVertex(j, segment_meshlet_vertex);
       }
     }
   }

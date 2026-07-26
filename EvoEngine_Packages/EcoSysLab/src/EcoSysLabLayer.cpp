@@ -20,6 +20,7 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
+#include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "DynamicTreeSkeleton.hpp"
@@ -39,6 +40,11 @@
 #include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
 using namespace eco_sys_lab_package;
+
+void EcoSysLabLayer::OnDestroy() {
+  DsFungusInjection::ReleaseStaticGpuResources();
+  DynamicStrands::ReleaseStaticGpuResources();
+}
 
 namespace {
 template <typename T>

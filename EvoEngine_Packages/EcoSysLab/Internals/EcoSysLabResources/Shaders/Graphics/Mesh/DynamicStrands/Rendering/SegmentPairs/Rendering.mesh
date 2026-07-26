@@ -27,6 +27,7 @@ layout(location = 0) out MS_V_OUT {
   vec3 frag_pos;
   vec3 normal;
   vec3 tangent;
+  vec2 tex_coord;
   vec4 color;
 }
 ms_v_out[];
@@ -146,13 +147,14 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(segment_pair_VERTEX_ITERATIONS); ++i) {
     uint vertex_index = laneID + i * WORKGROUP_SIZE;
-    if (vertex_index > segment_pair_VERTICES_SIZE)
+    if (vertex_index >= segment_pair_VERTICES_SIZE)
       break;
     vec3 vertex_position = positions[vertex_index];
 
     ms_v_out[vertex_index].frag_pos = vec4(instance_matrix * vec4(vertex_position, 1.0)).xyz;
     ms_v_out[vertex_index].normal = vec3(0, 1, 0);
     ms_v_out[vertex_index].tangent = vec3(0, 0, 1);
+    ms_v_out[vertex_index].tex_coord = vertex_position.xy + vec2(0.5);
     ms_v_out[vertex_index].color = color;
     gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(vertex_position, 1.0);
   }
@@ -160,7 +162,7 @@ void main() {
   [[unroll]]
   for (uint i = 0; i < uint(segment_pair_PRIMITIVE_ITERATIONS); ++i) {
     uint triangle_index = laneID + i * WORKGROUP_SIZE;
-    if (triangle_index <= segment_pair_TRIANGLE_SIZE) {
+    if (triangle_index < segment_pair_TRIANGLE_SIZE) {
       gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangles[triangle_index];
     }
   }

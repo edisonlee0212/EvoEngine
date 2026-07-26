@@ -2538,13 +2538,13 @@ void Application::Terminate() {
   this->active_scene_.reset();
   TextureStorage::OnDestroy();
   GeometryStorage::OnDestroy();
+  PackageManager::UnloadAll();
 
   if (has_render_layer) {
     Platform::OnDestroy();
   }
 
   Jobs::OnDestroy();
-  PackageManager::UnloadAll();
   Serialization::OnDestroy();
 
   this->execution_status_ = ExecutionStatus::Uninitialized;

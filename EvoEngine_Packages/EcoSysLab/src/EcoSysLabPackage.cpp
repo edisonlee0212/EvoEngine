@@ -11,6 +11,7 @@
 #include "Climate.hpp"
 #include "CubeVolume.hpp"
 #include "DsColliders.hpp"
+#include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrandGraph.hpp"
@@ -289,4 +290,5 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar*) {
 }
 
 EVOENGINE_PACKAGE_EXPORT void EvoEnginePackageUnload(PackageRegistrar*) {
+  DsFungusInjection::ReleaseStaticGpuResources();
 }

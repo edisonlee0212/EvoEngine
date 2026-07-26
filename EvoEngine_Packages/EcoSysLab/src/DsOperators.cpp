@@ -725,9 +725,6 @@ void DsStopAll::Execute(const DynamicStrands::PhysicsParameters& physics_paramet
 }
 
 DsFungusInjection::DsFungusInjection() {
-  static std::shared_ptr<Buffer> min_distance_buffer{};
-  static std::shared_ptr<DescriptorSetLayout> min_distance_layout{};
-
   if (!min_distance_layout) {
     min_distance_layout = std::make_shared<DescriptorSetLayout>();
     min_distance_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -735,8 +732,7 @@ DsFungusInjection::DsFungusInjection() {
   }
 
   if (!min_dist_reset_pipeline) {
-    static std::shared_ptr<Shader> reset_shader{};
-    reset_shader = std::make_shared<Shader>();
+    const auto reset_shader = std::make_shared<Shader>();
     reset_shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/MinDistReset.comp");
@@ -748,8 +744,7 @@ DsFungusInjection::DsFungusInjection() {
   }
 
   if (!find_closest_pipeline) {
-    static std::shared_ptr<Shader> find_closest_shader{};
-    find_closest_shader = std::make_shared<Shader>();
+    const auto find_closest_shader = std::make_shared<Shader>();
     find_closest_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                     std::filesystem::path("./EcoSysLabResources") /
                                         "Shaders/Compute/DynamicStrands/Operators/FungusFindClosest.comp");
@@ -766,8 +761,7 @@ DsFungusInjection::DsFungusInjection() {
   }
 
   if (!inject_pipeline) {
-    static std::shared_ptr<Shader> injection_shader{};
-    injection_shader = std::make_shared<Shader>();
+    const auto injection_shader = std::make_shared<Shader>();
     injection_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                  std::filesystem::path("./EcoSysLabResources") /
                                      "Shaders/Compute/DynamicStrands/Operators/FungusInjection.comp");
@@ -808,6 +802,15 @@ DsFungusInjection::DsFungusInjection() {
   min_distance_buffer->Resize(sizeof(GpuMinDistance));
   min_distance_descriptor_set->UpdateBufferDescriptorBinding(0, min_distance_buffer);
   min_distance_buffer->SetDebugName("Min distance buffer");
+}
+
+void DsFungusInjection::ReleaseStaticGpuResources() {
+  min_distance_descriptor_set.reset();
+  inject_pipeline.reset();
+  find_closest_pipeline.reset();
+  min_dist_reset_pipeline.reset();
+  min_distance_buffer.reset();
+  min_distance_layout.reset();
 }
 
 void DsFungusInjection::Update(const glm::vec2& point, const glm::vec2& screen_size, float point_size,

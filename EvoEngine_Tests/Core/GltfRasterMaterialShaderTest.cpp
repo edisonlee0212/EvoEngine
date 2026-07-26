@@ -116,6 +116,13 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("return f0 + (f90 - f0) * pow"), std::string::npos);
   EXPECT_NE(source.find("mix(dielectric_specular_f0, max(surface.base_color.rgb"), std::string::npos);
   EXPECT_EQ(source.find("return mix(vec3(0.04)"), std::string::npos);
+  const auto rebase_specular_f0 =
+      ExtractSourceRange(source, "vec3 EE_GLTF_RASTER_REBASE_SPECULAR_F0", "vec3 EE_GLTF_SAFE_NORMALIZE");
+  EXPECT_NE(rebase_specular_f0.find("return surface.specular_f0"), std::string::npos);
+  EXPECT_NE(rebase_specular_f0.find("const float metallic = clamp(surface.metallic"), std::string::npos);
+  EXPECT_NE(rebase_specular_f0.find("surface.specular_f0 - original_base_color * metallic"), std::string::npos);
+  EXPECT_NE(rebase_specular_f0.find("return mix(dielectric_specular_f0, rebased_base_color, metallic)"),
+            std::string::npos);
   EXPECT_NE(source.find("surface.occlusion = 1.0 + surface.occlusion * (occlusion - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("material.normal_texture_scale"), std::string::npos);
   EXPECT_NE(source.find("surface.emissive *="), std::string::npos);
@@ -939,6 +946,86 @@ TEST(GltfRasterMaterial, EcoSysLabDynamicFoliageMeshShadersGuardLeafOutputIndice
     EXPECT_EQ(source.find("triangle_index <= LEAF_TRIANGLE_SIZE"), std::string::npos) << path.string();
     EXPECT_NE(source.find("vertex_index >= LEAF_VERTICES_SIZE"), std::string::npos) << path.string();
     EXPECT_NE(source.find("triangle_index < LEAF_TRIANGLE_SIZE"), std::string::npos) << path.string();
+  }
+}
+
+TEST(GltfRasterMaterial, EcoSysLabSegmentPairsMeshFragmentInterfaceMatches) {
+  const auto task = ReadTextFile(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Task/DynamicStrands/"
+               "Rendering/SegmentPairs.task"));
+  const auto mesh = ReadTextFile(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/SegmentPairs/Rendering.mesh"));
+  const auto fragment = ReadTextFile(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/SegmentPairs.frag"));
+  ASSERT_FALSE(task.empty());
+  ASSERT_FALSE(mesh.empty());
+  ASSERT_FALSE(fragment.empty());
+
+  EXPECT_NE(task.find("bool render = segment_pair_index_global < segment_pairs_size"), std::string::npos);
+  EXPECT_EQ(task.find("Segment segment0 = segments[segment_pair.segment0_handle]"), std::string::npos);
+  EXPECT_NE(mesh.find("vec2 tex_coord"), std::string::npos);
+  EXPECT_NE(mesh.find("ms_v_out[vertex_index].tex_coord = vertex_position.xy + vec2(0.5)"), std::string::npos);
+  EXPECT_NE(mesh.find("vertex_index >= segment_pair_VERTICES_SIZE"), std::string::npos);
+  EXPECT_NE(mesh.find("triangle_index < segment_pair_TRIANGLE_SIZE"), std::string::npos);
+  EXPECT_NE(fragment.find("vec2 TexCoord"), std::string::npos);
+  EXPECT_NE(fragment.find("vec4 Color"), std::string::npos);
+
+  const auto visualization_task = ReadTextFile(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Task/DynamicStrands/"
+               "Visualization/SegmentPairs.task"));
+  const auto visualization_mesh = ReadTextFile(
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Visualization/SegmentPairs.mesh"));
+  ASSERT_FALSE(visualization_task.empty());
+  ASSERT_FALSE(visualization_mesh.empty());
+
+  EXPECT_NE(visualization_task.find("bool render = segment_pair_index_global < segment_pairs_size"), std::string::npos);
+  EXPECT_EQ(visualization_task.find("Segment segment0 = segments[segment_pair.segment0_handle]"), std::string::npos);
+  EXPECT_NE(visualization_mesh.find("vertex_index >= segment_pair_VERTICES_SIZE"), std::string::npos);
+  EXPECT_NE(visualization_mesh.find("triangle_index < segment_pair_TRIANGLE_SIZE"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, EcoSysLabShadowMeshShadersAvoidUnusedFragmentVaryings) {
+  const std::filesystem::path depth_only_shadow_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/PointLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/SpotLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/Foliage/DirectionalLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/KineticVoronoiMeshing/SegmentMeshlet/PointLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/KineticVoronoiMeshing/SegmentMeshlet/SpotLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/KineticVoronoiMeshing/SegmentMeshlet/DirectionalLightShadowMap.mesh"),
+  };
+
+  for (const auto& path : depth_only_shadow_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_EQ(source.find("out MS_V_OUT"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("ms_v_out["), std::string::npos) << path.string();
+  }
+
+  const std::filesystem::path small_segment_shadow_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/AlphaShapeMeshing/SmallSegments/PointLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/AlphaShapeMeshing/SmallSegments/SpotLightShadowMap.mesh"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Mesh/DynamicStrands/"
+               "Rendering/AlphaShapeMeshing/SmallSegments/DirectionalLightShadowMap.mesh"),
+  };
+
+  for (const auto& path : small_segment_shadow_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("vertex_index >= SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE"), std::string::npos)
+        << path.string();
+    EXPECT_NE(source.find("triangle_index < SMALL_SEGMENT_SHADOW_MAP_TRIANGLE_SIZE"), std::string::npos)
+        << path.string();
   }
 }
 

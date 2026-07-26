@@ -17,7 +17,6 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
 
-  static std::shared_ptr<GraphicsPipeline> segment_render_pipeline{};
   struct SegmentRenderPushConstant {
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
@@ -30,46 +29,42 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     float length_multiplier = 1.0f;
   };
 
-  if (!segment_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
+  if (!segment_visualization_render_pipeline) {
     // Load shader
-    task_shader = std::make_shared<Shader>();
+    const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Task/DynamicStrands/Visualization/Segments.task");
-    mesh_shader = std::make_shared<Shader>();
+    const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Segments.mesh");
-    frag_shader = std::make_shared<Shader>();
+    const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
-    segment_render_pipeline = std::make_shared<GraphicsPipeline>();
-    segment_render_pipeline->task_shader = task_shader;
-    segment_render_pipeline->mesh_shader = mesh_shader;
+    segment_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
+    segment_visualization_render_pipeline->task_shader = task_shader;
+    segment_visualization_render_pipeline->mesh_shader = mesh_shader;
 
-    segment_render_pipeline->fragment_shader = frag_shader;
-    segment_render_pipeline->geometry_type = GeometryType::Mesh;
+    segment_visualization_render_pipeline->fragment_shader = frag_shader;
+    segment_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    segment_render_pipeline->descriptor_set_layouts.emplace_back(
+    segment_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
-    segment_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    segment_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    segment_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    segment_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    segment_visualization_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    segment_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    segment_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    segment_visualization_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
 
-    auto& push_constant_range = segment_render_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = segment_visualization_render_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(SegmentRenderPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    segment_render_pipeline->Initialize();
+    segment_visualization_render_pipeline->Initialize();
   }
-  static std::shared_ptr<GraphicsPipeline> segment_pair_render_pipeline{};
   struct SegmentPairRenderPushConstant {
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
@@ -81,47 +76,44 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     float factor = 1.0f;
   };
 
-  if (!segment_pair_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
+  if (!segment_pairs_visualization_render_pipeline) {
     // Load shader
-    task_shader = std::make_shared<Shader>();
+    const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Task/DynamicStrands/Visualization/SegmentPairs.task");
-    mesh_shader = std::make_shared<Shader>();
+    const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Mesh/DynamicStrands/Visualization/SegmentPairs.mesh");
-    frag_shader = std::make_shared<Shader>();
+    const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
-    segment_pair_render_pipeline = std::make_shared<GraphicsPipeline>();
-    segment_pair_render_pipeline->task_shader = task_shader;
-    segment_pair_render_pipeline->mesh_shader = mesh_shader;
+    segment_pairs_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
+    segment_pairs_visualization_render_pipeline->task_shader = task_shader;
+    segment_pairs_visualization_render_pipeline->mesh_shader = mesh_shader;
 
-    segment_pair_render_pipeline->fragment_shader = frag_shader;
-    segment_pair_render_pipeline->geometry_type = GeometryType::Mesh;
+    segment_pairs_visualization_render_pipeline->fragment_shader = frag_shader;
+    segment_pairs_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(
+    segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
-    segment_pair_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    segment_pair_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    segment_pair_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    segment_pair_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    segment_pairs_visualization_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    segment_pairs_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    segment_pairs_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    segment_pairs_visualization_render_pipeline->color_attachment_formats = {1,
+                                                                             Platform::Constants::render_texture_color};
 
-    auto& push_constant_range = segment_pair_render_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = segment_pairs_visualization_render_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(SegmentPairRenderPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    segment_pair_render_pipeline->Initialize();
+    segment_pairs_visualization_render_pipeline->Initialize();
   }
 
-  static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
   struct FoliageRenderPushConstant {
     glm::vec4 min_color = glm::vec4(0.2f);
     glm::vec4 max_color = glm::vec4(1.f);
@@ -131,44 +123,41 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     uint32_t render_mode = 0;
   };
 
-  if (!foliage_render_pipeline) {
-    static std::shared_ptr<Shader> task_shader{};
-    static std::shared_ptr<Shader> mesh_shader{};
-    static std::shared_ptr<Shader> frag_shader{};
+  if (!foliage_visualization_render_pipeline) {
     // Load shader
-    task_shader = std::make_shared<Shader>();
+    const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Task/DynamicStrands/Visualization/Foliage.task");
-    mesh_shader = std::make_shared<Shader>();
+    const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
                                 "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Foliage.mesh");
-    frag_shader = std::make_shared<Shader>();
+    const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
     // Descriptor set layout
-    foliage_render_pipeline = std::make_shared<GraphicsPipeline>();
-    foliage_render_pipeline->task_shader = task_shader;
-    foliage_render_pipeline->mesh_shader = mesh_shader;
+    foliage_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
+    foliage_visualization_render_pipeline->task_shader = task_shader;
+    foliage_visualization_render_pipeline->mesh_shader = mesh_shader;
 
-    foliage_render_pipeline->fragment_shader = frag_shader;
-    foliage_render_pipeline->geometry_type = GeometryType::Mesh;
+    foliage_visualization_render_pipeline->fragment_shader = frag_shader;
+    foliage_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
 
-    foliage_render_pipeline->descriptor_set_layouts.emplace_back(
+    foliage_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
-    foliage_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
-    foliage_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    foliage_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    foliage_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
+    foliage_visualization_render_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
+    foliage_visualization_render_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    foliage_visualization_render_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    foliage_visualization_render_pipeline->color_attachment_formats = {1, Platform::Constants::render_texture_color};
 
-    auto& push_constant_range = foliage_render_pipeline->push_constant_ranges.emplace_back();
+    auto& push_constant_range = foliage_visualization_render_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(FoliageRenderPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
 
-    foliage_render_pipeline->Initialize();
+    foliage_visualization_render_pipeline->Initialize();
   }
 
   const uint32_t task_work_group_invocations =
@@ -287,65 +276,65 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     // GBuffer)
 
     if (visualization_parameters.render_segment_pairs) {
-      segment_pair_render_pipeline->states.ResetAllStates(1);
-      segment_pair_render_pipeline->states.view_port = viewport;
-      segment_pair_render_pipeline->states.scissor = scissor;
-      segment_pair_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
-      segment_pair_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+      segment_pairs_visualization_render_pipeline->states.ResetAllStates(1);
+      segment_pairs_visualization_render_pipeline->states.view_port = viewport;
+      segment_pairs_visualization_render_pipeline->states.scissor = scissor;
+      segment_pairs_visualization_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      segment_pairs_visualization_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
-      segment_pair_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      segment_pairs_visualization_render_pipeline->states.ApplyAllStates(vk_command_buffer);
       target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-            segment_pair_render_pipeline->Bind(vk_command_buffer);
-            segment_pair_render_pipeline->BindDescriptorSet(
+            segment_pairs_visualization_render_pipeline->Bind(vk_command_buffer);
+            segment_pairs_visualization_render_pipeline->BindDescriptorSet(
                 vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            segment_pair_render_pipeline->BindDescriptorSet(
+            segment_pairs_visualization_render_pipeline->BindDescriptorSet(
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            segment_pair_render_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
+            segment_pairs_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, segment_pair_push_constant);
             const uint32_t count = Platform::DivUp(segment_pairs.size(), task_work_group_invocations);
-            segment_pair_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+            segment_pairs_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
 
     if (visualization_parameters.render_segments) {
-      segment_render_pipeline->states.ResetAllStates(1);
-      segment_render_pipeline->states.view_port = viewport;
-      segment_render_pipeline->states.scissor = scissor;
-      segment_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
-      segment_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+      segment_visualization_render_pipeline->states.ResetAllStates(1);
+      segment_visualization_render_pipeline->states.view_port = viewport;
+      segment_visualization_render_pipeline->states.scissor = scissor;
+      segment_visualization_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      segment_visualization_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
-      segment_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      segment_visualization_render_pipeline->states.ApplyAllStates(vk_command_buffer);
       target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-            segment_render_pipeline->Bind(vk_command_buffer);
-            segment_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                       RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            segment_render_pipeline->BindDescriptorSet(
+            segment_visualization_render_pipeline->Bind(vk_command_buffer);
+            segment_visualization_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            segment_visualization_render_pipeline->BindDescriptorSet(
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            segment_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+            segment_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
             const uint32_t count = Platform::DivUp(segments.size(), task_work_group_invocations);
-            segment_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+            segment_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
 
     if (visualization_parameters.render_foliage) {
-      foliage_render_pipeline->states.ResetAllStates(1);
-      foliage_render_pipeline->states.view_port = viewport;
-      foliage_render_pipeline->states.scissor = scissor;
-      foliage_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
-      foliage_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
+      foliage_visualization_render_pipeline->states.ResetAllStates(1);
+      foliage_visualization_render_pipeline->states.view_port = viewport;
+      foliage_visualization_render_pipeline->states.scissor = scissor;
+      foliage_visualization_render_pipeline->states.polygon_mode = VK_POLYGON_MODE_FILL;
+      foliage_visualization_render_pipeline->states.color_blend_attachment_states[0].blendEnable = true;
 
-      foliage_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+      foliage_visualization_render_pipeline->states.ApplyAllStates(vk_command_buffer);
       target_camera->GetRenderTexture()->Render(
           vk_command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
-            foliage_render_pipeline->Bind(vk_command_buffer);
-            foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                       RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-            foliage_render_pipeline->BindDescriptorSet(
+            foliage_visualization_render_pipeline->Bind(vk_command_buffer);
+            foliage_visualization_render_pipeline->BindDescriptorSet(
+                vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+            foliage_visualization_render_pipeline->BindDescriptorSet(
                 vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-            foliage_render_pipeline->PushConstant(vk_command_buffer, 0, foliage_push_constant);
+            foliage_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, foliage_push_constant);
             const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-            foliage_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+            foliage_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
           });
     }
   });

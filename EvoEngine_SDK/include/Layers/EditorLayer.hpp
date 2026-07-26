@@ -1149,7 +1149,7 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, c
       OpenAssetInspector(ptr ? ptr->GetHandle() : asset_handle);
     }
   } else {
-    ImGui::Button("none");
+    ImGui::Button((std::string("none##") + name).c_str());
   }
   ImGui::PopStyleColor(1);
   status_changed = Droppable<T>(target) || status_changed;
@@ -1166,7 +1166,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
     const auto scene = ApplicationContext::Get().GetActiveScene();
     if (!scene->IsEntityValid(ptr->GetOwner())) {
       target.Clear();
-      ImGui::Button("none");
+      ImGui::Button((std::string("none##") + name).c_str());
       ImGui::PopStyleColor(1);
       return true;
     }
@@ -1179,7 +1179,7 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
       selected_entity_ = ptr->GetOwner();
     }
   } else {
-    ImGui::Button("none");
+    ImGui::Button((std::string("none##") + name).c_str());
   }
   ImGui::PopStyleColor(1);
   status_changed = Droppable<T>(target) || status_changed;
