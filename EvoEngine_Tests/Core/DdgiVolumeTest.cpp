@@ -1162,6 +1162,8 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_EQ(lighting_source.find("EE_DDGI_PROBE_COORDINATE(fragPos"), std::string::npos);
 
   EXPECT_NE(gather_source.find("struct EeDdgiGatherResult"), std::string::npos);
+  EXPECT_NE(gather_source.find("float visibility"), std::string::npos);
+  EXPECT_NE(gather_source.find("result.visibility = 1.0f"), std::string::npos);
   EXPECT_NE(gather_source.find("irradiance_gamma * 0.5f"), std::string::npos);
   EXPECT_NE(gather_source.find("const vec4 probe_state = EE_DDGI_LOAD_PROBE_STATE(volume_index, probe_index);"),
             std::string::npos);
@@ -1174,6 +1176,9 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(scroll_source.find("float4(0.0f)"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance"),
             std::string::npos);
+  EXPECT_NE(gather_source.find("visibility_sum += clamped_probe_visibility * valid_probe_weight"), std::string::npos);
+  EXPECT_NE(gather_source.find("result.visibility = clamp(visibility_sum / valid_probe_weight_sum"), std::string::npos);
+  EXPECT_NE(gather_source.find("float EE_DDGI_GATHER_VISIBILITY"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_VOLUME_BLEND_WEIGHT(volume_probe_coordinate"), std::string::npos);
   EXPECT_NE(gather_source.find("decoded_irradiance *= decoded_irradiance * (2.0f * EE_DDGI_PI);"), std::string::npos);
   EXPECT_NE(gather_source.find("diffuse_albedo / EE_DDGI_PI * gather_result.irradiance"), std::string::npos);

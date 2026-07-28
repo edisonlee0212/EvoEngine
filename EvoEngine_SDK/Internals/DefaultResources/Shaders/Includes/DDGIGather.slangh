@@ -9,6 +9,7 @@ struct EeDdgiGatherResult {
   vec3 irradiance;
   float coverage;
   float confidence;
+  float visibility;
 };
 
 EeDdgiGatherResult EE_DDGI_EMPTY_GATHER() {
@@ -16,6 +17,7 @@ EeDdgiGatherResult EE_DDGI_EMPTY_GATHER() {
   result.irradiance = vec3(0.0f);
   result.coverage = 0.0f;
   result.confidence = 0.0f;
+  result.visibility = 1.0f;
   return result;
 }
 
@@ -159,6 +161,7 @@ EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE(const uint volume_index, con
   float radiance_weight_sum = 0.0f;
   float active_probe_weight_sum = 0.0f;
   float valid_probe_weight_sum = 0.0f;
+  float visibility_sum = 0.0f;
   for (uint z = 0u; z < 2u; ++z) {
     for (uint y = 0u; y < 2u; ++y) {
       for (uint x = 0u; x < 2u; ++x) {
@@ -205,10 +208,15 @@ EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE(const uint volume_index, con
         const float valid_probe_weight = trilinear_weight * irradiance_validity;
         valid_probe_weight_sum += valid_probe_weight;
 
+        const float probe_visibility =
+            EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias);
+        const float clamped_probe_visibility =
+            isnan(probe_visibility) || isinf(probe_visibility) ? 0.0f : clamp(probe_visibility, 0.0f, 1.0f);
+        visibility_sum += clamped_probe_visibility * valid_probe_weight;
+
         const float wrap_shading = (dot(surface_to_probe_direction, normal) + 1.0f) * 0.5f;
         float visibility_weight = wrap_shading * wrap_shading + 0.2f;
-        visibility_weight *= max(
-            0.05f, EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance, visibility_bias));
+        visibility_weight *= max(0.05f, clamped_probe_visibility);
         visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(max(0.000001f, visibility_weight));
         const float sample_weight = valid_probe_weight * visibility_weight;
         irradiance_sum +=
@@ -229,6 +237,7 @@ EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE(const uint volume_index, con
   }
   result.irradiance = decoded_irradiance;
   result.confidence = clamp(valid_probe_weight_sum / active_probe_weight_sum, 0.0f, 1.0f);
+  result.visibility = clamp(visibility_sum / valid_probe_weight_sum, 0.0f, 1.0f);
   return result;
 }
 
@@ -301,6 +310,10 @@ EeDdgiGatherResult EE_DDGI_GATHER_IRRADIANCE(const vec3 normal, const vec3 view_
     result.irradiance =
         (primary.irradiance * primary_effective_weight + secondary.irradiance * secondary_effective_weight) /
         confidence;
+    result.visibility =
+        clamp((primary.visibility * primary_effective_weight + secondary.visibility * secondary_effective_weight) /
+                  confidence,
+              0.0f, 1.0f);
   }
   return result;
 #else
@@ -313,6 +326,11 @@ EeDdgiGatherResult EE_DDGI_GATHER_IRRADIANCE(const vec3 normal, const vec3 view_
 float EE_DDGI_GATHER_WEIGHT(const EeDdgiGatherResult gather_result) {
   const float weight = gather_result.coverage * gather_result.confidence;
   return isnan(weight) || isinf(weight) ? 0.0f : clamp(weight, 0.0f, 1.0f);
+}
+
+float EE_DDGI_GATHER_VISIBILITY(const EeDdgiGatherResult gather_result) {
+  const float visibility = gather_result.visibility;
+  return isnan(visibility) || isinf(visibility) ? 1.0f : clamp(visibility, 0.0f, 1.0f);
 }
 
 vec3 EE_DDGI_DIFFUSE_RADIANCE(const EeDdgiGatherResult gather_result, const vec3 diffuse_albedo) {
