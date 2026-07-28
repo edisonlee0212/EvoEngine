@@ -1635,8 +1635,8 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
 void AddRenderingDemoReflectionProbeComparisonSpheres(const std::shared_ptr<Scene>& scene, const Entity& root) {
   constexpr float root_scale = 0.5f;
   constexpr float sphere_world_scale = 0.28f;
-  constexpr float bottom_y = -0.72f;
-  constexpr float top_y = -0.16f;
+  constexpr float bottom_y = -0.42f;
+  constexpr float top_y = 0.14f;
   constexpr float sphere_z = -2.55f;
   const auto collection = scene->CreateEntity("Reflection Probe Comparison Spheres");
   scene->SetParent(collection, root);
