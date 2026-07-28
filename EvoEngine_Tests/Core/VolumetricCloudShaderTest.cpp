@@ -28,7 +28,7 @@ size_t CountOccurrences(const std::string& source, const std::string& pattern) {
 TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.glsl");
+                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.slangh");
   ASSERT_FALSE(shader_source.empty());
 
   EXPECT_NE(shader_source.find("struct VolumetricCloudSettingsGpu"), std::string::npos);
@@ -108,7 +108,7 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
 TEST(VolumetricCloudShader, SharedLibraryStaysIndependentFromDdgiAndShaderForks) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.glsl");
+                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.slangh");
   ASSERT_FALSE(shader_source.empty());
 
   EXPECT_EQ(shader_source.find("DDGI"), std::string::npos);
@@ -121,10 +121,10 @@ TEST(VolumetricCloudShader, SharedLibraryStaysIndependentFromDdgiAndShaderForks)
 TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Compute" / "VolumetricClouds.comp");
+                   "DefaultResources" / "Shaders" / "Compute" / "VolumetricClouds.slang");
   ASSERT_FALSE(shader_source.empty());
 
-  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.glsl\""), std::string::npos);
+  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.slangh\""), std::string::npos);
   EXPECT_NE(shader_source.find("layout(set = 1, binding = 0) uniform sampler2D inDepth"), std::string::npos);
   EXPECT_NE(shader_source.find("layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D outCloudAccumulation"),
             std::string::npos);
@@ -155,10 +155,10 @@ TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
 TEST(VolumetricCloudShader, CompositeComputeUpsamplesDepthAwareClouds) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Compute" / "VolumetricCloudsComposite.comp");
+                   "DefaultResources" / "Shaders" / "Compute" / "VolumetricCloudsComposite.slang");
   ASSERT_FALSE(shader_source.empty());
 
-  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.glsl\""), std::string::npos);
+  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.slangh\""), std::string::npos);
   EXPECT_NE(shader_source.find("layout(set = 1, binding = 1, rgba32f) uniform image2D inOutColor"), std::string::npos);
   EXPECT_NE(shader_source.find("layout(set = 1, binding = 4) uniform sampler2D inCloudAccumulation"),
             std::string::npos);
@@ -238,8 +238,8 @@ TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   ASSERT_FALSE(render_layer_source.empty());
-  EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricClouds.comp"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricCloudsComposite.comp"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricClouds.slang"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("Shaders/Compute/VolumetricCloudsComposite.slang"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_clouds_layout_->PushDescriptorBinding(6"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_clouds_layout_->PushDescriptorBinding(7"), std::string::npos);
   EXPECT_NE(render_layer_source.find("volumetric_clouds_layout_->PushDescriptorBinding(8"), std::string::npos);
@@ -256,10 +256,10 @@ TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
 TEST(VolumetricCloudShader, RayTracingCameraWritesHitDistanceForCloudPass) {
   const auto raygen_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "RayTracing" / "RayGen" / "Camera.rgen");
+                   "DefaultResources" / "Shaders" / "RayTracing" / "RayGen" / "Camera.slang");
   const auto integrator_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "CameraRayIntegrator.glsl");
+                   "DefaultResources" / "Shaders" / "Includes" / "CameraRayIntegrator.slangh");
   ASSERT_FALSE(raygen_source.empty());
   ASSERT_FALSE(integrator_source.empty());
   EXPECT_NE(raygen_source.find("layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image"),

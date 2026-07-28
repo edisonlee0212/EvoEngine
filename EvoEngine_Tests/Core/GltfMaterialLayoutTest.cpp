@@ -71,7 +71,7 @@ TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
 
 TEST(GltfMaterialLayout, ShaderIncludeKeepsMaterialLayoutGatesSeparateFromBehaviorGates) {
   const auto shader_source = ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                                      "DefaultResources" / "Shaders" / "Includes" / "GltfMaterial.glsl");
+                                      "DefaultResources" / "Shaders" / "Includes" / "GltfMaterial.slangh");
 
   EXPECT_NE(shader_source.find("MAT_EXT_SPECULAR_GLOSSINESS"), std::string::npos);
   EXPECT_NE(shader_source.find("MAT_EXT_TEXTURE_TRANSFORM"), std::string::npos);

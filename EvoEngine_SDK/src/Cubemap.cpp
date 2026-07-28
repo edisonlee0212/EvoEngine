@@ -415,10 +415,10 @@ void Cubemap::BuildSkyIllumination(const SkyIllumination& sky_illumination, uint
     atmosphere_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
     atmosphere_to_cubemap_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
-                                                        "Shaders/Graphics/Vertex/Lighting/AtmosphereToCubemap.vert");
+                                                        "Shaders/Graphics/Vertex/Lighting/AtmosphereToCubemap.slang");
     atmosphere_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment,
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/AtmosphereToCubemap.slang");
     atmosphere_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
     atmosphere_to_cubemap_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
 
@@ -581,10 +581,10 @@ void Cubemap::ConvertFromEquirectangularTexture(const std::shared_ptr<Texture2D>
     equirectangular_to_cubemap_pipeline_ = std::make_shared<GraphicsPipeline>();
     equirectangular_to_cubemap_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
-                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
+                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.slang");
     equirectangular_to_cubemap_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment,
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.slang");
     equirectangular_to_cubemap_pipeline_->geometry_type = GeometryType::Mesh;
     equirectangular_to_cubemap_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
 

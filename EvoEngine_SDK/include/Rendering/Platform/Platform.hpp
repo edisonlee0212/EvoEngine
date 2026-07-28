@@ -234,6 +234,14 @@ class Platform final {
     VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties_khr = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR};
 
+#ifdef VK_EXT_ray_tracing_invocation_reorder
+    VkPhysicalDeviceRayTracingInvocationReorderPropertiesEXT ray_tracing_invocation_reorder_properties_ext = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_EXT};
+
+    VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT ray_tracing_invocation_reorder_features_ext = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT};
+#endif
+
 #ifdef VK_NV_ray_tracing_invocation_reorder
     VkPhysicalDeviceRayTracingInvocationReorderPropertiesNV ray_tracing_invocation_reorder_properties_nv = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_PROPERTIES_NV};

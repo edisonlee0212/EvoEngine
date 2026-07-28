@@ -28,6 +28,7 @@ void DispatchProbeUpdate(const VkCommandBuffer vk_command_buffer, const DdgiProb
   pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
   auto push_constant = parameters.push_constant;
   push_constant.atlas_columns_fixed_ray_count_and_update_mode.w = update_mode;
+  push_constant.probe_scroll_offset.w = static_cast<int32_t>(std::max(group_count_x, 1u));
   pipeline->PushConstant(vk_command_buffer, 0, push_constant);
   const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, timestamp_name);
   pipeline->Dispatch(vk_command_buffer, group_count_x, group_count_y);

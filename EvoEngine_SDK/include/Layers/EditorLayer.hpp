@@ -1140,13 +1140,18 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name, c
   if (ptr || asset_handle.GetValue() != 0) {
     const std::string tag = GetAssetRefImGuiTag(target);
     ImGui::Button((GetAssetRefDisplayName(target) + tag).c_str());
+    const bool open_requested = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0);
     Draggable(target);
     if (modifiable) {
       status_changed = ptr ? RenameAsset(ptr) : false;
       status_changed = Remove(target) || status_changed;
     }
-    if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      OpenAssetInspector(ptr ? ptr->GetHandle() : asset_handle);
+    if (!status_changed && open_requested) {
+      if (ptr) {
+        OpenAssetInspector(ptr);
+      } else {
+        OpenAssetInspector(asset_handle);
+      }
     }
   } else {
     ImGui::Button((std::string("none##") + name).c_str());

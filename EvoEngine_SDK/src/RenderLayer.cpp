@@ -66,6 +66,7 @@
 #include <initializer_list>
 #include <limits>
 #include <numeric>
+#include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -348,12 +349,12 @@ std::shared_ptr<GraphicsPipeline> CreateStrandShadowMeshPipeline(
   auto pipeline = std::make_shared<GraphicsPipeline>();
   pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
-      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/StrandsShadowMap.task");
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/StrandsShadowMap.slang");
   pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(), mesh_shader_path);
   pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+                              Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang");
   pipeline->descriptor_set_layouts = {per_frame_layout, strand_meshlet_layout};
   pipeline->depth_attachment_format = Platform::Constants::shadow_map;
   pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -373,15 +374,15 @@ std::shared_ptr<GraphicsPipeline> CreateGaussianSplatPipeline(
   if (use_mesh_shader) {
     pipeline->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/GaussianSplat/GaussianSplat.mesh");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/GaussianSplat/GaussianSplat.slang");
   } else {
     pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/GaussianSplat/GaussianSplat.slang");
   }
   pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/GaussianSplat/GaussianSplat.frag");
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/GaussianSplat/GaussianSplat.slang");
   pipeline->geometry_type = GeometryType::Mesh;
   pipeline->vertex_input_enabled = false;
   pipeline->primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -1709,20 +1710,20 @@ std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
   pipeline->SetMaxRecursionDepth(1);
   pipeline->raygen_shader =
       Shader::CreateTemporary(ShaderType::RayGen, shader_header,
-                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.rgen");
+                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.slang");
   pipeline->miss_shader =
       shared_miss_shader
           ? shared_miss_shader
           : Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-                                    Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/Camera.rmiss");
+                                    Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/Camera.slang");
   pipeline->closest_hit_shader =
       shared_closest_hit_shader ? shared_closest_hit_shader
                                 : Shader::CreateTemporary(ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
                                                           Resources::GetDefaultResourcesPath() /
-                                                              "Shaders/RayTracing/ClosestHit/Camera.rchit");
+                                                              "Shaders/RayTracing/ClosestHit/Camera.slang");
   pipeline->any_hit_shader =
       Shader::CreateTemporary(ShaderType::AnyHit, shader_header,
-                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/Camera.rahit");
+                              Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/Camera.slang");
   pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
   auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(RayTracingCameraPushConstant);
@@ -1738,8 +1739,9 @@ std::shared_ptr<ComputePipeline> CreateRayQueryCameraPipeline(
     const std::shared_ptr<DescriptorSetLayout>& ray_tracing_layout,
     const std::shared_ptr<DescriptorSetLayout>& camera_output_layout, const std::string& shader_header) {
   auto pipeline = std::make_shared<ComputePipeline>();
-  pipeline->compute_shader = Shader::CreateTemporary(
-      ShaderType::Compute, shader_header, Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.comp");
+  pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, shader_header,
+                              Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.slang");
   pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
   auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(RayTracingCameraPushConstant);
@@ -2350,6 +2352,28 @@ void RenderLayer::RegisterCameraRenderPass(
 }
 
 void RenderLayer::OnCreate() {
+  const auto startup_begin = std::chrono::steady_clock::now();
+  const auto shader_stats_begin = Shader::GetCompileCacheStats();
+  const auto initialize_render_instance_storage = [&] {
+    const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
+    render_instances_list_.resize(max_frames_in_flight);
+    for (auto& i : render_instances_list_) {
+      i = std::make_shared<RenderInstanceStorage>();
+    }
+  };
+  const auto log_startup = [&](const bool prewarm_enabled) {
+    const auto shader_stats = Shader::GetCompileCacheStats();
+    std::ostringstream stream;
+    stream << "EVOENGINE_RENDER_LAYER_STARTUP prewarm=" << (prewarm_enabled ? "enabled" : "disabled") << " elapsed_ms="
+           << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - startup_begin).count()
+           << " shader_memory_hits=" << (shader_stats.memory_hits - shader_stats_begin.memory_hits)
+           << " shader_disk_hits=" << (shader_stats.disk_hits - shader_stats_begin.disk_hits)
+           << " shader_disk_misses=" << (shader_stats.disk_misses - shader_stats_begin.disk_misses)
+           << " shader_compilations=" << (shader_stats.compilations - shader_stats_begin.compilations)
+           << " shader_slang_frontend="
+           << (shader_stats.slang_frontend_invocations - shader_stats_begin.slang_frontend_invocations);
+    EVOENGINE_LOG(stream.str())
+  };
   post_processing_renderer_resources_ = std::make_shared<PostProcessingRendererResources>();
   render_graph_transient_resource_stores_.clear();
   render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
@@ -2363,11 +2387,16 @@ void RenderLayer::OnCreate() {
   if (!ddgi_atlas_sampler_) {
     ddgi_atlas_sampler_ = CreateDdgiAtlasSampler();
   }
+  if (!ApplicationContext::Get().GetApplicationInfo().prewarm_render_pipelines) {
+    initialize_render_instance_storage();
+    log_startup(false);
+    return;
+  }
   if (!depth_pyramid_pipeline_) {
     depth_pyramid_pipeline_ = std::make_shared<ComputePipeline>();
     depth_pyramid_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DepthPyramid.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DepthPyramid.slang");
     depth_pyramid_pipeline_->descriptor_set_layouts.emplace_back(depth_pyramid_layout_);
     auto& push_constant_range = depth_pyramid_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(glm::uvec4);
@@ -2379,7 +2408,7 @@ void RenderLayer::OnCreate() {
     motion_vectors_pipeline_ = std::make_shared<ComputePipeline>();
     motion_vectors_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/MotionVectors.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/MotionVectors.slang");
     motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
     motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_vectors_layout_);
@@ -2393,7 +2422,7 @@ void RenderLayer::OnCreate() {
     volumetric_clouds_pipeline_ = std::make_shared<ComputePipeline>();
     volumetric_clouds_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricClouds.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricClouds.slang");
     volumetric_clouds_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     volumetric_clouds_pipeline_->descriptor_set_layouts.emplace_back(volumetric_clouds_layout_);
     auto& push_constant_range = volumetric_clouds_pipeline_->push_constant_ranges.emplace_back();
@@ -2406,7 +2435,7 @@ void RenderLayer::OnCreate() {
     volumetric_clouds_composite_pipeline_ = std::make_shared<ComputePipeline>();
     volumetric_clouds_composite_pipeline_->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricCloudsComposite.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/VolumetricCloudsComposite.slang");
     volumetric_clouds_composite_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     volumetric_clouds_composite_pipeline_->descriptor_set_layouts.emplace_back(volumetric_clouds_layout_);
     auto& push_constant_range = volumetric_clouds_composite_pipeline_->push_constant_ranges.emplace_back();
@@ -2419,7 +2448,7 @@ void RenderLayer::OnCreate() {
     gaussian_splat_cull_pipeline_ = std::make_shared<ComputePipeline>();
     gaussian_splat_cull_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/GaussianSplatCull.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/GaussianSplatCull.slang");
     gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     gaussian_splat_cull_pipeline_->descriptor_set_layouts.emplace_back(gaussian_splat_layout_);
     auto& push_constant_range = gaussian_splat_cull_pipeline_->push_constant_ranges.emplace_back();
@@ -2445,16 +2474,16 @@ void RenderLayer::OnCreate() {
   };
   const auto gaussian_splat_compute_path = Resources::GetDefaultResourcesPath() / "Shaders/Compute";
   create_gaussian_splat_radix_pipeline(gaussian_splat_radix_upsweep_pipeline_,
-                                       gaussian_splat_compute_path / "GaussianSplatRadixUpsweep.comp");
+                                       gaussian_splat_compute_path / "GaussianSplatRadixUpsweep.slang");
   create_gaussian_splat_radix_pipeline(gaussian_splat_radix_spine_pipeline_,
-                                       gaussian_splat_compute_path / "GaussianSplatRadixSpine.comp");
+                                       gaussian_splat_compute_path / "GaussianSplatRadixSpine.slang");
   create_gaussian_splat_radix_pipeline(gaussian_splat_radix_downsweep_pipeline_,
-                                       gaussian_splat_compute_path / "GaussianSplatRadixDownsweep.comp");
+                                       gaussian_splat_compute_path / "GaussianSplatRadixDownsweep.slang");
   if (!ddgi_probe_scroll_pipeline_) {
     ddgi_probe_scroll_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_scroll_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeScroll.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeScroll.slang");
     ddgi_probe_scroll_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
     auto& push_constant_range = ddgi_probe_scroll_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeScrollPushConstant);
@@ -2466,7 +2495,7 @@ void RenderLayer::OnCreate() {
     ddgi_probe_update_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_update_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
     ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     ddgi_probe_update_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
     auto& push_constant_range = ddgi_probe_update_pipeline_->push_constant_ranges.emplace_back();
@@ -2499,7 +2528,7 @@ void RenderLayer::OnCreate() {
                                  (use_shared_rays ? "1\n" : "0\n");
       pipeline->compute_shader =
           Shader::CreateTemporary(ShaderType::Compute, shader_header,
-                                  Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.comp");
+                                  Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeUpdate.slang");
       pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
       pipeline->descriptor_set_layouts.emplace_back(ddgi_probe_update_layout_);
       auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
@@ -2542,7 +2571,7 @@ void RenderLayer::OnCreate() {
     ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_relocation_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeRelocation.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeRelocation.slang");
     ddgi_probe_relocation_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_relocation_layout_);
     auto& push_constant_range = ddgi_probe_relocation_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeRelocationPushConstant);
@@ -2554,7 +2583,7 @@ void RenderLayer::OnCreate() {
     ddgi_probe_classification_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_classification_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeClassification.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeClassification.slang");
     ddgi_probe_classification_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_classification_layout_);
     auto& push_constant_range = ddgi_probe_classification_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeClassificationPushConstant);
@@ -2566,7 +2595,7 @@ void RenderLayer::OnCreate() {
     ddgi_probe_variability_reduce_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_variability_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityReduce.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityReduce.slang");
     ddgi_probe_variability_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
     auto& push_constant_range = ddgi_probe_variability_reduce_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
@@ -2578,7 +2607,7 @@ void RenderLayer::OnCreate() {
     ddgi_probe_variability_extra_reduce_pipeline_ = std::make_shared<ComputePipeline>();
     ddgi_probe_variability_extra_reduce_pipeline_->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityExtraReduce.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/DDGIProbeVariabilityExtraReduce.slang");
     ddgi_probe_variability_extra_reduce_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_variability_layout_);
     auto& push_constant_range = ddgi_probe_variability_extra_reduce_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeVariabilityPushConstant);
@@ -2588,23 +2617,23 @@ void RenderLayer::OnCreate() {
   }
 #pragma region Graphics Pipelines
   const auto shadow_empty_fragment_shader_path =
-      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag";
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang";
   if (!point_light_shadow_pipeline_normal_opaque) {
     point_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMap.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !point_light_shadow_pipeline_mesh_shader) {
     point_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     point_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.task");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/PointLightShadowMap.slang");
     point_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.mesh");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightShadowMap.slang");
     point_light_shadow_pipeline_mesh_shader->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang");
     point_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
     point_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
@@ -2618,20 +2647,20 @@ void RenderLayer::OnCreate() {
   }
   if (!spot_light_shadow_pipeline_normal_opaque) {
     spot_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMap.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !spot_light_shadow_pipeline_mesh_shader) {
     spot_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     spot_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.task");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/SpotLightShadowMap.slang");
     spot_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.mesh");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightShadowMap.slang");
     spot_light_shadow_pipeline_mesh_shader->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang");
     spot_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
     spot_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
@@ -2645,20 +2674,20 @@ void RenderLayer::OnCreate() {
   }
   if (!directional_light_shadow_pipeline_normal_opaque) {
     directional_light_shadow_pipeline_normal_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_});
   }
   if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !directional_light_shadow_pipeline_mesh_shader) {
     directional_light_shadow_pipeline_mesh_shader = std::make_shared<GraphicsPipeline>();
     directional_light_shadow_pipeline_mesh_shader->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.task");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Lighting/DirectionalLightShadowMap.slang");
     directional_light_shadow_pipeline_mesh_shader->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.mesh");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightShadowMap.slang");
     directional_light_shadow_pipeline_mesh_shader->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.frag");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Empty.slang");
     directional_light_shadow_pipeline_mesh_shader->geometry_type = GeometryType::Mesh;
     directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(per_frame_layout_);
     directional_light_shadow_pipeline_mesh_shader->descriptor_set_layouts.emplace_back(meshlet_layout_);
@@ -2672,58 +2701,59 @@ void RenderLayer::OnCreate() {
   }
   if (Platform::MeshShaderEnabled() && !strands_directional_light_shadow_pipeline) {
     strands_directional_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.mesh",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang",
         per_frame_layout_, strand_meshlet_layout_);
   }
   if (!instanced_point_light_shadow_pipeline_opaque) {
     instanced_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapInstanced.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
   }
   if (!instanced_spot_light_shadow_pipeline_opaque) {
     instanced_spot_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
   }
   if (!instanced_directional_light_shadow_pipeline_opaque) {
     instanced_directional_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
         Resources::GetDefaultResourcesPath() /
-            "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.vert",
+            "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.slang",
         shadow_empty_fragment_shader_path, GeometryType::Mesh, {per_frame_layout_, particle_instanced_data_layout_});
   }
   if (!skinned_point_light_shadow_pipeline_opaque) {
     skinned_point_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/PointLightShadowMapSkinned.slang",
         shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
   if (!skinned_spot_light_shadow_pipeline_opaque) {
     skinned_spot_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.vert",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.slang",
         shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
   if (!skinned_directional_light_shadow_pipeline_opaque) {
     skinned_directional_light_shadow_pipeline_opaque = CreateShadowVertexPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.vert",
+        Resources::GetDefaultResourcesPath() /
+            "Shaders/Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.slang",
         shadow_empty_fragment_shader_path, GeometryType::SkinnedMesh, {per_frame_layout_, bone_matrices_layout_});
   }
   if (Platform::MeshShaderEnabled() && !strands_point_light_shadow_pipeline) {
     strands_point_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightStrandsShadowMap.mesh",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/PointLightStrandsShadowMap.slang",
         per_frame_layout_, strand_meshlet_layout_);
   }
   if (Platform::MeshShaderEnabled() && !strands_spot_light_shadow_pipeline) {
     strands_spot_light_shadow_pipeline = CreateStrandShadowMeshPipeline(
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.mesh",
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang",
         per_frame_layout_, strand_meshlet_layout_);
   }
   if (!deferred_prepass_pipeline_normal) {
     deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_normal->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.slang");
     deferred_prepass_pipeline_normal->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
@@ -2742,13 +2772,13 @@ void RenderLayer::OnCreate() {
     deferred_prepass_pipeline_mesh = std::make_shared<GraphicsPipeline>();
     deferred_prepass_pipeline_mesh->task_shader =
         Shader::CreateTemporary(ShaderType::Task, CreateRasterNoBindlessTextureShaderDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/Standard.task");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/Standard.slang");
     deferred_prepass_pipeline_mesh->mesh_shader =
         Shader::CreateTemporary(ShaderType::Mesh, CreateRasterNoBindlessTextureShaderDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.mesh");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.slang");
     deferred_prepass_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
@@ -2767,10 +2797,10 @@ void RenderLayer::OnCreate() {
     instanced_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     instanced_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.slang");
     instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
@@ -2789,10 +2819,10 @@ void RenderLayer::OnCreate() {
     skinned_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     skinned_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.slang");
     skinned_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
@@ -2811,10 +2841,10 @@ void RenderLayer::OnCreate() {
     skinned_motion_vectors_pipeline_ = std::make_shared<GraphicsPipeline>();
     skinned_motion_vectors_pipeline_->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/SkinnedMotionVectors.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/SkinnedMotionVectors.slang");
     skinned_motion_vectors_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/SkinnedMotionVectors.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/SkinnedMotionVectors.slang");
     skinned_motion_vectors_pipeline_->geometry_type = GeometryType::SkinnedMesh;
     skinned_motion_vectors_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors;
     skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
@@ -2834,10 +2864,10 @@ void RenderLayer::OnCreate() {
     transparent_motion_vectors_pipeline_ = std::make_shared<GraphicsPipeline>();
     transparent_motion_vectors_pipeline_->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/TransparentMotionVectors.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/TransparentMotionVectors.slang");
     transparent_motion_vectors_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/TransparentMotionVectors.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/TransparentMotionVectors.slang");
     transparent_motion_vectors_pipeline_->geometry_type = GeometryType::Mesh;
     transparent_motion_vectors_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors;
     transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
@@ -2857,13 +2887,13 @@ void RenderLayer::OnCreate() {
     strands_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
     strands_deferred_prepass_pipeline->task_shader = Shader::CreateTemporary(
         ShaderType::Task, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/StandardStrands.task");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/StandardStrands.slang");
     strands_deferred_prepass_pipeline->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/StandardStrands.mesh");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/StandardStrands.slang");
     strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialNoBindlessShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     strands_deferred_prepass_pipeline->vertex_input_enabled = false;
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
@@ -2881,10 +2911,10 @@ void RenderLayer::OnCreate() {
   if (!deferred_lighting_pass_pipeline) {
     deferred_lighting_pass_pipeline = std::make_shared<GraphicsPipeline>();
     deferred_lighting_pass_pipeline->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
     deferred_lighting_pass_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterFixedLightingShaderDefines(3),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang");
     deferred_lighting_pass_pipeline->geometry_type = GeometryType::Mesh;
     deferred_lighting_pass_pipeline->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
@@ -2903,10 +2933,10 @@ void RenderLayer::OnCreate() {
   if (!ddgi_gather_timing_pipeline_) {
     ddgi_gather_timing_pipeline_ = std::make_shared<GraphicsPipeline>();
     ddgi_gather_timing_pipeline_->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
     ddgi_gather_timing_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterFixedLightingShaderDefines(3),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/DDGIGatherTiming.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/DDGIGatherTiming.slang");
     ddgi_gather_timing_pipeline_->geometry_type = GeometryType::Mesh;
     ddgi_gather_timing_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
     ddgi_gather_timing_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
@@ -2925,11 +2955,11 @@ void RenderLayer::OnCreate() {
   if (!deferred_lighting_pass_pipeline_scene_camera) {
     deferred_lighting_pass_pipeline_scene_camera = std::make_shared<GraphicsPipeline>();
     deferred_lighting_pass_pipeline_scene_camera->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
     deferred_lighting_pass_pipeline_scene_camera->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, CreateRasterFixedLightingShaderDefines(3),
                                 Resources::GetDefaultResourcesPath() /
-                                    "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag");
+                                    "Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang");
     deferred_lighting_pass_pipeline_scene_camera->geometry_type = GeometryType::Mesh;
     deferred_lighting_pass_pipeline_scene_camera->vertex_input_attribute_set =
         VertexInputAttributeSet::PositionTexCoord;
@@ -2952,10 +2982,10 @@ void RenderLayer::OnCreate() {
     transparent_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
     transparent_geometry_pipeline_normal->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, CreateRasterNoBindlessTextureShaderDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.slang");
     transparent_geometry_pipeline_normal->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, CreateRasterMaterialFixedLightingShaderDefines(4),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardTransparent.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardTransparent.slang");
     transparent_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
@@ -2975,10 +3005,10 @@ void RenderLayer::OnCreate() {
     gizmos = std::make_shared<GraphicsPipeline>();
     gizmos->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/Gizmos.vert");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/Gizmos.slang");
     gizmos->fragment_shader =
         Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.slang");
     gizmos->geometry_type = GeometryType::Mesh;
     gizmos->vertex_input_attribute_set = VertexInputAttributeSet::Position;
     gizmos->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -2996,10 +3026,10 @@ void RenderLayer::OnCreate() {
     gizmos_normal_colored = std::make_shared<GraphicsPipeline>();
     gizmos_normal_colored->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosNormalColored.slang");
     gizmos_normal_colored->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
     gizmos_normal_colored->geometry_type = GeometryType::Mesh;
     gizmos_normal_colored->vertex_input_attribute_set = VertexInputAttributeSet::PositionNormal;
     gizmos_normal_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -3017,10 +3047,10 @@ void RenderLayer::OnCreate() {
     gizmos_vertex_colored = std::make_shared<GraphicsPipeline>();
     gizmos_vertex_colored->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosVertexColored.slang");
     gizmos_vertex_colored->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
     gizmos_vertex_colored->geometry_type = GeometryType::Mesh;
     gizmos_vertex_colored->vertex_input_attribute_set = VertexInputAttributeSet::PositionColor;
     gizmos_vertex_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -3037,10 +3067,10 @@ void RenderLayer::OnCreate() {
     gizmos_instanced_colored = std::make_shared<GraphicsPipeline>();
     gizmos_instanced_colored->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Gizmos/GizmosInstancedColored.slang");
     gizmos_instanced_colored->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang");
     gizmos_instanced_colored->geometry_type = GeometryType::Mesh;
     gizmos_instanced_colored->vertex_input_attribute_set = VertexInputAttributeSet::Position;
     gizmos_instanced_colored->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -3059,10 +3089,10 @@ void RenderLayer::OnCreate() {
     ddgi_probe_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
     ddgi_probe_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeVisualization.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeVisualization.slang");
     ddgi_probe_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.slang");
     ddgi_probe_visualization_pipeline_->geometry_type = GeometryType::Mesh;
     ddgi_probe_visualization_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionNormal;
     ddgi_probe_visualization_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
@@ -3080,10 +3110,10 @@ void RenderLayer::OnCreate() {
     ddgi_probe_ray_visualization_pipeline_ = std::make_shared<GraphicsPipeline>();
     ddgi_probe_ray_visualization_pipeline_->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeRayVisualization.vert");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/DDGI/DDGIProbeRayVisualization.slang");
     ddgi_probe_ray_visualization_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeRayVisualization.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/DDGI/DDGIProbeRayVisualization.slang");
     ddgi_probe_ray_visualization_pipeline_->geometry_type = GeometryType::Mesh;
     ddgi_probe_ray_visualization_pipeline_->vertex_input_enabled = false;
     ddgi_probe_ray_visualization_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;
@@ -3122,10 +3152,10 @@ void RenderLayer::OnCreate() {
       auto pipeline = std::make_shared<GraphicsPipeline>();
       pipeline->task_shader = Shader::CreateTemporary(
           ShaderType::Task, Platform::GetShaderGlobalDefines(),
-          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Gizmos/GizmosStrands.task");
+          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Gizmos/GizmosStrands.slang");
       pipeline->mesh_shader = Shader::CreateTemporary(
           ShaderType::Mesh, Platform::GetShaderGlobalDefines() + mesh_define,
-          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Gizmos/GizmosStrands.mesh");
+          Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Gizmos/GizmosStrands.slang");
       pipeline->fragment_shader =
           Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
       pipeline->vertex_input_enabled = false;
@@ -3141,9 +3171,9 @@ void RenderLayer::OnCreate() {
       return pipeline;
     };
     const auto gizmos_fragment_path =
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.frag";
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/Gizmos.slang";
     const auto colored_fragment_path =
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.frag";
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Gizmos/GizmosColored.slang";
     if (!gizmos_strands) {
       gizmos_strands = create_gizmo_strands_pipeline({}, gizmos_fragment_path);
     }
@@ -3203,13 +3233,13 @@ void RenderLayer::OnCreate() {
     ray_tracing_point_cloud_pipeline = std::make_shared<RayTracingPipeline>();
     ray_tracing_point_cloud_pipeline->raygen_shader =
         Shader::CreateTemporary(ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/PointCloud.rgen");
+                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/PointCloud.slang");
     ray_tracing_point_cloud_pipeline->miss_shader =
         Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/PointCloud.rmiss");
+                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/PointCloud.slang");
     ray_tracing_point_cloud_pipeline->closest_hit_shader = Shader::CreateTemporary(
         ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/PointCloud.rchit");
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/PointCloud.slang");
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout_);
@@ -3219,16 +3249,16 @@ void RenderLayer::OnCreate() {
     ddgi_probe_ray_diagnostic_pipeline_ = std::make_shared<RayTracingPipeline>();
     ddgi_probe_ray_diagnostic_pipeline_->raygen_shader = Shader::CreateTemporary(
         ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.rgen");
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.slang");
     ddgi_probe_ray_diagnostic_pipeline_->miss_shader = Shader::CreateTemporary(
         ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeDiagnostics.rmiss");
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeDiagnostics.slang");
     ddgi_probe_ray_diagnostic_pipeline_->closest_hit_shader = Shader::CreateTemporary(
         ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit");
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.slang");
     ddgi_probe_ray_diagnostic_pipeline_->any_hit_shader = Shader::CreateTemporary(
         ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeDiagnostics.rahit");
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeDiagnostics.slang");
     ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
     ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
@@ -3241,10 +3271,7 @@ void RenderLayer::OnCreate() {
 #pragma endregion
 
   const auto max_frames_in_flight = Platform::GetMaxFramesInFlight();
-  render_instances_list_.resize(max_frames_in_flight);
-  for (auto& i : render_instances_list_) {
-    i = std::make_shared<RenderInstanceStorage>();
-  }
+  initialize_render_instance_storage();
   kernel_descriptor_buffers_.clear();
   VkBufferCreateInfo buffer_create_info{};
   buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -3308,6 +3335,7 @@ void RenderLayer::OnCreate() {
   PrepareEnvironmentalBrdfLut();
   lighting_ = std::make_unique<Lighting>();
   lighting_->Initialize();
+  log_startup(true);
 }
 
 void RenderLayer::EnsureRasterMaterialFallbackTextures() const {
@@ -6065,10 +6093,10 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
   }
   const auto environmental_brdf_pipeline = std::make_shared<GraphicsPipeline>();
   environmental_brdf_pipeline->vertex_shader = Shader::CreateTemporary(
-      ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
-  environmental_brdf_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                                        "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapBrdf.frag");
+      ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
+  environmental_brdf_pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment,
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapBrdf.slang");
   environmental_brdf_pipeline->geometry_type = GeometryType::Mesh;
   environmental_brdf_pipeline->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
   environmental_brdf_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;

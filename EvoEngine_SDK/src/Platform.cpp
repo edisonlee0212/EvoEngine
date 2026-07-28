@@ -367,11 +367,12 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
     }
     if (!graphics.render_texture_present_pipeline) {
       graphics.render_texture_present_pipeline = std::make_shared<GraphicsPipeline>();
-      graphics.render_texture_present_pipeline->vertex_shader = Shader::CreateTemporary(
-          ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.vert");
+      graphics.render_texture_present_pipeline->vertex_shader =
+          Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
+                                                          "Shaders/Graphics/Vertex/TexturePassThrough.slang");
       graphics.render_texture_present_pipeline->fragment_shader =
           Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                                            "Shaders/Graphics/Fragment/TexturePassThrough.frag");
+                                                            "Shaders/Graphics/Fragment/TexturePassThrough.slang");
       graphics.render_texture_present_pipeline->geometry_type = GeometryType::Mesh;
       graphics.render_texture_present_pipeline->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
       graphics.render_texture_present_pipeline->descriptor_set_layouts.emplace_back(
@@ -1660,20 +1661,31 @@ void Platform::SelectPhysicalDevice() {
   }
   capabilities_.support_acceleration_structure =
       ray_acceleration_structure_supported && (capabilities_.support_ray_tracing || capabilities_.support_ray_query);
-#ifdef VK_NV_ray_tracing_invocation_reorder
+#ifdef VK_EXT_ray_tracing_invocation_reorder
   if (capabilities_.support_ray_tracing &&
-      selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
-      selected_physical_device->ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder == VK_TRUE) {
-    require_device_extension(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
+      selected_physical_device->CheckExtensionSupport(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
+      selected_physical_device->ray_tracing_invocation_reorder_features_ext.rayTracingInvocationReorder == VK_TRUE) {
+    require_device_extension(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
     capabilities_.support_shader_execution_reordering = true;
-    EVOENGINE_LOG("Target device supports shader execution reordering!");
+    EVOENGINE_LOG("Target device supports EXT shader execution reordering!");
   } else {
     capabilities_.support_shader_execution_reordering = false;
-    EVOENGINE_LOG("Target device doesn't support shader execution reordering; SER settings use fallback.");
+#  ifdef VK_NV_ray_tracing_invocation_reorder
+    if (capabilities_.support_ray_tracing &&
+        selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
+        selected_physical_device->ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder == VK_TRUE) {
+      EVOENGINE_LOG(
+          "Target device supports legacy NV shader execution reordering, but Slang SER requires the EXT "
+          "path; SER settings use fallback.");
+    } else
+#  endif
+    {
+      EVOENGINE_LOG("Target device doesn't support EXT shader execution reordering; SER settings use fallback.");
+    }
   }
 #else
   capabilities_.support_shader_execution_reordering = false;
-  EVOENGINE_LOG("Shader execution reordering headers are unavailable; SER settings use fallback.");
+  EVOENGINE_LOG("EXT shader execution reordering headers are unavailable; SER settings use fallback.");
 #endif
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {
@@ -1715,6 +1727,12 @@ void Platform::PhysicalDevice::QueryInformation() {
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   feature_chain_tail = &ray_tracing_validation_features_nv;
 #endif
+#ifdef VK_EXT_ray_tracing_invocation_reorder
+  if (CheckExtensionSupport(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
+    ray_tracing_invocation_reorder_features_ext.pNext = feature_chain_tail;
+    feature_chain_tail = &ray_tracing_invocation_reorder_features_ext;
+  }
+#endif
 #ifdef VK_NV_ray_tracing_invocation_reorder
   if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
     ray_tracing_invocation_reorder_features_nv.pNext = feature_chain_tail;
@@ -1742,6 +1760,12 @@ void Platform::PhysicalDevice::QueryInformation() {
   vulkan12_properties.pNext = &mesh_shader_properties_ext;
   mesh_shader_properties_ext.pNext = &subgroup_size_control_properties;
   void* ray_properties_tail = nullptr;
+#ifdef VK_EXT_ray_tracing_invocation_reorder
+  if (CheckExtensionSupport(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
+    ray_tracing_invocation_reorder_properties_ext.pNext = ray_properties_tail;
+    ray_properties_tail = &ray_tracing_invocation_reorder_properties_ext;
+  }
+#endif
 #ifdef VK_NV_ray_tracing_invocation_reorder
   if (CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME)) {
     ray_tracing_invocation_reorder_properties_nv.pNext = ray_properties_tail;
@@ -1868,14 +1892,15 @@ void Platform::CreateLogicalDevice() {
     ray_feature_chain_tail = &vk_physical_device_ray_tracing_pipeline_features_khr;
   }
 
-#ifdef VK_NV_ray_tracing_invocation_reorder
-  VkPhysicalDeviceRayTracingInvocationReorderFeaturesNV vk_physical_device_ray_tracing_invocation_reorder_features_nv{};
-  vk_physical_device_ray_tracing_invocation_reorder_features_nv.sType =
-      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_NV;
-  vk_physical_device_ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder = VK_TRUE;
+#ifdef VK_EXT_ray_tracing_invocation_reorder
+  VkPhysicalDeviceRayTracingInvocationReorderFeaturesEXT
+      vk_physical_device_ray_tracing_invocation_reorder_features_ext{};
+  vk_physical_device_ray_tracing_invocation_reorder_features_ext.sType =
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_INVOCATION_REORDER_FEATURES_EXT;
+  vk_physical_device_ray_tracing_invocation_reorder_features_ext.rayTracingInvocationReorder = VK_TRUE;
   if (capabilities_.support_shader_execution_reordering) {
-    vk_physical_device_ray_tracing_invocation_reorder_features_nv.pNext = ray_feature_chain_tail;
-    ray_feature_chain_tail = &vk_physical_device_ray_tracing_invocation_reorder_features_nv;
+    vk_physical_device_ray_tracing_invocation_reorder_features_ext.pNext = ray_feature_chain_tail;
+    ray_feature_chain_tail = &vk_physical_device_ray_tracing_invocation_reorder_features_ext;
   }
 #endif
 

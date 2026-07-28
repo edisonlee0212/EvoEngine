@@ -199,7 +199,7 @@ void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources
     geometry_pipeline = std::make_shared<ComputePipeline>();
     geometry_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionGeometry.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionGeometry.slang");
     geometry_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     geometry_pipeline->descriptor_set_layouts.emplace_back(
@@ -222,7 +222,7 @@ void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources
     blur_pipeline = std::make_shared<ComputePipeline>();
     blur_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Resources::GetDefaultResourcesPath() /
-                                                         "Shaders/Compute/PostProcessing/AmbientOcclusionBlur.comp");
+                                                         "Shaders/Compute/PostProcessing/AmbientOcclusionBlur.slang");
     blur_pipeline->descriptor_set_layouts.emplace_back(blur_layout);
     blur_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetCameraGBufferDescriptorSetLayout());

@@ -34,6 +34,8 @@
 #include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
 
+#include <iterator>
+#include <string>
 #include <type_traits>
 
 using namespace eco_sys_lab_package;

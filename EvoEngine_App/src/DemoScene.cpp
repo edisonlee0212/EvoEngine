@@ -2105,10 +2105,10 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
 
   const auto main_camera = scene->main_camera.Get<Camera>();
   main_camera->Resize({1920, 1080});
-  main_camera->skybox = Resources::GetInstance().GetDefaultSkybox();
-  main_camera->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
-  main_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
-  main_camera->camera_settings.background_intensity = 0.6f;
+  main_camera->skybox.Clear();
+  main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
+  main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  main_camera->camera_settings.background_intensity = 0.0f;
   main_camera->camera_settings.near_distance = std::max(radius * 0.01f, 0.01f);
   main_camera->camera_settings.far_distance = std::max(radius * 10.0f, 100.0f);
   main_camera->camera_settings.fov = camera_fov;
@@ -2140,10 +2140,10 @@ void ConfigureGaussianSplatDemoSceneImpl(const std::shared_ptr<Scene>& scene, co
     editor_layer->SetSceneCameraPosition(camera_position);
     editor_layer->SetSceneCameraRotation(camera_rotation);
     if (const auto scene_camera = editor_layer->GetSceneCamera()) {
-      scene_camera->skybox = Resources::GetInstance().GetDefaultSkybox();
-      scene_camera->camera_settings.background_source = Camera::BackgroundSource::Cubemap;
-      scene_camera->camera_settings.clear_color = glm::vec4(0.01f, 0.012f, 0.016f, 1.0f);
-      scene_camera->camera_settings.background_intensity = 0.6f;
+      scene_camera->skybox.Clear();
+      scene_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
+      scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+      scene_camera->camera_settings.background_intensity = 0.0f;
       scene_camera->camera_settings.near_distance = main_camera->camera_settings.near_distance;
       scene_camera->camera_settings.far_distance = main_camera->camera_settings.far_distance;
       scene_camera->camera_settings.fov = main_camera->camera_settings.fov;

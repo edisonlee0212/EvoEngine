@@ -1,0 +1,28 @@
+layout(set = 0, binding = 0) uniform sampler2D sourceDepth;
+layout(set = 0, binding = 1, r32f) uniform writeonly image2D targetMip;
+
+layout(push_constant) uniform EE_DEPTH_PYRAMID_CONSTANTS {
+  uvec2 sourceResolution;
+  uvec2 targetResolution;
+};
+
+float FetchDepth(ivec2 texel) {
+  ivec2 source_max = ivec2(sourceResolution) - ivec2(1);
+  return texelFetch(sourceDepth, clamp(texel, ivec2(0), source_max), 0).r;
+}
+
+[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
+  uvec2 pixel = dispatchThreadId.xy;
+  if (pixel.x >= targetResolution.x || pixel.y >= targetResolution.y) {
+    return;
+  }
+
+  ivec2 source_pixel = ivec2(pixel * 2);
+  float depth = FetchDepth(source_pixel);
+  if (sourceResolution.x != targetResolution.x || sourceResolution.y != targetResolution.y) {
+    depth = min(depth, FetchDepth(source_pixel + ivec2(1, 0)));
+    depth = min(depth, FetchDepth(source_pixel + ivec2(0, 1)));
+    depth = min(depth, FetchDepth(source_pixel + ivec2(1, 1)));
+  }
+  imageStore(targetMip, ivec2(pixel), vec4(depth));
+}

@@ -80,8 +80,8 @@ TEST(RenderGraph, DirectionalShadowCasterPathsUseProductionRenderers) {
   EXPECT_NE(platform.find("vkGetPhysicalDeviceImageFormatProperties"), std::string::npos);
   EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);
   EXPECT_EQ(render_layer.find("SpotLightShadowMapStrands"), std::string::npos);
-  EXPECT_NE(render_layer.find("PointLightStrandsShadowMap.mesh"), std::string::npos);
-  EXPECT_NE(render_layer.find("SpotLightStrandsShadowMap.mesh"), std::string::npos);
+  EXPECT_NE(render_layer.find("PointLightStrandsShadowMap.slang"), std::string::npos);
+  EXPECT_NE(render_layer.find("SpotLightStrandsShadowMap.slang"), std::string::npos);
   EXPECT_NE(render_layer_header.find("strands_directional_light_shadow_pipeline"), std::string::npos);
   EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap"), std::string::npos);
   EXPECT_NE(directional_shadow.find("AccountDraws(parameters.count_draw_calls"), std::string::npos);

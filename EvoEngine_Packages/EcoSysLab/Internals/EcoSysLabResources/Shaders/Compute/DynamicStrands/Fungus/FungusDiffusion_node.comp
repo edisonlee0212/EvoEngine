@@ -46,7 +46,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float brw;
   float brb;
   float msr;  // moisture spread rate
-  
+
   float bd_offset;
   float cpb;
   float cpw;

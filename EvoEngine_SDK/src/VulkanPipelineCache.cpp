@@ -1,6 +1,7 @@
 #include "VulkanPipelineCache.hpp"
 
 #include "Console.hpp"
+#include "PathUtils.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -173,11 +174,14 @@ PipelineCacheIdentity VulkanPipelineCache::MakeIdentity(const VkPhysicalDevicePr
 std::filesystem::path VulkanPipelineCache::ResolveCachePath(const PipelineCacheIdentity& identity) {
   std::filesystem::path directory;
   if (const char* path = std::getenv("EVOENGINE_PIPELINE_CACHE_DIR"); path && path[0] != '\0') {
-    directory = path;
+    directory = path_utils::NormalizeAbsolutePath(path);
   } else if (const char* path = std::getenv("EVOENGINE_SHADER_CACHE_DIR"); path && path[0] != '\0') {
-    directory = std::filesystem::path(path).parent_path() / "PipelineCache";
+    directory = path_utils::NormalizeAbsolutePath(path).parent_path() / "PipelineCache";
+  } else if (const auto executable_path = path_utils::CurrentExecutablePath();
+             !executable_path.empty() && executable_path.has_parent_path()) {
+    directory = executable_path.parent_path() / "PipelineCache";
   } else {
-    directory = "./PipelineCache";
+    directory = path_utils::NormalizeAbsolutePath("PipelineCache");
   }
   std::ostringstream name;
   name << "vkpc-v" << identity.schema << '-' << std::hex << std::setfill('0') << std::setw(8) << identity.vendor_id

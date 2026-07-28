@@ -272,16 +272,16 @@ not the normal editor layout.
 ## RTXGI Port Map
 
 The sibling `RTXGI-DDGI` checkout (typically `../RTXGI-DDGI` from the repository root) is treated as an algorithm
-reference only. EvoEngine keeps shader source in GLSL and does not add an HLSL, DXC, or RTXGI runtime dependency.
+reference only. EvoEngine keeps SDK shader source in Slang and does not add an HLSL, DXC, or RTXGI runtime dependency.
 
 | RTXGI concept | EvoEngine path |
 | --- | --- |
 | Volume descriptors/resources | `DdgiSettings`, asset-owned DDGI volume entries, and per-volume probe metadata/state plus irradiance, visibility, and variability atlases |
-| Probe ray generation | `Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.rgen` |
-| Probe closest-hit/miss | `Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit`, `Shaders/RayTracing/Miss/DDGIProbeDiagnostics.rmiss` |
-| Shared probe math | `Shaders/Includes/DDGI.glsl` |
-| Probe atlas update | `Shaders/Compute/DDGIProbeUpdate.comp` |
-| Surface sampling | `Shaders/Includes/Lighting.glsl` and DDGI closest-hit recursive sampling |
+| Probe ray generation | `Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.slang` |
+| Probe closest-hit/miss | `Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.slang`, `Shaders/RayTracing/Miss/DDGIProbeDiagnostics.slang` |
+| Shared probe math | `Shaders/Includes/DDGI.slangh` |
+| Probe atlas update | `Shaders/Compute/DDGIProbeUpdate.slang` |
+| Surface sampling | `Shaders/Includes/Lighting.slangh` and DDGI closest-hit recursive sampling |
 | Scheduling and clears | `RenderLayer` DDGI passes: `DDGIAtlasPrepare`, `DDGIRayDiagnostics`, `DDGIProbeUpdate` |
 
 EvoEngine implements deterministic multi-volume overlap isolation from RTXGI's integration guidance rather than copying

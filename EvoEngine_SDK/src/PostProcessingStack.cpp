@@ -535,7 +535,7 @@ void AntiAliasing::BuildTaaPipelines(PostProcessingRendererResources& resources,
     renderer.copy_pipeline = std::make_shared<ComputePipeline>();
     renderer.copy_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAACopy.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAACopy.slang");
     renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
     renderer.copy_pipeline->Initialize();
   }
@@ -553,7 +553,7 @@ void AntiAliasing::BuildTaaPipelines(PostProcessingRendererResources& resources,
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, shader_defines,
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.slang");
     pipeline->descriptor_set_layouts.emplace_back(render_layer->GetPerFrameDescriptorSetLayout());
     pipeline->descriptor_set_layouts.emplace_back(render_layer->GetCameraGBufferDescriptorSetLayout());
     pipeline->descriptor_set_layouts.emplace_back(renderer.resolve_layout);
@@ -638,7 +638,7 @@ void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources
     renderer.smaa_prepare_pipeline = std::make_shared<ComputePipeline>();
     renderer.smaa_prepare_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SMAAPrepare.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SMAAPrepare.slang");
     renderer.smaa_prepare_pipeline->descriptor_set_layouts.emplace_back(renderer.smaa_prepare_layout);
     auto& push_constant_range = renderer.smaa_prepare_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(SmaaPushConstant);
@@ -679,17 +679,17 @@ void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources
     }
     const auto defines = Platform::GetShaderGlobalDefines() + "\n#define " + GetSmaaPresetDefine(preset_index) + "\n";
     renderer.smaa_edge_pipelines[preset_index] = create_pipeline(
-        shader_root / "Vertex/PostProcessing/SMAAEdge.vert", shader_root / "Fragment/PostProcessing/SMAAEdge.frag",
+        shader_root / "Vertex/PostProcessing/SMAAEdge.slang", shader_root / "Fragment/PostProcessing/SMAAEdge.slang",
         renderer.smaa_edge_layout, VK_FORMAT_R8G8B8A8_UNORM, defines);
     renderer.smaa_weight_pipelines[preset_index] =
-        create_pipeline(shader_root / "Vertex/PostProcessing/SMAABlendWeight.vert",
-                        shader_root / "Fragment/PostProcessing/SMAABlendWeight.frag", renderer.smaa_weight_layout,
+        create_pipeline(shader_root / "Vertex/PostProcessing/SMAABlendWeight.slang",
+                        shader_root / "Fragment/PostProcessing/SMAABlendWeight.slang", renderer.smaa_weight_layout,
                         VK_FORMAT_R8G8B8A8_UNORM, defines);
   }
   if (!renderer.smaa_neighborhood_pipeline) {
     renderer.smaa_neighborhood_pipeline = create_pipeline(
-        shader_root / "Vertex/PostProcessing/SMAANeighborhood.vert",
-        shader_root / "Fragment/PostProcessing/SMAANeighborhood.frag", renderer.smaa_neighborhood_layout,
+        shader_root / "Vertex/PostProcessing/SMAANeighborhood.slang",
+        shader_root / "Fragment/PostProcessing/SMAANeighborhood.slang", renderer.smaa_neighborhood_layout,
         Platform::Constants::render_texture_color, Platform::GetShaderGlobalDefines());
   }
 }
@@ -1022,7 +1022,7 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
     renderer.downsampling_pipeline = std::make_shared<ComputePipeline>();
     renderer.downsampling_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomDownsampling.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomDownsampling.slang");
     renderer.downsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
     auto& downsampling_push_constant_range = renderer.downsampling_pipeline->push_constant_ranges.emplace_back();
     downsampling_push_constant_range.size = sizeof(DownsamplingPushConstant);
@@ -1034,7 +1034,7 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
     renderer.upsampling_pipeline = std::make_shared<ComputePipeline>();
     renderer.upsampling_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomUpsampling.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomUpsampling.slang");
     renderer.upsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
     auto& upsampling_push_constant_range = renderer.upsampling_pipeline->push_constant_ranges.emplace_back();
     upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
@@ -1044,9 +1044,9 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
   }
   if (!renderer.copy_pipeline) {
     renderer.copy_pipeline = std::make_shared<ComputePipeline>();
-    renderer.copy_pipeline->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomCopy.comp");
+    renderer.copy_pipeline->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomCopy.slang");
     renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
     auto& copy_push_constant_range = renderer.copy_pipeline->push_constant_ranges.emplace_back();
     copy_push_constant_range.size = sizeof(ComputePushConstant);
@@ -1058,7 +1058,7 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
     renderer.mix_pipeline = std::make_shared<ComputePipeline>();
     renderer.mix_pipeline->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomMix.comp");
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomMix.slang");
     renderer.mix_pipeline->descriptor_set_layouts.emplace_back(renderer.mix_layout);
     auto& mix_push_constant_range = renderer.mix_pipeline->push_constant_ranges.emplace_back();
     mix_push_constant_range.size = sizeof(ComputePushConstant);
@@ -1128,10 +1128,10 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
         resources.stack.blur_pipeline = std::make_shared<ComputePipeline>();
         resources.stack.blur_pipeline->compute_shader =
             Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                    Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/Blur.comp");
+                                    Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/Blur.slang");
         resources.stack.blur_pipeline->descriptor_set_layouts.emplace_back(resources.stack.blur_layout);
         auto& push_constant_range = resources.stack.blur_pipeline->push_constant_ranges.emplace_back();
-        push_constant_range.size = sizeof(int) + sizeof(float) * 5;
+        push_constant_range.size = sizeof(BlurPushConstant);
         push_constant_range.offset = 0;
         push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
         resources.stack.blur_pipeline->Initialize();
@@ -1255,16 +1255,12 @@ void PostProcessingStack::ProcessRayCamera(const std::shared_ptr<Camera>& target
 }
 
 void PostProcessingStack::GaussianBlur(const glm::uvec2& size, PostProcessingExecutionContext& context) const {
-  struct PushConstant {
-    int horizontal = false;
-    float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
-  };
   const auto& blur_pipeline = context.renderer.stack.blur_pipeline;
   if (!blur_pipeline || !blur_pipeline->Initialized()) {
     return;
   }
 
-  PushConstant push_constant{};
+  BlurPushConstant push_constant{};
   const auto& horizontal_descriptor_set =
       context.camera.stack.blur_horizontal_descriptor_set.GetOrCreate(context.renderer.stack.blur_layout);
   const auto& vertical_descriptor_set =

@@ -3,6 +3,9 @@
 #include "GraphicsResources.hpp"
 #include "IAsset.hpp"
 
+#include <array>
+#include <optional>
+
 namespace evo_engine {
 
 /**
@@ -35,6 +38,46 @@ struct ShaderCompileCacheStats {
   uint64_t coalesced_waits = 0;
   uint64_t corrupt_entries = 0;
   uint64_t failures = 0;
+  uint64_t slang_frontend_invocations = 0;
+};
+
+struct ShaderReflectionDescriptorBinding {
+  std::string name;
+  uint32_t set = 0;
+  uint32_t binding = 0;
+  VkDescriptorType descriptor_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
+  uint32_t descriptor_count = 1;
+  VkShaderStageFlags stage_flags = 0;
+};
+
+struct ShaderReflectionPushConstantRange {
+  std::string name;
+  uint32_t offset = 0;
+  uint32_t size = 0;
+  VkShaderStageFlags stage_flags = 0;
+};
+
+struct ShaderReflectionStageIo {
+  std::string name;
+  std::string semantic_name;
+  uint32_t semantic_index = 0;
+  uint32_t location = 0;
+};
+
+struct ShaderReflectionInfo {
+  ShaderType shader_type = ShaderType::Unknown;
+  std::string entry_point = "main";
+  std::array<uint32_t, 3> compute_thread_group_size = {0, 0, 0};
+  std::vector<ShaderReflectionDescriptorBinding> descriptor_bindings;
+  std::vector<ShaderReflectionPushConstantRange> push_constant_ranges;
+  std::vector<ShaderReflectionStageIo> stage_inputs;
+  std::vector<ShaderReflectionStageIo> stage_outputs;
+};
+
+struct ShaderPipelineLayoutValidation {
+  bool success = false;
+  std::string diagnostics;
+  ShaderReflectionInfo reflection;
 };
 
 /**
@@ -106,9 +149,18 @@ class Shader final : public IAsset {
    */
   static std::set<std::filesystem::path> GetRegisteredShaderIncludePaths();
 
-  /** Compiles GLSL to SPIR-V without creating a Vulkan shader module. */
+  /** Compiles shader source to SPIR-V without creating a Vulkan shader module. */
   [[nodiscard]] static bool CompileToSpirv(ShaderType shader_type, const std::string& source,
                                            std::vector<uint32_t>& binaries, const std::filesystem::path& path = {});
+  [[nodiscard]] static bool ReflectSlang(ShaderType shader_type, const std::string& source,
+                                         ShaderReflectionInfo& reflection, std::string& diagnostics,
+                                         const std::filesystem::path& path = {});
+  [[nodiscard]] static ShaderPipelineLayoutValidation ValidateSlangPipelineLayout(
+      ShaderType shader_type, const std::string& source, const std::filesystem::path& path,
+      const std::vector<std::shared_ptr<DescriptorSetLayout>>& descriptor_set_layouts,
+      const std::vector<VkPushConstantRange>& push_constant_ranges,
+      const std::optional<std::vector<ShaderReflectionStageIo>>& stage_inputs = std::nullopt,
+      const std::optional<std::vector<ShaderReflectionStageIo>>& stage_outputs = std::nullopt);
 
   [[nodiscard]] static ShaderCompileCacheStats GetCompileCacheStats();
   static void ResetCompileCacheStats();

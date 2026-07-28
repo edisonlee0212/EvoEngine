@@ -118,6 +118,10 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(Camera::NormalizeShaderExecutionReorderingMode(999),
             CameraSettings::ShaderExecutionReorderingMode::Disabled);
 
+  CameraSettings default_settings;
+  EXPECT_EQ(default_settings.shader_execution_reordering_mode,
+            CameraSettings::ShaderExecutionReorderingMode::Automatic);
+
   const auto& debug_views = Camera::GetRayDebugViewNames();
   ASSERT_EQ(debug_views.size(), Camera::kRayDebugViewCount);
   EXPECT_EQ(debug_views[static_cast<uint32_t>(CameraSettings::RayDebugView::Beauty)], "Beauty");
@@ -158,9 +162,9 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
   EXPECT_TRUE(first != second);
 
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
   const auto lighting =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   EXPECT_NE(cameras.find("uint raster_lighting_flags"), std::string::npos);
   EXPECT_NE(lighting.find("raster_lighting_flags & 1u"), std::string::npos);
@@ -169,9 +173,9 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
   const auto lighting =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
   const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   EXPECT_NE(cameras.find("vec4 shadow_split_distances"), std::string::npos);
   EXPECT_NE(lighting.find("EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances"), std::string::npos);
@@ -188,7 +192,7 @@ TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
 
 TEST(CameraRenderTechnique, ZeroToOneDepthHelpersUseProjectionTranslation) {
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
   const auto translation = cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];");
   ASSERT_NE(translation, std::string::npos);
   EXPECT_NE(cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];", translation + 1), std::string::npos);

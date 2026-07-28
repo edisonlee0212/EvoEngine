@@ -145,7 +145,7 @@ void ScreenSpaceReflection::BuildPipelines(PostProcessingRendererResources& reso
     reflect_pipeline = std::make_shared<ComputePipeline>();
     reflect_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSRReflect.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSRReflect.slang");
     reflect_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     reflect_pipeline->descriptor_set_layouts.emplace_back(
@@ -163,7 +163,7 @@ void ScreenSpaceReflection::BuildPipelines(PostProcessingRendererResources& reso
     combine_pipeline = std::make_shared<ComputePipeline>();
     combine_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSRCombine.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SSRCombine.slang");
     combine_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     combine_pipeline->descriptor_set_layouts.emplace_back(combine_layout);

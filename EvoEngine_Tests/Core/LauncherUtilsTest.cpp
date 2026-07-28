@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 
 using namespace evo_engine;
 
@@ -46,6 +47,12 @@ AvailablePackageInfo PackageInfo(const std::string& name, const bool library_exi
   package.name = name;
   package.library_exists = library_exists;
   return package;
+}
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 }  // namespace
 
@@ -308,6 +315,12 @@ TEST(LauncherUtils, ApplicationModeNamesAndArgumentsAreStable) {
   EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Editor), "--editor");
   EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Player), "--player");
   EXPECT_STREQ(GetApplicationModeArgument(ApplicationMode::Headless), "--headless");
+}
+
+TEST(LauncherUtils, LauncherDefersRenderPipelinePrewarm) {
+  const auto launcher_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App/src/EvoEngineLauncher.cpp");
+  EXPECT_NE(launcher_source.find("application_info.prewarm_render_pipelines = false"), std::string::npos);
 }
 
 TEST(LauncherUtils, ShadowCascadeFitNamesExcludeLegacyStable) {

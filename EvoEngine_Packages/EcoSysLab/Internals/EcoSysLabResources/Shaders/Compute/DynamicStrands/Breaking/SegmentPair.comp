@@ -68,16 +68,16 @@ void main() {
                              segments[segment1_handle].particle1.x) *
                          0.25f;
 
-    float scaling_factor = 1.0f; 
+    float scaling_factor = 1.0f;
     float bundle_scaling_factor = 1.0f;
     float moisture = (segments[segment0_handle].moisture + segments[segment1_handle].moisture) / 2.0;
     scaling_factor = 1.0f;
     if (moisture_breaking_rod == 1) {
       scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;
     }
-    //scaling_factor = 0.0004f + bd * 0.001; 
+    //scaling_factor = 0.0004f + bd * 0.001;
     scaling_factor = max(0.0006f, scaling_factor); //currently disabled, for tree: 0.0003f to 0.001f elm: 0.0006f
-    //scaling_factor = 0.0006f; 
+    //scaling_factor = 0.0006f;
     //if (pair_position.y <= 0.21f && pair_position.z <= 0.06f)
     //{
     //   if (pull_cubical != 1)

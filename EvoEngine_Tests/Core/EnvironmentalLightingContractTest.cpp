@@ -198,7 +198,7 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto render_instance_storage_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto lighting_shader =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
   const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
   const auto demo_scene_source = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
 

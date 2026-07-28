@@ -1575,9 +1575,10 @@ void EditorLayer::PreUpdate() {
 
   const auto editor_layer = std::dynamic_pointer_cast<EditorLayer>(GetSelf());
   HandleSceneDeleteShortcut(scene);
-  editor_panel_manager_.Draw(EditorPanelCategory::View, editor_layer);
-  DrawAssetInspectorWindows();
+  editor_panel_manager_.DrawExcept(EditorPanelCategory::View, editor_layer, "project");
   DrawLayerInspectionWindows(scene, editor_layer);
+  editor_panel_manager_.DrawOnly(EditorPanelCategory::View, editor_layer, "project");
+  DrawAssetInspectorWindows();
   DrawProjectLoadingPopup();
 }
 
@@ -4623,13 +4624,18 @@ bool EditorLayer::DragAndDropButton(AssetRef& target, const std::string& name,
   ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
   if (ptr || asset_handle.GetValue() != 0) {
     ImGui::Button((GetAssetRefDisplayName(target) + GetAssetRefImGuiTag(target)).c_str());
+    const bool open_requested = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0);
     DraggableAssetRef(target);
     if (modifiable) {
       status_changed = ptr ? RenameAsset(ptr) : false;
       status_changed = Remove(target) || status_changed;
     }
-    if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      OpenAssetInspector(ptr ? ptr->GetHandle() : asset_handle);
+    if (!status_changed && open_requested) {
+      if (ptr) {
+        OpenAssetInspector(ptr);
+      } else {
+        OpenAssetInspector(asset_handle);
+      }
     }
   } else {
     const std::string none_title = "None##" + name;

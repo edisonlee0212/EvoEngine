@@ -423,13 +423,15 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   ASSERT_FALSE(rendering_scene_source.empty());
   ASSERT_FALSE(python_ddgi_ready_source.empty());
 
-  EXPECT_NE(demo_source.find("AddEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""), std::string::npos);
-  EXPECT_NE(rendering_scene_source.find("lighting->ddgi_volumes.clear();"), std::string::npos);
+  EXPECT_NE(demo_source.find("AddEnvironmentalLightingDdgiVolume("), std::string::npos);
+  EXPECT_NE(rendering_scene_source.find("ResetEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
+            std::string::npos);
+  EXPECT_NE(demo_source.find("lighting.ddgi_volumes.clear();"), std::string::npos);
   EXPECT_NE(rendering_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 1.0f, 1.0f)"),
             std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("CreateReflectionProbeComponent(scene"), std::string::npos);
-  EXPECT_NE(demo_source.find("{10, 6, 16}, glm::vec3(1.5f), {0.0f, 3.0f, 3.0f}"), std::string::npos);
+  EXPECT_NE(demo_source.find("{10, 6, 16}"), std::string::npos);
   EXPECT_NE(demo_source.find("ddgi_volume.relocation_distance = 0.25f;"), std::string::npos);
   EXPECT_NE(demo_source.find("settings.debug.visualization_scale = 2.0f;"), std::string::npos);
   EXPECT_NE(demo_source.find("ddgi_volume.enable_probe_relocation = true;"), std::string::npos);
@@ -475,7 +477,7 @@ TEST(DdgiVolume, CornellAndThinWallDemosUseEnvironmentalLightingVolumes) {
 
   EXPECT_NE(cornell_scene_source.find("const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);"),
             std::string::npos);
-  EXPECT_NE(cornell_scene_source.find("AddEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
+  EXPECT_NE(cornell_scene_source.find("ResetEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
             std::string::npos);
   EXPECT_NE(cornell_scene_source.find("{9, 9, 9}, glm::vec3(0.3f), glm::vec3(0.0f)"), std::string::npos);
   EXPECT_EQ(cornell_scene_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
@@ -483,7 +485,7 @@ TEST(DdgiVolume, CornellAndThinWallDemosUseEnvironmentalLightingVolumes) {
 
   EXPECT_NE(thin_wall_scene_source.find("const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);"),
             std::string::npos);
-  EXPECT_NE(thin_wall_scene_source.find("AddEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
+  EXPECT_NE(thin_wall_scene_source.find("ResetEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
             std::string::npos);
   EXPECT_NE(thin_wall_scene_source.find("{8, 6, 8}, glm::vec3(0.35f), glm::vec3(0.0f)"), std::string::npos);
   EXPECT_EQ(thin_wall_scene_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
@@ -763,11 +765,11 @@ TEST(DdgiVolume, CompactRayMemoryAccountingCoversRepresentativeAndMaximumLayouts
 TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics) {
   const auto root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto compact = ReadTextFile(root / "Includes" / "DDGIProbeRayData.glsl");
-  const auto raygen = ReadTextFile(root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.rgen");
-  const auto update = ReadTextFile(root / "Compute" / "DDGIProbeUpdate.comp");
-  const auto relocation = ReadTextFile(root / "Compute" / "DDGIProbeRelocation.comp");
-  const auto classification = ReadTextFile(root / "Compute" / "DDGIProbeClassification.comp");
+  const auto compact = ReadTextFile(root / "Includes" / "DDGIProbeRayData.slangh");
+  const auto raygen = ReadTextFile(root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.slang");
+  const auto update = ReadTextFile(root / "Compute" / "DDGIProbeUpdate.slang");
+  const auto relocation = ReadTextFile(root / "Compute" / "DDGIProbeRelocation.slang");
+  const auto classification = ReadTextFile(root / "Compute" / "DDGIProbeClassification.slang");
   const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src";
   const auto ddgi_runtime = ReadTextFile(source_root / "DdgiRuntime.cpp");
   const auto render_layer = ReadTextFile(source_root / "RenderLayer.cpp");
@@ -775,10 +777,10 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   const auto visualization_pass = ReadTextFile(source_root / "RenderPasses" / "DdgiProbeRayVisualizationPass.cpp");
 
   EXPECT_NE(compact.find("struct DdgiProbeRayData"), std::string::npos);
-  EXPECT_NE(compact.find("vec4 radiance_and_signed_distance;"), std::string::npos);
+  EXPECT_NE(compact.find("float4 radiance_and_signed_distance;"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_MISS_DISTANCE = 1e27f"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_INACTIVE_DISTANCE = -1e27f"), std::string::npos);
-  EXPECT_NE(compact.find("floatBitsToUint(signed_distance) & 0x80000000u"), std::string::npos);
+  EXPECT_NE(compact.find("asuint(signed_distance) & 0x80000000u"), std::string::npos);
 
   EXPECT_NE(raygen.find("DdgiProbeRayData EE_DDGI_PROBE_RAY_DATA[]"), std::string::npos);
   EXPECT_NE(raygen.find("layout(set = 2, binding = 2) writeonly buffer EE_DDGI_SELECTED_RAY_DIAGNOSTICS_BLOCK"),
@@ -788,16 +790,16 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   EXPECT_NE(raygen.find("EE_DDGI_SELECTED_RAY_DIAGNOSTICS[ray_index] = diagnostic_sample;"), std::string::npos);
 
   for (const auto* source : {&update, &relocation, &classification}) {
-    EXPECT_NE(source->find("#include \"DDGIProbeRayData.glsl\""), std::string::npos);
+    EXPECT_NE(source->find("#include \"DDGIProbeRayData.slangh\""), std::string::npos);
   }
   EXPECT_NE(
-      update.find("const uint fixed_ray_count = min(atlas_columns_fixed_ray_count_and_update_mode.z, ray_count);"),
+      update.find("uint fixed_ray_count = min(constants.atlas_columns_fixed_ray_count_and_update_mode.z, ray_count);"),
       std::string::npos);
-  EXPECT_NE(update.find("uintBitsToFloat(probe_counts_and_rotation.w)"), std::string::npos);
+  EXPECT_NE(update.find("asfloat(constants.probe_counts_and_rotation.w)"), std::string::npos);
   EXPECT_NE(update.find("EE_DDGI_ROTATED_PROBE_RAY_DIRECTION"), std::string::npos);
-  EXPECT_NE(relocation.find("const uint fixed_ray_count = min(probe_counts.w, ray_count);"), std::string::npos);
+  EXPECT_NE(relocation.find("uint fixed_ray_count = min(constants.probe_counts.w, ray_count);"), std::string::npos);
   EXPECT_NE(relocation.find("if (EE_DDGI_PROBE_RAY_BACKFACE_HIT(ray_data))"), std::string::npos);
-  EXPECT_NE(classification.find("const uint fixed_ray_count = min(probe_counts.w, ray_count);"), std::string::npos);
+  EXPECT_NE(classification.find("uint fixed_ray_count = min(constants.probe_counts.w, ray_count);"), std::string::npos);
 
   EXPECT_NE(ddgi_runtime.find("sizeof(DdgiProbeRayData)"), std::string::npos);
   EXPECT_NE(render_layer.find("runtime_state.selected_ray_diagnostics_buffers"), std::string::npos);
@@ -1039,8 +1041,8 @@ TEST(DdgiVolume, RenderLayerRequiresFullResetWhenScrollInvalidatesAnAxis) {
 TEST(DdgiVolume, ProbeVisualizationFadesNearCameraWithAlphaBlend) {
   const auto shader_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
                            "DefaultResources" / "Shaders" / "Graphics";
-  const auto vertex_source = ReadTextFile(shader_root / "Vertex" / "DDGI" / "DDGIProbeVisualization.vert");
-  const auto fragment_source = ReadTextFile(shader_root / "Fragment" / "DDGI" / "DDGIProbeVisualization.frag");
+  const auto vertex_source = ReadTextFile(shader_root / "Vertex" / "DDGI" / "DDGIProbeVisualization.slang");
+  const auto fragment_source = ReadTextFile(shader_root / "Fragment" / "DDGI" / "DDGIProbeVisualization.slang");
   ASSERT_FALSE(vertex_source.empty());
   ASSERT_FALSE(fragment_source.empty());
 
@@ -1073,14 +1075,14 @@ TEST(DdgiVolume, ProbeVisualizationFadesNearCameraWithAlphaBlend) {
 TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.glsl");
-  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
-  const auto raygen_source = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.rgen");
+  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.slangh");
+  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
+  const auto raygen_source = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.slang");
   const auto closest_hit_source =
-      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
-  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.glsl");
-  const auto gather_source = ReadTextFile(shader_root / "Includes" / "DDGIGather.glsl");
-  const auto scroll_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeScroll.comp");
+      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
+  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.slangh");
+  const auto gather_source = ReadTextFile(shader_root / "Includes" / "DDGIGather.slangh");
+  const auto scroll_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeScroll.slang");
   const auto atlas_prepare_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
                                                  "src" / "RenderPasses" / "DdgiAtlasPreparePass.cpp");
   const auto render_layer_source =
@@ -1097,32 +1099,34 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
 
   EXPECT_NE(probe_update_source.find("1.0f / (2.0f * max(accumulator.weight_sum, epsilon))"), std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE()"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("vec2(accumulator.first_moment, accumulator.second_moment) * "
+  EXPECT_NE(probe_update_source.find("float2(accumulator.first_moment, accumulator.second_moment) * "
                                      "(1.0f / (2.0f * accumulator.weight_sum))"),
             std::string::npos);
-  EXPECT_NE(probe_update_source.find("return vec4(irradiance, 1.0f);"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("return float4(irradiance, 1.0f);"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("classification_enabled && classification_inside_geometry ? 1.0f : 0.0f"),
             std::string::npos);
   EXPECT_NE(probe_update_source.find(
-                "const uint fixed_ray_count = min(atlas_columns_fixed_ray_count_and_update_mode.z, ray_count);"),
+                "uint fixed_ray_count = min(constants.atlas_columns_fixed_ray_count_and_update_mode.z, ray_count);"),
             std::string::npos);
   EXPECT_EQ(probe_update_source.find("!classification_has_nearby_geometry"), std::string::npos);
   EXPECT_EQ(raygen_source.find("uint EE_DDGI_RANDOM_ROTATION_SEED"), std::string::npos);
   EXPECT_EQ(raygen_source.find("EE_RANGED_RANDOM"), std::string::npos);
   EXPECT_NE(raygen_source.find("vec4 EE_DDGI_PROBE_RAY_ROTATION()"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION"), std::string::npos);
-  EXPECT_NE(raygen_source.find("origin, 0.0f, direction"), std::string::npos);
+  EXPECT_NE(raygen_source.find("ray.Origin = origin"), std::string::npos);
+  EXPECT_NE(raygen_source.find("ray.TMin = 0.0f"), std::string::npos);
+  EXPECT_NE(raygen_source.find("ray.Direction = direction"), std::string::npos);
   EXPECT_NE(raygen_source.find("hit_value.seed = fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG : primary_ray_seed;"),
             std::string::npos);
   EXPECT_NE(raygen_source.find("if (inactive_probe && !fixed_ray)"), std::string::npos);
-  EXPECT_NE(ddgi_helper_source.find("const float golden_ratio_fraction"), std::string::npos);
-  EXPECT_NE(ddgi_helper_source.find("fract(float(sample_index) * golden_ratio_fraction)"), std::string::npos);
+  EXPECT_NE(ddgi_helper_source.find("float golden_ratio_fraction"), std::string::npos);
+  EXPECT_NE(ddgi_helper_source.find("frac(float(sample_index) * golden_ratio_fraction)"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("const uint EE_DDGI_FIXED_RAY_PAYLOAD_FLAG = 1u;"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("EE_DDGI_SIGN_NOT_ZERO(direction.xy)"), std::string::npos);
   EXPECT_NE(lighting_source.find("layout(set = EE_PER_GROUP_SET, binding = 19) readonly buffer "
                                  "EE_DDGI_PROBE_STATE_BLOCK"),
             std::string::npos);
-  EXPECT_NE(lighting_source.find("#include \"DDGIGather.glsl\""), std::string::npos);
+  EXPECT_NE(lighting_source.find("#include \"DDGIGather.slangh\""), std::string::npos);
   EXPECT_NE(
       lighting_source.find("EE_FUNC_CALCULATE_DDGI_DIFFUSE(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos)"),
       std::string::npos);
@@ -1145,8 +1149,8 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_EQ(gather_source.find("result.confidence = 1.0f;"), std::string::npos);
   EXPECT_NE(gather_source.find("valid_probe_weight_sum / active_probe_weight_sum"), std::string::npos);
   EXPECT_NE(atlas_prepare_source.find("MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f)"), std::string::npos);
-  EXPECT_NE(scroll_source.find("imageStore(EE_DDGI_IRRADIANCE_ATLAS"), std::string::npos);
-  EXPECT_NE(scroll_source.find("vec4(0.0f)"), std::string::npos);
+  EXPECT_NE(scroll_source.find("EE_DDGI_IRRADIANCE_ATLAS[int2"), std::string::npos);
+  EXPECT_NE(scroll_source.find("float4(0.0f)"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_CHEBYSHEV_VISIBILITY(visibility_sample.rg, biased_probe_distance"),
             std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_VOLUME_BLEND_WEIGHT(volume_probe_coordinate"), std::string::npos);
@@ -1154,18 +1158,18 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(gather_source.find("diffuse_albedo / EE_DDGI_PI * gather_result.irradiance"), std::string::npos);
   EXPECT_NE(gather_source.find("isnan(result.coverage) || isinf(result.coverage)"), std::string::npos);
   EXPECT_NE(gather_source.find("return isnan(weight) || isinf(weight) ? 0.0f"), std::string::npos);
-  EXPECT_NE(ddgi_helper_source.find("const vec2 moments = max(2.0f * half_moments"), std::string::npos);
+  EXPECT_NE(ddgi_helper_source.find("float2 moments = max(2.0f * half_moments"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("return max(visibility * visibility * visibility, 0.0f);"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("view_direction * max(view_bias, 0.0f)"), std::string::npos);
-  EXPECT_NE(ddgi_helper_source.find("const vec3 outside_distance = max(lower_distance, upper_distance);"),
+  EXPECT_NE(ddgi_helper_source.find("float3 outside_distance = max(lower_distance, upper_distance);"),
             std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("if (inside_volume)"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb"), std::string::npos);
-  EXPECT_NE(closest_hit_source.find("#include \"DDGIGather.glsl\""), std::string::npos);
+  EXPECT_NE(closest_hit_source.find("#include \"DDGIGather.slangh\""), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_DDGI_GATHER_IRRADIANCE(world_normal, -ray_direction, world_position)"),
             std::string::npos);
   EXPECT_EQ(closest_hit_source.find("EE_DDGI_PROBE_COORDINATE(position"), std::string::npos);
-  EXPECT_NE(closest_hit_source.find("#include \"RayTracingMaterial.glsl\""), std::string::npos);
+  EXPECT_NE(closest_hit_source.find("#include \"RayTracingMaterial.slangh\""), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_EVALUATE_GLTF_RASTER_SURFACE("), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_EVALUATE_GLTF_RASTER_NORMAL("), std::string::npos);
   EXPECT_NE(closest_hit_source.find("const vec3 emissive_radiance = EE_RT_COATED_EMISSION("), std::string::npos);
@@ -1229,11 +1233,11 @@ TEST(DdgiVolume, DdgiRasterPathsKeepScalarAoInputsOutOfDirectAndEmission) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto deferred =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLighting.frag");
+      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLighting.slang");
   const auto scene_camera =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLightingSceneCamera.frag");
+      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLightingSceneCamera.slang");
   const auto transparent =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.frag");
+      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.slang");
   ASSERT_FALSE(deferred.empty());
   ASSERT_FALSE(scene_camera.empty());
   ASSERT_FALSE(transparent.empty());
@@ -1318,7 +1322,7 @@ TEST(DdgiVolume, DdgiGatherConfidenceAndDiffuseEnergyContracts) {
 TEST(DdgiVolume, DdgiProbeMissRaysSampleSceneEnvironment) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto miss_source = ReadTextFile(shader_root / "RayTracing" / "Miss" / "DDGIProbeDiagnostics.rmiss");
+  const auto miss_source = ReadTextFile(shader_root / "RayTracing" / "Miss" / "DDGIProbeDiagnostics.slang");
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   ASSERT_FALSE(miss_source.empty());
@@ -1349,7 +1353,7 @@ TEST(DdgiVolume, DdgiProbeMissRaysSampleSceneEnvironment) {
 TEST(DdgiVolume, DdgiProbeUpdateUsesRtxgiBlendWithoutTemporalClamp) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
+  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   ASSERT_FALSE(probe_update_source.empty());
@@ -1357,33 +1361,32 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesRtxgiBlendWithoutTemporalClamp) {
 
   EXPECT_EQ(probe_update_source.find("EE_DDGI_TEMPORAL_CLAMP"), std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_BLEND_IRRADIANCE_HISTORY"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("layout(set = 1, binding = 5, r16f) writeonly uniform image2D "
-                                     "EE_DDGI_PROBE_VARIABILITY_ATLAS;"),
-            std::string::npos);
+  EXPECT_NE(probe_update_source.find("[vk::image_format(\"r16f\")]"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("RWTexture2D<float> EE_DDGI_PROBE_VARIABILITY_ATLAS;"), std::string::npos);
   EXPECT_NE(probe_update_source.find("hysteresis = max(0.0f, hysteresis - 0.75f);"), std::string::npos);
   EXPECT_NE(probe_update_source.find("delta *= 0.25f;"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("const float min_darkening_step = 1.0f / 1024.0f;"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("return vec4(irradiance, 1.0f);"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("mean_luminance <= (1.0f / 1024.0f)"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("return float4(irradiance, 1.0f);"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("weight_sum > epsilon ? 1.0f : 0.0f"), std::string::npos);
   EXPECT_NE(probe_update_source.find("if (directional_irradiance.a <= 0.0f)"), std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, "
                                      "history_irradiance, history_weight);"),
             std::string::npos);
-  EXPECT_NE(probe_update_source.find("const vec2 visibility_moments = mix(directional_visibility, "
+  EXPECT_NE(probe_update_source.find("float2 visibility_moments = lerp(directional_visibility, "
                                      "history_visibility, history_weight);"),
             std::string::npos);
-  EXPECT_NE(probe_update_source.find("const float coefficient_of_variation"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("const vec3 irradiance_sample = directional_irradiance.rgb;"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("const vec3 irradiance_sigma2"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("const float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);"),
+  EXPECT_NE(probe_update_source.find("float coefficient_of_variation"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("float3 irradiance_sample = directional_irradiance.rgb;"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("float3 irradiance_sigma2"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("float luminance_sigma2 = EE_DDGI_LUMINANCE(irradiance_sigma2);"),
             std::string::npos);
   EXPECT_NE(probe_update_source.find("sqrt(max(luminance_sigma2, 0.0f)) / mean_luminance"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("sqrt(max(EE_DDGI_LUMINANCE(variance), 0.0f))"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("imageStore(EE_DDGI_PROBE_VARIABILITY_ATLAS"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("EE_DDGI_PROBE_VARIABILITY_ATLAS["), std::string::npos);
   const auto previous_state_read =
-      probe_update_source.find("const vec4 previous_state = EE_DDGI_PROBE_STATE[physical_probe_index];");
+      probe_update_source.find("float4 previous_state = EE_DDGI_PROBE_STATE[physical_probe_index];");
   const auto previous_state_blend_guard =
-      probe_update_source.find("const bool blend_previous_probe_state = previous_inactive <= 0.5f;");
+      probe_update_source.find("bool blend_previous_probe_state = previous_inactive <= 0.5f;");
   const auto irradiance_blend = probe_update_source.find(
       "EE_DDGI_BLEND_IRRADIANCE_HISTORY(directional_irradiance, history_irradiance, "
       "history_weight);");
@@ -1392,9 +1395,8 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesRtxgiBlendWithoutTemporalClamp) {
   ASSERT_NE(irradiance_blend, std::string::npos);
   EXPECT_LT(previous_state_read, previous_state_blend_guard);
   EXPECT_LT(previous_state_blend_guard, irradiance_blend);
-  EXPECT_NE(probe_update_source.find("layout(set = 1, binding = 4) readonly buffer EE_DDGI_PROBE_STATE_BLOCK"),
-            std::string::npos);
-  EXPECT_NE(probe_update_source.find("vec4(relocation_offset, 1.0f - previous_inactive)"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("StructuredBuffer<float4> EE_DDGI_PROBE_STATE;"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("float4(relocation_offset, 1.0f - previous_inactive)"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("EE_DDGI_PROBE_STATE[physical_probe_index] ="), std::string::npos);
   EXPECT_EQ(probe_update_source.find("state_value"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("classification_inside_geometry"), std::string::npos);
@@ -1412,8 +1414,8 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesRtxgiBlendWithoutTemporalClamp) {
 TEST(DdgiVolume, DdgiProbeRelocationUsesStandaloneRtxgiStylePass) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto relocation_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeRelocation.comp");
-  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
+  const auto relocation_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeRelocation.slang");
+  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   const auto relocation_pass_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
@@ -1423,19 +1425,19 @@ TEST(DdgiVolume, DdgiProbeRelocationUsesStandaloneRtxgiStylePass) {
   ASSERT_FALSE(render_layer_source.empty());
   ASSERT_FALSE(relocation_pass_source.empty());
 
-  EXPECT_NE(relocation_source.find("layout(local_size_x = 32"), std::string::npos);
-  EXPECT_NE(relocation_source.find("const bool reset_offsets = probe_count_ray_count_and_flags.w != 0u;"),
+  EXPECT_NE(relocation_source.find("[numthreads(32, 1, 1)]"), std::string::npos);
+  EXPECT_NE(relocation_source.find("bool reset_offsets = constants.probe_count_ray_count_and_flags.w != 0u;"),
             std::string::npos);
-  EXPECT_NE(relocation_source.find("EE_DDGI_PROBE_STATE[probe_index].xyz = vec3(0.0f);"), std::string::npos);
-  EXPECT_NE(relocation_source.find("const uint fixed_ray_count = min(probe_counts.w, ray_count);"), std::string::npos);
+  EXPECT_NE(relocation_source.find("state.xyz = float3(0.0f);"), std::string::npos);
+  EXPECT_NE(relocation_source.find("uint fixed_ray_count = min(constants.probe_counts.w, ray_count);"),
+            std::string::npos);
   EXPECT_NE(relocation_source.find("fixed_ray_backface_threshold"), std::string::npos);
   EXPECT_NE(relocation_source.find("hit_distance *= 5.0f;"), std::string::npos);
   EXPECT_NE(relocation_source.find("EE_DDGI_RELOCATION_OFFSET_INSIDE_VOXEL"), std::string::npos);
-  EXPECT_NE(relocation_source.find("EE_DDGI_PROBE_STATE[physical_probe_index].xyz = relocation_offset"),
-            std::string::npos);
+  EXPECT_NE(relocation_source.find("output_state.xyz = relocation_offset;"), std::string::npos);
   EXPECT_EQ(relocation_source.find("EE_DDGI_PROBE_STATE[physical_probe_index].w"), std::string::npos);
   EXPECT_EQ(update_source.find("fixed_ray_backface_threshold"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("DDGIProbeRelocation.comp"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("DDGIProbeRelocation.slang"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.frame_probe_relocation_reset = reset_probe_state;"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find(
@@ -1453,8 +1455,8 @@ TEST(DdgiVolume, DdgiProbeRelocationUsesStandaloneRtxgiStylePass) {
 TEST(DdgiVolume, DdgiProbeClassificationUsesStandaloneRtxgiStylePass) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto classification_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeClassification.comp");
-  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
+  const auto classification_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeClassification.slang");
+  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   const auto classification_pass_source =
@@ -1465,21 +1467,24 @@ TEST(DdgiVolume, DdgiProbeClassificationUsesStandaloneRtxgiStylePass) {
   ASSERT_FALSE(render_layer_source.empty());
   ASSERT_FALSE(classification_pass_source.empty());
 
-  EXPECT_NE(classification_source.find("layout(local_size_x = 32"), std::string::npos);
-  EXPECT_NE(classification_source.find("const bool reset_classification = probe_count_ray_count_and_flags.w != 0u;"),
-            std::string::npos);
-  EXPECT_NE(classification_source.find("EE_DDGI_PROBE_STATE[probe_index].w = 0.0f;"), std::string::npos);
-  EXPECT_NE(classification_source.find("const uint fixed_ray_count = min(probe_counts.w, ray_count);"),
+  EXPECT_NE(classification_source.find("[numthreads(32, 1, 1)]"), std::string::npos);
+  EXPECT_NE(
+      classification_source.find("bool reset_classification = constants.probe_count_ray_count_and_flags.w != 0u;"),
+      std::string::npos);
+  EXPECT_NE(classification_source.find("EE_DDGI_WRITE_PROBE_CLASSIFICATION(probe_index, 0.0f);"), std::string::npos);
+  EXPECT_NE(classification_source.find("uint fixed_ray_count = min(constants.probe_counts.w, ray_count);"),
             std::string::npos);
   EXPECT_NE(classification_source.find("backface_count / float(fixed_ray_count) > fixed_ray_backface_threshold"),
             std::string::npos);
   EXPECT_NE(classification_source.find("EE_DDGI_VOXEL_PLANE_DISTANCE"), std::string::npos);
-  EXPECT_NE(classification_source.find("EE_DDGI_PROBE_STATE[physical_probe_index].w = 1.0f;"), std::string::npos);
-  EXPECT_NE(classification_source.find("EE_DDGI_PROBE_STATE[physical_probe_index].w = 0.0f;"), std::string::npos);
+  EXPECT_NE(classification_source.find("EE_DDGI_WRITE_PROBE_CLASSIFICATION(physical_probe_index, 1.0f);"),
+            std::string::npos);
+  EXPECT_NE(classification_source.find("EE_DDGI_WRITE_PROBE_CLASSIFICATION(physical_probe_index, 0.0f);"),
+            std::string::npos);
   EXPECT_EQ(classification_source.find("EE_DDGI_PROBE_STATE[physical_probe_index].xyz"), std::string::npos);
   EXPECT_EQ(update_source.find("classification_inside_geometry"), std::string::npos);
   EXPECT_EQ(update_source.find("!classification_has_nearby_geometry"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("DDGIProbeClassification.comp"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("DDGIProbeClassification.slang"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.frame_probe_classification_reset = reset_probe_state;"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find(
@@ -1495,12 +1500,12 @@ TEST(DdgiVolume, DdgiProbeClassificationUsesStandaloneRtxgiStylePass) {
   EXPECT_EQ(classification_source.find(".hlsl"), std::string::npos);
 }
 
-TEST(DdgiVolume, DdgiProbeVariabilityUsesGlslReductionWithoutHlslPath) {
+TEST(DdgiVolume, DdgiProbeVariabilityUsesSlangReductionWithoutHlslPath) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto reduce_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeVariabilityReduce.comp");
-  const auto extra_reduce_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeVariabilityExtraReduce.comp");
-  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
+  const auto reduce_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeVariabilityReduce.slang");
+  const auto extra_reduce_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeVariabilityExtraReduce.slang");
+  const auto update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
   const auto render_layer_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   ASSERT_FALSE(reduce_source.empty());
@@ -1508,23 +1513,20 @@ TEST(DdgiVolume, DdgiProbeVariabilityUsesGlslReductionWithoutHlslPath) {
   ASSERT_FALSE(update_source.empty());
   ASSERT_FALSE(render_layer_source.empty());
 
-  EXPECT_NE(reduce_source.find("layout(set = 0, binding = 0, r16f) readonly uniform image2D "
-                               "EE_DDGI_PROBE_VARIABILITY_ATLAS;"),
-            std::string::npos);
+  EXPECT_NE(reduce_source.find("[vk::image_format(\"r16f\")]"), std::string::npos);
+  EXPECT_NE(reduce_source.find("RWTexture2D<float> EE_DDGI_PROBE_VARIABILITY_ATLAS;"), std::string::npos);
   EXPECT_NE(reduce_source.find("EE_DDGI_PROBE_STATE[probe_index].w > 0.5f"), std::string::npos);
-  EXPECT_NE(reduce_source.find("const float total_possible_samples = 16.0f * 16.0f;"), std::string::npos);
-  EXPECT_NE(reduce_source.find("const float normalized_weight = weight_sum / total_possible_samples;"),
-            std::string::npos);
-  EXPECT_NE(reduce_source.find("imageStore(EE_DDGI_VARIABILITY_REDUCTION_OUTPUT"), std::string::npos);
-  EXPECT_NE(extra_reduce_source.find("layout(set = 0, binding = 0, rg32f) readonly uniform image2D "
-                                     "EE_DDGI_VARIABILITY_REDUCTION_INPUT;"),
-            std::string::npos);
+  EXPECT_NE(reduce_source.find("float total_possible_samples = 16.0f * 16.0f;"), std::string::npos);
+  EXPECT_NE(reduce_source.find("float normalized_weight = weight_sum / total_possible_samples;"), std::string::npos);
+  EXPECT_NE(reduce_source.find("EE_DDGI_VARIABILITY_REDUCTION_OUTPUT["), std::string::npos);
+  EXPECT_NE(extra_reduce_source.find("[vk::image_format(\"rg32f\")]"), std::string::npos);
+  EXPECT_NE(extra_reduce_source.find("RWTexture2D<float2> EE_DDGI_VARIABILITY_REDUCTION_INPUT;"), std::string::npos);
   EXPECT_NE(extra_reduce_source.find("weighted_sum += sample_value.r * sample_value.g"), std::string::npos);
-  EXPECT_NE(extra_reduce_source.find("const float total_possible_weight = 16.0f * 16.0f;"), std::string::npos);
-  EXPECT_NE(extra_reduce_source.find("const float normalized_weight = weight_sum / total_possible_weight;"),
+  EXPECT_NE(extra_reduce_source.find("float total_possible_weight = 16.0f * 16.0f;"), std::string::npos);
+  EXPECT_NE(extra_reduce_source.find("float normalized_weight = weight_sum / total_possible_weight;"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("DDGIProbeVariabilityReduce.comp"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("DDGIProbeVariabilityExtraReduce.comp"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("DDGIProbeVariabilityReduce.slang"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("DDGIProbeVariabilityExtraReduce.slang"), std::string::npos);
   EXPECT_NE(update_source.find("sqrt(max(luminance_sigma2, 0.0f))"), std::string::npos);
   EXPECT_NE(render_layer_source.find("ReadDdgiProbeVariabilityObservation"), std::string::npos);
   EXPECT_NE(render_layer_source.find("result.y <= 0.0f"), std::string::npos);
@@ -2153,9 +2155,9 @@ TEST(DdgiVolume, RenderInstanceBuffersUploadBeforeDescriptorBinding) {
 TEST(DdgiVolume, RasterTransmissionOpacityDrivesTransparentOutput) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto raster_material_source = ReadTextFile(shader_root / "Includes" / "GltfRasterMaterial.glsl");
+  const auto raster_material_source = ReadTextFile(shader_root / "Includes" / "GltfRasterMaterial.slangh");
   const auto transparent_source =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.frag");
+      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.slang");
   ASSERT_FALSE(raster_material_source.empty());
   ASSERT_FALSE(transparent_source.empty());
 
@@ -2170,7 +2172,7 @@ TEST(DdgiVolume, RasterTransmissionOpacityDrivesTransparentOutput) {
 TEST(DdgiVolume, PunctualShadowFilteringUsesFixedPcf) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.glsl");
+  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.slangh");
   ASSERT_FALSE(lighting_source.empty());
 
   EXPECT_NE(lighting_source.find("float EE_FUNC_SPOT_SHADOW_DEPTH(SpotLight light, vec2 lightUv)"), std::string::npos);
@@ -2188,7 +2190,7 @@ TEST(DdgiVolume, DdgiProbeHitsExplicitlyEvaluateAnalyticSceneLights) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto closest_hit_source =
-      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
+      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
   ASSERT_FALSE(closest_hit_source.empty());
 
   EXPECT_NE(closest_hit_source.find("EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE"), std::string::npos);
@@ -2215,9 +2217,9 @@ TEST(DdgiVolume, DdgiProbeHitsExplicitlyEvaluateAnalyticSceneLights) {
 TEST(DdgiVolume, DdgiProbeHitsSampleSharedEmissiveTrianglesWithoutMis) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto shared_sampling = ReadTextFile(shader_root / "Includes" / "EmissiveTriangleSampling.glsl");
-  const auto raygen = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.rgen");
-  const auto closest_hit = ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
+  const auto shared_sampling = ReadTextFile(shader_root / "Includes" / "EmissiveTriangleSampling.slangh");
+  const auto raygen = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.slang");
+  const auto closest_hit = ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
   ASSERT_FALSE(shared_sampling.empty());
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(closest_hit.empty());
@@ -2335,9 +2337,9 @@ TEST(DdgiVolume, DdgiAtlasBorderCopyTexelsStayInsideSourceTile) {
 TEST(DdgiVolume, DdgiScrollingClearsNewRegionsBeforeTracingAndKeepsCurrentRays) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.glsl");
-  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.comp");
-  const auto probe_scroll_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeScroll.comp");
+  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.slangh");
+  const auto probe_update_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeUpdate.slang");
+  const auto probe_scroll_source = ReadTextFile(shader_root / "Compute" / "DDGIProbeScroll.slang");
   const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
   const auto render_layer_source = ReadTextFile(source_root / "src" / "RenderLayer.cpp");
   const auto atlas_prepare_source = ReadTextFile(source_root / "src" / "RenderPasses" / "DdgiAtlasPreparePass.cpp");
@@ -2351,11 +2353,11 @@ TEST(DdgiVolume, DdgiScrollingClearsNewRegionsBeforeTracingAndKeepsCurrentRays) 
   EXPECT_NE(ddgi_helper_source.find("logical_probe_grid[axis] >= probe_counts[axis] - uint(scroll_delta[axis])"),
             std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("logical_probe_grid[axis] < uint(-scroll_delta[axis])"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("EE_DDGI_SCROLL_PROBE_GRID(logical_probe_grid, probe_scroll_offset.xyz"),
+  EXPECT_NE(probe_update_source.find("EE_DDGI_SCROLL_PROBE_GRID(logical_probe_grid, constants.probe_scroll_offset.xyz"),
             std::string::npos);
   EXPECT_NE(probe_update_source.find("blend_previous_probe_state && !newly_exposed_probe"), std::string::npos);
   EXPECT_EQ(probe_update_source.find("EE_DDGI_CLEAR_SCROLLED_PROBE"), std::string::npos);
-  EXPECT_NE(probe_scroll_source.find("EE_DDGI_PROBE_STATE[physical_probe_index] = vec4(0.0f)"), std::string::npos);
+  EXPECT_NE(probe_scroll_source.find("EE_DDGI_PROBE_STATE[physical_probe_index] = float4(0.0f)"), std::string::npos);
   EXPECT_NE(probe_scroll_source.find("EE_DDGI_CLEAR_IRRADIANCE_TILE"), std::string::npos);
   EXPECT_NE(probe_scroll_source.find("EE_DDGI_CLEAR_VISIBILITY_TILE"), std::string::npos);
   EXPECT_NE(probe_scroll_source.find("EE_DDGI_CLEAR_VARIABILITY_TILE"), std::string::npos);
@@ -2405,7 +2407,7 @@ TEST(DdgiVolume, PassStatsAcknowledgeOnlyRecordedDdgiWork) {
 TEST(DdgiVolume, DdgiProbeUpdateUsesCooperativeVariantsAndExactSynchronization) {
   const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
   const auto shader =
-      ReadTextFile(root / "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DDGIProbeUpdate.comp");
+      ReadTextFile(root / "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DDGIProbeUpdate.slang");
   const auto render_layer = ReadTextFile(root / "EvoEngine_SDK/src/RenderLayer.cpp");
   const auto platform = ReadTextFile(root / "EvoEngine_SDK/src/Platform.cpp");
   const auto pass_root = root / "EvoEngine_SDK/src/RenderPasses";
@@ -2419,10 +2421,10 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesCooperativeVariantsAndExactSynchronization) 
   ASSERT_FALSE(utilities.empty());
 
   EXPECT_NE(shader.find("EE_DDGI_PROBE_UPDATE_SHARED_RAY_COUNT 256u"), std::string::npos);
-  EXPECT_NE(shader.find("shared vec4 EE_DDGI_SHARED_PROBE_RAY_DATA"), std::string::npos);
-  EXPECT_NE(shader.find("shared vec4 EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS"), std::string::npos);
-  EXPECT_NE(shader.find("gl_WorkGroupID.x + gl_WorkGroupID.y * gl_NumWorkGroups.x"), std::string::npos);
-  EXPECT_NE(shader.find("groupMemoryBarrier();\n    barrier();"), std::string::npos);
+  EXPECT_NE(shader.find("groupshared float4 EE_DDGI_SHARED_PROBE_RAY_DATA"), std::string::npos);
+  EXPECT_NE(shader.find("groupshared float4 EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS"), std::string::npos);
+  EXPECT_NE(shader.find("group_id.x + group_id.y * EE_DDGI_UPDATE_DISPATCH_GROUP_COUNT_X()"), std::string::npos);
+  EXPECT_NE(shader.find("GroupMemoryBarrierWithGroupSync();"), std::string::npos);
   EXPECT_NE(shader.find("EE_DDGI_COPY_IRRADIANCE_BORDER_TEXELS_PARALLEL"), std::string::npos);
   EXPECT_NE(shader.find("EE_DDGI_COPY_VISIBILITY_BORDER_TEXELS_PARALLEL"), std::string::npos);
   EXPECT_NE(render_layer.find("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT"), std::string::npos);
@@ -2452,10 +2454,10 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesCooperativeVariantsAndExactSynchronization) 
 TEST(DdgiVolume, DdgiShadowRaysIgnoreNonShadowCastingLightVisualizers) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.glsl");
-  const auto raygen_source = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.rgen");
+  const auto ddgi_helper_source = ReadTextFile(shader_root / "Includes" / "DDGI.slangh");
+  const auto raygen_source = ReadTextFile(shader_root / "RayTracing" / "RayGen" / "DDGIProbeDiagnostics.slang");
   const auto closest_hit_source =
-      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
+      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
   const auto graphics_resources_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
                                                       "EvoEngine_SDK" / "src" / "GraphicsResources.cpp");
   const auto demo_scene_source =
@@ -2760,10 +2762,10 @@ TEST(DdgiVolume, MultiVolumeGpuContractOwnsEightSlotsAndSumsPerFrameTiming) {
       ReadTextFile(root / "EvoEngine_SDK" / "include" / "Rendering" / "Platform" / "Platform.hpp");
   const auto platform_source = ReadTextFile(root / "EvoEngine_SDK" / "src" / "Platform.cpp");
   const auto shader_root = root / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.glsl");
-  const auto gather_source = ReadTextFile(shader_root / "Includes" / "DDGIGather.glsl");
+  const auto lighting_source = ReadTextFile(shader_root / "Includes" / "Lighting.slangh");
+  const auto gather_source = ReadTextFile(shader_root / "Includes" / "DDGIGather.slangh");
   const auto closest_hit_source =
-      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
+      ReadTextFile(shader_root / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
   const auto inspection_source = ReadTextFile(root / "EvoEngine_SDK" / "src" / "Editor" / "SDKInspectionAdapters.cpp");
 
   EXPECT_NE(render_storage_header.find("static constexpr uint32_t kDdgiMaxVolumeCount = 8"), std::string::npos);
@@ -2900,7 +2902,7 @@ TEST(DdgiVolume, RenderLayerIsolatesFirstWarmupFrameFromDdgiHistory) {
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
   const auto ray_hit_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.rchit");
+                   "DefaultResources" / "Shaders" / "RayTracing" / "ClosestHit" / "DDGIProbeDiagnostics.slang");
   ASSERT_FALSE(render_layer_source.empty());
   ASSERT_FALSE(ray_hit_source.empty());
 

@@ -44,10 +44,10 @@ void main() {
       break;
 
     ExternalForce external_force = external_forces[global_index];
-    uint particle_index = floatBitsToUint(external_force.force_index.w);
+    uint segment_index = floatBitsToUint(external_force.force_index.w);
     vec3 force = external_force.force_index.xyz;
-    Particle particle = particles[particle_index];
-    Segment segment = segments[particle.segment_handle];
-    particles[particle_index].acceleration.xyz += force * segment.inv_mass;
+    Segment segment = segments[segment_index];
+    segments[segment_index].particle0.acceleration.xyz += force * segment.inv_mass;
+    segments[segment_index].particle1.acceleration.xyz += force * segment.inv_mass;
   }
 }

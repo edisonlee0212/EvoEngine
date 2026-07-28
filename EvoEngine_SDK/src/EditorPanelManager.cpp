@@ -89,6 +89,29 @@ void EditorPanelManager::Draw(const EditorPanelCategory category, const std::sha
   }
 }
 
+void EditorPanelManager::DrawExcept(const EditorPanelCategory category,
+                                    const std::shared_ptr<EditorLayer>& editor_layer,
+                                    const std::string_view excluded_id) {
+  for (auto& panel : panels_) {
+    SyncPanelOpenState(panel);
+    if (panel.category == category && panel.id != excluded_id && panel.open && *panel.open && panel.panel) {
+      panel.panel->Draw(editor_layer);
+      SyncPanelOpenState(panel);
+    }
+  }
+}
+
+void EditorPanelManager::DrawOnly(const EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer,
+                                  const std::string_view id) {
+  for (auto& panel : panels_) {
+    SyncPanelOpenState(panel);
+    if (panel.category == category && panel.id == id && panel.open && *panel.open && panel.panel) {
+      panel.panel->Draw(editor_layer);
+      SyncPanelOpenState(panel);
+    }
+  }
+}
+
 void EditorPanelManager::SetPanelOpen(const std::string& id, const bool open) {
   for (auto& panel : panels_) {
     if (panel.id == id && panel.open) {

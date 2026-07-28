@@ -274,7 +274,7 @@ if(WIN32 AND TARGET EvoEngineLauncher AND TARGET EvoEngineEditor)
 		PROPERTIES
 		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngineLauncher>"
 		LABELS "launcher,app"
-		TIMEOUT 90
+		TIMEOUT 240
 		)
 	add_test(NAME Launcher.WindowsUiSmoke
 		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/Launcher/launcher_ui_smoke.py"

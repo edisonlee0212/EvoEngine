@@ -1,0 +1,130 @@
+#extension GL_ARB_shading_language_include : enable
+#include "PointCloudRayTracingPayload.slangh"
+#include "RayTracingBasic.slangh"
+#include "Random.slangh"
+#include "DDGI.slangh"
+#include "DDGIProbeRayData.slangh"
+
+struct DdgiProbeRaySample {
+  vec3 direction;
+  float padding0;
+  vec3 start;
+
+  uint hit_count;
+  uint64_t handle;
+  uint64_t padding1;
+
+  HitInfo hit_info;
+};
+
+layout(set = 2, binding = 0) writeonly buffer EE_DDGI_PROBE_RAY_DATA_BLOCK {
+  DdgiProbeRayData EE_DDGI_PROBE_RAY_DATA[];
+};
+layout(set = 2, binding = 1) readonly buffer EE_DDGI_PROBE_STATE_BLOCK {
+  vec4 EE_DDGI_PROBE_STATE[];
+};
+layout(set = 2, binding = 2) writeonly buffer EE_DDGI_SELECTED_RAY_DIAGNOSTICS_BLOCK {
+  DdgiProbeRaySample EE_DDGI_SELECTED_RAY_DIAGNOSTICS[];
+};
+
+layout(push_constant) uniform EE_DDGI_PROBE_RAY_CONSTANTS {
+  vec4 first_probe;
+  vec4 probe_step_x;
+  vec4 probe_step_y;
+  vec4 probe_step_z;
+  uvec4 probe_counts_and_ray_count;
+  uvec4 selected_probe_volume_flags_environment;
+  vec4 trace_parameters;
+  ivec4 probe_scroll_offset;
+};
+
+PointCloudRayTracingPayload hit_value;
+
+vec4 EE_DDGI_PROBE_RAY_ROTATION() {
+  return normalize(vec4(first_probe.w, probe_step_x.w, probe_step_y.w, probe_step_z.w));
+}
+
+vec3 EE_DDGI_RAY_DIRECTION(const uint ray_index, const uint ray_count, const uint fixed_ray_count) {
+  return EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(ray_index, ray_count, fixed_ray_count,
+                                             EE_DDGI_PROBE_RAY_ROTATION());
+}
+
+[shader("raygeneration")]
+void main() {
+  const uint ray_count = max(probe_counts_and_ray_count.w, 1u);
+  const uint sample_index = DispatchRaysIndex().x;
+  const uint local_probe_index = sample_index / ray_count;
+  const uint probe_index = local_probe_index;
+  const uint ray_index = sample_index - local_probe_index * ray_count;
+  const uvec3 probe_counts = max(probe_counts_and_ray_count.xyz, uvec3(1u));
+  if (probe_index >= probe_counts.x * probe_counts.y * probe_counts.z) {
+    return;
+  }
+  const bool skip_inactive_probe_trace = (selected_probe_volume_flags_environment.z & (1u << 0u)) != 0u;
+  const uint fixed_ray_count = min(uint(max(trace_parameters.z, 0.0f)), ray_count);
+  const bool fixed_ray = ray_index < fixed_ray_count;
+  const uint probes_per_layer = probe_counts.x * probe_counts.y;
+  const uvec3 probe_grid = uvec3(probe_index % probe_counts.x, (probe_index / probe_counts.x) % probe_counts.y,
+                                 probe_index / probes_per_layer);
+  const uint physical_probe_index = EE_DDGI_SCROLL_PROBE_INDEX(probe_grid, probe_scroll_offset.xyz, probe_counts);
+  const vec4 probe_state = EE_DDGI_PROBE_STATE[physical_probe_index];
+  const vec3 origin = first_probe.xyz + probe_step_x.xyz * probe_grid.x + probe_step_y.xyz * probe_grid.y +
+                      probe_step_z.xyz * probe_grid.z + probe_state.xyz;
+  const vec3 direction = EE_DDGI_RAY_DIRECTION(ray_index, ray_count, fixed_ray_count);
+  const bool inactive_probe = skip_inactive_probe_trace && probe_state.w > 0.5f;
+  const bool capture_diagnostics = local_probe_index == selected_probe_volume_flags_environment.x;
+  uint primary_ray_seed =
+      EE_XXHASH32(uvec3(uint(probe_scroll_offset.w), probe_index, ray_index));
+  if (primary_ray_seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG) {
+    primary_ray_seed ^= 0xa511e9b3u;
+  }
+
+  hit_value.hit_count = 0u;
+  hit_value.seed = fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG : primary_ray_seed;
+  hit_value.handle = 0ul;
+  hit_value.hit_info.position = origin;
+  hit_value.hit_info.vertex_info1 = 0.0f;
+  hit_value.hit_info.normal = vec3(0.0f);
+  hit_value.hit_info.vertex_info2 = 0.0f;
+  hit_value.hit_info.tangent = vec3(0.0f);
+  hit_value.hit_info.vertex_info3 = 0.0f;
+  hit_value.hit_info.color = vec4(0.0f);
+  hit_value.hit_info.tex_coord = vec2(0.0f);
+  hit_value.hit_info.vertex_info4 = vec2(0.0f);
+  if (inactive_probe && !fixed_ray) {
+    hit_value.hit_info.color.a = EE_DDGI_INACTIVE_RAY_ALPHA;
+  } else {
+    RayDesc ray;
+    ray.Origin = origin;
+    ray.Direction = direction;
+    ray.TMin = 0.0f;
+    ray.TMax = trace_parameters.x;
+    TraceRay(EE_TLAS, gl_RayFlagsNoneEXT, EE_DDGI_RAY_MASK_GEOMETRY, 0, 0, 0, ray, hit_value);
+  }
+
+  float signed_hit_distance = EE_DDGI_PROBE_RAY_MISS_DISTANCE;
+  if (inactive_probe && !fixed_ray) {
+    signed_hit_distance = EE_DDGI_PROBE_RAY_INACTIVE_DISTANCE;
+  } else if (hit_value.hit_count != 0u) {
+    const float hit_distance = max(hit_value.hit_info.vertex_info1, 0.0f);
+    signed_hit_distance = hit_value.hit_info.color.a < 0.0f
+                              ? hit_distance * EE_DDGI_PROBE_RAY_BACKFACE_DISTANCE_SCALE
+                              : hit_distance;
+  }
+  DdgiProbeRayData ray_data;
+  ray_data.radiance_and_signed_distance =
+      vec4(max(hit_value.hit_info.color.rgb, vec3(0.0f)), signed_hit_distance);
+  EE_DDGI_PROBE_RAY_DATA[sample_index] = ray_data;
+
+  if (capture_diagnostics) {
+    DdgiProbeRaySample diagnostic_sample;
+    diagnostic_sample.direction = direction;
+    diagnostic_sample.padding0 = fixed_ray ? 1.0f : 0.0f;
+    diagnostic_sample.start = origin;
+    diagnostic_sample.hit_count = hit_value.hit_count;
+    diagnostic_sample.handle = hit_value.handle;
+    diagnostic_sample.padding1 = 0ul;
+    diagnostic_sample.hit_info = hit_value.hit_info;
+    EE_DDGI_SELECTED_RAY_DIAGNOSTICS[ray_index] = diagnostic_sample;
+  }
+}
