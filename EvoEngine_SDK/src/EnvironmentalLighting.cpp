@@ -59,6 +59,7 @@ void SerializeLocalReflectionProbe(YAML::Emitter& out, const EnvironmentalLighti
   out << YAML::Key << "shape" << YAML::Value << probe.shape;
   out << YAML::Key << "box_projection" << YAML::Value << probe.box_projection;
   out << YAML::Key << "enabled" << YAML::Value << probe.enabled;
+  out << YAML::Key << "debug_draw_bounds" << YAML::Value << probe.debug_draw_bounds;
   out << YAML::EndMap;
 }
 
@@ -89,6 +90,8 @@ void DeserializeLocalReflectionProbe(const YAML::Node& in, EnvironmentalLighting
     probe.box_projection = in["box_projection"].as<bool>();
   if (in["enabled"])
     probe.enabled = in["enabled"].as<bool>();
+  if (in["debug_draw_bounds"])
+    probe.debug_draw_bounds = in["debug_draw_bounds"].as<bool>();
 }
 
 void SerializeDdgiVolume(YAML::Emitter& out, const EnvironmentalLighting::DdgiVolume& volume) {

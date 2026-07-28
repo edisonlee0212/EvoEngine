@@ -57,6 +57,7 @@ class EnvironmentalLighting final : public IAsset {
     int shape = static_cast<int>(LocalReflectionProbeShape::Box);
     bool box_projection = true;
     bool enabled = true;
+    bool debug_draw_bounds = false;
 
     void CollectAssetRef(std::vector<AssetRef>& list);
   };

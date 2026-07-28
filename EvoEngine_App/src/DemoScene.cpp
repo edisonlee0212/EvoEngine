@@ -78,10 +78,10 @@ constexpr float kBistroReferenceCameraNearDistance = 0.1f;
 constexpr float kBistroReferenceCameraFarDistance = 1000.0f;
 constexpr int kBistroReferencePathTraceMaxDepth = 5;
 constexpr int kBistroDdgiMaxProbeCount = 4096;
-constexpr int kBistroDdgiMaxAxisProbeCount = 32;
-constexpr int kBistroDdgiTargetLongestAxisProbeCount = 24;
-constexpr float kBistroDdgiMinProbeSpacing = 0.05f;
-constexpr float kBistroDdgiBoundsPadding = 1.05f;
+constexpr int kBistroDdgiProbeCount = 22 * 7 * 26;
+const glm::ivec3 kBistroDdgiProbeCounts = glm::ivec3(22, 7, 26);
+const glm::vec3 kBistroDdgiProbeSpacing = glm::vec3(4.0f);
+const glm::vec3 kBistroDdgiVolumeOrigin = glm::vec3(-10.0f, 10.0f, -15.0f);
 constexpr float kBistroDirectionalLightIntensity = 10.0f;
 constexpr float kBistroDirectionalLightSize = 0.01f;
 // DDGI_VALIDATION_FIXTURE_CONSTANTS_BEGIN
@@ -1232,6 +1232,7 @@ void ConfigureStandardDdgiRuntime(DdgiSettings& settings, const int max_probe_co
                                   const float visibility_moment_bias = 0.02f) {
   settings.runtime.enabled = true;
   settings.runtime.pause_updates = false;
+  settings.runtime.enable_emissive_mesh_sampling = true;
   settings.runtime.ray_count = 256;
   settings.runtime.normal_bias = normal_bias;
   settings.runtime.visibility_moment_bias = visibility_moment_bias;
@@ -1631,6 +1632,30 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
   }
 }
 
+void AddRenderingDemoReflectionProbeComparisonSpheres(const std::shared_ptr<Scene>& scene, const Entity& root) {
+  constexpr float root_scale = 0.5f;
+  constexpr float sphere_world_scale = 0.28f;
+  constexpr float bottom_y = -0.72f;
+  constexpr float top_y = -0.16f;
+  constexpr float sphere_z = -2.55f;
+  const auto collection = scene->CreateEntity("Reflection Probe Comparison Spheres");
+  scene->SetParent(collection, root);
+  const auto& primitives = Resources::GetInstance().GetPrimitives();
+  const auto create_sphere = [&](const std::string& name, const glm::vec3& world_position, const glm::vec3& albedo,
+                                 const float roughness, const float metallic) {
+    CreateRenderingRegressionProbe(scene, collection, name, primitives.sphere, world_position / root_scale,
+                                   glm::vec3(sphere_world_scale / root_scale), albedo, roughness, metallic);
+  };
+  create_sphere("Reflection Probe Comparison Left Rough Dielectric", {-2.35f, bottom_y, sphere_z}, glm::vec3(0.78f),
+                0.88f, 0.0f);
+  create_sphere("Reflection Probe Comparison Left Smooth Metal", {-2.35f, top_y, sphere_z}, glm::vec3(0.92f), 0.05f,
+                1.0f);
+  create_sphere("Reflection Probe Comparison Right Rough Dielectric", {2.2f, bottom_y, sphere_z}, glm::vec3(0.78f),
+                0.88f, 0.0f);
+  create_sphere("Reflection Probe Comparison Right Smooth Metal", {2.2f, top_y, sphere_z}, glm::vec3(0.92f), 0.05f,
+                1.0f);
+}
+
 void ConfigureRenderingDemoScene(const std::shared_ptr<Scene>& scene) {
   const auto environment = LoadSponzaEnvironment();
   scene->global_reflection_probe_fallback = LoadSponzaGlobalReflectionProbe();
@@ -1644,6 +1669,7 @@ void ConfigureRenderingDemoScene(const std::shared_ptr<Scene>& scene) {
   Transform demo_transform;
   demo_transform.SetScale(glm::vec3(0.5f));
   scene->SetDataComponent(demo_scene, demo_transform);
+  AddRenderingDemoReflectionProbeComparisonSpheres(scene, demo_scene);
   ConfigureRenderingDemoDdgi(scene);
   ConfigureSponzaReflectionProbes(scene);
 
@@ -2178,51 +2204,12 @@ void RemoveDefaultDirectionalLight(const std::shared_ptr<Scene>& scene) {
   }
 }
 
-struct BistroDdgiVolumeConfig {
-  glm::ivec3 probe_counts = glm::ivec3(1);
-  glm::vec3 probe_spacing = glm::vec3(1.0f);
-  glm::vec3 volume_origin = glm::vec3(0.0f);
-};
-
-int BistroDdgiProbeCount(const glm::ivec3& probe_counts) {
-  return probe_counts.x * probe_counts.y * probe_counts.z;
-}
-
-glm::ivec3 CalculateBistroDdgiProbeCounts(const glm::vec3& padded_extent) {
-  const auto max_extent = std::max(padded_extent.x, std::max(padded_extent.y, padded_extent.z));
-  auto spacing =
-      std::max(kBistroDdgiMinProbeSpacing, max_extent / static_cast<float>(kBistroDdgiTargetLongestAxisProbeCount - 1));
-  const auto calculate_axis_count = [](const float extent, const float spacing) {
-    return glm::clamp(static_cast<int>(std::ceil(extent / spacing)) + 1, 2, kBistroDdgiMaxAxisProbeCount);
-  };
-
-  glm::ivec3 probe_counts;
-  do {
-    probe_counts = {calculate_axis_count(padded_extent.x, spacing), calculate_axis_count(padded_extent.y, spacing),
-                    calculate_axis_count(padded_extent.z, spacing)};
-    spacing *= 1.1f;
-  } while (BistroDdgiProbeCount(probe_counts) > kBistroDdgiMaxProbeCount);
-  return probe_counts;
-}
-
-BistroDdgiVolumeConfig CalculateBistroDdgiVolumeConfig(const Bound& bistro_world_bound) {
-  const auto extent = glm::max(bistro_world_bound.max - bistro_world_bound.min, glm::vec3(1.0f));
-  const auto padded_extent = extent * kBistroDdgiBoundsPadding;
-  BistroDdgiVolumeConfig config;
-  config.probe_counts = CalculateBistroDdgiProbeCounts(padded_extent);
-  config.probe_spacing = padded_extent / glm::vec3(config.probe_counts - glm::ivec3(1));
-  config.volume_origin = bistro_world_bound.Center();
-  return config;
-}
-
 void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& bistro_world_bound) {
   const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);
   if (!lighting) {
     return;
   }
-  const auto config = CalculateBistroDdgiVolumeConfig(bistro_world_bound);
-  const auto probe_count = BistroDdgiProbeCount(config.probe_counts);
-  const auto min_spacing = std::min(config.probe_spacing.x, std::min(config.probe_spacing.y, config.probe_spacing.z));
+  constexpr auto min_spacing = 4.0f;
 
   lighting->environment_lighting_intensity = EnvironmentalLighting::kDefaultEnvironmentLightingIntensity;
   SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f);
@@ -2230,13 +2217,14 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
   settings = DdgiSettings{};
   settings.runtime.enabled = true;
   settings.runtime.pause_updates = false;
+  settings.runtime.enable_emissive_mesh_sampling = true;
   settings.runtime.ray_count = 256;
   settings.runtime.normal_bias = std::max(0.02f, min_spacing * 0.02f);
   settings.runtime.view_bias = std::max(0.05f, min_spacing * 0.04f);
   settings.runtime.reset_probe_history = true;
-  settings.volume_defaults.probe_counts = config.probe_counts;
-  settings.volume_defaults.probe_spacing = config.probe_spacing;
-  settings.volume_defaults.volume_origin = config.volume_origin;
+  settings.volume_defaults.probe_counts = kBistroDdgiProbeCounts;
+  settings.volume_defaults.probe_spacing = kBistroDdgiProbeSpacing;
+  settings.volume_defaults.volume_origin = kBistroDdgiVolumeOrigin;
   settings.volume_defaults.relocation_distance = std::min(min_spacing * 0.25f, 50.0f);
   settings.volume_defaults.enable_probe_relocation = true;
   settings.volume_defaults.enable_probe_classification = false;
@@ -2248,8 +2236,8 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
   lighting->local_reflection_probes.clear();
   lighting->ddgi_volumes.clear();
   auto& ddgi_volume =
-      AddEnvironmentalLightingDdgiVolume(*lighting, kBistroDdgiVolumeName, glm::mat4(1.0f), config.probe_counts,
-                                         config.probe_spacing, config.volume_origin);
+      AddEnvironmentalLightingDdgiVolume(*lighting, kBistroDdgiVolumeName, glm::mat4(1.0f), kBistroDdgiProbeCounts,
+                                         kBistroDdgiProbeSpacing, kBistroDdgiVolumeOrigin);
   ddgi_volume.relocation_distance = settings.volume_defaults.relocation_distance;
   ddgi_volume.enable_probe_relocation = settings.volume_defaults.enable_probe_relocation;
   ddgi_volume.enable_probe_classification = settings.volume_defaults.enable_probe_classification;
@@ -2259,12 +2247,12 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
   }
 
   std::ostringstream stream;
-  stream << "Bistro DDGI setup: enabled=" << settings.runtime.enabled << ", probe_counts=(" << config.probe_counts.x
-         << "," << config.probe_counts.y << "," << config.probe_counts.z << "), probe_count=" << probe_count
-         << ", probe_spacing=(" << config.probe_spacing.x << "," << config.probe_spacing.y << ","
-         << config.probe_spacing.z << "), volume_origin=(" << config.volume_origin.x << "," << config.volume_origin.y
-         << "," << config.volume_origin.z << "), normal_bias=" << settings.runtime.normal_bias
-         << ", view_bias=" << settings.runtime.view_bias
+  stream << "Bistro DDGI setup: enabled=" << settings.runtime.enabled << ", probe_counts=(" << kBistroDdgiProbeCounts.x
+         << "," << kBistroDdgiProbeCounts.y << "," << kBistroDdgiProbeCounts.z
+         << "), probe_count=" << kBistroDdgiProbeCount << ", probe_spacing=(" << kBistroDdgiProbeSpacing.x << ","
+         << kBistroDdgiProbeSpacing.y << "," << kBistroDdgiProbeSpacing.z << "), volume_origin=("
+         << kBistroDdgiVolumeOrigin.x << "," << kBistroDdgiVolumeOrigin.y << "," << kBistroDdgiVolumeOrigin.z
+         << "), normal_bias=" << settings.runtime.normal_bias << ", view_bias=" << settings.runtime.view_bias
          << ", storage_max_probe_count=" << settings.storage.max_probe_count
          << ", debug_enabled=" << settings.debug.enabled << ", world_bound_min=(" << bistro_world_bound.min.x << ","
          << bistro_world_bound.min.y << "," << bistro_world_bound.min.z << "), world_bound_max=("
@@ -6041,9 +6029,8 @@ void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
     main_camera->Resize({1920, 1080});
     main_camera->skybox.Clear();
     main_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
-    main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
-    main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    main_camera->camera_settings.background_intensity = 0.0f;
+    main_camera->camera_settings.background_source = Camera::BackgroundSource::InheritEnvironmentalLighting;
+    main_camera->camera_settings.background_intensity = 1.0f;
     main_camera->camera_settings.fov = camera_frame.fov;
     main_camera->camera_settings.near_distance = camera_frame.near_distance;
     main_camera->camera_settings.far_distance = camera_frame.far_distance;
@@ -6065,9 +6052,8 @@ void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
     if (const auto scene_camera = editor_layer->GetSceneCamera()) {
       scene_camera->skybox.Clear();
       scene_camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-      scene_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
-      scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-      scene_camera->camera_settings.background_intensity = 0.0f;
+      scene_camera->camera_settings.background_source = Camera::BackgroundSource::InheritEnvironmentalLighting;
+      scene_camera->camera_settings.background_intensity = 1.0f;
       scene_camera->camera_settings.fov = camera_frame.fov;
       scene_camera->camera_settings.near_distance = camera_frame.near_distance;
       scene_camera->camera_settings.far_distance = camera_frame.far_distance;

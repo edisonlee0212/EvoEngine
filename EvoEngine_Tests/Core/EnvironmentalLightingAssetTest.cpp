@@ -108,6 +108,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   probe.artist_priority = 4;
   probe.shape = static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere);
   probe.box_projection = false;
+  probe.debug_draw_bounds = true;
   lighting->local_reflection_probes.push_back(probe);
 
   EnvironmentalLighting::DdgiVolume volume;
@@ -145,6 +146,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   ASSERT_EQ(node["ddgi_volumes"].size(), 1u);
   EXPECT_EQ(node["local_reflection_probes"][0]["global_reflection_probe"]["asset_handle_"].as<uint64_t>(),
             local_probe_payload->GetHandle().GetValue());
+  EXPECT_TRUE(node["local_reflection_probes"][0]["debug_draw_bounds"].as<bool>());
   EXPECT_EQ(node["ddgi_volumes"][0]["emissive_mesh_sampling_mode"].as<int>(),
             static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
   EXPECT_EQ(node["ddgi_volumes"][0]["auto_invalidate_trigger_conditions"].as<int>(),
@@ -173,6 +175,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_EQ(restored.local_reflection_probes.front().shape,
             static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere));
   EXPECT_FALSE(restored.local_reflection_probes.front().box_projection);
+  EXPECT_TRUE(restored.local_reflection_probes.front().debug_draw_bounds);
   EXPECT_EQ(restored.ddgi_volumes.front().probe_counts, glm::ivec3(3, 4, 5));
   EXPECT_EQ(restored.ddgi_volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
   EXPECT_TRUE(restored.ddgi_volumes.front().enable_probe_classification);
@@ -298,12 +301,15 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
   EXPECT_EQ(inspector_source.find("ExtractEnvironmentalLightingFromLegacyScene"), std::string::npos);
   EXPECT_EQ(inspector_source.find("ProjectManager::SaveAsset"), std::string::npos);
   EXPECT_NE(inspector_source.find("RenderEnvironmentalLightingProbeBounds"), std::string::npos);
+  EXPECT_NE(inspector_source.find("RenderEnvironmentalLightingDebugProbeBounds"), std::string::npos);
   EXPECT_NE(inspector_source.find("scene->environmental_lighting.Get<EnvironmentalLighting>()"), std::string::npos);
   EXPECT_NE(inspector_source.find("DDGI settings"), std::string::npos);
   EXPECT_NE(inspector_source.find("InspectDdgiRuntimeControls(lighting.ddgi_settings.runtime)"), std::string::npos);
   EXPECT_NE(inspector_source.find("Invalidate history now"), std::string::npos);
   EXPECT_EQ(inspector_source.find("Bake Stale Local Probe Payloads"), std::string::npos);
   EXPECT_NE(inspector_source.find("Bake Local Probe Payload"), std::string::npos);
+  EXPECT_NE(inspector_source.find("Bake All Local Probe Payloads"), std::string::npos);
+  EXPECT_NE(inspector_source.find("Debug draw bounds"), std::string::npos);
   EXPECT_EQ(inspector_source.find("GetGlobalReflectionProbeBakeFingerprint"), std::string::npos);
   EXPECT_EQ(inspector_source.find("BakeStaleInScene"), std::string::npos);
   EXPECT_EQ(inspector_source.find("RegisterInspector<ReflectionProbe>"), std::string::npos);

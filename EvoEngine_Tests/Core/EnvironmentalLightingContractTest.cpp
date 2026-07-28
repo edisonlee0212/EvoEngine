@@ -179,9 +179,16 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(reflection_probe_docs.find("Asset-owned local probes are the runtime"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("RenderLayer inspector's"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("all-probe bounds toggle"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("per-probe debug bounds"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("Bake All Local Probe Payloads"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("bake action queues the same"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("reflection-probe capture path used by asset entries"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("environment_lighting_intensity * specular_fallback_intensity"),
+            std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("forced to zero during capture"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("current direct lighting plus incident diffuse IBL/DDGI lighting"),
+            std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("material's diffuse albedo and metallic response are applied"),
             std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("not bake inputs."), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("does not run a stale scan or batch stale rebake"), std::string::npos);
@@ -226,9 +233,12 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   EXPECT_NE(render_instance_storage_source.find("environment_info_block.specular_fallback_intensity = "
                                                 "environment_lighting_intensity * specular_fallback_intensity"),
             std::string::npos);
+  EXPECT_NE(render_layer_source.find("environment_info_block.diffuse_fallback_intensity = 0.0f"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("environment_info_block.specular_fallback_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(lighting_shader.find("globalPrefiltered"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
   EXPECT_NE(inspector_source.find("Global Reflection Probe Fallback"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->global_reflection_probe_fallback = "
                                    "Resources::GetInstance().GetDefaultGlobalReflectionProbe()"),

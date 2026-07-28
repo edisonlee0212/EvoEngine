@@ -36,10 +36,11 @@ and an editor bake reloads the successfully persisted document before exposing i
 maps, metadata-only wrappers, and old noncanonical documents are rejected instead of migrated.
 
 The scene inspector assigns `Scene::global_reflection_probe_fallback` and an optional `EnvironmentalLighting` asset. The
-`EnvironmentalLighting` asset inspector owns local-probe entries and their bake buttons. The RenderLayer inspector's
-all-probe bounds toggle draws asset-owned local probe bounds from the assigned `EnvironmentalLighting` asset. Each
-asset-owned local probe reports its payload readiness; its bake action queues the same global
-reflection-probe capture path used by asset entries at the authored transform position.
+`EnvironmentalLighting` asset inspector owns local-probe entries, per-probe debug bounds, one-entry bake buttons, and the
+batch **Bake All Local Probe Payloads** action. The RenderLayer inspector's all-probe bounds toggle draws asset-owned local
+probe bounds from the assigned `EnvironmentalLighting` asset. Each asset-owned local probe reports its payload readiness;
+its bake action queues the same global reflection-probe capture path used by asset entries at the authored transform
+position.
 
 RGBA8/RGBM are not bake or persistence formats because they cannot preserve the required HDR range. BC6H is reserved for
 a future cooked-asset path. A derived `VK_FORMAT_B10G11R11_UFLOAT_PACK32` image would occupy 2,097,144 bytes, but it is not
@@ -68,9 +69,13 @@ Global and local radiance use the existing roughness-driven prefiltered mip chai
 response. Valid local probe samples use the baked payload and per-probe local intensity; they are not multiplied by
 `environment_lighting_intensity` at surface shading time. Remaining or missing local-probe weight returns to the
 scene-global or engine-global prefiltered fallback, whose contribution is controlled by
-`environment_lighting_intensity * specular_fallback_intensity`. `Indirect Lighting Intensity` never scales reflection-probe
-specular. Local probes never enter diffuse irradiance or DDGI. SSR remains an optional post-process, and this system adds
-neither SSR to lighting correctness nor ray-traced reflections.
+`environment_lighting_intensity * specular_fallback_intensity`. After local/global probe selection, the probe-specular term
+is multiplied by a saturated scalar derived from current direct lighting plus incident diffuse IBL/DDGI lighting before the
+material's diffuse albedo and metallic response are applied. This keeps reflection probes from lighting geometry by
+themselves when direct, diffuse IBL, and DDGI are all black, while still allowing metallic surfaces to reflect valid local
+or global probes. `Indirect Lighting Intensity` affects reflection probes only through that diffuse-indirect lighting scale,
+not as a direct probe multiplier. Local probes never enter diffuse irradiance or DDGI. SSR remains an optional post-process,
+and this system adds neither SSR to lighting correctness nor ray-traced reflections.
 
 Rough indirect specular uses one scalar visibility term after local/global probe selection and split-sum evaluation:
 
@@ -108,8 +113,9 @@ entry transform position. It does not update automatically. The fixed contract i
 near plane 0.1, far plane 1000, linear HDR with no tone mapping, and canonical Vulkan face orientation. A deterministic version-2 content fingerprint
 covers the capture position, environment source and `environment_lighting_intensity`, built-in
 geometry/material/texture content, direct lights, shadow-map and strand-tessellation settings, application shadow
-resolutions and light limits, and DDGI configuration. `diffuse_fallback_intensity` and `specular_fallback_intensity` are
-not bake inputs. Debug visualization is forced off without reducing the authored directional-shadow PCF sample count.
+resolutions and light limits, and DDGI configuration. `diffuse_fallback_intensity` and
+`specular_fallback_intensity` are forced to zero during capture and are not bake inputs. Debug visualization is forced off
+without reducing the authored directional-shadow PCF sample count.
 The inspector reports payload readiness, imported content, a shared-asset overwrite, or an actionable bake/load error.
 **Bake Local Probe Payload** refreshes one entry. The editor does not run a stale scan or batch stale rebake from probe
 inspection. Retryable capture preparation is bounded; paused, unconverged DDGI fails the requested bake with an actionable
@@ -120,11 +126,11 @@ Version 2 hashes structural YAML with stable map ordering, ignores volatile asse
 asset content. The stored fingerprint is provenance for explicit bakes and future tooling; probe inspection does not
 compare it against the live scene.
 
-The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, global environment
-input scaled by `environment_lighting_intensity`, and only converged DDGI. It excludes every local reflection probe,
-transparent geometry, Gaussian splats, clouds, editor overlays, external render callbacks, SSR, ambient occlusion,
-diffuse/specular fallback factors, and all post-processing. This prevents recursive feedback without a metallic diffuse
-proxy. Higher-order local-specular interreflection is intentionally absent: a baked probe can reflect the global
+The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, visible global
+environment input scaled by `environment_lighting_intensity`, and only converged DDGI. It excludes every local reflection
+probe, transparent geometry, Gaussian splats, clouds, editor overlays, external render callbacks, SSR, ambient occlusion,
+authored diffuse/specular fallback factors, and all post-processing. This prevents recursive feedback without a metallic
+diffuse proxy. Higher-order local-specular interreflection is intentionally absent: a baked probe can reflect the global
 environment and diffuse DDGI, but not another local probe.
 
 Validation uses the installed editor at 1920x1080. The reflection-probe gate covers adjacent colored regions, nested and

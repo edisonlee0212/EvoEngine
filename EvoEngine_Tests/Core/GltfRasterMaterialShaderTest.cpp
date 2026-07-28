@@ -526,6 +526,12 @@ TEST(GltfRasterMaterial, ShadowPassesUseOpaqueDepthPipelinesAndTransparentPasses
 
 TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   const auto lighting_shader = ReadTextFile(ShaderPath("Includes/Lighting.slangh"));
+  const auto deferred_lighting_shader =
+      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
+  const auto scene_camera_lighting_shader =
+      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
+  const auto transparent_lighting_shader =
+      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   const auto render_info_shader = ReadTextFile(ShaderPath("Includes/RenderInfo.slangh"));
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
@@ -535,6 +541,9 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   const auto transparent_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/TransparentGeometryPass.hpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(lighting_shader.empty());
+  ASSERT_FALSE(deferred_lighting_shader.empty());
+  ASSERT_FALSE(scene_camera_lighting_shader.empty());
+  ASSERT_FALSE(transparent_lighting_shader.empty());
   ASSERT_FALSE(render_info_shader.empty());
   ASSERT_FALSE(render_layer_header.empty());
   ASSERT_FALSE(render_layer.empty());
@@ -573,12 +582,26 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(environmental_components.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
   EXPECT_EQ(environmental_components.find("diffuse_environment_intensity"), std::string::npos);
   EXPECT_EQ(environmental_components.find("specular_reflection_intensity"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("diffuse * clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f) *"),
+  EXPECT_NE(lighting_shader.find(
+                "const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f)"),
             std::string::npos);
+  EXPECT_NE(lighting_shader.find("const vec3 diffuseIndirect = diffuse * indirectVisibility *"), std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ROUGH_SPECULAR_VISIBILITY"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.unoccluded_specular"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.specular = result.unoccluded_specular * result.specular_visibility"),
             std::string::npos);
+  EXPECT_NE(
+      environmental_components.find("result.diffuse_lighting = irradiance * EE_ENVIRONMENT.diffuse_fallback_intensity"),
+      std::string::npos);
+  EXPECT_NE(lighting_shader.find("float EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("const float reflectionLightingScale = "
+                                 "EE_REFLECTION_LIGHTING_SCALE(directLighting, diffuseLightingIndirect)"),
+            std::string::npos);
+  EXPECT_NE(lighting_shader.find("const vec3 specular = environment.specular * reflectionLightingScale"),
+            std::string::npos);
+  EXPECT_NE(deferred_lighting_shader.find("screenSpaceVisibility, result)"), std::string::npos);
+  EXPECT_NE(scene_camera_lighting_shader.find("screenSpaceVisibility, direct)"), std::string::npos);
+  EXPECT_NE(transparent_lighting_shader.find("1.0f, direct)"), std::string::npos);
 
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_layout_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_descriptor_sets_"), std::string::npos);

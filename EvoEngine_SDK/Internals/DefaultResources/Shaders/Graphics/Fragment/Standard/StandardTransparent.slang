@@ -55,7 +55,7 @@ void main()
 	vec3 direct = EE_FUNC_CALCULATE_LIGHTS(true, albedo.rgb, 1.0, depth, normal, viewDir, fs_in.FragPos, metallic, roughness, F0, surface.specular_f90);
 	vec3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
 		albedo.rgb, normal, viewDir, fs_in.FragPos, metallic, roughness, F0, surface.specular_f90, surface.occlusion,
-		1.0f);
+		1.0f, direct);
 	if (indirectLightingDebugView != 0) {
 		FragColor = vec4(ambient, 1.0f);
 		return;

@@ -4520,8 +4520,13 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
       capture_render_instances->render_info_block.shadow_fade_parameters.y = 0.0f;
       render_info_changed = true;
     }
-    if (reflection_probe_capture && previous_render_instances && capture_render_instances) {
-      PreserveDdgiRenderInfo(capture_render_instances->render_info_block, previous_render_instances->render_info_block);
+    if (reflection_probe_capture && capture_render_instances) {
+      capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f;
+      capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f;
+      if (previous_render_instances) {
+        PreserveDdgiRenderInfo(capture_render_instances->render_info_block,
+                               previous_render_instances->render_info_block);
+      }
       capture_render_instances->render_info_block.reflection_probe_header = glm::uvec4(0u);
       capture_render_instances->render_info_block.reflection_probes = {};
       capture_render_instances->render_info_block.debug_visualization = 0;

@@ -65,6 +65,7 @@ size_t CountOccurrences(const std::string& source, const std::string& value) {
 }  // namespace
 
 TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
+  EXPECT_TRUE(DdgiSettings{}.runtime.enable_emissive_mesh_sampling);
   EXPECT_EQ(sizeof(DdgiProbeRayData), 16u);
   EXPECT_EQ(alignof(DdgiProbeRayData), 16u);
   EXPECT_EQ(offsetof(DdgiProbeRayData, radiance_and_signed_distance), 0u);
@@ -541,7 +542,14 @@ TEST(DdgiVolume, BistroDemoUsesEnvironmentalLightingVolume) {
   const auto bistro_ddgi_source =
       ExtractBetween(demo_source, "void ConfigureBistroDemoDdgi", "void ApplyBistroDirectionalLightIntensity");
   ASSERT_FALSE(bistro_ddgi_source.empty());
+  const auto bistro_scene_source =
+      ExtractBetween(demo_source, "void evo_engine::ConfigureBistroDemoScene", "std::filesystem::path evo_engine");
+  ASSERT_FALSE(bistro_scene_source.empty());
 
+  EXPECT_NE(demo_source.find("const glm::ivec3 kBistroDdgiProbeCounts = glm::ivec3(22, 7, 26)"), std::string::npos);
+  EXPECT_NE(demo_source.find("const glm::vec3 kBistroDdgiProbeSpacing = glm::vec3(4.0f)"), std::string::npos);
+  EXPECT_NE(demo_source.find("const glm::vec3 kBistroDdgiVolumeOrigin = glm::vec3(-10.0f, 10.0f, -15.0f)"),
+            std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);"),
             std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("lighting->environment_lighting_intensity = "
@@ -550,10 +558,16 @@ TEST(DdgiVolume, BistroDemoUsesEnvironmentalLightingVolume) {
   EXPECT_NE(bistro_ddgi_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 0.0f)"),
             std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("auto& settings = lighting->ddgi_settings;"), std::string::npos);
+  EXPECT_NE(bistro_ddgi_source.find("settings.runtime.enable_emissive_mesh_sampling = true;"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("lighting->local_reflection_probes.clear();"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("lighting->ddgi_volumes.clear();"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("AddEnvironmentalLightingDdgiVolume(*lighting, kBistroDdgiVolumeName"),
             std::string::npos);
+  EXPECT_EQ(CountOccurrences(bistro_scene_source,
+                             "camera_settings.background_source = "
+                             "Camera::BackgroundSource::InheritEnvironmentalLighting"),
+            2u);
+  EXPECT_EQ(CountOccurrences(bistro_scene_source, "camera_settings.background_intensity = 1.0f"), 2u);
   EXPECT_EQ(bistro_ddgi_source.find("scene->environment.ddgi_settings"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("scene->DeleteEntity(*existing_ddgi_volume);"), std::string::npos);
   EXPECT_EQ(bistro_ddgi_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
@@ -1135,8 +1149,14 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(lighting_source.find("EE_DDGI_GATHER_WEIGHT(gather)"), std::string::npos);
   EXPECT_NE(lighting_source.find("environment.specular"), std::string::npos);
   EXPECT_NE(lighting_source.find("const vec3 diffuse_albedo = environment.diffuse_weight * albedo"), std::string::npos);
-  EXPECT_NE(lighting_source.find("diffuse * clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f) *"),
+  EXPECT_NE(lighting_source.find("const vec3 ddgi_lighting = EE_DDGI_DIFFUSE_RADIANCE(gather, vec3(1.0f))"),
             std::string::npos);
+  EXPECT_NE(lighting_source.find("diffuse_lighting = mix(diffuse_lighting, ddgi_lighting, gather_weight)"),
+            std::string::npos);
+  EXPECT_NE(lighting_source.find(
+                "const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f)"),
+            std::string::npos);
+  EXPECT_NE(lighting_source.find("const vec3 diffuseIndirect = diffuse * indirectVisibility *"), std::string::npos);
   EXPECT_NE(lighting_source.find("!any(isnan(ddgi_diffuse)) && !any(isinf(ddgi_diffuse))"), std::string::npos);
   EXPECT_EQ(lighting_source.find("EE_DDGI_PROBE_COORDINATE(fragPos"), std::string::npos);
 
