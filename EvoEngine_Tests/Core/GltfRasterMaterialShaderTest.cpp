@@ -586,6 +586,14 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
                 "const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f)"),
             std::string::npos);
   EXPECT_NE(lighting_shader.find("const vec3 diffuseIndirect = diffuse * indirectVisibility *"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("float EE_REFLECTION_PROBE_SCALAR_VISIBILITY"), std::string::npos);
+  EXPECT_NE(
+      lighting_shader.find("float EE_ROUGH_SPECULAR_VISIBILITY(float materialOcclusion, float screenSpaceVisibility, "
+                           "float ddgiVisibility"),
+      std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_REFLECTION_PROBE_SCALAR_VISIBILITY(materialOcclusion, screenSpaceVisibility, "
+                                 "ddgiVisibility)"),
+            std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ROUGH_SPECULAR_VISIBILITY"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.unoccluded_specular"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.specular = result.unoccluded_specular * result.specular_visibility"),
@@ -593,6 +601,9 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_EQ(environmental_components.find("result.diffuse_lighting"), std::string::npos);
   EXPECT_EQ(lighting_shader.find("float EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
   EXPECT_EQ(lighting_shader.find("reflectionLightingScale"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("const float ddgiSpecularVisibility = "
+                                 "mix(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight)"),
+            std::string::npos);
   EXPECT_NE(lighting_shader.find("const vec3 specular = environment.specular"), std::string::npos);
   EXPECT_NE(deferred_lighting_shader.find("screenSpaceVisibility)"), std::string::npos);
   EXPECT_NE(scene_camera_lighting_shader.find("screenSpaceVisibility)"), std::string::npos);

@@ -1147,6 +1147,14 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(lighting_source.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
   EXPECT_NE(lighting_source.find("diffuse = mix(diffuse, ddgi_diffuse, gather_weight)"), std::string::npos);
   EXPECT_NE(lighting_source.find("EE_DDGI_GATHER_WEIGHT(gather)"), std::string::npos);
+  EXPECT_NE(lighting_source.find("EE_DDGI_GATHER_VISIBILITY(gather)"), std::string::npos);
+  EXPECT_NE(lighting_source.find("const float ddgiSpecularVisibility = "
+                                 "mix(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight)"),
+            std::string::npos);
+  EXPECT_NE(lighting_source.find("ddgiSpecularVisibility);"), std::string::npos);
+  EXPECT_NE(lighting_source.find("EE_REFLECTION_PROBE_SCALAR_VISIBILITY(materialOcclusion, screenSpaceVisibility, "
+                                 "ddgiVisibility)"),
+            std::string::npos);
   EXPECT_NE(lighting_source.find("environment.specular"), std::string::npos);
   EXPECT_NE(lighting_source.find("const vec3 diffuse_albedo = environment.diffuse_weight * albedo"), std::string::npos);
   EXPECT_EQ(lighting_source.find("const vec3 ddgi_lighting = EE_DDGI_DIFFUSE_RADIANCE(gather, vec3(1.0f))"),
@@ -1236,12 +1244,35 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
 }
 
 TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
-  const auto compose = [](const float diffuse_ibl, const float ddgi_diffuse, const float specular_ibl,
-                          const float diffuse_intensity, const float specular_intensity, const float coverage,
-                          const float confidence, const float diffuse_occlusion = 1.0f) {
+  const auto smoothstep = [](const float edge0, const float edge1, const float value) {
+    const float t = glm::clamp((value - edge0) / (edge1 - edge0), 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+  };
+  const auto rough_specular_visibility = [&](const float material_occlusion, const float screen_space_visibility,
+                                             const float ddgi_visibility, const float roughness,
+                                             const float normal_dot_view) {
+    const float scalar_visibility = (std::min)(glm::clamp(material_occlusion, 0.0f, 1.0f),
+                                               (std::min)(glm::clamp(screen_space_visibility, 0.0f, 1.0f),
+                                                          glm::clamp(ddgi_visibility, 0.0f, 1.0f)));
+    const float clamped_roughness = glm::clamp(roughness, 0.0f, 1.0f);
+    const float lobe_width = clamped_roughness * clamped_roughness;
+    const float scalar_occlusion = 1.0f - scalar_visibility;
+    const float grazing_occlusion = 0.04f * std::tanh(scalar_occlusion / 0.04f);
+    const float view_confidence = smoothstep(0.8f, 1.0f, glm::clamp(normal_dot_view, 0.0f, 1.0f));
+    const float trusted_occlusion = glm::mix(grazing_occlusion, scalar_occlusion, view_confidence);
+    return 1.0f - lobe_width * trusted_occlusion;
+  };
+  const auto compose = [&](const float diffuse_ibl, const float ddgi_diffuse, const float specular_ibl,
+                           const float diffuse_intensity, const float specular_intensity, const float coverage,
+                           const float confidence, const float diffuse_occlusion = 1.0f,
+                           const float screen_space_visibility = 1.0f, const float ddgi_visibility = 1.0f,
+                           const float roughness = 0.0f, const float normal_dot_view = 1.0f) {
     const float weight = glm::clamp(coverage * confidence, 0.0f, 1.0f);
+    const float ddgi_specular_visibility = glm::mix(1.0f, glm::clamp(ddgi_visibility, 0.0f, 1.0f), weight);
+    const float specular_visibility = rough_specular_visibility(diffuse_occlusion, screen_space_visibility,
+                                                                ddgi_specular_visibility, roughness, normal_dot_view);
     return glm::mix(diffuse_ibl * diffuse_intensity, ddgi_diffuse, weight) * glm::clamp(diffuse_occlusion, 0.0f, 1.0f) +
-           specular_ibl * specular_intensity;
+           specular_ibl * specular_intensity * specular_visibility;
   };
 
   EXPECT_FLOAT_EQ(compose(2.0f, 6.0f, 3.0f, 1.0f, 1.0f, 0.0f, 1.0f), 5.0f);
@@ -1252,6 +1283,11 @@ TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
   EXPECT_FLOAT_EQ(compose(2.0f, 6.0f, 3.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f), 3.0f);
   EXPECT_FLOAT_EQ(compose(0.0f, 0.0f, 3.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f), 3.0f);
   EXPECT_FLOAT_EQ(compose(0.0f, 0.0f, 3.0f, 1.0f, 0.0f, 1.0f, 1.0f), 0.0f);
+  EXPECT_FLOAT_EQ(compose(0.0f, 0.0f, 3.0f, 1.0f, 1.0f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f), 3.0f);
+  EXPECT_FLOAT_EQ(compose(2.0f, 6.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f), 6.0f);
+  EXPECT_NEAR(compose(0.0f, 0.0f, 3.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f), 0.0f, 0.0001f);
+  EXPECT_GT(compose(0.0f, 0.0f, 3.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f),
+            compose(0.0f, 0.0f, 3.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, 0.0f, 1.0f));
   EXPECT_FLOAT_EQ((1.0f - 0.04f) * (1.0f - 1.0f), 0.0f);
 }
 
