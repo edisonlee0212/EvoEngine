@@ -16,6 +16,10 @@ import sys
 from compare_reference_render import PngImage, read_image
 
 
+SPECULAR_VISIBILITY_MODEL = (
+    "1-roughness^2*mix(0.04*tanh((1-min(material_ao,gtao))/0.04),"
+    "1-min(material_ao,gtao),smoothstep(0.8,1,NdotV))"
+)
 CAPTURE_NAMES = (
     "baseline",
     "sky-off-local",
@@ -280,8 +284,8 @@ def main() -> int:
         output_dir.mkdir(parents=True, exist_ok=True)
         for name in (
             *[f"{name}.png" for name in CAPTURE_NAMES],
-            "stale-payload-enabled.png",
-            "stale-payload-disabled.png",
+            "explicit-payload-enabled.png",
+            "explicit-payload-disabled.png",
             "report.json",
             "run.log",
             "evidence.json",
@@ -369,11 +373,11 @@ def main() -> int:
             "screen_space_reflections": False,
             "ray_traced_reflections": False,
             "gpu_timestamps": True,
-            "stale_observation_frames": 4,
+            "no_auto_bake_observation_frames": 4,
             "timing_warmup_frames": 8,
             "timing_measure_frames": 120,
-            "batch_rebake_policy": "serial",
-            "specular_visibility_model": "1-roughness^2*mix(0.04*tanh((1-min(material_ao,gtao))/0.04),1-min(material_ao,gtao),smoothstep(0.8,1,NdotV))",
+            "batch_explicit_rebake_policy": "serial",
+            "specular_visibility_model": SPECULAR_VISIBILITY_MODEL,
         }
         if report.get("schema_version") != 3 or report.get("passed") is not True:
             raise RuntimeError("Reflection probe report did not pass its schema contract.")
@@ -433,42 +437,42 @@ def main() -> int:
             or bake["fingerprint"] == 0
         ):
             raise RuntimeError("Reflection probe canonical non-recursive bake evidence is invalid.")
-        stale = report.get("stale_rebake", {})
-        no_auto = stale.get("no_auto_rebake", {})
-        single = stale.get("single", {})
-        imported = stale.get("imported_probe", {})
-        batch = stale.get("batch", {})
+        explicit_rebake = report.get("explicit_rebake", {})
+        no_auto = explicit_rebake.get("no_auto_rebake", {})
+        single = explicit_rebake.get("single", {})
+        imported = explicit_rebake.get("imported_probe", {})
+        batch = explicit_rebake.get("batch", {})
         if (
-            stale.get("component_count") != 2
-            or stale.get("unique_components") is not True
-            or stale.get("unique_assets") is not True
-            or stale.get("initial_controls") != {"sky": 0.75, "indirect": 0.5}
-            or stale.get("final_controls") != {"sky": 1.0, "indirect": 0.0}
-            or stale.get("sky_edit") != {"immediate_stale": True, "restore_ready": True}
-            or stale.get("indirect_edit") != {"immediate_stale": True, "restore_ready": True}
-            or stale.get("underlying_background_edit") != {"immediate_stale": True, "restore_ready": True}
+            explicit_rebake.get("asset_entry_count") != 2
+            or explicit_rebake.get("unique_entries") is not True
+            or explicit_rebake.get("unique_assets") is not True
+            or explicit_rebake.get("initial_controls") != {"sky": 0.75, "indirect": 0.5}
+            or explicit_rebake.get("final_controls") != {"sky": 1.0, "indirect": 0.0}
         ):
-            raise RuntimeError("Reflection probe immediate-staleness evidence is invalid.")
+            raise RuntimeError("Reflection probe explicit-bake evidence is invalid.")
         for key in ("fingerprints_before", "fingerprints_after", "payload_hashes_before", "payload_hashes_after"):
             values = no_auto.get(key)
-            if not isinstance(values, list) or len(values) != 2 or any(not isinstance(value, int) or value == 0 for value in values):
+            if (
+                not isinstance(values, list)
+                or len(values) != 2
+                or any(not isinstance(value, int) or value == 0 for value in values)
+            ):
                 raise RuntimeError(f"Reflection probe no-auto-rebake field {key!r} is invalid.")
         if (
             no_auto.get("frames") != 4
-            or no_auto.get("remained_stale") is not True
+            or no_auto.get("payload_active") is not True
             or no_auto.get("fingerprints_unchanged") is not True
             or no_auto.get("payload_hashes_unchanged") is not True
-            or no_auto.get("last_valid_payload_active") is not True
             or no_auto.get("last_valid_payload_rendered") is not True
             or not isinstance(no_auto.get("render_nrmse"), (int, float))
             or not math.isfinite(no_auto["render_nrmse"])
             or no_auto["render_nrmse"] <= 0.0001
-            or no_auto.get("enabled_image") != "stale-payload-enabled.png"
-            or no_auto.get("disabled_image") != "stale-payload-disabled.png"
+            or no_auto.get("enabled_image") != "explicit-payload-enabled.png"
+            or no_auto.get("disabled_image") != "explicit-payload-disabled.png"
             or no_auto["fingerprints_before"] != no_auto["fingerprints_after"]
             or no_auto["payload_hashes_before"] != no_auto["payload_hashes_after"]
         ):
-            raise RuntimeError("Reflection probes rebaked automatically or lost their last valid payload.")
+            raise RuntimeError("Reflection probes baked automatically or lost their explicit payload.")
         if (
             single.get("ready") is not True
             or not isinstance(single.get("fingerprint_before"), int)
@@ -482,7 +486,7 @@ def main() -> int:
             or single["payload_hash_after"] == 0
             or single["payload_hash_before"] == single["payload_hash_after"]
         ):
-            raise RuntimeError("Reflection probe single stale rebake evidence is invalid.")
+            raise RuntimeError("Reflection probe single explicit rebake evidence is invalid.")
         if (
             imported.get("status") != "Imported"
             or imported.get("unchanged") is not True
@@ -490,7 +494,7 @@ def main() -> int:
             or imported.get("payload_hash_before") == 0
             or imported.get("payload_hash_before") != imported.get("payload_hash_after")
         ):
-            raise RuntimeError("Imported reflection probe staleness evidence is invalid.")
+            raise RuntimeError("Imported reflection probe explicit-bake evidence is invalid.")
         pending_counts = batch.get("pending_counts")
         source_fingerprints = batch.get("source_fingerprints")
         payload_hashes = batch.get("payload_hashes")
@@ -521,7 +525,10 @@ def main() -> int:
             or gpu_timing.get("sample_count") != 120
             or not isinstance(timing_samples, list)
             or len(timing_samples) != 120
-            or any(not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0 for value in timing_samples)
+            or any(
+                not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0
+                for value in timing_samples
+            )
         ):
             raise RuntimeError("Reflection probe Deferred Lighting timing samples are invalid.")
         timing_median = gpu_timing.get("median_ms")
@@ -582,19 +589,7 @@ def main() -> int:
         ):
             raise RuntimeError("Reflection probe rough-specular metrics are malformed.")
         if (
-            rough_specular.get("gtao_role") != "scalar_visibility_only"
-            or rough_specular.get("ddgi_role") != "none"
-            or rough_specular.get("candidate_rejections")
-            != [
-                "rgb_gtao_tint",
-                "metallic_interpolation",
-                "ddgi_irradiance_as_specular",
-                "material_ao_times_gtao",
-                "grazing_ramp_end_0_35",
-                "grazing_ramp_start_0_35",
-                "grazing_occlusion_cap_0_03",
-            ]
-            or rough_specular["disabled_bypass_nrmse"] >= 1.0e-6
+            rough_specular["disabled_bypass_nrmse"] >= 1.0e-6
             or rough_specular["unavailable_bypass_nrmse"] >= 1.0e-6
             or rough_specular["unavailable_visibility_nrmse"] >= 1.0e-6
             or rough_specular["ssao_specular_nrmse"] >= 1.0e-6
@@ -647,17 +642,17 @@ def main() -> int:
             artifacts.append(artifact)
             images[name] = image
         image_evidence = validate_images(images)
-        stale_enabled_artifact, stale_enabled = validate_png(
-            output_dir / "stale-payload-enabled.png", args.width, args.height
+        explicit_enabled_artifact, explicit_enabled = validate_png(
+            output_dir / "explicit-payload-enabled.png", args.width, args.height
         )
-        stale_disabled_artifact, stale_disabled = validate_png(
-            output_dir / "stale-payload-disabled.png", args.width, args.height
+        explicit_disabled_artifact, explicit_disabled = validate_png(
+            output_dir / "explicit-payload-disabled.png", args.width, args.height
         )
-        stale_render_nrmse = normalized_rms(stale_enabled, stale_disabled)
-        if not math.isfinite(stale_render_nrmse) or stale_render_nrmse <= 0.00005:
-            raise RuntimeError("Stale reflection probe payload did not produce an independent rendered image delta.")
-        artifacts.extend((stale_enabled_artifact, stale_disabled_artifact))
-        image_evidence["stale_payload_render_nrmse"] = stale_render_nrmse
+        explicit_render_nrmse = normalized_rms(explicit_enabled, explicit_disabled)
+        if not math.isfinite(explicit_render_nrmse) or explicit_render_nrmse <= 0.00005:
+            raise RuntimeError("Explicit reflection probe payload did not produce an independent rendered image delta.")
+        artifacts.extend((explicit_enabled_artifact, explicit_disabled_artifact))
+        image_evidence["explicit_payload_render_nrmse"] = explicit_render_nrmse
         artifacts.extend(
             (
                 {"file": report_path.name, "bytes": report_path.stat().st_size, "sha256": sha256(report_path)},
@@ -674,7 +669,7 @@ def main() -> int:
             "editor_sha256": sha256(editor),
             "checks": checks,
             "bake": bake,
-            "stale_rebake": stale,
+            "explicit_rebake": explicit_rebake,
             "gpu_timing": gpu_timing_evidence,
             "rough_specular": rough_specular,
             "abi": abi,

@@ -4009,11 +4009,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
          << ", \"maximum_amplification\": " << m15_maximum_amplification
          << ", \"boundary_luminance_min\": " << minimum_boundary_luminance
          << ", \"boundary_luminance_max\": " << maximum_boundary_luminance
-         << ", \"gtao_role\": \"scalar_visibility_only\", \"ddgi_role\": \"none\", "
-            "\"candidate_rejections\": [\"rgb_gtao_tint\", \"metallic_interpolation\", "
-            "\"ddgi_irradiance_as_specular\", \"material_ao_times_gtao\", "
-            "\"grazing_ramp_end_0_35\", \"grazing_ramp_start_0_35\", "
-            "\"grazing_occlusion_cap_0_03\"]},\n  \"abi\": {"
+         << "},\n  \"abi\": {"
             "\"new_descriptors\": 0, \"lighting_sampler_count\": 37, \"reflection_probe_info_bytes\": 128, "
             "\"render_info_bytes\": 5520, \"camera_info_bytes\": 704},\n  \"image_deltas\": {\"box_projection_nrmse\": "
          << box_projection_delta << ", \"owner_reorder_nrmse\": " << reorder_delta
@@ -4933,7 +4929,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
          << ", \"ddgi_outside_specular_nrmse\": " << sponza_ddgi_outside_specular_nrmse
          << ", \"scalar_channel_error\": " << sponza_visibility_scalar_error
          << ", \"maximum_amplification\": " << sponza_maximum_amplification
-         << ", \"gtao_role\": \"scalar_visibility_only\", \"ddgi_role\": \"none\"},\n  \"ddgi_invalidation\": "
+         << "},\n  \"ddgi_invalidation\": "
             "{\"indirect_edit\": {\"update_reasons\": "
          << indirect_update_reasons
          << ", \"recorded_probe_updates\": " << indirect_update_stats.recorded_probe_update_count

@@ -1251,9 +1251,10 @@ TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
   const auto rough_specular_visibility = [&](const float material_occlusion, const float screen_space_visibility,
                                              const float ddgi_visibility, const float roughness,
                                              const float normal_dot_view) {
-    const float scalar_visibility = (std::min)(glm::clamp(material_occlusion, 0.0f, 1.0f),
-                                               (std::min)(glm::clamp(screen_space_visibility, 0.0f, 1.0f),
-                                                          glm::clamp(ddgi_visibility, 0.0f, 1.0f)));
+    const float material_visibility = glm::clamp(material_occlusion, 0.0f, 1.0f);
+    const float screen_visibility = glm::clamp(screen_space_visibility, 0.0f, 1.0f);
+    const float probe_visibility = glm::clamp(ddgi_visibility, 0.0f, 1.0f);
+    const float scalar_visibility = (std::min)(material_visibility, (std::min)(screen_visibility, probe_visibility));
     const float clamped_roughness = glm::clamp(roughness, 0.0f, 1.0f);
     const float lobe_width = clamped_roughness * clamped_roughness;
     const float scalar_occlusion = 1.0f - scalar_visibility;
