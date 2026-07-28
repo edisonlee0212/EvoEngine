@@ -1149,10 +1149,11 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(lighting_source.find("EE_DDGI_GATHER_WEIGHT(gather)"), std::string::npos);
   EXPECT_NE(lighting_source.find("environment.specular"), std::string::npos);
   EXPECT_NE(lighting_source.find("const vec3 diffuse_albedo = environment.diffuse_weight * albedo"), std::string::npos);
-  EXPECT_NE(lighting_source.find("const vec3 ddgi_lighting = EE_DDGI_DIFFUSE_RADIANCE(gather, vec3(1.0f))"),
+  EXPECT_EQ(lighting_source.find("const vec3 ddgi_lighting = EE_DDGI_DIFFUSE_RADIANCE(gather, vec3(1.0f))"),
             std::string::npos);
-  EXPECT_NE(lighting_source.find("diffuse_lighting = mix(diffuse_lighting, ddgi_lighting, gather_weight)"),
+  EXPECT_EQ(lighting_source.find("diffuse_lighting = mix(diffuse_lighting, ddgi_lighting, gather_weight)"),
             std::string::npos);
+  EXPECT_EQ(lighting_source.find("EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
   EXPECT_NE(lighting_source.find(
                 "const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f)"),
             std::string::npos);

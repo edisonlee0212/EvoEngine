@@ -132,7 +132,7 @@ void main()
                                                metallic, roughness, F0, F90);
         vec3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
             albedo.rgb, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
-            screenSpaceVisibility, direct);
+            screenSpaceVisibility);
         if (indirectLightingDebugView != 0) {
             FragColor = vec4(ambient, 1.0f);
             return;

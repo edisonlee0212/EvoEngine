@@ -105,14 +105,8 @@ vec3 EE_FUNC_CALCULATE_DDGI_DIFFUSE(vec3 albedo, vec3 normal, vec3 viewDir, vec3
   return EE_DDGI_WEIGHTED_DIFFUSE(EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos), albedo);
 }
 
-float EE_REFLECTION_LIGHTING_SCALE(vec3 directLighting, vec3 diffuseIndirect) {
-  const vec3 lighting = max(directLighting, vec3(0.0f)) + max(diffuseIndirect, vec3(0.0f));
-  return clamp(max(lighting.x, max(lighting.y, lighting.z)), 0.0f, 1.0f);
-}
-
 struct EeEnvironmentalLighting {
   vec3 diffuse;
-  vec3 diffuse_lighting;
   vec3 specular;
   vec3 unoccluded_specular;
   vec3 diffuse_weight;
@@ -332,7 +326,6 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(vec3 albedo, 
                                         .rgb,
                                     vec3(1.0f / EE_ENVIRONMENT.gamma));
 #endif
-  result.diffuse_lighting = irradiance * EE_ENVIRONMENT.diffuse_fallback_intensity;
   result.diffuse = result.diffuse_weight * irradiance * albedo * EE_ENVIRONMENT.diffuse_fallback_intensity;
 
 #ifdef EE_RASTER_FIXED_LIGHTING_TEXTURES
@@ -371,26 +364,19 @@ vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDi
   const EeEnvironmentalLighting environment = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
       albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, 1.0f, 1.0f);
   const vec3 diffuseIndirect = environment.diffuse * EE_RENDER_INFO.indirect_lighting_intensity;
-  const vec3 diffuseLightingIndirect = environment.diffuse_lighting * EE_RENDER_INFO.indirect_lighting_intensity;
-  const float reflectionLightingScale = EE_REFLECTION_LIGHTING_SCALE(vec3(0.0f), diffuseLightingIndirect);
-  return diffuseIndirect + environment.specular * reflectionLightingScale;
+  return diffuseIndirect + environment.specular;
 }
 
 vec3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic,
                                                 float roughness, vec3 F0, float F90, float materialOcclusion,
-                                                float screenSpaceVisibility, vec3 directLighting) {
+                                                float screenSpaceVisibility) {
   const EeEnvironmentalLighting environment = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
       albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility);
   const vec3 diffuse_albedo = environment.diffuse_weight * albedo;
   vec3 diffuse = environment.diffuse;
-  vec3 diffuse_lighting = environment.diffuse_lighting;
   const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos);
   const float gather_weight = EE_DDGI_GATHER_WEIGHT(gather);
   if (gather_weight > 0.0f) {
-    const vec3 ddgi_lighting = EE_DDGI_DIFFUSE_RADIANCE(gather, vec3(1.0f));
-    if (!any(isnan(ddgi_lighting)) && !any(isinf(ddgi_lighting))) {
-      diffuse_lighting = mix(diffuse_lighting, ddgi_lighting, gather_weight);
-    }
     if (any(greaterThan(diffuse_albedo, vec3(0.0f)))) {
       const vec3 ddgi_diffuse = EE_DDGI_DIFFUSE_RADIANCE(gather, diffuse_albedo);
       if (!any(isnan(ddgi_diffuse)) && !any(isinf(ddgi_diffuse))) {
@@ -400,10 +386,8 @@ vec3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 v
   }
   const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f);
   const vec3 diffuseIndirect = diffuse * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
-  const vec3 diffuseLightingIndirect = diffuse_lighting * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
-  const float reflectionLightingScale = EE_REFLECTION_LIGHTING_SCALE(directLighting, diffuseLightingIndirect);
-  const vec3 unoccludedSpecular = environment.unoccluded_specular * reflectionLightingScale;
-  const vec3 specular = environment.specular * reflectionLightingScale;
+  const vec3 unoccludedSpecular = environment.unoccluded_specular;
+  const vec3 specular = environment.specular;
   const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debugView == 1)
     return diffuseIndirect;

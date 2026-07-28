@@ -238,7 +238,7 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   EXPECT_NE(lighting_shader.find("globalPrefiltered"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
   EXPECT_NE(inspector_source.find("Global Reflection Probe Fallback"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->global_reflection_probe_fallback = "
                                    "Resources::GetInstance().GetDefaultGlobalReflectionProbe()"),
