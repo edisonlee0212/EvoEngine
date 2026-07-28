@@ -186,10 +186,10 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(reflection_probe_docs.find("environment_lighting_intensity * specular_fallback_intensity"),
             std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("forced to zero during capture"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("current direct lighting plus incident diffuse IBL/DDGI lighting"),
+  EXPECT_NE(reflection_probe_docs.find("composed from material AO, eligible GTAO visibility, and DDGI probe"),
             std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("material's diffuse albedo and metallic response are applied"),
-            std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("probe visibility atlas/Chebyshev test, not irradiance RGB"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("disabled, or invalid DDGI blends toward white visibility"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("not bake inputs."), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("does not run a stale scan or batch stale rebake"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("diffuse/specular fallback factors"), std::string::npos);

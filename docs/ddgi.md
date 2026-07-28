@@ -208,9 +208,10 @@ signature. An explicit editor reflection-probe bake may include already-converge
 all local reflection probes. The bake therefore does not invent recursive local specular or a metallic diffuse proxy; see
 [Reflection probes](reflection-probes.md) for the capture and fallback contract.
 
-The rough-specular visibility term is also independent of DDGI. It uses material AO and eligible GTAO only; disabling
-DDGI, moving outside every DDGI volume, or losing DDGI coverage cannot change isolated probe specular. DDGI is not used as
-a directional reflection source or as hidden low-frequency specular occlusion.
+Rough reflection-probe specular may use the scalar visibility from a valid DDGI gather, blended by DDGI coverage and
+confidence against white visibility. Disabling DDGI, moving outside every DDGI volume, or losing DDGI coverage therefore
+does not darken isolated probe specular, while valid DDGI visibility can reduce leakage on rough probe reflections. DDGI
+irradiance remains diffuse-only and is not used as a directional reflection source.
 
 The frozen DDGI baseline manifest, replay evidence, and baseline validator are no longer checked in. Stable ray-camera
 reference captures remain under `EvoEngine_Tests/Rendering/DDGI/References/` for manual or ad-hoc image comparison.

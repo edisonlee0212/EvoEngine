@@ -104,7 +104,8 @@ class EnvironmentalLighting final : public IAsset {
   void CollectAssetRef(std::vector<AssetRef>& list);
 
   [[nodiscard]] static float EvaluateRoughSpecularVisibility(float material_occlusion, float screen_space_visibility,
-                                                             float roughness, float normal_dot_view);
+                                                             float ddgi_visibility, float roughness,
+                                                             float normal_dot_view);
 };
 
 void SerializeEnvironmentalLighting(YAML::Emitter& out, const EnvironmentalLighting& lighting);

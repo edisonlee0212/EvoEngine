@@ -411,9 +411,9 @@ baking, diffuse fallback, direct light, emission, DDGI, or visible camera backgr
 Local probes keep their own authored `reflection_intensity`. Selection uses the shaded world position, not the camera
 position, and blends at most one strictly lower-priority boundary probe before returning uncovered weight to the scene
 global fallback. Missing, unloaded, disabled, or invalid local payloads also return their weight to the same global
-fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material AO
-and eligible GTAO. SSAO remains diffuse-only, unavailable GTAO falls back to white, and the term never affects direct,
-emissive, background, diffuse, or DDGI energy.
+fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material
+AO, eligible GTAO, and DDGI gather visibility. SSAO remains diffuse-only, unavailable GTAO and missing DDGI coverage fall
+back to white, and the term never affects direct, emissive, background, diffuse, or DDGI diffuse energy.
 
 The scene-global `GlobalReflectionProbe` fallback supplies the prefiltered specular payload. If it is missing or not
 runtime-ready, raster lighting binds the engine default global reflection probe so descriptors remain valid. A zero

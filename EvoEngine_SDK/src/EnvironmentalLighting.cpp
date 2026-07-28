@@ -232,10 +232,12 @@ void evo_engine::EnvironmentalLighting::CollectAssetRef(std::vector<AssetRef>& l
 
 float evo_engine::EnvironmentalLighting::EvaluateRoughSpecularVisibility(const float material_occlusion,
                                                                          const float screen_space_visibility,
+                                                                         const float ddgi_visibility,
                                                                          const float roughness,
                                                                          const float normal_dot_view) {
   const float scalar_visibility =
-      glm::min(glm::clamp(material_occlusion, 0.0f, 1.0f), glm::clamp(screen_space_visibility, 0.0f, 1.0f));
+      glm::min(glm::clamp(material_occlusion, 0.0f, 1.0f),
+               glm::min(glm::clamp(screen_space_visibility, 0.0f, 1.0f), glm::clamp(ddgi_visibility, 0.0f, 1.0f)));
   const float clamped_roughness = glm::clamp(roughness, 0.0f, 1.0f);
   const float lobe_width = clamped_roughness * clamped_roughness;
   const float scalar_occlusion = 1.0f - scalar_visibility;

@@ -70,36 +70,37 @@ response. Valid local probe samples use the baked payload and per-probe local in
 `environment_lighting_intensity` at surface shading time. Remaining or missing local-probe weight returns to the
 scene-global or engine-global prefiltered fallback, whose contribution is controlled by
 `environment_lighting_intensity * specular_fallback_intensity`. After local/global probe selection, the probe-specular term
-is multiplied by a saturated scalar derived from current direct lighting plus incident diffuse IBL/DDGI lighting before the
-material's diffuse albedo and metallic response are applied. This keeps reflection probes from lighting geometry by
-themselves when direct, diffuse IBL, and DDGI are all black, while still allowing metallic surfaces to reflect valid local
-or global probes. `Indirect Lighting Intensity` affects reflection probes only through that diffuse-indirect lighting scale,
-not as a direct probe multiplier. Local probes never enter diffuse irradiance or DDGI. SSR remains an optional post-process,
-and this system adds neither SSR to lighting correctness nor ray-traced reflections.
+is multiplied by a scalar visibility confidence composed from material AO, eligible GTAO visibility, and DDGI probe
+visibility. The DDGI value comes from the probe visibility atlas/Chebyshev test, not irradiance RGB; missing, uncovered,
+disabled, or invalid DDGI blends toward white visibility so lack of DDGI coverage does not darken probes. Local probes
+never enter diffuse irradiance or DDGI. SSR remains an optional post-process, and this system adds neither SSR to lighting
+correctness nor ray-traced reflections.
 
 Rough indirect specular uses one scalar visibility term after local/global probe selection and split-sum evaluation:
 
 ```text
-o = 1 - min(material_AO, GTAO)
+ddgi_probe_visibility = mix(1, DDGI_visibility, DDGI_coverage * DDGI_confidence)
+o = 1 - min(material_AO, eligible_GTAO, ddgi_probe_visibility)
 o_grazing = 0.04 * tanh(o / 0.04)
 o_trusted = mix(o_grazing, o, smoothstep(0.8, 1, NdotV))
 Vspec = 1 - roughness^2 * o_trusted
 probe_specular = unoccluded_probe_specular * Vspec
 ```
 
-The minimum combines two estimates of the same cavity visibility without double-darkening them as a product would. GTAO
-is eligible only when the camera has an enabled GTAO pass; disabled AO, missing AO resources, and SSAO all provide a white
-specular fallback. Roughness controls confidence in the low-frequency scalar. Because scalar GTAO has no bent-normal or
-directional-cone information, its occlusion deficit is approximately linear for weak grazing occlusion but smoothly caps
-deep grazing attenuation at 4%. Raw scalar visibility is restored from `NdotV = 0.8` to normal incidence. This is a measured
-confidence approximation, not directional specular visibility. A diagnostic ramp ending at `NdotV = 0.35` over-darkened
-the frozen rough-metal rim; a ramp starting there removed measurable occlusion from the rough dielectric's grazing-only
-response. A 3% cap then missed the same dielectric gate after tone mapping and quantization. All candidates were rejected
-without weakening either gate. The term is never RGB, never interpolated by metallic value, and never applied to direct
-light, emission, the visible background, diffuse IBL, or DDGI. DDGI irradiance
-was rejected as a specular source because it contains neither the directional nor frequency information needed for a
-reflection. The renderer exposes `Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, and `Occluded
-Probe Specular` diagnostic views for isolating this composition.
+The minimum combines estimates of cavity visibility without double-darkening them as a product would. GTAO is eligible
+only when the camera has an enabled GTAO pass; disabled AO, missing AO resources, and SSAO all provide a white specular
+fallback. DDGI visibility is eligible only through valid DDGI gather coverage and confidence. Roughness controls
+confidence in the low-frequency scalar. Because scalar AO and DDGI visibility have no bent-normal or directional-cone
+information, their occlusion deficit is approximately linear for weak grazing occlusion but smoothly caps deep grazing
+attenuation at 4%. Raw scalar visibility is restored from `NdotV = 0.8` to normal incidence. This is a measured confidence
+approximation, not directional specular visibility. A diagnostic ramp ending at `NdotV = 0.35` over-darkened the frozen
+rough-metal rim; a ramp starting there removed measurable occlusion from the rough dielectric's grazing-only response. A
+3% cap then missed the same dielectric gate after tone mapping and quantization. All candidates were rejected without
+weakening either gate. The term is never RGB, never interpolated by metallic value, and never applied to direct light,
+emission, the visible background, diffuse IBL, or DDGI diffuse irradiance. DDGI irradiance was rejected as a specular
+source because it contains neither the directional nor frequency information needed for a reflection. The renderer exposes
+`Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, and `Occluded Probe Specular` diagnostic views for
+isolating this composition.
 
 The Rendering/Sponza demo owns a tracked sky source, global probe, and five box-projected asset-owned local probe entries
 under `Resources/EvoEngine-DemoProjects/Rendering/Assets/Lighting/Sponza`. The local volumes cover the left gallery, right
@@ -133,11 +134,12 @@ authored diffuse/specular fallback factors, and all post-processing. This preven
 diffuse proxy. Higher-order local-specular interreflection is intentionally absent: a baked probe can reflect the global
 environment and diffuse DDGI, but not another local probe.
 
-Validation uses the installed editor at 1920x1080. The reflection-probe gate covers adjacent colored regions, nested and
+Validation uses the installed editor at 1920x1080. The reflection-probe suite covers adjacent colored regions, nested and
 overlapping priorities, priority ties and entity-order independence, blend transitions, rotated box projection, sphere
 lookup, camera motion over a static surface, probe removal, missing assets, global fallback, roughness extremes, and exact
-metals. The M15 extension isolates material AO, GTAO, their bounded minimum, disabled/unavailable/SSAO fallback, rough and
-smooth response, grazing retention, probe-boundary continuity, indirect-intensity invariance, and zero descriptor/ABI
-growth. It also records logical RGBA16F GPU image bytes, steady CPU payload bytes, and serialized payload bytes separately.
+metals. The scalar-visibility extension isolates material AO, GTAO, DDGI visibility, their bounded minimum,
+disabled/unavailable/SSAO and missing-DDGI fallbacks, rough and smooth response, grazing retention, probe-boundary
+continuity, indirect-intensity invariance, and zero descriptor/ABI growth. It also records logical RGBA16F GPU image
+bytes, steady CPU payload bytes, and serialized payload bytes separately.
 The unelected packed candidate records its logical GPU bytes with zero retained CPU or serialized bytes, alongside packed
 error metrics and the explicit packed-format no-adopt result.

@@ -833,8 +833,8 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
   const auto compose_lighting = [](const float direct, const float emission, const float indirect_diffuse,
                                    const float specular, const float material_ao, const float screen_ao,
                                    const float roughness) {
-    const float visibility =
-        evo_engine::EnvironmentalLighting::EvaluateRoughSpecularVisibility(material_ao, screen_ao, roughness, 1.0f);
+    const float visibility = evo_engine::EnvironmentalLighting::EvaluateRoughSpecularVisibility(material_ao, screen_ao,
+                                                                                                1.0f, roughness, 1.0f);
     return direct + emission + indirect_diffuse * glm::clamp(material_ao * screen_ao, 0.0f, 1.0f) +
            specular * visibility;
   };

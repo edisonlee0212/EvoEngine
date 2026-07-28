@@ -146,19 +146,22 @@ TEST(ReflectionProbe, CanonicalPayloadContractRejectsMalformedRadiance) {
 TEST(ReflectionProbe, RoughSpecularVisibilityCapsUntrustedGrazingOcclusion) {
   EXPECT_FLOAT_EQ(EnvironmentalLighting::kSpecularVisibilityGrazingOcclusionCap, 0.04f);
   EXPECT_FLOAT_EQ(EnvironmentalLighting::kSpecularVisibilityFullTrustStart, 0.8f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 1.0f, 1.0f), 1.0f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.4f, 0.5f, 1.0f, 1.0f), 0.4f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.4f, 0.5f, 0.5f, 1.0f), 0.85f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 0.0f, 1.0f), 1.0f);
-  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 0.0f), 0.96f, 1.0e-6f);
-  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 0.8f), 0.96f, 1.0e-6f);
-  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 0.9f), 0.48f, 1.0e-6f);
-  EXPECT_LT(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.985f, 1.0f, 1.0f, 0.0f), 0.99f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.25f, 1.0f, 1.0f, 1.0f), 0.25f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 0.25f, 1.0f, 1.0f), 0.25f);
-  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(-1.0f, 2.0f, 1.0f, 1.0f), 0.0f);
-  EXPECT_GT(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.2f, 0.4f, 0.2f, 1.0f),
-            EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.2f, 0.4f, 0.9f, 1.0f));
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 1.0f, 1.0f, 1.0f), 1.0f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.4f, 0.5f, 1.0f, 1.0f, 1.0f), 0.4f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.4f, 0.5f, 1.0f, 0.5f, 1.0f), 0.85f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 0.0f, 1.0f), 1.0f);
+  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 1.0f, 0.0f), 0.96f, 1.0e-6f);
+  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 1.0f, 0.8f), 0.96f, 1.0e-6f);
+  EXPECT_NEAR(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.0f, 0.0f, 1.0f, 1.0f, 0.9f), 0.48f, 1.0e-6f);
+  EXPECT_LT(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.985f, 1.0f, 1.0f, 1.0f, 0.0f), 0.99f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.25f, 1.0f, 1.0f, 1.0f, 1.0f), 0.25f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 0.25f, 1.0f, 1.0f, 1.0f), 0.25f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 0.25f, 1.0f, 1.0f), 0.25f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::EvaluateRoughSpecularVisibility(-1.0f, 2.0f, 2.0f, 1.0f, 1.0f), 0.0f);
+  EXPECT_GT(EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.2f, 0.4f, 1.0f, 0.2f, 1.0f),
+            EnvironmentalLighting::EvaluateRoughSpecularVisibility(0.2f, 0.4f, 1.0f, 0.9f, 1.0f));
+  EXPECT_GT(EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 1.0f, 1.0f, 1.0f),
+            EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 0.2f, 1.0f, 1.0f));
 }
 
 TEST(ReflectionProbe, BakeEnvironmentInputUsesSourceIntensityOnly) {
