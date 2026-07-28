@@ -113,9 +113,16 @@ struct EeEnvironmentalLighting {
   float specular_visibility;
 };
 
-float EE_ROUGH_SPECULAR_VISIBILITY(float materialOcclusion, float screenSpaceVisibility, float roughness,
-                                   float normalDotView) {
-  const float scalarVisibility = min(clamp(materialOcclusion, 0.0f, 1.0f), clamp(screenSpaceVisibility, 0.0f, 1.0f));
+float EE_REFLECTION_PROBE_SCALAR_VISIBILITY(float materialOcclusion, float screenSpaceVisibility,
+                                            float ddgiVisibility) {
+  return min(clamp(materialOcclusion, 0.0f, 1.0f),
+             min(clamp(screenSpaceVisibility, 0.0f, 1.0f), clamp(ddgiVisibility, 0.0f, 1.0f)));
+}
+
+float EE_ROUGH_SPECULAR_VISIBILITY(float materialOcclusion, float screenSpaceVisibility, float ddgiVisibility,
+                                   float roughness, float normalDotView) {
+  const float scalarVisibility =
+      EE_REFLECTION_PROBE_SCALAR_VISIBILITY(materialOcclusion, screenSpaceVisibility, ddgiVisibility);
   const float clampedRoughness = clamp(roughness, 0.0f, 1.0f);
   const float lobeWidth = clampedRoughness * clampedRoughness;
   const float scalarOcclusion = 1.0f - scalarVisibility;
@@ -306,7 +313,8 @@ vec3 EE_SPATIAL_REFLECTION_PREFILTERED(vec3 fragPos, vec3 reflectionDirection, f
 EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos,
                                                                    float metallic, float roughness, vec3 F0, float F90,
                                                                    float materialOcclusion,
-                                                                   float screenSpaceVisibility) {
+                                                                   float screenSpaceVisibility,
+                                                                   float ddgiVisibility) {
   EeEnvironmentalLighting result;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const vec3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
@@ -354,7 +362,8 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(vec3 albedo, 
   result.unoccluded_specular = prefilteredColor * (F * brdf.x + vec3(F90 * brdf.y));
   const bool gtaoVisibilityAvailable = (EE_CAMERAS[EE_CAMERA_INDEX].raster_lighting_flags & 1u) != 0u;
   result.specular_visibility = EE_ROUGH_SPECULAR_VISIBILITY(
-      materialOcclusion, gtaoVisibilityAvailable ? screenSpaceVisibility : 1.0f, roughness, normalDotView);
+      materialOcclusion, gtaoVisibilityAvailable ? screenSpaceVisibility : 1.0f, ddgiVisibility, roughness,
+      normalDotView);
   result.specular = result.unoccluded_specular * result.specular_visibility;
   return result;
 }
@@ -362,39 +371,44 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(vec3 albedo, 
 vec3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic,
                                            float roughness, vec3 F0, float F90) {
   const EeEnvironmentalLighting environment = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
-      albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, 1.0f, 1.0f);
-  return environment.diffuse * EE_RENDER_INFO.indirect_lighting_intensity + environment.specular;
+      albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, 1.0f, 1.0f, 1.0f);
+  const vec3 diffuseIndirect = environment.diffuse * EE_RENDER_INFO.indirect_lighting_intensity;
+  return diffuseIndirect + environment.specular;
 }
 
 vec3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(vec3 albedo, vec3 normal, vec3 viewDir, vec3 fragPos, float metallic,
                                                 float roughness, vec3 F0, float F90, float materialOcclusion,
                                                 float screenSpaceVisibility) {
+  const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos);
+  const float gather_weight = EE_DDGI_GATHER_WEIGHT(gather);
+  const float ddgiSpecularVisibility = mix(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight);
   const EeEnvironmentalLighting environment = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
-      albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility);
+      albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion, screenSpaceVisibility,
+      ddgiSpecularVisibility);
   const vec3 diffuse_albedo = environment.diffuse_weight * albedo;
   vec3 diffuse = environment.diffuse;
-  if (any(greaterThan(diffuse_albedo, vec3(0.0f)))) {
-    const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos);
-    const float gather_weight = EE_DDGI_GATHER_WEIGHT(gather);
-    if (gather_weight > 0.0f) {
+  if (gather_weight > 0.0f) {
+    if (any(greaterThan(diffuse_albedo, vec3(0.0f)))) {
       const vec3 ddgi_diffuse = EE_DDGI_DIFFUSE_RADIANCE(gather, diffuse_albedo);
       if (!any(isnan(ddgi_diffuse)) && !any(isinf(ddgi_diffuse))) {
         diffuse = mix(diffuse, ddgi_diffuse, gather_weight);
       }
     }
   }
-  const vec3 diffuseIndirect = diffuse * clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f) *
-                               EE_RENDER_INFO.indirect_lighting_intensity;
+  const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f);
+  const vec3 diffuseIndirect = diffuse * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
+  const vec3 unoccludedSpecular = environment.unoccluded_specular;
+  const vec3 specular = environment.specular;
   const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debugView == 1)
     return diffuseIndirect;
   if (debugView == 2)
-    return environment.unoccluded_specular;
+    return unoccludedSpecular;
   if (debugView == 3)
     return vec3(environment.specular_visibility);
   if (debugView == 4)
-    return environment.specular;
-  return diffuseIndirect + environment.specular;
+    return specular;
+  return diffuseIndirect + specular;
 }
 
 vec3 EE_FUNC_CALCULATE_LIGHTS(bool calculateShadow, vec3 albedo, float specular, float dist, vec3 normal, vec3 viewDir,

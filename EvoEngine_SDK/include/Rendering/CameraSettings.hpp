@@ -118,7 +118,7 @@ struct CameraSettings {
    */
   float auto_spp_convergence_threshold = 0.01f;
 
-  ShaderExecutionReorderingMode shader_execution_reordering_mode = ShaderExecutionReorderingMode::Disabled;
+  ShaderExecutionReorderingMode shader_execution_reordering_mode = ShaderExecutionReorderingMode::Automatic;
 };
 
 }  // namespace evo_engine

@@ -88,10 +88,10 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
     irradiance_construct_pipeline_ = std::make_shared<GraphicsPipeline>();
     irradiance_construct_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
-                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
+                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.slang");
     irradiance_construct_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                  "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.frag");
+                                  "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.slang");
     irradiance_construct_pipeline_->geometry_type = GeometryType::Mesh;
     irradiance_construct_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
     irradiance_construct_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;

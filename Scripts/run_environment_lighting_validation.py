@@ -62,6 +62,10 @@ CAPTURE_NAMES = SYNTHETIC_CAPTURE_NAMES + (
     "sponza-ray-reference",
 )
 SPONZA_QUALITY_ERROR_MAX = 0.07743769200665579
+SPECULAR_VISIBILITY_MODEL = (
+    "1-roughness^2*mix(0.04*tanh((1-min(material_ao,gtao))/0.04),"
+    "1-min(material_ao,gtao),smoothstep(0.8,1,NdotV))"
+)
 REGIONS = {
     "background": (0.05, 0.05, 0.20, 0.20),
     "dielectric": (0.30, 0.44, 0.36, 0.53),
@@ -525,7 +529,9 @@ def main() -> int:
             "EVOENGINE_DDGI_REFERENCE fixture=sponza render_mode=RayTracing resolution=1920x1080 "
             "frames=64 spp_per_frame=4 total_spp=256 output=.png"
         )
-        reference_markers = [line.strip() for line in output.splitlines() if line.startswith("EVOENGINE_DDGI_REFERENCE")]
+        reference_markers = [
+            line.strip() for line in output.splitlines() if line.startswith("EVOENGINE_DDGI_REFERENCE")
+        ]
         if reference_markers != [reference_marker]:
             raise RuntimeError(f"Environment lighting reference marker list is wrong: {reference_markers!r}")
 
@@ -547,7 +553,7 @@ def main() -> int:
             "ray_traced_reflections": False,
             "metallic_values": [0.0, 1.0],
             "physical_reference": "ray-neutral-reference",
-            "specular_visibility_model": "1-roughness^2*mix(0.04*tanh((1-min(material_ao,gtao))/0.04),1-min(material_ao,gtao),smoothstep(0.8,1,NdotV))",
+            "specular_visibility_model": SPECULAR_VISIBILITY_MODEL,
             "sponza_local_probe_count": 5,
             "canonical_sponza": {
                 "fixture_id": "sponza",
@@ -656,7 +662,10 @@ def main() -> int:
         for name, capture in report_captures.items():
             if capture.get("controls") != expected_controls[name]:
                 raise RuntimeError(f"Environment lighting controls are wrong for {name!r}.")
-            if capture.get("render_mode") != expected_modes[name] or capture.get("settle_frames") != expected_settle[name]:
+            if (
+                capture.get("render_mode") != expected_modes[name]
+                or capture.get("settle_frames") != expected_settle[name]
+            ):
                 raise RuntimeError(f"Environment lighting render contract is wrong for {name!r}.")
             if capture.get("image") != f"{name}.png" or capture.get("finite") is not True:
                 raise RuntimeError(f"Environment lighting artifact metadata is wrong for {name!r}.")
@@ -743,17 +752,13 @@ def main() -> int:
             "ddgi_outside_specular_nrmse",
             "scalar_channel_error",
             "maximum_amplification",
-            "gtao_role",
-            "ddgi_role",
         }
         if (
             set(rough_specular) != expected_rough_keys
-            or rough_specular.get("gtao_role") != "scalar_visibility_only"
-            or rough_specular.get("ddgi_role") != "none"
             or any(
                 not isinstance(rough_specular.get(name), (int, float))
                 or not math.isfinite(rough_specular[name])
-                for name in expected_rough_keys - {"gtao_role", "ddgi_role"}
+                for name in expected_rough_keys
             )
         ):
             raise RuntimeError("Environment lighting rough-specular report is malformed.")

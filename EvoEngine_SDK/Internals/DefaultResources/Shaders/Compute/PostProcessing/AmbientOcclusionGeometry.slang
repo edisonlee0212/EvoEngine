@@ -1,0 +1,197 @@
+#extension GL_ARB_shading_language_include : enable
+
+#include "PerFrame.slangh"
+#include "VogelDisk.slangh"
+
+layout(set = 1, binding = 17) uniform sampler2D inDepth;
+layout(set = 1, binding = 21) uniform sampler2D inNormalRoughness;
+layout(set = 2, binding = 0, r16f) uniform writeonly image2D outAmbientOcclusion;
+
+layout(push_constant) uniform EE_AO_CONSTANTS {
+  int EE_CAMERA_INDEX;
+  int kernelSize;
+  float radius;
+  float bias;
+  float factor;
+  float intensity;
+  int algorithm;
+  int sliceCount;
+  int stepsPerSlice;
+  float thickness;
+};
+
+const int EE_AO_SSAO = 0;
+const int EE_AO_GTAO = 1;
+
+vec3 GetNormal(in vec2 texCoord) {
+  return textureLod(inNormalRoughness, texCoord, 0.0f).rgb;
+}
+
+vec3 GetViewNormal(in vec2 texCoord) {
+  return normalize((EE_CAMERAS[EE_CAMERA_INDEX].view * vec4(GetNormal(texCoord), 0.0f)).xyz);
+}
+
+bool GetViewPosition(in vec2 texCoord, out vec3 position) {
+  if (texCoord.x < 0.0f || texCoord.x > 1.0f || texCoord.y < 0.0f || texCoord.y > 1.0f) {
+    return false;
+  }
+  float ndcDepth = textureLod(inDepth, texCoord, 0.0f).x;
+  if (ndcDepth == 1.0f) {
+    return false;
+  }
+  position = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, texCoord, ndcDepth);
+  return true;
+}
+
+float ComputeSsao(in vec2 texCoord, in vec3 viewPos, in vec3 normal) {
+  vec3 randomVec = EE_UNIFORM_KERNEL[int(EE_INTERLEAVED_GRADIENT_NOISE(viewPos * 3141) * MAX_KERNEL_AMOUNT) %
+                                     MAX_KERNEL_AMOUNT]
+                       .xyz;
+  mat4 projection = EE_CAMERAS[EE_CAMERA_INDEX].projection;
+
+  vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
+  vec3 bitangent = cross(normal, tangent);
+  mat3 TBN = mat3(tangent, bitangent, normal);
+  float occlusion = 0.0f;
+  int sampleCount = clamp(kernelSize, 1, MAX_KERNEL_AMOUNT);
+  for (int i = 0; i < sampleCount; ++i) {
+    vec3 point = EE_UNIFORM_KERNEL[i].xyz;
+    point.z = abs(point.z);
+    vec3 samplePos = TBN * point;
+    samplePos = viewPos + samplePos * radius;
+    vec4 offset = vec4(samplePos, 1.0f);
+    offset = projection * offset;
+    offset.xyz /= offset.w;
+    offset.xyz = offset.xyz * 0.5f + 0.5f;
+
+    vec3 sampleViewPos;
+    if (!GetViewPosition(offset.xy, sampleViewPos)) {
+      continue;
+    }
+    float sampleDepth = sampleViewPos.z;
+    float rangeCheck = smoothstep(0.0f, 1.0f, pow((radius - distance(viewPos, sampleViewPos)) / radius, factor));
+    occlusion += (sampleDepth >= (samplePos.z + bias) ? 1.0f : 0.0f) * rangeCheck;
+  }
+  return max(0.0f, 1.0f - occlusion / float(sampleCount) * intensity);
+}
+
+float ComputeGtao(in vec2 texCoord, in vec3 viewPos, in vec3 normal, in vec2 resolution) {
+  int slices = clamp(sliceCount, 1, 16);
+  int steps = clamp(stepsPerSlice, 1, 16);
+  vec3 centerPos = viewPos;
+  centerPos.z *= 0.9992f;
+  float viewDepth = max(-centerPos.z, 0.001f);
+  float effectiveRadius = max(radius * 1.457f, 0.001f);
+  float noise = EE_INTERLEAVED_GRADIENT_NOISE(vec3(texCoord, viewDepth));
+  float centerDepth = textureLod(inDepth, texCoord, 0.0f).x;
+  vec2 pixelSize = 1.0f / resolution;
+  vec3 pixelAxisX = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, clamp(texCoord + vec2(pixelSize.x, 0.0f), vec2(0.0f), vec2(1.0f)),
+                                         centerDepth) -
+                    viewPos;
+  vec3 pixelAxisY = EE_DEPTH_TO_VIEW_POS(EE_CAMERA_INDEX, clamp(texCoord + vec2(0.0f, pixelSize.y), vec2(0.0f), vec2(1.0f)),
+                                         centerDepth) -
+                    viewPos;
+  float falloffRange = max(effectiveRadius * 0.615f, 0.001f);
+  float falloffFrom = effectiveRadius - falloffRange;
+  float falloffMul = -1.0f / falloffRange;
+  float falloffAdd = falloffFrom / falloffRange + 1.0f;
+  vec3 viewVec = normalize(-centerPos);
+  float visibility = 0.0f;
+
+  for (int slice = 0; slice < slices; ++slice) {
+    float angle = (float(slice) + noise) * 3.14159265f / float(slices);
+    vec2 direction = vec2(cos(angle), sin(angle));
+    vec3 directionStep = pixelAxisX * direction.x + pixelAxisY * direction.y;
+    float directionStepLength = length(directionStep);
+    if (directionStepLength <= 0.0001f) {
+      continue;
+    }
+    float pixelRadius = max(1.0f, effectiveRadius / directionStepLength);
+    float minStep = 1.3f / pixelRadius;
+    vec3 directionVec = directionStep / directionStepLength;
+    vec3 orthoDirectionVec = directionVec - dot(directionVec, viewVec) * viewVec;
+    float orthoDirectionLength = length(orthoDirectionVec);
+    if (orthoDirectionLength <= 0.0001f) {
+      continue;
+    }
+    orthoDirectionVec /= orthoDirectionLength;
+    vec3 axisVec = cross(orthoDirectionVec, viewVec);
+    float axisLength = length(axisVec);
+    if (axisLength <= 0.0001f) {
+      continue;
+    }
+    axisVec /= axisLength;
+    vec3 projectedNormalVec = normal - axisVec * dot(normal, axisVec);
+    float projectedNormalLength = length(projectedNormalVec);
+    if (projectedNormalLength <= 0.0001f) {
+      continue;
+    }
+    float signNorm = sign(dot(orthoDirectionVec, projectedNormalVec));
+    float cosNorm = clamp(dot(projectedNormalVec, viewVec) / projectedNormalLength, 0.0f, 1.0f);
+    float n = signNorm * acos(cosNorm);
+    float lowHorizonCos0 = cos(n + 1.57079633f);
+    float lowHorizonCos1 = cos(n - 1.57079633f);
+    float horizonCos0 = lowHorizonCos0;
+    float horizonCos1 = lowHorizonCos1;
+
+    for (int stepIndex = 0; stepIndex < steps; ++stepIndex) {
+      float stepNoise = fract(noise + float(slice + stepIndex * steps) * 0.61803398875f);
+      float stepRatio = pow((float(stepIndex) + stepNoise) / float(steps), 2.0f) + minStep;
+      vec2 sampleOffset = round(direction * pixelRadius * stepRatio) / resolution;
+
+      vec3 sampleViewPos0;
+      if (GetViewPosition(texCoord + sampleOffset, sampleViewPos0)) {
+        vec3 delta = sampleViewPos0 - centerPos;
+        float distanceToSample = length(delta);
+        if (distanceToSample > max(bias, 0.0001f)) {
+          float weight = clamp(distanceToSample * falloffMul + falloffAdd, 0.0f, 1.0f);
+          float sampleHorizonCos = dot(delta / distanceToSample, viewVec);
+          sampleHorizonCos = mix(lowHorizonCos0, sampleHorizonCos, weight);
+          horizonCos0 = max(horizonCos0, sampleHorizonCos);
+        }
+      }
+
+      vec3 sampleViewPos1;
+      if (GetViewPosition(texCoord - sampleOffset, sampleViewPos1)) {
+        vec3 delta = sampleViewPos1 - centerPos;
+        float distanceToSample = length(delta);
+        if (distanceToSample > max(bias, 0.0001f)) {
+          float weight = clamp(distanceToSample * falloffMul + falloffAdd, 0.0f, 1.0f);
+          float sampleHorizonCos = dot(delta / distanceToSample, viewVec);
+          sampleHorizonCos = mix(lowHorizonCos1, sampleHorizonCos, weight);
+          horizonCos1 = max(horizonCos1, sampleHorizonCos);
+        }
+      }
+    }
+
+    projectedNormalLength = mix(projectedNormalLength, 1.0f, 0.05f);
+    float h0 = -acos(clamp(horizonCos1, -1.0f, 1.0f));
+    float h1 = acos(clamp(horizonCos0, -1.0f, 1.0f));
+    float iarc0 = (cosNorm + 2.0f * h0 * sin(n) - cos(2.0f * h0 - n)) * 0.25f;
+    float iarc1 = (cosNorm + 2.0f * h1 * sin(n) - cos(2.0f * h1 - n)) * 0.25f;
+    visibility += projectedNormalLength * (iarc0 + iarc1);
+  }
+
+  visibility = clamp(visibility / float(slices), 0.0f, 1.0f);
+  return max(0.03f, pow(visibility, max(intensity, 0.001f)));
+}
+
+[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
+  uvec2 pixel = dispatchThreadId.xy;
+  uvec2 resolution = uvec2(imageSize(outAmbientOcclusion));
+  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
+    return;
+  }
+
+  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
+  vec3 viewPos;
+  if (!GetViewPosition(texCoord, viewPos)) {
+    imageStore(outAmbientOcclusion, ivec2(pixel), vec4(1, 1, 1, 1));
+    return;
+  }
+
+  vec3 normal = GetViewNormal(texCoord);
+  float ambientOcclusion =
+      algorithm == EE_AO_SSAO ? ComputeSsao(texCoord, viewPos, normal) : ComputeGtao(texCoord, viewPos, normal, vec2(resolution));
+  imageStore(outAmbientOcclusion, ivec2(pixel), vec4(vec3(ambientOcclusion), 1.0f));
+}

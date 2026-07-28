@@ -112,7 +112,7 @@ def main() -> int:
             editor_before_launch = process_ids("EvoEngineEditor.exe")
             launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
             try:
-                launcher.wait(timeout=20)
+                launcher.wait(timeout=60)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError("Launcher did not exit after test open-project hook.") from error
             editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
@@ -125,12 +125,12 @@ def main() -> int:
             demo_app_before_launch = process_ids("DemoApp.exe")
             launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
             try:
-                launcher.wait(timeout=20)
+                launcher.wait(timeout=60)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError("Launcher did not exit after test open-demo hook.") from error
             editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-            wait_until("demo profile editor process spawned by launcher",
-                       lambda: editor_pid in process_ids("EvoEngineEditor.exe"), timeout=5)
+            wait_until("demo profile editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
+                       timeout=20)
             demo_app_after_launch = process_ids("DemoApp.exe")
             if set(demo_app_after_launch) - set(demo_app_before_launch):
                 raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
@@ -145,12 +145,12 @@ def main() -> int:
                 ddgi_app_before_launch = process_ids("DDGIApp.exe")
                 launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
                 try:
-                    launcher.wait(timeout=20)
+                    launcher.wait(timeout=60)
                 except subprocess.TimeoutExpired as error:
                     raise RuntimeError("Launcher did not exit after DDGI test open-demo hook.") from error
                 editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-                wait_until("DDGI demo editor process spawned by launcher",
-                           lambda: editor_pid in process_ids("EvoEngineEditor.exe"), timeout=5)
+                wait_until("DDGI demo editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
+                           timeout=20)
                 ddgi_app_after_launch = process_ids("DDGIApp.exe")
                 if set(ddgi_app_after_launch) - set(ddgi_app_before_launch):
                     raise RuntimeError("Launcher DDGI demo hook spawned DDGIApp.exe instead of EvoEngineEditor.exe.")

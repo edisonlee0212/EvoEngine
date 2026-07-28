@@ -209,7 +209,7 @@ void ToneMapping::BuildPipelines(PostProcessingRendererResources& resources, con
     histogram_pipeline = std::make_shared<ComputePipeline>();
     histogram_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMappingHistogram.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMappingHistogram.slang");
     histogram_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     histogram_pipeline->descriptor_set_layouts.emplace_back(
@@ -225,7 +225,7 @@ void ToneMapping::BuildPipelines(PostProcessingRendererResources& resources, con
     auto_exposure_pipeline = std::make_shared<ComputePipeline>();
     auto_exposure_pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMappingAutoExposure.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMappingAutoExposure.slang");
     auto_exposure_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     auto_exposure_pipeline->descriptor_set_layouts.emplace_back(
@@ -241,7 +241,7 @@ void ToneMapping::BuildPipelines(PostProcessingRendererResources& resources, con
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = Shader::CreateTemporary(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMapping.comp");
+        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/ToneMapping.slang");
 
     pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

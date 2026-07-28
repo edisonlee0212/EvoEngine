@@ -841,6 +841,8 @@ class DescriptorSetLayout final : public IGraphicsResource {
   void PushDescriptorBinding(uint32_t binding_index, VkDescriptorType type, VkShaderStageFlags stage_flags,
                              VkDescriptorBindingFlags binding_flags, uint32_t descriptor_count = 1);
 
+  [[nodiscard]] const std::unordered_map<uint32_t, DescriptorBinding>& GetDescriptorBindings() const;
+
   /**
    * @brief Initializes the descriptor set layout.
    */

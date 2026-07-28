@@ -1,0 +1,28 @@
+#ifndef EE_POST_PROCESSING_SLANGH
+#define EE_POST_PROCESSING_SLANGH
+
+struct EeResolutionPushConstant {
+  uint2 resolution;
+};
+
+struct EeBloomDownsamplingPushConstant {
+  float2 source_resolution;
+  int mip_level;
+  int padding;
+};
+
+struct EeBloomUpsamplingPushConstant {
+  uint2 target_resolution;
+  float filter_radius;
+  float padding;
+};
+
+bool EePixelInBounds(uint2 pixel, uint2 resolution) {
+  return pixel.x < resolution.x && pixel.y < resolution.y;
+}
+
+int2 EeTexel(uint2 pixel) {
+  return int2(pixel);
+}
+
+#endif

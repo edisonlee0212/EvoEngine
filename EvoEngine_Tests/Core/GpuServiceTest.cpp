@@ -481,7 +481,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
-                          "Shaders" / "Compute" / "GltfRayTracingNumericalProbe.comp";
+                          "Shaders" / "Compute" / "GltfRayTracingNumericalProbe.slang";
   Shader::RegisterShaderIncludePath(shader_root / "Includes");
 
   auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
@@ -618,7 +618,7 @@ TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
   descriptor_set->UpdateBufferDescriptorBinding(1, output);
 
   const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
-                          "Shaders" / "Compute" / "DirectionalShadowComparisonProbe.comp";
+                          "Shaders" / "Compute" / "DirectionalShadowComparisonProbe.slang";
   auto shader = std::make_shared<Shader>();
   ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), probe_path));
   auto pipeline = std::make_shared<ComputePipeline>();
@@ -668,12 +668,12 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
   Shader closest_hit;
   Shader miss;
   Shader ray_query;
-  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.rgen"));
-  EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/Camera.rahit"));
+  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.slang"));
+  EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/Camera.slang"));
   EXPECT_TRUE(
-      closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.rchit"));
-  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.rmiss"));
-  EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.comp"));
+      closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.slang"));
+  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/Camera.slang"));
+  EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
 }
 
 TEST(GpuService, EnvironmentLightingShadersCompile) {
@@ -689,13 +689,14 @@ TEST(GpuService, EnvironmentLightingShadersCompile) {
   Shader volumetric_clouds;
   Shader volumetric_clouds_composite;
   EXPECT_TRUE(
-      point_cloud_raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/PointCloud.rgen"));
-  EXPECT_TRUE(point_cloud_miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/PointCloud.rmiss"));
+      point_cloud_raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/PointCloud.slang"));
+  EXPECT_TRUE(point_cloud_miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/PointCloud.slang"));
   EXPECT_TRUE(point_cloud_closest_hit.TryCompile(ShaderType::ClosestHit, header,
-                                                 shader_root / "RayTracing/ClosestHit/PointCloud.rchit"));
-  EXPECT_TRUE(volumetric_clouds.TryCompile(ShaderType::Compute, header, shader_root / "Compute/VolumetricClouds.comp"));
+                                                 shader_root / "RayTracing/ClosestHit/PointCloud.slang"));
+  EXPECT_TRUE(
+      volumetric_clouds.TryCompile(ShaderType::Compute, header, shader_root / "Compute/VolumetricClouds.slang"));
   EXPECT_TRUE(volumetric_clouds_composite.TryCompile(ShaderType::Compute, header,
-                                                     shader_root / "Compute/VolumetricCloudsComposite.comp"));
+                                                     shader_root / "Compute/VolumetricCloudsComposite.slang"));
 }
 
 TEST(GpuService, DdgiMaterialShadersCompile) {
@@ -724,25 +725,25 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   Shader ambient_occlusion_geometry;
   Shader ambient_occlusion_blur;
   EXPECT_TRUE(
-      raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/DDGIProbeDiagnostics.rgen"));
+      raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/DDGIProbeDiagnostics.slang"));
   EXPECT_TRUE(
-      any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/DDGIProbeDiagnostics.rahit"));
+      any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/DDGIProbeDiagnostics.slang"));
   EXPECT_TRUE(closest_hit.TryCompile(ShaderType::ClosestHit, header,
-                                     shader_root / "RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
-  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeDiagnostics.rmiss"));
+                                     shader_root / "RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeDiagnostics.slang"));
   EXPECT_TRUE(deferred.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                                  shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.frag"));
+                                  shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
   EXPECT_TRUE(
       scene_camera.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                              shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.frag"));
+                              shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
   EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, fixed_material_lighting_header,
-                                     shader_root / "Graphics/Fragment/Standard/StandardTransparent.frag"));
+                                     shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"));
   EXPECT_TRUE(gather_timing.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                                       shader_root / "Graphics/Fragment/Standard/DDGIGatherTiming.frag"));
+                                       shader_root / "Graphics/Fragment/Standard/DDGIGatherTiming.slang"));
   EXPECT_TRUE(ambient_occlusion_geometry.TryCompile(
-      ShaderType::Compute, header, shader_root / "Compute/PostProcessing/AmbientOcclusionGeometry.comp"));
+      ShaderType::Compute, header, shader_root / "Compute/PostProcessing/AmbientOcclusionGeometry.slang"));
   EXPECT_TRUE(ambient_occlusion_blur.TryCompile(ShaderType::Compute, header,
-                                                shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.comp"));
+                                                shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.slang"));
 }
 
 TEST(GpuService, DdgiProbeUpdateVariantsCompile) {
@@ -750,7 +751,7 @@ TEST(GpuService, DdgiProbeUpdateVariantsCompile) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   Shader::RegisterShaderIncludePath(shader_root / "Includes");
-  const auto shader_path = shader_root / "Compute/DDGIProbeUpdate.comp";
+  const auto shader_path = shader_root / "Compute/DDGIProbeUpdate.slang";
   const auto base_header = Platform::GetShaderGlobalDefines();
   const auto compile_variant = [&](const uint32_t mode, const bool shared) {
     Shader shader;

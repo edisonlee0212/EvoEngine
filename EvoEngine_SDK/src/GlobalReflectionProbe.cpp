@@ -244,10 +244,10 @@ bool GlobalReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>&
     prefilter_construct_pipeline_ = std::make_shared<GraphicsPipeline>();
     prefilter_construct_pipeline_->vertex_shader =
         Shader::CreateTemporary(ShaderType::Vertex, Resources::GetDefaultResourcesPath() /
-                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.vert");
+                                                        "Shaders/Graphics/Vertex/Lighting/CubemapProcess.slang");
     prefilter_construct_pipeline_->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment,
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.frag");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang");
     prefilter_construct_pipeline_->geometry_type = GeometryType::Mesh;
     prefilter_construct_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::Position;
     prefilter_construct_pipeline_->depth_attachment_format = Platform::Constants::shadow_map;

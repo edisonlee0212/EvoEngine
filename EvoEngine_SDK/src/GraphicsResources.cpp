@@ -1645,6 +1645,10 @@ void DescriptorSetLayout::PushDescriptorBinding(uint32_t binding_index, VkDescri
   descriptor_set_layout_bindings_[binding_index] = binding;
 }
 
+const std::unordered_map<uint32_t, DescriptorBinding>& DescriptorSetLayout::GetDescriptorBindings() const {
+  return descriptor_set_layout_bindings_;
+}
+
 void DescriptorSetLayout::Initialize() {
   if (!Platform::Initialized())
     return;

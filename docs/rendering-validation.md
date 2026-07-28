@@ -139,10 +139,10 @@ The current reflection specialty launch and environment specialty launch cover l
 regressions. The reflection report includes bake, selection, fallback, packed-format, and 120-frame timing evidence, then
 adds isolated
 unoccluded-specular, scalar-visibility, and occluded-specular captures for material AO, GTAO, their bounded combination,
-disabled/unavailable AO, SSAO, roughness, grazing response, probe boundaries, camera motion, and `I` invariance. The
-environment specialty preserves the complete M14 `S/I` raster/ray matrix and adds the persistent Sponza probe set, hallway
-and adjacent-gallery views, GTAO/SSAO separation, local-probe-intensity diffuse invariance, and DDGI disabled/outside
-specular invariance:
+DDGI visibility, disabled/unavailable AO, SSAO, missing DDGI coverage, roughness, grazing response, probe boundaries,
+camera motion, and `I` invariance. The environment specialty preserves the complete M14 `S/I` raster/ray matrix and adds
+the persistent Sponza probe set, hallway and adjacent-gallery views, GTAO/SSAO separation, local-probe-intensity diffuse
+invariance, DDGI disabled/outside specular invariance, and rough-probe DDGI visibility occlusion:
 
 ```powershell
 python Scripts\run_reflection_probe_validation.py --config RelWithDebInfo --output-dir out\reflection-probe-validation-m15

@@ -179,10 +179,17 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(reflection_probe_docs.find("Asset-owned local probes are the runtime"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("RenderLayer inspector's"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("all-probe bounds toggle"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("per-probe debug bounds"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("Bake All Local Probe Payloads"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("bake action queues the same"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("reflection-probe capture path used by asset entries"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("environment_lighting_intensity * specular_fallback_intensity"),
             std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("forced to zero during capture"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("composed from material AO, eligible GTAO visibility, and DDGI probe"),
+            std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("probe visibility atlas/Chebyshev test, not irradiance RGB"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("disabled, or invalid DDGI blends toward white visibility"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("not bake inputs."), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("does not run a stale scan or batch stale rebake"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("diffuse/specular fallback factors"), std::string::npos);
@@ -198,7 +205,7 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto render_instance_storage_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto lighting_shader =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
   const auto inspector_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
   const auto demo_scene_source = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
 
@@ -226,9 +233,12 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   EXPECT_NE(render_instance_storage_source.find("environment_info_block.specular_fallback_intensity = "
                                                 "environment_lighting_intensity * specular_fallback_intensity"),
             std::string::npos);
+  EXPECT_NE(render_layer_source.find("environment_info_block.diffuse_fallback_intensity = 0.0f"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("environment_info_block.specular_fallback_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(lighting_shader.find("globalPrefiltered"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_REFLECTION_LIGHTING_SCALE"), std::string::npos);
   EXPECT_NE(inspector_source.find("Global Reflection Probe Fallback"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->global_reflection_probe_fallback = "
                                    "Resources::GetInstance().GetDefaultGlobalReflectionProbe()"),

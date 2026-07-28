@@ -79,11 +79,11 @@ TEST(PunctualLightImport, NativePointAndSpotRangeReachGpuLightBlocks) {
 
 TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
-  const auto ray_tracing_basic = ReadTextFile(ShaderPath("Includes/RayTracingBasic.glsl"));
-  const auto per_frame = ReadTextFile(ShaderPath("Includes/PerFrame.glsl"));
-  const auto lights = ReadTextFile(ShaderPath("Includes/Lights.glsl"));
-  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
-  const auto camera_raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.rgen"));
+  const auto ray_tracing_basic = ReadTextFile(ShaderPath("Includes/RayTracingBasic.slangh"));
+  const auto per_frame = ReadTextFile(ShaderPath("Includes/PerFrame.slangh"));
+  const auto lights = ReadTextFile(ShaderPath("Includes/Lights.slangh"));
+  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  const auto camera_raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.slang"));
 
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(ray_tracing_basic.empty());
@@ -92,13 +92,13 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
   ASSERT_FALSE(ddgi_closest_hit.empty());
   ASSERT_FALSE(camera_raygen.empty());
 
-  EXPECT_NE(ray_tracing_basic.find("#include \"PerFrame.glsl\""), std::string::npos);
-  EXPECT_NE(camera_raygen.find("#include \"RayTracingBasic.glsl\""), std::string::npos);
-  EXPECT_NE(camera_raygen.find("#include \"CameraRayIntegrator.glsl\""), std::string::npos);
+  EXPECT_NE(ray_tracing_basic.find("#include \"PerFrame.slangh\""), std::string::npos);
+  EXPECT_NE(camera_raygen.find("#include \"RayTracingBasic.slangh\""), std::string::npos);
+  EXPECT_NE(camera_raygen.find("#include \"CameraRayIntegrator.slangh\""), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_DIRECTIONAL_LIGHT_BLOCK_BINDING 6"), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_POINT_LIGHT_BLOCK_BINDING 7"), std::string::npos);
   EXPECT_NE(per_frame.find("#define EE_SPOT_LIGHT_BLOCK_BINDING 8"), std::string::npos);
-  EXPECT_NE(per_frame.find("#include \"Lights.glsl\""), std::string::npos);
+  EXPECT_NE(per_frame.find("#include \"Lights.slangh\""), std::string::npos);
 
   EXPECT_NE(lights.find("EE_DIRECTIONAL_LIGHTS[]"), std::string::npos);
   EXPECT_NE(lights.find("EE_POINT_LIGHTS[]"), std::string::npos);
@@ -117,7 +117,7 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
 }
 
 TEST(PunctualLightImport, RayTracingCameraAdaptsSharedLightsToReferenceGltfShape) {
-  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.slangh"));
   ASSERT_FALSE(integrator.empty());
 
   EXPECT_NE(integrator.find("struct EE_CAMERA_GLTF_LIGHT"), std::string::npos);
@@ -145,9 +145,9 @@ TEST(PunctualLightImport, RayTracingCameraAdaptsSharedLightsToReferenceGltfShape
 TEST(PunctualLightImport, DirectionalLightIntensityKeepsSceneUnitAcrossRenderPaths) {
   const auto prefab_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Prefab.cpp"));
   const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
-  const auto raster_lighting = ReadTextFile(ShaderPath("Includes/Lighting.glsl"));
-  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.rchit"));
-  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.glsl"));
+  const auto raster_lighting = ReadTextFile(ShaderPath("Includes/Lighting.slangh"));
+  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  const auto integrator = ReadTextFile(ShaderPath("Includes/CameraRayIntegrator.slangh"));
 
   ASSERT_FALSE(prefab_source.empty());
   ASSERT_FALSE(render_storage.empty());

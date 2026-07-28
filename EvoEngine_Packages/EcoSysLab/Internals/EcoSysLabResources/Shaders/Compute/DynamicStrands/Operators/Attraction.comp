@@ -23,7 +23,7 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
   barrier();
 
 layout(std430, set = 1, binding = 0) readonly buffer EXTERNAL_FORCE_BLOCK {
-  int particle_indices[];
+  int segment_indices[];
 };
 
 layout(push_constant) uniform PUSH_CONSTANTS {
@@ -39,13 +39,12 @@ void main() {
 
     if (global_index >= command_size)
       break;
-    int particle_index = particle_indices[global_index];
-    Particle particle = particles[particle_index];
-    Segment segment = segments[particle.segment_handle];
+    uint segment_index = uint(segment_indices[global_index]);
+    Segment segment = segments[segment_index];
+    vec3 force0 = (target_position_multiplier.xyz - segment.particle0.x) * target_position_multiplier.w;
+    vec3 force1 = (target_position_multiplier.xyz - segment.particle1.x) * target_position_multiplier.w;
 
-    vec3 diff = target_position_multiplier.xyz - particle.x;
-    vec3 force = diff * target_position_multiplier.w;
-
-    particles[particle_index].acceleration.xyz += force * segment.inv_mass;
+    segments[segment_index].particle0.acceleration.xyz += force0 * segment.inv_mass;
+    segments[segment_index].particle1.acceleration.xyz += force1 * segment.inv_mass;
   }
 }

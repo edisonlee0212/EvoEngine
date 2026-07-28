@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -27,6 +28,9 @@ class EditorPanelManager {
   void DrawMenuItems(EditorPanelCategory category);
   void ResetPanelOpenStatesToDefaults();
   void Draw(EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawExcept(EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer,
+                  std::string_view excluded_id);
+  void DrawOnly(EditorPanelCategory category, const std::shared_ptr<EditorLayer>& editor_layer, std::string_view id);
 
  private:
   struct PanelRecord {

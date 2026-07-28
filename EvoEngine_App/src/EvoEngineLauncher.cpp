@@ -1250,6 +1250,7 @@ int main() {
     application_info.allow_empty_project = true;
     application_info.use_custom_title_bar = true;
     application_info.window_resizable = false;
+    application_info.prewarm_render_pipelines = false;
     ApplicationContext::Get().Initialize(application_info);
     initialized = true;
 

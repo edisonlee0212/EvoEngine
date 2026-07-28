@@ -31,6 +31,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <iterator>
 #include <optional>
 #include <set>
 #include <sstream>
@@ -947,28 +948,29 @@ void ConfigureDemoProfile(const DemoProfileId profile_id, const ApplicationMode 
   application_info.application_mode = application_mode;
   application_info.use_custom_title_bar = true;
   const auto resource_root = FindDemoProfileResourcesRoot();
+  constexpr bool clear_generated_project_files = true;
   switch (profile_id) {
     case DemoProfileId::Rendering:
-      SetupDemoScene(DemoSetup::Rendering, application_info, resource_root);
+      SetupDemoScene(DemoSetup::Rendering, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::RenderingRegression:
-      SetupDemoScene(DemoSetup::RenderingRegression, application_info, resource_root, false);
+      SetupDemoScene(DemoSetup::RenderingRegression, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::Ddgi:
-      SetupDemoScene(DemoSetup::CornellBox, application_info, resource_root);
+      SetupDemoScene(DemoSetup::CornellBox, application_info, resource_root, clear_generated_project_files);
       ConfigureDdgiCornellBoxApplication(application_info, application_mode);
       break;
     case DemoProfileId::ProceduralGalaxy:
-      SetupDemoScene(DemoSetup::ProceduralGalaxy, application_info, resource_root);
+      SetupDemoScene(DemoSetup::ProceduralGalaxy, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::GaussianSplat:
-      SetupDemoScene(DemoSetup::GaussianSplat, application_info, resource_root, false);
+      SetupDemoScene(DemoSetup::GaussianSplat, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::Bicycle:
-      SetupDemoScene(DemoSetup::Bicycle, application_info, resource_root, false);
+      SetupDemoScene(DemoSetup::Bicycle, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::Bistro:
-      SetupDemoScene(DemoSetup::Bistro, application_info, resource_root, false);
+      SetupDemoScene(DemoSetup::Bistro, application_info, resource_root, clear_generated_project_files);
       break;
     case DemoProfileId::LSystem: {
       const auto& profile = GetDemoProfile(profile_id);

@@ -2653,6 +2653,18 @@ void RenderEnvironmentalLightingProbeBounds(const std::shared_ptr<EditorLayer>& 
   }
 }
 
+void RenderEnvironmentalLightingDebugProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer,
+                                                 const EnvironmentalLighting& lighting, const glm::vec4& color) {
+  if (!editor_layer) {
+    return;
+  }
+  for (const auto& probe : lighting.local_reflection_probes) {
+    if (probe.debug_draw_bounds) {
+      RenderEnvironmentalLightingProbeBound(editor_layer, probe, color);
+    }
+  }
+}
+
 void RenderReflectionProbeBounds(const std::shared_ptr<EditorLayer>& editor_layer, const std::shared_ptr<Scene>& scene,
                                  const glm::vec4& color) {
   if (!editor_layer || !scene) {
@@ -2711,6 +2723,14 @@ bool QueueEnvironmentalLightingLocalProbeBake(InspectorContext& context,
   auto payload_ref = probe.global_reflection_probe;
   return render_layer->QueueGlobalReflectionProbeBake(ResolveInspectorScene(context), glm::vec3(probe.transform[3]),
                                                       payload_ref.Get<GlobalReflectionProbe>());
+}
+
+uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, const EnvironmentalLighting& lighting) {
+  uint32_t queued_count = 0;
+  for (const auto& probe : lighting.local_reflection_probes) {
+    queued_count += QueueEnvironmentalLightingLocalProbeBake(context, probe) ? 1u : 0u;
+  }
+  return queued_count;
 }
 
 void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
@@ -2796,12 +2816,19 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       lighting.local_reflection_probes.emplace_back();
       changed = true;
     }
+    if (ImGui::Button("Bake All Local Probe Payloads")) {
+      const auto queued_count = QueueEnvironmentalLightingLocalProbeBakes(context, lighting);
+      EVOENGINE_LOG("Queued " + std::to_string(queued_count) + "/" +
+                    std::to_string(lighting.local_reflection_probes.size()) +
+                    " environmental lighting reflection probe bakes.")
+    }
     for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
       auto& probe = lighting.local_reflection_probes[index];
       ImGui::PushID(static_cast<int>(index));
       const auto label = probe.name + "##EnvironmentalLightingLocalProbe";
       if (ImGui::TreeNode(label.c_str())) {
         changed = ImGui::Checkbox("Enabled", &probe.enabled) || changed;
+        changed = ImGui::Checkbox("Debug draw bounds", &probe.debug_draw_bounds) || changed;
         changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &probe.stable_id) || changed;
         changed = editor_layer->DragAndDropButton<GlobalReflectionProbe>(probe.global_reflection_probe,
                                                                          "Global Reflection Probe") ||
@@ -2837,6 +2864,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
     }
     ImGui::TreePop();
   }
+  RenderEnvironmentalLightingDebugProbeBounds(editor_layer, lighting, glm::vec4(0.1f, 0.8f, 1.0f, 0.55f));
 
   if (ImGui::TreeNodeEx("DDGI volumes", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Button("Add DDGI Volume")) {

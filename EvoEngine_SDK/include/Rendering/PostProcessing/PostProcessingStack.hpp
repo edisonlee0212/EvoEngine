@@ -78,6 +78,13 @@ class PostProcessingStack : public IAsset {
   std::shared_ptr<AntiAliasing> anti_aliasing{};
   std::shared_ptr<ToneMapping> tone_mapping{};
 
+  struct BlurPushConstant {
+    int horizontal = false;
+    float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
+    float padding0 = 0.0f;
+    float padding1 = 0.0f;
+  };
+
   void GaussianBlur(const glm::uvec2& size, PostProcessingExecutionContext& context) const;
   void ProcessRayCamera(const std::shared_ptr<Camera>& target_camera,
                         const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
@@ -105,6 +112,9 @@ class AmbientOcclusion : public IPostProcessing {
     float camera_far;
     float avoid_distance;
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
+    float padding0 = 0.0f;
+    float padding1 = 0.0f;
+    float padding2 = 0.0f;
   };
   float avoid_distance = 0.1f;
   /**

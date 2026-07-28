@@ -7,6 +7,8 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <string>
 
 using namespace evo_engine;
 
@@ -38,6 +40,16 @@ class TempDemoResources {
  private:
   std::filesystem::path root_;
 };
+
+std::string ReadTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+std::filesystem::path SourcePath(const std::filesystem::path& relative_path) {
+  return std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+}
 }  // namespace
 
 TEST(DemoScene, ClearGeneratedDemoProjectFilesRemovesGeneratedDemoProjectMetadata) {
@@ -106,4 +118,29 @@ TEST(DemoScene, ClearGeneratedProceduralGalaxyProjectFilesOnlyRemovesUniverseGen
   EXPECT_TRUE(std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj"));
   EXPECT_TRUE(
       std::filesystem::exists(resources.RootPath() / "EvoEngine-DemoProjects/Rendering/Assets/New Scene.evescene"));
+}
+
+TEST(DemoScene, GaussianSplatDemoCamerasUseBlackClearBackground) {
+  const auto demo_scene = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
+  const auto begin = demo_scene.find("void ConfigureGaussianSplatDemoSceneImpl");
+  const auto end = demo_scene.find("// DDGI_VALIDATION_ENTITY_LOOKUP_HELPER_BEGIN", begin);
+  ASSERT_NE(begin, std::string::npos);
+  ASSERT_NE(end, std::string::npos);
+  const auto gaussian_setup = demo_scene.substr(begin, end - begin);
+
+  EXPECT_NE(gaussian_setup.find("main_camera->skybox.Clear()"), std::string::npos);
+  EXPECT_NE(
+      gaussian_setup.find("main_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor"),
+      std::string::npos);
+  EXPECT_NE(gaussian_setup.find("main_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)"),
+            std::string::npos);
+  EXPECT_NE(gaussian_setup.find("main_camera->camera_settings.background_intensity = 0.0f"), std::string::npos);
+  EXPECT_NE(gaussian_setup.find("scene_camera->skybox.Clear()"), std::string::npos);
+  EXPECT_NE(
+      gaussian_setup.find("scene_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor"),
+      std::string::npos);
+  EXPECT_NE(gaussian_setup.find("scene_camera->camera_settings.clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)"),
+            std::string::npos);
+  EXPECT_NE(gaussian_setup.find("scene_camera->camera_settings.background_intensity = 0.0f"), std::string::npos);
+  EXPECT_EQ(gaussian_setup.find("Camera::BackgroundSource::Cubemap"), std::string::npos);
 }

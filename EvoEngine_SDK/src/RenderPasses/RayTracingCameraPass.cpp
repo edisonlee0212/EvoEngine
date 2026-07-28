@@ -15,6 +15,8 @@
 using namespace evo_engine;
 
 namespace {
+constexpr uint32_t kRayQueryCameraWorkGroupSize = 8;
+
 void ApplyRayCameraStorageDependencies(const VkCommandBuffer command_buffer, const std::shared_ptr<Image>& color,
                                        RayCameraHistoryResources& history, const VkPipelineStageFlags2 shader_stage) {
   const std::array<std::shared_ptr<Image>, 3> images{color, history.radiance_image, history.convergence_image};
@@ -212,8 +214,9 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RQ)");
-    parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(render_texture->GetExtent().width, 8),
-                                  Platform::DivUp(render_texture->GetExtent().height, 8), 1);
+    parameters.pipeline->Dispatch(vk_command_buffer,
+                                  Platform::DivUp(render_texture->GetExtent().width, kRayQueryCameraWorkGroupSize),
+                                  Platform::DivUp(render_texture->GetExtent().height, kRayQueryCameraWorkGroupSize), 1);
     Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
     history_resources.valid = true;
     ++history_resources.frame_id;

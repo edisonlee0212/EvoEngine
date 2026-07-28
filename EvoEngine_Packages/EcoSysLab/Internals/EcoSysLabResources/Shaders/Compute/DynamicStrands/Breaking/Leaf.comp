@@ -53,7 +53,7 @@ void main() {
 			foliage[leaf_index] = leaf;
 		}
                 //if (leaf_break_from_moisture == 1) {
-                //  if (segment.moisture_pre < leaf_break_threshold) {					  
+                //  if (segment.moisture_pre < leaf_break_threshold) {
                 //    leaf.attachment_integrity = 0.0f;
                 //    foliage[leaf_index] = leaf;
                 //  }

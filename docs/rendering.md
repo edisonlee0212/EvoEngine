@@ -187,8 +187,8 @@ intentionally absent.
 | 23 | Emissive | `rgb = evaluated coated emissive radiance`, `a = scalar specular F90`; a negative alpha marks unlit. |
 | 24 | Utility | `x = instance index`, `y = instance info index`, `z = material index`, `w = reserved`. |
 
-`StandardDeferred.frag` evaluates GLTF material state once during geometry and writes only the expanded payload.
-`StandardDeferredLighting.frag`, `StandardDeferredLightingSceneCamera.frag`, SSR, AO, TAA, scene-camera debug
+`StandardDeferred.slang` evaluates GLTF material state once during geometry and writes only the expanded payload.
+`StandardDeferredLighting.slang`, `StandardDeferredLightingSceneCamera.slang`, SSR, AO, TAA, scene-camera debug
 visualization, editor GBuffer preview images, and editor mouse picking decode material, normal, or selection state from
 bindings 20-24. Editor picking reads the instance index from Utility.x.
 
@@ -411,9 +411,9 @@ baking, diffuse fallback, direct light, emission, DDGI, or visible camera backgr
 Local probes keep their own authored `reflection_intensity`. Selection uses the shaded world position, not the camera
 position, and blends at most one strictly lower-priority boundary probe before returning uncovered weight to the scene
 global fallback. Missing, unloaded, disabled, or invalid local payloads also return their weight to the same global
-fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material AO
-and eligible GTAO. SSAO remains diffuse-only, unavailable GTAO falls back to white, and the term never affects direct,
-emissive, background, diffuse, or DDGI energy.
+fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material
+AO, eligible GTAO, and DDGI gather visibility. SSAO remains diffuse-only, unavailable GTAO and missing DDGI coverage fall
+back to white, and the term never affects direct, emissive, background, diffuse, or DDGI diffuse energy.
 
 The scene-global `GlobalReflectionProbe` fallback supplies the prefiltered specular payload. If it is missing or not
 runtime-ready, raster lighting binds the engine default global reflection probe so descriptors remain valid. A zero
@@ -469,11 +469,11 @@ record an in-place BLAS update before TLAS maintenance. A BLAS content generatio
 device address and instance bytes are unchanged, so deformed bounds remain current. Pose and generation state commit only
 when the frame is submitted; discarded frames retry both the payload and BLAS update.
 
-Ray cameras share one GLSL estimator in `CameraRayIntegrator.glsl`. It owns path depth, direct-light and environment MIS,
+Ray cameras share one Slang estimator in `CameraRayIntegrator.slangh`. It owns path depth, direct-light and environment MIS,
 BSDF sampling, volume transport, throughput, Russian roulette, invalid-radiance rejection, configurable firefly clamping,
-accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.glsl` adapts that estimator to the Vulkan ray-tracing
-pipeline and payload shaders; `CameraRayQueryTraversal.glsl` adapts it to inline RayQuery traversal from a compute shader.
-The active `.rgen` and `.comp` files are stage-specific entry points only.
+accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.slangh` adapts that estimator to the Vulkan
+ray-tracing pipeline and payload shaders; `CameraRayQueryTraversal.slangh` adapts it to inline RayQuery traversal from a
+compute shader. The active `.slang` files are stage-specific entry points.
 
 Acceleration structures are a shared capability rather than an RT-pipeline capability. Static, skinned, and particle
 BLAS data, TLAS updates, geometry descriptors, and synchronization are available when either RT pipelines or RayQuery are
@@ -553,7 +553,7 @@ The renderer has moved many built-in resources into explicit graph resources, bu
 | Camera modes and fallback | `EvoEngine_SDK/src/Camera.cpp`, `EvoEngine_SDK/include/Rendering/Camera.hpp` |
 | Render graph | `EvoEngine_SDK/src/RenderGraph.cpp`, `EvoEngine_SDK/include/Rendering/RenderGraph.hpp` |
 | Render instance storage | `EvoEngine_SDK/src/RenderInstanceStorage.cpp`, `EvoEngine_SDK/include/Rendering/RenderInstances/RenderInstanceStorage.hpp` |
-| Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.glsl` |
-| glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRasterMaterial.glsl` |
-| glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRayTracingBsdf.glsl` |
-| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.glsl`, `CameraRayTracingTraversal.glsl`, `CameraRayQueryTraversal.glsl` |
+| Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh` |
+| glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRasterMaterial.slangh` |
+| glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRayTracingBsdf.slangh` |
+| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.slangh`, `CameraRayTracingTraversal.slangh`, `CameraRayQueryTraversal.slangh` |

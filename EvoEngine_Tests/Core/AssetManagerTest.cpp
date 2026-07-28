@@ -999,6 +999,67 @@ TEST(EditorLayer, CameraFreeFlyControlUsesRampedRuntimeState) {
   EXPECT_EQ(source.find("x_offset * sensitivity"), std::string::npos);
 }
 
+TEST(EditorLayer, AssetInspectorsDrawAfterPanelsAndLayerInspectors) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto begin = source.find("void EditorLayer::PreUpdate()");
+  const auto end = source.find("void EditorLayer::OpenAssetInspector", begin);
+  ASSERT_NE(begin, std::string::npos);
+  ASSERT_NE(end, std::string::npos);
+  const auto pre_update = source.substr(begin, end - begin);
+
+  const auto non_project_panels =
+      pre_update.find("editor_panel_manager_.DrawExcept(EditorPanelCategory::View, editor_layer, \"project\")");
+  const auto layers = pre_update.find("DrawLayerInspectionWindows(scene, editor_layer)");
+  const auto project_panel =
+      pre_update.find("editor_panel_manager_.DrawOnly(EditorPanelCategory::View, editor_layer, \"project\")");
+  const auto asset_inspectors = pre_update.find("DrawAssetInspectorWindows()");
+  const auto loading_popup = pre_update.find("DrawProjectLoadingPopup()");
+  ASSERT_NE(non_project_panels, std::string::npos);
+  ASSERT_NE(layers, std::string::npos);
+  ASSERT_NE(project_panel, std::string::npos);
+  ASSERT_NE(asset_inspectors, std::string::npos);
+  ASSERT_NE(loading_popup, std::string::npos);
+  EXPECT_LT(non_project_panels, layers);
+  EXPECT_LT(layers, project_panel);
+  EXPECT_LT(project_panel, asset_inspectors);
+  EXPECT_LT(asset_inspectors, loading_popup);
+}
+
+TEST(EditorLayer, AssetRefButtonsCaptureOpenRequestBeforeDragAndDropHelpers) {
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+
+  const auto expect_asset_ref_button_contract = [](const std::string& body) {
+    const auto button = body.find("ImGui::Button");
+    const auto open_requested =
+        body.find("const bool open_requested = ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)");
+    const auto draggable = body.find("Draggable");
+    const auto open_resident = body.find("OpenAssetInspector(ptr)");
+    const auto open_by_handle = body.find("OpenAssetInspector(asset_handle)");
+    ASSERT_NE(button, std::string::npos);
+    ASSERT_NE(open_requested, std::string::npos);
+    ASSERT_NE(draggable, std::string::npos);
+    ASSERT_NE(open_resident, std::string::npos);
+    ASSERT_NE(open_by_handle, std::string::npos);
+    EXPECT_LT(button, open_requested);
+    EXPECT_LT(open_requested, draggable);
+    EXPECT_LT(draggable, open_resident);
+    EXPECT_LT(open_resident, open_by_handle);
+  };
+
+  auto template_begin = header.find("bool EditorLayer::DragAndDropButton(AssetRef& target");
+  auto template_end = header.find("template <typename T>", template_begin + 1);
+  ASSERT_NE(template_begin, std::string::npos);
+  ASSERT_NE(template_end, std::string::npos);
+  expect_asset_ref_button_contract(header.substr(template_begin, template_end - template_begin));
+
+  const auto source_begin = source.find("bool EditorLayer::DragAndDropButton(AssetRef& target");
+  const auto source_end = source.find("bool EditorLayer::DragAndDropButton(PrivateComponentRef& target", source_begin);
+  ASSERT_NE(source_begin, std::string::npos);
+  ASSERT_NE(source_end, std::string::npos);
+  expect_asset_ref_button_contract(source.substr(source_begin, source_end - source_begin));
+}
+
 TEST(EditorLayer, MissingEmptyOrNonDockingImGuiIniRequestsDefaultLayout) {
   EditorLayer missing_layout;
   missing_layout.Deserialize(YAML::Load("{show_scene_window: true}"));

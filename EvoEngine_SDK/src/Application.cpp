@@ -56,6 +56,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstring>
+#include <sstream>
 #include <stdexcept>
 
 #ifdef EVOENGINE_WINDOWS
@@ -113,6 +114,23 @@ void ConfigureConsoleWindow(const bool hide_console_window) {
 #else
   (void)hide_console_window;
 #endif
+}
+
+double ElapsedMilliseconds(const std::chrono::steady_clock::time_point start,
+                           const std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now()) {
+  return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+ShaderCompileCacheStats DeltaShaderCompileCacheStats(const ShaderCompileCacheStats& before,
+                                                     const ShaderCompileCacheStats& after) {
+  return {after.memory_hits - before.memory_hits,
+          after.disk_hits - before.disk_hits,
+          after.disk_misses - before.disk_misses,
+          after.compilations - before.compilations,
+          after.coalesced_waits - before.coalesced_waits,
+          after.corrupt_entries - before.corrupt_entries,
+          after.failures - before.failures,
+          after.slang_frontend_invocations - before.slang_frontend_invocations};
 }
 
 template <typename T>
@@ -2312,6 +2330,13 @@ void Application::Reset() {
 
 void Application::Initialize(const ApplicationInitializationSettings& application_create_info) {
   ApplicationContextScope application_scope(*this);
+  const auto startup_begin = std::chrono::steady_clock::now();
+  const auto shader_stats_begin = Shader::GetCompileCacheStats();
+  double platform_milliseconds = 0.0;
+  double resources_milliseconds = 0.0;
+  double packages_milliseconds = 0.0;
+  double layers_milliseconds = 0.0;
+  double show_window_milliseconds = 0.0;
 #pragma region Reflection
   RegisterDataComponent<Transform>("Transform");
   RegisterDataComponent<GlobalTransform>("GlobalTransform");
@@ -2353,8 +2378,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<GlobalReflectionProbe>("GlobalReflectionProbe", {".evereflectionprobe"});
   RegisterAsset<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
   RegisterAsset<EnvironmentalLighting>("EnvironmentalLighting", {".eveenvironmentallighting"});
-  RegisterAsset<Shader>(
-      "Shader", {".eveshader", ".glsl", ".vert", ".frag", ".comp", ".geom", ".task", ".mesh", ".tesc", ".tese"});
+  RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   RegisterAsset<Mesh>("Mesh", {".evemesh"});
   RegisterAsset<Strands>("Strands", {".evestrands", ".hair"});
   RegisterAsset<Prefab>(
@@ -2408,22 +2432,33 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   FileManager::Initialize();
   ProjectManager::Initialize();
   if (render_layer) {
+    const auto stage_begin = std::chrono::steady_clock::now();
     Platform::Initialize(this->initialization_settings);
+    platform_milliseconds = ElapsedMilliseconds(stage_begin);
     if (this->initialization_settings.enable_gpu_timestamp_capture) {
       Platform::SetGpuTimestampCaptureEnabled(true);
     }
   }
   if (this->initialization_settings.load_default_resources) {
+    const auto stage_begin = std::chrono::steady_clock::now();
     Resources::Initialize();
+    resources_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   if (this->initialization_settings.enable_runtime_packages) {
+    const auto stage_begin = std::chrono::steady_clock::now();
     PackageManager::Initialize(this->initialization_settings.package_search_paths,
                                this->initialization_settings.startup_runtime_packages);
+    packages_milliseconds = ElapsedMilliseconds(stage_begin);
   }
-  for (const auto& layer : this->layers_) {
-    layer->OnCreate();
+  {
+    const auto stage_begin = std::chrono::steady_clock::now();
+    for (const auto& layer : this->layers_) {
+      layer->OnCreate();
+    }
+    layers_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   if (window_layer) {
+    const auto stage_begin = std::chrono::steady_clock::now();
     window_layer->ResizeWindow(this->initialization_settings.default_window_size.x,
                                this->initialization_settings.default_window_size.y);
     if (!this->initialization_settings.full_screen) {
@@ -2461,8 +2496,22 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
       }
     }
     window_layer->ShowWindow();
+    show_window_milliseconds = ElapsedMilliseconds(stage_begin);
   }
   this->execution_status_ = ExecutionStatus::NotPlaying;
+
+  const auto shader_stats_delta = DeltaShaderCompileCacheStats(shader_stats_begin, Shader::GetCompileCacheStats());
+  std::ostringstream startup_log;
+  startup_log << "EVOENGINE_STARTUP_TIMING application=\"" << this->initialization_settings.application_name
+              << "\" total_ms=" << ElapsedMilliseconds(startup_begin) << " platform_ms=" << platform_milliseconds
+              << " resources_ms=" << resources_milliseconds << " packages_ms=" << packages_milliseconds
+              << " layers_ms=" << layers_milliseconds << " show_window_ms=" << show_window_milliseconds
+              << " shader_memory_hits=" << shader_stats_delta.memory_hits
+              << " shader_disk_hits=" << shader_stats_delta.disk_hits
+              << " shader_disk_misses=" << shader_stats_delta.disk_misses
+              << " shader_compilations=" << shader_stats_delta.compilations
+              << " shader_slang_frontend=" << shader_stats_delta.slang_frontend_invocations;
+  EVOENGINE_LOG(startup_log.str())
 
   if (!this->initialization_settings.project_path.empty()) {
     ProjectManager::GetOrCreateProject(this->initialization_settings.project_path);
