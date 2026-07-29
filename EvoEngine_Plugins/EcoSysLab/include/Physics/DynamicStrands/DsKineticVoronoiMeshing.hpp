@@ -1,11 +1,16 @@
 #pragma once
 #include "DsMeshing.hpp"
+#include "Entity.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
 #include <filesystem>
 
 namespace kinDS {
 class StrandTree;
+}
+namespace evo_engine {
+class Mesh;
+class Material;
 }
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
@@ -138,6 +143,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   // kinDS::VoronoiMesh transformed_boundary_mesh;
   kinDS::VoronoiMesh intersection_boundary_mesh_;
   std::filesystem::path intersection_boundary_mesh_path_;
+  std::weak_ptr<Scene> intersection_boundary_scene_;
+  Entity intersection_boundary_owner_{};
+  Entity intersection_boundary_entity_{};
+  std::shared_ptr<Mesh> intersection_boundary_preview_mesh_;
+  std::shared_ptr<Material> intersection_boundary_preview_material_;
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
 
@@ -177,6 +187,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   //     const std::vector<size_t>& boundary_vertex_to_strand_id);
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
+  bool HasValidIntersectionBoundaryChildEntity() const;
+  bool EnsureIntersectionBoundaryChildEntity();
+  void UpdateIntersectionBoundaryChildPreview();
+  void RemoveIntersectionBoundaryChildEntity();
+  kinDS::VoronoiMesh BuildIntersectionBoundaryMeshForClipping() const;
   void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
