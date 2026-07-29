@@ -2,6 +2,7 @@
 #include "DsMeshing.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
+#include <filesystem>
 
 namespace kinDS {
 class StrandTree;
@@ -60,8 +61,14 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct MeshingSettings {
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
+    /// When true, store JSON vertex/face metadata on meshlets (@ref TreeMesher::Settings::store_mesh_metadata).
+    bool store_mesh_metadata = false;
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through knots).
     float spline_tension = 0.5f;
+    /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
+    bool intersection_boundary_apply_inverse_root_transform = true;
+    /// When true, attempt to repair empty meshlets after boundary intersection (@ref TreeMesher::fixFailedSegments).
+    bool intersection_boundary_fix_missing_meshes = false;
   };
 
   static RenderSettings render_settings;
@@ -128,7 +135,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
 
-  kinDS::VoronoiMesh transformed_boundary_mesh;
+  // kinDS::VoronoiMesh transformed_boundary_mesh;
+  kinDS::VoronoiMesh intersection_boundary_mesh_;
+  std::filesystem::path intersection_boundary_mesh_path_;
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
 
@@ -160,14 +169,20 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;*/
 
-  kinDS::VoronoiMesh TransformBoundaryMesh(
-      const kinDS::VoronoiMesh& boundary_mesh,
-      const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
-      const std::vector<std::vector<glm::dmat4>>& normal_transforms_by_height_and_branch,
-      const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
-      const std::vector<size_t>& boundary_vertex_to_strand_id);
+  // kinDS::VoronoiMesh TransformBoundaryMesh(
+  //     const kinDS::VoronoiMesh& boundary_mesh,
+  //     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
+  //     const std::vector<std::vector<glm::dmat4>>& normal_transforms_by_height_and_branch,
+  //     const GlobalTransform& root_transform, const std::vector<std::vector<size_t>>& branch_indices,
+  //     const std::vector<size_t>& boundary_vertex_to_strand_id);
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
+  void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
+                                 const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+                                 const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
+                                 const std::vector<std::vector<int>>& meshing_neighbor_indices,
+                                 const std::vector<size_t>& meshing_to_physics_segment_indices,
+                                 const GlobalTransform& root_transform);
 
   void RunMeshingAlgorithm(const std::vector<std::vector<glm::dvec2>>& support_points,
                            std::vector<std::vector<double>>& subdivisions_by_strand,
