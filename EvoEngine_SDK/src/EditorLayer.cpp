@@ -105,24 +105,21 @@ void EditorLayer::OnCreate() {
       edited = true;
     ImGui::SameLine();
     if (ImGui::Selectable("Position##Local", &local_position_selected_) && local_position_selected_) {
-      local_rotation_selected_ = false;
-      local_scale_selected_ = false;
+      SetLocalTransformMode(ImGuizmo::OPERATION::TRANSLATE);
     }
     if (ImGui::DragFloat3("##LocalRotation", &previously_stored_rotation_.x, 1.0f, 0, 0, "%.3f",
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
     if (ImGui::Selectable("Rotation##Local", &local_rotation_selected_) && local_rotation_selected_) {
-      local_position_selected_ = false;
-      local_scale_selected_ = false;
+      SetLocalTransformMode(ImGuizmo::OPERATION::ROTATE);
     }
     if (ImGui::DragFloat3("##LocalScale", &previously_stored_scale_.x, 0.01f, 0, 0, "%.3f",
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
     if (ImGui::Selectable("Scale##Local", &local_scale_selected_) && local_scale_selected_) {
-      local_rotation_selected_ = false;
-      local_position_selected_ = false;
+      SetLocalTransformMode(ImGuizmo::OPERATION::SCALE);
     }
     if (edited) {
       ltp->value = glm::translate(previously_stored_position_) *
@@ -935,6 +932,64 @@ void EditorLayer::SceneCameraWindow() {
             }
 #pragma endregion
           }
+
+          static bool was_orbiting_previously = false;
+          bool orbit_drag = true;
+          if (mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
+              mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y ||
+              Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) != Input::KeyActionType::Hold ||
+              Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold || lock_camera) {
+            orbit_drag = false;
+          }
+          static float orbit_prev_x = 0.0f;
+          static float orbit_prev_y = 0.0f;
+          if (orbit_drag && !was_orbiting_previously) {
+            RefreshSceneOrbitPivot(*scene);
+            orbit_prev_x = mouse_scene_window_position_.x;
+            orbit_prev_y = mouse_scene_window_position_.y;
+          }
+          const float orbit_x_offset = mouse_scene_window_position_.x - orbit_prev_x;
+          const float orbit_y_offset = mouse_scene_window_position_.y - orbit_prev_y;
+          orbit_prev_x = mouse_scene_window_position_.x;
+          orbit_prev_y = mouse_scene_window_position_.y;
+          was_orbiting_previously = orbit_drag;
+
+          if (orbit_drag && (orbit_x_offset != 0.0f || orbit_y_offset != 0.0f)) {
+            glm::vec3 offset = sceneCameraPosition - scene_orbit_pivot_;
+            if (const float radius = glm::length(offset); radius > 1e-4f) {
+              offset = glm::rotate(offset, glm::radians(-orbit_x_offset * sensitivity), glm::vec3(0.0f, 1.0f, 0.0f));
+
+              glm::vec3 front = glm::normalize(scene_orbit_pivot_ - (scene_orbit_pivot_ + offset));
+              glm::vec3 right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+              if (glm::length(right) > 1e-4f) {
+                const glm::vec3 candidate_offset =
+                    glm::rotate(offset, glm::radians(-orbit_y_offset * sensitivity), right);
+                const glm::vec3 candidate_front = glm::normalize(scene_orbit_pivot_ - (scene_orbit_pivot_ + candidate_offset));
+                if ((candidate_front.y < 0.99f && orbit_y_offset < 0.0f) ||
+                    (candidate_front.y > -0.99f && orbit_y_offset > 0.0f)) {
+                  offset = candidate_offset;
+                }
+              }
+
+              sceneCameraPosition = scene_orbit_pivot_ + offset;
+              front = glm::normalize(scene_orbit_pivot_ - sceneCameraPosition);
+              right = glm::normalize(glm::cross(front, glm::vec3(0.0f, 1.0f, 0.0f)));
+              if (glm::length(right) > 1e-4f) {
+                const glm::vec3 up = glm::normalize(glm::cross(right, front));
+                sceneCameraRotation = glm::quatLookAt(front, up);
+              }
+            }
+          }
+
+          if (CanUseTransformModeHotkeys(*scene)) {
+            if (Input::GetKey(GLFW_KEY_T) == Input::KeyActionType::Press) {
+              SetLocalTransformMode(ImGuizmo::OPERATION::TRANSLATE);
+            } else if (Input::GetKey(GLFW_KEY_R) == Input::KeyActionType::Press) {
+              SetLocalTransformMode(ImGuizmo::OPERATION::ROTATE);
+            } else if (Input::GetKey(GLFW_KEY_S) == Input::KeyActionType::Press) {
+              SetLocalTransformMode(ImGuizmo::OPERATION::SCALE);
+            }
+          }
         }
       }
 #pragma region Gizmos and Entity Selection
@@ -948,9 +1003,7 @@ void EditorLayer::SceneCameraWindow() {
         ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
         glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
         glm::mat4 camera_projection = scene_camera->GetProjection();
-        const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
-                        : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
-                                                   : ImGuizmo::OPERATION::SCALE;
+        const auto op = GetLocalTransformMode();
         if (scene->IsEntityValid(selected_entity_)) {
           auto transform = scene->GetDataComponent<Transform>(selected_entity_);
           GlobalTransform parent_global_transform;
@@ -1256,6 +1309,7 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
     scene->GetEntityMetadata(selected_entity_).ancestor_selected = false;
   if (entity.GetIndex() == 0) {
     selected_entity_ = Entity();
+    RefreshSceneOrbitPivot(*scene);
     lock_entity_selection_ = false;
     selection_alpha_ = 0;
     return;
@@ -1264,6 +1318,7 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
   if (!scene->IsEntityValid(entity))
     return;
   selected_entity_ = entity;
+  RefreshSceneOrbitPivot(*scene);
   const auto descendants = scene->GetDescendants(selected_entity_);
 
   for (const auto& i : descendants) {
@@ -1717,6 +1772,72 @@ bool EditorLayer::LocalRotationSelected() const {
 
 bool EditorLayer::LocalScaleSelected() const {
   return local_scale_selected_;
+}
+
+void EditorLayer::SetLocalTransformMode(const ImGuizmo::OPERATION mode) {
+  local_position_selected_ = mode == ImGuizmo::OPERATION::TRANSLATE;
+  local_rotation_selected_ = mode == ImGuizmo::OPERATION::ROTATE;
+  local_scale_selected_ = mode == ImGuizmo::OPERATION::SCALE;
+}
+
+ImGuizmo::OPERATION EditorLayer::GetLocalTransformMode() const {
+  if (local_position_selected_) {
+    return ImGuizmo::OPERATION::TRANSLATE;
+  }
+  if (local_rotation_selected_) {
+    return ImGuizmo::OPERATION::ROTATE;
+  }
+  return ImGuizmo::OPERATION::SCALE;
+}
+
+bool EditorLayer::CanUseTransformModeHotkeys(const Scene& scene) const {
+  if (!scene_camera_window_focused_ || !enable_gizmos || gizmo_using_) {
+    return false;
+  }
+  if (!scene.IsEntityValid(selected_entity_) || !scene.HasDataComponent<Transform>(selected_entity_)) {
+    return false;
+  }
+  if (Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Hold ||
+      Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Hold ||
+      Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Hold ||
+      Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press ||
+      Input::GetKey(GLFW_MOUSE_BUTTON_RIGHT) == Input::KeyActionType::Press ||
+      Input::GetKey(GLFW_MOUSE_BUTTON_MIDDLE) == Input::KeyActionType::Press) {
+    return false;
+  }
+
+  const ImGuiIO& io = ImGui::GetIO();
+  if (io.WantCaptureKeyboard || io.WantTextInput) {
+    return false;
+  }
+  if (ImGui::IsAnyItemActive()) {
+    return false;
+  }
+  return true;
+}
+
+void EditorLayer::RefreshSceneOrbitPivot(Scene& scene) {
+  scene_orbit_pivot_ = glm::vec3(0.0f);
+  scene_orbit_pivot_from_selection_ = false;
+  if (!scene.IsEntityValid(selected_entity_)) {
+    return;
+  }
+
+  const auto bound = scene.GetEntityBoundingBox(selected_entity_);
+  const bool bound_valid = std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z) &&
+                           std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z) &&
+                           bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+  if (!bound_valid) {
+    return;
+  }
+
+  const glm::vec3 center = bound.Center();
+  if (!std::isfinite(center.x) || !std::isfinite(center.y) || !std::isfinite(center.z)) {
+    return;
+  }
+
+  scene_orbit_pivot_ = center;
+  scene_orbit_pivot_from_selection_ = true;
 }
 
 glm::vec3& EditorLayer::UnsafeGetPreviouslyStoredPosition() {

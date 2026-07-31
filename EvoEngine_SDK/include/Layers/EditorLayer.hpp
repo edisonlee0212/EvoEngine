@@ -317,6 +317,16 @@ class EditorLayer : public ILayer {
    */
   [[nodiscard]] bool LocalScaleSelected() const;
 
+  /**
+   * @brief Sets the active local transform gizmo mode.
+   *
+   * Keeps the position/rotation/scale selection flags mutually exclusive.
+   *
+   * @param mode Target gizmo mode.
+   */
+  void SetLocalTransformMode(ImGuizmo::OPERATION mode);
+  void RefreshSceneOrbitPivot(Scene& scene);
+
 #pragma region ImGui Helpers
   /**
    * @brief Handles drag-and-drop operations for the camera window.
@@ -873,6 +883,10 @@ class EditorLayer : public ILayer {
   glm::vec3 previously_stored_position_;   /**< Previously stored position. */
   glm::vec3 previously_stored_rotation_;   /**< Previously stored rotation. */
   glm::vec3 previously_stored_scale_;      /**< Previously stored scale. */
+  [[nodiscard]] ImGuizmo::OPERATION GetLocalTransformMode() const;
+  [[nodiscard]] bool CanUseTransformModeHotkeys(const Scene& scene) const;
+  glm::vec3 scene_orbit_pivot_ = glm::vec3(0.0f); /**< Current scene-camera orbit pivot. */
+  bool scene_orbit_pivot_from_selection_ = false; /**< Whether the current orbit pivot comes from selection. */
   bool local_position_selected_ = true;    /**< Indicates if the local position is selected. */
   bool local_rotation_selected_ = false;   /**< Indicates if the local rotation is selected. */
   bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */

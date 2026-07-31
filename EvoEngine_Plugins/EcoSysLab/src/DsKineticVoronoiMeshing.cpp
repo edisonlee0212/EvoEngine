@@ -966,15 +966,100 @@ void DsKineticVoronoiMeshing::RemoveIntersectionBoundaryChildEntity() {
 kinDS::VoronoiMesh DsKineticVoronoiMeshing::BuildIntersectionBoundaryMeshForClipping() const {
   kinDS::VoronoiMesh boundary_mesh = intersection_boundary_mesh_;
   const auto scene = intersection_boundary_scene_.lock();
-  if (!HasValidIntersectionBoundaryChildEntity() || !scene || !scene->IsEntityValid(intersection_boundary_owner_)) {
+  if (!HasValidIntersectionBoundaryChildEntity() || !scene) {
+    // Fall back to mapping the OBJ by the inverse of the meshlet GPU root transform only.
+    boundary_mesh.applyTransform(glm::inverse(glm::dmat4(meshlets_root_transform_.value)));
     return boundary_mesh;
   }
 
-  const auto owner_global = scene->GetDataComponent<GlobalTransform>(intersection_boundary_owner_);
+  // Meshlets live in tree-local space; GPU upload applies meshlets_root_transform_.
+  // Map the intersection entity from world into that same tree-local frame:
+  //   inverse(root) * child_global * obj_local
   const auto child_global = scene->GetDataComponent<GlobalTransform>(intersection_boundary_entity_);
-  const glm::dmat4 clip_transform = glm::inverse(glm::dmat4(owner_global.value)) * glm::dmat4(child_global.value);
+  const glm::dmat4 clip_transform =
+      glm::inverse(glm::dmat4(meshlets_root_transform_.value)) * glm::dmat4(child_global.value);
   boundary_mesh.applyTransform(clip_transform);
   return boundary_mesh;
+}
+
+bool DsKineticVoronoiMeshing::HasMeshedSegmentMeshlets() const {
+  return tree_mesher_ && !segment_meshlets_.empty();
+}
+
+bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
+  if (!HasMeshedSegmentMeshlets()) {
+    EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
+    return false;
+  }
+  if (intersection_boundary_mesh_.getTriangleCount() == 0) {
+    EVOENGINE_ERROR("Intersect: no intersection boundary mesh loaded.");
+    return false;
+  }
+  if (!strand_tree) {
+    EVOENGINE_ERROR("Intersect: strand tree is missing.");
+    return false;
+  }
+
+  kinDS::VoronoiMesh boundary_mesh = BuildIntersectionBoundaryMeshForClipping();
+
+  // Restore pristine meshlets so Intersect can be re-run after moving the boundary.
+  tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+  tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+
+  const bool previous_fix_missing_meshes = tree_mesher_->getSettings().fix_missing_meshes;
+  const bool previous_keep_original_on_failure = tree_mesher_->getSettings().keep_original_on_intersection_failure;
+  tree_mesher_->getSettings().fix_missing_meshes = meshing_settings.intersection_boundary_fix_missing_meshes;
+  tree_mesher_->getSettings().keep_original_on_intersection_failure =
+      meshing_settings.intersection_keep_original_on_failure;
+  EVOENGINE_LOG("Intersecting meshlets with boundary (" << boundary_mesh.getTriangleCount() << " triangles)...");
+  tree_mesher_->truncateToBoundary(boundary_mesh);
+  tree_mesher_->getSettings().fix_missing_meshes = previous_fix_missing_meshes;
+  tree_mesher_->getSettings().keep_original_on_intersection_failure = previous_keep_original_on_failure;
+
+  segment_meshlet_vertices.clear();
+  segment_meshlet_triangles.clear();
+  PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+                            tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  Upload();
+  UpdateBindings();
+  EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated (" << segment_meshlet_vertices.size()
+                                                                       << " vertices, "
+                                                                       << segment_meshlet_triangles.size()
+                                                                       << " triangles).");
+
+  // Hide the boundary preview in the scene (same as Hierarchy → Disable).
+  if (const auto scene = intersection_boundary_scene_.lock()) {
+    if (scene->IsEntityValid(intersection_boundary_entity_)) {
+      scene->SetEnable(intersection_boundary_entity_, false);
+    }
+  }
+  return true;
+}
+
+bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
+  if (!HasMeshedSegmentMeshlets()) {
+    EVOENGINE_ERROR("Reset meshlets: no meshed segment meshlets available. Run meshing first.");
+    return false;
+  }
+  if (!strand_tree) {
+    EVOENGINE_ERROR("Reset meshlets: strand tree is missing.");
+    return false;
+  }
+
+  tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+  tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+
+  segment_meshlet_vertices.clear();
+  segment_meshlet_triangles.clear();
+  PopulateGpuMeshletBuffers(segment_meshlets_, strand_tree->getPhysicsStrandToSegmentIndices(),
+                            tree_mesher_->getMeshingStrandToSegmentIndices(), meshing_neighbor_indices_,
+                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  Upload();
+  UpdateBindings();
+  EVOENGINE_LOG("Reset meshlets to GPU (no intersection). " << segment_meshlet_vertices.size() << " vertices, "
+                                                            << segment_meshlet_triangles.size() << " triangles.");
+  return true;
 }
 
 void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
@@ -1073,38 +1158,32 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     return;
   }
 
-  kinDS::TreeMesher tree_mesher(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
+  tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [&](size_t count, std::function<void(size_t)> func) {
     Jobs::RunParallelFor(count, [&](size_t i) {
       func(i);
     });
   });
-  tree_mesher.getSettings().transform_mesh_at_construction = true;
-  tree_mesher.getSettings().mesh_cap_at_start = true;
-  tree_mesher.getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
+  tree_mesher_->getSettings().transform_mesh_at_construction = true;
+  tree_mesher_->getSettings().mesh_cap_at_start = true;
+  tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
 
-  auto& meshes = tree_mesher.runMeshingAlgorithm(meshing_settings.debug_svg);
+  auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
 
-  if (intersection_boundary_mesh_.getTriangleCount() > 0) {
-    kinDS::VoronoiMesh boundary_mesh = BuildIntersectionBoundaryMeshForClipping();
-
-    const bool previous_fix_missing_meshes = tree_mesher.getSettings().fix_missing_meshes;
-    tree_mesher.getSettings().fix_missing_meshes = meshing_settings.intersection_boundary_fix_missing_meshes;
-    EVOENGINE_LOG("Truncating meshlets to loaded intersection boundary ("
-                  << boundary_mesh.getTriangleCount() << " triangles)...");
-    tree_mesher.truncateToBoundary(boundary_mesh);
-    tree_mesher.getSettings().fix_missing_meshes = previous_fix_missing_meshes;
-  }
+  // Keep pristine copies for later Intersect button runs (no clipping during meshing).
+  segment_meshlets_ = meshes;
+  meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+  meshlets_root_transform_ = root_transform;
 
   // std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
   //     strand_tree->getNormalTransformsByHeightAndBranch();
-  auto& boundary_mesh = tree_mesher.getBoundaryMesh();
+  auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
 
-  const auto& meshing_neighbor_indices = tree_mesher.getMeshingNeighborIndices();
-  const auto& meshing_to_physics_segment_indices = tree_mesher.getMeshingToPhysicsSegmentIndices();
-  const auto& meshing_strand_to_segment_indices = tree_mesher.getMeshingStrandToSegmentIndices();
+  const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
+  const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+  const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
 
   if (recompute_segment_pairs) {  // TODO: use first two indices for vertical neighbors.
-    RecomputeSegmentPairs(tree_mesher);
+    RecomputeSegmentPairs(*tree_mesher_);
   }
 
   for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
@@ -1122,7 +1201,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
                             meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
 
   // const auto& boundary_mesh = tree_mesher.getBoundaryMesh();
-  auto& boundary_vertex_to_strand_id = tree_mesher.getBoundaryVertexToStrandId();
+  auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
 
   boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
   for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
@@ -1141,14 +1220,13 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   //     TransformBoundaryMesh(boundary_mesh, transforms_by_height_and_branch, normal_transforms_by_height_and_branch,
   //                           root_transform, branch_indices, boundary_vertex_to_strand_id);
 
-  bool debug_export_meshes = true;
-  if (!debug_export_meshes) {
+  if (!meshing_settings.debug_export_meshes) {
     EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
     return;
   }
   EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
-  tree_mesher.exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
-  tree_mesher.exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
+  tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
+  tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
   // kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
   EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
 }
@@ -1246,6 +1324,7 @@ DsKineticVoronoiMeshing::DsKineticVoronoiMeshing() {
 
 DsKineticVoronoiMeshing::~DsKineticVoronoiMeshing() {
   RemoveIntersectionBoundaryChildEntity();
+  tree_mesher_.reset();
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitBuffer(
@@ -1717,6 +1796,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Upload() {
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
+  segment_meshlets_.clear();
+  meshing_neighbor_indices_.clear();
+  tree_mesher_.reset();
+  meshlets_root_transform_ = {};
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
@@ -1735,6 +1818,10 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Export kinDS segment-builder debug SVGs during meshing.");
+  }
+  ImGui::Checkbox("Debug export meshes", &meshing_settings.debug_export_meshes);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("After meshing, export per-segment meshlets and a combined OBJ for debugging.");
   }
   ImGui::Checkbox("Store mesh metadata", &meshing_settings.store_mesh_metadata);
   if (ImGui::IsItemHovered()) {
@@ -1779,9 +1866,47 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::TextWrapped("Intersection boundary: %s", intersection_boundary_mesh_path_.string().c_str());
     ImGui::Text("Triangles: %zu", intersection_boundary_mesh_.getTriangleCount());
   }
+  const bool can_intersect =
+      intersection_boundary_mesh_.getTriangleCount() > 0 && HasMeshedSegmentMeshlets();
+  if (!can_intersect) {
+    ImGui::BeginDisabled();
+  }
+  if (ImGui::Button("Intersect")) {
+    IntersectMeshletsWithBoundary();
+  }
+  if (!can_intersect) {
+    ImGui::EndDisabled();
+  }
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip(
+        "Clip stored meshlets against the loaded/moved intersection boundary and rebuild GPU buffers. "
+        "Requires a loaded intersection mesh and a completed meshing run.");
+  }
+  ImGui::SameLine();
+  const bool can_reset_meshlets = HasMeshedSegmentMeshlets();
+  if (!can_reset_meshlets) {
+    ImGui::BeginDisabled();
+  }
+  if (ImGui::Button("Reset meshlets")) {
+    ResetMeshletsToGpu();
+  }
+  if (!can_reset_meshlets) {
+    ImGui::EndDisabled();
+  }
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip(
+        "Reload pristine meshlets (from the last meshing run) into GPU buffers without intersection. "
+        "Requires a completed meshing run.");
+  }
   ImGui::Checkbox("Fix missing meshlets after intersection", &meshing_settings.intersection_boundary_fix_missing_meshes);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Attempt to repair empty meshlets after boundary intersection using neighbor triangles.");
+  }
+  ImGui::Checkbox("Keep original meshlet on intersection failure",
+                  &meshing_settings.intersection_keep_original_on_failure);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "If intersection fails (e.g. non-manifold), keep the uncut meshlet. Disable to replace it with an empty mesh.");
   }
 
   FileUtils::SaveFile(

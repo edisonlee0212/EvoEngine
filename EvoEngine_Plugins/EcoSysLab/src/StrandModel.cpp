@@ -43,10 +43,7 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
       walker = strand_model_skeleton.PeekNode(walker).GetParentHandle();
     }
     if (!internode.IsEndNode()) {
-      EVOENGINE_LOG("Internode " << internode_handle << " is NOT an end node.");
       for (int i = 0; i < strand_model_parameters.strands_along_branch; i++) {
-        EVOENGINE_LOG("Processing strand " << i << " of " << strand_model_parameters.end_node_strands
-                                           << " for internode " << internode_handle);
         const auto strand_handle = strand_group.AllocateStrand();
         for (auto it = parent_node_to_root_chain.rbegin(); it != parent_node_to_root_chain.rend(); ++it) {
           const auto new_strand_segment_handle = strand_group.Extend(strand_handle);
@@ -75,7 +72,6 @@ void StrandModel::InitializeProfiles(const StrandModelParameters& strand_model_p
         new_segment_data.profile_particle_handle = new_particle_handle;
       }
     } else {
-      EVOENGINE_LOG("Internode " << internode_handle << " IS an end node.");
       if (true || profile.RefParticles().empty()) {
         for (int i = 0; i < strand_model_parameters.end_node_strands; i++) {
           const auto strand_handle = strand_group.AllocateStrand();

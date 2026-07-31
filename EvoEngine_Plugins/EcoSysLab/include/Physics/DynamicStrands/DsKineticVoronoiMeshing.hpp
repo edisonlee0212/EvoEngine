@@ -1,6 +1,7 @@
 #pragma once
 #include "DsMeshing.hpp"
 #include "Entity.hpp"
+#include "Transform.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
 #include <filesystem>
@@ -66,6 +67,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct MeshingSettings {
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
+    /// When true, export meshlets/combined OBJ after meshing for debugging.
+    bool debug_export_meshes = false;
     /// When true, store JSON vertex/face metadata on meshlets (@ref TreeMesher::Settings::store_mesh_metadata).
     bool store_mesh_metadata = false;
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through knots).
@@ -74,6 +77,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool intersection_boundary_apply_inverse_root_transform = true;
     /// When true, attempt to repair empty meshlets after boundary intersection (@ref TreeMesher::fixFailedSegments).
     bool intersection_boundary_fix_missing_meshes = false;
+    /// When true, failed intersections keep the uncut meshlet; when false, replace with an empty mesh.
+    bool intersection_keep_original_on_failure = true;
   };
 
   static RenderSettings render_settings;
@@ -150,6 +155,13 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Material> intersection_boundary_preview_material_;
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
+  std::shared_ptr<kinDS::TreeMesher> tree_mesher_;
+  /// Pristine meshlets from the last meshing run (before any boundary intersection).
+  std::vector<kinDS::VoronoiMesh> segment_meshlets_;
+  /// Neighbor indices matching @ref segment_meshlets_ before intersection.
+  std::vector<std::vector<int>> meshing_neighbor_indices_;
+  /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
+  GlobalTransform meshlets_root_transform_{};
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
@@ -191,7 +203,11 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   bool EnsureIntersectionBoundaryChildEntity();
   void UpdateIntersectionBoundaryChildPreview();
   void RemoveIntersectionBoundaryChildEntity();
+  bool HasMeshedSegmentMeshlets() const;
   kinDS::VoronoiMesh BuildIntersectionBoundaryMeshForClipping() const;
+  bool IntersectMeshletsWithBoundary();
+  /// Reload pristine (pre-intersection) meshlets into GPU buffers.
+  bool ResetMeshletsToGpu();
   void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,
