@@ -1,3 +1,4 @@
+// @evoengine-dialect native
 struct TexturePassThroughVertexInput {
   [[vk::location(0)]]
   float3 position : POSITION;

@@ -1,66 +1,52 @@
-#extension GL_ARB_shading_language_include : enable
-#extension GL_EXT_mesh_shader : enable
-#extension GL_ARB_shader_draw_parameters : enable
-#extension GL_EXT_control_flow_attributes : require
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.Meshlet;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
+static const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
+static const uint MESHLET_VERTEX_ITERATIONS =
+    (EE_MESHLET_MAX_VERTICES_SIZE + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
+static const uint MESHLET_PRIMITIVE_ITERATIONS =
+    (EE_MESHLET_MAX_TRIANGLES_SIZE + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
 
-const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
-
-const uint MESHLET_VERTEX_ITERATIONS    = ((MESHLET_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint MESHLET_PRIMITIVE_ITERATIONS = ((MESHLET_MAX_TRIANGLES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-
-struct EEMeshPositionOutput {
-	vec4 position : SV_Position;
+struct MeshPositionOutput {
+  float4 position : SV_Position;
 };
 
-struct EEMeshTaskPayload{
-	uint	instanceIndex;
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct EEMeshTaskPayload {
+  uint instanceIndex;
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 [outputtopology("triangle")]
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 [shader("mesh")]
-void main(in payload EEMeshTaskPayload ts_in,
-	OutputVertices<EEMeshPositionOutput, MESHLET_MAX_VERTICES_SIZE> vertices,
-	OutputIndices<uint3, MESHLET_MAX_TRIANGLES_SIZE> triangles)
-{
-	uint instanceIndex = ts_in.instanceIndex;
-	uint meshletID = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
-	uint laneID = gl_LocalInvocationID.x;
+void main(in payload EEMeshTaskPayload task_input, uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex,
+          OutputVertices<MeshPositionOutput, EE_MESHLET_MAX_VERTICES_SIZE> vertices,
+          OutputIndices<uint3, EE_MESHLET_MAX_TRIANGLES_SIZE> triangles) {
+  uint instance_index = task_input.instanceIndex;
+  uint meshlet_id = task_input.baseID + uint(task_input.deltaIDs[group_id.x]);
+  Meshlet meshlet = EE_MESHLETS[meshlet_id];
+  uint vertex_count = meshlet.verticesSize;
+  uint triangle_count = meshlet.triangleSize;
+  SetMeshOutputCounts(vertex_count, triangle_count);
+  float4x4 model = EE_INSTANCES[instance_index].model;
+  float4x4 light_projection = EE_SPOT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].light_space_matrix;
 
-	mat4 model = EE_INSTANCES[instanceIndex].model;
-
-	Meshlet meshlet = EE_MESHLETS[meshletID];
-
-	uint verticesSize = meshlet.verticesSize;
-	uint triangleSize = meshlet.triangleSize;
-	SetMeshOutputCounts(verticesSize, triangleSize);
-	mat4 projectionView = EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix * model;
-	[[unroll]]
-	for (uint i = 0; i < uint(MESHLET_VERTEX_ITERATIONS); ++i)
-	{
-		uint vert = laneID + i * WORKGROUP_SIZE;
-
-		if (vert >= verticesSize) break;
-
-		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
-		vertices[vert].position = projectionView * vec4(v.position.xyz, 1.0);
-	}
-	[[unroll]]
-	for (uint i = 0; i < uint(MESHLET_PRIMITIVE_ITERATIONS); ++i)
-	{
-		uint prim = laneID + i * WORKGROUP_SIZE;
-		if(prim <= triangleSize){
-			triangles[prim] =
-				uint3(
-					meshlet.indices[prim * 3],
-					meshlet.indices[prim * 3 + 1],
-					meshlet.indices[prim * 3 + 2]);
-		}
-	}
+  [unroll]
+  for (uint iteration = 0u; iteration < MESHLET_VERTEX_ITERATIONS; ++iteration) {
+    uint vertex_index = lane_id + iteration * WORKGROUP_SIZE;
+    if (vertex_index >= vertex_count) break;
+    Vertex vertex = EE_VERTEX_DATA_CHUNKS[meshlet_id].vertices[vertex_index];
+    vertices[vertex_index].position = mul(mul(float4(vertex.position, 1.0f), model), light_projection);
+  }
+  [unroll]
+  for (uint iteration = 0u; iteration < MESHLET_PRIMITIVE_ITERATIONS; ++iteration) {
+    uint primitive_index = lane_id + iteration * WORKGROUP_SIZE;
+    if (primitive_index < triangle_count)
+      triangles[primitive_index] =
+          uint3(meshlet.indices[primitive_index * 3u], meshlet.indices[primitive_index * 3u + 1u],
+                meshlet.indices[primitive_index * 3u + 2u]);
+  }
 }

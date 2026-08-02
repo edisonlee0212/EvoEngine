@@ -1,4 +1,5 @@
-#include "PostProcessing.slangh"
+// @evoengine-dialect native
+import EvoEngine.PostProcessing;
 
 [[vk::push_constant]]
 ConstantBuffer<EeResolutionPushConstant> constants;

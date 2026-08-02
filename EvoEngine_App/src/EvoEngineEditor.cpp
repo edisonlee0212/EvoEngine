@@ -32,11 +32,14 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <limits>
 #include <optional>
 #include <set>
 #include <sstream>
 #include <stdexcept>
 #include <vector>
+
+#include <glm/gtc/packing.hpp>
 
 #ifdef EVOENGINE_WINDOWS
 #  ifndef NOMINMAX
@@ -60,16 +63,17 @@ struct EditorCommandLine {
   int preview_capture_height = 720;
   size_t preview_capture_warmup_frames = 8;
   std::optional<Camera::CameraRenderMode> preview_capture_render_mode;
+  std::optional<int> preview_capture_ray_bounces;
   std::optional<CameraSettings::RayDebugView> preview_capture_ray_debug_view;
+  std::optional<CameraSettings::RayOutputSettings> preview_capture_ray_outputs;
   std::optional<CameraSettings::ShaderExecutionReorderingMode> preview_capture_ser_mode;
-  std::optional<bool> preview_capture_firefly_clamp_enabled;
   std::optional<float> preview_capture_firefly_clamp_threshold;
-  std::optional<bool> preview_capture_emissive_triangle_nee_enabled;
   std::optional<bool> preview_capture_auto_spp_enabled;
   std::optional<int> preview_capture_auto_spp_min_samples;
   std::optional<int> preview_capture_auto_spp_max_samples;
   std::optional<float> preview_capture_auto_spp_convergence_threshold;
   std::optional<int> preview_capture_sample_size;
+  std::optional<std::filesystem::path> preview_ray_profile_report_path;
   std::optional<glm::vec3> preview_capture_camera_position;
   std::optional<glm::vec3> preview_capture_camera_look_at;
   std::optional<bool> preview_ambient_occlusion_enabled;
@@ -173,6 +177,211 @@ CameraSettings::RayDebugView ParsePreviewRayDebugView(const std::string& value) 
     return CameraSettings::RayDebugView::SpecularF0;
   }
   throw std::invalid_argument("Unknown preview ray debug view: " + value);
+}
+
+CameraSettings::RayOutputSettings ParsePreviewRayOutputs(const std::string& value) {
+  CameraSettings::RayOutputSettings outputs;
+  std::stringstream stream(value);
+  std::string token;
+  while (std::getline(stream, token, ',')) {
+    const auto normalized = NormalizePreviewChoice(token);
+    if (normalized.empty() || normalized == "none" || normalized == "off" || normalized == "disabled") {
+      continue;
+    }
+    if (normalized == "all") {
+      outputs.albedo = true;
+      outputs.normal = true;
+      outputs.ray_count = true;
+      outputs.path_length = true;
+      outputs.time = true;
+      outputs.debug = true;
+      continue;
+    }
+    if (normalized == "albedo") {
+      outputs.albedo = true;
+    } else if (normalized == "normal" || normalized == "normals") {
+      outputs.normal = true;
+    } else if (normalized == "raycount") {
+      outputs.ray_count = true;
+    } else if (normalized == "pathlength") {
+      outputs.path_length = true;
+    } else if (normalized == "time") {
+      outputs.time = true;
+    } else if (normalized == "debug") {
+      outputs.debug = true;
+    } else {
+      throw std::invalid_argument("Unknown preview ray output: " + token);
+    }
+  }
+  return outputs;
+}
+
+const char* GetPreviewRayOutputName(const RayCameraOptionalOutput output) {
+  switch (output) {
+    case RayCameraOptionalOutput::Albedo:
+      return "albedo";
+    case RayCameraOptionalOutput::Normal:
+      return "normal";
+    case RayCameraOptionalOutput::RayCount:
+      return "ray-count";
+    case RayCameraOptionalOutput::PathLength:
+      return "path-length";
+    case RayCameraOptionalOutput::Time:
+      return "time";
+    case RayCameraOptionalOutput::Debug:
+      return "debug";
+    case RayCameraOptionalOutput::Count:
+      break;
+  }
+  return "unknown";
+}
+
+uint32_t PreviewRayOutputBit(const RayCameraOptionalOutput output) {
+  return 1u << static_cast<uint32_t>(output);
+}
+
+bool PreviewRayOutputIsScalar(const RayCameraOptionalOutput output) {
+  return output == RayCameraOptionalOutput::RayCount || output == RayCameraOptionalOutput::PathLength ||
+         output == RayCameraOptionalOutput::Time;
+}
+
+struct PreviewRayOutputSummary {
+  const char* name = "";
+  bool scalar = false;
+  uint32_t width = 0;
+  uint32_t height = 0;
+  uint64_t value_count = 0;
+  uint64_t finite_value_count = 0;
+  uint64_t nonzero_value_count = 0;
+  double minimum = 0.0;
+  double maximum = 0.0;
+  double absolute_sum = 0.0;
+};
+
+void AccumulatePreviewRayOutputValue(PreviewRayOutputSummary& summary, const double value) {
+  if (!std::isfinite(value)) {
+    return;
+  }
+  ++summary.finite_value_count;
+  if (value != 0.0) {
+    ++summary.nonzero_value_count;
+  }
+  summary.minimum = std::min(summary.minimum, value);
+  summary.maximum = std::max(summary.maximum, value);
+  summary.absolute_sum += std::abs(value);
+}
+
+PreviewRayOutputSummary SummarizePreviewRayOutput(const RayCameraOptionalOutput output, Image& image) {
+  PreviewRayOutputSummary summary;
+  summary.name = GetPreviewRayOutputName(output);
+  summary.scalar = PreviewRayOutputIsScalar(output);
+  summary.width = image.GetExtent().width;
+  summary.height = image.GetExtent().height;
+  summary.minimum = std::numeric_limits<double>::infinity();
+  summary.maximum = -std::numeric_limits<double>::infinity();
+  const auto pixel_count = static_cast<size_t>(summary.width) * summary.height;
+  if (image.GetFormat() == VK_FORMAT_R32_UINT) {
+    std::vector<uint32_t> pixels;
+    Buffer image_buffer(sizeof(uint32_t) * pixel_count);
+    image_buffer.CopyFromImage(image, sizeof(uint32_t));
+    image_buffer.DownloadVector(pixels, pixel_count);
+    summary.value_count = pixels.size();
+    for (const uint32_t value : pixels) {
+      AccumulatePreviewRayOutputValue(summary, static_cast<double>(value));
+    }
+  } else if (image.GetFormat() == VK_FORMAT_R8G8B8A8_UNORM) {
+    std::vector<uint8_t> pixels;
+    Buffer image_buffer(4u * pixel_count);
+    image_buffer.CopyFromImage(image, 4u);
+    image_buffer.DownloadVector(pixels, 4u * pixel_count);
+    summary.value_count = pixels.size();
+    for (const uint8_t value : pixels) {
+      AccumulatePreviewRayOutputValue(summary, static_cast<double>(value) / 255.0);
+    }
+  } else if (image.GetFormat() == VK_FORMAT_R16G16B16A16_SFLOAT) {
+    std::vector<uint16_t> pixels;
+    Buffer image_buffer(8u * pixel_count);
+    image_buffer.CopyFromImage(image, 8u);
+    image_buffer.DownloadVector(pixels, 4u * pixel_count);
+    summary.value_count = pixels.size();
+    for (const uint16_t value : pixels) {
+      AccumulatePreviewRayOutputValue(summary, glm::unpackHalf1x16(value));
+    }
+  } else if (image.GetFormat() == VK_FORMAT_R32G32B32A32_SFLOAT) {
+    std::vector<glm::vec4> pixels;
+    Buffer image_buffer(sizeof(glm::vec4) * pixel_count);
+    image_buffer.CopyFromImage(image, sizeof(glm::vec4));
+    image_buffer.DownloadVector(pixels, pixel_count);
+    summary.value_count = pixels.size() * 4u;
+    for (const auto& pixel : pixels) {
+      AccumulatePreviewRayOutputValue(summary, pixel.x);
+      AccumulatePreviewRayOutputValue(summary, pixel.y);
+      AccumulatePreviewRayOutputValue(summary, pixel.z);
+      AccumulatePreviewRayOutputValue(summary, pixel.w);
+    }
+  } else {
+    throw std::runtime_error(std::string("Preview ray output has unsupported format: ") + summary.name);
+  }
+  if (summary.finite_value_count == 0u) {
+    summary.minimum = 0.0;
+    summary.maximum = 0.0;
+  }
+  return summary;
+}
+
+std::filesystem::path PreviewRayOutputReportPath(std::filesystem::path output_path) {
+  output_path.replace_extension(".ray-outputs.json");
+  return output_path;
+}
+
+void WritePreviewRayOutputReport(const std::filesystem::path& output_path, Camera& camera) {
+  const auto& resources = camera.GetRayCameraOptionalOutputResources();
+  if (resources.enabled_mask == 0u) {
+    return;
+  }
+  std::vector<PreviewRayOutputSummary> summaries;
+  summaries.reserve(kRayCameraOptionalOutputCount);
+  for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+    const auto output = static_cast<RayCameraOptionalOutput>(index);
+    if ((resources.enabled_mask & PreviewRayOutputBit(output)) == 0u) {
+      continue;
+    }
+    const auto& image = resources.images[index];
+    if (!image) {
+      throw std::runtime_error(std::string("Enabled preview ray output is missing an image: ") +
+                               GetPreviewRayOutputName(output));
+    }
+    summaries.emplace_back(SummarizePreviewRayOutput(output, *image));
+    const auto& summary = summaries.back();
+    if (summary.width == 0u || summary.height == 0u || summary.value_count == 0u ||
+        summary.finite_value_count != summary.value_count) {
+      throw std::runtime_error(std::string("Preview ray output readback is invalid: ") + summary.name);
+    }
+  }
+  const auto report_path = PreviewRayOutputReportPath(output_path);
+  if (const auto parent_path = report_path.parent_path(); !parent_path.empty()) {
+    std::filesystem::create_directories(parent_path);
+  }
+  std::ofstream output(report_path);
+  output << "{\n";
+  output << "  \"enabled_mask\": " << resources.enabled_mask << ",\n";
+  output << "  \"outputs\": [\n";
+  for (size_t index = 0; index < summaries.size(); ++index) {
+    const auto& summary = summaries[index];
+    output << "    {\"name\": \"" << summary.name << "\", \"scalar\": " << (summary.scalar ? "true" : "false")
+           << ", \"width\": " << summary.width << ", \"height\": " << summary.height
+           << ", \"value_count\": " << summary.value_count << ", \"finite_value_count\": " << summary.finite_value_count
+           << ", \"nonzero_value_count\": " << summary.nonzero_value_count << ", \"minimum\": " << summary.minimum
+           << ", \"maximum\": " << summary.maximum << ", \"absolute_sum\": " << summary.absolute_sum << "}"
+           << (index + 1 == summaries.size() ? "\n" : ",\n");
+  }
+  output << "  ]\n";
+  output << "}\n";
+  if (!output) {
+    throw std::runtime_error("Failed to write preview ray output report: " + report_path.string());
+  }
+  std::cout << "EVOENGINE_RAY_OUTPUT_REPORT path=\"" << report_path.string() << "\" outputs=" << summaries.size()
+            << " enabled_mask=" << resources.enabled_mask << std::endl;
 }
 
 bool ParsePreviewBool(const std::string& value, const std::string& argument) {
@@ -411,34 +620,32 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-render-mode requires rasterization, raytracing, or rayquery.");
       }
       command_line.preview_capture_render_mode = ParsePreviewRenderMode(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-bounces") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-bounces requires a non-negative integer.");
+      }
+      command_line.preview_capture_ray_bounces = std::max(0, std::stoi(argv[++arg_index]));
     } else if (argument == "--preview-ray-debug") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a ray debug view.");
       }
       command_line.preview_capture_ray_debug_view = ParsePreviewRayDebugView(argv[++arg_index] ? argv[arg_index] : "");
+    } else if (argument == "--preview-ray-outputs") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument(argument + " requires a comma-separated ray output list or all.");
+      }
+      command_line.preview_capture_ray_outputs = ParsePreviewRayOutputs(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-ser") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ser requires disabled, automatic, or enabled.");
       }
       command_line.preview_capture_ser_mode =
           ParsePreviewShaderExecutionReorderingMode(argv[++arg_index] ? argv[arg_index] : "");
-    } else if (argument == "--preview-firefly-clamp") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-firefly-clamp requires enabled or disabled.");
-      }
-      command_line.preview_capture_firefly_clamp_enabled =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-firefly-clamp-threshold") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-firefly-clamp-threshold requires a non-negative number.");
       }
       command_line.preview_capture_firefly_clamp_threshold = std::max(0.0f, std::stof(argv[++arg_index]));
-    } else if (argument == "--preview-emissive-nee") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-emissive-nee requires enabled or disabled.");
-      }
-      command_line.preview_capture_emissive_triangle_nee_enabled =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-auto-spp") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-auto-spp requires enabled or disabled.");
@@ -465,6 +672,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-sample-size requires a positive integer.");
       }
       command_line.preview_capture_sample_size = std::max(1, std::stoi(argv[++arg_index]));
+    } else if (argument == "--preview-ray-profile-report") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ray-profile-report requires an output JSON path.");
+      }
+      command_line.preview_ray_profile_report_path = std::filesystem::absolute(argv[++arg_index]);
     } else if (argument == "--preview-camera-position") {
       command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-look-at") {
@@ -630,10 +842,26 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_ray_debug_view && !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-ray-debug requires --capture-demo-preview.");
   }
+  if (command_line.preview_capture_ray_outputs && !command_line.demo_preview_capture_path) {
+    throw std::invalid_argument("--preview-ray-outputs requires --capture-demo-preview.");
+  }
+  if (command_line.preview_ray_profile_report_path &&
+      (!command_line.demo_preview_capture_path ||
+       command_line.preview_ray_profile_report_path->extension() != ".json" ||
+       !command_line.preview_capture_render_mode ||
+       !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
+    throw std::invalid_argument(
+        "--preview-ray-profile-report requires a JSON demo capture in raytracing or rayquery mode.");
+  }
   if (command_line.preview_capture_ray_debug_view &&
       (!command_line.preview_capture_render_mode ||
        !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
     throw std::invalid_argument("--preview-ray-debug requires --preview-render-mode raytracing or rayquery.");
+  }
+  if (command_line.preview_capture_ray_outputs &&
+      (!command_line.preview_capture_render_mode ||
+       !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
+    throw std::invalid_argument("--preview-ray-outputs requires --preview-render-mode raytracing or rayquery.");
   }
   if (command_line.demo_preview_capture_path) {
     auto extension = command_line.demo_preview_capture_path->extension().string();
@@ -704,12 +932,10 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
           command_line.preview_capture_render_mode != Camera::CameraRenderMode::RayTracing ||
           command_line.preview_capture_ray_debug_view != CameraSettings::RayDebugView::Beauty ||
           command_line.preview_capture_ser_mode != CameraSettings::ShaderExecutionReorderingMode::Disabled ||
-          command_line.preview_capture_emissive_triangle_nee_enabled != true ||
-          command_line.preview_capture_auto_spp_enabled != false ||
-          command_line.preview_capture_firefly_clamp_enabled != false ||
-          command_line.preview_capture_sample_size != 4 || command_line.preview_capture_warmup_frames != 64) {
+          command_line.preview_capture_auto_spp_enabled != false || command_line.preview_capture_sample_size != 4 ||
+          command_line.preview_capture_warmup_frames != 64) {
         throw std::invalid_argument(
-            "DDGI quality references require fixed 64-frame, 4-SPP RT-pipeline beauty capture with emissive NEE.");
+            "DDGI quality references require a fixed 64-frame, 4-SPP RT-pipeline beauty capture.");
       }
     } else if (!command_line.preview_ddgi_report_path ||
                command_line.preview_ddgi_report_path->extension() != ".json" ||
@@ -1307,18 +1533,93 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   std::cout << "EVOENGINE_DDGI_VALIDATION_REPORT path=\"" << report_path.string() << "\"" << std::endl;
 }
 
+void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
+                                 const Camera& camera, const Camera::CameraRenderMode render_mode,
+                                 const size_t rendered_frames, const double elapsed_seconds,
+                                 const double readiness_wait_milliseconds,
+                                 const ShaderCompileCacheStats& readiness_shader_stats_before,
+                                 const ShaderCompileCacheStats& readiness_shader_stats_after) {
+  const auto history = camera.GetRayCameraHistoryStats();
+  const auto memory = Platform::GetGpuMemorySnapshot();
+  const auto fingerprint = Platform::GetGpuDeviceFingerprint();
+  const auto timestamps = Platform::GetGpuTimestampStats();
+  double ray_camera_gpu_average_ms = 0.0;
+  for (const auto& timestamp : timestamps) {
+    if (timestamp.name.rfind("Path Trace ", 0) == 0) {
+      ray_camera_gpu_average_ms += timestamp.AverageMilliseconds();
+    }
+  }
+  if (const auto parent = report_path.parent_path(); !parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+  std::ofstream output(report_path, std::ios::trunc);
+  if (!output) {
+    throw std::runtime_error("Failed to open ray camera profile report: " + report_path.string());
+  }
+  output << std::setprecision(17);
+  output << "{\n  \"schema_version\": 1,\n"
+         << "  \"image_file\": \"" << JsonEscape(image_path.filename().string()) << "\",\n"
+         << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
+         << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
+         << ", \"driver_version\": " << fingerprint.driver_version << "},\n"
+         << "  \"capture\": {\"render_mode\": \"" << JsonEscape(Camera::GetCameraRenderModeName(render_mode))
+         << "\", \"rendered_frames\": " << rendered_frames << ", \"elapsed_seconds\": " << elapsed_seconds
+         << ", \"frames_per_second\": "
+         << (elapsed_seconds > 0.0 ? static_cast<double>(rendered_frames) / elapsed_seconds : 0.0)
+         << ", \"gpu_average_ms\": " << ray_camera_gpu_average_ms << "},\n"
+         << "  \"variant_readiness\": {\"wait_ms\": " << readiness_wait_milliseconds
+         << ", \"shader_cache_delta\": {\"memory_hits\": "
+         << readiness_shader_stats_after.memory_hits - readiness_shader_stats_before.memory_hits
+         << ", \"disk_hits\": " << readiness_shader_stats_after.disk_hits - readiness_shader_stats_before.disk_hits
+         << ", \"disk_misses\": "
+         << readiness_shader_stats_after.disk_misses - readiness_shader_stats_before.disk_misses
+         << ", \"compilations\": "
+         << readiness_shader_stats_after.compilations - readiness_shader_stats_before.compilations
+         << ", \"coalesced_waits\": "
+         << readiness_shader_stats_after.coalesced_waits - readiness_shader_stats_before.coalesced_waits
+         << ", \"failures\": " << readiness_shader_stats_after.failures - readiness_shader_stats_before.failures
+         << ", \"native_slang_frontend\": "
+         << readiness_shader_stats_after.native_slang_frontend_invocations -
+                readiness_shader_stats_before.native_slang_frontend_invocations
+         << ", \"compatibility_slang_frontend\": "
+         << readiness_shader_stats_after.compatibility_slang_frontend_invocations -
+                readiness_shader_stats_before.compatibility_slang_frontend_invocations
+         << ", \"glslang_frontend\": "
+         << readiness_shader_stats_after.glslang_frontend_invocations -
+                readiness_shader_stats_before.glslang_frontend_invocations
+         << "}},\n"
+         << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
+         << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"
+         << "  \"vma_memory\": {\"block_count\": " << memory.block_count
+         << ", \"allocation_count\": " << memory.allocation_count << ", \"block_bytes\": " << memory.block_bytes
+         << ", \"allocation_bytes\": " << memory.allocation_bytes << "},\n"
+         << "  \"gpu_timestamps\": {\n";
+  for (size_t index = 0; index < timestamps.size(); ++index) {
+    const auto& stats = timestamps[index];
+    output << "    \"" << JsonEscape(stats.name) << "\": {\"sample_count\": " << stats.sample_count
+           << ", \"average_ms\": " << stats.AverageMilliseconds() << ", \"median_ms\": " << stats.MedianMilliseconds()
+           << ", \"p95_ms\": " << stats.PercentileMilliseconds(0.95)
+           << ", \"minimum_ms\": " << stats.minimum_milliseconds << ", \"maximum_ms\": " << stats.maximum_milliseconds
+           << "}" << (index + 1 == timestamps.size() ? "\n" : ",\n");
+  }
+  output << "  }\n}\n";
+  if (!output) {
+    throw std::runtime_error("Failed to write ray camera profile report: " + report_path.string());
+  }
+  std::cout << "EVOENGINE_RAY_CAMERA_PROFILE_REPORT path=\"" << report_path.string() << "\"" << std::endl;
+}
+
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const int width, const int height, const size_t warmup_frames,
     const std::optional<DemoProfileId> demo_profile_id,
-    const std::optional<Camera::CameraRenderMode>& preview_render_mode,
+    const std::optional<Camera::CameraRenderMode>& preview_render_mode, const std::optional<int>& preview_ray_bounces,
     const std::optional<CameraSettings::RayDebugView>& preview_ray_debug_view,
+    const std::optional<CameraSettings::RayOutputSettings>& preview_ray_outputs,
     const std::optional<CameraSettings::ShaderExecutionReorderingMode>& preview_ser_mode,
-    const std::optional<bool>& preview_firefly_clamp_enabled,
-    const std::optional<float>& preview_firefly_clamp_threshold,
-    const std::optional<bool>& preview_emissive_triangle_nee_enabled,
-    const std::optional<bool>& preview_auto_spp_enabled, const std::optional<int>& preview_auto_spp_min_samples,
-    const std::optional<int>& preview_auto_spp_max_samples,
+    const std::optional<float>& preview_firefly_clamp_threshold, const std::optional<bool>& preview_auto_spp_enabled,
+    const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
+    const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
     const std::optional<AmbientOcclusion::Algorithm>& preview_ambient_occlusion_algorithm,
@@ -1397,20 +1698,16 @@ void CaptureDemoPreview(
     scene_camera->camera_settings.ray_debug_view = *preview_ray_debug_view;
     scene_camera->ResetFrameCount();
   }
+  if (preview_ray_outputs) {
+    scene_camera->camera_settings.ray_outputs = *preview_ray_outputs;
+    scene_camera->ResetFrameCount();
+  }
   if (preview_ser_mode) {
     scene_camera->camera_settings.shader_execution_reordering_mode = *preview_ser_mode;
     scene_camera->ResetFrameCount();
   }
-  if (preview_firefly_clamp_enabled) {
-    scene_camera->camera_settings.firefly_clamp_enabled = *preview_firefly_clamp_enabled;
-    scene_camera->ResetFrameCount();
-  }
   if (preview_firefly_clamp_threshold) {
     scene_camera->camera_settings.firefly_clamp_threshold = *preview_firefly_clamp_threshold;
-    scene_camera->ResetFrameCount();
-  }
-  if (preview_emissive_triangle_nee_enabled) {
-    scene_camera->camera_settings.emissive_triangle_nee_enabled = *preview_emissive_triangle_nee_enabled;
     scene_camera->ResetFrameCount();
   }
   if (preview_auto_spp_enabled) {
@@ -1554,6 +1851,13 @@ void CaptureDemoPreview(
       throw std::runtime_error("Ray preview capture requires RenderLayer.");
     }
   }
+  if (preview_ray_profile_report_path) {
+    if (!Platform::GpuTimestampCaptureAvailable() || !Platform::GpuTimestampCaptureEnabled()) {
+      throw std::runtime_error("Ray camera profiling requires available and enabled GPU timestamp capture.");
+    }
+    Platform::WaitForFrameSubmissions("Ray Camera Profile Warmup Fence Wait");
+    Platform::ResetGpuTimestampStats();
+  }
   if (linear_hdr_output && !Camera::IsRayCameraRenderMode(resolved_render_mode) &&
       !(preview_ddgi_fixture && preview_ddgi_report_path)) {
     throw std::invalid_argument("Linear HDR preview capture requires raytracing or rayquery mode.");
@@ -1576,6 +1880,10 @@ void CaptureDemoPreview(
     const auto active_scene = ApplicationContext::Get().GetActiveScene();
     ConfigureBistroParityCapture(active_scene, scene_camera);
   }
+  if (preview_ray_bounces) {
+    scene_camera->camera_settings.bounce = std::max(0, *preview_ray_bounces);
+    scene_camera->ResetFrameCount();
+  }
   if (linear_hdr_output) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       post_processing_stack->enable_ambient_occlusion = false;
@@ -1585,11 +1893,6 @@ void CaptureDemoPreview(
       post_processing_stack->enable_tone_mapping = false;
       scene_camera->ResetFrameCount();
     }
-  }
-  if (demo_profile_id == DemoProfileId::Bistro && !preview_bistro_ddgi) {
-    const auto active_scene = ApplicationContext::Get().GetActiveScene();
-    LogBistroParityCaptureState(active_scene, scene_camera, width, height,
-                                Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
   }
   if (demo_profile_id == DemoProfileId::Bistro && deterministic_capture &&
       Camera::IsRayCameraRenderMode(resolved_render_mode)) {
@@ -1601,6 +1904,8 @@ void CaptureDemoPreview(
     }
   }
   scene_camera->Resize(preview_resolution);
+  const auto ray_camera_readiness_start = std::chrono::steady_clock::now();
+  const auto ray_camera_readiness_shader_stats_before = Shader::GetCompileCacheStats();
   WaitForDemoPreviewSceneInputsReady();
   if (preview_strand_fixture) {
     UpdateStrandMeshShaderValidationGeometry(ApplicationContext::Get().GetActiveScene());
@@ -1624,6 +1929,14 @@ void CaptureDemoPreview(
         throw std::runtime_error("Timed out waiting for the ray camera shader variant.");
       }
     }
+  }
+  const auto ray_camera_readiness_shader_stats_after = Shader::GetCompileCacheStats();
+  const double ray_camera_readiness_wait_milliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - ray_camera_readiness_start).count();
+  if (demo_profile_id == DemoProfileId::Bistro && !preview_bistro_ddgi) {
+    const auto active_scene = ApplicationContext::Get().GetActiveScene();
+    LogBistroParityCaptureState(active_scene, scene_camera, width, height,
+                                Camera::GetCameraRenderModeName(resolved_render_mode), output_path);
   }
   if (const auto active_scene = ApplicationContext::Get().GetActiveScene()) {
     if (const auto main_camera = active_scene->main_camera.Get<Camera>(); main_camera && main_camera != scene_camera) {
@@ -1746,7 +2059,8 @@ void CaptureDemoPreview(
             << "\" render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode)
             << " rendered_frames=" << capture_frame_count << " camera_frames=" << scene_camera->GetFrameCount()
             << " elapsed_seconds=" << capture_elapsed_seconds << " frames_per_second=" << capture_frames_per_second
-            << std::endl;
+            << " samples_per_frame=" << scene_camera->camera_settings.sample_size
+            << " ray_bounces=" << scene_camera->camera_settings.bounce << std::endl;
   const auto render_texture = scene_camera->GetRenderTexture();
   if (!render_texture) {
     throw std::runtime_error("Demo preview capture scene camera has no render texture.");
@@ -1760,6 +2074,14 @@ void CaptureDemoPreview(
   }
   if (!render_texture->Save(output_path)) {
     throw std::runtime_error("Demo preview capture failed to save output image.");
+  }
+  if (preview_ray_outputs && preview_ray_outputs->AnyEnabled()) {
+    WritePreviewRayOutputReport(output_path, *scene_camera);
+  }
+  if (preview_ray_profile_report_path) {
+    WriteRayCameraProfileReport(*preview_ray_profile_report_path, output_path, *scene_camera, resolved_render_mode,
+                                capture_frame_count, capture_elapsed_seconds, ray_camera_readiness_wait_milliseconds,
+                                ray_camera_readiness_shader_stats_before, ray_camera_readiness_shader_stats_after);
   }
   if (preview_ddgi_reference) {
     std::cout << "EVOENGINE_DDGI_REFERENCE fixture=" << *preview_ddgi_fixture
@@ -1895,7 +2217,8 @@ int main(const int argc, char** argv) {
         ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
         ApplyApplicationModeDefaults(application_info);
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
-        application_info.enable_gpu_timestamp_capture = command_line.preview_ddgi_report_path.has_value();
+        application_info.enable_gpu_timestamp_capture = command_line.preview_ddgi_report_path.has_value() ||
+                                                        command_line.preview_ray_profile_report_path.has_value();
         ApplicationContext::Get().Initialize(application_info);
         initialized = true;
         if (command_line.application_mode == ApplicationMode::Editor) {
@@ -1943,26 +2266,26 @@ int main(const int argc, char** argv) {
               *command_line.demo_preview_capture_path, command_line.preview_capture_width,
               command_line.preview_capture_height, command_line.preview_capture_warmup_frames,
               command_line.demo_profile_id, command_line.preview_capture_render_mode,
-              command_line.preview_capture_ray_debug_view, command_line.preview_capture_ser_mode,
-              command_line.preview_capture_firefly_clamp_enabled, command_line.preview_capture_firefly_clamp_threshold,
-              command_line.preview_capture_emissive_triangle_nee_enabled, command_line.preview_capture_auto_spp_enabled,
+              command_line.preview_capture_ray_bounces, command_line.preview_capture_ray_debug_view,
+              command_line.preview_capture_ray_outputs, command_line.preview_capture_ser_mode,
+              command_line.preview_capture_firefly_clamp_threshold, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
-              command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
-              command_line.preview_ambient_occlusion_enabled, command_line.preview_ambient_occlusion_algorithm,
-              command_line.preview_anti_aliasing_enabled, command_line.preview_anti_aliasing_algorithm,
-              command_line.preview_taa_preset, command_line.preview_smaa_preset,
-              command_line.preview_anti_aliasing_tgsm, command_line.preview_anti_aliasing_fp16,
-              command_line.preview_anti_aliasing_motion_sequence, command_line.preview_taa_debug_mode,
-              command_line.preview_smaa_debug_mode, command_line.preview_anti_aliasing_debug_disabled,
-              command_line.preview_shadow_split_lambda, command_line.preview_shadow_cascade_transition_width,
-              command_line.preview_shadow_distance_fade, command_line.preview_shadow_fit_mode,
-              command_line.preview_shadow_pcf_samples, command_line.preview_shadow_debug_mode,
-              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
-              command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
-              command_line.preview_strand_gizmo_fixture, command_line.preview_capture_deterministic,
-              command_line.preview_capture_bistro_ddgi, command_line.preview_ddgi_fixture,
-              command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
+              command_line.preview_ray_profile_report_path, command_line.preview_capture_camera_position,
+              command_line.preview_capture_camera_look_at, command_line.preview_ambient_occlusion_enabled,
+              command_line.preview_ambient_occlusion_algorithm, command_line.preview_anti_aliasing_enabled,
+              command_line.preview_anti_aliasing_algorithm, command_line.preview_taa_preset,
+              command_line.preview_smaa_preset, command_line.preview_anti_aliasing_tgsm,
+              command_line.preview_anti_aliasing_fp16, command_line.preview_anti_aliasing_motion_sequence,
+              command_line.preview_taa_debug_mode, command_line.preview_smaa_debug_mode,
+              command_line.preview_anti_aliasing_debug_disabled, command_line.preview_shadow_split_lambda,
+              command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
+              command_line.preview_shadow_fit_mode, command_line.preview_shadow_pcf_samples,
+              command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
+              command_line.preview_shadow_debug_light, command_line.preview_strand_fixture,
+              command_line.preview_strand_punctual_fixture, command_line.preview_strand_gizmo_fixture,
+              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
+              command_line.preview_ddgi_fixture, command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
               command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_disabled,
               command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
               command_line.preview_ddgi_run_index);

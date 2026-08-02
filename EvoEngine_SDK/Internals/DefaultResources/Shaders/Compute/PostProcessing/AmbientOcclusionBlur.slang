@@ -1,11 +1,15 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+[[vk::binding(17, 1)]]
+Sampler2D inDepth;
 
-layout(set = 1, binding = 17) uniform sampler2D inDepth;
+[[vk::binding(0, 0)]]
+Sampler2D image;
 
-layout(set = 0, binding = 0) uniform sampler2D image;
-layout(set = 0, binding = 1, r16f) uniform writeonly image2D outImage;
+[[vk::binding(1, 0)]]
+[vk::image_format("r16f")]
+RWTexture2D<float> outImage;
 
-layout(push_constant) uniform BLUR_CONSTANTS {
+struct BlurConstants {
   int horizontal;
   float camera_near;
   float camera_far;
@@ -15,64 +19,58 @@ layout(push_constant) uniform BLUR_CONSTANTS {
   float weight2;
   float weight3;
   float weight4;
+  float padding0;
+  float padding1;
+  float padding2;
 };
 
+[[vk::push_constant]]
+ConstantBuffer<BlurConstants> constants;
+
 float BlurWeight(int index) {
-  if (index == 0) {
-    return weight0;
-  }
-  if (index == 1) {
-    return weight1;
-  }
-  if (index == 2) {
-    return weight2;
-  }
-  if (index == 3) {
-    return weight3;
-  }
-  return weight4;
+  if (index == 0) return constants.weight0;
+  if (index == 1) return constants.weight1;
+  if (index == 2) return constants.weight2;
+  if (index == 3) return constants.weight3;
+  return constants.weight4;
 }
 
-float LinearizeDepth(float ndcDepth) {
-  return camera_near * camera_far / (camera_far - ndcDepth * (camera_far - camera_near));
+float LinearizeDepth(float ndc_depth) {
+  return constants.camera_near * constants.camera_far /
+         (constants.camera_far - ndc_depth * (constants.camera_far - constants.camera_near));
 }
 
-[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
-  uvec2 pixel = dispatchThreadId.xy;
-  uvec2 resolution = uvec2(imageSize(outImage));
-  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
-    return;
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  uint2 pixel = dispatch_thread_id.xy;
+  uint width = 0;
+  uint height = 0;
+  outImage.GetDimensions(width, height);
+  uint2 resolution = uint2(width, height);
+  if (any(pixel >= resolution)) return;
+
+  float2 tex_coord = (float2(pixel) + float2(0.5f)) / float2(resolution);
+  uint source_width = 0;
+  uint source_height = 0;
+  image.GetDimensions(source_width, source_height);
+  float2 tex_offset = 1.0f / float2(source_width, source_height);
+  float current = image.SampleLevel(tex_coord, 0.0f).r;
+  float result = current * BlurWeight(0);
+  float depth = LinearizeDepth(inDepth.SampleLevel(tex_coord, 0.0f).x);
+
+  for (int i = 1; i < 5; ++i) {
+    float weight = BlurWeight(i);
+    float2 offset = constants.horizontal != 0 ? float2(tex_offset.x * i, 0.0f) : float2(0.0f, tex_offset.y * i);
+    float2 coord1 = tex_coord + offset;
+    float depth1 = LinearizeDepth(inDepth.SampleLevel(coord1, 0.0f).x);
+    result += abs(depth1 - depth) < constants.avoid_distance ? image.SampleLevel(coord1, 0.0f).r * weight
+                                                              : current * weight;
+
+    float2 coord2 = tex_coord - offset;
+    float depth2 = LinearizeDepth(inDepth.SampleLevel(coord2, 0.0f).x);
+    result += abs(depth2 - depth) < constants.avoid_distance ? image.SampleLevel(coord2, 0.0f).r * weight
+                                                              : current * weight;
   }
-
-  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
-  vec2 texOffset = 1.0 / textureSize(image, 0);
-  vec4 current = textureLod(image, texCoord, 0.0f).rgba;
-  vec4 result = current * BlurWeight(0);
-  float depth = LinearizeDepth(textureLod(inDepth, texCoord, 0.0f).x);
-
-  if (horizontal != 0) {
-    for (int i = 1; i < 5; ++i) {
-      float weight = BlurWeight(i);
-      vec2 coord1 = texCoord + vec2(texOffset.x * i, 0.0);
-      float depth1 = LinearizeDepth(textureLod(inDepth, coord1, 0.0f).x);
-      result += abs(depth1 - depth) < avoid_distance ? textureLod(image, coord1, 0.0f).rgba * weight : current * weight;
-
-      vec2 coord2 = texCoord - vec2(texOffset.x * i, 0.0);
-      float depth2 = LinearizeDepth(textureLod(inDepth, coord2, 0.0f).x);
-      result += abs(depth2 - depth) < avoid_distance ? textureLod(image, coord2, 0.0f).rgba * weight : current * weight;
-    }
-  } else {
-    for (int i = 1; i < 5; ++i) {
-      float weight = BlurWeight(i);
-      vec2 coord1 = texCoord + vec2(0.0, texOffset.y * i);
-      float depth1 = LinearizeDepth(textureLod(inDepth, coord1, 0.0f).x);
-      result += abs(depth1 - depth) < avoid_distance ? textureLod(image, coord1, 0.0f).rgba * weight : current * weight;
-
-      vec2 coord2 = texCoord - vec2(0.0, texOffset.y * i);
-      float depth2 = LinearizeDepth(textureLod(inDepth, coord2, 0.0f).x);
-      result += abs(depth2 - depth) < avoid_distance ? textureLod(image, coord2, 0.0f).rgba * weight : current * weight;
-    }
-  }
-
-  imageStore(outImage, ivec2(pixel), result);
+  outImage[int2(pixel)] = result;
 }

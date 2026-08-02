@@ -18,13 +18,62 @@
 #include <stb_image.h>
 
 namespace {
-constexpr int kRenderWidth = 2560;
-constexpr int kRenderHeight = 1440;
-constexpr int kDdgiWarmupFrames = 1800;
 constexpr double kMinimumPsnr = 30.0;
 constexpr double kMinimumSsim = 0.95;
-constexpr char kBaselineFileName[] = "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png";
-constexpr char kVisualArtifactFileName[] = "RenderingDemo.CapturesSceneThroughPythonApi.png";
+constexpr int kRayTargetSamples = 2048;
+constexpr int kRaySamplesPerFrame = 8;
+constexpr int kRayAccumulationFrames = kRayTargetSamples / kRaySamplesPerFrame;
+static_assert(kRayAccumulationFrames * kRaySamplesPerFrame == kRayTargetSamples);
+
+struct RenderCaptureCase {
+  const char* render_mode;
+  const char* output_file_name;
+  const char* baseline_file_name;
+  const char* artifact_file_name;
+  int width;
+  int height;
+  int warmup_frames;
+  int accumulation_frames;
+  int samples_per_frame;
+  int bounces;
+};
+
+constexpr RenderCaptureCase kRasterizationCapture{
+    "Rasterization",
+    "rendering_demo_rasterization.png",
+    "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
+    "RenderingDemo.CapturesSceneThroughPythonApi.png",
+    2560,
+    1440,
+    1800,
+    0,
+    4,
+    4,
+};
+constexpr RenderCaptureCase kRayTracingCapture{
+    "RayTracing",
+    "rendering_demo_ray_tracing.png",
+    "RenderingDemo.RayTracingGoldenImage.1280x720.2048spp.png",
+    "RenderingDemo.RayTracingGoldenImage.png",
+    1280,
+    720,
+    0,
+    kRayAccumulationFrames,
+    kRaySamplesPerFrame,
+    3,
+};
+constexpr RenderCaptureCase kRayQueryCapture{
+    "RayQuery",
+    "rendering_demo_ray_query.png",
+    "RenderingDemo.RayQueryGoldenImage.1280x720.2048spp.png",
+    "RenderingDemo.RayQueryGoldenImage.png",
+    1280,
+    720,
+    0,
+    kRayAccumulationFrames,
+    kRaySamplesPerFrame,
+    3,
+};
 
 struct Image {
   int width = 0;
@@ -250,7 +299,7 @@ void AssertGoldenImage(const Image& actual, const std::filesystem::path& baselin
   EXPECT_GE(ssim, kMinimumSsim);
 }
 
-void CopyVisualArtifact(const std::filesystem::path& output_path) {
+void CopyVisualArtifact(const std::filesystem::path& output_path, const char* artifact_file_name) {
   const char* artifact_dir_env = std::getenv("EVOENGINE_TEST_ARTIFACT_DIR");
   if (artifact_dir_env == nullptr || artifact_dir_env[0] == '\0') {
     return;
@@ -258,20 +307,19 @@ void CopyVisualArtifact(const std::filesystem::path& output_path) {
 
   const auto artifact_dir = std::filesystem::path(artifact_dir_env);
   std::filesystem::create_directories(artifact_dir);
-  std::filesystem::copy_file(output_path, artifact_dir / kVisualArtifactFileName,
+  std::filesystem::copy_file(output_path, artifact_dir / artifact_file_name,
                              std::filesystem::copy_options::overwrite_existing);
 }
-}  // namespace
 
-TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
+void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
   const std::filesystem::path executable_dir = std::filesystem::path(EVOENGINE_RENDER_TEST_DIR);
   const std::filesystem::path test_dir = CreateTestDirectory(executable_dir);
-  const std::filesystem::path output_path = test_dir / "rendering_demo_capture.png";
+  const std::filesystem::path output_path = test_dir / capture.output_file_name;
   const std::filesystem::path source_resources_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Resources";
   const std::filesystem::path test_resources_root = test_dir / "Resources";
   const std::filesystem::path script_path = std::filesystem::path(EVOENGINE_TEST_SCRIPT_DIR) / "render_demo_capture.py";
   const std::filesystem::path baseline_path =
-      std::filesystem::path(EVOENGINE_TEST_SCRIPT_DIR) / "Baselines" / kBaselineFileName;
+      std::filesystem::path(EVOENGINE_TEST_SCRIPT_DIR) / "Baselines" / capture.baseline_file_name;
 
   ASSERT_TRUE(std::filesystem::exists(script_path));
   ASSERT_TRUE(std::filesystem::exists(source_resources_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets"));
@@ -282,8 +330,15 @@ TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
   command += " --source-resources-root " + Quote(source_resources_root);
   command += " --test-resources-root " + Quote(test_resources_root);
   command += " --output " + Quote(output_path);
-  command += " --width " + std::to_string(kRenderWidth) + " --height " + std::to_string(kRenderHeight);
-  command += " --warmup-frames " + std::to_string(kDdgiWarmupFrames);
+  command += " --width " + std::to_string(capture.width) + " --height " + std::to_string(capture.height);
+  command += " --render-mode " + std::string(capture.render_mode);
+  command += " --samples-per-frame " + std::to_string(capture.samples_per_frame);
+  command += " --bounces " + std::to_string(capture.bounces);
+  if (capture.accumulation_frames > 0) {
+    command += " --accumulation-frames " + std::to_string(capture.accumulation_frames);
+  } else {
+    command += " --warmup-frames " + std::to_string(capture.warmup_frames);
+  }
 
 #ifdef _WIN32
   const std::string system_command = "\"" + command + "\"";
@@ -293,8 +348,21 @@ TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
   const int exit_code = std::system(system_command.c_str());
   ASSERT_EQ(exit_code, 0) << system_command;
   const Image output_image = LoadPng(output_path);
-  ASSERT_NO_FATAL_FAILURE(AssertImageIsRenderablePng(output_path, output_image, kRenderWidth, kRenderHeight));
-  CopyVisualArtifact(output_path);
+  ASSERT_NO_FATAL_FAILURE(AssertImageIsRenderablePng(output_path, output_image, capture.width, capture.height));
+  CopyVisualArtifact(output_path, capture.artifact_file_name);
   AcceptBaselineIfRequested(output_path, baseline_path);
   ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path));
+}
+}  // namespace
+
+TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
+  RunRenderingDemoCapture(kRasterizationCapture);
+}
+
+TEST(RenderingDemo, RayTracingGoldenImage) {
+  RunRenderingDemoCapture(kRayTracingCapture);
+}
+
+TEST(RenderingDemo, RayQueryGoldenImage) {
+  RunRenderingDemoCapture(kRayQueryCapture);
 }

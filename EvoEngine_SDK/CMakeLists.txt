@@ -178,7 +178,13 @@ set(EVOENGINE_SDK_PDBS ${EVOENGINE_SDK_PDBS} PARENT_SCOPE)
 # ------------------------------------------------------------------
 function(evoengine_sdk_copy_resources dst_target dst_dir)
 	add_custom_command(TARGET ${dst_target} POST_BUILD
+		COMMAND ${CMAKE_COMMAND}
+		"-DROOT=${dst_dir}"
+		-P ${CMAKE_SOURCE_DIR}/cmake/EvoEngineRemoveRelocatedSdkGlsl.cmake
 		COMMAND ${CMAKE_COMMAND} -E copy_directory
 		${EVOENGINE_SDK_DIR}/Internals ${dst_dir}
+		COMMAND ${CMAKE_COMMAND}
+		"-DROOT=${dst_dir}"
+		-P ${CMAKE_SOURCE_DIR}/cmake/EvoEngineRemoveRelocatedSdkGlsl.cmake
 		VERBATIM)
 endfunction()

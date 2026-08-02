@@ -1,188 +1,98 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.LightingFixedSet3;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-#include "Lighting.slangh"
+struct DeferredLightingInput {
+  [[vk::location(0)]] float2 tex_coord : TEXCOORD0;
+};
 
-precision highp float;
+[[vk::binding(17, 1)]] Sampler2D inDepth;
+[[vk::binding(20, 1)]] Sampler2D inBaseColorAO;
+[[vk::binding(21, 1)]] Sampler2D inNormalRoughness;
+[[vk::binding(22, 1)]] Sampler2D inPbrFlags;
+[[vk::binding(23, 1)]] Sampler2D inEmissive;
+[[vk::binding(24, 1)]] Sampler2D inUtility;
+[[vk::binding(4, 3)]] Sampler2D inAmbientOcclusion;
 
-layout (location = 0) in VS_OUT {
-    vec2 TexCoord;
-} fs_in;
-
-layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
-layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inBaseColorAO;
-layout(set = EE_PER_PASS_SET, binding = 21) uniform sampler2D inNormalRoughness;
-layout(set = EE_PER_PASS_SET, binding = 22) uniform sampler2D inPbrFlags;
-layout(set = EE_PER_PASS_SET, binding = 23) uniform sampler2D inEmissive;
-layout(set = EE_PER_PASS_SET, binding = 24) uniform sampler2D inUtility;
-layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 4) uniform sampler2D inAmbientOcclusion;
-
-layout (location = 0) out vec4 FragColor;
-
-void main()
-{
-    const int indirectLightingDebugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
-    float ndcDepth = texture(inDepth, fs_in.TexCoord).x;
-
-    vec4 utilitySample = texture(inUtility, fs_in.TexCoord);
-    int  instance_index = int(round(utilitySample.x));
-    int  info_index     = int(round(utilitySample.y));
-    int  material_index = int(round(utilitySample.z));
-
-    vec4 baseColorAO = texture(inBaseColorAO, fs_in.TexCoord);
-    vec4 normalRoughness = texture(inNormalRoughness, fs_in.TexCoord);
-    vec4 pbrFlags = texture(inPbrFlags, fs_in.TexCoord);
-    vec4 emissiveSample = texture(inEmissive, fs_in.TexCoord);
-    vec3 emissive = emissiveSample.rgb;
-    vec3 normal = normalize(normalRoughness.xyz);
-
-    bool instance_selected = (info_index & 1) == 1; // faster than % 2
-
-    vec3 fragPos        = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
-    vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
-    vec3 skyColor       = EE_SKY_COLOR(fragPos - cameraPosition);
-
-    vec2 texelSize  = vec2(textureSize(inUtility, 0));
-    vec2 texOffset  = 1.0 / texelSize;
-
-    if (ndcDepth == 1.0) {
-        if (indirectLightingDebugView != 0) {
-            FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-            return;
-        }
-        if (!instance_selected && EE_INSTANCE_INDEX == 1) {
-            bool foundNeighbor = false;
-
-            // 7x7 neighborhood search for selected instances
-            for (int i = -3; i <= 3 && !foundNeighbor; ++i) {
-                for (int j = -3; j <= 3; ++j) {
-                    int info_index_local = int(round(
-                        texture(inUtility,
-                                fs_in.TexCoord + vec2(texOffset.x * float(i),
-                                                      texOffset.y * float(j))).y));
-                    if ((info_index_local & 1) == 1) {
-                        FragColor = mix(vec4(1.0, 0.75, 0.0, 1.0),
-                                        vec4(skyColor, 1.0),
-                                        0.1);
-                        foundNeighbor = true;
-                        break;
-                    }
-                }
-            }
-
-            if (!foundNeighbor) {
-                FragColor = mix(vec4(0.5, 0.5, 0.5, 1.0),
-                                vec4(skyColor, 1.0),
-                                float(EE_LIGHT_SPLIT_INDEX) / 256.0);
-            }
-        } else {
-            FragColor = vec4(skyColor, 1.0);
-        }
-        return;
+float4 ApplySelectionOutline(float4 color, float3 sky_color, float2 tex_coord, int info_index) {
+  if ((info_index & 1) == 0 && EE_BASIC_CONSTANTS.instance_index == 1) {
+    uint width;
+    uint height;
+    inUtility.GetDimensions(width, height);
+    float2 texel = 1.0f / float2(width, height);
+    for (int y = -3; y <= 3; ++y) {
+      for (int x = -3; x <= 3; ++x) {
+        int neighbor_info = int(round(inUtility.Sample(tex_coord + float2(float(x), float(y)) * texel).y));
+        if ((neighbor_info & 1) == 1) return lerp(float4(1.0f, 0.75f, 0.0f, 1.0f), color, 0.1f);
+      }
     }
+    return lerp(float4(0.5f, 0.5f, 0.5f, 1.0f), color,
+                float(EE_BASIC_CONSTANTS.light_split_index) / 256.0f);
+  }
+  return color;
+}
 
-    bool unlit = emissiveSample.a < 0.0;
+[shader("fragment")]
+float4 main(DeferredLightingInput input) : SV_Target {
+  int camera_index = EE_BASIC_CONSTANTS.camera_index;
+  int indirect_debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
+  float ndc_depth = inDepth.Sample(input.tex_coord).x;
+  float4 utility = inUtility.Sample(input.tex_coord);
+  int instance_index = int(round(utility.x));
+  int info_index = int(round(utility.y));
+  int material_index = int(round(utility.z));
+  float4 base_color_ao = inBaseColorAO.Sample(input.tex_coord);
+  float4 normal_roughness = inNormalRoughness.Sample(input.tex_coord);
+  float4 pbr_flags = inPbrFlags.Sample(input.tex_coord);
+  float4 emissive_sample = inEmissive.Sample(input.tex_coord);
+  float3 normal = normalize(normal_roughness.xyz);
+  float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, input.tex_coord, ndc_depth);
+  float3 camera_position = EE_CAMERA_POSITION(camera_index);
+  float3 sky_color = EE_SKY_COLOR(world_position - camera_position);
 
-    float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
-    if (indirectLightingDebugView == 0) {
-        vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
-        if (shadowDebugColor.a > 0.0f) {
-            FragColor = shadowDebugColor;
-            return;
-        }
-    }
+  if (ndc_depth == 1.0f) {
+    if (indirect_debug_view != 0) return float4(0.0f, 0.0f, 0.0f, 1.0f);
+    return ApplySelectionOutline(float4(sky_color, 1.0f), sky_color, input.tex_coord, info_index);
+  }
 
-    float roughness = normalRoughness.a;
-	float metallic = pbrFlags.x;
-	float materialOcclusion = baseColorAO.a;
-	float screenSpaceVisibility = texture(inAmbientOcclusion, fs_in.TexCoord).r;
-	vec4 albedo = vec4(baseColorAO.rgb, 1.0);
+  float depth = EE_LINEARIZE_DEPTH(camera_index, ndc_depth);
+  if (indirect_debug_view == 0) {
+    float4 shadow_debug_color = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, world_position);
+    if (shadow_debug_color.a > 0.0f) return shadow_debug_color;
+  }
 
-    vec3 base  = baseColorAO.rgb;
-    vec3 kMat  = abs(EE_UNIFORM_KERNEL[material_index  % MAX_KERNEL_AMOUNT].xyz);
-    vec3 kInst = abs(EE_UNIFORM_KERNEL[instance_index  % MAX_KERNEL_AMOUNT].xyz);
-    vec3 kInfo = abs(EE_UNIFORM_KERNEL[info_index      % MAX_KERNEL_AMOUNT].xyz);
+  float3 base = base_color_ao.rgb;
+  float3 material_kernel = abs(EE_KERNEL_BLOCK.uniform_kernel[material_index % EE_MAX_KERNEL_AMOUNT].xyz);
+  float3 instance_kernel = abs(EE_KERNEL_BLOCK.uniform_kernel[instance_index % EE_MAX_KERNEL_AMOUNT].xyz);
+  float3 info_kernel = abs(EE_KERNEL_BLOCK.uniform_kernel[info_index % EE_MAX_KERNEL_AMOUNT].xyz);
+  int debug_visualization = EE_RENDER_INFO.debug_visualization;
+  float mode0 = float(debug_visualization == 0 && info_index > 1);
+  float mode1 = float(debug_visualization == 1);
+  float mode2 = float(debug_visualization == 2);
+  float mode3 = float(debug_visualization == 3);
+  float any_debug = indirect_debug_view == 0 ? clamp(mode0 + mode1 + mode2 + mode3, 0.0f, 1.0f) : 0.0f;
+  float3 debug_color = base * mode0 + material_kernel * mode1 + instance_kernel * mode2 + info_kernel * mode3;
+  float3 albedo = lerp(base_color_ao.rgb, debug_color, any_debug);
+  float3 color = indirect_debug_view == 0 ? albedo : float3(0.0f);
 
-    float dv   = float(EE_RENDER_INFO.debug_visualization);
+  if (emissive_sample.a >= 0.0f) {
+    float3 view_direction = normalize(camera_position - world_position);
+    float3 direct = EE_FUNC_CALCULATE_LIGHTS(
+        true, albedo, 1.0f, depth, normal, view_direction, world_position, pbr_flags.x, normal_roughness.a,
+        pbr_flags.yzw, emissive_sample.a);
+    float3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+        albedo, normal, view_direction, world_position, pbr_flags.x, normal_roughness.a, pbr_flags.yzw,
+        emissive_sample.a, base_color_ao.a, inAmbientOcclusion.Sample(input.tex_coord).r);
+    if (indirect_debug_view != 0) return float4(ambient, 1.0f);
+    color = direct + emissive_sample.rgb + ambient;
+  }
+  if (indirect_debug_view != 0) return float4(0.0f, 0.0f, 0.0f, 1.0f);
 
-    float is0 = float(dv == 0.0 && info_index > 1);
-    float is1 = float(dv == 1.0);
-    float is2 = float(dv == 2.0);
-    float is3 = float(dv == 3.0);
-
-    float anyDebug = indirectLightingDebugView == 0 ? clamp(is0 + is1 + is2 + is3, 0.0, 1.0) : 0.0f;
-
-    vec3 debugColor =
-          base  * is0 +
-          kMat  * is1 +
-          kInst * is2 +
-          kInfo * is3;
-
-    vec3 finalAlbedoRGB = mix(albedo.rgb, debugColor, anyDebug);
-    albedo = vec4(finalAlbedoRGB, albedo.a);
-
-    vec3 color = indirectLightingDebugView == 0 ? albedo.rgb : vec3(0.0f);
-    if (!unlit) {
-        vec3 viewDir = normalize(cameraPosition - fragPos);
-        bool receiveShadow = true;
-        vec3 F0 = pbrFlags.yzw;
-        float F90 = emissiveSample.a;
-        vec3 direct = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.rgb, 1.0, depth, normal, viewDir, fragPos,
-                                               metallic, roughness, F0, F90);
-        vec3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
-            albedo.rgb, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
-            screenSpaceVisibility);
-        if (indirectLightingDebugView != 0) {
-            FragColor = vec4(ambient, 1.0f);
-            return;
-        }
-        color = direct + emissive + ambient;
-    }
-
-    if (indirectLightingDebugView != 0) {
-        FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
-        return;
-    }
-
-    vec4 outputColor;
-
-    if (!instance_selected && EE_INSTANCE_INDEX == 1) {
-        bool foundNeighbor = false;
-
-        for (int i = -3; i <= 3 && !foundNeighbor; ++i) {
-            for (int j = -3; j <= 3; ++j) {
-                int info_index_local = int(round(
-                    texture(inUtility,
-                            fs_in.TexCoord + vec2(texOffset.x * float(i),
-                                                  texOffset.y * float(j))).y));
-                if ((info_index_local & 1) == 1) {
-                    outputColor = mix(vec4(1.0, 0.75, 0.0, 1.0),
-                                      vec4(color, 1.0),
-                                      0.1);
-                    foundNeighbor = true;
-                    break;
-                }
-            }
-        }
-
-        if (!foundNeighbor) {
-            outputColor = mix(vec4(0.5, 0.5, 0.5, 1.0),
-                              vec4(color, 1.0),
-                              float(EE_LIGHT_SPLIT_INDEX) / 256.0);
-        }
-    } else {
-        outputColor = vec4(color, 1.0);
-    }
-
-    float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
-    float camFar     = EE_CAMERA_FAR(EE_CAMERA_INDEX);
-    float fadeStart  = camFar * fade_ratio;
-
-    if (depth > fadeStart) {
-        float t = (depth - fadeStart) / (camFar * (1.0 - fade_ratio));
-        outputColor.rgb = mix(outputColor.rgb, skyColor, clamp(t, 0.0, 1.0));
-    }
-
-    FragColor = outputColor;
+  float4 output_color = ApplySelectionOutline(float4(color, 1.0f), sky_color, input.tex_coord, info_index);
+  float fade_ratio = EE_CAMERA_FADE_RATIO(camera_index);
+  float far_distance = EE_CAMERA_FAR(camera_index);
+  float fade_start = far_distance * fade_ratio;
+  if (depth > fade_start)
+    output_color.rgb =
+        lerp(output_color.rgb, sky_color, clamp((depth - fade_start) / (far_distance * (1.0f - fade_ratio)), 0.0f, 1.0f));
+  return output_color;
 }

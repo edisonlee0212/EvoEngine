@@ -1,54 +1,51 @@
-#extension GL_ARB_shading_language_include : enable
-#extension GL_EXT_control_flow_attributes : require
+// @evoengine-dialect native
+import EvoEngine.Trace;
 
-#define TRACE_DATA_SET 0
-#define SCENE_GRAPH_DATA_BINDING 0
-#define SCENE_GEOMETRY_DATA_BINDING 1
-#define SCENE_INFO_BLOCK_BINDING 2
-#include "Trace.slangh"
+[[vk::binding(3, 0)]]
+StructuredBuffer<float4> rays;
 
-layout(set = TRACE_DATA_SET, binding = 3) readonly buffer RAYS_BLOCK{
-	vec4 rays[];
+[[vk::binding(4, 0)]]
+RWStructuredBuffer<float4> ray_casting_results;
+
+struct RayCastingConstants {
+  float4 ray_cast_config;
 };
 
-layout(set = TRACE_DATA_SET, binding = 4) writeonly buffer RAY_CASTING_RESULTS_BLOCK{
-	vec4 ray_casting_results[];
-};
-
-layout(push_constant) uniform RAY_CASTING_CONSTANTS{
-	vec4 ray_cast_config;
-};
-
-layout(local_size_x = COMPUTE_WORK_GROUP_INVOCATIONS, local_size_y = 1, local_size_z = 1) in;
-
-void Execute(uint current_ray_index);
-
-void main() {
-	uint rays_count = floatBitsToUint(ray_cast_config.z);
-	uint current_ray_index = gl_GlobalInvocationID.x;
-	if(current_ray_index >= rays_count) return;
-	Execute(current_ray_index);
-}
+[[vk::push_constant]]
+ConstantBuffer<RayCastingConstants> constants;
 
 void Execute(uint current_ray_index) {
-	vec3 sample_origin = rays[current_ray_index * 2].xyz;
-	vec3 sample_direction = rays[current_ray_index * 2 + 1].xyz;
-	RayDescriptor ray_descriptor;
-	ray_descriptor.origin = sample_origin;
-	ray_descriptor.direction = sample_direction;
-	ray_descriptor.t_min = rays[current_ray_index * 2].w;
-	ray_descriptor.t_max = rays[current_ray_index * 2 + 1].w;
-	bool hit = false;
-	HitInfo hit_info = Trace(ray_descriptor, ray_cast_config.x != 0.0, ray_cast_config.y != 0.0, hit);
-	if (hit) {
-		ray_casting_results[current_ray_index * 4] = vec4(hit_info.hit, 1);
-		ray_casting_results[current_ray_index * 4 + 1] = vec4(hit_info.barycentric, hit_info.back_face ? 1.0 : 0.0);
-		ray_casting_results[current_ray_index * 4 + 2] = vec4(hit_info.normal, hit_info.hit_dist);
-		ray_casting_results[current_ray_index * 4 + 3] = vec4(uintBitsToFloat(hit_info.instance_index), uintBitsToFloat(hit_info.node_index), uintBitsToFloat(hit_info.mesh_index), uintBitsToFloat(hit_info.local_triangle_index));
-	}else {
-		ray_casting_results[current_ray_index * 4] = vec4(0, 0, 0, 0);
-		ray_casting_results[current_ray_index * 4 + 1] = vec4(0, 0, 0, 0);
-		ray_casting_results[current_ray_index * 4 + 2] = vec4(0, 0, 0, 0);
-		ray_casting_results[current_ray_index * 4 + 3] = vec4(0, 0, 0, 0);
-	}
+  float3 sample_origin = rays[current_ray_index * 2].xyz;
+  float3 sample_direction = rays[current_ray_index * 2 + 1].xyz;
+  RayDescriptor ray_descriptor;
+  ray_descriptor.origin = sample_origin;
+  ray_descriptor.direction = sample_direction;
+  ray_descriptor.t_min = rays[current_ray_index * 2].w;
+  ray_descriptor.t_max = rays[current_ray_index * 2 + 1].w;
+  bool hit = false;
+  HitInfo hit_info = Trace(ray_descriptor, constants.ray_cast_config.x != 0.0f,
+                           constants.ray_cast_config.y != 0.0f, hit);
+  if (hit) {
+    ray_casting_results[current_ray_index * 4] = float4(hit_info.hit, 1.0f);
+    ray_casting_results[current_ray_index * 4 + 1] =
+        float4(hit_info.barycentric, hit_info.back_face ? 1.0f : 0.0f);
+    ray_casting_results[current_ray_index * 4 + 2] = float4(hit_info.normal, hit_info.hit_dist);
+    ray_casting_results[current_ray_index * 4 + 3] =
+        float4(asfloat(hit_info.instance_index), asfloat(hit_info.node_index), asfloat(hit_info.mesh_index),
+               asfloat(hit_info.local_triangle_index));
+  } else {
+    ray_casting_results[current_ray_index * 4] = float4(0.0f);
+    ray_casting_results[current_ray_index * 4 + 1] = float4(0.0f);
+    ray_casting_results[current_ray_index * 4 + 2] = float4(0.0f);
+    ray_casting_results[current_ray_index * 4 + 3] = float4(0.0f);
+  }
+}
+
+[shader("compute")]
+[numthreads(COMPUTE_WORK_GROUP_INVOCATIONS, 1, 1)]
+void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  uint rays_count = asuint(constants.ray_cast_config.z);
+  uint current_ray_index = dispatch_thread_id.x;
+  if (current_ray_index >= rays_count) return;
+  Execute(current_ray_index);
 }

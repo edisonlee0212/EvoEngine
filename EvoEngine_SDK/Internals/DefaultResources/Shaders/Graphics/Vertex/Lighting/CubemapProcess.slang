@@ -1,12 +1,23 @@
-layout(location = 0) in vec3 inPosition;
-
-layout(location = 0) out vec3 outWorldPos;
-
-layout(push_constant) uniform EE_PUSH_CONSTANTS {
-  mat4 projection_view;
+// @evoengine-dialect native
+struct CubemapVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
 };
 
-void main() {
-  outWorldPos = inPosition;
-  gl_Position = projection_view * vec4(inPosition, 1.0);
+struct CubemapVertexOutput {
+  float4 position : SV_Position;
+  [[vk::location(0)]] float3 world_position : TEXCOORD0;
+};
+
+struct CubemapVertexConstants {
+  float4x4 projection_view;
+};
+
+[[vk::push_constant]] ConstantBuffer<CubemapVertexConstants> constants;
+
+[shader("vertex")]
+CubemapVertexOutput main(CubemapVertexInput input) {
+  CubemapVertexOutput output;
+  output.world_position = input.position;
+  output.position = mul(float4(input.position, 1.0f), constants.projection_view);
+  return output;
 }

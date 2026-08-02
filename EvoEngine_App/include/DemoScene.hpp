@@ -42,6 +42,8 @@ void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scen
 void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene);
 void SetRenderingRegressionTemporalMotionEnabled(bool enabled);
+void SetRenderingRegressionMovingLightEnabled(bool enabled);
+void SetRenderingRegressionSecondaryGeometryMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBicycleDemoScene(const std::shared_ptr<Scene>& scene);
 void ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene);

@@ -280,9 +280,9 @@ reference only. EvoEngine keeps SDK shader source in Slang and does not add an H
 | Volume descriptors/resources | `DdgiSettings`, asset-owned DDGI volume entries, and per-volume probe metadata/state plus irradiance, visibility, and variability atlases |
 | Probe ray generation | `Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.slang` |
 | Probe closest-hit/miss | `Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.slang`, `Shaders/RayTracing/Miss/DDGIProbeDiagnostics.slang` |
-| Shared probe math | `Shaders/Includes/DDGI.slangh` |
+| Shared probe math | `Shaders/Modules/EvoEngine/DDGI.slang` |
 | Probe atlas update | `Shaders/Compute/DDGIProbeUpdate.slang` |
-| Surface sampling | `Shaders/Includes/Lighting.slangh` and DDGI closest-hit recursive sampling |
+| Surface sampling | `Shaders/Modules/EvoEngine/Lighting.slang`, `DDGIGatherMulti.slang`, and DDGI closest-hit recursive sampling |
 | Scheduling and clears | `RenderLayer` DDGI passes: `DDGIAtlasPrepare`, `DDGIRayDiagnostics`, `DDGIProbeUpdate` |
 
 EvoEngine implements deterministic multi-volume overlap isolation from RTXGI's integration guidance rather than copying

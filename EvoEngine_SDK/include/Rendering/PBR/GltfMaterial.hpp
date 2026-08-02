@@ -258,7 +258,7 @@ struct alignas(8) GltfShadeMaterial {
   uint16_t retroreflection_texture = 0;
 #endif
 
-  uint32_t padding0 = 0;
+  uint32_t nested_priority = 0;
 #if MAT_EXT_CLEARCOAT
   float clearcoat_normal_texture_scale = 1.0f;
 #else
@@ -461,7 +461,7 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.retroreflection_texture != rhs.retroreflection_texture)
     return true;
 #endif
-  if (lhs.padding0 != rhs.padding0)
+  if (lhs.nested_priority != rhs.nested_priority)
     return true;
 #if MAT_EXT_CLEARCOAT
   if (lhs.clearcoat_normal_texture_scale != rhs.clearcoat_normal_texture_scale)

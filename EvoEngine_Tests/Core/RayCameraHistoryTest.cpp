@@ -2,9 +2,12 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <type_traits>
+#include <vector>
 
 #include "Camera.hpp"
 #include "RenderGraph.hpp"
@@ -74,6 +77,13 @@ RayCameraHistoryResources MakeFakeHistory(const VkExtent3D extent) {
   result.convergence_image = MakeFakeResource<Image>();
   result.convergence_view = MakeFakeImageView(result.convergence_image);
   return result;
+}
+
+void AddFakeOptionalOutput(RayCameraHistoryResources& history, const RayCameraOptionalOutput output) {
+  const auto index = static_cast<uint32_t>(output);
+  history.optional_outputs.images[index] = MakeFakeResource<Image>();
+  history.optional_outputs.views[index] = MakeFakeImageView(history.optional_outputs.images[index]);
+  history.optional_outputs.enabled_mask |= 1u << index;
 }
 
 std::string ReadTextFile(const std::filesystem::path& path) {
@@ -352,19 +362,30 @@ TEST(RayCameraHistory, TransientStoreKeepsImportedImageAliveIndependentlyOfItsVi
 
 TEST(RayCameraHistory, RuntimeWiringHasNoStaticHistoryMapAndClearsAfterGpuDrain) {
   const auto camera_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Camera.hpp"));
+  const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   const auto pass_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/RayTracingCameraPass.cpp"));
   const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
 
   EXPECT_NE(camera_header.find("RayCameraHistoryResources ray_camera_history_"), std::string::npos);
+  EXPECT_NE(camera_header.find("RayCameraOptionalOutputResources optional_outputs"), std::string::npos);
+  EXPECT_NE(camera_header.find("kRayCameraOutputDescriptorBindingCount"), std::string::npos);
+  EXPECT_NE(camera_source.find("SynchronizeRayCameraOptionalOutputs"), std::string::npos);
+  EXPECT_NE(camera_source.find("RayCameraOptionalOutputMask"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("AddRayCameraOptionalOutputResources"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("camera->SynchronizeRayCameraOptionalOutputs"), std::string::npos);
   EXPECT_EQ(pass_source.find("static std::unordered_map"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImageView(history_resources.radiance_view)"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImageView(history_resources.convergence_view)"), std::string::npos);
+  EXPECT_NE(pass_source.find("RetainRayCameraOptionalOutputViews"), std::string::npos);
+  EXPECT_NE(pass_source.find("UpdateRayCameraOptionalOutputDescriptors"), std::string::npos);
+  EXPECT_NE(pass_source.find("kRayCameraOutputDescriptorBaseBindingCount + index"), std::string::npos);
+  EXPECT_NE(pass_source.find("RayCameraOptionalOutputIsUint(output)"), std::string::npos);
+  EXPECT_NE(pass_source.find("PrepareRayCameraUintFallback"), std::string::npos);
   EXPECT_NE(pass_source.find("RetainImage(render_texture->GetColorImage())"), std::string::npos);
   EXPECT_EQ(pass_source.find("Platform::EverythingBarrier"), std::string::npos);
   EXPECT_NE(render_layer_source.find("render_graph_transient_resource_stores_.at(current_frame_index)"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("!camera->ray_camera_history_owner_alive_"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("if (!render_texture)"), std::string::npos);
   const auto shutdown = render_layer_source.find("void RenderLayer::OnDestroy()");
   const auto drain = render_layer_source.find("Platform::DrainGpuResourceWork()", shutdown);
   const auto clear = render_layer_source.find("ClearRayCameraHistories()", shutdown);

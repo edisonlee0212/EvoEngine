@@ -59,6 +59,11 @@ according to the runtime capability policy and report that choice in the log.
 An individual shared debug view can be captured with `--preview-ray-debug <name>`. Useful names include `material-id`,
 `base-color`, `geometric-normal`, `shading-normal`, `roughness`, `metallic`, `emission`, `direct-punctual`,
 `direct-environment`, `direct-emissive`, `indirect-radiance`, `path-depth`, `bsdf-pdf`, `light-pdf`, and `emissive-pdf`.
+RayTracing and RayQuery captures both use the ordinary path tracer. Use the same resolution, warmup frame count, sample
+size, deterministic settings, scene state, and shader cache when comparing the two backends. Optional ray outputs can be
+requested with `--preview-ray-outputs` using `albedo`, `normal`, `ray-count`, `path-length`, `time`, or `debug`; validate
+the emitted sidecar and each requested image for dimensions, finiteness, and expected data type. `all` enables these six
+generic outputs.
 
 ## Image Comparison
 

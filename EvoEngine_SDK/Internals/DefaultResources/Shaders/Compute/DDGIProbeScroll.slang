@@ -1,4 +1,5 @@
-#include "DDGI.slangh"
+// @evoengine-dialect native
+import EvoEngine.DDGI;
 
 struct EeDdgiProbeScrollConstants {
   uint4 probe_counts_and_irradiance_tile_size;

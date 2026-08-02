@@ -2,6 +2,7 @@
 
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
+#include "EditorLayer.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
 #include "Strands.hpp"
@@ -34,33 +35,34 @@ TEST(StrandsMeshShader, StorageAbiAndDispatchContract) {
   EXPECT_EQ(sizeof(evo_engine::StrandMeshlet), 4 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 12);
   EXPECT_EQ(evo_engine::Platform::Constants::meshlet_max_vertices_size, 64);
   EXPECT_EQ(evo_engine::Platform::Constants::meshlet_max_triangles_size, 40);
+  EXPECT_EQ(sizeof(evo_engine::GizmosPushConstant), 96u);
+  EXPECT_EQ(offsetof(evo_engine::GizmosPushConstant, strand_color_mode), 92u);
 
   const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Standard/StandardStrands.slang"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Standard/StandardStrands.slang"));
   const auto render_instances = ReadRepoFile("EvoEngine_SDK/src/RenderInstanceStorage.cpp");
-  EXPECT_NE(task.find("layout(local_size_x = 1)"), std::string::npos);
-  EXPECT_NE(task.find("EE_INSTANCES[instance_index].meshlet_offset + gl_WorkGroupID.x"), std::string::npos);
+  EXPECT_NE(task.find("[numthreads(1, 1, 1)]"), std::string::npos);
+  EXPECT_NE(task.find("EE_INSTANCES[instance_index].meshlet_offset + group_id.x"), std::string::npos);
   EXPECT_NE(task.find("DispatchMesh(interval_count, 1, 1, strand_task)"), std::string::npos);
-  EXPECT_NE(mesh.find("OutputVertices<EEStrandRasterOutput, 32>"), std::string::npos);
+  EXPECT_NE(mesh.find("OutputVertices<StandardRasterOutput, 32>"), std::string::npos);
   EXPECT_NE(mesh.find("OutputIndices<uint3, 30>"), std::string::npos);
-  EXPECT_NE(mesh.find("uint STRAND_RING_MAX = 15"), std::string::npos);
+  EXPECT_NE(mesh.find("uint STRAND_RING_MAX = 15u"), std::string::npos);
   EXPECT_NE(render_instances.find("DrawMeshTasks(vk_command_buffer, strands->strand_meshlet_range_->prev_frame_range)"),
             std::string::npos);
   EXPECT_NE(render_instances.find("if (!graphics_pipeline->mesh_shader)"), std::string::npos);
 }
 
 TEST(StrandsMeshShader, BeautyPathUsesCorrectFrameAndBoundedSubdivision) {
-  const auto include = ReadRepoFile(ShaderPath("Includes/StrandMeshlet.slangh"));
-  const auto settings = ReadRepoFile(ShaderPath("Includes/Strands.slangh"));
+  const auto include = ReadRepoFile(ShaderPath("Modules/EvoEngine/StrandMeshlet.slang"));
+  const auto settings = ReadRepoFile(ShaderPath("Modules/EvoEngine/Strands.slang"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Standard/StandardStrands.slang"));
-  EXPECT_NE(include.find("normal - t * dot(normal, t)"), std::string::npos);
-  EXPECT_NE(mesh.find("transpose(inverse(mat3(model)))"), std::string::npos);
-  EXPECT_NE(mesh.find("normal_matrix * radial"), std::string::npos);
-  EXPECT_NE(mesh.find("mat3(model) * tangent"), std::string::npos);
-  EXPECT_NE(mesh.find("(ring_size + 1) * 2"), std::string::npos);
+  EXPECT_NE(include.find("normal - normalized_tangent * dot(normal, normalized_tangent)"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_BUILD_STANDARD_RASTER_OUTPUT"), std::string::npos);
+  EXPECT_NE(mesh.find("position + radial * thickness, radial, tangent"), std::string::npos);
+  EXPECT_NE(mesh.find("(ring_size + 1u) * 2u"), std::string::npos);
   EXPECT_NE(settings.find("EE_RENDER_INFO.strand_subdivision_y"), std::string::npos);
   EXPECT_NE(settings.find("min(EE_RENDER_INFO.strand_subdivision_max_y, 15)"), std::string::npos);
-  EXPECT_NE(settings.find("* 50.0 /"), std::string::npos);
+  EXPECT_NE(settings.find("* 50.0f /"), std::string::npos);
 }
 
 TEST(StrandsMeshShader, ThicknessAwareBoundsUpdateWithGeometry) {
@@ -124,12 +126,11 @@ TEST(StrandsMeshShader, GizmosUseMeshShadersAndThreeModeCaptureFixture) {
   const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
   const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
 
-  EXPECT_NE(task.find("EE_STRAND_MESHLET_OFFSET + gl_WorkGroupID.x"), std::string::npos);
+  EXPECT_NE(task.find("EE_GIZMOS_CONSTANTS.strand_meshlet_offset + group_id.x"), std::string::npos);
   EXPECT_NE(task.find("DispatchMesh(interval_count, 1, 1, strand_task)"), std::string::npos);
   EXPECT_NE(mesh.find("OutputVertices<EEGizmoStrandOutput, 32>"), std::string::npos);
   EXPECT_NE(mesh.find("OutputIndices<uint3, 30>"), std::string::npos);
-  EXPECT_NE(mesh.find("EE_GIZMO_STRAND_VERTEX_COLOR"), std::string::npos);
-  EXPECT_NE(mesh.find("EE_GIZMO_STRAND_NORMAL_COLOR"), std::string::npos);
+  EXPECT_NE(mesh.find("strand_color_mode"), std::string::npos);
   EXPECT_NE(render_layer.find("Graphics/Task/Gizmos/GizmosStrands.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("Graphics/Mesh/Gizmos/GizmosStrands.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("for (const auto& i : editor_layer->gizmo_strands_tasks_)"), std::string::npos);
@@ -158,18 +159,17 @@ TEST(StrandsMeshShader, ValidationFixtureCoversReuploadAndBothShadowFlags) {
 TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndGenericAccounting) {
   const auto task = ReadRepoFile(ShaderPath("Graphics/Task/Lighting/StrandsShadowMap.slang"));
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang"));
-  const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.slangh"));
-  const auto common_slang = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.slangh"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto pass = ReadRepoFile("EvoEngine_SDK/src/RenderPasses/DirectionalLightShadowPass.cpp");
   EXPECT_NE(task.find("DispatchMesh(EE_STRAND_MESHLETS[meshlet_index].segment_size, 1, 1, strand_shadow_task)"),
             std::string::npos);
-  EXPECT_NE(common.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
-  EXPECT_NE(common.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
-  EXPECT_NE(common_slang.find("OutputVertices<EEStrandShadowOutput, 10>"), std::string::npos);
-  EXPECT_NE(common_slang.find("OutputIndices<uint3, 8>"), std::string::npos);
-  EXPECT_NE(mesh.find("EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX]"),
-            std::string::npos);
+  EXPECT_NE(mesh.find("SetMeshOutputCounts(10u, 8u)"), std::string::npos);
+  EXPECT_NE(mesh.find("const uint STRAND_SHADOW_RING_SIZE = 4u"), std::string::npos);
+  EXPECT_NE(mesh.find("OutputVertices<EEStrandShadowOutput, 10>"), std::string::npos);
+  EXPECT_NE(mesh.find("OutputIndices<uint3, 8>"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_DIRECTIONAL_LIGHTS[EE_BASIC_CONSTANTS.camera_index]"), std::string::npos);
+  EXPECT_NE(mesh.find("EE_BASIC_CONSTANTS.light_split_index"), std::string::npos);
+  EXPECT_NE(mesh.find("mul(world_position, light_projection)"), std::string::npos);
   EXPECT_NE(render_layer.find("DirectionalLightStrandsShadowMap.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("strand_meshlet_descriptor_sets_[current_frame_index]"), std::string::npos);
   EXPECT_NE(pass.find("parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet()"), std::string::npos);
@@ -182,15 +182,15 @@ TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndGenericAccounti
 TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndCaptureFixture) {
   const auto point = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/PointLightStrandsShadowMap.slang"));
   const auto spot = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang"));
-  const auto common = ReadRepoFile(ShaderPath("Includes/StrandShadowMesh.slangh"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto scene = ReadRepoFile("EvoEngine_App/src/DemoScene.cpp");
   const auto editor = ReadRepoFile("EvoEngine_App/src/EvoEngineEditor.cpp");
 
-  EXPECT_NE(common.find("layout(max_vertices = 10, max_primitives = 8)"), std::string::npos);
-  EXPECT_NE(common.find("const uint STRAND_SHADOW_RING_SIZE = 4"), std::string::npos);
-  EXPECT_NE(point.find("EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX]"), std::string::npos);
-  EXPECT_NE(spot.find("EE_SPOT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix"), std::string::npos);
+  EXPECT_NE(point.find("SetMeshOutputCounts(10u, 8u)"), std::string::npos);
+  EXPECT_NE(point.find("const uint STRAND_SHADOW_RING_SIZE = 4u"), std::string::npos);
+  EXPECT_NE(point.find("EE_POINT_LIGHTS[EE_BASIC_CONSTANTS.camera_index]"), std::string::npos);
+  EXPECT_NE(point.find("EE_BASIC_CONSTANTS.light_split_index"), std::string::npos);
+  EXPECT_NE(spot.find("EE_SPOT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].light_space_matrix"), std::string::npos);
   EXPECT_NE(render_layer.find("PointLightStrandsShadowMap.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("SpotLightStrandsShadowMap.slang"), std::string::npos);
   EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);

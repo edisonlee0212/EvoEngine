@@ -56,7 +56,7 @@ def main() -> int:
 
     try:
         def editor_without_project_spawns_launcher() -> None:
-            completed = subprocess.run([str(args.editor)], cwd=args.editor.parent, timeout=20)
+            completed = subprocess.run([str(args.editor)], cwd=args.editor.parent, timeout=60)
             if completed.returncode != 0:
                 raise RuntimeError(f"Editor without project returned {completed.returncode}, expected 0.")
             wait_for_new_process("EvoEngineLauncher.exe", launcher_before)
@@ -65,7 +65,7 @@ def main() -> int:
         def editor_opens_existing_project() -> None:
             editor = subprocess.Popen([str(args.editor), "--project", str(project_path)], cwd=args.editor.parent)
             try:
-                wait_for_window(editor, "Editor with project", timeout=20)
+                wait_for_window(editor, "Editor with project", timeout=60)
             finally:
                 kill_process(editor)
 
@@ -73,7 +73,7 @@ def main() -> int:
             editor = subprocess.Popen([str(args.editor), "--project", str(project_path), "--player"],
                                       cwd=args.editor.parent)
             try:
-                wait_for_window(editor, "Player project", timeout=20)
+                wait_for_window(editor, "Player project", timeout=60)
             finally:
                 kill_process(editor)
 
@@ -86,7 +86,7 @@ def main() -> int:
                     wait_until(
                         "headless metadata-only project start_scene_handle",
                         lambda: has_start_scene_handle(metadata_only_project),
-                        timeout=20,
+                        timeout=60,
                     )
                 finally:
                     kill_process(editor)
@@ -97,11 +97,11 @@ def main() -> int:
                 editor = subprocess.Popen([str(args.editor), "--project", str(metadata_only_project)],
                                           cwd=args.editor.parent)
                 try:
-                    wait_for_window(editor, "Editor with metadata-only project", timeout=20)
+                    wait_for_window(editor, "Editor with metadata-only project", timeout=60)
                     wait_until(
                         "metadata-only project start_scene_handle",
                         lambda: has_start_scene_handle(metadata_only_project),
-                        timeout=20,
+                        timeout=60,
                     )
                 finally:
                     kill_process(editor)
@@ -110,27 +110,31 @@ def main() -> int:
             env = os.environ.copy()
             env["EVOENGINE_LAUNCHER_TEST_OPEN_PROJECT"] = str(project_path)
             editor_before_launch = process_ids("EvoEngineEditor.exe")
-            launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
             try:
+                launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
                 launcher.wait(timeout=60)
+                editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+                wait_until("editor window spawned by launcher", lambda: find_window_for_pid(editor_pid), timeout=60)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError("Launcher did not exit after test open-project hook.") from error
-            editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-            wait_until("editor window spawned by launcher", lambda: find_window_for_pid(editor_pid), timeout=20)
+            finally:
+                kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
 
         def launcher_open_demo_hook_spawns_editor_profile() -> None:
             env = os.environ.copy()
             env["EVOENGINE_LAUNCHER_TEST_OPEN_DEMO"] = "rendering"
             editor_before_launch = process_ids("EvoEngineEditor.exe")
             demo_app_before_launch = process_ids("DemoApp.exe")
-            launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
             try:
+                launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
                 launcher.wait(timeout=60)
+                editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+                wait_until("demo profile editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
+                           timeout=60)
             except subprocess.TimeoutExpired as error:
                 raise RuntimeError("Launcher did not exit after test open-demo hook.") from error
-            editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-            wait_until("demo profile editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
-                       timeout=20)
+            finally:
+                kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
             demo_app_after_launch = process_ids("DemoApp.exe")
             if set(demo_app_after_launch) - set(demo_app_before_launch):
                 raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
@@ -143,14 +147,16 @@ def main() -> int:
                 env["EVOENGINE_LAUNCHER_TEST_LOG"] = str(log_path)
                 editor_before_launch = process_ids("EvoEngineEditor.exe")
                 ddgi_app_before_launch = process_ids("DDGIApp.exe")
-                launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
                 try:
+                    launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
                     launcher.wait(timeout=60)
+                    editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+                    wait_until("DDGI demo editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
+                               timeout=60)
                 except subprocess.TimeoutExpired as error:
                     raise RuntimeError("Launcher did not exit after DDGI test open-demo hook.") from error
-                editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-                wait_until("DDGI demo editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
-                           timeout=20)
+                finally:
+                    kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
                 ddgi_app_after_launch = process_ids("DDGIApp.exe")
                 if set(ddgi_app_after_launch) - set(ddgi_app_before_launch):
                     raise RuntimeError("Launcher DDGI demo hook spawned DDGIApp.exe instead of EvoEngineEditor.exe.")

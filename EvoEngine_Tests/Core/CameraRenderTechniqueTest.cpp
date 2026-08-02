@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -121,6 +122,8 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   CameraSettings default_settings;
   EXPECT_EQ(default_settings.shader_execution_reordering_mode,
             CameraSettings::ShaderExecutionReorderingMode::Automatic);
+  EXPECT_EQ(default_settings.sample_size, 1);
+  EXPECT_FLOAT_EQ(default_settings.firefly_clamp_threshold, 10.0f);
 
   const auto& debug_views = Camera::GetRayDebugViewNames();
   ASSERT_EQ(debug_views.size(), Camera::kRayDebugViewCount);
@@ -134,13 +137,62 @@ TEST(CameraRenderTechnique, NamesAndCanonicalSerializationExposeRasterRayTracing
   EXPECT_EQ(Camera::ParseRayDebugView("19", CameraSettings::RayDebugView::Emission),
             CameraSettings::RayDebugView::Emission);
   EXPECT_EQ(Camera::NormalizeRayDebugView(999), CameraSettings::RayDebugView::Beauty);
+
+  EXPECT_FALSE(default_settings.ray_outputs.AnyEnabled());
+}
+
+TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Albedo), 0u);
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Normal), 1u);
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::RayCount), 2u);
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::PathLength), 3u);
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Time), 4u);
+  EXPECT_EQ(static_cast<uint32_t>(RayCameraOptionalOutput::Debug), 5u);
+  EXPECT_EQ(kRayCameraOptionalOutputCount, 6u);
+  EXPECT_EQ(kRayCameraOutputDescriptorBindingCount, 10u);
+
+  const auto native_cameras =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
+  const auto compatibility_cameras = ReadTextFile(
+      SourcePath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes/Cameras.glsl"));
+  const auto output_shader = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/CameraRayOutputs.slang"));
+  const std::array output_names{"ALBEDO", "NORMAL", "RAY_COUNT", "PATH_LENGTH", "TIME", "DEBUG"};
+  for (uint32_t index = 0u; index < output_names.size(); ++index) {
+    const auto flag =
+        std::string("EE_CAMERA_RAY_OUTPUT_") + output_names[index] + " = 1u << " + std::to_string(index) + "u";
+    EXPECT_NE(native_cameras.find(flag), std::string::npos) << output_names[index];
+    EXPECT_NE(compatibility_cameras.find(flag), std::string::npos) << output_names[index];
+    const auto binding =
+        "[[vk::binding(" + std::to_string(kRayCameraOutputDescriptorBaseBindingCount + index) + ", 2)]]";
+    EXPECT_NE(output_shader.find(binding), std::string::npos) << output_names[index];
+  }
 }
 
 TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
-  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 684u);
-  EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 688u);
-  EXPECT_EQ(sizeof(CameraInfoBlock), 704u);
-  EXPECT_LT(offsetof(CameraInfoBlock, firefly_clamp_enabled), offsetof(CameraInfoBlock, gamma));
+  EXPECT_EQ(offsetof(CameraInfoBlock, raster_lighting_flags), 812u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, ray_output_flags), 816u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved0), 820u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved1), 824u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, camera_block_reserved2), 828u);
+  EXPECT_EQ(offsetof(CameraInfoBlock, shadow_split_distances), 832u);
+  EXPECT_EQ(sizeof(CameraInfoBlock), 848u);
+  const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
+  const auto cameras_header =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
+  EXPECT_NE(camera_source.find("camera_info_block.ray_output_flags"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint ray_output_flags"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint camera_block_reserved0"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint camera_block_reserved1"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint camera_block_reserved2"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint camera_block_reserved3"), std::string::npos);
+  EXPECT_NE(cameras_header.find("uint camera_block_reserved4"), std::string::npos);
+  EXPECT_NE(cameras_header.find("EE_CAMERA_RAY_OUTPUT_DEBUG"), std::string::npos);
+  EXPECT_LT(offsetof(CameraInfoBlock, previous_projection_view),
+            offsetof(CameraInfoBlock, previous_inverse_projection));
+  EXPECT_LT(offsetof(CameraInfoBlock, previous_inverse_projection), offsetof(CameraInfoBlock, previous_inverse_view));
+  EXPECT_LT(offsetof(CameraInfoBlock, previous_inverse_view), offsetof(CameraInfoBlock, unjittered_projection_view));
+  EXPECT_LT(offsetof(CameraInfoBlock, camera_block_reserved3), offsetof(CameraInfoBlock, gamma));
   EXPECT_LT(offsetof(CameraInfoBlock, gamma), offsetof(CameraInfoBlock, sample_size));
   EXPECT_LT(offsetof(CameraInfoBlock, sample_size), offsetof(CameraInfoBlock, bounce));
   EXPECT_LT(offsetof(CameraInfoBlock, bounce), offsetof(CameraInfoBlock, firefly_clamp_threshold));
@@ -149,8 +201,8 @@ TEST(CameraRenderTechnique, CameraInfoBlockKeepsShaderArrayStrideAlignment) {
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_min_samples), offsetof(CameraInfoBlock, auto_spp_max_samples));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_max_samples), offsetof(CameraInfoBlock, auto_spp_convergence_threshold));
   EXPECT_LT(offsetof(CameraInfoBlock, auto_spp_convergence_threshold),
-            offsetof(CameraInfoBlock, emissive_triangle_nee_enabled));
-  EXPECT_LT(offsetof(CameraInfoBlock, emissive_triangle_nee_enabled), offsetof(CameraInfoBlock, ray_debug_view));
+            offsetof(CameraInfoBlock, camera_block_reserved4));
+  EXPECT_LT(offsetof(CameraInfoBlock, camera_block_reserved4), offsetof(CameraInfoBlock, ray_debug_view));
   EXPECT_LT(offsetof(CameraInfoBlock, ray_debug_view), offsetof(CameraInfoBlock, raster_lighting_flags));
 }
 
@@ -158,13 +210,16 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
   EXPECT_EQ(CameraInfoBlock::kRasterLightingGtaoVisibility, 1u);
   CameraInfoBlock first;
   CameraInfoBlock second = first;
+  second.ray_output_flags = 1u;
+  EXPECT_TRUE(first != second);
+  second = first;
   second.raster_lighting_flags = CameraInfoBlock::kRasterLightingGtaoVisibility;
   EXPECT_TRUE(first != second);
 
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
   const auto lighting =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   EXPECT_NE(cameras.find("uint raster_lighting_flags"), std::string::npos);
   EXPECT_NE(lighting.find("raster_lighting_flags & 1u"), std::string::npos);
@@ -173,12 +228,12 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
   const auto lighting =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
-  EXPECT_NE(cameras.find("vec4 shadow_split_distances"), std::string::npos);
-  EXPECT_NE(lighting.find("EE_CAMERAS[EE_CAMERA_INDEX].shadow_split_distances"), std::string::npos);
+  EXPECT_NE(cameras.find("float4 shadow_split_distances"), std::string::npos);
+  EXPECT_NE(lighting.find("EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].shadow_split_distances"), std::string::npos);
   EXPECT_EQ(lighting.find("EE_RENDER_INFO.shadow_split_"), std::string::npos);
   EXPECT_NE(storage.find("camera_info_block.shadow_split_distances ="), std::string::npos);
   EXPECT_NE(storage.find("camera_info_blocks_[camera_index].shadow_split_distances"), std::string::npos);
@@ -192,7 +247,7 @@ TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
 
 TEST(CameraRenderTechnique, ZeroToOneDepthHelpersUseProjectionTranslation) {
   const auto cameras =
-      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Cameras.slangh"));
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
   const auto translation = cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];");
   ASSERT_NE(translation, std::string::npos);
   EXPECT_NE(cameras.find("float b = EE_CAMERAS[camera_index].projection[3][2];", translation + 1), std::string::npos);
@@ -220,91 +275,64 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
 
-  const std::vector<Camera::CameraRenderMode> render_modes = {Camera::CameraRenderMode::Rasterization,
-                                                              Camera::CameraRenderMode::RayTracing,
-                                                              Camera::CameraRenderMode::RayQuery};
-  for (const auto render_mode : render_modes) {
+  for (const auto render_mode : {Camera::CameraRenderMode::Rasterization, Camera::CameraRenderMode::RayTracing,
+                                 Camera::CameraRenderMode::RayQuery}) {
     Camera camera;
     camera.camera_render_mode = render_mode;
     camera.camera_settings.background_source = Camera::BackgroundSource::EnvironmentalMap;
     camera.camera_settings.shader_execution_reordering_mode = CameraSettings::ShaderExecutionReorderingMode::Enabled;
-    camera.camera_settings.firefly_clamp_enabled = false;
     camera.camera_settings.firefly_clamp_threshold = 3.5f;
-    camera.camera_settings.emissive_triangle_nee_enabled = false;
     camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::SpecularF0;
     camera.camera_settings.auto_spp_enabled = true;
     camera.camera_settings.auto_spp_min_samples = 8;
     camera.camera_settings.auto_spp_max_samples = 64;
     camera.camera_settings.auto_spp_convergence_threshold = 0.025f;
-    YAML::Emitter out;
-    out << YAML::BeginMap;
-    Serialization::SerializeObject(out, static_cast<IPrivateComponent&>(camera));
-    out << YAML::EndMap;
+    camera.camera_settings.ray_outputs.albedo = true;
+    camera.camera_settings.ray_outputs.debug = true;
 
-    const auto node = YAML::Load(out.c_str());
-    ASSERT_TRUE(node["render_mode"]);
+    YAML::Emitter emitter;
+    emitter << YAML::BeginMap;
+    Serialization::SerializeObject(emitter, static_cast<IPrivateComponent&>(camera));
+    emitter << YAML::EndMap;
+    const auto node = YAML::Load(emitter.c_str());
     EXPECT_EQ(node["render_mode"].as<std::string>(), Camera::GetCameraRenderModeName(render_mode));
-    ASSERT_TRUE(node["background_source"]);
-    EXPECT_EQ(node["background_source"].as<std::string>(), "Environmental Map");
-    ASSERT_TRUE(node["shader_execution_reordering_mode"]);
-    EXPECT_EQ(node["shader_execution_reordering_mode"].as<std::string>(), "Enabled");
-    ASSERT_TRUE(node["firefly_clamp_enabled"]);
-    EXPECT_FALSE(node["firefly_clamp_enabled"].as<bool>());
-    ASSERT_TRUE(node["firefly_clamp_threshold"]);
-    EXPECT_FLOAT_EQ(node["firefly_clamp_threshold"].as<float>(), 3.5f);
-    ASSERT_TRUE(node["emissive_triangle_nee_enabled"]);
-    EXPECT_FALSE(node["emissive_triangle_nee_enabled"].as<bool>());
-    ASSERT_TRUE(node["ray_debug_view"]);
-    EXPECT_EQ(node["ray_debug_view"].as<std::string>(), "Specular F0");
-    ASSERT_TRUE(node["auto_spp_enabled"]);
-    EXPECT_TRUE(node["auto_spp_enabled"].as<bool>());
-    ASSERT_TRUE(node["auto_spp_min_samples"]);
-    EXPECT_EQ(node["auto_spp_min_samples"].as<int>(), 8);
-    ASSERT_TRUE(node["auto_spp_max_samples"]);
-    EXPECT_EQ(node["auto_spp_max_samples"].as<int>(), 64);
-    ASSERT_TRUE(node["auto_spp_convergence_threshold"]);
-    EXPECT_FLOAT_EQ(node["auto_spp_convergence_threshold"].as<float>(), 0.025f);
+    EXPECT_FALSE(node["ray_integrator"]);
+    EXPECT_FALSE(node["restir_pt"]);
+    EXPECT_FALSE(node["firefly_clamp_enabled"]);
+    EXPECT_FALSE(node["emissive_triangle_nee_enabled"]);
+    EXPECT_FALSE(node["ray_outputs"]["nrd_emission"]);
 
-    Camera restored_camera;
-    restored_camera.camera_render_mode = Camera::CameraRenderMode::Rasterization;
-    Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored_camera));
-    EXPECT_EQ(restored_camera.camera_render_mode, render_mode);
-    EXPECT_EQ(restored_camera.camera_settings.background_source, Camera::BackgroundSource::EnvironmentalMap);
-    EXPECT_EQ(restored_camera.camera_settings.shader_execution_reordering_mode,
+    Camera restored;
+    Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
+    EXPECT_EQ(restored.camera_render_mode, render_mode);
+    EXPECT_EQ(restored.camera_settings.background_source, Camera::BackgroundSource::EnvironmentalMap);
+    EXPECT_EQ(restored.camera_settings.shader_execution_reordering_mode,
               CameraSettings::ShaderExecutionReorderingMode::Enabled);
-    EXPECT_FALSE(restored_camera.camera_settings.firefly_clamp_enabled);
-    EXPECT_FLOAT_EQ(restored_camera.camera_settings.firefly_clamp_threshold, 3.5f);
-    EXPECT_FALSE(restored_camera.camera_settings.emissive_triangle_nee_enabled);
-    EXPECT_EQ(restored_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
-    EXPECT_TRUE(restored_camera.camera_settings.auto_spp_enabled);
-    EXPECT_EQ(restored_camera.camera_settings.auto_spp_min_samples, 8);
-    EXPECT_EQ(restored_camera.camera_settings.auto_spp_max_samples, 64);
-    EXPECT_FLOAT_EQ(restored_camera.camera_settings.auto_spp_convergence_threshold, 0.025f);
+    EXPECT_FLOAT_EQ(restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_EQ(restored.camera_settings.ray_debug_view, CameraSettings::RayDebugView::SpecularF0);
+    EXPECT_TRUE(restored.camera_settings.auto_spp_enabled);
+    EXPECT_EQ(restored.camera_settings.auto_spp_min_samples, 8);
+    EXPECT_EQ(restored.camera_settings.auto_spp_max_samples, 64);
+    EXPECT_FLOAT_EQ(restored.camera_settings.auto_spp_convergence_threshold, 0.025f);
+    EXPECT_TRUE(restored.camera_settings.ray_outputs.albedo);
+    EXPECT_TRUE(restored.camera_settings.ray_outputs.debug);
+
+    auto legacy_node = YAML::Load(emitter.c_str());
+    legacy_node["ray_integrator"] = "ReSTIR PT";
+    legacy_node["restir_pt"]["enable_temporal_reuse"] = true;
+    legacy_node["firefly_clamp_enabled"] = false;
+    legacy_node["emissive_triangle_nee_enabled"] = false;
+    legacy_node["ray_outputs"]["nrd_diffuse_radiance_hit_distance"] = true;
+    legacy_node["ray_outputs"]["nrd_specular_radiance_hit_distance"] = true;
+    legacy_node["ray_outputs"]["nrd_residual_radiance_hit_distance"] = true;
+    legacy_node["ray_outputs"]["nrd_emission"] = true;
+    legacy_node["ray_outputs"]["nrd_diffuse_reflectance"] = true;
+    legacy_node["ray_outputs"]["nrd_specular_reflectance"] = true;
+    Camera legacy_restored;
+    EXPECT_NO_THROW(Serialization::DeserializeObject(legacy_node, static_cast<IPrivateComponent&>(legacy_restored)));
+    EXPECT_EQ(legacy_restored.camera_render_mode, render_mode);
+    EXPECT_FLOAT_EQ(legacy_restored.camera_settings.firefly_clamp_threshold, 3.5f);
+    EXPECT_TRUE(legacy_restored.camera_settings.ray_outputs.albedo);
+    EXPECT_TRUE(legacy_restored.camera_settings.ray_outputs.debug);
   }
-
-  Camera invalid_numeric_camera;
-  invalid_numeric_camera.camera_render_mode = Camera::CameraRenderMode::RayTracing;
-  Serialization::DeserializeObject(YAML::Load("{render_mode: 2}"),
-                                   static_cast<IPrivateComponent&>(invalid_numeric_camera));
-  EXPECT_EQ(invalid_numeric_camera.camera_render_mode, Camera::CameraRenderMode::RayTracing);
-
-  Camera numeric_background_camera;
-  numeric_background_camera.camera_settings.background_source = Camera::BackgroundSource::ClearColor;
-  Serialization::DeserializeObject(YAML::Load("{background_source: 4}"),
-                                   static_cast<IPrivateComponent&>(numeric_background_camera));
-  EXPECT_EQ(numeric_background_camera.camera_settings.background_source, Camera::BackgroundSource::ClearColor);
-
-  Camera invalid_ser_camera;
-  invalid_ser_camera.camera_settings.shader_execution_reordering_mode =
-      CameraSettings::ShaderExecutionReorderingMode::Enabled;
-  Serialization::DeserializeObject(YAML::Load("{shader_execution_reordering_mode: 1}"),
-                                   static_cast<IPrivateComponent&>(invalid_ser_camera));
-  EXPECT_EQ(invalid_ser_camera.camera_settings.shader_execution_reordering_mode,
-            CameraSettings::ShaderExecutionReorderingMode::Enabled);
-
-  Camera numeric_debug_camera;
-  numeric_debug_camera.camera_settings.ray_debug_view = CameraSettings::RayDebugView::Emission;
-  Serialization::DeserializeObject(YAML::Load("{ray_debug_view: 19}"),
-                                   static_cast<IPrivateComponent&>(numeric_debug_camera));
-  EXPECT_EQ(numeric_debug_camera.camera_settings.ray_debug_view, CameraSettings::RayDebugView::Emission);
 }

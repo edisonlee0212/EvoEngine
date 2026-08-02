@@ -33,6 +33,10 @@ def default_artifact_dir(root: Path) -> Path:
     return root / "out" / "test-artifacts" / "latest"
 
 
+def default_install_dir(root: Path, build_dir: Path) -> Path:
+    return root / "out" / "install" / build_dir.name
+
+
 def format_command(command: list[str]) -> str:
     if os.name == "nt":
         return subprocess.list2cmdline(command)
@@ -90,6 +94,11 @@ def prepare_artifact_dir(root: Path, artifact_dir: Path) -> None:
 
 
 def configure(args: argparse.Namespace, root: Path, build_dir: Path) -> None:
+    cmake_args = list(args.cmake_arg)
+    has_install_prefix = any(arg.startswith("-DCMAKE_INSTALL_PREFIX") for arg in cmake_args)
+    if not has_install_prefix:
+        cmake_args.append(f"-DCMAKE_INSTALL_PREFIX={default_install_dir(root, build_dir)}")
+
     command = [
         "cmake",
         "-S",
@@ -102,7 +111,7 @@ def configure(args: argparse.Namespace, root: Path, build_dir: Path) -> None:
     ]
     if args.architecture and "Visual Studio" in args.generator:
         command.extend(["-A", args.architecture])
-    command.extend(args.cmake_arg)
+    command.extend(cmake_args)
     run_step("Configure", command)
 
 

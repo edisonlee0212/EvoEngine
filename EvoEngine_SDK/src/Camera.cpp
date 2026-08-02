@@ -7,6 +7,7 @@
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "GraphicsResources.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "RenderLayer.hpp"
@@ -22,28 +23,95 @@ bool SameExtent(const VkExtent3D left, const VkExtent3D right) {
   return left.width == right.width && left.height == right.height && left.depth == right.depth;
 }
 
-std::shared_ptr<Image> CreateRayCameraHistoryImage(const VkExtent3D extent) {
+std::shared_ptr<Image> CreateRayCameraHistoryImage(const VkExtent3D extent,
+                                                   const VkFormat format = Platform::Constants::render_texture_color) {
   VkImageCreateInfo image_info{};
   image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
   image_info.imageType = VK_IMAGE_TYPE_2D;
   image_info.extent = extent;
   image_info.mipLevels = 1;
   image_info.arrayLayers = 1;
-  image_info.format = Platform::Constants::render_texture_color;
+  image_info.format = format;
   image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
   image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT;
+  image_info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
   image_info.samples = VK_SAMPLE_COUNT_1_BIT;
   image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   return std::make_shared<Image>(image_info);
+}
+
+uint32_t RayCameraOptionalOutputBit(const RayCameraOptionalOutput output) {
+  return 1u << static_cast<uint32_t>(output);
+}
+
+bool RayCameraOptionalOutputEnabled(const uint32_t mask, const RayCameraOptionalOutput output) {
+  return (mask & RayCameraOptionalOutputBit(output)) != 0u;
+}
+
+uint32_t RayCameraOptionalOutputMask(const CameraSettings::RayOutputSettings& outputs) {
+  uint32_t mask = 0u;
+  if (outputs.albedo) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::Albedo);
+  }
+  if (outputs.normal) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::Normal);
+  }
+  if (outputs.ray_count) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::RayCount);
+  }
+  if (outputs.path_length) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::PathLength);
+  }
+  if (outputs.time) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::Time);
+  }
+  if (outputs.debug) {
+    mask |= RayCameraOptionalOutputBit(RayCameraOptionalOutput::Debug);
+  }
+  return mask;
+}
+
+bool RayCameraOptionalOutputIsUint(const RayCameraOptionalOutput output) {
+  return output == RayCameraOptionalOutput::RayCount || output == RayCameraOptionalOutput::PathLength ||
+         output == RayCameraOptionalOutput::Time;
+}
+
+VkFormat RayCameraOptionalOutputFormat(const RayCameraOptionalOutput output) {
+  if (RayCameraOptionalOutputIsUint(output)) {
+    return VK_FORMAT_R32_UINT;
+  }
+  if (output == RayCameraOptionalOutput::Albedo) {
+    return VK_FORMAT_R8G8B8A8_UNORM;
+  }
+  if (output == RayCameraOptionalOutput::Normal) {
+    return VK_FORMAT_R16G16B16A16_SFLOAT;
+  }
+  return Platform::Constants::render_texture_color;
+}
+
+uint32_t RayCameraOptionalOutputByteSize(const RayCameraOptionalOutput output) {
+  const VkFormat format = RayCameraOptionalOutputFormat(output);
+  return format == VK_FORMAT_R32_UINT || format == VK_FORMAT_R8G8B8A8_UNORM
+             ? 4u
+             : (format == VK_FORMAT_R16G16B16A16_SFLOAT ? 8u : 16u);
 }
 
 bool HasRayCameraHistory(const RayCameraHistoryResources& history) {
   return history.radiance_image && history.radiance_view && history.convergence_image && history.convergence_view;
 }
 
-uint64_t RayCameraHistoryByteSize(const VkExtent3D extent) {
-  return static_cast<uint64_t>(extent.width) * extent.height * extent.depth * sizeof(glm::vec4) * 2u;
+uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
+  auto byte_size = static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
+                   sizeof(glm::vec4) * 2u;
+  for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+    if (!history.optional_outputs.images[index]) {
+      continue;
+    }
+    const auto output = static_cast<RayCameraOptionalOutput>(index);
+    byte_size += static_cast<uint64_t>(history.extent.width) * history.extent.height * history.extent.depth *
+                 RayCameraOptionalOutputByteSize(output);
+  }
+  return byte_size;
 }
 
 float Halton(uint32_t index, const uint32_t base) {
@@ -378,15 +446,13 @@ bool CameraInfoBlock::operator!=(const CameraInfoBlock& other) const {
     return true;
   if (bounce != other.bounce)
     return true;
-  if (firefly_clamp_enabled != other.firefly_clamp_enabled)
-    return true;
   if (firefly_clamp_threshold != other.firefly_clamp_threshold)
-    return true;
-  if (emissive_triangle_nee_enabled != other.emissive_triangle_nee_enabled)
     return true;
   if (ray_debug_view != other.ray_debug_view)
     return true;
   if (raster_lighting_flags != other.raster_lighting_flags)
+    return true;
+  if (ray_output_flags != other.ray_output_flags)
     return true;
   if (auto_spp_enabled != other.auto_spp_enabled)
     return true;
@@ -517,12 +583,22 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
       post_processing_resources && post_processing_resources->previous_matrices_valid
           ? post_processing_resources->previous_projection_view
           : camera_info_block.projection_view;
+  camera_info_block.previous_inverse_projection =
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_inverse_projection
+          : camera_info_block.inverse_projection;
+  camera_info_block.previous_inverse_view =
+      post_processing_resources && post_processing_resources->previous_matrices_valid
+          ? post_processing_resources->previous_inverse_view
+          : camera_info_block.inverse_view;
   camera_info_block.previous_unjittered_projection_view =
       post_processing_resources && post_processing_resources->previous_matrices_valid
           ? post_processing_resources->previous_unjittered_projection_view
           : camera_info_block.unjittered_projection_view;
   if (post_processing_resources) {
     post_processing_resources->previous_projection_view = camera_info_block.projection_view;
+    post_processing_resources->previous_inverse_projection = camera_info_block.inverse_projection;
+    post_processing_resources->previous_inverse_view = camera_info_block.inverse_view;
     post_processing_resources->previous_unjittered_projection_view = camera_info_block.unjittered_projection_view;
     post_processing_resources->previous_matrices_valid = true;
   }
@@ -579,11 +655,10 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.sample_size = camera_settings.sample_size;
   camera_info_block.bounce = camera_settings.bounce;
   camera_info_block.gamma = camera_settings.gamma;
-  camera_info_block.firefly_clamp_enabled = camera_settings.firefly_clamp_enabled ? 1u : 0u;
   camera_info_block.firefly_clamp_threshold = camera_settings.firefly_clamp_threshold;
-  camera_info_block.emissive_triangle_nee_enabled = camera_settings.emissive_triangle_nee_enabled ? 1u : 0u;
   camera_info_block.ray_debug_view =
       static_cast<uint32_t>(Camera::NormalizeRayDebugView(static_cast<uint32_t>(camera_settings.ray_debug_view)));
+  camera_info_block.ray_output_flags = RayCameraOptionalOutputMask(camera_settings.ray_outputs);
   camera_info_block.raster_lighting_flags = 0u;
   if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
       post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
@@ -862,6 +937,10 @@ const std::shared_ptr<Image>& Camera::GetGBufferUtilityImage() const {
   return g_buffer_utility_;
 }
 
+const RayCameraOptionalOutputResources& Camera::GetRayCameraOptionalOutputResources() const {
+  return ray_camera_history_.optional_outputs;
+}
+
 RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
   auto stats = ray_camera_history_counters_;
   const auto& history = ray_camera_history_;
@@ -869,7 +948,7 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
     ++stats.live_history_count;
     if (history.technique == RayCameraHistoryTechnique::RayTracing) {
       ++stats.live_ray_tracing_history_count;
-    } else {
+    } else if (history.technique == RayCameraHistoryTechnique::RayQuery) {
       ++stats.live_ray_query_history_count;
     }
     stats.valid_history_count += history.valid ? 1u : 0u;
@@ -877,7 +956,15 @@ RayCameraHistoryStats Camera::GetRayCameraHistoryStats() const {
     stats.convergence_image_count += history.convergence_image ? 1u : 0u;
     stats.radiance_view_count += history.radiance_view ? 1u : 0u;
     stats.convergence_view_count += history.convergence_view ? 1u : 0u;
-    stats.live_byte_size += RayCameraHistoryByteSize(history.extent);
+    stats.optional_output_image_count += static_cast<uint64_t>(std::count_if(
+        history.optional_outputs.images.begin(), history.optional_outputs.images.end(), [](const auto& image) {
+          return static_cast<bool>(image);
+        }));
+    stats.optional_output_view_count += static_cast<uint64_t>(std::count_if(
+        history.optional_outputs.views.begin(), history.optional_outputs.views.end(), [](const auto& view) {
+          return static_cast<bool>(view);
+        }));
+    stats.live_byte_size += RayCameraHistoryByteSize(history);
     stats.live_output_descriptor_count = static_cast<uint64_t>(std::count_if(
         history.output_descriptor_slots.begin(), history.output_descriptor_slots.end(), [](const auto& slot) {
           return static_cast<bool>(slot.descriptor_set);
@@ -1029,6 +1116,42 @@ RayCameraHistoryResources& Camera::AcquireRayCameraHistory(
   ray_camera_history_counters_.peak_live_byte_size =
       std::max(ray_camera_history_counters_.peak_live_byte_size, stats.live_byte_size);
   return history;
+}
+
+void Camera::SynchronizeRayCameraOptionalOutputs(RayCameraHistoryResources& history,
+                                                 const CameraSettings::RayOutputSettings& outputs) {
+  if (!HasRayCameraHistory(history)) {
+    return;
+  }
+  const uint32_t requested_mask = RayCameraOptionalOutputMask(outputs);
+  auto& optional = history.optional_outputs;
+  if (!optional.uint_fallback_image) {
+    optional.uint_fallback_image = CreateRayCameraHistoryImage({1u, 1u, 1u}, VK_FORMAT_R32_UINT);
+    optional.uint_fallback_view = CreateGraphImageMipView(optional.uint_fallback_image, 0);
+  }
+  if (optional.enabled_mask != requested_mask) {
+    for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+      const auto output = static_cast<RayCameraOptionalOutput>(index);
+      if (!RayCameraOptionalOutputEnabled(requested_mask, output)) {
+        optional.images[index].reset();
+        optional.views[index].reset();
+      }
+    }
+    history.output_descriptor_slots.clear();
+    optional.enabled_mask = requested_mask;
+  }
+  for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+    const auto output = static_cast<RayCameraOptionalOutput>(index);
+    if (!RayCameraOptionalOutputEnabled(requested_mask, output)) {
+      continue;
+    }
+    if (!optional.images[index]) {
+      optional.images[index] = CreateRayCameraHistoryImage(history.extent, RayCameraOptionalOutputFormat(output));
+      optional.views[index] = CreateGraphImageMipView(optional.images[index], 0);
+    } else if (!optional.views[index]) {
+      optional.views[index] = CreateGraphImageMipView(optional.images[index], 0);
+    }
+  }
 }
 
 std::shared_ptr<DescriptorSet> Camera::AcquireRayCameraOutputDescriptor(

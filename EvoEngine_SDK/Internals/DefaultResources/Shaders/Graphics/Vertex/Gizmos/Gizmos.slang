@@ -1,16 +1,15 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.GizmosConstants;
 
-#include "GizmosConstants.slangh"
-#include "Basic.slangh"
-#define EE_PER_FRAME_SET 0
-#define EE_PER_PASS_SET 1
-#define EE_PER_GROUP_SET 2
-#define EE_PER_COMMAND_SET 3
+struct GizmoVertexInput {
+  [[vk::location(0)]]
+  float3 position : POSITION;
+};
 
-layout (location = 0) in vec3 inPosition;
-
-void main()
-{
-	mat4 scaleMatrix = EE_GET_SCALE_MATRIX();
-	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vec3(EE_MODEL_MATRIX * scaleMatrix * vec4(inPosition, 1.0)), 1.0);
+[shader("vertex")]
+float4 main(GizmoVertexInput input) : SV_Position {
+  float4 position = mul(float4(input.position, 1.0f), EE_GET_GIZMO_SCALE_MATRIX());
+  position = mul(position, EE_GIZMOS_CONSTANTS.model_matrix);
+  return mul(position, EE_CAMERAS[EE_GIZMOS_CONSTANTS.camera_index].projection_view);
 }

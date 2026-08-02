@@ -107,6 +107,13 @@ def open_folder(path: Path) -> None:
     os.startfile(path)  # type: ignore[attr-defined]
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Build and install EvoEngine app runtimes through CMake presets."
@@ -145,6 +152,12 @@ def parse_args() -> argparse.Namespace:
         action="append",
         default=[],
         help="Extra argument passed to CMake configure. May be repeated.",
+    )
+    parser.add_argument(
+        "--jobs",
+        type=positive_int,
+        default=os.cpu_count() or 1,
+        help="Maximum parallel build processes. Defaults to all logical CPUs.",
     )
     parser.add_argument("--verbose", action="store_true", help="Pass verbose output to CMake.")
     return parser.parse_args()
@@ -187,9 +200,24 @@ def main() -> int:
     if not args.incremental and not args.no_clean_install:
         clean_install_dir(root, install_dir)
 
-    build_command = ["cmake", "--build", "--preset", build_preset]
+    build_command = [
+        "cmake",
+        "--build",
+        "--preset",
+        build_preset,
+        "--parallel",
+        str(args.jobs),
+    ]
     if args.verbose:
         build_command.append("--verbose")
+    build_command.extend(
+        [
+            "--",
+            "/p:UseMultiToolTask=true",
+            "/p:EnforceProcessCountAcrossBuilds=true",
+            f"/p:MultiProcMaxCount={args.jobs}",
+        ]
+    )
     run_step(f"Build and install {args.config}", build_command)
 
     print(f"\nInstall output: {install_dir}")

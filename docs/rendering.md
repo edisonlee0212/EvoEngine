@@ -272,6 +272,12 @@ thickness uses texture G, and anisotropy uses normalized texture RG with strengt
 reuse the same four-UV, `KHR_texture_transform`, storage-flip, and ray-footprint behavior as the base material inputs.
 Dispersion has no texture and is evaluated only by the specular-transmission lobe.
 
+Ray materials keep one fixed full descriptor and structure ABI for every scene. A thin RTX, RayQuery, or any-hit
+entrypoint receives the promoted scene-feature mask and passes it as a typed Slang value generic into the imported material,
+BSDF, traversal, emissive-sampling, and integrator functions. This preserves stable host/device layouts while allowing Slang
+to eliminate extension paths that the scene cannot use. Shared imported modules do not consume preprocessor configuration;
+the all-feature entrypoint default exists only for explicit startup fallback pipelines.
+
 The implementation follows Khronos when the pinned reference differs:
 
 - iridescence uses the Khronos analytical spectral integration with the colored substrate F0. Dielectrics use the
@@ -325,10 +331,10 @@ transforms are supported. Override-BLAS or override-range meshes, skinned and mo
 meshes, strands, Gaussian splats, and external geometry are excluded until sampled geometry can match the TLAS exactly.
 Excluded categories retain hit-time emission where their existing material path permits it.
 
-Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. Selection weight is
-world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable. The GPU
-samples the stored float CDF, and each entry's area PDF is derived from that exact quantized CDF interval so sampling and
-hit-side MIS have identical discrete support. Textures are deliberately excluded from the proposal distribution; the
+Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. The Power distribution uses
+world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable; each
+entry's area PDF is derived from the exact quantized CDF interval so sampling and hit-side MIS have identical discrete
+support. Textures are deliberately excluded from the proposal distribution; the
 sampled UV0-UV3 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
 emitters use that same explicit-LOD radiance for the competing BSDF estimator; unsupported hit-only emitters retain their
 ray-footprint LOD. This keeps the MIS estimators on one integrand without requiring CPU texture readback.
@@ -340,12 +346,11 @@ triangle records again. The key intentionally does not use the global geometry-s
 mesh updates cannot invalidate the static-emitter table. The storage buffer is uploaded only when that exact signature
 changes.
 
-Emissive NEE is an independent one-sample estimator in addition to the existing punctual/environment estimator. It uses
+Emissive NEE is an always-on, independent one-sample estimator in addition to the existing punctual/environment
+estimator. It uses
 the area-to-solid-angle PDF and balance-heuristic MIS against the BSDF or volume phase PDF. BSDF/phase rays that hit a
 table emitter perform a key lookup and apply the reciprocal MIS weight. Primary and Dirac hits, unsupported emitters, and
-zero-width CDF entries keep hit weight 1. The camera setting `emissive_triangle_nee_enabled` and
-`--preview-emissive-nee enabled|disabled` capture override disable only this estimator and its hit competitor; hit-time
-emission remains available for matched energy tests.
+zero-width CDF entries keep hit weight 1. Hit-time emission remains available for matched energy tests.
 
 DDGI reuses the same record lookup, CDF, reconstruction, material evaluation, and area-to-solid-angle PDF without camera
 BSDF MIS. It applies one Lambert receiver sample with binary visibility and light-technique weight one at each eligible
@@ -457,29 +462,24 @@ Current shadow policy:
 
 ## Ray Camera Paths
 
-Each frame slot owns a persistent TLAS. Unchanged instance input reuses it without recording GPU work, compatible
-transform or instance-data changes use an in-place TLAS update, and topology or active-state changes rebuild the same
-allocation when its capacity permits. Upload, build/update, and traversal barriers are recorded on the main frame queue;
-there is no separate immediate-submit fence. Mesh-empty ray scenes bind a valid TLAS containing one inactive dummy
-instance. Instanced meshes assign each particle a ray-only instance block containing its composed world transform so hit
-reconstruction does not fall back to the particle renderer's parent transform. Static mesh BLAS objects remain
-asset-owned. Each animated skinned renderer owns a persistent updateable BLAS and a fixed packed ray-payload topology.
-Bone-only changes remap the deformed vertices into that topology, update the existing GeometryStorage vertex range, and
-record an in-place BLAS update before TLAS maintenance. A BLAS content generation forces a TLAS update even when its
-device address and instance bytes are unchanged, so deformed bounds remain current. Pose and generation state commit only
-when the frame is submitted; discarded frames retry both the payload and BLAS update.
+`CameraRenderMode::RayTracing` runs the path tracer through the Vulkan ray-tracing pipeline. It traces camera rays with
+the shared glTF material and BSDF modules, accumulates radiance across frames, and supports shader execution reordering
+when the device and selected mode allow it.
 
-Ray cameras share one Slang estimator in `CameraRayIntegrator.slangh`. It owns path depth, direct-light and environment MIS,
-BSDF sampling, volume transport, throughput, Russian roulette, invalid-radiance rejection, configurable firefly clamping,
-accumulation, and Auto SPP convergence. `CameraRayTracingTraversal.slangh` adapts that estimator to the Vulkan
-ray-tracing pipeline and payload shaders; `CameraRayQueryTraversal.slangh` adapts it to inline RayQuery traversal from a
-compute shader. The active `.slang` files are stage-specific entry points.
+`CameraRenderMode::RayQuery` runs the same path-tracing integrator through a native-Slang compute shader using inline
+RayQuery traversal. The RTX and RayQuery paths share material evaluation, environment and emissive-triangle next-event
+sampling, MIS, firefly clamping, Auto SPP convergence, and ray debug views. Backend-specific traversal stays behind the
+integrator boundary so the two modes do not fork shading behavior.
 
-Acceleration structures are a shared capability rather than an RT-pipeline capability. Static, skinned, and particle
-BLAS data, TLAS updates, geometry descriptors, and synchronization are available when either RT pipelines or RayQuery are
-enabled. RT pipelines, shader binding tables, SER, point-cloud ray tracing, and DDGI ray diagnostics remain RT-only.
-RayQuery pipeline creation and dispatch require only acceleration-structure and RayQuery support; an unavailable requested
-ray mode falls back to the other ray technique before rasterization.
+Ray cameras default to one sample per pixel per frame. Emissive-triangle NEE and firefly clamping are always active; the
+firefly luminance threshold remains configurable.
+
+Ray-camera history is owned by each camera. A single history slot retains radiance, convergence, and enabled optional
+output images, and is invalidated when the render technique, scene, extent, or relevant camera state changes. Optional
+outputs use the shared descriptor layout and are allocated only when requested.
+
+Ray-camera shaders under `DefaultResources/Shaders` use the native Slang frontend. Shared modules are imported by module
+name, while RTX ray-generation and RayQuery compute entrypoints supply the traversal adapter appropriate to their backend.
 
 ## Render Graph And Extension Model
 
@@ -537,6 +537,13 @@ is constrained to an expanded current 3x3 neighborhood envelope and re-encoded i
 frame highlights are not clamped. TAA history remains owned per camera by `AntiAliasing` and is invalidated on
 resize, skipped frames, toggles, preset or persistent-setting changes, unsupported camera-wide motion, and explicit reset.
 
+## SDK Shader Language Boundary
+
+All shaders under `EvoEngine_SDK/Internals/DefaultResources/Shaders` use explicit native Slang dialect markers and
+module imports. The SDK tree contains zero shader `#include` directives and zero `.glsl` files. The remaining 16 GLSL
+headers are owned by `EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes`; EcoSysLab intentionally
+keeps its compatibility compile path until its separate Slang migration.
+
 The renderer has moved many built-in resources into explicit graph resources, but some ownership work remains:
 
 - TAA currently owns its own per-camera history textures until graph history resources expose explicit ping-pong bindings.
@@ -553,7 +560,7 @@ The renderer has moved many built-in resources into explicit graph resources, bu
 | Camera modes and fallback | `EvoEngine_SDK/src/Camera.cpp`, `EvoEngine_SDK/include/Rendering/Camera.hpp` |
 | Render graph | `EvoEngine_SDK/src/RenderGraph.cpp`, `EvoEngine_SDK/include/Rendering/RenderGraph.hpp` |
 | Render instance storage | `EvoEngine_SDK/src/RenderInstanceStorage.cpp`, `EvoEngine_SDK/include/Rendering/RenderInstances/RenderInstanceStorage.hpp` |
-| Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/Lighting.slangh` |
-| glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRasterMaterial.slangh` |
-| glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/GltfRayTracingBsdf.slangh` |
-| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes/CameraRayIntegrator.slangh`, `CameraRayTracingTraversal.slangh`, `CameraRayQueryTraversal.slangh` |
+| Lighting shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang`, `LightingFixedSet3.slang`, `LightingFixedSet4.slang` |
+| glTF raster material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GltfRasterMaterial.slang` |
+| glTF ray material shaders | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GltfRayTracingBsdf.slang` |
+| Shared ray estimator and traversal adapters | `EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/CameraRayIntegrator.slang`, `CameraRayTraversal.slang`, `CameraRayTraversalPolicies.slang` |

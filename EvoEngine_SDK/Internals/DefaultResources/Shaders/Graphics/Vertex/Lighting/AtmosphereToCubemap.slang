@@ -1,31 +1,28 @@
+// @evoengine-dialect native
+import EvoEngine.Atmosphere;
 
-layout (location = 0) in vec3 inPosition;
-
-layout (location = 0) out vec3 outWorldPos;
-
-struct Atmosphere{
-	float earth_radius;       // In the paper this is usually Rg or Re (radius ground, eart)
-	float atmosphere_radius;  // In the paper this is usually R or Ra (radius atmosphere)
-	float hr;                 // Thickness of the atmosphere if density was uniform (Hr) for Rayleigh scattering
-	float hm;                 // Same as above but for Mie scattering (Hm)
-
-	float g;  // Mean cosine for Mie scattering
-	int num_samples;
-	int num_samples_light;
-	float intensity;
+struct AtmosphereVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
 };
 
-
-layout(push_constant) uniform EE_PUSH_CONSTANTS{
-	mat4 projection_view;
-	Atmosphere atmosphere;
-
-	vec3 sun_direction;
-	float padding;
+struct AtmosphereVertexOutput {
+  float4 position : SV_Position;
+  [[vk::location(0)]] float3 world_position : TEXCOORD0;
 };
 
-void main()
-{
-    outWorldPos = inPosition;
-    gl_Position = projection_view * vec4(inPosition, 1.0);
+struct AtmosphereVertexConstants {
+  float4x4 projection_view;
+  Atmosphere atmosphere;
+  float3 sun_direction;
+  float padding;
+};
+
+[[vk::push_constant]] ConstantBuffer<AtmosphereVertexConstants> constants;
+
+[shader("vertex")]
+AtmosphereVertexOutput main(AtmosphereVertexInput input) {
+  AtmosphereVertexOutput output;
+  output.world_position = input.position;
+  output.position = mul(float4(input.position, 1.0f), constants.projection_view);
+  return output;
 }

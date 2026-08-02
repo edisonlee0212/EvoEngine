@@ -1,92 +1,53 @@
-#extension GL_EXT_mesh_shader : enable
-#extension GL_ARB_shader_draw_parameters : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
 
-#extension GL_KHR_shader_subgroup_basic : require
-#extension GL_KHR_shader_subgroup_ballot : require
-#extension GL_KHR_shader_subgroup_vote : require
-#extension GL_ARB_shading_language_include : enable
+static const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
+static const uint TASK_MESHLET_ITERATIONS =
+    (EXT_TASK_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1u) / WORKGROUP_SIZE;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-
-const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
-
-const uint TASK_MESHLET_ITERATIONS = ((EXT_TASK_WORK_GROUP_INVOCATIONS + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-
-uint baseID = gl_WorkGroupID.x * EXT_TASK_WORK_GROUP_INVOCATIONS;
-uint laneID = gl_LocalInvocationID.x;
-
-struct EEMeshTaskPayload{
-	uint instanceIndex;
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct EEMeshTaskPayload {
+  uint instanceIndex;
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
-#define BARRIER() \
-	memoryBarrierShared(); \
-	barrier();
-
-groupshared EEMeshTaskPayload ts_out;
-#if EXT_TASK_SUBGROUP_COUNT > 1
-	shared uint s_outMeshletsCount;
-#endif
+groupshared EEMeshTaskPayload task_payload;
+groupshared uint shared_meshlet_count;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 [shader("amplification")]
-void main()
-{
-	uint instanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
-	uint meshLetIndexOffset = EE_INSTANCES[instanceIndex].meshlet_offset;
-	uint meshlet_size = EE_INSTANCES[instanceIndex].meshlet_size;
+void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint draw_id : SV_DrawIndex) {
+  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  uint meshlet_offset = EE_INSTANCES[instance_index].meshlet_offset;
+  uint meshlet_count = EE_INSTANCES[instance_index].meshlet_size;
+  if (lane_id == 0u) shared_meshlet_count = 0u;
+  GroupMemoryBarrierWithGroupSync();
 
-#if EXT_TASK_SUBGROUP_COUNT > 1
-	if (laneID == 0) {
-		s_outMeshletsCount = 0;
-	}
-	BARRIER();
-#endif
+  uint group_meshlet_offset = group_id.x * EXT_TASK_WORK_GROUP_INVOCATIONS;
+  uint base_id = group_meshlet_offset + meshlet_offset;
+  uint output_count = 0u;
+  for (uint iteration = 0u; iteration < TASK_MESHLET_ITERATIONS; ++iteration) {
+    uint meshlet_local = lane_id + iteration * WORKGROUP_SIZE;
+    bool render = group_meshlet_offset + meshlet_local < meshlet_count;
+    uint wave_count = WaveActiveCountBits(render);
+    uint wave_offset = 0u;
+    if (EXT_TASK_SUBGROUP_COUNT > 1u) {
+      if (WaveGetLaneIndex() == 0u) InterlockedAdd(shared_meshlet_count, wave_count, wave_offset);
+      wave_offset = WaveReadLaneFirst(wave_offset);
+    }
+    uint output_index = WavePrefixCountBits(render) + wave_offset;
+    if (render) task_payload.deltaIDs[output_index] = uint8_t(meshlet_local);
+    if (EXT_TASK_SUBGROUP_COUNT == 1u) output_count += wave_count;
+  }
 
-	baseID += meshLetIndexOffset;
-
-	uint outMeshletsCount = 0;
-
-	for (uint i = 0; i < TASK_MESHLET_ITERATIONS; i++)
-	{
-		uint meshletLocal  = laneID + i * WORKGROUP_SIZE;
-		uint meshletGlobal = baseID + meshletLocal;
-
-		bool render = !(meshletGlobal > meshLetIndexOffset + meshlet_size - 1);
-
-		uvec4 voteMeshlets = subgroupBallot(render);
-		uint numMeshlets  = subgroupBallotBitCount(voteMeshlets);
-
-#if EXT_TASK_SUBGROUP_COUNT > 1
-		if (gl_SubgroupInvocationID == 0) {
-			outMeshletsCount = atomicAdd(s_outMeshletsCount, numMeshlets);
-		}
-		outMeshletsCount = subgroupBroadcastFirst(outMeshletsCount);
-#endif
-		uint idxOffset  = subgroupBallotExclusiveBitCount(voteMeshlets) + outMeshletsCount;
-		if (render)
-		{
-			ts_out.deltaIDs[idxOffset] = uint8_t(meshletLocal);
-		}
-#if EXT_TASK_SUBGROUP_COUNT == 1
-		outMeshletsCount += numMeshlets;
-#endif
-	}
-
-#if EXT_TASK_SUBGROUP_COUNT > 1
-	BARRIER();
-	outMeshletsCount = s_outMeshletsCount;
-#endif
-
-	if (laneID == 0) {
-		ts_out.baseID = baseID;
-		ts_out.instanceIndex = instanceIndex;
-#ifdef USE_STATS
-		atomicAdd(stats.tasksOutput, outMeshletsCount);
-#endif
-	}
-	DispatchMesh(outMeshletsCount, 1, 1, ts_out);
+  if (EXT_TASK_SUBGROUP_COUNT > 1u) {
+    GroupMemoryBarrierWithGroupSync();
+    output_count = shared_meshlet_count;
+  }
+  if (lane_id == 0u) {
+    task_payload.baseID = base_id;
+    task_payload.instanceIndex = instance_index;
+  }
+  DispatchMesh(output_count, 1, 1, task_payload);
 }

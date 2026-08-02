@@ -1,5 +1,6 @@
 #include "RenderPasses/RayTracingCameraPass.hpp"
 
+#include "Application.hpp"
 #include "Camera.hpp"
 #include "ComputePipeline.hpp"
 #include "GraphicsResources.hpp"
@@ -11,11 +12,29 @@
 
 #include <algorithm>
 #include <array>
+#include <utility>
 
 using namespace evo_engine;
 
 namespace {
 constexpr uint32_t kRayQueryCameraWorkGroupSize = 8;
+
+void AddRayCameraOptionalOutputAccesses(RenderPassDescriptor& descriptor,
+                                        const CameraSettings::RayOutputSettings& outputs) {
+  const std::array output_resources{
+      std::pair{outputs.albedo, RenderResourceNames::camera_ray_albedo},
+      std::pair{outputs.normal, RenderResourceNames::camera_ray_normal},
+      std::pair{outputs.ray_count, RenderResourceNames::camera_ray_count},
+      std::pair{outputs.path_length, RenderResourceNames::camera_ray_path_length},
+      std::pair{outputs.time, RenderResourceNames::camera_ray_time},
+      std::pair{outputs.debug, RenderResourceNames::camera_ray_debug},
+  };
+  for (const auto& [enabled, name] : output_resources) {
+    if (enabled) {
+      descriptor.resources.push_back({name, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite});
+    }
+  }
+}
 
 void ApplyRayCameraStorageDependencies(const VkCommandBuffer command_buffer, const std::shared_ptr<Image>& color,
                                        RayCameraHistoryResources& history, const VkPipelineStageFlags2 shader_stage) {
@@ -52,11 +71,58 @@ void ApplyRayCameraStorageDependencies(const VkCommandBuffer command_buffer, con
   dependency.pImageMemoryBarriers = barriers.data();
   vkCmdPipelineBarrier2(command_buffer, &dependency);
 }
+
+bool RayCameraOptionalOutputIsUint(const RayCameraOptionalOutput output) {
+  return output == RayCameraOptionalOutput::RayCount || output == RayCameraOptionalOutput::PathLength ||
+         output == RayCameraOptionalOutput::Time;
+}
+
+void RetainRayCameraOptionalOutputViews(RenderGraphTransientResourceStore& transient_resources,
+                                        const RayCameraHistoryResources& history) {
+  for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+    if (history.optional_outputs.images[index]) {
+      transient_resources.RetainImage(history.optional_outputs.images[index]);
+    }
+    if (history.optional_outputs.views[index]) {
+      transient_resources.RetainImageView(history.optional_outputs.views[index]);
+    }
+  }
+  transient_resources.RetainImage(history.optional_outputs.uint_fallback_image);
+  transient_resources.RetainImageView(history.optional_outputs.uint_fallback_view);
+}
+
+VkDescriptorImageInfo PrepareRayCameraUintFallback(const VkCommandBuffer command_buffer,
+                                                   RayCameraHistoryResources& history) {
+  auto& fallback = history.optional_outputs.uint_fallback_image;
+  if (fallback && fallback->GetLayout() != VK_IMAGE_LAYOUT_GENERAL) {
+    fallback->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+  }
+  VkDescriptorImageInfo image_info{};
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  image_info.imageView = history.optional_outputs.uint_fallback_view->GetVkImageView();
+  return image_info;
+}
+
+void UpdateRayCameraOptionalOutputDescriptors(const std::shared_ptr<DescriptorSet>& descriptor_set,
+                                              const RayCameraHistoryResources& history,
+                                              const VkDescriptorImageInfo& fallback_color_image_info,
+                                              const VkDescriptorImageInfo& fallback_uint_image_info) {
+  for (uint32_t index = 0u; index < kRayCameraOptionalOutputCount; ++index) {
+    const auto output = static_cast<RayCameraOptionalOutput>(index);
+    auto image_info = RayCameraOptionalOutputIsUint(output) ? fallback_uint_image_info : fallback_color_image_info;
+    if (history.optional_outputs.views[index]) {
+      image_info.imageView = history.optional_outputs.views[index]->GetVkImageView();
+    }
+    descriptor_set->UpdateImageDescriptorBinding(kRayCameraOutputDescriptorBaseBindingCount + index, image_info);
+  }
+}
+
 }  // namespace
 
-RenderPassDescriptor RayTracingCameraPass::CreateDescriptor() {
-  return {
-      RenderPassNames::ray_tracing_camera,
+RenderPassDescriptor RayTracingCameraPass::CreateDescriptor(const char* pass_name,
+                                                            const CameraSettings::RayOutputSettings outputs) {
+  RenderPassDescriptor descriptor{
+      pass_name,
       RenderPassQueue::RayTracing,
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
@@ -66,10 +132,12 @@ RenderPassDescriptor RayTracingCameraPass::CreateDescriptor() {
        {RenderResourceNames::camera_ray_hit_distance, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
+  AddRayCameraOptionalOutputAccesses(descriptor, outputs);
+  return descriptor;
 }
 
-RenderPassDescriptor RayQueryCameraPass::CreateDescriptor() {
-  return {
+RenderPassDescriptor RayQueryCameraPass::CreateDescriptor(const CameraSettings::RayOutputSettings outputs) {
+  RenderPassDescriptor descriptor{
       RenderPassNames::ray_query_camera,
       RenderPassQueue::Graphics,
       RenderPassScope::Camera,
@@ -80,6 +148,8 @@ RenderPassDescriptor RayQueryCameraPass::CreateDescriptor() {
        {RenderResourceNames::camera_ray_hit_distance, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
+  AddRayCameraOptionalOutputAccesses(descriptor, outputs);
+  return descriptor;
 }
 
 void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -114,6 +184,7 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     parameters.transient_resources->RetainImageView(hit_distance_view);
     parameters.transient_resources->RetainImageView(history_resources.radiance_view);
     parameters.transient_resources->RetainImageView(history_resources.convergence_view);
+    RetainRayCameraOptionalOutputViews(*parameters.transient_resources, history_resources);
     parameters.transient_resources->RetainImage(render_texture->GetColorImage());
     parameters.transient_resources->RetainImageView(render_texture->GetColorImageView());
     const auto& output_descriptor_set = parameters.output_descriptor_set;
@@ -127,6 +198,12 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     output_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
     image_info.imageView = history_resources.convergence_view->GetVkImageView();
     output_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
+    VkDescriptorImageInfo fallback_color_image_info{};
+    fallback_color_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    fallback_color_image_info.imageView = render_texture->GetColorImageView()->GetVkImageView();
+    const auto fallback_uint_image_info = PrepareRayCameraUintFallback(vk_command_buffer, history_resources);
+    UpdateRayCameraOptionalOutputDescriptors(output_descriptor_set, history_resources, fallback_color_image_info,
+                                             fallback_uint_image_info);
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -143,6 +220,8 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
                                                     parameters.camera->camera_settings.shader_execution_reordering_mode)
                                                     ? 1u
                                                     : 0u;
+    push_constant.max_directional_light_size =
+        ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RTX)");
     parameters.pipeline->Trace(vk_command_buffer, render_texture->GetExtent().width, render_texture->GetExtent().height,
@@ -187,6 +266,7 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     parameters.transient_resources->RetainImageView(hit_distance_view);
     parameters.transient_resources->RetainImageView(history_resources.radiance_view);
     parameters.transient_resources->RetainImageView(history_resources.convergence_view);
+    RetainRayCameraOptionalOutputViews(*parameters.transient_resources, history_resources);
     parameters.transient_resources->RetainImage(render_texture->GetColorImage());
     parameters.transient_resources->RetainImageView(render_texture->GetColorImageView());
     const auto& output_descriptor_set = parameters.output_descriptor_set;
@@ -200,6 +280,12 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     output_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
     image_info.imageView = history_resources.convergence_view->GetVkImageView();
     output_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
+    VkDescriptorImageInfo fallback_color_image_info{};
+    fallback_color_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    fallback_color_image_info.imageView = render_texture->GetColorImageView()->GetVkImageView();
+    const auto fallback_uint_image_info = PrepareRayCameraUintFallback(vk_command_buffer, history_resources);
+    UpdateRayCameraOptionalOutputDescriptors(output_descriptor_set, history_resources, fallback_color_image_info,
+                                             fallback_uint_image_info);
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
@@ -212,6 +298,8 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
+    push_constant.max_directional_light_size =
+        ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RQ)");
     parameters.pipeline->Dispatch(vk_command_buffer,

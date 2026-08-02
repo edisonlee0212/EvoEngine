@@ -126,15 +126,25 @@ class PyEvoEngine {
   static bool RunDemoWindowless(const std::string& demo_setup_name, const std::filesystem::path& resource_folder_path,
                                 bool clear_generated_project_files = true);
   /**
+   * @brief Configure the active scene's main camera for a deterministic capture.
+   * @param render_mode Exact camera render mode name.
+   * @param samples_per_frame Ray samples accumulated per rendered frame.
+   * @param bounces Maximum ray-path bounce count.
+   * @return True when the requested render mode is available and the camera was configured.
+   */
+  static bool ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, int samples_per_frame, int bounces);
+  /**
    * @brief Render and save the active scene's main camera.
    * @param resolution_x Capture width.
    * @param resolution_y Capture height.
    * @param output_path Output image path.
    * @param warmup_frames Number of application loops before saving.
+   * @param require_accumulated_frames When true, keep rendering through history resets until the camera reaches the
+   * requested frame count.
    * @return True when a non-empty image was written.
    */
   static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
-                                  int warmup_frames = 1);
+                                  int warmup_frames = 1, bool require_accumulated_frames = false);
   /**
    * @brief Check whether the active scene is configured to render with DDGI.
    * @return True when DDGI runtime is enabled, indirect rendering is enabled, and an enabled DDGI volume exists.

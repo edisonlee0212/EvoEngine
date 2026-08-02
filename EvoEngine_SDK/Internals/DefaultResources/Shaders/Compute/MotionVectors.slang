@@ -1,72 +1,98 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
 
-#include "PerFrame.slangh"
+[[vk::binding(17, 1)]]
+Sampler2D inDepth;
 
-layout(set = 1, binding = 17) uniform sampler2D inDepth;
-layout(set = 1, binding = 24) uniform sampler2D inUtility;
-layout(set = 2, binding = 0, rgba16f) uniform writeonly image2D outMotionVectors;
+[[vk::binding(24, 1)]]
+Sampler2D inUtility;
+
+[[vk::binding(0, 2)]]
+[vk::image_format("rgba16f")]
+RWTexture2D<float4> outMotionVectors;
 
 struct PreviousInstance {
-  mat4 previous_model;
-  uvec4 flags;
+  float4x4 previous_model;
+  uint4 flags;
 };
 
-layout(set = 2, binding = 1) readonly buffer EE_PREVIOUS_INSTANCE_BLOCK {
-  PreviousInstance EE_PREVIOUS_INSTANCES[];
+[[vk::binding(1, 2)]]
+StructuredBuffer<PreviousInstance> EE_PREVIOUS_INSTANCES;
+
+struct EeMotionVectorConstants {
+  int camera_index;
+  int instance_count;
 };
 
-layout(push_constant) uniform EE_MOTION_VECTOR_CONSTANTS {
-  int EE_CAMERA_INDEX;
-  int EE_INSTANCE_COUNT;
-};
+[[vk::push_constant]]
+ConstantBuffer<EeMotionVectorConstants> constants;
 
 float CameraFarDistance() {
-  mat4 projection = EE_CAMERAS[EE_CAMERA_INDEX].projection;
+  float4x4 projection = EE_CAMERAS[constants.camera_index].projection;
   return abs(projection[3][2] / (projection[2][2] + 1.0f));
 }
 
-bool ProjectToPixel(mat4 projectionView, vec3 worldPosition, vec2 resolution, out vec2 pixel, out float linearDepth) {
-  vec4 clip = projectionView * vec4(worldPosition, 1.0f);
+bool ProjectToPixel(float4x4 projection_view, float3 world_position, float2 resolution, out float2 pixel,
+                    out float linear_depth) {
+  float4 clip = mul(float4(world_position, 1.0f), projection_view);
   if (clip.w <= 0.0001f) {
     return false;
   }
-  vec3 ndc = clip.xyz / clip.w;
-  pixel = (ndc.xy * 0.5f + vec2(0.5f)) * resolution;
-  linearDepth = clamp(clip.w / max(CameraFarDistance(), 1e-5f), 0.0f, 1.0f);
+  float3 ndc = clip.xyz / clip.w;
+  pixel = (ndc.xy * 0.5f + float2(0.5f)) * resolution;
+  linear_depth = clamp(clip.w / max(CameraFarDistance(), 1e-5f), 0.0f, 1.0f);
   return ndc.z >= -0.001f && ndc.z <= 1.001f;
 }
 
-[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
-  ivec2 texel = ivec2(dispatchThreadId.xy);
-  ivec2 resolution = imageSize(outMotionVectors);
-  if (texel.x >= resolution.x || texel.y >= resolution.y) {
+float3 TransformBetweenModels(float3 world_position, float4x4 current_model, float4x4 previous_model) {
+  float3 row0 = current_model[0].xyz;
+  float3 row1 = current_model[1].xyz;
+  float3 row2 = current_model[2].xyz;
+  float determinant = dot(row0, cross(row1, row2));
+  float3x3 inverse_linear = transpose(float3x3(cross(row1, row2), cross(row2, row0), cross(row0, row1))) /
+                            determinant;
+  float3 local_position = mul(world_position - current_model[3].xyz, inverse_linear);
+  float3x3 previous_linear = float3x3(previous_model[0].xyz, previous_model[1].xyz, previous_model[2].xyz);
+  return mul(local_position, previous_linear) + previous_model[3].xyz;
+}
+
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  int2 texel = int2(dispatch_thread_id.xy);
+  uint width = 0;
+  uint height = 0;
+  outMotionVectors.GetDimensions(width, height);
+  int2 resolution = int2(width, height);
+  if (any(texel >= resolution)) {
     return;
   }
 
-  vec2 texCoord = (vec2(texel) + vec2(0.5f)) / vec2(resolution);
-  float ndcDepth = texelFetch(inDepth, texel, 0).x;
-  bool hasGeometry = ndcDepth < 1.0f;
-  float reconstructionDepth = min(ndcDepth, 0.999999f);
-  vec3 currentWorld = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, texCoord, reconstructionDepth);
-  vec3 previousWorld = currentWorld;
-  if (hasGeometry) {
-    int instanceIndex = int(round(texelFetch(inUtility, texel, 0).x));
-    if (instanceIndex >= 0 && instanceIndex < EE_INSTANCE_COUNT && EE_PREVIOUS_INSTANCES[instanceIndex].flags.x != 0u) {
-      mat4 currentModel = EE_INSTANCES[instanceIndex].model;
-      mat4 previousModel = EE_PREVIOUS_INSTANCES[instanceIndex].previous_model;
-      previousWorld = (previousModel * inverse(currentModel) * vec4(currentWorld, 1.0f)).xyz;
+  float2 tex_coord = (float2(texel) + float2(0.5f)) / float2(resolution);
+  float ndc_depth = inDepth.Load(int3(texel, 0)).x;
+  bool has_geometry = ndc_depth < 1.0f;
+  float reconstruction_depth = min(ndc_depth, 0.999999f);
+  float3 current_world = EE_DEPTH_TO_WORLD_POS(constants.camera_index, tex_coord, reconstruction_depth);
+  float3 previous_world = current_world;
+  if (has_geometry) {
+    int instance_index = int(round(inUtility.Load(int3(texel, 0)).x));
+    if (instance_index >= 0 && instance_index < constants.instance_count &&
+        EE_PREVIOUS_INSTANCES[instance_index].flags.x != 0u) {
+      float4x4 current_model = EE_INSTANCES[instance_index].model;
+      float4x4 previous_model = EE_PREVIOUS_INSTANCES[instance_index].previous_model;
+      previous_world = TransformBetweenModels(current_world, current_model, previous_model);
     }
   }
 
-  vec2 currentPixel;
-  vec2 previousPixel;
-  float currentLinearDepth;
-  float previousLinearDepth;
-  bool currentValid = ProjectToPixel(EE_CAMERAS[EE_CAMERA_INDEX].unjittered_projection_view, currentWorld,
-                                     vec2(resolution), currentPixel, currentLinearDepth);
-  bool previousValid = ProjectToPixel(EE_CAMERAS[EE_CAMERA_INDEX].previous_unjittered_projection_view, previousWorld,
-                                      vec2(resolution), previousPixel, previousLinearDepth);
-  vec2 velocityPixels = currentValid && previousValid ? previousPixel - currentPixel : vec2(0.0f);
-  float depthDelta = currentValid && previousValid ? previousLinearDepth - currentLinearDepth : 0.0f;
-  imageStore(outMotionVectors, texel, vec4(velocityPixels, depthDelta, 0.0f));
+  float2 current_pixel;
+  float2 previous_pixel;
+  float current_linear_depth;
+  float previous_linear_depth;
+  bool current_valid = ProjectToPixel(EE_CAMERAS[constants.camera_index].unjittered_projection_view, current_world,
+                                      float2(resolution), current_pixel, current_linear_depth);
+  bool previous_valid = ProjectToPixel(EE_CAMERAS[constants.camera_index].previous_unjittered_projection_view,
+                                       previous_world, float2(resolution), previous_pixel, previous_linear_depth);
+  float2 velocity_pixels = current_valid && previous_valid ? previous_pixel - current_pixel : float2(0.0f);
+  float depth_delta = current_valid && previous_valid ? previous_linear_depth - current_linear_depth : 0.0f;
+  outMotionVectors[texel] = float4(velocity_pixels, depth_delta, 0.0f);
 }

@@ -31,6 +31,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/GltfRasterMaterialShaderTest.cpp
 	Core/GltfRayTracingMaterialShaderTest.cpp
 	Core/ShaderCacheTest.cpp
+	Core/ShaderBaselineTest.cpp
 	Core/VulkanPipelineCacheTest.cpp
 	Core/RayCameraShaderVariantCacheTest.cpp
 	Core/CameraRenderTechniqueTest.cpp
@@ -166,6 +167,19 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER ShaderCache.*
 	PROPERTIES LABELS "core,render,shader-cache"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER ShaderBaseline.*
+	PROPERTIES LABELS "core,render,shader-baseline"
+	)
+add_test(NAME ShaderPolicy.Sdk
+	COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/check_sdk_shader_policy.py"
+	)
+set_tests_properties(ShaderPolicy.Sdk
+	PROPERTIES
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+	LABELS "core,render,shader-policy"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

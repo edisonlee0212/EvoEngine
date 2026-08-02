@@ -1317,6 +1317,7 @@ TEST(GltfMaterialConversion, CanonicalMaterialAssetBuildsGltfMaterialDataDirectl
   source_shade.emissive_factor = glm::vec3(0.5f, 0.25f, 0.125f);
   source_shade.transmission_factor = 0.25f;
   source_shade.ior = 1.2f;
+  source_shade.nested_priority = 3u;
   source_shade.clearcoat_factor = 0.3f;
   source_shade.clearcoat_roughness = 0.4f;
   source_shade.specular_factor = 0.9f;
@@ -1341,6 +1342,7 @@ TEST(GltfMaterialConversion, CanonicalMaterialAssetBuildsGltfMaterialDataDirectl
   ExpectVec3Near(shade_material.emissive_factor, glm::vec3(0.5f, 0.25f, 0.125f));
   EXPECT_NEAR(shade_material.transmission_factor, 0.25f, kEpsilon);
   EXPECT_NEAR(shade_material.ior, 1.2f, kEpsilon);
+  EXPECT_EQ(shade_material.nested_priority, 3u);
   EXPECT_NEAR(shade_material.clearcoat_factor, 0.3f, kEpsilon);
   EXPECT_NEAR(shade_material.clearcoat_roughness, 0.4f, kEpsilon);
   EXPECT_NEAR(shade_material.specular_factor, 0.9f, kEpsilon);

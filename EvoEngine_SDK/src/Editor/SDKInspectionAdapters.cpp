@@ -1,5 +1,7 @@
 #include "SDKInspectionAdapters.hpp"
 
+#include <algorithm>
+
 #include "Animation.hpp"
 #include "AnimationPlayer.hpp"
 #include "Animator.hpp"
@@ -504,16 +506,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
     }
   }
   if (Camera::IsRayCameraRenderMode(camera.camera_render_mode)) {
-    if (ImGui::Checkbox("Emissive triangle NEE", &camera.camera_settings.emissive_triangle_nee_enabled)) {
-      camera.ResetFrameCount();
-      changed = true;
-    }
-    if (ImGui::Checkbox("Firefly clamp", &camera.camera_settings.firefly_clamp_enabled)) {
-      camera.ResetFrameCount();
-      changed = true;
-    }
-    if (camera.camera_settings.firefly_clamp_enabled &&
-        ImGui::DragFloat("Firefly threshold", &camera.camera_settings.firefly_clamp_threshold, 0.1f, 0.0f, 1000.0f,
+    if (ImGui::DragFloat("Firefly threshold", &camera.camera_settings.firefly_clamp_threshold, 0.1f, 0.0f, 1000.0f,
                          "%.2f")) {
       camera.camera_settings.firefly_clamp_threshold = glm::max(camera.camera_settings.firefly_clamp_threshold, 0.0f);
       camera.ResetFrameCount();
@@ -3118,6 +3111,11 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
       }
     }
     if (ImGui::DragFloat("IOR##Material", &shade_material.ior, 0.01f, 0.0f, 5.0f)) {
+      changed = true;
+    }
+    int nested_priority = static_cast<int>(std::min(shade_material.nested_priority, 15u));
+    if (ImGui::SliderInt("Nested Priority##Material", &nested_priority, 0, 15)) {
+      shade_material.nested_priority = static_cast<uint32_t>(nested_priority);
       changed = true;
     }
     if (ImGui::DragFloat("Transmission##Material", &shade_material.transmission_factor, 0.01f, 0.0f, 1.0f)) {

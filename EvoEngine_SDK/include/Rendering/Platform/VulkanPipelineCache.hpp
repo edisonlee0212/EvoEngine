@@ -43,7 +43,7 @@ struct PipelineCreationFeedback {
 
 class VulkanPipelineCache final {
  public:
-  static constexpr size_t kMaxCacheFileBytes = 256ull * 1024ull * 1024ull;
+  static constexpr size_t kMaxCacheFileBytes = 512ull * 1024ull * 1024ull;
 
   VulkanPipelineCache() = default;
   VulkanPipelineCache(const VulkanPipelineCache&) = delete;

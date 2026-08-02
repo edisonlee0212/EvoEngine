@@ -131,6 +131,7 @@ struct GizmosPushConstant {
   float size;                     /**< The size of the gizmos. */
   int32_t camera_index;           /**< Index of the camera associated with the gizmos. */
   uint32_t strand_meshlet_offset; /**< First strand meshlet for direct gizmo draws. */
+  uint32_t strand_color_mode;     /**< Strand output color mode. */
 };
 
 /**

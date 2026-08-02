@@ -1,46 +1,29 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.SMAA;
 
-layout(push_constant) uniform EE_SMAA_CONSTANTS {
-  vec4 metrics;
-  vec4 subsampleIndices;
-  int toneMapped;
-  int debugMode;
-  int padding0;
-  int padding1;
-} pc;
+[[vk::binding(0, 0)]] Sampler2D<float4> color_tex;
+[[vk::binding(1, 0)]] Sampler2D<float4> blend_tex;
+[[vk::binding(2, 0)]] Sampler2D<float4> edges_tex;
 
-#define SMAA_SLANGH_4
-#define SMAA_PRESET_ULTRA
-#define SMAA_RT_METRICS pc.metrics
-#define SMAA_INCLUDE_VS 0
-#define SMAA_INCLUDE_PS 1
-#include "SMAA/SMAA.hlsl"
-
-layout(set = 0, binding = 0) uniform sampler2D colorTex;
-layout(set = 0, binding = 1) uniform sampler2D blendTex;
-layout(set = 0, binding = 2) uniform sampler2D edgesTex;
-layout(location = 0) in vec2 inTexcoord;
-layout(location = 1) in vec4 inOffset;
-layout(location = 0) out vec4 outColor;
-
-vec3 LinearToSrgb(vec3 color) {
-  vec3 low = color * 12.92f;
-  vec3 high = 1.055f * pow(max(color, vec3(0.0f)), vec3(1.0f / 2.4f)) - 0.055f;
-  return mix(low, high, greaterThan(color, vec3(0.0031308f)));
+float3 LinearToSrgb(float3 color) {
+  float3 low = color * 12.92f;
+  float3 high = 1.055f * pow(max(color, float3(0.0f)), float3(1.0f / 2.4f)) - 0.055f;
+  return lerp(low, high, color > float3(0.0031308f));
 }
 
-void main() {
-  if (pc.debugMode == 1) {
-    vec2 edges = texture(edgesTex, inTexcoord).rg;
-    outColor = vec4(edges.r, edges.g, 0.0f, 1.0f);
-    return;
+[shader("fragment")]
+float4 main([[vk::location(0)]] float2 texcoord : TEXCOORD0,
+            [[vk::location(1)]] float4 offset : TEXCOORD1) : SV_Target0 {
+  if (EE_SMAA_CONSTANTS.debug_mode == 1) {
+    float2 edges = edges_tex.Sample(texcoord).rg;
+    return float4(edges.r, edges.g, 0.0f, 1.0f);
   }
-  if (pc.debugMode == 2) {
-    outColor = vec4(texture(blendTex, inTexcoord).rgb, 1.0f);
-    return;
+  if (EE_SMAA_CONSTANTS.debug_mode == 2) {
+    return float4(blend_tex.Sample(texcoord).rgb, 1.0f);
   }
-  outColor = SMAANeighborhoodBlendingPS(inTexcoord, inOffset, colorTex, blendTex);
-  if (pc.toneMapped != 0) {
-    outColor.rgb = LinearToSrgb(max(outColor.rgb, vec3(0.0f)));
+  float4 color = SMAANeighborhoodBlendingPS(texcoord, offset, color_tex, blend_tex);
+  if (EE_SMAA_CONSTANTS.tone_mapped != 0) {
+    color.rgb = LinearToSrgb(max(color.rgb, float3(0.0f)));
   }
+  return color;
 }

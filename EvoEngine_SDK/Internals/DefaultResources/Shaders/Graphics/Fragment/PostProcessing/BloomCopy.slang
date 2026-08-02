@@ -1,20 +1,23 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+struct BloomCopyInput {
+  [[vk::location(0)]]
+  float2 tex_coord : TEXCOORD0;
+};
 
-#include "PerFrame.slangh"
+struct BloomCopyOutput {
+  [[vk::location(0)]]
+  float4 source_color : SV_Target0;
+  [[vk::location(1)]]
+  float4 result_color : SV_Target1;
+};
 
-layout (location = 0) out vec4 outSrcColor;
-layout (location = 1) out vec4 outResultColor;
+[[vk::binding(0, 1)]]
+Sampler2D inColor;
 
-layout (location = 0) in VS_OUT {
-	vec2 TexCoord;
-} fs_in;
-
-layout(set = 1, binding = 0) uniform sampler2D inColor;
-
-void main()
-{
-	vec2 texCoord = fs_in.TexCoord;
-	outSrcColor = texture(inColor, texCoord);
-
-	outResultColor = vec4(max(vec3(0.00001f), texture(inColor, texCoord).xyz - vec3(1.0f)), 1.0f);
+[shader("fragment")]
+BloomCopyOutput main(BloomCopyInput input) {
+  BloomCopyOutput output;
+  output.source_color = inColor.Sample(input.tex_coord);
+  output.result_color = float4(max(float3(0.00001f), output.source_color.xyz - float3(1.0f)), 1.0f);
+  return output;
 }

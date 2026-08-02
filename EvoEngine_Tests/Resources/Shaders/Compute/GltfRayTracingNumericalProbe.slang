@@ -1,7 +1,7 @@
 #extension GL_GOOGLE_include_directive : require
 
-#include "GltfRayTracingMath.slangh"
-#include "CameraRayGeometry.slangh"
+#include "GltfRayTracingMath.slang"
+#include "CameraRayGeometry.slang"
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0, std430) buffer ProbeOutput {

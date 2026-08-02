@@ -1,43 +1,30 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.RasterMotionVectors;
+import EvoEngine.GltfRasterMaterial;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-#include "GltfRasterMaterial.slangh"
-
-layout(location = 0) in vec2 inTexCoord;
-layout(location = 1) in vec4 inCurrentClip;
-layout(location = 2) in vec4 inPreviousClip;
-layout(location = 3) in flat uint inInstanceIndex;
-layout(location = 4) in flat uint inPreviousPoseValid;
-layout(location = 5) in vec2 inTexCoord1;
-layout(location = 6) in vec4 inColor;
-layout(location = 7) in vec2 inTexCoord2;
-layout(location = 8) in vec2 inTexCoord3;
-
-layout(location = 0) out vec4 outMotionVectors;
-
-float NormalizedLinearDepth(vec4 clip) {
-  mat4 projection = EE_CAMERAS[EE_CAMERA_INDEX].projection;
-  float farDistance = abs(projection[3][2] / (projection[2][2] + 1.0f));
-  return clamp(clip.w / max(farDistance, 1e-5f), 0.0f, 1.0f);
+float NormalizedLinearDepth(float4 clip) {
+  float4x4 projection = EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection;
+  float far_distance = abs(projection[3][2] / (projection[2][2] + 1.0f));
+  return clamp(clip.w / max(far_distance, 1e-5f), 0.0f, 1.0f);
 }
 
-void main() {
+[shader("fragment")]
+float4 main(RasterMotionVectorOutput input) : SV_Target {
+  GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS(input.tex_coord0, input.tex_coord1, input.tex_coord2,
+                                                      input.tex_coord3, float4(0.0f));
   GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(
-      uint(EE_INSTANCES[inInstanceIndex].material_index), inTexCoord, inTexCoord1, inTexCoord2, inTexCoord3,
-      inColor);
-  if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) {
-    discard;
-  }
-  if (inPreviousPoseValid == 0u || inCurrentClip.w <= 0.0001f || inPreviousClip.w <= 0.0001f) {
-    outMotionVectors = vec4(65000.0f, 65000.0f, 0.0f, 0.0f);
-    return;
-  }
-  vec3 currentNdc = inCurrentClip.xyz / inCurrentClip.w;
-  vec3 previousNdc = inPreviousClip.xyz / inPreviousClip.w;
-  vec2 resolution = vec2(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX), EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
-  vec2 currentPixel = (currentNdc.xy * 0.5f + vec2(0.5f)) * resolution;
-  vec2 previousPixel = (previousNdc.xy * 0.5f + vec2(0.5f)) * resolution;
-  outMotionVectors = vec4(previousPixel - currentPixel,
-                          NormalizedLinearDepth(inPreviousClip) - NormalizedLinearDepth(inCurrentClip), 0.0f);
+      uint(EE_INSTANCES[input.instance_index].material_index), tex_coords, input.color);
+  if (EE_GLTF_RASTER_SHOULD_DISCARD(surface)) discard;
+  if (input.previous_pose_valid == 0u || input.current_clip.w <= 0.0001f || input.previous_clip.w <= 0.0001f)
+    return float4(65000.0f, 65000.0f, 0.0f, 0.0f);
+  float3 current_ndc = input.current_clip.xyz / input.current_clip.w;
+  float3 previous_ndc = input.previous_clip.xyz / input.previous_clip.w;
+  float2 resolution = float2(EE_CAMERA_RESOLUTION_X(EE_BASIC_CONSTANTS.camera_index),
+                             EE_CAMERA_RESOLUTION_Y(EE_BASIC_CONSTANTS.camera_index));
+  float2 current_pixel = (current_ndc.xy * 0.5f + float2(0.5f)) * resolution;
+  float2 previous_pixel = (previous_ndc.xy * 0.5f + float2(0.5f)) * resolution;
+  return float4(previous_pixel - current_pixel,
+                NormalizedLinearDepth(input.previous_clip) - NormalizedLinearDepth(input.current_clip), 0.0f);
 }

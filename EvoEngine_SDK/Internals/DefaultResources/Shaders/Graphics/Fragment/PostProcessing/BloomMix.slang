@@ -1,16 +1,17 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+struct BloomMixInput {
+  [[vk::location(0)]]
+  float2 tex_coord : TEXCOORD0;
+};
 
-layout (location = 0) out vec4 FragColor;
-layout (location = 0) in VS_OUT {
-    vec2 TexCoord;
-} fs_in;
+[[vk::binding(0, 1)]]
+Sampler2D originalColor;
 
-layout(set = 1, binding = 0) uniform sampler2D originalColor;
-layout(set = 1, binding = 1) uniform sampler2D bloomColor;
+[[vk::binding(1, 1)]]
+Sampler2D bloomColor;
 
-void main()
-{
-	vec2 texCoord = fs_in.TexCoord;
-	vec4 color = texture(originalColor, texCoord);
-	FragColor = vec4(clamp(color.xyz, vec3(0.0f), vec3(1.0f)) + texture(bloomColor, texCoord).xyz, color.w);
+[shader("fragment")]
+float4 main(BloomMixInput input) : SV_Target {
+  float4 color = originalColor.Sample(input.tex_coord);
+  return float4(clamp(color.xyz, float3(0.0f), float3(1.0f)) + bloomColor.Sample(input.tex_coord).xyz, color.w);
 }

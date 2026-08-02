@@ -1,26 +1,24 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.SMAA;
 
-layout(push_constant) uniform EE_SMAA_CONSTANTS {
-  vec4 metrics;
-  vec4 subsampleIndices;
-  int toneMapped;
-  int debugMode;
-  int padding0;
-  int padding1;
-} pc;
+struct SMAAEdgeVertexOutput {
+  float4 position : SV_Position;
+  [[vk::location(0)]] float2 texcoord : TEXCOORD0;
+  [[vk::location(1)]] float4 offset0 : TEXCOORD1;
+  [[vk::location(2)]] float4 offset1 : TEXCOORD2;
+  [[vk::location(3)]] float4 offset2 : TEXCOORD3;
+};
 
-#define SMAA_SLANGH_4
-#define SMAA_RT_METRICS pc.metrics
-#define SMAA_INCLUDE_VS 1
-#define SMAA_INCLUDE_PS 0
-#include "SMAA/SMAA.hlsl"
-
-layout(location = 0) out vec2 outTexcoord;
-layout(location = 1) out vec4 outOffset[3];
-
-void main() {
-  vec2 uv = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
-  outTexcoord = uv;
-  SMAAEdgeDetectionVS(uv, outOffset);
-  gl_Position = vec4(uv * 2.0f - 1.0f, 0.0f, 1.0f);
+[shader("vertex")]
+SMAAEdgeVertexOutput main(uint vertex_index : SV_VertexID) {
+  SMAAEdgeVertexOutput output;
+  float2 uv = float2(float((vertex_index << 1u) & 2u), float(vertex_index & 2u));
+  float4 offsets[3];
+  SMAAEdgeDetectionVS(uv, offsets);
+  output.texcoord = uv;
+  output.offset0 = offsets[0];
+  output.offset1 = offsets[1];
+  output.offset2 = offsets[2];
+  output.position = float4(uv * 2.0f - 1.0f, 0.0f, 1.0f);
+  return output;
 }

@@ -23,6 +23,7 @@
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -142,12 +143,30 @@ struct RenderingRegressionTemporalMotionState {
   Entity rigid_entity;
   Entity transparent_entity;
   Entity skinned_entity;
+  Entity light_entity;
+  Entity secondary_geometry_entity;
   uint64_t frame = 0;
-  bool enabled = false;
+  bool geometry_camera_enabled = false;
+  bool moving_light_enabled = false;
+  bool secondary_geometry_enabled = false;
+  bool suffix_light_fixture = false;
 };
 
 std::shared_ptr<RenderingRegressionTemporalMotionState> rendering_regression_temporal_motion_state;
 bool rendering_regression_temporal_motion_registered = false;
+
+template <typename LightComponent>
+void DisableRenderingRegressionFixtureLightsExcept(const std::shared_ptr<Scene>& scene, const Entity keep_entity) {
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LightComponent>()) {
+    for (const auto& owner : *owners) {
+      if (owner != keep_entity) {
+        if (const auto light = scene->GetOrSetPrivateComponent<LightComponent>(owner).lock()) {
+          light->SetEnabled(false);
+        }
+      }
+    }
+  }
+}
 
 struct StrandGizmoValidationState {
   std::weak_ptr<Scene> scene;
@@ -192,7 +211,8 @@ void RegisterRenderingRegressionTemporalMotionUpdate() {
   rendering_regression_temporal_motion_registered = true;
   ApplicationContext::Get().RegisterUpdateFunction([] {
     const auto state = rendering_regression_temporal_motion_state;
-    if (!state || !state->enabled) {
+    if (!state ||
+        (!state->geometry_camera_enabled && !state->moving_light_enabled && !state->secondary_geometry_enabled)) {
       return;
     }
     const auto scene = state->scene.lock();
@@ -201,21 +221,30 @@ void RegisterRenderingRegressionTemporalMotionUpdate() {
       return;
     }
 
-    const float phase = static_cast<float>(state->frame % 240u) * (2.0f * glm::pi<float>() / 240.0f);
+    if (state->suffix_light_fixture || state->secondary_geometry_enabled) {
+      DisableRenderingRegressionFixtureLightsExcept<DirectionalLight>(scene, state->light_entity);
+      DisableRenderingRegressionFixtureLightsExcept<PointLight>(scene, state->light_entity);
+      DisableRenderingRegressionFixtureLightsExcept<SpotLight>(scene, state->light_entity);
+    }
+
+    const uint64_t motion_period = state->suffix_light_fixture || state->secondary_geometry_enabled ? 24u : 240u;
+    const float phase = static_cast<float>(state->frame % motion_period) *
+                        (2.0f * glm::pi<float>() / static_cast<float>(motion_period));
     ++state->frame;
-    if (scene->IsEntityValid(state->rigid_entity)) {
+    if (state->geometry_camera_enabled && scene->IsEntityValid(state->rigid_entity)) {
       Transform transform;
       transform.SetValue(glm::vec3(glm::sin(phase) * 1.65f, -0.14f, -1.55f), glm::vec3(0.0f, phase * 1.5f, 0.0f),
                          glm::vec3(0.24f));
       scene->SetDataComponent(state->rigid_entity, transform);
     }
-    if (scene->IsEntityValid(state->transparent_entity)) {
+    if (state->geometry_camera_enabled && scene->IsEntityValid(state->transparent_entity)) {
       Transform transform;
       transform.SetValue(glm::vec3(glm::cos(phase * 0.8f) * 1.35f, 0.42f, -1.15f), glm::vec3(phase * 0.7f, phase, 0.0f),
                          glm::vec3(0.28f));
       scene->SetDataComponent(state->transparent_entity, transform);
     }
-    if (scene->IsEntityValid(state->skinned_entity) && scene->HasPrivateComponent<Animator>(state->skinned_entity)) {
+    if (state->geometry_camera_enabled && scene->IsEntityValid(state->skinned_entity) &&
+        scene->HasPrivateComponent<Animator>(state->skinned_entity)) {
       const auto animator = scene->GetOrSetPrivateComponent<Animator>(state->skinned_entity).lock();
       const auto animation = animator ? animator->GetAnimation() : nullptr;
       if (animation) {
@@ -227,21 +256,37 @@ void RegisterRenderingRegressionTemporalMotionUpdate() {
       }
     }
 
-    const glm::vec3 base_position(0.0f, 1.15f, 5.6f);
-    const glm::vec3 camera_position =
-        base_position +
-        glm::vec3(glm::sin(phase * 0.5f) * 0.12f, glm::sin(phase) * 0.035f, glm::cos(phase * 0.5f) * 0.08f);
-    const glm::vec3 camera_target(glm::sin(phase * 0.4f) * 0.08f, 0.35f, -2.4f);
-    const auto camera_rotation =
-        glm::quatLookAt(glm::normalize(camera_target - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
-    if (const auto main_camera = scene->main_camera.Get<Camera>()) {
-      Transform transform;
-      transform.SetValue(camera_position, camera_rotation, glm::vec3(1.0f));
-      scene->SetDataComponent(main_camera->GetOwner(), transform);
+    if (state->geometry_camera_enabled) {
+      const glm::vec3 base_position(0.0f, 1.15f, 5.6f);
+      const glm::vec3 camera_position =
+          base_position +
+          glm::vec3(glm::sin(phase * 0.5f) * 0.12f, glm::sin(phase) * 0.035f, glm::cos(phase * 0.5f) * 0.08f);
+      const glm::vec3 camera_target(glm::sin(phase * 0.4f) * 0.08f, 0.35f, -2.4f);
+      const auto camera_rotation =
+          glm::quatLookAt(glm::normalize(camera_target - camera_position), glm::vec3(0.0f, 1.0f, 0.0f));
+      if (const auto main_camera = scene->main_camera.Get<Camera>()) {
+        Transform transform;
+        transform.SetValue(camera_position, camera_rotation, glm::vec3(1.0f));
+        scene->SetDataComponent(main_camera->GetOwner(), transform);
+      }
+      if (const auto editor_layer = application.GetLayer<EditorLayer>()) {
+        editor_layer->SetSceneCameraPosition(camera_position);
+        editor_layer->SetSceneCameraRotation(camera_rotation);
+      }
     }
-    if (const auto editor_layer = application.GetLayer<EditorLayer>()) {
-      editor_layer->SetSceneCameraPosition(camera_position);
-      editor_layer->SetSceneCameraRotation(camera_rotation);
+    if (state->moving_light_enabled && scene->IsEntityValid(state->light_entity)) {
+      Transform transform = scene->GetDataComponent<Transform>(state->light_entity);
+      transform.SetPosition(state->suffix_light_fixture
+                                ? glm::vec3(glm::sin(phase) * 1.85f, 2.25f, -3.25f + glm::cos(phase) * 0.65f)
+                                : glm::vec3(-2.3f + glm::sin(phase) * 1.2f, 1.25f + glm::cos(phase * 0.7f) * 0.3f,
+                                            -1.7f + glm::cos(phase) * 0.8f));
+      scene->SetDataComponent(state->light_entity, transform);
+    }
+    if (state->secondary_geometry_enabled && scene->IsEntityValid(state->secondary_geometry_entity)) {
+      Transform transform;
+      transform.SetValue(glm::vec3(glm::sin(phase) * 1.35f, 1.6f + glm::cos(phase * 0.5f) * 0.15f, -2.8f),
+                         glm::vec3(0.0f, phase * 0.25f, 0.0f), glm::vec3(1.55f, 0.08f, 1.25f));
+      scene->SetDataComponent(state->secondary_geometry_entity, transform);
     }
   });
 }
@@ -843,7 +888,6 @@ void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
     main_camera->camera_settings.far_distance = 250.0f;
     main_camera->camera_settings.sample_size = 4;
     main_camera->camera_settings.bounce = 5;
-    main_camera->camera_settings.firefly_clamp_enabled = true;
     main_camera->camera_settings.firefly_clamp_threshold = 10.0f;
     main_camera->camera_settings.auto_spp_enabled = false;
     main_camera->camera_settings.auto_spp_min_samples = 4;
@@ -874,7 +918,6 @@ void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
       scene_camera->camera_settings.far_distance = 250.0f;
       scene_camera->camera_settings.sample_size = 4;
       scene_camera->camera_settings.bounce = 5;
-      scene_camera->camera_settings.firefly_clamp_enabled = true;
       scene_camera->camera_settings.firefly_clamp_threshold = 10.0f;
       scene_camera->camera_settings.auto_spp_enabled = false;
       scene_camera->camera_settings.auto_spp_min_samples = 4;
@@ -887,7 +930,7 @@ void ConfigureRenderingRegressionCamera(const std::shared_ptr<Scene>& scene) {
   SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
 }
 
-void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, const Entity& root) {
+Entity ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, const Entity& root) {
   const auto& primitives = Resources::GetInstance().GetPrimitives();
   const auto directional_entity = scene->CreateEntity("M42 Punctual Light Probe Directional");
   const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(directional_entity).lock();
@@ -943,6 +986,7 @@ void ConfigureRenderingRegressionLights(const std::shared_ptr<Scene>& scene, con
   retroreflection_light_transform.SetPosition(glm::vec3(0.0f, 1.15f, 5.2f));
   scene->SetDataComponent(retroreflection_light_entity, retroreflection_light_transform);
   scene->SetParent(retroreflection_light_entity, root);
+  return point_entity;
 }
 
 void ConfigureRenderingRegressionImportedProbes(const std::shared_ptr<Scene>& scene, const Entity& root) {
@@ -2305,7 +2349,23 @@ void evo_engine::SetRenderingRegressionTemporalMotionEnabled(const bool enabled)
   if (!rendering_regression_temporal_motion_state) {
     return;
   }
-  rendering_regression_temporal_motion_state->enabled = enabled;
+  rendering_regression_temporal_motion_state->geometry_camera_enabled = enabled;
+  rendering_regression_temporal_motion_state->frame = 0;
+}
+
+void evo_engine::SetRenderingRegressionMovingLightEnabled(const bool enabled) {
+  if (!rendering_regression_temporal_motion_state) {
+    return;
+  }
+  rendering_regression_temporal_motion_state->moving_light_enabled = enabled;
+  rendering_regression_temporal_motion_state->frame = 0;
+}
+
+void evo_engine::SetRenderingRegressionSecondaryGeometryMotionEnabled(const bool enabled) {
+  if (!rendering_regression_temporal_motion_state) {
+    return;
+  }
+  rendering_regression_temporal_motion_state->secondary_geometry_enabled = enabled;
   rendering_regression_temporal_motion_state->frame = 0;
 }
 
@@ -2390,13 +2450,14 @@ void evo_engine::ConfigureRenderingRegressionDemoScene(const std::shared_ptr<Sce
   ConfigureRenderingRegressionAdvancedRayMaterialProbes(scene, root);
   ConfigureRenderingRegressionEmissiveNeeProbes(scene, root);
   ConfigureRenderingRegressionImportedProbes(scene, root);
-  ConfigureRenderingRegressionLights(scene, root);
+  const auto moving_light = ConfigureRenderingRegressionLights(scene, root);
   ConfigureRenderingRegressionCamera(scene);
 
   rendering_regression_temporal_motion_state = std::make_shared<RenderingRegressionTemporalMotionState>();
   rendering_regression_temporal_motion_state->scene = scene;
   rendering_regression_temporal_motion_state->rigid_entity = moving_rigid;
   rendering_regression_temporal_motion_state->transparent_entity = moving_transparent;
+  rendering_regression_temporal_motion_state->light_entity = moving_light;
   if (const auto skinned_entity = FindEntityNamed(scene, "M42 Skinned Capoeira Probe")) {
     rendering_regression_temporal_motion_state->skinned_entity = *skinned_entity;
   }
@@ -2518,7 +2579,6 @@ void evo_engine::ConfigureEnvironmentLightingValidationScene(const std::shared_p
     camera->camera_settings.sample_size = 1;
     camera->camera_settings.bounce = 4;
     camera->camera_settings.ray_debug_view = CameraSettings::RayDebugView::Beauty;
-    camera->camera_settings.firefly_clamp_enabled = false;
     camera->camera_settings.auto_spp_enabled = false;
     camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
     if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
@@ -2894,7 +2954,6 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       camera->camera_settings.background_intensity = 1.0f;
       camera->camera_settings.sample_size = 1;
       camera->camera_settings.bounce = 4;
-      camera->camera_settings.firefly_clamp_enabled = false;
       camera->camera_settings.auto_spp_enabled = false;
       camera->post_processing_stack_ref = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
       if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
@@ -4563,8 +4622,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   scene_camera->camera_settings.ray_debug_view = CameraSettings::RayDebugView::Beauty;
   scene_camera->camera_settings.shader_execution_reordering_mode =
       CameraSettings::ShaderExecutionReorderingMode::Disabled;
-  scene_camera->camera_settings.firefly_clamp_enabled = false;
-  scene_camera->camera_settings.emissive_triangle_nee_enabled = true;
+  scene_camera->camera_settings.firefly_clamp_threshold = 10.0f;
   scene_camera->camera_settings.auto_spp_enabled = false;
   scene_camera->camera_settings.background_intensity = 1.0f;
   scene_camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
@@ -4599,9 +4657,8 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
       scene_camera->camera_settings.ray_debug_view == CameraSettings::RayDebugView::Beauty &&
       scene_camera->camera_settings.shader_execution_reordering_mode ==
           CameraSettings::ShaderExecutionReorderingMode::Disabled &&
-      !scene_camera->camera_settings.firefly_clamp_enabled &&
-      scene_camera->camera_settings.emissive_triangle_nee_enabled && !scene_camera->camera_settings.auto_spp_enabled &&
-      scene_camera->camera_settings.background_intensity == 1.0f &&
+      scene_camera->camera_settings.firefly_clamp_threshold == 10.0f &&
+      !scene_camera->camera_settings.auto_spp_enabled && scene_camera->camera_settings.background_intensity == 1.0f &&
       scene->environmental_lighting.Get<EnvironmentalLighting>() &&
       scene->environmental_lighting.Get<EnvironmentalLighting>()->environment_lighting_intensity == 1.0f &&
       scene->environmental_lighting.Get<EnvironmentalLighting>()->diffuse_fallback_intensity == 1.0f;
@@ -4891,7 +4948,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
             "\"measure_frames\": 120, \"image\": \"sponza-repeatability-anchor.png\"}, "
             "\"ray\": {\"render_mode\": \"RayTracing\", \"ddgi_enabled\": false, \"frames\": 64, "
             "\"samples_per_frame\": 4, \"total_spp\": 256, \"debug_view\": \"Beauty\", \"ser\": \"disabled\", "
-            "\"firefly_clamp\": false, \"emissive_nee\": true, \"auto_spp\": false, "
+            "\"firefly_clamp_threshold\": 10.0, \"auto_spp\": false, "
             "\"image\": \"sponza-ray-reference.png\"}}},\n"
             "  \"captures\": [";
   const auto write_region = [&](const RegionEvidence& region) {
@@ -5954,6 +6011,44 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
          << ", diffuse_fallback_intensity=" << (lighting ? lighting->diffuse_fallback_intensity : 0.0f)
          << ", specular_fallback_intensity=" << (lighting ? lighting->specular_fallback_intensity : 0.0f)
          << ", ddgi_enabled=" << (lighting && lighting->ddgi_settings.runtime.enabled);
+  const auto resolved_render_mode = Camera::ResolveCameraRenderMode(camera->camera_render_mode);
+  if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
+    const auto technique = resolved_render_mode == Camera::CameraRenderMode::RayQuery
+                               ? RayCameraShaderTechnique::RayQuery
+                               : RayCameraShaderTechnique::RayTracing;
+    if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+      const auto shader_variant = render_layer->GetRayCameraShaderVariantStats(technique);
+      stream << ", ray_shader_requested_key=" << shader_variant.requested_key
+             << ", ray_shader_active_key=" << shader_variant.active_key
+             << ", ray_shader_cache_source=" << shader_variant.cache_source
+             << ", ray_shader_ready=" << shader_variant.ready;
+      if (const auto render_instances = render_layer->GetCurrentRenderInstanceStorage()) {
+        std::map<uint32_t, size_t> feature_mask_counts;
+        const auto& texture_infos = render_instances->GetGltfTextureInfos();
+        for (const auto& material : render_instances->GetGltfShadeMaterials()) {
+          ++feature_mask_counts[DetectGltfSceneFeatures({material}, texture_infos)];
+        }
+        stream << ", ray_material_feature_masks=[";
+        bool first_mask = true;
+        for (const auto& [mask, count] : feature_mask_counts) {
+          stream << (first_mask ? "" : ";") << FormatGltfSceneFeatureMask(mask) << ":" << count;
+          first_mask = false;
+        }
+        size_t ray_camera_count = 0;
+        size_t ray_debug_camera_count = 0;
+        for (const auto& [transform, collected_camera] : render_instances->cameras) {
+          if (!collected_camera ||
+              !Camera::IsRayCameraRenderMode(Camera::ResolveCameraRenderMode(collected_camera->camera_render_mode))) {
+            continue;
+          }
+          ++ray_camera_count;
+          ray_debug_camera_count +=
+              collected_camera->camera_settings.ray_debug_view != CameraSettings::RayDebugView::Beauty;
+        }
+        stream << "], ray_camera_count=" << ray_camera_count << ", ray_debug_camera_count=" << ray_debug_camera_count;
+      }
+    }
+  }
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     const auto position = editor_layer->GetSceneCameraPosition();
     const auto rotation = editor_layer->GetSceneCameraRotation();

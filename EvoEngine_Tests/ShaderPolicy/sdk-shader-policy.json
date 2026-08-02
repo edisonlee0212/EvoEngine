@@ -1,0 +1,746 @@
+{
+  "counts": {
+    "files": 175,
+    "imports": 285,
+    "macro_control_files": 8
+  },
+  "macro_adapters": [
+    {
+      "macro_controls": 27,
+      "path": "Compute/DDGIProbeUpdate.slang"
+    },
+    {
+      "macro_controls": 15,
+      "path": "Compute/PostProcessing/TAAResolve.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/RayQueryCamera.slang"
+    },
+    {
+      "macro_controls": 5,
+      "path": "Graphics/Fragment/PostProcessing/SMAABlendWeight.slang"
+    },
+    {
+      "macro_controls": 5,
+      "path": "Graphics/Fragment/PostProcessing/SMAAEdge.slang"
+    },
+    {
+      "macro_controls": 5,
+      "path": "Graphics/Vertex/PostProcessing/SMAABlendWeight.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "RayTracing/AnyHit/Camera.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "RayTracing/RayGen/Camera.slang"
+    }
+  ],
+  "module_names": [
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeClassification",
+      "path": "Compute/DDGIProbeClassification.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeRelocation",
+      "path": "Compute/DDGIProbeRelocation.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeScroll",
+      "path": "Compute/DDGIProbeScroll.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeUpdate",
+      "path": "Compute/DDGIProbeUpdate.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeVariabilityExtraReduce",
+      "path": "Compute/DDGIProbeVariabilityExtraReduce.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DDGIProbeVariabilityReduce",
+      "path": "Compute/DDGIProbeVariabilityReduce.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DepthPyramid",
+      "path": "Compute/DepthPyramid.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.GaussianSplatCull",
+      "path": "Compute/GaussianSplatCull.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.GaussianSplatRadixDownsweep",
+      "path": "Compute/GaussianSplatRadixDownsweep.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.GaussianSplatRadixSpine",
+      "path": "Compute/GaussianSplatRadixSpine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.GaussianSplatRadixUpsweep",
+      "path": "Compute/GaussianSplatRadixUpsweep.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.MotionVectors",
+      "path": "Compute/MotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.AmbientOcclusionBlur",
+      "path": "Compute/PostProcessing/AmbientOcclusionBlur.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.AmbientOcclusionGeometry",
+      "path": "Compute/PostProcessing/AmbientOcclusionGeometry.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.BloomCopy",
+      "path": "Compute/PostProcessing/BloomCopy.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.BloomDownsampling",
+      "path": "Compute/PostProcessing/BloomDownsampling.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.BloomMix",
+      "path": "Compute/PostProcessing/BloomMix.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.BloomUpsampling",
+      "path": "Compute/PostProcessing/BloomUpsampling.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.Blur",
+      "path": "Compute/PostProcessing/Blur.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SMAAPrepare",
+      "path": "Compute/PostProcessing/SMAAPrepare.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRCombine",
+      "path": "Compute/PostProcessing/SSRCombine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRReflect",
+      "path": "Compute/PostProcessing/SSRReflect.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.TAACopy",
+      "path": "Compute/PostProcessing/TAACopy.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.TAAResolve",
+      "path": "Compute/PostProcessing/TAAResolve.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMapping",
+      "path": "Compute/PostProcessing/ToneMapping.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMappingAutoExposure",
+      "path": "Compute/PostProcessing/ToneMappingAutoExposure.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMappingHistogram",
+      "path": "Compute/PostProcessing/ToneMappingHistogram.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.RayQueryCamera",
+      "path": "Compute/RayQueryCamera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.Trace",
+      "path": "Compute/Trace.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.VolumetricClouds",
+      "path": "Compute/VolumetricClouds.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.VolumetricCloudsComposite",
+      "path": "Compute/VolumetricCloudsComposite.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.DDGI.DDGIProbeRayVisualization",
+      "path": "Graphics/Fragment/DDGI/DDGIProbeRayVisualization.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.DDGI.DDGIProbeVisualization",
+      "path": "Graphics/Fragment/DDGI/DDGIProbeVisualization.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Empty",
+      "path": "Graphics/Fragment/Empty.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.GaussianSplat.GaussianSplat",
+      "path": "Graphics/Fragment/GaussianSplat/GaussianSplat.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Gizmos.Gizmos",
+      "path": "Graphics/Fragment/Gizmos/Gizmos.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Gizmos.GizmosColored",
+      "path": "Graphics/Fragment/Gizmos/GizmosColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.AtmosphereToCubemap",
+      "path": "Graphics/Fragment/Lighting/AtmosphereToCubemap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.EnvironmentalMapBrdf",
+      "path": "Graphics/Fragment/Lighting/EnvironmentalMapBrdf.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.EnvironmentalMapIrradianceConvolution",
+      "path": "Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.EnvironmentalMapPrefilter",
+      "path": "Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.EquirectangularMapToCubemap",
+      "path": "Graphics/Fragment/Lighting/EquirectangularMapToCubemap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.BloomCopy",
+      "path": "Graphics/Fragment/PostProcessing/BloomCopy.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.BloomDownsampling",
+      "path": "Graphics/Fragment/PostProcessing/BloomDownsampling.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.BloomMix",
+      "path": "Graphics/Fragment/PostProcessing/BloomMix.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.BloomUpsampling",
+      "path": "Graphics/Fragment/PostProcessing/BloomUpsampling.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.Blur",
+      "path": "Graphics/Fragment/PostProcessing/Blur.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SMAABlendWeight",
+      "path": "Graphics/Fragment/PostProcessing/SMAABlendWeight.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SMAAEdge",
+      "path": "Graphics/Fragment/PostProcessing/SMAAEdge.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SMAANeighborhood",
+      "path": "Graphics/Fragment/PostProcessing/SMAANeighborhood.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SSRCombine",
+      "path": "Graphics/Fragment/PostProcessing/SSRCombine.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SSRReflect",
+      "path": "Graphics/Fragment/PostProcessing/SSRReflect.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.DDGIGatherTiming",
+      "path": "Graphics/Fragment/Standard/DDGIGatherTiming.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.SkinnedMotionVectors",
+      "path": "Graphics/Fragment/Standard/SkinnedMotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferred",
+      "path": "Graphics/Fragment/Standard/StandardDeferred.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredLighting",
+      "path": "Graphics/Fragment/Standard/StandardDeferredLighting.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredLightingSceneCamera",
+      "path": "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardTransparent",
+      "path": "Graphics/Fragment/Standard/StandardTransparent.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.TransparentMotionVectors",
+      "path": "Graphics/Fragment/Standard/TransparentMotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.TexturePassThrough",
+      "path": "Graphics/Fragment/TexturePassThrough.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.GaussianSplat.GaussianSplat",
+      "path": "Graphics/Mesh/GaussianSplat/GaussianSplat.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Gizmos.GizmosStrands",
+      "path": "Graphics/Mesh/Gizmos/GizmosStrands.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.DirectionalLightShadowMap",
+      "path": "Graphics/Mesh/Lighting/DirectionalLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.DirectionalLightStrandsShadowMap",
+      "path": "Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.PointLightShadowMap",
+      "path": "Graphics/Mesh/Lighting/PointLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.PointLightStrandsShadowMap",
+      "path": "Graphics/Mesh/Lighting/PointLightStrandsShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.SpotLightShadowMap",
+      "path": "Graphics/Mesh/Lighting/SpotLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Lighting.SpotLightStrandsShadowMap",
+      "path": "Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Standard.Standard",
+      "path": "Graphics/Mesh/Standard/Standard.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Standard.StandardMeshletColored",
+      "path": "Graphics/Mesh/Standard/StandardMeshletColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Mesh.Standard.StandardStrands",
+      "path": "Graphics/Mesh/Standard/StandardStrands.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Gizmos.GizmosStrands",
+      "path": "Graphics/Task/Gizmos/GizmosStrands.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Lighting.DirectionalLightShadowMap",
+      "path": "Graphics/Task/Lighting/DirectionalLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Lighting.PointLightShadowMap",
+      "path": "Graphics/Task/Lighting/PointLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Lighting.SpotLightShadowMap",
+      "path": "Graphics/Task/Lighting/SpotLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Lighting.StrandsShadowMap",
+      "path": "Graphics/Task/Lighting/StrandsShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Standard.Standard",
+      "path": "Graphics/Task/Standard/Standard.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Task.Standard.StandardStrands",
+      "path": "Graphics/Task/Standard/StandardStrands.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.DDGI.DDGIProbeRayVisualization",
+      "path": "Graphics/Vertex/DDGI/DDGIProbeRayVisualization.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.DDGI.DDGIProbeVisualization",
+      "path": "Graphics/Vertex/DDGI/DDGIProbeVisualization.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.GaussianSplat.GaussianSplat",
+      "path": "Graphics/Vertex/GaussianSplat/GaussianSplat.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Gizmos.Gizmos",
+      "path": "Graphics/Vertex/Gizmos/Gizmos.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Gizmos.GizmosInstancedColored",
+      "path": "Graphics/Vertex/Gizmos/GizmosInstancedColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Gizmos.GizmosNormalColored",
+      "path": "Graphics/Vertex/Gizmos/GizmosNormalColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Gizmos.GizmosVertexColored",
+      "path": "Graphics/Vertex/Gizmos/GizmosVertexColored.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.AtmosphereToCubemap",
+      "path": "Graphics/Vertex/Lighting/AtmosphereToCubemap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.CubemapProcess",
+      "path": "Graphics/Vertex/Lighting/CubemapProcess.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.DirectionalLightShadowMap",
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.DirectionalLightShadowMapInstanced",
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.DirectionalLightShadowMapSkinned",
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.PointLightShadowMap",
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.PointLightShadowMapInstanced",
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMapInstanced.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.PointLightShadowMapSkinned",
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMapSkinned.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.SpotLightShadowMap",
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMap.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.SpotLightShadowMapInstanced",
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Lighting.SpotLightShadowMapSkinned",
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.PostProcessing.SMAABlendWeight",
+      "path": "Graphics/Vertex/PostProcessing/SMAABlendWeight.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.PostProcessing.SMAAEdge",
+      "path": "Graphics/Vertex/PostProcessing/SMAAEdge.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.PostProcessing.SMAANeighborhood",
+      "path": "Graphics/Vertex/PostProcessing/SMAANeighborhood.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.SkinnedMotionVectors",
+      "path": "Graphics/Vertex/Standard/SkinnedMotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.Standard",
+      "path": "Graphics/Vertex/Standard/Standard.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.StandardInstanced",
+      "path": "Graphics/Vertex/Standard/StandardInstanced.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.StandardSkinned",
+      "path": "Graphics/Vertex/Standard/StandardSkinned.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.Standard.TransparentMotionVectors",
+      "path": "Graphics/Vertex/Standard/TransparentMotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Vertex.TexturePassThrough",
+      "path": "Graphics/Vertex/TexturePassThrough.slang"
+    },
+    {
+      "module": "EvoEngine.AnimationBones",
+      "path": "Modules/EvoEngine/AnimationBones.slang"
+    },
+    {
+      "module": "EvoEngine.Atmosphere",
+      "path": "Modules/EvoEngine/Atmosphere.slang"
+    },
+    {
+      "module": "EvoEngine.BasicConstants",
+      "path": "Modules/EvoEngine/BasicConstants.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayConstants",
+      "path": "Modules/EvoEngine/CameraRayConstants.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayGeometry",
+      "path": "Modules/EvoEngine/CameraRayGeometry.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayIntegrator",
+      "path": "Modules/EvoEngine/CameraRayIntegrator.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayOutputs",
+      "path": "Modules/EvoEngine/CameraRayOutputs.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayOutputTypes",
+      "path": "Modules/EvoEngine/CameraRayOutputTypes.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayQueryTraversal",
+      "path": "Modules/EvoEngine/CameraRayQueryTraversal.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayTracingPayload",
+      "path": "Modules/EvoEngine/CameraRayTracingPayload.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayTracingTraversal",
+      "path": "Modules/EvoEngine/CameraRayTracingTraversal.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayTraversal",
+      "path": "Modules/EvoEngine/CameraRayTraversal.slang"
+    },
+    {
+      "module": "EvoEngine.CameraRayTraversalPolicies",
+      "path": "Modules/EvoEngine/CameraRayTraversalPolicies.slang"
+    },
+    {
+      "module": "EvoEngine.Cameras",
+      "path": "Modules/EvoEngine/Cameras.slang"
+    },
+    {
+      "module": "EvoEngine.DDGI",
+      "path": "Modules/EvoEngine/DDGI.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIGather",
+      "path": "Modules/EvoEngine/DDGIGather.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIGatherMulti",
+      "path": "Modules/EvoEngine/DDGIGatherMulti.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIGatherSingle",
+      "path": "Modules/EvoEngine/DDGIGatherSingle.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIProbeRayConstants",
+      "path": "Modules/EvoEngine/DDGIProbeRayConstants.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIProbeRayData",
+      "path": "Modules/EvoEngine/DDGIProbeRayData.slang"
+    },
+    {
+      "module": "EvoEngine.EmissiveTriangleSampling",
+      "path": "Modules/EvoEngine/EmissiveTriangleSampling.slang"
+    },
+    {
+      "module": "EvoEngine.Environment",
+      "path": "Modules/EvoEngine/Environment.slang"
+    },
+    {
+      "module": "EvoEngine.GaussianSplat",
+      "path": "Modules/EvoEngine/GaussianSplat.slang"
+    },
+    {
+      "module": "EvoEngine.GizmosConstants",
+      "path": "Modules/EvoEngine/GizmosConstants.slang"
+    },
+    {
+      "module": "EvoEngine.GltfMaterial",
+      "path": "Modules/EvoEngine/GltfMaterial.slang"
+    },
+    {
+      "module": "EvoEngine.GltfRasterMaterial",
+      "path": "Modules/EvoEngine/GltfRasterMaterial.slang"
+    },
+    {
+      "module": "EvoEngine.GltfRayTracingBsdf",
+      "path": "Modules/EvoEngine/GltfRayTracingBsdf.slang"
+    },
+    {
+      "module": "EvoEngine.GltfRayTracingMaterial",
+      "path": "Modules/EvoEngine/GltfRayTracingMaterial.slang"
+    },
+    {
+      "module": "EvoEngine.GltfRayTracingMath",
+      "path": "Modules/EvoEngine/GltfRayTracingMath.slang"
+    },
+    {
+      "module": "EvoEngine.InstancedData",
+      "path": "Modules/EvoEngine/InstancedData.slang"
+    },
+    {
+      "module": "EvoEngine.Instances",
+      "path": "Modules/EvoEngine/Instances.slang"
+    },
+    {
+      "module": "EvoEngine.Kernel",
+      "path": "Modules/EvoEngine/Kernel.slang"
+    },
+    {
+      "module": "EvoEngine.Lighting",
+      "path": "Modules/EvoEngine/Lighting.slang"
+    },
+    {
+      "module": "EvoEngine.LightingFixedSet3",
+      "path": "Modules/EvoEngine/LightingFixedSet3.slang"
+    },
+    {
+      "module": "EvoEngine.LightingFixedSet4",
+      "path": "Modules/EvoEngine/LightingFixedSet4.slang"
+    },
+    {
+      "module": "EvoEngine.Lights",
+      "path": "Modules/EvoEngine/Lights.slang"
+    },
+    {
+      "module": "EvoEngine.Meshlet",
+      "path": "Modules/EvoEngine/Meshlet.slang"
+    },
+    {
+      "module": "EvoEngine.PerFrame",
+      "path": "Modules/EvoEngine/PerFrame.slang"
+    },
+    {
+      "module": "EvoEngine.PointCloudRayTracingPayload",
+      "path": "Modules/EvoEngine/PointCloudRayTracingPayload.slang"
+    },
+    {
+      "module": "EvoEngine.PostProcessing",
+      "path": "Modules/EvoEngine/PostProcessing.slang"
+    },
+    {
+      "module": "EvoEngine.Random",
+      "path": "Modules/EvoEngine/Random.slang"
+    },
+    {
+      "module": "EvoEngine.RasterMotionVectors",
+      "path": "Modules/EvoEngine/RasterMotionVectors.slang"
+    },
+    {
+      "module": "EvoEngine.RasterTypes",
+      "path": "Modules/EvoEngine/RasterTypes.slang"
+    },
+    {
+      "module": "EvoEngine.RasterVertex",
+      "path": "Modules/EvoEngine/RasterVertex.slang"
+    },
+    {
+      "module": "EvoEngine.RayTracingBasic",
+      "path": "Modules/EvoEngine/RayTracingBasic.slang"
+    },
+    {
+      "module": "EvoEngine.RayTracingMaterial",
+      "path": "Modules/EvoEngine/RayTracingMaterial.slang"
+    },
+    {
+      "module": "EvoEngine.RenderInfo",
+      "path": "Modules/EvoEngine/RenderInfo.slang"
+    },
+    {
+      "module": "EvoEngine.Skinning",
+      "path": "Modules/EvoEngine/Skinning.slang"
+    },
+    {
+      "module": "EvoEngine.SMAA",
+      "path": "Modules/EvoEngine/SMAA.slang"
+    },
+    {
+      "module": "EvoEngine.SMAAConstants",
+      "path": "Modules/EvoEngine/SMAAConstants.slang"
+    },
+    {
+      "module": "EvoEngine.SSRConstants",
+      "path": "Modules/EvoEngine/SSRConstants.slang"
+    },
+    {
+      "module": "EvoEngine.StrandMeshlet",
+      "path": "Modules/EvoEngine/StrandMeshlet.slang"
+    },
+    {
+      "module": "EvoEngine.Strands",
+      "path": "Modules/EvoEngine/Strands.slang"
+    },
+    {
+      "module": "EvoEngine.Textures",
+      "path": "Modules/EvoEngine/Textures.slang"
+    },
+    {
+      "module": "EvoEngine.ToneMapping",
+      "path": "Modules/EvoEngine/ToneMapping.slang"
+    },
+    {
+      "module": "EvoEngine.Trace",
+      "path": "Modules/EvoEngine/Trace.slang"
+    },
+    {
+      "module": "EvoEngine.Vertex",
+      "path": "Modules/EvoEngine/Vertex.slang"
+    },
+    {
+      "module": "EvoEngine.VogelDisk",
+      "path": "Modules/EvoEngine/VogelDisk.slang"
+    },
+    {
+      "module": "EvoEngine.VolumetricClouds",
+      "path": "Modules/EvoEngine/VolumetricClouds.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.AnyHit.Camera",
+      "path": "RayTracing/AnyHit/Camera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.AnyHit.DDGIProbeDiagnostics",
+      "path": "RayTracing/AnyHit/DDGIProbeDiagnostics.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.Camera",
+      "path": "RayTracing/ClosestHit/Camera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.DDGIProbeDiagnostics",
+      "path": "RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.PointCloud",
+      "path": "RayTracing/ClosestHit/PointCloud.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.Miss.Camera",
+      "path": "RayTracing/Miss/Camera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.Miss.DDGIProbeDiagnostics",
+      "path": "RayTracing/Miss/DDGIProbeDiagnostics.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.Miss.PointCloud",
+      "path": "RayTracing/Miss/PointCloud.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.Camera",
+      "path": "RayTracing/RayGen/Camera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.DDGIProbeDiagnostics",
+      "path": "RayTracing/RayGen/DDGIProbeDiagnostics.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.PointCloud",
+      "path": "RayTracing/RayGen/PointCloud.slang"
+    }
+  ],
+  "module_prefix": "EvoEngine",
+  "schema": 2,
+  "scope": "EvoEngine_SDK current native-Slang shader policy"
+}

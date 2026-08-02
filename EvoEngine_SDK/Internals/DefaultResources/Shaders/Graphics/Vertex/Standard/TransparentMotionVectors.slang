@@ -1,47 +1,36 @@
-#extension GL_ARB_shader_draw_parameters : enable
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.RasterMotionVectors;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-
-layout(location = 0) in vec3 inPosition;
-layout(location = 3) in vec2 inTexCoord;
-layout(location = 4) in vec4 inColor;
-layout(location = 10) in vec2 inTexCoord1;
-layout(location = 11) in vec2 inTexCoord2;
-layout(location = 12) in vec2 inTexCoord3;
-
-struct PreviousInstance {
-  mat4 previous_model;
-  uvec4 flags;
+struct MotionVectorVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
+  [[vk::location(3)]] float2 tex_coord0 : TEXCOORD0;
+  [[vk::location(4)]] float4 color : COLOR0;
+  [[vk::location(10)]] float2 tex_coord1 : TEXCOORD1;
+  [[vk::location(11)]] float2 tex_coord2 : TEXCOORD2;
+  [[vk::location(12)]] float2 tex_coord3 : TEXCOORD3;
 };
 
-layout(set = 2, binding = 1) readonly buffer EE_PREVIOUS_INSTANCE_BLOCK {
-  PreviousInstance EE_PREVIOUS_INSTANCES[];
-};
+[[vk::binding(1, 2)]]
+StructuredBuffer<PreviousInstance> EE_PREVIOUS_INSTANCES;
 
-layout(location = 0) out vec2 outTexCoord;
-layout(location = 1) out vec4 outCurrentClip;
-layout(location = 2) out vec4 outPreviousClip;
-layout(location = 3) out flat uint outInstanceIndex;
-layout(location = 4) out flat uint outPreviousTransformValid;
-layout(location = 5) out vec2 outTexCoord1;
-layout(location = 6) out vec4 outColor;
-layout(location = 7) out vec2 outTexCoord2;
-layout(location = 8) out vec2 outTexCoord3;
-
-void main() {
-  uint instanceIndex = gl_DrawID + uint(EE_INSTANCE_INDEX);
-  vec4 currentWorld = EE_INSTANCES[instanceIndex].model * vec4(inPosition, 1.0f);
-  vec4 previousWorld = EE_PREVIOUS_INSTANCES[instanceIndex].previous_model * vec4(inPosition, 1.0f);
-  outTexCoord = inTexCoord;
-  outTexCoord1 = inTexCoord1;
-  outTexCoord2 = inTexCoord2;
-  outTexCoord3 = inTexCoord3;
-  outColor = inColor;
-  outCurrentClip = EE_CAMERAS[EE_CAMERA_INDEX].unjittered_projection_view * currentWorld;
-  outPreviousClip = EE_CAMERAS[EE_CAMERA_INDEX].previous_unjittered_projection_view * previousWorld;
-  outInstanceIndex = instanceIndex;
-  outPreviousTransformValid = EE_PREVIOUS_INSTANCES[instanceIndex].flags.x;
-  gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * currentWorld;
+[shader("vertex")]
+RasterMotionVectorOutput main(MotionVectorVertexInput input, uint draw_id : SV_DrawIndex) {
+  RasterMotionVectorOutput output;
+  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  float4 current_world = mul(float4(input.position, 1.0f), EE_INSTANCES[instance_index].model);
+  float4 previous_world = mul(float4(input.position, 1.0f), EE_PREVIOUS_INSTANCES[instance_index].previous_model);
+  output.tex_coord0 = input.tex_coord0;
+  output.tex_coord1 = input.tex_coord1;
+  output.tex_coord2 = input.tex_coord2;
+  output.tex_coord3 = input.tex_coord3;
+  output.color = input.color;
+  output.current_clip = mul(current_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].unjittered_projection_view);
+  output.previous_clip =
+      mul(previous_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].previous_unjittered_projection_view);
+  output.instance_index = instance_index;
+  output.previous_pose_valid = EE_PREVIOUS_INSTANCES[instance_index].flags.x;
+  output.position = mul(current_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view);
+  return output;
 }

@@ -50,13 +50,17 @@ For each non-trivial task, establish brief milestones before implementation and 
 - Build the relevant executable target before manual testing app/editor behavior, and report the exact executable path used for the manual test.
 - Install all executable applications after finishing a task, unless the user explicitly says not to, and report the exact install command and result.
 
-## GPT-Codex-5.3-Spark Subagent Workflow
+## GPT-5.6 Subagent Routing
 
-Use `GPT-Codex-5.3-Spark` subagents to preserve the main `GPT-5.5` lane for implementation, architecture, debugging decisions, code review conclusions, commits, and PR work.
+Route every GPT-5.6 task to the least expensive model that can complete it reliably:
 
-Spark subagents should run commands, inspect files, collect logs, narrow failures, and return concise findings. They must not modify source code or repository files, stage changes, commit, push, create pull requests, or make architecture/product decisions. If a Spark subagent finds a code issue, it should report the failure and suspected cause; only the current/main agent should make code changes, then ask the Spark subagent to rerun the relevant verification.
+- Use `gpt-5.6-sol` with `ultra` reasoning for planning.
+- Use `gpt-5.6-sol` with `medium` reasoning for implementing an approved plan and for general coding tasks.
+- Use `gpt-5.6-terra` with `high` reasoning for quick context subagents, including reading the codebase and searching.
 
-Suitable Spark subagent tasks:
+Terra context subagents should run commands, inspect files, collect logs, narrow failures, and return concise findings. They must not modify source code or repository files, stage changes, commit, push, create pull requests, or make architecture/product decisions. If a Terra subagent finds a code issue, it should report the failure and suspected cause; a Sol subagent should make the code change, then ask the Terra subagent to rerun the relevant verification.
+
+Suitable Terra context-subagent tasks:
 
 - Test runner: run focused/full tests, retry flaky commands once, and report pass/fail with key logs.
 - Build/install runner: run package builds, app builds, install scripts, and verify expected binaries or manifests exist.

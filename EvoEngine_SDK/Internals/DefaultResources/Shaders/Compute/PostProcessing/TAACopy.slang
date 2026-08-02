@@ -1,4 +1,5 @@
-#include "PostProcessing.slangh"
+// @evoengine-dialect native
+import EvoEngine.PostProcessing;
 
 [[vk::binding(0, 0)]]
 Sampler2D inColor;

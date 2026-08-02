@@ -1,79 +1,56 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.LightingFixedSet3;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-#include "Lighting.slangh"
+struct DeferredLightingInput {
+  [[vk::location(0)]] float2 tex_coord : TEXCOORD0;
+};
 
-precision highp float;
+[[vk::binding(17, 1)]] Sampler2D inDepth;
+[[vk::binding(20, 1)]] Sampler2D inBaseColorAO;
+[[vk::binding(21, 1)]] Sampler2D inNormalRoughness;
+[[vk::binding(22, 1)]] Sampler2D inPbrFlags;
+[[vk::binding(23, 1)]] Sampler2D inEmissive;
+[[vk::binding(4, 3)]] Sampler2D inAmbientOcclusion;
 
-layout (location = 0) in VS_OUT {
-	vec2 TexCoord;
-} fs_in;
+[shader("fragment")]
+float4 main(DeferredLightingInput input) : SV_Target {
+  int camera_index = EE_BASIC_CONSTANTS.camera_index;
+  int indirect_debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
+  float ndc_depth = inDepth.Sample(input.tex_coord).x;
+  float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, input.tex_coord, ndc_depth);
+  float3 camera_position = EE_CAMERA_POSITION(camera_index);
+  float3 sky_color = EE_SKY_COLOR(world_position - camera_position);
+  if (ndc_depth == 1.0f)
+    return float4(indirect_debug_view == 0 ? sky_color : float3(0.0f), 1.0f);
 
-layout(set = EE_PER_PASS_SET, binding = 17) uniform sampler2D inDepth;
-layout(set = EE_PER_PASS_SET, binding = 20) uniform sampler2D inBaseColorAO;
-layout(set = EE_PER_PASS_SET, binding = 21) uniform sampler2D inNormalRoughness;
-layout(set = EE_PER_PASS_SET, binding = 22) uniform sampler2D inPbrFlags;
-layout(set = EE_PER_PASS_SET, binding = 23) uniform sampler2D inEmissive;
-layout(set = EE_RASTER_FIXED_LIGHTING_TEXTURE_SET, binding = 4) uniform sampler2D inAmbientOcclusion;
+  float4 base_color_ao = inBaseColorAO.Sample(input.tex_coord);
+  float4 normal_roughness = inNormalRoughness.Sample(input.tex_coord);
+  float4 pbr_flags = inPbrFlags.Sample(input.tex_coord);
+  float4 emissive_sample = inEmissive.Sample(input.tex_coord);
+  if (emissive_sample.a < 0.0f)
+    return float4(indirect_debug_view == 0 ? base_color_ao.rgb : float3(0.0f), 1.0f);
 
-layout (location = 0) out vec4 FragColor;
+  float3 normal = normalize(normal_roughness.xyz);
+  float depth = EE_LINEARIZE_DEPTH(camera_index, ndc_depth);
+  if (indirect_debug_view == 0) {
+    float4 shadow_debug_color = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, world_position);
+    if (shadow_debug_color.a > 0.0f) return shadow_debug_color;
+  }
 
-void main()
-{
-	const int indirectLightingDebugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
-	float ndcDepth = 	texture(inDepth, fs_in.TexCoord).x;
-	vec3 fragPos = EE_DEPTH_TO_WORLD_POS(EE_CAMERA_INDEX, fs_in.TexCoord, ndcDepth);
-	vec3 cameraPosition = EE_CAMERA_POSITION(EE_CAMERA_INDEX);
-	vec3 skyColor = EE_SKY_COLOR(fragPos - cameraPosition);
-	if(ndcDepth == 1.0f) {
-		FragColor = vec4(indirectLightingDebugView == 0 ? skyColor : vec3(0.0f), 1.0f);
-		return;
-	}
+  float3 view_direction = normalize(camera_position - world_position);
+  float3 direct = EE_FUNC_CALCULATE_LIGHTS(
+      true, base_color_ao.rgb, 1.0f, depth, normal, view_direction, world_position, pbr_flags.x,
+      normal_roughness.a, pbr_flags.yzw, emissive_sample.a);
+  float3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+      base_color_ao.rgb, normal, view_direction, world_position, pbr_flags.x, normal_roughness.a, pbr_flags.yzw,
+      emissive_sample.a, base_color_ao.a, inAmbientOcclusion.Sample(input.tex_coord).r);
+  if (indirect_debug_view != 0) return float4(ambient, 1.0f);
 
-	vec4 baseColorAO = texture(inBaseColorAO, fs_in.TexCoord);
-	vec4 normalRoughness = texture(inNormalRoughness, fs_in.TexCoord);
-	vec4 pbrFlags = texture(inPbrFlags, fs_in.TexCoord);
-	vec4 emissiveSample = texture(inEmissive, fs_in.TexCoord);
-	vec3 emissive = emissiveSample.rgb;
-	if (emissiveSample.a < 0.0f) {
-		FragColor = vec4(indirectLightingDebugView == 0 ? baseColorAO.rgb : vec3(0.0f), 1.0f);
-		return;
-	}
-
-	vec3 normal = normalize(normalRoughness.xyz);
-	float depth = EE_LINEARIZE_DEPTH(EE_CAMERA_INDEX, ndcDepth);
-	if (indirectLightingDebugView == 0) {
-		vec4 shadowDebugColor = EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(depth, fragPos);
-		if (shadowDebugColor.a > 0.0f) {
-			FragColor = shadowDebugColor;
-			return;
-		}
-	}
-
-	float roughness = normalRoughness.a;
-	float metallic = pbrFlags.x;
-	float materialOcclusion = baseColorAO.a;
-	float screenSpaceVisibility = texture(inAmbientOcclusion, fs_in.TexCoord).r;
-	vec4 albedo = vec4(baseColorAO.rgb, 1.0);
-
-	vec3 viewDir = normalize(cameraPosition - fragPos);
-	bool receiveShadow = true;
-	vec3 F0 = pbrFlags.yzw;
-	float F90 = emissiveSample.a;
-	vec3 result = EE_FUNC_CALCULATE_LIGHTS(receiveShadow, albedo.xyz, 1.0, depth, normal, viewDir, fragPos, metallic, roughness, F0, F90);
-	vec3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
-		albedo.xyz, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
-		screenSpaceVisibility);
-	if (indirectLightingDebugView != 0) {
-		FragColor = vec4(ambient, 1.0f);
-		return;
-	}
-	vec3 outputColor = result + emissive + ambient;
-
-	float fade_ratio = EE_CAMERA_FADE_RATIO(EE_CAMERA_INDEX);
-	if(depth > EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio){
-		outputColor.xyz = mix(outputColor.xyz, skyColor, (depth - EE_CAMERA_FAR(EE_CAMERA_INDEX) * fade_ratio) / (EE_CAMERA_FAR(EE_CAMERA_INDEX) * (1.f - fade_ratio)));
-	}
-	FragColor = vec4(outputColor, 1.0f);
+  float3 output_color = direct + emissive_sample.rgb + ambient;
+  float fade_ratio = EE_CAMERA_FADE_RATIO(camera_index);
+  float far_distance = EE_CAMERA_FAR(camera_index);
+  if (depth > far_distance * fade_ratio)
+    output_color = lerp(output_color, sky_color,
+                        (depth - far_distance * fade_ratio) / (far_distance * (1.0f - fade_ratio)));
+  return float4(output_color, 1.0f);
 }

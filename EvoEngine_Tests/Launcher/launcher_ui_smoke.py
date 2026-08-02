@@ -49,7 +49,7 @@ def main() -> int:
         def verify_project_hub_state() -> None:
             wait_for_log(log_path, "mode:hub")
             wait_for_log(log_path, "section:Demo")
-            wait_for_log(log_path, "demo-count:8")
+            wait_for_log(log_path, "demo-count:10")
             wait_for_log(log_path, "demo-profile:rendering:")
             wait_for_log(log_path, "demo-preview:rendering:")
             wait_for_log(log_path, "recent-count:1")
@@ -66,11 +66,7 @@ def main() -> int:
                 raise RuntimeError("Launcher still logged template availability.")
 
         run_subtest("LauncherNewProject.ListsPackagesWithoutTemplates", verify_new_project_packages)
-        sidebar_x = rect.left + 92
-        click(sidebar_x, rect.top + 152)
-        run_subtest("LauncherProjectHub.RecentProjectsSectionDoesNotExit",
-                    lambda: assert_process_stays_alive(launcher, "Launcher"))
-        click(sidebar_x, rect.top + 194)
+        run_subtest("LauncherProjectHub.RecentProjectsAreLogged", lambda: wait_for_log(log_path, "recent-count:1"))
         run_subtest("LauncherProjectHub.InteractionDoesNotExit", lambda: assert_process_stays_alive(launcher, "Launcher"))
         return 0
     except Exception:

@@ -1,125 +1,58 @@
+// @evoengine-dialect native
+import EvoEngine.PostProcessing;
 
-
-
-// This shader performs downsampling on a texture,
-// as taken from Call Of Duty method, presented at ACM Siggraph 2014.
-// This particular method was customly designed to eliminate
-// "pulsating artifacts and temporal stability issues".
-
-// Remember to add bilinear minification filter for this texture!
-// Remember to use a floating-point texture format (for HDR)!
-// Remember to use edge clamping for this texture!
-layout(set = 1, binding = 0) uniform sampler2D srcTexture;
-
-layout (location = 0) in VS_OUT {
-	vec2 TexCoord;
-} fs_in;
-
-layout (location = 0) out vec4 downsample;
-layout(push_constant) uniform EE_BLOOM_CONSTANTS{
-	vec2 srcResolution;
-	int mipLevel;
-	int padding;
+struct BloomDownsamplingInput {
+  [[vk::location(0)]]
+  float2 tex_coord : TEXCOORD0;
 };
 
-vec3 PowVec3(vec3 v, float p)
-{
-	return vec3(pow(v.x, p), pow(v.y, p), pow(v.z, p));
+[[vk::push_constant]]
+ConstantBuffer<EeBloomDownsamplingPushConstant> constants;
+
+[[vk::binding(0, 1)]]
+Sampler2D srcTexture;
+
+float3 PowVec3(float3 value, float power) {
+  return float3(pow(value.x, power), pow(value.y, power), pow(value.z, power));
 }
 
-const float invGamma = 1.0 / 2.2;
-vec3 ToSRGB(vec3 v)   { return PowVec3(v, invGamma); }
-
-float sRGBToLuma(vec3 col)
-{
-	//return dot(col, vec3(0.2126f, 0.7152f, 0.0722f));
-	return dot(col, vec3(0.299f, 0.587f, 0.114f));
+float KarisAverage(float3 color) {
+  float3 srgb = PowVec3(color, 1.0f / 2.2f);
+  return 1.0f / (1.0f + dot(srgb, float3(0.299f, 0.587f, 0.114f)) * 0.25f);
 }
 
-float KarisAverage(vec3 col)
-{
-	// Formula is 1 / (1 + luma)
-	float luma = sRGBToLuma(ToSRGB(col)) * 0.25f;
-	return 1.0f / (1.0f + luma);
-}
+[shader("fragment")]
+float4 main(BloomDownsamplingInput input) : SV_Target {
+  float2 texel = 1.0f / constants.source_resolution;
+  float x = texel.x;
+  float y = texel.y;
+  float2 uv = input.tex_coord;
 
+  float3 a = srcTexture.Sample(float2(uv.x - 2.0f * x, uv.y + 2.0f * y)).rgb;
+  float3 b = srcTexture.Sample(float2(uv.x, uv.y + 2.0f * y)).rgb;
+  float3 c = srcTexture.Sample(float2(uv.x + 2.0f * x, uv.y + 2.0f * y)).rgb;
+  float3 d = srcTexture.Sample(float2(uv.x - 2.0f * x, uv.y)).rgb;
+  float3 e = srcTexture.Sample(uv).rgb;
+  float3 f = srcTexture.Sample(float2(uv.x + 2.0f * x, uv.y)).rgb;
+  float3 g = srcTexture.Sample(float2(uv.x - 2.0f * x, uv.y - 2.0f * y)).rgb;
+  float3 h = srcTexture.Sample(float2(uv.x, uv.y - 2.0f * y)).rgb;
+  float3 i = srcTexture.Sample(float2(uv.x + 2.0f * x, uv.y - 2.0f * y)).rgb;
+  float3 j = srcTexture.Sample(float2(uv.x - x, uv.y + y)).rgb;
+  float3 k = srcTexture.Sample(float2(uv.x + x, uv.y + y)).rgb;
+  float3 l = srcTexture.Sample(float2(uv.x - x, uv.y - y)).rgb;
+  float3 m = srcTexture.Sample(float2(uv.x + x, uv.y - y)).rgb;
 
-void main()
-{
-	vec2 texCoord = fs_in.TexCoord;
-	vec2 srcTexelSize = 1.0f / srcResolution;
-	float x = srcTexelSize.x;
-	float y = srcTexelSize.y;
-
-	// Take 13 samples around current texel:
-	// a - b - c
-	// - j - k -
-	// d - e - f
-	// - l - m -
-	// g - h - i
-	// === ('e' is the current texel) ===
-	vec3 a = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y + 2 * y)).rgb;
-	vec3 b = texture(srcTexture, vec2(texCoord.x,         texCoord.y + 2 * y)).rgb;
-	vec3 c = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y + 2 * y)).rgb;
-
-	vec3 d = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y)).rgb;
-	vec3 e = texture(srcTexture, vec2(texCoord.x,         texCoord.y)).rgb;
-	vec3 f = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y)).rgb;
-
-	vec3 g = texture(srcTexture, vec2(texCoord.x - 2 * x, texCoord.y - 2 * y)).rgb;
-	vec3 h = texture(srcTexture, vec2(texCoord.x,         texCoord.y - 2 * y)).rgb;
-	vec3 i = texture(srcTexture, vec2(texCoord.x + 2 * x, texCoord.y - 2 * y)).rgb;
-
-	vec3 j = texture(srcTexture, vec2(texCoord.x - x, texCoord.y + y)).rgb;
-	vec3 k = texture(srcTexture, vec2(texCoord.x + x, texCoord.y + y)).rgb;
-	vec3 l = texture(srcTexture, vec2(texCoord.x - x, texCoord.y - y)).rgb;
-	vec3 m = texture(srcTexture, vec2(texCoord.x + x, texCoord.y - y)).rgb;
-
-	// Apply weighted distribution:
-	// 0.5 + 0.125 + 0.125 + 0.125 + 0.125 = 1
-	// a,b,d,e * 0.125
-	// b,c,e,f * 0.125
-	// d,e,g,h * 0.125
-	// e,f,h,i * 0.125
-	// j,k,l,m * 0.5
-	// This shows 5 square areas that are being sampled. But some of them overlap,
-	// so to have an energy preserving downsample we need to make some adjustments.
-	// The weights are the distributed, so that the sum of j,k,l,m (e.g.)
-	// contribute 0.5 to the final color output. The code below is written
-	// to effectively yield this sum. We get:
-	// 0.125*5 + 0.03125*4 + 0.0625*4 = 1
-	vec3 result = e * 0.125f;
-	result += (a + c + g + i) * 0.03125f;
-	result += (b + d + f + h) * 0.0625f;
-	result += (j + k + l + m) * 0.125f;
-
-	vec3 groups[5];
-	switch (mipLevel)
-	{
-	case 0:
-		// We are writing to mip 0, so we need to apply Karis average to each block
-		// of 4 samples to prevent fireflies (very bright subpixels, leads to pulsating
-		// artifacts).
-		groups[0] = (a + b + d + e) * (0.125f / 4.0f);
-		groups[1] = (b + c + e + f) * (0.125f / 4.0f);
-		groups[2] = (d + e + g + h) * (0.125f / 4.0f);
-		groups[3] = (e + f + h + i) * (0.125f / 4.0f);
-		groups[4] = (j + k + l + m) * (0.5f / 4.0f);
-		groups[0] *= KarisAverage(groups[0]);
-		groups[1] *= KarisAverage(groups[1]);
-		groups[2] *= KarisAverage(groups[2]);
-		groups[3] *= KarisAverage(groups[3]);
-		groups[4] *= KarisAverage(groups[4]);
-		result = groups[0] + groups[1] + groups[2] + groups[3] + groups[4];
-		result = max(result, 0.0001f);
-	  break;
-	default:
-		result = e * 0.125f;
-		result += (a + c + g + i) * 0.03125f;
-		result += (b + d + f + h) * 0.0625f;
-		result += (j + k + l + m) * 0.125f;
-	  break;
-	}
-
-	downsample = vec4(result, 1.0f);
+  float3 result = e * 0.125f + (a + c + g + i) * 0.03125f + (b + d + f + h) * 0.0625f +
+                  (j + k + l + m) * 0.125f;
+  if (constants.mip_level == 0) {
+    float3 groups[5];
+    groups[0] = (a + b + d + e) * (0.125f / 4.0f);
+    groups[1] = (b + c + e + f) * (0.125f / 4.0f);
+    groups[2] = (d + e + g + h) * (0.125f / 4.0f);
+    groups[3] = (e + f + h + i) * (0.125f / 4.0f);
+    groups[4] = (j + k + l + m) * (0.5f / 4.0f);
+    for (int group = 0; group < 5; ++group) groups[group] *= KarisAverage(groups[group]);
+    result = max(groups[0] + groups[1] + groups[2] + groups[3] + groups[4], 0.0001f);
+  }
+  return float4(result, 1.0f);
 }

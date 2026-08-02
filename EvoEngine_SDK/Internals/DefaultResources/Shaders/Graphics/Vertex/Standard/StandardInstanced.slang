@@ -1,46 +1,28 @@
-#extension GL_ARB_shader_draw_parameters : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.InstancedData;
+import EvoEngine.RasterVertex;
 
-#extension GL_ARB_shading_language_include : enable
+struct StandardVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
+  [[vk::location(1)]] float3 normal : NORMAL;
+  [[vk::location(2)]] float3 tangent : TANGENT;
+  [[vk::location(3)]] float2 tex_coord0 : TEXCOORD0;
+  [[vk::location(4)]] float4 color : COLOR0;
+  [[vk::location(9)]] float tangent_handedness : TEXCOORD4;
+  [[vk::location(10)]] float2 tex_coord1 : TEXCOORD1;
+  [[vk::location(11)]] float2 tex_coord2 : TEXCOORD2;
+  [[vk::location(12)]] float2 tex_coord3 : TEXCOORD3;
+};
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-
-layout (location = 0) in vec3 inPosition;
-layout (location = 1) in vec3 inNormal;
-layout (location = 2) in vec3 inTangent;
-layout (location = 3) in vec2 inTexCoord;
-layout (location = 4) in vec4 inColor;
-layout (location = 9) in float inTangentHandedness;
-layout (location = 10) in vec2 inTexCoord1;
-layout (location = 11) in vec2 inTexCoord2;
-layout (location = 12) in vec2 inTexCoord3;
-
-layout(location = 0) out VS_OUT {
-	vec3 FragPos;
-	vec3 Normal;
-	vec3 Tangent;
-	flat float TangentHandedness;
-	vec4 TexCoord01;
-	vec4 TexCoord23;
-	vec4 Color;
-} vs_out;
-
-layout(location = 7) out flat uint currentInstanceIndex;
-layout(location = 8) out flat float transformHandedness;
-
-void main()
-{
-	currentInstanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
-	mat4 matrix = EE_INSTANCES[currentInstanceIndex].model * EE_INSTANCED_DATA[gl_InstanceIndex].instance_matrix;
-	vs_out.FragPos = vec3(matrix * vec4(inPosition, 1.0));
-	vec3 N = normalize(transpose(inverse(mat3(matrix))) * inNormal);
-	vec3 T = mat3(matrix) * inTangent;
-	vs_out.Normal = N;
-	vs_out.Tangent = T;
-	transformHandedness = EE_TRANSFORM_HANDEDNESS(matrix);
-	vs_out.TangentHandedness = (inTangentHandedness < 0.0 ? -1.0 : 1.0) * transformHandedness;
-	vs_out.TexCoord01 = vec4(inTexCoord, inTexCoord1);
-	vs_out.TexCoord23 = vec4(inTexCoord2, inTexCoord3);
-	vs_out.Color = inColor;
-	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vs_out.FragPos, 1.0);
+[shader("vertex")]
+StandardRasterOutput main(StandardVertexInput input, uint draw_id : SV_DrawIndex,
+                          uint draw_instance : SV_InstanceID) {
+  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  float4x4 transform = mul(EE_INSTANCED_DATA[draw_instance].instance_matrix, EE_INSTANCES[instance_index].model);
+  return EE_BUILD_STANDARD_RASTER_OUTPUT(
+      input.position, input.normal, input.tangent, input.tangent_handedness, input.tex_coord0, input.tex_coord1,
+      input.tex_coord2, input.tex_coord3, input.color, instance_index, transform,
+      EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view);
 }

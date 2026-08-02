@@ -14,6 +14,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=320)
     parser.add_argument("--height", type=int, default=240)
     parser.add_argument("--warmup-frames", type=int, default=60)
+    parser.add_argument(
+        "--accumulation-frames",
+        type=int,
+        default=0,
+        help="Require this many accumulated camera frames, including recovery from history resets.",
+    )
+    parser.add_argument(
+        "--render-mode",
+        choices=("Rasterization", "RayTracing", "RayQuery"),
+        default="Rasterization",
+    )
+    parser.add_argument("--samples-per-frame", type=int, default=4)
+    parser.add_argument("--bounces", type=int, default=4)
     return parser.parse_args()
 
 
@@ -34,6 +47,10 @@ def main() -> int:
     source_resources_root = Path(args.source_resources_root).resolve()
     test_resources_root = Path(args.test_resources_root).resolve()
     output = Path(args.output).resolve()
+    if args.warmup_frames < 0 or args.accumulation_frames < 0:
+        raise ValueError("Capture frame counts must be non-negative")
+    if args.samples_per_frame <= 0 or args.bounces < 0:
+        raise ValueError("Capture samples per frame must be positive and bounces must be non-negative")
 
     copy_rendering_assets(source_resources_root, test_resources_root)
 
@@ -47,7 +64,18 @@ def main() -> int:
             raise RuntimeError("RunDemoWindowless failed")
         if not evoengine.IsCurrentSceneDdgiEnabled():
             raise RuntimeError("Rendering demo capture requires DDGI to be enabled")
-        if not evoengine.CaptureCurrentScene(args.width, args.height, output, args.warmup_frames):
+        if not evoengine.ConfigureCurrentSceneCameraForCapture(
+            args.render_mode, args.samples_per_frame, args.bounces
+        ):
+            raise RuntimeError(f"Requested render mode is unavailable: {args.render_mode}")
+        capture_frames = args.accumulation_frames or args.warmup_frames
+        if not evoengine.CaptureCurrentScene(
+            args.width,
+            args.height,
+            output,
+            capture_frames,
+            args.accumulation_frames > 0,
+        ):
             raise RuntimeError("CaptureCurrentScene failed")
     finally:
         evoengine.Terminate()

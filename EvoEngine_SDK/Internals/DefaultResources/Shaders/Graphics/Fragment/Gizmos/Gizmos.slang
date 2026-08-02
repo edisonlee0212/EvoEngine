@@ -1,11 +1,7 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.GizmosConstants;
 
-#include "GizmosConstants.slangh"
-#include "Basic.slangh"
-
-layout(location = 0) out vec4 FragColor;
-
-void main()
-{
-	FragColor = EE_GIZMO_COLOR;
+[shader("fragment")]
+float4 main() : SV_Target {
+  return EE_GIZMOS_CONSTANTS.color;
 }

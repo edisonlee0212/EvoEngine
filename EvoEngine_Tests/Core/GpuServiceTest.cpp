@@ -482,7 +482,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
                           "Shaders" / "Compute" / "GltfRayTracingNumericalProbe.slang";
-  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  Shader::RegisterShaderIncludePath(shader_root / "Modules" / "EvoEngine");
 
   auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
   descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -712,7 +712,7 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   const auto fixed_material_lighting_header =
       header +
       "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
-      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n";
 
   Shader raygen;
   Shader any_hit;

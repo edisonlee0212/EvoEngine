@@ -1,67 +1,55 @@
-#extension GL_ARB_shading_language_include : enable
-#extension GL_EXT_ray_tracing : require
-
-#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
-#define EE_GLTF_TEXTURE_LOD 0.0
-#include "RayTracingBasic.slangh"
-#include "GltfRasterMaterial.slangh"
-#include "PointCloudRayTracingPayload.slangh"
+// @evoengine-dialect native
+import EvoEngine.GltfRayTracingMaterial;
+import EvoEngine.PointCloudRayTracingPayload;
+import EvoEngine.RayTracingBasic;
+import EvoEngine.RayTracingMaterial;
 
 [shader("closesthit")]
-void main(inout PointCloudRayTracingPayload hit_value, in BuiltInTriangleIntersectionAttributes attribs)
-{
-	const int instance_index = int(InstanceID());
-	Instance instance = EE_INSTANCES[instance_index];
-	const uint material_index = uint(instance.material_index);
-	const int triangle_offset = instance.triangle_offset + PrimitiveIndex();
+void main(inout PointCloudRayTracingPayload hit_value, in BuiltInTriangleIntersectionAttributes attributes) {
+  const Instance instance = EE_INSTANCES[int(InstanceID())];
+  const uint material_index = uint(instance.material_index);
+  const int triangle_offset = instance.triangle_offset + int(PrimitiveIndex());
+  const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
+  const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
+  const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
+  const float2 hit_barycentrics = attributes.barycentrics;
+  const float3 barycentrics =
+      float3(1.0f - hit_barycentrics.x - hit_barycentrics.y, hit_barycentrics.x, hit_barycentrics.y);
+  const float3 position =
+      v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
+  const float2 tex_coord =
+      v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
+  float3 normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
+  const float3 tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
+  const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
+  normal = EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, normal, tangent);
 
-	// Vertex of the triangle
-	const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
-	const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
-	const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
+  const float3 world_position = mul(float4(position, 1.0f), instance.model).xyz;
+  const float3 world_normal = EE_RT_WORLD_NORMAL(instance.model, normal, float3(0.0f, 1.0f, 0.0f));
+  const float3 world_tangent = EE_RT_WORLD_TANGENT(instance.model, tangent, world_normal);
+  const float4 albedo = surface.base_color;
+  hit_value.hit_count += 1;
+  hit_value.hit_info.color = float4(surface.emissive * albedo.xyz, 1.0f);
+  hit_value.hit_info.position = world_position;
+  hit_value.hit_info.normal = world_normal;
+  hit_value.hit_info.tangent = world_tangent;
+  hit_value.hit_info.tex_coord = tex_coord;
+  hit_value.handle = instance.renderer_handle;
 
-	const vec2 hit_barycentrics = attribs.barycentrics;
-	const vec3 barycentrics = vec3(1.0 - hit_barycentrics.x - hit_barycentrics.y, hit_barycentrics.x,
-	                               hit_barycentrics.y);
-
-	const vec3 position      = v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
-	const vec2 tex_coord      = v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
-	vec3 normal      = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
-	const vec3 tangent      = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
-	const GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord, tex_coord);
-	normal = EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, normal, tangent);
-
-	const vec3 worldPosition = vec3(gl_ObjectToWorldEXT * vec4(position, 1.0));  // Transforming the position to world space
-	const vec3 worldNormal = normalize(vec3(normal * gl_WorldToObjectEXT));  // Transforming the normal to world space
-	const vec3 worldTangent = normalize(vec3(tangent * gl_WorldToObjectEXT));  // Transforming the normal to world space
-
-	vec4 albedo = surface.base_color;
-
-	hit_value.hit_count += 1;
-	hit_value.hit_info.color = vec4(surface.emissive * albedo.xyz, 1.0f);
-
-	hit_value.hit_info.position = worldPosition;
-	hit_value.hit_info.normal = worldNormal;
-	hit_value.hit_info.tangent = worldTangent;
-	hit_value.hit_info.tex_coord = tex_coord;
-	hit_value.handle = instance.renderer_handle;
-
-	// Interpolate vertex info
-	if (barycentrics.x > barycentrics.z && barycentrics.x > barycentrics.y) {
-      hit_value.hit_info.vertex_info1 = v1.vertex_info1;
-      hit_value.hit_info.vertex_info2 = v1.vertex_info2;
-      hit_value.hit_info.vertex_info3 = v1.vertex_info3;
-      hit_value.hit_info.vertex_info4 = v1.vertex_info4;
-    } else if (barycentrics.y > barycentrics.z) {
-      hit_value.hit_info.vertex_info1 = v2.vertex_info1;
-      hit_value.hit_info.vertex_info2 = v2.vertex_info2;
-      hit_value.hit_info.vertex_info3 = v2.vertex_info3;
-      hit_value.hit_info.vertex_info4 = v2.vertex_info4;
-    } else {
-      hit_value.hit_info.vertex_info1 = v0.vertex_info1;
-      hit_value.hit_info.vertex_info2 = v0.vertex_info2;
-      hit_value.hit_info.vertex_info3 = v0.vertex_info3;
-      hit_value.hit_info.vertex_info4 = v0.vertex_info4;
-    }
-
+  if (barycentrics.x > barycentrics.z && barycentrics.x > barycentrics.y) {
+    hit_value.hit_info.vertex_info1 = v1.vertex_info1;
+    hit_value.hit_info.vertex_info2 = v1.vertex_info2;
+    hit_value.hit_info.vertex_info3 = v1.vertex_info3;
+    hit_value.hit_info.vertex_info4 = v1.vertex_info4;
+  } else if (barycentrics.y > barycentrics.z) {
+    hit_value.hit_info.vertex_info1 = v2.vertex_info1;
+    hit_value.hit_info.vertex_info2 = v2.vertex_info2;
+    hit_value.hit_info.vertex_info3 = v2.vertex_info3;
+    hit_value.hit_info.vertex_info4 = v2.vertex_info4;
+  } else {
+    hit_value.hit_info.vertex_info1 = v0.vertex_info1;
+    hit_value.hit_info.vertex_info2 = v0.vertex_info2;
+    hit_value.hit_info.vertex_info3 = v0.vertex_info3;
+    hit_value.hit_info.vertex_info4 = v0.vertex_info4;
+  }
 }

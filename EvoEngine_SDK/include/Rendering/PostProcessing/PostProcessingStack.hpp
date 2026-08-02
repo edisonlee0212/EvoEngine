@@ -451,6 +451,8 @@ struct PostProcessingCameraResources {
   uint32_t jitter_frame_index = 0;
   bool jitter_taa_enabled = false;
   glm::mat4 previous_projection_view = glm::mat4(1.0f);
+  glm::mat4 previous_inverse_projection = glm::mat4(1.0f);
+  glm::mat4 previous_inverse_view = glm::mat4(1.0f);
   glm::mat4 previous_unjittered_projection_view = glm::mat4(1.0f);
   bool previous_matrices_valid = false;
 

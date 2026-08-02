@@ -1,73 +1,58 @@
-#extension GL_ARB_shader_draw_parameters : enable
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.Skinning;
+import EvoEngine.RasterMotionVectors;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
-
-layout(location = 0) in vec3 inPosition;
-layout(location = 3) in vec2 inTexCoord;
-layout(location = 4) in vec4 inColor;
-layout(location = 5) in ivec4 inBoneIds;
-layout(location = 6) in vec4 inWeights;
-layout(location = 7) in ivec4 inBoneIds2;
-layout(location = 8) in vec4 inWeights2;
-layout(location = 10) in vec2 inTexCoord1;
-layout(location = 11) in vec2 inTexCoord2;
-layout(location = 12) in vec2 inTexCoord3;
-
-struct PreviousInstance {
-  mat4 previous_model;
-  uvec4 flags;
+struct SkinnedMotionVectorVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
+  [[vk::location(3)]] float2 tex_coord0 : TEXCOORD0;
+  [[vk::location(4)]] float4 color : COLOR0;
+  [[vk::location(5)]] int4 bone_ids : BLENDINDICES0;
+  [[vk::location(6)]] float4 weights : BLENDWEIGHT0;
+  [[vk::location(7)]] int4 bone_ids2 : BLENDINDICES1;
+  [[vk::location(8)]] float4 weights2 : BLENDWEIGHT1;
+  [[vk::location(10)]] float2 tex_coord1 : TEXCOORD1;
+  [[vk::location(11)]] float2 tex_coord2 : TEXCOORD2;
+  [[vk::location(12)]] float2 tex_coord3 : TEXCOORD3;
 };
 
-layout(set = 2, binding = 0) readonly buffer EE_PREVIOUS_ANIM_BONES_BLOCK {
-  mat4 EE_PREVIOUS_ANIM_BONES[];
-};
+[[vk::binding(0, 2)]]
+StructuredBuffer<float4x4> EE_PREVIOUS_ANIM_BONES;
+[[vk::binding(1, 2)]]
+StructuredBuffer<PreviousInstance> EE_PREVIOUS_INSTANCES;
 
-layout(set = 2, binding = 1) readonly buffer EE_PREVIOUS_INSTANCE_BLOCK {
-  PreviousInstance EE_PREVIOUS_INSTANCES[];
-};
-
-layout(location = 0) out vec2 outTexCoord;
-layout(location = 1) out vec4 outCurrentClip;
-layout(location = 2) out vec4 outPreviousClip;
-layout(location = 3) out flat uint outInstanceIndex;
-layout(location = 4) out flat uint outPreviousPoseValid;
-layout(location = 5) out vec2 outTexCoord1;
-layout(location = 6) out vec4 outColor;
-layout(location = 7) out vec2 outTexCoord2;
-layout(location = 8) out vec2 outTexCoord3;
-
-mat4 GetBoneTransform(bool previous) {
-  mat4 boneTransform = (previous ? EE_PREVIOUS_ANIM_BONES[inBoneIds[0]] : EE_ANIM_BONES[inBoneIds[0]]) * inWeights[0];
-  for (int index = 1; index < 4; ++index) {
-    if (inBoneIds[index] != -1) {
-      boneTransform +=
-          (previous ? EE_PREVIOUS_ANIM_BONES[inBoneIds[index]] : EE_ANIM_BONES[inBoneIds[index]]) * inWeights[index];
-    }
-  }
-  for (int index = 0; index < 4; ++index) {
-    if (inBoneIds2[index] != -1) {
-      boneTransform += (previous ? EE_PREVIOUS_ANIM_BONES[inBoneIds2[index]] : EE_ANIM_BONES[inBoneIds2[index]]) *
-                       inWeights2[index];
-    }
-  }
-  return boneTransform;
+float4x4 PreviousSkinningMatrix(SkinnedMotionVectorVertexInput input) {
+  float4x4 result = EE_PREVIOUS_ANIM_BONES[input.bone_ids.x] * input.weights.x;
+  if (input.bone_ids.y != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids.y] * input.weights.y;
+  if (input.bone_ids.z != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids.z] * input.weights.z;
+  if (input.bone_ids.w != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids.w] * input.weights.w;
+  if (input.bone_ids2.x != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids2.x] * input.weights2.x;
+  if (input.bone_ids2.y != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids2.y] * input.weights2.y;
+  if (input.bone_ids2.z != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids2.z] * input.weights2.z;
+  if (input.bone_ids2.w != -1) result += EE_PREVIOUS_ANIM_BONES[input.bone_ids2.w] * input.weights2.w;
+  return result;
 }
 
-void main() {
-  uint instanceIndex = gl_DrawID + uint(EE_INSTANCE_INDEX);
-  vec4 currentWorld = EE_INSTANCES[instanceIndex].model * GetBoneTransform(false) * vec4(inPosition, 1.0f);
-  vec4 previousWorld =
-      EE_PREVIOUS_INSTANCES[instanceIndex].previous_model * GetBoneTransform(true) * vec4(inPosition, 1.0f);
-  outTexCoord = inTexCoord;
-  outTexCoord1 = inTexCoord1;
-  outTexCoord2 = inTexCoord2;
-  outTexCoord3 = inTexCoord3;
-  outColor = inColor;
-  outCurrentClip = EE_CAMERAS[EE_CAMERA_INDEX].unjittered_projection_view * currentWorld;
-  outPreviousClip = EE_CAMERAS[EE_CAMERA_INDEX].previous_unjittered_projection_view * previousWorld;
-  outInstanceIndex = instanceIndex;
-  outPreviousPoseValid = EE_PREVIOUS_INSTANCES[instanceIndex].flags.y;
-  gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * currentWorld;
+[shader("vertex")]
+RasterMotionVectorOutput main(SkinnedMotionVectorVertexInput input, uint draw_id : SV_DrawIndex) {
+  RasterMotionVectorOutput output;
+  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  float4 current_world = mul(float4(input.position, 1.0f),
+                             EE_SKINNING_MATRIX(input.bone_ids, input.weights, input.bone_ids2, input.weights2));
+  current_world = mul(current_world, EE_INSTANCES[instance_index].model);
+  float4 previous_world = mul(float4(input.position, 1.0f), PreviousSkinningMatrix(input));
+  previous_world = mul(previous_world, EE_PREVIOUS_INSTANCES[instance_index].previous_model);
+  output.tex_coord0 = input.tex_coord0;
+  output.tex_coord1 = input.tex_coord1;
+  output.tex_coord2 = input.tex_coord2;
+  output.tex_coord3 = input.tex_coord3;
+  output.color = input.color;
+  output.current_clip = mul(current_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].unjittered_projection_view);
+  output.previous_clip =
+      mul(previous_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].previous_unjittered_projection_view);
+  output.instance_index = instance_index;
+  output.previous_pose_valid = EE_PREVIOUS_INSTANCES[instance_index].flags.y;
+  output.position = mul(current_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view);
+  return output;
 }
