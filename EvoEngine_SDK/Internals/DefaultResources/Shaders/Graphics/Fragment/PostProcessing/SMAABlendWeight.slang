@@ -1,29 +1,28 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.SMAA;
 
-layout(push_constant) uniform EE_SMAA_CONSTANTS {
-  vec4 metrics;
-  vec4 subsampleIndices;
-  int toneMapped;
-  int debugMode;
-  int padding0;
-  int padding1;
-} pc;
+[[vk::binding(0, 0)]] Sampler2D<float4> edges_tex;
+[[vk::binding(1, 0)]] Sampler2D<float4> area_tex;
+[[vk::binding(2, 0)]] Sampler2D<float4> search_tex;
 
-#define SMAA_SLANGH_4
-#define SMAA_RT_METRICS pc.metrics
-#define SMAA_INCLUDE_VS 0
-#define SMAA_INCLUDE_PS 1
-#include "SMAA/SMAA.hlsl"
-
-layout(set = 0, binding = 0) uniform sampler2D edgesTex;
-layout(set = 0, binding = 1) uniform sampler2D areaTex;
-layout(set = 0, binding = 2) uniform sampler2D searchTex;
-layout(location = 0) in vec2 inTexcoord;
-layout(location = 1) in vec2 inPixcoord;
-layout(location = 2) in vec4 inOffset[3];
-layout(location = 0) out vec4 outBlendWeights;
-
-void main() {
-  outBlendWeights = SMAABlendingWeightCalculationPS(inTexcoord, inPixcoord, inOffset, edgesTex, areaTex, searchTex,
-                                                     pc.subsampleIndices);
+[shader("fragment")]
+float4 main([[vk::location(0)]] float2 texcoord : TEXCOORD0,
+            [[vk::location(1)]] float2 pixcoord : TEXCOORD1,
+            [[vk::location(2)]] float4 offset0 : TEXCOORD2,
+            [[vk::location(3)]] float4 offset1 : TEXCOORD3,
+            [[vk::location(4)]] float4 offset2 : TEXCOORD4) : SV_Target0 {
+  float4 offsets[3] = {offset0, offset1, offset2};
+#if defined(SMAA_PRESET_LOW)
+  return SMAABlendingWeightCalculationPS(SmaaLowPreset(), texcoord, pixcoord, offsets, edges_tex, area_tex,
+                                         search_tex, EE_SMAA_CONSTANTS.subsample_indices);
+#elif defined(SMAA_PRESET_MEDIUM)
+  return SMAABlendingWeightCalculationPS(SmaaMediumPreset(), texcoord, pixcoord, offsets, edges_tex, area_tex,
+                                         search_tex, EE_SMAA_CONSTANTS.subsample_indices);
+#elif defined(SMAA_PRESET_HIGH)
+  return SMAABlendingWeightCalculationPS(SmaaHighPreset(), texcoord, pixcoord, offsets, edges_tex, area_tex,
+                                         search_tex, EE_SMAA_CONSTANTS.subsample_indices);
+#else
+  return SMAABlendingWeightCalculationPS(SmaaUltraPreset(), texcoord, pixcoord, offsets, edges_tex, area_tex,
+                                         search_tex, EE_SMAA_CONSTANTS.subsample_indices);
+#endif
 }

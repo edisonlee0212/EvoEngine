@@ -1,28 +1,27 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.Atmosphere;
 
-precision highp float;
-layout (location = 0) out vec4 FragColor;
-layout (location = 0) in vec3 inWorldPos;
-
-#include "Atmosphere.slangh"
-
-layout(push_constant) uniform EE_PUSH_CONSTANTS{
-	mat4 projection_view;
-	Atmosphere atmosphere;
-
-	vec3 sun_direction;
-	float gamma;
-
-	vec3 ground_color;
-	float ground_transmittance;
+struct AtmosphereFragmentInput {
+  [[vk::location(0)]] float3 world_position : TEXCOORD0;
 };
 
-void main()
-{
-	vec3 ray_direction = normalize(inWorldPos);
-	vec3 color = NishitaSkyIncidentLight(atmosphere, vec3(0, 0, 0), ray_direction, sun_direction);
-	if(ray_direction.y <= 0.f){
-		color = mix(ground_color, color, ground_transmittance);
-	}
-	FragColor = vec4(pow(color, vec3(gamma)), 1.0);
+struct AtmosphereFragmentConstants {
+  float4x4 projection_view;
+  Atmosphere atmosphere;
+  float3 sun_direction;
+  float gamma;
+  float3 ground_color;
+  float ground_transmittance;
+};
+
+[[vk::push_constant]] ConstantBuffer<AtmosphereFragmentConstants> constants;
+
+[shader("fragment")]
+float4 main(AtmosphereFragmentInput input) : SV_Target {
+  float3 ray_direction = normalize(input.world_position);
+  float3 color = NishitaSkyIncidentLight(constants.atmosphere, float3(0.0f), ray_direction,
+                                         constants.sun_direction);
+  if (ray_direction.y <= 0.0f)
+    color = lerp(constants.ground_color, color, constants.ground_transmittance);
+  return float4(pow(color, float3(constants.gamma)), 1.0f);
 }

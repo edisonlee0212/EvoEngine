@@ -12,8 +12,10 @@
 #include "Texture2D.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstring>
+#include <functional>
 #include <limits>
 #include <unordered_map>
 
@@ -1369,7 +1371,7 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
     emissive_triangle_info_blocks_.clear();
     emissive_triangle_instance_signatures_.clear();
     ddgi_emissive_inventory_signature_ = 0;
-    render_info_block.emissive_triangle_parameters.x = 0u;
+    render_info_block.emissive_triangle_parameters = glm::uvec4(0u);
     return;
   }
 
@@ -1440,7 +1442,8 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
           glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.y).position, 1.0f));
       const glm::vec3 p2 =
           glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.z).position, 1.0f));
-      const double area = 0.5 * static_cast<double>(glm::length(glm::cross(p1 - p0, p2 - p0)));
+      const glm::vec3 weighted_normal = glm::cross(p1 - p0, p2 - p0);
+      const double area = 0.5 * static_cast<double>(glm::length(weighted_normal));
       candidates.push_back(
           {static_cast<uint32_t>(render_instance->instance_index), primitive_id, area, emissive_instance.importance});
     }

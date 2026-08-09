@@ -1,5 +1,7 @@
 #include "Application.hpp"
 
+#include <algorithm>
+
 #include "ApplicationContext.hpp"
 
 #include "Animation.hpp"
@@ -130,7 +132,9 @@ ShaderCompileCacheStats DeltaShaderCompileCacheStats(const ShaderCompileCacheSta
           after.coalesced_waits - before.coalesced_waits,
           after.corrupt_entries - before.corrupt_entries,
           after.failures - before.failures,
-          after.slang_frontend_invocations - before.slang_frontend_invocations};
+          after.native_slang_frontend_invocations - before.native_slang_frontend_invocations,
+          after.compatibility_slang_frontend_invocations - before.compatibility_slang_frontend_invocations,
+          after.glslang_frontend_invocations - before.glslang_frontend_invocations};
 }
 
 template <typename T>
@@ -197,12 +201,18 @@ void SerializeCamera(YAML::Emitter& out, const Camera& camera) {
   out << YAML::Key << "sample_size" << YAML::Value << camera.camera_settings.sample_size;
   out << YAML::Key << "bounce" << YAML::Value << camera.camera_settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << camera.camera_settings.gamma;
-  out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << camera.camera_settings.firefly_clamp_enabled;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << camera.camera_settings.firefly_clamp_threshold;
-  out << YAML::Key << "emissive_triangle_nee_enabled" << YAML::Value
-      << camera.camera_settings.emissive_triangle_nee_enabled;
   out << YAML::Key << "ray_debug_view" << YAML::Value
       << Camera::GetRayDebugViewName(camera.camera_settings.ray_debug_view);
+  const auto& ray_outputs = camera.camera_settings.ray_outputs;
+  out << YAML::Key << "ray_outputs" << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "albedo" << YAML::Value << ray_outputs.albedo;
+  out << YAML::Key << "normal" << YAML::Value << ray_outputs.normal;
+  out << YAML::Key << "ray_count" << YAML::Value << ray_outputs.ray_count;
+  out << YAML::Key << "path_length" << YAML::Value << ray_outputs.path_length;
+  out << YAML::Key << "time" << YAML::Value << ray_outputs.time;
+  out << YAML::Key << "debug" << YAML::Value << ray_outputs.debug;
+  out << YAML::EndMap;
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << camera.camera_settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << camera.camera_settings.auto_spp_min_samples;
   out << YAML::Key << "auto_spp_max_samples" << YAML::Value << camera.camera_settings.auto_spp_max_samples;
@@ -250,15 +260,26 @@ void DeserializeCamera(const YAML::Node& in, Camera& camera) {
     camera.camera_settings.bounce = in["bounce"].as<uint32_t>();
   if (in["gamma"])
     camera.camera_settings.gamma = in["gamma"].as<float>();
-  if (in["firefly_clamp_enabled"])
-    camera.camera_settings.firefly_clamp_enabled = in["firefly_clamp_enabled"].as<bool>();
   if (in["firefly_clamp_threshold"])
     camera.camera_settings.firefly_clamp_threshold = in["firefly_clamp_threshold"].as<float>();
-  if (in["emissive_triangle_nee_enabled"])
-    camera.camera_settings.emissive_triangle_nee_enabled = in["emissive_triangle_nee_enabled"].as<bool>();
   if (in["ray_debug_view"])
     camera.camera_settings.ray_debug_view =
         Camera::ParseRayDebugView(in["ray_debug_view"].as<std::string>(), camera.camera_settings.ray_debug_view);
+  if (const auto ray_outputs_node = in["ray_outputs"]) {
+    auto& ray_outputs = camera.camera_settings.ray_outputs;
+    if (ray_outputs_node["albedo"])
+      ray_outputs.albedo = ray_outputs_node["albedo"].as<bool>();
+    if (ray_outputs_node["normal"])
+      ray_outputs.normal = ray_outputs_node["normal"].as<bool>();
+    if (ray_outputs_node["ray_count"])
+      ray_outputs.ray_count = ray_outputs_node["ray_count"].as<bool>();
+    if (ray_outputs_node["path_length"])
+      ray_outputs.path_length = ray_outputs_node["path_length"].as<bool>();
+    if (ray_outputs_node["time"])
+      ray_outputs.time = ray_outputs_node["time"].as<bool>();
+    if (ray_outputs_node["debug"])
+      ray_outputs.debug = ray_outputs_node["debug"].as<bool>();
+  }
   if (in["auto_spp_enabled"])
     camera.camera_settings.auto_spp_enabled = in["auto_spp_enabled"].as<bool>();
   if (in["auto_spp_min_samples"])
@@ -582,6 +603,7 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
   out << YAML::Key << "thickness_factor" << YAML::Value << material.thickness_factor;
   out << YAML::Key << "attenuation_distance" << YAML::Value << material.attenuation_distance;
 #endif
+  out << YAML::Key << "nested_priority" << YAML::Value << material.nested_priority;
 #if MAT_EXT_IOR
   out << YAML::Key << "ior" << YAML::Value << material.ior;
 #endif
@@ -710,6 +732,8 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
   if (in["attenuation_distance"])
     material.attenuation_distance = in["attenuation_distance"].as<float>();
 #endif
+  if (in["nested_priority"])
+    material.nested_priority = static_cast<uint32_t>(std::clamp(in["nested_priority"].as<int>(), 0, 15));
 #if MAT_EXT_IOR
   if (in["ior"])
     material.ior = in["ior"].as<float>();
@@ -2510,7 +2534,9 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
               << " shader_disk_hits=" << shader_stats_delta.disk_hits
               << " shader_disk_misses=" << shader_stats_delta.disk_misses
               << " shader_compilations=" << shader_stats_delta.compilations
-              << " shader_slang_frontend=" << shader_stats_delta.slang_frontend_invocations;
+              << " shader_native_slang_frontend=" << shader_stats_delta.native_slang_frontend_invocations
+              << " shader_compatibility_slang_frontend=" << shader_stats_delta.compatibility_slang_frontend_invocations
+              << " shader_glslang_frontend=" << shader_stats_delta.glslang_frontend_invocations;
   EVOENGINE_LOG(startup_log.str())
 
   if (!this->initialization_settings.project_path.empty()) {

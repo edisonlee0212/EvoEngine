@@ -160,8 +160,6 @@ def maybe_capture_launcher_preview(args: argparse.Namespace, demo_id: str, outpu
                 "4",
                 "--preview-auto-spp",
                 "disabled",
-                "--preview-firefly-clamp",
-                "enabled",
                 "--preview-firefly-clamp-threshold",
                 "10",
                 "--preview-deterministic",

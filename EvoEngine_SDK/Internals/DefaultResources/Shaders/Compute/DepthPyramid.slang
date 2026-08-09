@@ -1,28 +1,38 @@
-layout(set = 0, binding = 0) uniform sampler2D sourceDepth;
-layout(set = 0, binding = 1, r32f) uniform writeonly image2D targetMip;
+// @evoengine-dialect native
+[[vk::binding(0, 0)]]
+Sampler2D sourceDepth;
 
-layout(push_constant) uniform EE_DEPTH_PYRAMID_CONSTANTS {
-  uvec2 sourceResolution;
-  uvec2 targetResolution;
+[[vk::binding(1, 0)]]
+[vk::image_format("r32f")]
+RWTexture2D<float> targetMip;
+
+struct EeDepthPyramidConstants {
+  uint2 sourceResolution;
+  uint2 targetResolution;
 };
 
-float FetchDepth(ivec2 texel) {
-  ivec2 source_max = ivec2(sourceResolution) - ivec2(1);
-  return texelFetch(sourceDepth, clamp(texel, ivec2(0), source_max), 0).r;
+[[vk::push_constant]]
+ConstantBuffer<EeDepthPyramidConstants> constants;
+
+float FetchDepth(int2 texel) {
+  int2 source_max = int2(constants.sourceResolution) - int2(1);
+  return sourceDepth.Load(int3(clamp(texel, int2(0), source_max), 0)).r;
 }
 
-[shader("compute")][numthreads(16, 16, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
-  uvec2 pixel = dispatchThreadId.xy;
-  if (pixel.x >= targetResolution.x || pixel.y >= targetResolution.y) {
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
+  uint2 pixel = dispatchThreadId.xy;
+  if (pixel.x >= constants.targetResolution.x || pixel.y >= constants.targetResolution.y) {
     return;
   }
 
-  ivec2 source_pixel = ivec2(pixel * 2);
+  int2 source_pixel = int2(pixel * 2);
   float depth = FetchDepth(source_pixel);
-  if (sourceResolution.x != targetResolution.x || sourceResolution.y != targetResolution.y) {
-    depth = min(depth, FetchDepth(source_pixel + ivec2(1, 0)));
-    depth = min(depth, FetchDepth(source_pixel + ivec2(0, 1)));
-    depth = min(depth, FetchDepth(source_pixel + ivec2(1, 1)));
+  if (any(constants.sourceResolution != constants.targetResolution)) {
+    depth = min(depth, FetchDepth(source_pixel + int2(1, 0)));
+    depth = min(depth, FetchDepth(source_pixel + int2(0, 1)));
+    depth = min(depth, FetchDepth(source_pixel + int2(1, 1)));
   }
-  imageStore(targetMip, ivec2(pixel), vec4(depth));
+  targetMip[int2(pixel)] = depth;
 }

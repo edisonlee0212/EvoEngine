@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "CameraSettings.hpp"
 
 namespace evo_engine {
 class Buffer;
@@ -104,6 +105,12 @@ inline constexpr const char* camera_ddgi_gather_timing = "Camera.DDGI.GatherTimi
 inline constexpr const char* camera_color_history = "Camera.ColorHistory";
 inline constexpr const char* camera_radiance_history = "Camera.RadianceHistory";
 inline constexpr const char* camera_ray_hit_distance = "Camera.RayHitDistance";
+inline constexpr const char* camera_ray_albedo = "Camera.RayAlbedo";
+inline constexpr const char* camera_ray_normal = "Camera.RayNormal";
+inline constexpr const char* camera_ray_count = "Camera.RayCount";
+inline constexpr const char* camera_ray_path_length = "Camera.RayPathLength";
+inline constexpr const char* camera_ray_time = "Camera.RayTime";
+inline constexpr const char* camera_ray_debug = "Camera.RayDebug";
 inline constexpr const char* camera_volumetric_cloud_accumulation = "Camera.VolumetricCloudAccumulation";
 inline constexpr const char* camera_volumetric_cloud_transmittance = "Camera.VolumetricCloudTransmittance";
 inline constexpr const char* camera_gaussian_splat_prepass = "Camera.GaussianSplatPrepass";
@@ -384,6 +391,7 @@ class RenderGraphPlanCache final {
 void AddDefaultFrameResources(RenderGraph& graph);
 void AddDefaultRasterCameraResources(RenderGraph& graph);
 void AddDefaultRayTracingCameraResources(RenderGraph& graph);
+void AddRayCameraOptionalOutputResources(RenderGraph& graph, const CameraSettings::RayOutputSettings& outputs);
 void AddAdvancedFrameResources(RenderGraph& graph);
 void AddAdvancedCameraResources(RenderGraph& graph);
 void AddVolumetricCloudCameraResources(RenderGraph& graph, uint32_t resolution_divisor = 1);

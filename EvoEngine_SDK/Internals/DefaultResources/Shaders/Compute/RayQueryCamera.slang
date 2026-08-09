@@ -1,36 +1,19 @@
-#extension GL_ARB_shading_language_include : enable
-#extension GL_EXT_ray_query : require
+// @evoengine-dialect native
+#ifndef EE_GLTF_COMPILED_FEATURE_MASK
+#  define EE_GLTF_COMPILED_FEATURE_MASK 32767u
+#endif
+import EvoEngine.CameraRayIntegrator;
+import EvoEngine.CameraRayTraversalPolicies;
 
-#define EE_RAY_QUERY_SHADER
-#include "RayTracingBasic.slangh"
-#include "Random.slangh"
-#define EE_GLTF_USE_EXPLICIT_TEXTURE_LOD
-#define EE_GLTF_TEXTURE_LOD 0.0
-#include "GltfRayTracingBsdf.slangh"
-#include "CameraRayTracingPayload.slangh"
-
-layout(set = 2, binding = 0, rgba32f) uniform image2D result_image;
-layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image;
-layout(set = 2, binding = 2, rgba32f) uniform image2D radiance_history_image;
-layout(set = 2, binding = 3, rgba32f) uniform image2D convergence_history_image;
-
-layout(push_constant) uniform EE_CAMERA_CONSTANTS {
-  uint EE_CAMERA_INDEX;
-  uint EE_FRAME_ID;
-  uint EE_TOTAL_SAMPLES;
-  uint EE_FRAME_SAMPLE_SIZE;
-};
-
-CameraRayTracingPayload hit_value;
-
-#define EE_CAMERA_RAY_QUERY_TRAVERSAL
-#include "CameraRayIntegrator.slangh"
-
-[shader("compute")][numthreads(8, 8, 1)] void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
-  const uvec2 pixel_coordinate = uvec2(dispatchThreadId.xy);
-  const uvec2 image_size = uvec2(imageSize(result_image));
-  if (pixel_coordinate.x >= image_size.x || pixel_coordinate.y >= image_size.y) {
+[shader("compute")][numthreads(8, 8, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  uint width;
+  uint height;
+  result_image.GetDimensions(width, height);
+  const uint2 pixel_coordinate = dispatch_thread_id.xy;
+  const uint2 image_size = uint2(width, height);
+  if (any(pixel_coordinate >= image_size)) {
     return;
   }
-  EE_CAMERA_RENDER_PIXEL(pixel_coordinate, image_size);
+  EE_CAMERA_RENDER_PIXEL<CameraRayQueryTraversalPolicy<EE_GLTF_COMPILED_FEATURE_MASK>,
+                         EE_GLTF_COMPILED_FEATURE_MASK>(pixel_coordinate, image_size);
 }

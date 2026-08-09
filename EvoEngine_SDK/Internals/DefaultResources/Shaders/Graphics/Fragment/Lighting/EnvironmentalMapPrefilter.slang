@@ -1,3 +1,4 @@
+// @evoengine-dialect native
 struct EeCubemapProcessConstants {
   float4x4 projection_view;
   float preset_value;

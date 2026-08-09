@@ -98,6 +98,7 @@ TEST(VulkanPipelineCache, RejectsCorruptAndIncompatibleFilesBeforeDriverUse) {
 }
 
 TEST(VulkanPipelineCache, ValidatesRawHeaderAndEnforcesReferenceSizeCap) {
+  EXPECT_EQ(VulkanPipelineCache::kMaxCacheFileBytes, 512ull * 1024ull * 1024ull);
   PipelineCacheFileScope scope;
   const auto identity = TestIdentity();
   auto payload = TestPayload(identity);

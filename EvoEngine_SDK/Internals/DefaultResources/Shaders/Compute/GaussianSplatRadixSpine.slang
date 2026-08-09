@@ -1,16 +1,18 @@
-const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
+// @evoengine-dialect native
+static const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
 
-layout(set = 0, binding = 1) readonly buffer EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM_BLOCK {
-  uint EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[];
+[[vk::binding(1, 0)]]
+StructuredBuffer<uint> EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM;
+
+[[vk::binding(2, 0)]]
+RWStructuredBuffer<uint> EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM;
+
+struct EeGaussianSplatRadixConstants {
+  uint4 pass_count_partition_reserved;
 };
 
-layout(set = 0, binding = 2) buffer EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM_BLOCK {
-  uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[];
-};
-
-layout(push_constant) uniform EE_GAUSSIAN_SPLAT_RADIX_CONSTANTS {
-  uvec4 pass_count_partition_reserved;
-};
+[[vk::push_constant]]
+ConstantBuffer<EeGaussianSplatRadixConstants> constants;
 
 [shader("compute")]
 [numthreads(1, 1, 1)]
@@ -25,7 +27,7 @@ void main(uint3 group_id : SV_GroupID) {
     running_offset += EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[previous_radix];
   }
 
-  const uint partition_count = pass_count_partition_reserved.z;
+  const uint partition_count = constants.pass_count_partition_reserved.z;
   for (uint partition_index = 0u; partition_index < partition_count; ++partition_index) {
     const uint histogram_index = partition_index * EE_GAUSSIAN_SPLAT_RADIX + radix;
     const uint partition_count_for_radix = EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[histogram_index];

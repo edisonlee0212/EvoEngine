@@ -1,3 +1,4 @@
+// @evoengine-dialect native
 struct BrdfInput {
   [[vk::location(0)]]
   float2 tex_coord : TEXCOORD0;

@@ -1,5 +1,6 @@
-#include "DDGI.slangh"
-#include "DDGIProbeRayData.slangh"
+// @evoengine-dialect native
+import EvoEngine.DDGI;
+import EvoEngine.DDGIProbeRayData;
 
 struct EeDdgiProbeRelocationConstants {
   uint4 probe_count_ray_count_and_flags;

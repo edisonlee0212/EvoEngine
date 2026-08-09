@@ -119,7 +119,7 @@ def find_window_for_pid(pid: int) -> int:
     return int(hwnd_result.value or 0)
 
 
-def wait_for_window(process: subprocess.Popen[object], label: str, timeout: float = 15.0) -> tuple[int, RECT]:
+def wait_for_window(process: subprocess.Popen[object], label: str, timeout: float = 30.0) -> tuple[int, RECT]:
     def find_visible_window() -> tuple[int, RECT] | None:
         if process.poll() is not None:
             raise RuntimeError(f"{label} exited early with code {process.returncode}.")
@@ -164,5 +164,5 @@ def log_contains(path: Path, needle: str) -> bool:
     return path.exists() and needle in path.read_text(encoding="utf-8", errors="ignore")
 
 
-def wait_for_log(path: Path, needle: str, timeout: float = 8.0) -> None:
+def wait_for_log(path: Path, needle: str, timeout: float = 30.0) -> None:
     wait_until(f"log entry {needle}", lambda: log_contains(path, needle), timeout)

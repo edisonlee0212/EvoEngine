@@ -30,6 +30,12 @@ enum class ShaderType {
   Unknown                 /**< Unknown shader type */
 };
 
+enum class ShaderSourceDialect {
+  Automatic,
+  NativeSlang,
+  GlslCompatibility,
+};
+
 struct ShaderCompileCacheStats {
   uint64_t memory_hits = 0;
   uint64_t disk_hits = 0;
@@ -38,7 +44,9 @@ struct ShaderCompileCacheStats {
   uint64_t coalesced_waits = 0;
   uint64_t corrupt_entries = 0;
   uint64_t failures = 0;
-  uint64_t slang_frontend_invocations = 0;
+  uint64_t native_slang_frontend_invocations = 0;
+  uint64_t compatibility_slang_frontend_invocations = 0;
+  uint64_t glslang_frontend_invocations = 0;
 };
 
 struct ShaderReflectionDescriptorBinding {
@@ -47,6 +55,7 @@ struct ShaderReflectionDescriptorBinding {
   uint32_t binding = 0;
   VkDescriptorType descriptor_type = VK_DESCRIPTOR_TYPE_MAX_ENUM;
   uint32_t descriptor_count = 1;
+  bool unbounded = false;
   VkShaderStageFlags stage_flags = 0;
 };
 
@@ -151,10 +160,12 @@ class Shader final : public IAsset {
 
   /** Compiles shader source to SPIR-V without creating a Vulkan shader module. */
   [[nodiscard]] static bool CompileToSpirv(ShaderType shader_type, const std::string& source,
-                                           std::vector<uint32_t>& binaries, const std::filesystem::path& path = {});
+                                           std::vector<uint32_t>& binaries, const std::filesystem::path& path = {},
+                                           ShaderSourceDialect source_dialect = ShaderSourceDialect::Automatic);
   [[nodiscard]] static bool ReflectSlang(ShaderType shader_type, const std::string& source,
                                          ShaderReflectionInfo& reflection, std::string& diagnostics,
-                                         const std::filesystem::path& path = {});
+                                         const std::filesystem::path& path = {},
+                                         ShaderSourceDialect source_dialect = ShaderSourceDialect::Automatic);
   [[nodiscard]] static ShaderPipelineLayoutValidation ValidateSlangPipelineLayout(
       ShaderType shader_type, const std::string& source, const std::filesystem::path& path,
       const std::vector<std::shared_ptr<DescriptorSetLayout>>& descriptor_set_layouts,

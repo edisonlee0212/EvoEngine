@@ -1,14 +1,17 @@
-#extension GL_ARB_shader_draw_parameters : enable
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.BasicConstants;
+import EvoEngine.InstancedData;
 
-#include "BasicConstants.slangh"
-#include "Basic.slangh"
+struct ShadowVertexInput {
+  [[vk::location(0)]] float3 position : POSITION;
+};
 
-layout (location = 0) in vec3 inPosition;
-
-
-void main()
-{
-    const uint current_instance_index = gl_DrawID + EE_INSTANCE_INDEX;
-    gl_Position = EE_POINT_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * EE_INSTANCES[current_instance_index].model * EE_INSTANCED_DATA[gl_InstanceIndex].instance_matrix * vec4(inPosition, 1.0);
+[shader("vertex")]
+float4 main(ShadowVertexInput input, uint draw_id : SV_DrawIndex, uint draw_instance : SV_InstanceID) : SV_Position {
+  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  float4 position = mul(float4(input.position, 1.0f), EE_INSTANCED_DATA[draw_instance].instance_matrix);
+  position = mul(position, EE_INSTANCES[instance_index].model);
+  return mul(position,
+             EE_POINT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].light_space_matrix[EE_BASIC_CONSTANTS.light_split_index]);
 }

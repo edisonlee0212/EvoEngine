@@ -127,8 +127,17 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "R32U") {
     return VK_FORMAT_R32_UINT;
   }
+  if (format_name == "RGBA32UI") {
+    return VK_FORMAT_R32G32B32A32_UINT;
+  }
   if (format_name == "RGBA16F") {
     return VK_FORMAT_R16G16B16A16_SFLOAT;
+  }
+  if (format_name == "RGBA32F") {
+    return VK_FORMAT_R32G32B32A32_SFLOAT;
+  }
+  if (format_name == "RGBA8") {
+    return VK_FORMAT_R8G8B8A8_UNORM;
   }
   if (format_name == "Color" || format_name == "Radiance" || format_name.empty()) {
     return Platform::Constants::render_texture_color;
@@ -1158,6 +1167,41 @@ void evo_engine::AddDefaultRayTracingCameraResources(RenderGraph& graph) {
                      1,
                      1,
                      true});
+}
+
+namespace {
+void AddRayCameraOptionalImage(RenderGraph& graph, const char* name, const char* format_name) {
+  graph.AddResource({name,
+                     RenderResourceType::Image,
+                     RenderResourceLifetime::Camera,
+                     {RenderResourceSizeMode::CameraRelative},
+                     format_name,
+                     1,
+                     1,
+                     true});
+}
+}  // namespace
+
+void evo_engine::AddRayCameraOptionalOutputResources(RenderGraph& graph,
+                                                     const CameraSettings::RayOutputSettings& outputs) {
+  if (outputs.albedo) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_albedo, "RGBA8");
+  }
+  if (outputs.normal) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_normal, "RGBA16F");
+  }
+  if (outputs.ray_count) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_count, "R32U");
+  }
+  if (outputs.path_length) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_path_length, "R32U");
+  }
+  if (outputs.time) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_time, "R32U");
+  }
+  if (outputs.debug) {
+    AddRayCameraOptionalImage(graph, RenderResourceNames::camera_ray_debug, "RGBA32F");
+  }
 }
 
 void evo_engine::AddAdvancedFrameResources(RenderGraph& graph) {

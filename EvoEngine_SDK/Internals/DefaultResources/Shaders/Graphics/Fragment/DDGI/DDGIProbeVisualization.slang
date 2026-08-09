@@ -1,82 +1,85 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.DDGI;
 
-#include "PerFrame.slangh"
-#include "DDGI.slangh"
-
-layout(set = 1, binding = 17) uniform sampler2D EE_DDGI_IRRADIANCE_ATLAS;
-
-layout(push_constant) uniform EE_DDGI_PROBE_VISUALIZATION_CONSTANTS {
-  uvec4 camera_selected_mode;
-  vec4 radius_intensity_alpha_selected_scale;
+struct DdgiProbeVisualizationInput {
+  [[vk::location(0)]]
+  float3 normal : NORMAL;
+  [[vk::location(1)]]
+  float4 irradiance : COLOR0;
+  [[vk::location(2)]]
+  float4 visibility : COLOR1;
+  [[vk::location(3)]]
+  float4 state : COLOR2;
+  [[vk::location(4)]]
+  nointerpolation uint physical_probe_index : TEXCOORD0;
+  [[vk::location(5)]]
+  nointerpolation float selected : TEXCOORD1;
+  [[vk::location(6)]]
+  nointerpolation float camera_fade : TEXCOORD2;
 };
 
-layout(location = 0) in VS_OUT {
-  vec3 Normal;
-  vec4 Irradiance;
-  vec4 Visibility;
-  vec4 State;
-  flat uint PhysicalProbeIndex;
-  flat float Selected;
-  flat float CameraFade;
-} fs_in;
+struct DdgiProbeVisualizationConstants {
+  uint4 camera_selected_mode;
+  float4 radius_intensity_alpha_selected_scale;
+};
 
-layout(location = 0) out vec4 FragColor;
+[[vk::binding(17, 1)]]
+Sampler2D EE_DDGI_IRRADIANCE_ATLAS;
+[[vk::push_constant]]
+ConstantBuffer<DdgiProbeVisualizationConstants> constants;
 
-vec3 EE_DDGI_DECODE_DEBUG_IRRADIANCE(const vec3 encoded_irradiance) {
-  const float irradiance_gamma = max(EE_RENDER_INFO.ddgi_volumes[0].probe_counts.w, 1.0f);
-  const vec3 sqrt_irradiance = pow(max(encoded_irradiance, vec3(0.0f)), vec3(irradiance_gamma * 0.5f));
+float3 EeDdgiDecodeDebugIrradiance(float3 encoded_irradiance) {
+  float irradiance_gamma = max(EE_RENDER_INFO.ddgi_volumes[0].probe_counts.w, 1.0f);
+  float3 sqrt_irradiance = pow(max(encoded_irradiance, float3(0.0f)), float3(irradiance_gamma * 0.5f));
   return sqrt_irradiance * sqrt_irradiance * (2.0f * EE_DDGI_PI);
 }
 
-vec3 EE_DDGI_TONEMAP_DEBUG_COLOR(const vec3 value) {
-  const vec3 positive = max(value, vec3(0.0f));
-  const vec3 mapped = positive / (positive + vec3(1.0f));
-  return pow(clamp(mapped, vec3(0.0f), vec3(1.0f)), vec3(1.0f / 2.2f));
+float3 EeDdgiTonemapDebugColor(float3 value) {
+  float3 positive = max(value, float3(0.0f));
+  float3 mapped = positive / (positive + float3(1.0f));
+  return pow(clamp(mapped, float3(0.0f), float3(1.0f)), float3(1.0f / 2.2f));
 }
 
-vec3 EE_DDGI_IRRADIANCE_DEBUG_COLOR(const vec3 encoded_irradiance, const float intensity) {
-  return EE_DDGI_TONEMAP_DEBUG_COLOR(EE_DDGI_DECODE_DEBUG_IRRADIANCE(encoded_irradiance) * intensity);
+float3 EeDdgiIrradianceDebugColor(float3 encoded_irradiance, float intensity) {
+  return EeDdgiTonemapDebugColor(EeDdgiDecodeDebugIrradiance(encoded_irradiance) * intensity);
 }
 
-vec3 EE_DDGI_VISIBILITY_DEBUG_COLOR(const vec4 visibility) {
-  const float average_distance = clamp(visibility.x, 0.0f, 1.0f);
-  const float backface_ratio = clamp(visibility.y, 0.0f, 1.0f);
-  const float relocation = clamp(visibility.z, 0.0f, 1.0f);
-  return mix(vec3(0.95f, 0.1f, 0.05f), vec3(0.05f, 0.85f, 1.0f), average_distance) +
-         vec3(relocation * 0.15f, backface_ratio * 0.2f, 0.0f);
+float3 EeDdgiVisibilityDebugColor(float4 visibility) {
+  float average_distance = clamp(visibility.x, 0.0f, 1.0f);
+  float backface_ratio = clamp(visibility.y, 0.0f, 1.0f);
+  float relocation = clamp(visibility.z, 0.0f, 1.0f);
+  return lerp(float3(0.95f, 0.1f, 0.05f), float3(0.05f, 0.85f, 1.0f), average_distance) +
+         float3(relocation * 0.15f, backface_ratio * 0.2f, 0.0f);
 }
 
-void main() {
-  const uint mode = camera_selected_mode.z;
-  const float probe_inactive = clamp(fs_in.State.w, 0.0f, 1.0f);
-  vec3 color;
+[shader("fragment")]
+float4 main(DdgiProbeVisualizationInput input) : SV_Target {
+  uint mode = constants.camera_selected_mode.z;
+  float probe_inactive = clamp(input.state.w, 0.0f, 1.0f);
+  float3 color;
   if (mode == 0u) {
-    const vec3 normal = normalize(fs_in.Normal);
-    const uint irradiance_tile_size = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.x, 1u);
-    const uint irradiance_columns = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.y, 1u);
-    const vec2 irradiance_atlas_size = vec2(textureSize(EE_DDGI_IRRADIANCE_ATLAS, 0));
-    const vec2 irradiance_uv =
-        EE_DDGI_ATLAS_UV(fs_in.PhysicalProbeIndex, irradiance_columns, irradiance_tile_size, normal,
-                         max(irradiance_atlas_size, vec2(1.0f)));
-    color = EE_DDGI_IRRADIANCE_DEBUG_COLOR(texture(EE_DDGI_IRRADIANCE_ATLAS, irradiance_uv).rgb,
-                                           radius_intensity_alpha_selected_scale.y);
+    uint irradiance_tile_size = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.x, 1u);
+    uint irradiance_columns = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.y, 1u);
+    uint width;
+    uint height;
+    EE_DDGI_IRRADIANCE_ATLAS.GetDimensions(width, height);
+    float2 irradiance_uv = EE_DDGI_ATLAS_UV(input.physical_probe_index, irradiance_columns,
+                                            irradiance_tile_size, normalize(input.normal),
+                                            max(float2(width, height), float2(1.0f)));
+    color = EeDdgiIrradianceDebugColor(EE_DDGI_IRRADIANCE_ATLAS.Sample(irradiance_uv).rgb,
+                                       constants.radius_intensity_alpha_selected_scale.y);
   } else if (mode == 1u) {
-    color = EE_DDGI_IRRADIANCE_DEBUG_COLOR(fs_in.Irradiance.rgb, radius_intensity_alpha_selected_scale.y);
+    color = EeDdgiIrradianceDebugColor(input.irradiance.rgb, constants.radius_intensity_alpha_selected_scale.y);
   } else if (mode == 2u) {
-    color = EE_DDGI_VISIBILITY_DEBUG_COLOR(fs_in.Visibility);
+    color = EeDdgiVisibilityDebugColor(input.visibility);
   } else {
-    const float hit_ratio = clamp(fs_in.Irradiance.a, 0.0f, 1.0f);
-    color = mix(vec3(0.8f, 0.05f, 0.08f), vec3(0.08f, 0.85f, 0.2f), hit_ratio);
+    color = lerp(float3(0.8f, 0.05f, 0.08f), float3(0.08f, 0.85f, 0.2f),
+                 clamp(input.irradiance.a, 0.0f, 1.0f));
   }
-
-  if (probe_inactive > 0.5f) {
-    color = mix(vec3(0.08f, 0.08f, 0.1f), color, 0.2f);
-  }
-  if (fs_in.Selected > 0.5f) {
-    color = mix(color, vec3(1.0f, 0.18f, 0.08f), 0.35f);
-  }
-
-  const float alpha =
-      clamp(radius_intensity_alpha_selected_scale.z, 0.0f, 1.0f) * clamp(fs_in.CameraFade, 0.0f, 1.0f);
-  FragColor = vec4(color, alpha);
+  if (probe_inactive > 0.5f) color = lerp(float3(0.08f, 0.08f, 0.1f), color, 0.2f);
+  if (input.selected > 0.5f) color = lerp(color, float3(1.0f, 0.18f, 0.08f), 0.35f);
+  float alpha = clamp(constants.radius_intensity_alpha_selected_scale.z, 0.0f, 1.0f) *
+                clamp(input.camera_fade, 0.0f, 1.0f);
+  return float4(color, alpha);
 }

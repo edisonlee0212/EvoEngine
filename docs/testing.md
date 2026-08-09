@@ -18,6 +18,10 @@ All CTest tests:
 python Scripts\test.py --all
 ```
 
+`Scripts\test.py` configures test builds with a local install prefix under `out\install\<build-dir-name>` unless
+`--cmake-arg -DCMAKE_INSTALL_PREFIX=...` is provided. This keeps runtime package post-build deploy steps out of system
+locations such as `Program Files`.
+
 List tests:
 
 ```bat
@@ -40,9 +44,14 @@ ctest --test-dir out/build/vs2026-x64 -C RelWithDebInfo -R "Launcher" --output-o
 
 `python Scripts/test.py` defaults to render/GPU-labeled tests. It builds the `EvoEngine_RenderTests` aggregate target and runs tests such as:
 
-- render golden-image comparison
+- Rendering demo rasterization golden-image comparison
+- Rendering demo RTX path-tracing golden-image comparison at 1280x720, 2048 SPP, and 3 bounces
+- Rendering demo RayQuery golden-image comparison at 1280x720, 2048 SPP, and 3 bounces
 - Python render capture workflows
 - launcher/editor smoke coverage for project startup and the Rendering demo profile
+
+The two ray-camera goldens accumulate 8 samples per frame for 256 frames. Requested ray backends must be available;
+the tests reject normal camera fallback so a raster image cannot be accepted as a ray baseline.
 
 Visual artifacts are written under:
 

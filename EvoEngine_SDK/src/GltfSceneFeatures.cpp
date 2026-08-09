@@ -135,7 +135,7 @@ std::string evo_engine::BuildGltfSceneFeatureDefines(const uint32_t feature_mask
       {"SPECULAR_GLOSSINESS", GltfSceneFeature::SpecularGlossiness},
       {"TEXTURE_TRANSFORM", GltfSceneFeature::TextureTransform},
   }};
-  std::string result;
+  std::string result = "#define EE_GLTF_COMPILED_FEATURE_MASK " + std::to_string(mask) + "u\n";
   for (const auto& [name, feature] : features) {
     result += "#define EE_GLTF_USE_" + std::string(name) + " " + ((mask & Feature(feature)) != 0u ? "1\n" : "0\n");
   }

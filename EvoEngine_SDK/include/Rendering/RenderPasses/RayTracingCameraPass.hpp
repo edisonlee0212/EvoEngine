@@ -27,7 +27,8 @@ class RayTracingCameraPass final {
     RayCameraHistoryResources* history_resources = nullptr;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(
+      const char* pass_name = RenderPassNames::ray_tracing_camera, CameraSettings::RayOutputSettings outputs = {});
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
@@ -47,7 +48,8 @@ class RayQueryCameraPass final {
     RayCameraHistoryResources* history_resources = nullptr;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(CameraSettings::RayOutputSettings outputs = {});
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
+
 }  // namespace evo_engine

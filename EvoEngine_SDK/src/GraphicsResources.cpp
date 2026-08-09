@@ -1460,11 +1460,14 @@ void Buffer::CopyFromBuffer(const Buffer& src_buffer, const VkDeviceSize size, c
 void Buffer::CopyFromImageOnGpuThread(const std::shared_ptr<GpuState>& state, Image& src_image,
                                       const VkBufferImageCopy& image_copy_info) {
   Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
-    const auto prev_layout = src_image.GetLayout();
-    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    const auto tracked_layout = src_image.GetLayout();
+    const auto prev_layout = tracked_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_GENERAL : tracked_layout;
+    src_image.TransitImageLayout(vk_command_buffer, prev_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
     vkCmdCopyImageToBuffer(vk_command_buffer, src_image.GetVkImage(), src_image.GetLayout(), state->vk_buffer, 1,
                            &image_copy_info);
-    src_image.TransitImageLayout(vk_command_buffer, prev_layout);
+    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, prev_layout,
+                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
   });
 }
 

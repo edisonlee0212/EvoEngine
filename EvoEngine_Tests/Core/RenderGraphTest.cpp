@@ -19,10 +19,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <string>
+#include <utility>
 
 using namespace evo_engine;
 
@@ -1931,6 +1933,44 @@ TEST(RenderGraph, VolumetricCloudRayTracingPassConsumesRayHitDistanceAfterRayTra
                                   access.usage == RenderResourceUsage::Read;
                          }),
             cloud_resources.end());
+}
+
+TEST(RenderGraph, RayCameraOptionalOutputsAreOptInResources) {
+  RenderGraph default_graph;
+  AddDefaultRayTracingCameraResources(default_graph);
+  EXPECT_FALSE(default_graph.HasResource(RenderResourceNames::camera_ray_albedo));
+  EXPECT_FALSE(default_graph.HasResource(RenderResourceNames::camera_ray_normal));
+  EXPECT_FALSE(default_graph.HasResource(RenderResourceNames::camera_ray_count));
+
+  CameraSettings::RayOutputSettings outputs;
+  outputs.albedo = true;
+  outputs.normal = true;
+  outputs.ray_count = true;
+  outputs.path_length = true;
+  outputs.time = true;
+  outputs.debug = true;
+
+  RenderGraph graph;
+  AddDefaultRayTracingCameraResources(graph);
+  AddRayCameraOptionalOutputResources(graph, outputs);
+
+  const auto& resources = graph.GetResources();
+  const std::array expected_outputs{
+      std::pair{RenderResourceNames::camera_ray_albedo, "RGBA8"},
+      std::pair{RenderResourceNames::camera_ray_normal, "RGBA16F"},
+      std::pair{RenderResourceNames::camera_ray_count, "R32U"},
+      std::pair{RenderResourceNames::camera_ray_path_length, "R32U"},
+      std::pair{RenderResourceNames::camera_ray_time, "R32U"},
+      std::pair{RenderResourceNames::camera_ray_debug, "RGBA32F"},
+  };
+  for (const auto& [name, format] : expected_outputs) {
+    const auto output =
+        std::find_if(resources.begin(), resources.end(), [name](const RenderResourceDescriptor& resource) {
+          return resource.name == name;
+        });
+    ASSERT_NE(output, resources.end()) << name;
+    EXPECT_EQ(output->format_name, format) << name;
+  }
 }
 
 TEST(RenderGraph, GaussianSplatOverlayRunsAfterRayTracingClouds) {

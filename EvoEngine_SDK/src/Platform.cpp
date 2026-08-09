@@ -299,6 +299,7 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
                                            vkDestroyDeferredOperationKHR);
   graphics.SetupVmaAllocator();
   graphics.RegisterShaderIncludePath(Resources::GetDefaultResourcePath("Shaders/Includes"));
+  graphics.RegisterShaderIncludePath(Resources::GetDefaultResourcePath("Shaders/Modules"));
   const auto& selected_physical_device = graphics.selected_physical_device;
 
   if (graphics.selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {

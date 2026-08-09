@@ -1,55 +1,32 @@
-
-
-
-// This shader performs downsampling on a texture,
-// as taken from Call Of Duty method, presented at ACM Siggraph 2014.
-// This particular method was customly designed to eliminate
-// "pulsating artifacts and temporal stability issues".
-
-// Remember to add bilinear minification filter for this texture!
-// Remember to use a floating-point texture format (for HDR)!
-// Remember to use edge clamping for this texture!
-layout(set = 1, binding = 0) uniform sampler2D srcTexture;
-
-layout (location = 0) in VS_OUT {
-	vec2 TexCoord;
-} fs_in;
-
-layout (location = 0) out vec4 upsample;
-layout(push_constant) uniform EE_BLOOM_CONSTANTS{
-	float filterRadius;
+// @evoengine-dialect native
+struct BloomUpsamplingInput {
+  [[vk::location(0)]]
+  float2 tex_coord : TEXCOORD0;
 };
-void main()
-{
-	vec2 texCoord = fs_in.TexCoord;
-	// The filter kernel is applied with a radius, specified in texture
-	// coordinates, so that the radius will vary across mip resolutions.
-	float x = filterRadius;
-	float y = filterRadius;
 
-	// Take 9 samples around current texel:
-	// a - b - c
-	// d - e - f
-	// g - h - i
-	// === ('e' is the current texel) ===
-	vec4 a = texture(srcTexture, vec2(texCoord.x - x, texCoord.y + y)).rgba;
-	vec4 b = texture(srcTexture, vec2(texCoord.x,     texCoord.y + y)).rgba;
-	vec4 c = texture(srcTexture, vec2(texCoord.x + x, texCoord.y + y)).rgba;
+struct BloomUpsamplingConstants {
+  float filter_radius;
+};
 
-	vec4 d = texture(srcTexture, vec2(texCoord.x - x, texCoord.y)).rgba;
-	vec4 e = texture(srcTexture, vec2(texCoord.x,     texCoord.y)).rgba;
-	vec4 f = texture(srcTexture, vec2(texCoord.x + x, texCoord.y)).rgba;
+[[vk::push_constant]]
+ConstantBuffer<BloomUpsamplingConstants> constants;
 
-	vec4 g = texture(srcTexture, vec2(texCoord.x - x, texCoord.y - y)).rgba;
-	vec4 h = texture(srcTexture, vec2(texCoord.x,     texCoord.y - y)).rgba;
-	vec4 i = texture(srcTexture, vec2(texCoord.x + x, texCoord.y - y)).rgba;
+[[vk::binding(0, 1)]]
+Sampler2D srcTexture;
 
-	// Apply weighted distribution, by using a 3x3 tent filter:
-	//  1   | 1 2 1 |
-	// -- * | 2 4 2 |
-	// 16   | 1 2 1 |
-	upsample = e * 4.0f;
-	upsample += (b + d + f + h)* 2.0f;
-	upsample += (a + c + g + i);
-	upsample *= 1.0f / 16.0f;
+[shader("fragment")]
+float4 main(BloomUpsamplingInput input) : SV_Target {
+  float x = constants.filter_radius;
+  float y = constants.filter_radius;
+  float2 uv = input.tex_coord;
+  float4 a = srcTexture.Sample(float2(uv.x - x, uv.y + y));
+  float4 b = srcTexture.Sample(float2(uv.x, uv.y + y));
+  float4 c = srcTexture.Sample(float2(uv.x + x, uv.y + y));
+  float4 d = srcTexture.Sample(float2(uv.x - x, uv.y));
+  float4 e = srcTexture.Sample(uv);
+  float4 f = srcTexture.Sample(float2(uv.x + x, uv.y));
+  float4 g = srcTexture.Sample(float2(uv.x - x, uv.y - y));
+  float4 h = srcTexture.Sample(float2(uv.x, uv.y - y));
+  float4 i = srcTexture.Sample(float2(uv.x + x, uv.y - y));
+  return (e * 4.0f + (b + d + f + h) * 2.0f + a + c + g + i) * (1.0f / 16.0f);
 }

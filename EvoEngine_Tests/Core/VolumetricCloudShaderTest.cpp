@@ -28,7 +28,7 @@ size_t CountOccurrences(const std::string& source, const std::string& pattern) {
 TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.slangh");
+                   "DefaultResources" / "Shaders" / "Modules" / "EvoEngine" / "VolumetricClouds.slang");
   ASSERT_FALSE(shader_source.empty());
 
   EXPECT_NE(shader_source.find("struct VolumetricCloudSettingsGpu"), std::string::npos);
@@ -46,8 +46,6 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SurfaceShadowTransmittance"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_IntersectLayerWithCenter"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_March"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Composite"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Debug"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_Remap"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_RaySphereIntersection"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_ProjectedShellPoint"), std::string::npos);
@@ -55,17 +53,17 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_HeightBiasCoverage"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_ConeSample"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DebugAccumulation"), std::string::npos);
-  EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
-  EXPECT_NE(shader_source.find("uniform sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
-  EXPECT_NE(shader_source.find("uniform sampler2D EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE"), std::string::npos);
-  EXPECT_NE(shader_source.find("uniform sampler2D EE_VOLUMETRIC_CLOUD_CURL_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("Sampler3D EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("Sampler3D EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("Sampler2D EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE"), std::string::npos);
+  EXPECT_NE(shader_source.find("Sampler2D EE_VOLUMETRIC_CLOUD_CURL_NOISE"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleBaseShapeNoise"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleDetailErosionNoise"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SampleWeatherCoverage"), std::string::npos);
-  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE"), std::string::npos);
-  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE"), std::string::npos);
-  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE"), std::string::npos);
-  EXPECT_NE(shader_source.find("texture(EE_VOLUMETRIC_CLOUD_CURL_NOISE"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE.SampleLevel"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE.SampleLevel"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE.SampleLevel"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_CURL_NOISE.SampleLevel"), std::string::npos);
   EXPECT_NE(shader_source.find("low_resolution_density"), std::string::npos);
   EXPECT_NE(shader_source.find("high_resolution_march"), std::string::npos);
   EXPECT_NE(shader_source.find("coarse_step_length"), std::string::npos);
@@ -74,7 +72,7 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
   EXPECT_NE(shader_source.find("low_shape_density"), std::string::npos);
   EXPECT_NE(shader_source.find("local_coverage"), std::string::npos);
   EXPECT_NE(shader_source.find("weather_density"), std::string::npos);
-  EXPECT_NE(shader_source.find("mix(0.35f, 1.35f, weather.r)"), std::string::npos);
+  EXPECT_NE(shader_source.find("lerp(0.35f, 1.35f, weather.r)"), std::string::npos);
   EXPECT_NE(shader_source.find("light_transmittance * phase * in_scattering * powder + edge_lighting"),
             std::string::npos);
   EXPECT_NE(shader_source.find("ambient_lighting + sun_lighting"), std::string::npos);
@@ -108,7 +106,7 @@ TEST(VolumetricCloudShader, SharedLibraryDefinesV1Contract) {
 TEST(VolumetricCloudShader, SharedLibraryStaysIndependentFromDdgiAndShaderForks) {
   const auto shader_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "VolumetricClouds.slangh");
+                   "DefaultResources" / "Shaders" / "Modules" / "EvoEngine" / "VolumetricClouds.slang");
   ASSERT_FALSE(shader_source.empty());
 
   EXPECT_EQ(shader_source.find("DDGI"), std::string::npos);
@@ -124,15 +122,15 @@ TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
                    "DefaultResources" / "Shaders" / "Compute" / "VolumetricClouds.slang");
   ASSERT_FALSE(shader_source.empty());
 
-  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.slangh\""), std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 0) uniform sampler2D inDepth"), std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 2, rgba16f) uniform writeonly image2D outCloudAccumulation"),
+  EXPECT_NE(shader_source.find("import EvoEngine.VolumetricClouds;"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(0, 1)]] Sampler2D inDepth"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(2, 1)]] [vk::image_format(\"rgba16f\")] RWTexture2D<float4>"),
             std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 3, r16f) uniform writeonly image2D outCloudTransmittance"),
+  EXPECT_NE(shader_source.find("[[vk::binding(3, 1)]] [vk::image_format(\"r16f\")] RWTexture2D<float>"),
             std::string::npos);
-  EXPECT_NE(shader_source.find("imageSize(outCloudAccumulation)"), std::string::npos);
+  EXPECT_NE(shader_source.find("outCloudAccumulation.GetDimensions(width, height)"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_DEPTH_TO_WORLD_POS"), std::string::npos);
-  EXPECT_NE(shader_source.find("(flags.w & 1) != 0"), std::string::npos);
+  EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_CONSTANTS.flags.w & 1"), std::string::npos);
   EXPECT_NE(shader_source.find("hit_distance >= camera_far * 0.999f"), std::string::npos);
   EXPECT_NE(shader_source.find("noiseExtinctionMarchDistance.w"), std::string::npos);
   EXPECT_NE(shader_source.find("atmosphereCloudTypeCurl"), std::string::npos);
@@ -145,9 +143,9 @@ TEST(VolumetricCloudShader, RasterComputeUsesSharedLibraryAndRasterDepth) {
   EXPECT_NE(shader_source.find("EE_ENVIRONMENT.diffuse_sky_intensity"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_RENDER_INFO.indirect_lighting_intensity"), std::string::npos);
   EXPECT_EQ(shader_source.find("EE_ENVIRONMENT.global_reflection_intensity"), std::string::npos);
-  EXPECT_NE(shader_source.find("sun_radiance = vec3(1.0f)"), std::string::npos);
+  EXPECT_NE(shader_source.find("sun_radiance = float3(1.0f)"), std::string::npos);
   EXPECT_EQ(shader_source.find("sun_radiance = max(ambient_radiance"), std::string::npos);
-  EXPECT_EQ(shader_source.find("imageStore(inOutColor"), std::string::npos);
+  EXPECT_EQ(shader_source.find("inOutColor[pixel]"), std::string::npos);
   EXPECT_EQ(shader_source.find("DDGI"), std::string::npos);
   EXPECT_EQ(shader_source.find("HLSL"), std::string::npos);
 }
@@ -158,41 +156,36 @@ TEST(VolumetricCloudShader, CompositeComputeUpsamplesDepthAwareClouds) {
                    "DefaultResources" / "Shaders" / "Compute" / "VolumetricCloudsComposite.slang");
   ASSERT_FALSE(shader_source.empty());
 
-  EXPECT_NE(shader_source.find("#include \"VolumetricClouds.slangh\""), std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 1, rgba32f) uniform image2D inOutColor"), std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 4) uniform sampler2D inCloudAccumulation"),
+  EXPECT_NE(shader_source.find("import EvoEngine.VolumetricClouds;"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(1, 1)]] [vk::image_format(\"rgba32f\")] RWTexture2D<float4> inOutColor"),
             std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 5) uniform sampler2D inCloudTransmittance"),
+  EXPECT_NE(shader_source.find("[[vk::binding(4, 1)]] Sampler2D inCloudAccumulation"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(5, 1)]] Sampler2D inCloudTransmittance"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(10, 1)]] Sampler2D inPreviousCloudAccumulation"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(11, 1)]] Sampler2D inPreviousCloudTransmittance"), std::string::npos);
+  EXPECT_NE(shader_source.find("[[vk::binding(12, 1)]] [vk::image_format(\"rgba16f\")] RWTexture2D<float4>"),
             std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 10) uniform sampler2D inPreviousCloudAccumulation"),
-            std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 11) uniform sampler2D inPreviousCloudTransmittance"),
-            std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 12, rgba16f) uniform image2D "
-                               "outCloudAccumulationHistory"),
-            std::string::npos);
-  EXPECT_NE(shader_source.find("layout(set = 1, binding = 13, r16f) uniform image2D "
-                               "outCloudTransmittanceHistory"),
+  EXPECT_NE(shader_source.find("[[vk::binding(13, 1)]] [vk::image_format(\"r16f\")] RWTexture2D<float>"),
             std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_DEPTH_AWARE_TEXEL"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_APPLY_TEMPORAL_HISTORY"), std::string::npos);
   EXPECT_NE(shader_source.find("previous_projection_view"), std::string::npos);
-  EXPECT_NE(shader_source.find("texture(inPreviousCloudAccumulation, previous_tex_coord)"), std::string::npos);
-  EXPECT_NE(shader_source.find("imageStore(outCloudAccumulationHistory"), std::string::npos);
+  EXPECT_NE(shader_source.find("inPreviousCloudAccumulation.SampleLevel(previous_tex_coord, 0.0f)"), std::string::npos);
+  EXPECT_NE(shader_source.find("outCloudAccumulationHistory[pixel] = cloud_accumulation"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_VOLUMETRIC_CLOUD_SurfaceShadowTransmittance"), std::string::npos);
-  EXPECT_NE(shader_source.find("shadowed_scene_color *= mix"), std::string::npos);
+  EXPECT_NE(shader_source.find("shadowed_scene_color *= lerp"), std::string::npos);
   EXPECT_NE(shader_source.find("candidate_error = abs(candidate_distance - target_distance)"), std::string::npos);
   EXPECT_NE(shader_source.find("hit_distance >= camera_far * 0.999f"), std::string::npos);
   EXPECT_NE(shader_source.find("noiseExtinctionMarchDistance.w"), std::string::npos);
-  EXPECT_NE(shader_source.find("if (debug_mode == 1) {\n    return vec4(cloud_radiance, 1.0f);"), std::string::npos);
+  EXPECT_NE(shader_source.find("if (debug_mode == 1) {\n    return float4(cloud_radiance, 1.0f);"), std::string::npos);
   EXPECT_NE(shader_source.find("debug_mode == 4 || debug_mode == 5 || debug_mode == 6"), std::string::npos);
   EXPECT_NE(shader_source.find("cloud_radiance + scene_color * transmittance"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_ENVIRONMENT.diffuse_sky_intensity"), std::string::npos);
   EXPECT_NE(shader_source.find("EE_RENDER_INFO.indirect_lighting_intensity"), std::string::npos);
   EXPECT_EQ(shader_source.find("EE_ENVIRONMENT.global_reflection_intensity"), std::string::npos);
-  EXPECT_NE(shader_source.find("sun_radiance = vec3(1.0f)"), std::string::npos);
+  EXPECT_NE(shader_source.find("sun_radiance = float3(1.0f)"), std::string::npos);
   EXPECT_EQ(shader_source.find("sun_radiance = max(ambient_radiance"), std::string::npos);
-  EXPECT_NE(shader_source.find("imageStore(inOutColor"), std::string::npos);
+  EXPECT_NE(shader_source.find("inOutColor[pixel] = output_color"), std::string::npos);
 }
 
 TEST(VolumetricCloudShader, RasterPassBindsComputePipelineAndGraphResources) {
@@ -259,15 +252,21 @@ TEST(VolumetricCloudShader, RayTracingCameraWritesHitDistanceForCloudPass) {
                    "DefaultResources" / "Shaders" / "RayTracing" / "RayGen" / "Camera.slang");
   const auto integrator_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
-                   "DefaultResources" / "Shaders" / "Includes" / "CameraRayIntegrator.slangh");
+                   "DefaultResources" / "Shaders" / "Modules" / "EvoEngine" / "CameraRayIntegrator.slang");
+  const auto ray_outputs_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" /
+                   "DefaultResources" / "Shaders" / "Modules" / "EvoEngine" / "CameraRayOutputs.slang");
   ASSERT_FALSE(raygen_source.empty());
   ASSERT_FALSE(integrator_source.empty());
-  EXPECT_NE(raygen_source.find("layout(set = 2, binding = 1, r32f) uniform image2D ray_hit_distance_image"),
+  ASSERT_FALSE(ray_outputs_source.empty());
+  EXPECT_NE(raygen_source.find("import EvoEngine.CameraRayIntegrator;"), std::string::npos);
+  EXPECT_NE(ray_outputs_source.find("[[vk::binding(1, 2)]] public RWTexture2D<float> ray_hit_distance_image"),
             std::string::npos);
   EXPECT_NE(integrator_source.find("primary_hit_distance"), std::string::npos);
   EXPECT_NE(integrator_source.find("EE_CAMERA_FAR"), std::string::npos);
   EXPECT_NE(integrator_source.find("EE_CAMERA_RESET_PAYLOAD"), std::string::npos);
-  EXPECT_NE(integrator_source.find("imageStore(ray_hit_distance_image"), std::string::npos);
+  EXPECT_NE(integrator_source.find("ray_hit_distance_image[int2(pixel_coordinate)] = primary_hit_distance"),
+            std::string::npos);
 
   const auto ray_pass_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" /
                                             "RenderPasses" / "RayTracingCameraPass.cpp");
@@ -295,10 +294,9 @@ TEST(VolumetricCloudShader, RenderLayerSharesCloudPassBetweenRasterAndRayTracing
   EXPECT_EQ(CountOccurrences(render_layer_source, "VolumetricCloudsPass::Execute("), 2u);
   EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRasterDescriptor(post_lighting_dependency)"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("use_ray_query ? RenderPassNames::ray_query_camera : "
-                                     "RenderPassNames::ray_tracing_camera"),
-            std::string::npos);
-  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRayTracingDescriptor(ray_camera_pass_name)"),
+  EXPECT_NE(render_layer_source.find("use_ray_query ? RenderPassNames::ray_query_camera"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("RenderPassNames::ray_tracing_camera"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("VolumetricCloudsPass::CreateRayTracingDescriptor(ray_camera_pass_name.c_str())"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("active_camera_transient_resources, volumetric_cloud_settings, camera_index"),
             std::string::npos);

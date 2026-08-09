@@ -1,7 +1,10 @@
-layout(location = 0) in vec4 VS_COLOR;
+// @evoengine-dialect native
+struct DdgiProbeRayFragmentInput {
+  [[vk::location(0)]]
+  float4 color : COLOR0;
+};
 
-layout(location = 0) out vec4 FragColor;
-
-void main() {
-  FragColor = VS_COLOR;
+[shader("fragment")]
+float4 main(DdgiProbeRayFragmentInput input) : SV_Target {
+  return input.color;
 }

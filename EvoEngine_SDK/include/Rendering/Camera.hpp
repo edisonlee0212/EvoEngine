@@ -1,5 +1,6 @@
 
 #pragma once
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "Transform.hpp"
 
 namespace evo_engine {
+class Buffer;
 class DescriptorSet;
 class DescriptorSetLayout;
 class PostProcessingStack;
@@ -18,10 +20,33 @@ struct PostProcessingCameraResources;
 
 enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
 
+enum class RayCameraOptionalOutput : uint32_t {
+  Albedo,
+  Normal,
+  RayCount,
+  PathLength,
+  Time,
+  Debug,
+  Count,
+};
+
+inline constexpr uint32_t kRayCameraOptionalOutputCount = static_cast<uint32_t>(RayCameraOptionalOutput::Count);
+inline constexpr uint32_t kRayCameraOutputDescriptorBaseBindingCount = 4u;
+inline constexpr uint32_t kRayCameraOutputDescriptorBindingCount =
+    kRayCameraOutputDescriptorBaseBindingCount + kRayCameraOptionalOutputCount;
+
 struct RayCameraOutputDescriptorSlot {
   std::shared_ptr<DescriptorSet> descriptor_set;
   uint64_t recording_frame_serial = 0;
   bool recorded = false;
+};
+
+struct RayCameraOptionalOutputResources {
+  std::array<std::shared_ptr<Image>, kRayCameraOptionalOutputCount> images{};
+  std::array<std::shared_ptr<ImageView>, kRayCameraOptionalOutputCount> views{};
+  std::shared_ptr<Image> uint_fallback_image;
+  std::shared_ptr<ImageView> uint_fallback_view;
+  uint32_t enabled_mask = 0u;
 };
 
 struct RayCameraHistoryResources {
@@ -30,6 +55,7 @@ struct RayCameraHistoryResources {
   std::shared_ptr<ImageView> radiance_view;
   std::shared_ptr<Image> convergence_image;
   std::shared_ptr<ImageView> convergence_view;
+  RayCameraOptionalOutputResources optional_outputs;
   RayCameraHistoryTechnique technique = RayCameraHistoryTechnique::RayTracing;
   uint64_t scene_handle = 0;
   uint32_t temporal_history_version = 0;
@@ -49,6 +75,8 @@ struct RayCameraHistoryStats {
   uint64_t convergence_image_count = 0;
   uint64_t radiance_view_count = 0;
   uint64_t convergence_view_count = 0;
+  uint64_t optional_output_image_count = 0;
+  uint64_t optional_output_view_count = 0;
   uint64_t live_byte_size = 0;
   uint64_t peak_live_history_count = 0;
   uint64_t peak_live_byte_size = 0;
@@ -75,6 +103,8 @@ struct CameraInfoBlock {
   glm::mat4 inverse_view = {};                         ///< The inverse of the view matrix.
   glm::mat4 inverse_projection_view = {};              ///< The inverse of the combined projection and view matrix.
   glm::mat4 previous_projection_view = {};             ///< The previous frame's combined projection and view matrix.
+  glm::mat4 previous_inverse_projection = {};          ///< The previous frame's inverse projection matrix.
+  glm::mat4 previous_inverse_view = {};                ///< The previous frame's inverse view matrix.
   glm::mat4 unjittered_projection_view = {};           ///< The current frame's unjittered projection-view matrix.
   glm::mat4 previous_unjittered_projection_view = {};  ///< The previous frame's unjittered projection-view matrix.
   glm::vec4 clear_color = {};                          ///< The clear color for rendering.
@@ -88,18 +118,22 @@ struct CameraInfoBlock {
   int background_source = 0;                           ///< 0 samples the resolved cubemap, 1 uses clear color.
 
   // Ray tracing
-  uint32_t firefly_clamp_enabled = 1;
+  uint32_t camera_block_reserved3 = 0;
   float gamma = 2.2f;
-  uint32_t sample_size = 4;
+  uint32_t sample_size = 1;
   uint32_t bounce = 4;
   float firefly_clamp_threshold = 10.0f;
   uint32_t auto_spp_enabled = 0;
   uint32_t auto_spp_min_samples = 16;
   uint32_t auto_spp_max_samples = 256;
   float auto_spp_convergence_threshold = 0.01f;
-  uint32_t emissive_triangle_nee_enabled = 1;
+  uint32_t camera_block_reserved4 = 0;
   uint32_t ray_debug_view = 0;
   uint32_t raster_lighting_flags = 0;
+  uint32_t ray_output_flags = 0;
+  uint32_t camera_block_reserved0 = 0;
+  uint32_t camera_block_reserved1 = 0;
+  uint32_t camera_block_reserved2 = 0;
   glm::vec4 shadow_split_distances = {};
 
   /**
@@ -320,6 +354,7 @@ class Camera final : public IPrivateComponent {
   const std::shared_ptr<DescriptorSet>& GetGBufferDescriptorSet() const;
 
   [[nodiscard]] const std::shared_ptr<Image>& GetGBufferUtilityImage() const;
+  [[nodiscard]] const RayCameraOptionalOutputResources& GetRayCameraOptionalOutputResources() const;
   [[nodiscard]] RayCameraHistoryStats GetRayCameraHistoryStats() const;
   [[nodiscard]] ImTextureID GetGBufferBaseColorAoImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
@@ -380,6 +415,8 @@ class Camera final : public IPrivateComponent {
   RayCameraHistoryResources& AcquireRayCameraHistory(
       RayCameraHistoryTechnique technique, uint64_t scene_handle, VkExtent3D extent,
       const std::function<RayCameraHistoryResources(VkExtent3D)>& resource_factory = {});
+  void SynchronizeRayCameraOptionalOutputs(RayCameraHistoryResources& history,
+                                           const CameraSettings::RayOutputSettings& outputs);
   std::shared_ptr<DescriptorSet> AcquireRayCameraOutputDescriptor(
       uint32_t frame_index, uint64_t frame_serial, const std::shared_ptr<DescriptorSetLayout>& layout,
       const std::function<std::shared_ptr<DescriptorSet>()>& resource_factory = {});

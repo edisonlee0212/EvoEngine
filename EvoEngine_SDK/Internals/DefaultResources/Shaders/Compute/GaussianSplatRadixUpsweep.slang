@@ -1,6 +1,7 @@
-const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
-const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION = 8u;
-const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE = EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION * 512u;
+// @evoengine-dialect native
+static const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
+static const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION = 8u;
+static const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE = EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION * 512u;
 
 struct DrawIndirectCommand {
   uint vertexCount;
@@ -9,27 +10,26 @@ struct DrawIndirectCommand {
   uint firstInstance;
 };
 
-layout(set = 0, binding = 0) readonly buffer EE_GAUSSIAN_SPLAT_INDIRECT_DRAW_BLOCK {
-  DrawIndirectCommand EE_GAUSSIAN_SPLAT_DRAW_COMMAND;
+[[vk::binding(0, 0)]]
+StructuredBuffer<DrawIndirectCommand> EE_GAUSSIAN_SPLAT_DRAW_COMMANDS;
+
+[[vk::binding(1, 0)]]
+RWStructuredBuffer<uint> EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM;
+
+[[vk::binding(2, 0)]]
+RWStructuredBuffer<uint> EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM;
+
+[[vk::binding(3, 0)]]
+StructuredBuffer<uint> EE_GAUSSIAN_SPLAT_RADIX_KEYS_IN;
+
+struct EeGaussianSplatRadixConstants {
+  uint4 pass_count_partition_reserved;
 };
 
-layout(set = 0, binding = 1) buffer EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM_BLOCK {
-  uint EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[];
-};
+[[vk::push_constant]]
+ConstantBuffer<EeGaussianSplatRadixConstants> constants;
 
-layout(set = 0, binding = 2) buffer EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM_BLOCK {
-  uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[];
-};
-
-layout(set = 0, binding = 3) readonly buffer EE_GAUSSIAN_SPLAT_RADIX_KEY_INPUT_BLOCK {
-  uint EE_GAUSSIAN_SPLAT_RADIX_KEYS_IN[];
-};
-
-layout(push_constant) uniform EE_GAUSSIAN_SPLAT_RADIX_CONSTANTS {
-  uvec4 pass_count_partition_reserved;
-};
-
-shared uint EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[EE_GAUSSIAN_SPLAT_RADIX];
+groupshared uint EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[EE_GAUSSIAN_SPLAT_RADIX];
 
 [shader("compute")]
 [numthreads(512, 1, 1)]
@@ -37,7 +37,7 @@ void main(uint3 group_id : SV_GroupID, uint3 group_thread_id : SV_GroupThreadID)
   const uint index = group_thread_id.x;
   const uint partition_index = group_id.x;
   const uint partition_start = partition_index * EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE;
-  const uint element_count = EE_GAUSSIAN_SPLAT_DRAW_COMMAND.instanceCount;
+  const uint element_count = EE_GAUSSIAN_SPLAT_DRAW_COMMANDS[0].instanceCount;
   const uint histogram_base = partition_index * EE_GAUSSIAN_SPLAT_RADIX;
 
   if (index < EE_GAUSSIAN_SPLAT_RADIX) {
@@ -49,19 +49,19 @@ void main(uint3 group_id : SV_GroupID, uint3 group_thread_id : SV_GroupThreadID)
   if (partition_start >= element_count) {
     return;
   }
-  barrier();
+  GroupMemoryBarrierWithGroupSync();
 
   for (uint i = 0u; i < EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION; ++i) {
     const uint key_index = partition_start + 512u * i + index;
     const uint key = key_index < element_count ? EE_GAUSSIAN_SPLAT_RADIX_KEYS_IN[key_index] : 0xffffffffu;
-    const uint radix = bitfieldExtract(key, int(8u * pass_count_partition_reserved.x), 8);
-    atomicAdd(EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[radix], 1u);
+    const uint radix = (key >> (8u * constants.pass_count_partition_reserved.x)) & 0xffu;
+    InterlockedAdd(EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[radix], 1u);
   }
-  barrier();
+  GroupMemoryBarrierWithGroupSync();
 
   if (index < EE_GAUSSIAN_SPLAT_RADIX) {
     const uint count = EE_GAUSSIAN_SPLAT_LOCAL_HISTOGRAM[index];
     EE_GAUSSIAN_SPLAT_RADIX_PARTITION_HISTOGRAM[histogram_base + index] = count;
-    atomicAdd(EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[index], count);
+    InterlockedAdd(EE_GAUSSIAN_SPLAT_RADIX_GLOBAL_HISTOGRAM[index], count);
   }
 }

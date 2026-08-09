@@ -13,6 +13,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -23,6 +24,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 using namespace evo_engine;
@@ -38,8 +40,26 @@ std::string ReadTextFile(const std::filesystem::path& path) {
   return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 }
 
-std::string ShaderGlobalDefinesForTests() {
-  if (const auto& platform_defines = Platform::GetShaderGlobalDefines(); !platform_defines.empty()) {
+void WriteTextFile(const std::filesystem::path& path, const std::string_view text) {
+  std::filesystem::create_directories(path.parent_path());
+  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(file.good()) << path.string();
+  file << text;
+  ASSERT_TRUE(file.good()) << path.string();
+}
+
+std::string ShaderGlobalDefinesForTests(const bool force_shader_execution_reordering = false) {
+  if (auto platform_defines = Platform::GetShaderGlobalDefines(); !platform_defines.empty()) {
+    if (force_shader_execution_reordering) {
+      constexpr std::string_view define = "#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED ";
+      if (const auto begin = platform_defines.find(define); begin != std::string::npos) {
+        const auto value_begin = begin + define.size();
+        const auto value_end = platform_defines.find_first_of("\r\n", value_begin);
+        platform_defines.replace(value_begin, value_end - value_begin, "1");
+      } else {
+        platform_defines += "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED 1\n";
+      }
+    }
     return platform_defines;
   }
   std::ostringstream stream;
@@ -55,8 +75,8 @@ std::string ShaderGlobalDefinesForTests() {
          << "\n#define EXT_TASK_SUBGROUP_COUNT 1"
          << "\n#define EXT_MESH_SUBGROUP_COUNT 1"
          << "\n#define EXT_TASK_WORK_GROUP_INVOCATIONS 32"
-         << "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED 0"
-         << "\n#define EE_SHADER_FLOAT16_SUPPORTED 0\n";
+         << "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED "
+         << static_cast<uint32_t>(force_shader_execution_reordering) << "\n#define EE_SHADER_FLOAT16_SUPPORTED 0\n";
   return stream.str();
 }
 
@@ -206,6 +226,7 @@ std::filesystem::path FirstCacheFile(const std::filesystem::path& root) {
 
 void RegisterDefaultShaderIncludePath() {
   Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes"));
+  Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules"));
 }
 
 void RegisterEcoSysLabShaderIncludePath() {
@@ -387,6 +408,386 @@ void ExpectGlslStageFilesCompile(const std::filesystem::path& root, const std::s
 }
 }  // namespace
 
+TEST(ShaderCache, ExplicitDialectsAreObservableAndStrict) {
+  ShaderCacheScope scope;
+  std::vector<uint32_t> binaries;
+  const auto native_path = scope.Root() / "NativeCanary.slang";
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, binaries, native_path,
+                                     ShaderSourceDialect::NativeSlang));
+  auto stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 1u);
+  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 0u);
+  EXPECT_EQ(stats.glslang_frontend_invocations, 0u);
+
+  Shader::ResetCompileCacheStats();
+  ASSERT_TRUE(Shader::CompileToSpirv(
+      ShaderType::Compute,
+      "// layout(local_size_x = 99) is compatibility syntax only in comments.\n" + std::string(kSlangComputeShader),
+      binaries, scope.Root() / "CommentedCompatibilityToken.slang"));
+  stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 1u);
+  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 0u);
+
+  Shader::ResetCompileCacheStats();
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries, scope.Root() / "Compat.comp",
+                                     ShaderSourceDialect::GlslCompatibility));
+  stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.glslang_frontend_invocations, 1u);
+
+  Shader::ResetCompileCacheStats();
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries,
+                                     scope.Root() / "CompatThroughSlang.slang",
+                                     ShaderSourceDialect::GlslCompatibility));
+  stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 1u);
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
+
+  ShaderReflectionInfo reflection;
+  std::string diagnostics;
+  EXPECT_FALSE(Shader::ReflectSlang(ShaderType::Compute, kComputeShader, reflection, diagnostics, native_path,
+                                    ShaderSourceDialect::NativeSlang));
+  EXPECT_NE(diagnostics.find("GLSL compatibility syntax"), std::string::npos) << diagnostics;
+  diagnostics.clear();
+  EXPECT_FALSE(Shader::ReflectSlang(ShaderType::Compute,
+                                    "#include \"Legacy.slangh\"\n" + std::string(kSlangComputeShader), reflection,
+                                    diagnostics, native_path, ShaderSourceDialect::NativeSlang));
+  EXPECT_NE(diagnostics.find("may not use #include"), std::string::npos) << diagnostics;
+  diagnostics.clear();
+  EXPECT_FALSE(Shader::ReflectSlang(
+      ShaderType::Compute,
+      "// @evoengine-dialect native\nimport\tEvoEngine.ShaderMigration.Common;\n# include \"Legacy.slangh\"\n" +
+          std::string(kSlangComputeShader),
+      reflection, diagnostics, native_path));
+  EXPECT_NE(diagnostics.find("may not use #include"), std::string::npos) << diagnostics;
+}
+
+TEST(ShaderCache, NativeImportCanariesCompileReflectAndUseTypedConfiguration) {
+  ShaderCacheScope scope;
+  const auto module_root = RepoPath("EvoEngine_Tests/ShaderMigration/Modules");
+  Shader::RegisterShaderIncludePath(module_root);
+  constexpr std::string_view import = "import EvoEngine.ShaderMigration.Common;\n";
+  struct Case {
+    ShaderType stage;
+    const char* name;
+    std::string source;
+  };
+  const std::vector<Case> cases = {
+      {ShaderType::Compute, "Compute",
+       R"(
+struct DoubleTransform : IMigrationTransform
+{
+    float apply(float value) { return value * 2.0; }
+};
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> outputBuffer;
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main() { outputBuffer[0] = migrationApply(DoubleTransform(), 1.0); }
+)"},
+      {ShaderType::Vertex, "Vertex",
+       R"(
+[shader("vertex")]
+float4 main(float3 position : POSITION) : SV_Position
+{
+    return float4(migrationCommon(position.x), position.yz, 1.0);
+}
+)"},
+      {ShaderType::Fragment, "Fragment",
+       R"(
+[shader("fragment")]
+float4 main() : SV_Target { return migrationCommon(0.0).xxxx; }
+)"},
+      {ShaderType::Task, "Task",
+       R"(
+struct MigrationTaskPayload { uint value; };
+[shader("amplification")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    MigrationTaskPayload payload;
+    payload.value = uint(migrationCommon(0.0));
+    DispatchMesh(1, 1, 1, payload);
+}
+)"},
+      {ShaderType::Mesh, "Mesh",
+       R"(
+struct MigrationVertex { float4 position : SV_Position; };
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(1, 1, 1)]
+void main(OutputVertices<MigrationVertex, 3> vertices, OutputIndices<uint3, 1> triangles)
+{
+    SetMeshOutputCounts(3, 1);
+    vertices[0].position = float4(-migrationCommon(0.0), -1.0, 0.0, 1.0);
+    vertices[1].position = float4(1.0, -1.0, 0.0, 1.0);
+    vertices[2].position = float4(0.0, 1.0, 0.0, 1.0);
+    triangles[0] = uint3(0, 1, 2);
+}
+)"},
+      {ShaderType::RayGen, "RayGen",
+       R"([shader("raygeneration")] void main() { float value = migrationCommon(0.0); })"},
+      {ShaderType::Miss, "Miss",
+       R"(struct MigrationPayload { float value; }; [shader("miss")] void main(inout MigrationPayload payload) { payload.value = migrationCommon(0.0); })"},
+      {ShaderType::AnyHit, "AnyHit",
+       R"(struct MigrationPayload { float value; }; [shader("anyhit")] void main(inout MigrationPayload payload, BuiltInTriangleIntersectionAttributes attributes) { payload.value += migrationCommon(attributes.barycentrics.x); })"},
+      {ShaderType::ClosestHit, "ClosestHit",
+       R"(struct MigrationPayload { float value; }; [shader("closesthit")] void main(inout MigrationPayload payload, BuiltInTriangleIntersectionAttributes attributes) { payload.value = migrationCommon(attributes.barycentrics.y); })"},
+  };
+
+  std::vector<uint32_t> configured_compute;
+  for (const auto& test_case : cases) {
+    const auto path = module_root / (std::string("Canary") + test_case.name + ".slang");
+    const std::string source = std::string(import) + test_case.source;
+    std::vector<uint32_t> binaries;
+    ASSERT_TRUE(Shader::CompileToSpirv(test_case.stage, source, binaries, path, ShaderSourceDialect::NativeSlang))
+        << test_case.name;
+    ASSERT_FALSE(binaries.empty()) << test_case.name;
+    ShaderReflectionInfo reflection;
+    std::string diagnostics;
+    ASSERT_TRUE(
+        Shader::ReflectSlang(test_case.stage, source, reflection, diagnostics, path, ShaderSourceDialect::NativeSlang))
+        << test_case.name << '\n'
+        << diagnostics;
+    EXPECT_EQ(reflection.shader_type, test_case.stage) << test_case.name;
+    if (test_case.stage == ShaderType::Compute) {
+      configured_compute = binaries;
+      ASSERT_EQ(reflection.descriptor_bindings.size(), 1u);
+      EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
+    }
+  }
+
+  std::string alternate_source = std::string(import) + cases.front().source;
+  const auto scale = alternate_source.find("value * 2.0");
+  ASSERT_NE(scale, std::string::npos);
+  alternate_source.replace(scale, std::string_view("value * 2.0").size(), "value * 3.0");
+  std::vector<uint32_t> alternate_compute;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, alternate_source, alternate_compute,
+                                     module_root / "CanaryComputeAlternate.slang", ShaderSourceDialect::NativeSlang));
+  EXPECT_NE(configured_compute, alternate_compute);
+}
+
+TEST(ShaderCache, NativeImportDependencyInvalidatesDiskCacheAndSupportsConcurrentRequests) {
+  ShaderCacheScope scope;
+  const auto module_root = scope.Root() / "Modules";
+  const auto module_path = module_root / "EvoEngine" / "ShaderMigration" / "Mutable.slang";
+  const auto entry_path = module_root / "MutableEntry.slang";
+  Shader::RegisterShaderIncludePath(module_root);
+  WriteTextFile(module_path, "public float mutableValue() { return 1.0; }\n");
+  const std::string source = R"(
+import EvoEngine.ShaderMigration.Mutable;
+[[vk::binding(0, 0)]] RWStructuredBuffer<float> outputBuffer;
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main() { outputBuffer[0] = mutableValue(); }
+)";
+
+  std::vector<uint32_t> first;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, first, entry_path, ShaderSourceDialect::NativeSlang));
+  EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 1u);
+
+  std::vector<uint32_t> memory;
+  ASSERT_TRUE(
+      Shader::CompileToSpirv(ShaderType::Compute, source, memory, entry_path, ShaderSourceDialect::NativeSlang));
+  EXPECT_EQ(first, memory);
+  EXPECT_EQ(Shader::GetCompileCacheStats().memory_hits, 1u);
+
+  Shader::ClearInMemoryCompileCache();
+  Shader::ResetCompileCacheStats();
+  std::vector<uint32_t> disk;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, disk, entry_path, ShaderSourceDialect::NativeSlang));
+  EXPECT_EQ(first, disk);
+  EXPECT_EQ(Shader::GetCompileCacheStats().disk_hits, 1u);
+
+  WriteTextFile(module_path, "public float mutableValue() { return 2.0; }\n");
+  Shader::ClearInMemoryCompileCache();
+  Shader::ResetCompileCacheStats();
+  std::vector<uint32_t> changed;
+  ASSERT_TRUE(
+      Shader::CompileToSpirv(ShaderType::Compute, source, changed, entry_path, ShaderSourceDialect::NativeSlang));
+  EXPECT_NE(first, changed);
+  EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 1u);
+  EXPECT_EQ(Shader::GetCompileCacheStats().disk_misses, 1u);
+
+  WriteTextFile(module_path, "public float mutableValue() { return 3.0; }\n");
+  Shader::ClearInMemoryCompileCache();
+  Shader::ResetCompileCacheStats();
+  auto* application = ApplicationContext::TryGet();
+  ASSERT_NE(application, nullptr);
+  std::array<std::future<std::vector<uint32_t>>, 4> futures;
+  for (auto& future : futures) {
+    future = std::async(std::launch::async, [&, application] {
+      ApplicationContextScope application_scope(*application);
+      std::vector<uint32_t> binaries;
+      if (!Shader::CompileToSpirv(ShaderType::Compute, source, binaries, entry_path,
+                                  ShaderSourceDialect::NativeSlang)) {
+        binaries.clear();
+      }
+      return binaries;
+    });
+  }
+  const auto concurrent = futures.front().get();
+  ASSERT_FALSE(concurrent.empty());
+  for (size_t i = 1; i < futures.size(); ++i) {
+    EXPECT_EQ(futures[i].get(), concurrent);
+  }
+}
+
+TEST(ShaderCache, RemainingSharedSamplingModulesCompileAndMatchNumericalContracts) {
+  ShaderCacheScope scope;
+  const auto module_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  Shader::RegisterShaderIncludePath(module_root);
+  const std::string source = R"(
+import EvoEngine.Random;
+import EvoEngine.VogelDisk;
+
+[[vk::binding(0, 0)]] RWStructuredBuffer<float4> outputBuffer;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    uint seed = 1u;
+    outputBuffer[0] = float4(EE_PCG_RANDOM(seed), EE_PCG_RANDOM(seed), 0.0, 1.0);
+    outputBuffer[1] = float4(EE_VOGEL_DISK_SAMPLE(3, 16, 0.25), 0.0, 1.0);
+}
+)";
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, module_root / "PureModuleProbe.slang",
+                                     ShaderSourceDialect::NativeSlang));
+  ASSERT_FALSE(binaries.empty());
+
+  uint32_t state = 1u;
+  const uint32_t previous = state * 747796405u + 2891336453u;
+  const uint32_t word = ((previous >> ((previous >> 28u) + 4u)) ^ previous) * 277803737u;
+  state = previous;
+  EXPECT_EQ((word >> 22u) ^ word, 2831084092u);
+  EXPECT_EQ(state, 3639132858u);
+
+  const float radius = std::sqrt(3.5f) / std::sqrt(16.0f);
+  const float theta = 2.4f * 3.0f + 0.25f;
+  EXPECT_NEAR(radius * std::cos(theta), 0.18384754f, 1e-6f);
+  EXPECT_NEAR(radius * std::sin(theta), 0.43005824f, 1e-6f);
+}
+
+TEST(ShaderCache, SharedGpuAbiModuleMatchesHostLayoutsAndDescriptorBindings) {
+  ShaderCacheScope scope;
+  const auto module_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  Shader::RegisterShaderIncludePath(module_root);
+  const std::string source = R"(
+import EvoEngine.PerFrame;
+
+[[vk::binding(13, 0)]] RWStructuredBuffer<float4> outputBuffer;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    static_assert(sizeof(RenderInfo, Std140DataLayout) == 5520, "RenderInfo layout");
+    static_assert(sizeof(Environment, Std140DataLayout) == 64, "Environment layout");
+    static_assert(sizeof(Camera, Std430DataLayout) == 976, "Camera layout");
+    static_assert(sizeof(Instance, Std430DataLayout) == 96, "Instance layout");
+    static_assert(sizeof(EeKernelBlock, Std140DataLayout) == 2048, "Kernel layout");
+    static_assert(sizeof(DirectionalLight, Std430DataLayout) == 384, "DirectionalLight layout");
+    static_assert(sizeof(PointLight, Std430DataLayout) == 480, "PointLight layout");
+    static_assert(sizeof(SpotLight, Std430DataLayout) == 176, "SpotLight layout");
+    static_assert(sizeof(GltfTextureInfo, ScalarDataLayout) == 40, "GltfTextureInfo layout");
+    static_assert(sizeof(GltfShadeMaterial, ScalarDataLayout) == 288, "GltfShadeMaterial layout");
+
+    float4 value = float4(EE_RENDER_INFO.shadow_split_0, EE_ENVIRONMENT.gamma,
+                          EE_CAMERAS[0].resolution_x, float(EE_INSTANCES[0].entity_index));
+    value += EE_KERNEL_BLOCK.uniform_kernel[0];
+    value += EE_DIRECTIONAL_LIGHTS[0].diffuse + EE_POINT_LIGHTS[0].diffuse + EE_SPOT_LIGHTS[0].diffuse;
+    value += EE_TEXTURE_2DS[0].SampleLevel(float2(0.5), 0.0);
+    value += EE_CUBEMAPS[0].SampleLevel(float3(0.0, 0.0, 1.0), 0.0);
+    value += EE_GLTF_MATERIALS[0].pbr_base_color_factor;
+    value.xy += EE_GLTF_TEXTURE_INFOS[0].uv_transform[0];
+    outputBuffer[0] = value;
+}
+)";
+
+  ShaderReflectionInfo reflection;
+  std::string diagnostics;
+  ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
+                                   module_root / "SharedGpuAbiProbe.slang", ShaderSourceDialect::NativeSlang))
+      << diagnostics;
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 13u);
+
+  const std::array<VkDescriptorType, 14> expected_types = {
+      VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_MAX_ENUM,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+      VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+  };
+  size_t reflected_index = 0;
+  for (uint32_t binding = 0; binding < expected_types.size(); ++binding) {
+    if (expected_types[binding] == VK_DESCRIPTOR_TYPE_MAX_ENUM)
+      continue;
+    ASSERT_LT(reflected_index, reflection.descriptor_bindings.size());
+    const auto& reflected = reflection.descriptor_bindings[reflected_index++];
+    EXPECT_EQ(reflected.set, 0u) << reflected.name;
+    EXPECT_EQ(reflected.binding, binding) << reflected.name;
+    EXPECT_EQ(reflected.descriptor_type, expected_types[binding]) << reflected.name;
+    EXPECT_EQ(reflected.unbounded, binding == 9u || binding == 10u) << reflected.name;
+    if (reflected.unbounded)
+      EXPECT_EQ(reflected.descriptor_count, 0u) << reflected.name;
+  }
+  EXPECT_EQ(reflected_index, reflection.descriptor_bindings.size());
+  EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
+  EXPECT_TRUE(reflection.push_constant_ranges.empty());
+  EXPECT_TRUE(reflection.stage_inputs.empty());
+  EXPECT_TRUE(reflection.stage_outputs.empty());
+}
+
+TEST(ShaderCache, RayTracingFoundationModulesCompileAndReflectBindings) {
+  ShaderCacheScope scope;
+  const auto module_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  Shader::RegisterShaderIncludePath(module_root);
+  const std::string source = R"(
+import EvoEngine.RayTracingBasic;
+import EvoEngine.CameraRayTracingPayload;
+import EvoEngine.PointCloudRayTracingPayload;
+import EvoEngine.CameraRayGeometry;
+import EvoEngine.GltfRayTracingMath;
+import EvoEngine.CameraRayOutputs;
+
+[[vk::binding(16, 2)]] RWStructuredBuffer<float4> outputBuffer;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    static_assert(sizeof(Vertex) == 112, "Vertex ABI");
+    static_assert(sizeof(CameraRayTracingPayload) == 52, "camera payload ABI");
+    static_assert(sizeof(PointCloudRayTracingPayload) == 96, "point-cloud payload ABI");
+    CameraRayTracingPayload cameraPayload = {};
+    PointCloudRayTracingPayload pointCloudPayload = {};
+    CameraRayOutputDiagnostics diagnostics = EE_CAMERA_INIT_RAY_OUTPUT_DIAGNOSTICS();
+    float3 normal = EE_CAMERA_GEOMETRIC_NORMAL(float3(1.0, 0.0, 0.0), float3(0.0, 1.0, 0.0),
+                                               float3(0.0, 0.0, 1.0));
+    float3 sampleDirection = EE_GLTF_RT_SAMPLE_COSINE_HEMISPHERE(float2(0.25, 0.5));
+    outputBuffer[0] = float4(normal + sampleDirection + diagnostics.normal + cameraPayload.shadow_transmission,
+                             pointCloudPayload.hit_info.vertex_info1);
+    outputBuffer[1] = float4(EE_VERTICES[0].position, float(EE_INDICES[0]));
+}
+)";
+
+  ShaderReflectionInfo reflection;
+  std::string diagnostics;
+  ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
+                                   module_root / "RayTracingFoundationProbe.slang", ShaderSourceDialect::NativeSlang))
+      << diagnostics;
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 27u);
+  EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
+
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries,
+                                     module_root / "RayTracingFoundationProbe.slang",
+                                     ShaderSourceDialect::NativeSlang));
+  EXPECT_FALSE(binaries.empty());
+}
+
 TEST(ShaderCache, UsesMemoryThenValidatedDiskEntry) {
   ShaderCacheScope scope;
   std::vector<uint32_t> first;
@@ -461,7 +862,7 @@ TEST(ShaderCache, SlangDiskHitSkipsFrontendAfterDependencyIndexIsPublished) {
   std::vector<uint32_t> first;
   ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, first));
   ASSERT_FALSE(first.empty());
-  EXPECT_GT(Shader::GetCompileCacheStats().slang_frontend_invocations, 0u);
+  EXPECT_GT(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 0u);
 
   Shader::ClearInMemoryCompileCache();
   Shader::ResetCompileCacheStats();
@@ -472,7 +873,7 @@ TEST(ShaderCache, SlangDiskHitSkipsFrontendAfterDependencyIndexIsPublished) {
   const auto stats = Shader::GetCompileCacheStats();
   EXPECT_EQ(stats.disk_hits, 1u);
   EXPECT_EQ(stats.compilations, 0u);
-  EXPECT_EQ(stats.slang_frontend_invocations, 0u);
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
 }
 
 TEST(ShaderCache, ProductionBloomSharedSlangPushConstantsMatchHostLayout) {
@@ -679,6 +1080,48 @@ TEST(ShaderCache, ProductionEnvironmentLightingSlangShadersMatchHostInterface) {
   }
 }
 
+TEST(ShaderCache, ProductionSmaaSlangPresetVariantsCompileAndReflectInterfaces) {
+  ShaderCacheScope scope;
+  RegisterDefaultShaderIncludePath();
+  const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
+  const std::array presets = {"SMAA_PRESET_LOW", "SMAA_PRESET_MEDIUM", "SMAA_PRESET_HIGH", "SMAA_PRESET_ULTRA"};
+  struct Case {
+    ShaderType shader_type;
+    std::filesystem::path path;
+    size_t descriptor_count;
+    size_t varying_count;
+  };
+  const std::array<Case, 4> cases = {{
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/PostProcessing/SMAAEdge.slang", 0u, 4u},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/PostProcessing/SMAAEdge.slang", 1u, 4u},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/PostProcessing/SMAABlendWeight.slang", 0u, 5u},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/PostProcessing/SMAABlendWeight.slang", 3u, 5u},
+  }};
+
+  for (const auto* preset : presets) {
+    for (const auto& test_case : cases) {
+      const auto source = ShaderGlobalDefinesForTests() + "\n#define " + preset + " 1\n" + ReadTextFile(test_case.path);
+      ShaderReflectionInfo reflection;
+      std::string diagnostics;
+      ASSERT_TRUE(Shader::ReflectSlang(test_case.shader_type, source, reflection, diagnostics, test_case.path))
+          << preset << " " << test_case.path.string() << "\n"
+          << diagnostics;
+      ASSERT_EQ(reflection.push_constant_ranges.size(), 1u) << preset << " " << test_case.path.string();
+      EXPECT_EQ(reflection.push_constant_ranges[0].size, sizeof(AntiAliasing::SmaaPushConstant));
+      EXPECT_EQ(reflection.descriptor_bindings.size(), test_case.descriptor_count);
+      EXPECT_EQ(test_case.shader_type == ShaderType::Vertex ? reflection.stage_outputs.size()
+                                                            : reflection.stage_inputs.size(),
+                test_case.varying_count);
+
+      std::vector<uint32_t> binaries;
+      ASSERT_TRUE(Shader::CompileToSpirv(test_case.shader_type, source, binaries, test_case.path))
+          << preset << " " << test_case.path.string();
+      ASSERT_FALSE(binaries.empty());
+    }
+  }
+  EXPECT_EQ(Shader::GetCompileCacheStats().compatibility_slang_frontend_invocations, 0u);
+}
+
 TEST(ShaderCache, CameraRaygenSerCompileUsesExtInvocationReorder) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
@@ -706,13 +1149,11 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
   RegisterDefaultShaderIncludePath();
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
   const std::string no_bindless = "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n";
-  const std::string material_no_bindless = no_bindless + "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+  const std::string material_no_bindless = no_bindless;
   const std::string fixed_lighting =
       no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 3\n";
   const std::string fixed_material_lighting =
-      no_bindless +
-      "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n"
-      "#define EE_GLTF_RASTER_FIXED_MATERIAL_TEXTURES 1\n";
+      no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n";
   struct Case {
     ShaderType shader_type;
     std::filesystem::path path;
@@ -807,10 +1248,6 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Gizmos/GizmosStrands.slang"},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Gizmos/GizmosStrands.slang",
-       "\n#define EE_GIZMO_STRAND_VERTEX_COLOR 1\n"},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Gizmos/GizmosStrands.slang",
-       "\n#define EE_GIZMO_STRAND_NORMAL_COLOR 1\n"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/GaussianSplat/GaussianSplat.slang"},
       {ShaderType::RayGen, shader_root / "RayTracing/RayGen/Camera.slang"},
       {ShaderType::Miss, shader_root / "RayTracing/Miss/Camera.slang"},
@@ -841,7 +1278,13 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
 TEST(ShaderCache, ProductionEcoSysLabGlslShaderInventoryCompiles) {
   ShaderCacheScope scope;
   RegisterEcoSysLabShaderIncludePath();
-  RegisterDefaultShaderIncludePath();
+  const auto sdk_shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
+  const auto sdk_glsl_count =
+      static_cast<size_t>(std::count_if(std::filesystem::recursive_directory_iterator(sdk_shader_root),
+                                        std::filesystem::recursive_directory_iterator(), [](const auto& entry) {
+                                          return entry.is_regular_file() && entry.path().extension() == ".glsl";
+                                        }));
+  EXPECT_EQ(sdk_glsl_count, 0u);
   const auto shader_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders");
   ExpectGlslStageFilesCompile(shader_root);
 }
@@ -990,6 +1433,18 @@ TEST(ShaderCache, ProductionTaaResolveSlangThreadGroupMatchesHostDispatch) {
   const auto local_size = FindSpirvLocalSizeExecutionMode(binaries);
   ASSERT_TRUE(local_size.has_value());
   EXPECT_EQ(*local_size, (std::array<uint32_t, 3>{8, 8, 1}));
+
+  for (const int use_tgsm : {0, 1}) {
+    for (const int use_fp16 : {0, 1}) {
+      const auto variant_source = ShaderGlobalDefinesForTests() + "\n#define EE_TAA_USE_TGSM " +
+                                  std::to_string(use_tgsm) + "\n#define EE_TAA_USE_FP16 " + std::to_string(use_fp16) +
+                                  "\n" + ReadTextFile(shader_path);
+      binaries.clear();
+      ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, variant_source, binaries, shader_path))
+          << "TGSM=" << use_tgsm << ", FP16=" << use_fp16;
+      ASSERT_FALSE(binaries.empty());
+    }
+  }
 }
 
 TEST(ShaderCache, ProductionMotionVectorsSlangThreadGroupMatchesHostDispatch) {
@@ -1333,7 +1788,7 @@ TEST(ShaderCache, StageAndSourceChangesCreateDistinctEntries) {
   ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, compute));
   std::vector<uint32_t> fragment;
   ASSERT_TRUE(Shader::CompileToSpirv(
-      ShaderType::Fragment, "layout(location = 0) out vec4 color; void main() { color = vec4(1.0); }", fragment));
+      ShaderType::Fragment, "layout(location = 0) out float4 color; void main() { color = float4(1.0); }", fragment));
   std::vector<uint32_t> changed_source;
   ASSERT_TRUE(Shader::CompileToSpirv(
       ShaderType::Compute, "layout(local_size_x = 1) in; void main() { uint value = gl_GlobalInvocationID.x + 1u; }",

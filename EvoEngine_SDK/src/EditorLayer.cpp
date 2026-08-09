@@ -1025,9 +1025,7 @@ void SerializeCameraSettings(YAML::Emitter& out, const CameraSettings& settings)
   out << YAML::Key << "sample_size" << YAML::Value << settings.sample_size;
   out << YAML::Key << "bounce" << YAML::Value << settings.bounce;
   out << YAML::Key << "gamma" << YAML::Value << settings.gamma;
-  out << YAML::Key << "firefly_clamp_enabled" << YAML::Value << settings.firefly_clamp_enabled;
   out << YAML::Key << "firefly_clamp_threshold" << YAML::Value << settings.firefly_clamp_threshold;
-  out << YAML::Key << "emissive_triangle_nee_enabled" << YAML::Value << settings.emissive_triangle_nee_enabled;
   out << YAML::Key << "ray_debug_view" << YAML::Value << Camera::GetRayDebugViewName(settings.ray_debug_view);
   out << YAML::Key << "auto_spp_enabled" << YAML::Value << settings.auto_spp_enabled;
   out << YAML::Key << "auto_spp_min_samples" << YAML::Value << settings.auto_spp_min_samples;
@@ -1051,9 +1049,7 @@ void DeserializeCameraSettings(const YAML::Node& in, CameraSettings& settings) {
   ReadYamlValue(in, "sample_size", settings.sample_size);
   ReadYamlValue(in, "bounce", settings.bounce);
   ReadYamlValue(in, "gamma", settings.gamma);
-  ReadYamlValue(in, "firefly_clamp_enabled", settings.firefly_clamp_enabled);
   ReadYamlValue(in, "firefly_clamp_threshold", settings.firefly_clamp_threshold);
-  ReadYamlValue(in, "emissive_triangle_nee_enabled", settings.emissive_triangle_nee_enabled);
   if (const auto view = in["ray_debug_view"]) {
     settings.ray_debug_view = Camera::ParseRayDebugView(view.as<std::string>(), settings.ray_debug_view);
   }

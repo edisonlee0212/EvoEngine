@@ -103,6 +103,9 @@ TEST(GltfSceneFeatures, DefineHeaderIsDeterministicAndLayoutSafe) {
   const auto mask = Bit(GltfSceneFeature::VolumeScatter) | Bit(GltfSceneFeature::Unlit);
   const auto header = BuildGltfSceneFeatureDefines(mask);
   EXPECT_EQ(header, BuildGltfSceneFeatureDefines(mask));
+  EXPECT_EQ(
+      header.find("#define EE_GLTF_COMPILED_FEATURE_MASK " + std::to_string(PromoteGltfSceneFeatures(mask)) + "u\n"),
+      0u);
   EXPECT_NE(header.find("#define EE_GLTF_USE_TRANSMISSION 1\n"), std::string::npos);
   EXPECT_NE(header.find("#define EE_GLTF_USE_VOLUME 1\n"), std::string::npos);
   EXPECT_NE(header.find("#define EE_GLTF_USE_VOLUME_SCATTER 1\n"), std::string::npos);

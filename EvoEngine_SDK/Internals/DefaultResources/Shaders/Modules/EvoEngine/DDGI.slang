@@ -1,0 +1,197 @@
+// @evoengine-dialect native
+public static const float EE_DDGI_PI = 3.14159265359f;
+public static const float EE_DDGI_INACTIVE_RAY_ALPHA = -2.0f;
+public static const uint EE_DDGI_FIXED_RAY_PAYLOAD_FLAG = 1u;
+public static const uint EE_DDGI_RAY_MASK_GEOMETRY = 0x01u;
+public static const uint EE_DDGI_RAY_MASK_SHADOW = 0x02u;
+
+public float3 EE_DDGI_SAFE_NORMALIZE(float3 value, float3 fallback) {
+  float length_squared = dot(value, value);
+  return length_squared > 0.00000001f ? value * rsqrt(length_squared) : fallback;
+}
+
+public float EE_DDGI_AXIS_COORDINATE(float3 delta, float3 axis) {
+  float axis_length_squared = dot(axis, axis);
+  return axis_length_squared > 1e-6f ? dot(delta, axis) / axis_length_squared : 0.0f;
+}
+
+public float EE_DDGI_VOLUME_BLEND_WEIGHT(float3 probe_coordinate, uint3 probe_counts, float3 probe_step_x,
+                                  float3 probe_step_y, float3 probe_step_z) {
+  float3 max_probe_coordinate = float3(probe_counts - uint3(1u));
+  bool inside_volume =
+      !any(probe_coordinate < float3(0.0f)) && !any(probe_coordinate > max_probe_coordinate);
+  if (inside_volume) {
+    return 1.0f;
+  }
+
+  float3 step_lengths =
+      max(float3(length(probe_step_x), length(probe_step_y), length(probe_step_z)), float3(0.0001f));
+  float3 lower_distance = max(-probe_coordinate * step_lengths, float3(0.0f));
+  float3 upper_distance = max((probe_coordinate - max_probe_coordinate) * step_lengths, float3(0.0f));
+  float3 outside_distance = max(lower_distance, upper_distance);
+  float3 axis_weight = float3(1.0f) - clamp(outside_distance / step_lengths, float3(0.0f), float3(1.0f));
+  return axis_weight.x * axis_weight.y * axis_weight.z;
+}
+
+public float3 EE_DDGI_PROBE_COORDINATE(float3 position, float3 first_probe, float3 probe_step_x, float3 probe_step_y,
+                                float3 probe_step_z) {
+  float3 delta = position - first_probe;
+  return float3(EE_DDGI_AXIS_COORDINATE(delta, probe_step_x), EE_DDGI_AXIS_COORDINATE(delta, probe_step_y),
+                EE_DDGI_AXIS_COORDINATE(delta, probe_step_z));
+}
+
+public uint EE_DDGI_PROBE_INDEX(uint3 probe_grid, uint3 probe_counts) {
+  return probe_grid.x + probe_grid.y * probe_counts.x + probe_grid.z * probe_counts.x * probe_counts.y;
+}
+
+public uint3 EE_DDGI_WRAP_PROBE_GRID(int3 probe_grid, uint3 probe_counts) {
+  int3 counts = int3(max(probe_counts, uint3(1u)));
+  int3 wrapped = probe_grid % counts;
+  wrapped = (wrapped + counts) % counts;
+  return uint3(wrapped);
+}
+
+public uint3 EE_DDGI_SCROLL_PROBE_GRID(uint3 probe_grid, int3 scroll_offset, uint3 probe_counts) {
+  return EE_DDGI_WRAP_PROBE_GRID(int3(probe_grid) + scroll_offset, probe_counts);
+}
+
+public uint EE_DDGI_SCROLL_PROBE_INDEX(uint3 probe_grid, int3 scroll_offset, uint3 probe_counts) {
+  uint3 safe_counts = max(probe_counts, uint3(1u));
+  return EE_DDGI_PROBE_INDEX(EE_DDGI_SCROLL_PROBE_GRID(probe_grid, scroll_offset, safe_counts), safe_counts);
+}
+
+public bool EE_DDGI_PROBE_IS_NEWLY_EXPOSED(uint3 logical_probe_grid, int3 scroll_delta, uint3 probe_counts) {
+  for (int axis = 0; axis < 3; ++axis) {
+    if (scroll_delta[axis] > 0 && logical_probe_grid[axis] >= probe_counts[axis] - uint(scroll_delta[axis])) {
+      return true;
+    }
+    if (scroll_delta[axis] < 0 && logical_probe_grid[axis] < uint(-scroll_delta[axis])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+public float3 EE_DDGI_PROBE_WORLD_POSITION(float3 probe_grid, float3 first_probe, float3 probe_step_x,
+                                    float3 probe_step_y, float3 probe_step_z) {
+  return first_probe + probe_step_x * probe_grid.x + probe_step_y * probe_grid.y + probe_step_z * probe_grid.z;
+}
+
+public float3 EE_DDGI_SURFACE_BIASED_POSITION(float3 position, float3 normal, float3 view_direction, float normal_bias,
+                                       float view_bias) {
+  return position + normal * max(normal_bias, 0.0f) + view_direction * max(view_bias, 0.0f);
+}
+
+public float3 EE_DDGI_PROBE_RAY_DIRECTION(uint ray_index, uint ray_count, uint fixed_ray_count) {
+  bool fixed_ray = ray_index < fixed_ray_count;
+  uint sample_index = fixed_ray ? ray_index : ray_index - fixed_ray_count;
+  uint sample_count = fixed_ray ? fixed_ray_count : max(ray_count - fixed_ray_count, 1u);
+  float sample_offset = float(sample_index) + 0.5f;
+  float sample_count_float = max(float(sample_count), 1.0f);
+  float golden_ratio_fraction = (sqrt(5.0f) * 0.5f + 0.5f) - 1.0f;
+  float phi = 2.0f * EE_DDGI_PI * frac(float(sample_index) * golden_ratio_fraction);
+  float cos_theta = 1.0f - 2.0f * sample_offset / sample_count_float;
+  float sin_theta = sqrt(max(0.0f, 1.0f - cos_theta * cos_theta));
+  return normalize(float3(cos(phi) * sin_theta, sin(phi) * sin_theta, cos_theta));
+}
+
+public float3 EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION(float3 direction, float4 quaternion) {
+  float3 vector = -quaternion.xyz;
+  return direction + 2.0f * cross(vector, cross(vector, direction) + quaternion.w * direction);
+}
+
+public float3 EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(uint ray_index, uint ray_count, uint fixed_ray_count, float4 rotation) {
+  float3 direction = EE_DDGI_PROBE_RAY_DIRECTION(ray_index, ray_count, fixed_ray_count);
+  return ray_index < fixed_ray_count ? direction
+                                     : normalize(EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION(direction, normalize(rotation)));
+}
+
+public float EE_DDGI_SIGN_NOT_ZERO(float value) {
+  return value >= 0.0f ? 1.0f : -1.0f;
+}
+
+public float2 EE_DDGI_SIGN_NOT_ZERO(float2 value) {
+  return float2(EE_DDGI_SIGN_NOT_ZERO(value.x), EE_DDGI_SIGN_NOT_ZERO(value.y));
+}
+
+public bool EE_DDGI_RELOCATION_OFFSET_INSIDE_VOXEL(float3 offset, float3 probe_step_x, float3 probe_step_y,
+                                            float3 probe_step_z) {
+  float3 normalized_offset = float3(EE_DDGI_AXIS_COORDINATE(offset, probe_step_x),
+                                    EE_DDGI_AXIS_COORDINATE(offset, probe_step_y),
+                                    EE_DDGI_AXIS_COORDINATE(offset, probe_step_z));
+  return dot(normalized_offset, normalized_offset) < 0.2025f;
+}
+
+public float2 EE_DDGI_OCTAHEDRAL_UV(float3 direction) {
+  direction = normalize(direction);
+  direction /= max(abs(direction.x) + abs(direction.y) + abs(direction.z), 0.0001f);
+  if (direction.z < 0.0f) {
+    direction.xy = (float2(1.0f) - abs(direction.yx)) * EE_DDGI_SIGN_NOT_ZERO(direction.xy);
+  }
+  return direction.xy * 0.5f + float2(0.5f);
+}
+
+public float3 EE_DDGI_OCTAHEDRAL_DIRECTION(uint2 texel, uint tile_size) {
+  float safe_tile_size = max(float(tile_size), 1.0f);
+  float2 f = (float2(texel) + float2(0.5f)) / safe_tile_size * 2.0f - float2(1.0f);
+  float3 direction = float3(f.x, f.y, 1.0f - abs(f.x) - abs(f.y));
+  if (direction.z < 0.0f) {
+    float2 wrapped = (float2(1.0f) - abs(direction.yx)) * EE_DDGI_SIGN_NOT_ZERO(direction.xy);
+    direction = float3(wrapped, direction.z);
+  }
+  return normalize(direction);
+}
+
+public uint EE_DDGI_ATLAS_TILE_STRIDE(uint tile_size) {
+  return max(tile_size, 1u) + 2u;
+}
+
+public float2 EE_DDGI_ATLAS_UV(uint probe_index, uint atlas_columns, uint tile_size, float3 direction, float2 atlas_size) {
+  uint2 atlas_tile = uint2(probe_index % atlas_columns, probe_index / atlas_columns);
+  float2 oct_uv = clamp(EE_DDGI_OCTAHEDRAL_UV(direction), float2(0.0f), float2(1.0f));
+  uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
+  float2 tile_uv = oct_uv * max(float(tile_size), 1.0f) + float2(1.0f);
+  return (float2(atlas_tile * tile_stride) + tile_uv) / atlas_size;
+}
+
+public float EE_DDGI_CHEBYSHEV_VISIBILITY(float2 half_moments, float distance, float visibility_bias) {
+  float2 moments = max(2.0f * half_moments, float2(0.0f));
+  float mean = moments.x;
+  float second_moment = moments.y;
+  if (distance <= mean + visibility_bias) {
+    return 1.0f;
+  }
+  float variance = abs(mean * mean - second_moment);
+  float distance_delta = distance - mean;
+  float visibility = variance / (variance + distance_delta * distance_delta);
+  return max(visibility * visibility * visibility, 0.0f);
+}
+
+public float EE_DDGI_CRUSH_LOW_WEIGHT(float weight) {
+  float crush_threshold = 0.2f;
+  if (weight < crush_threshold) {
+    weight *= weight * weight / (crush_threshold * crush_threshold);
+  }
+  return max(weight, 0.0f);
+}
+
+public bool EE_DDGI_IS_INACTIVE_PROBE_RAY(uint hit_count, float ray_alpha) {
+  return hit_count == 0u && ray_alpha <= -1.5f;
+}
+
+public float EE_DDGI_AXIS_PLANE_DISTANCE(float3 ray_direction, float3 axis) {
+  float axis_length = length(axis);
+  if (axis_length <= 0.0001f) {
+    return 1e27f;
+  }
+  float3 direction = EE_DDGI_SAFE_NORMALIZE(ray_direction, float3(0.0f, 1.0f, 0.0f));
+  float axis_projection = abs(dot(direction, axis / axis_length));
+  return axis_length / max(axis_projection, 0.0001f);
+}
+
+public float EE_DDGI_VOXEL_PLANE_DISTANCE(float3 ray_direction, float3 probe_step_x, float3 probe_step_y,
+                                   float3 probe_step_z) {
+  return min(EE_DDGI_AXIS_PLANE_DISTANCE(ray_direction, probe_step_x),
+             min(EE_DDGI_AXIS_PLANE_DISTANCE(ray_direction, probe_step_y),
+                 EE_DDGI_AXIS_PLANE_DISTANCE(ray_direction, probe_step_z)));
+}

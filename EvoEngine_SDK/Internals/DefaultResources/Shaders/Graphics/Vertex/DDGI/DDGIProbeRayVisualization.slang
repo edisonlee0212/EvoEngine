@@ -1,67 +1,66 @@
-#extension GL_ARB_shading_language_include : enable
-#extension GL_ARB_gpu_shader_int64 : enable
-
-#include "PerFrame.slangh"
-#include "PointCloudRayTracingPayload.slangh"
-#include "DDGI.slangh"
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.PointCloudRayTracingPayload;
+import EvoEngine.DDGI;
 
 struct DdgiProbeRaySample {
-  vec3 direction;
+  float3 direction;
   float padding0;
-  vec3 start;
-
+  float3 start;
   uint hit_count;
   uint64_t handle;
   uint64_t padding1;
-
   HitInfo hit_info;
 };
 
-layout(set = 1, binding = 0) readonly buffer EE_DDGI_PROBE_RAY_SAMPLE_BLOCK {
-  DdgiProbeRaySample EE_DDGI_PROBE_RAY_SAMPLES[];
+struct DdgiProbeRayVisualizationConstants {
+  uint2 camera_ray_count;
+  float2 miss_distance_alpha;
 };
 
-layout(push_constant) uniform EE_DDGI_PROBE_RAY_VISUALIZATION_CONSTANTS {
-  uvec2 camera_ray_count;
-  vec2 miss_distance_alpha;
+struct DdgiProbeRayVertexOutput {
+  float4 position : SV_Position;
+  [[vk::location(0)]]
+  float4 color : COLOR0;
 };
 
-layout(location = 0) out vec4 VS_COLOR;
+[[vk::binding(0, 1)]]
+StructuredBuffer<DdgiProbeRaySample> EE_DDGI_PROBE_RAY_SAMPLES;
 
-vec3 EE_DDGI_DEBUG_RAY_END(const DdgiProbeRaySample ray_sample) {
-  const vec3 direction = EE_DDGI_SAFE_NORMALIZE(ray_sample.direction, vec3(0.0f, 1.0f, 0.0f));
-  if (EE_DDGI_IS_INACTIVE_PROBE_RAY(ray_sample.hit_count, ray_sample.hit_info.color.a)) {
-    return ray_sample.start + direction * miss_distance_alpha.x * 0.15f;
-  }
-  if (ray_sample.hit_count == 0u) {
-    return ray_sample.start + direction * miss_distance_alpha.x;
-  }
+[[vk::push_constant]]
+ConstantBuffer<DdgiProbeRayVisualizationConstants> constants;
+
+float3 EeDdgiDebugRayEnd(DdgiProbeRaySample ray_sample) {
+  float3 direction = EE_DDGI_SAFE_NORMALIZE(ray_sample.direction, float3(0.0f, 1.0f, 0.0f));
+  if (EE_DDGI_IS_INACTIVE_PROBE_RAY(ray_sample.hit_count, ray_sample.hit_info.color.a))
+    return ray_sample.start + direction * constants.miss_distance_alpha.x * 0.15f;
+  if (ray_sample.hit_count == 0u) return ray_sample.start + direction * constants.miss_distance_alpha.x;
   return ray_sample.hit_info.position;
 }
 
-vec4 EE_DDGI_DEBUG_RAY_COLOR(const DdgiProbeRaySample ray_sample) {
-  const float alpha = clamp(miss_distance_alpha.y, 0.0f, 1.0f);
-  vec4 color = vec4(0.1f, 0.55f, 1.0f, 0.35f * alpha);
-  if (EE_DDGI_IS_INACTIVE_PROBE_RAY(ray_sample.hit_count, ray_sample.hit_info.color.a)) {
-    color = vec4(0.45f, 0.45f, 0.48f, 0.2f * alpha);
-  } else if (ray_sample.hit_count != 0u && ray_sample.hit_info.color.a < 0.0f) {
-    color = vec4(1.0f, 0.35f, 0.08f, 0.8f * alpha);
-  } else if (ray_sample.hit_count != 0u) {
-    color = vec4(0.15f, 1.0f, 0.35f, alpha);
-  }
+float4 EeDdgiDebugRayColor(DdgiProbeRaySample ray_sample) {
+  float alpha = clamp(constants.miss_distance_alpha.y, 0.0f, 1.0f);
+  float4 color = float4(0.1f, 0.55f, 1.0f, 0.35f * alpha);
+  if (EE_DDGI_IS_INACTIVE_PROBE_RAY(ray_sample.hit_count, ray_sample.hit_info.color.a))
+    color = float4(0.45f, 0.45f, 0.48f, 0.2f * alpha);
+  else if (ray_sample.hit_count != 0u && ray_sample.hit_info.color.a < 0.0f)
+    color = float4(1.0f, 0.35f, 0.08f, 0.8f * alpha);
+  else if (ray_sample.hit_count != 0u)
+    color = float4(0.15f, 1.0f, 0.35f, alpha);
   if (ray_sample.padding0 > 0.5f) {
-    color.rgb = mix(color.rgb, vec3(1.0f, 0.95f, 0.15f), 0.45f);
+    color.rgb = lerp(color.rgb, float3(1.0f, 0.95f, 0.15f), 0.45f);
     color.a = max(color.a, 0.6f * alpha);
   }
   return color;
 }
 
-void main() {
-  const uint ray_index = uint(gl_VertexIndex) / 2u;
-  const uint endpoint_index = uint(gl_VertexIndex) & 1u;
-  const DdgiProbeRaySample ray_sample = EE_DDGI_PROBE_RAY_SAMPLES[ray_index];
-  const vec3 world_position = endpoint_index == 0u ? ray_sample.start : EE_DDGI_DEBUG_RAY_END(ray_sample);
-
-  VS_COLOR = EE_DDGI_DEBUG_RAY_COLOR(ray_sample);
-  gl_Position = EE_CAMERAS[camera_ray_count.x].projection_view * vec4(world_position, 1.0f);
+[shader("vertex")]
+DdgiProbeRayVertexOutput main(uint vertex_index : SV_VertexID) {
+  DdgiProbeRayVertexOutput output;
+  uint ray_index = vertex_index / 2u;
+  DdgiProbeRaySample ray_sample = EE_DDGI_PROBE_RAY_SAMPLES[ray_index];
+  float3 world_position = (vertex_index & 1u) == 0u ? ray_sample.start : EeDdgiDebugRayEnd(ray_sample);
+  output.color = EeDdgiDebugRayColor(ray_sample);
+  output.position = mul(float4(world_position, 1.0f), EE_CAMERAS[constants.camera_ray_count.x].projection_view);
+  return output;
 }

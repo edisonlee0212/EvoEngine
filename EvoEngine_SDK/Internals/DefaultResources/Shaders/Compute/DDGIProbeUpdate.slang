@@ -1,5 +1,6 @@
-#include "DDGI.slangh"
-#include "DDGIProbeRayData.slangh"
+// @evoengine-dialect native
+import EvoEngine.DDGI;
+import EvoEngine.DDGIProbeRayData;
 
 #ifndef EE_DDGI_PROBE_UPDATE_MODE
 #define EE_DDGI_PROBE_UPDATE_MODE 0

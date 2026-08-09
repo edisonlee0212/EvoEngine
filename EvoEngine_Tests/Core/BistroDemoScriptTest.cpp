@@ -250,9 +250,10 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_EQ(bistro_source.find("scene->environment.environment_type"), std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.indirect_lighting_intensity"), std::string::npos);
   EXPECT_EQ(bistro_source.find("scene->environment.background_intensity"), std::string::npos);
-  EXPECT_NE(
-      bistro_source.find("scene_camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor"),
-      std::string::npos);
+  EXPECT_NE(bistro_source.find("scene_camera->camera_settings.background_source = "
+                               "Camera::BackgroundSource::InheritEnvironmentalLighting"),
+            std::string::npos);
+  EXPECT_NE(bistro_source.find("scene_camera->camera_settings.background_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping(scene_camera)"), std::string::npos);
 
   const auto scene_source =

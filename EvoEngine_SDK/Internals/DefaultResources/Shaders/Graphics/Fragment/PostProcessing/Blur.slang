@@ -1,38 +1,32 @@
-#extension GL_ARB_shading_language_include : enable
-
-layout (location = 0) out vec4 FragColor;
-
-layout (location = 0) in VS_OUT {
-    vec2 TexCoord;
-} fs_in;
-
-layout(set = 0, binding = 0) uniform sampler2D image;
-
-
-layout(push_constant) uniform BLUR_CONSTANTS{
-    int horizontal;
-    float weight[5];
+// @evoengine-dialect native
+struct BlurInput {
+  [[vk::location(0)]]
+  float2 tex_coord : TEXCOORD0;
 };
 
-void main()
-{
-    vec2 tex_offset = 1.0 / textureSize(image, 0); // gets size of single texel
-    vec4 result = texture(image, fs_in.TexCoord).rgba * weight[0]; // current fragment's contribution
-    if(horizontal != 0)
-    {
-        for(int i = 1; i < 5; ++i)
-        {
-            result += texture(image, fs_in.TexCoord + vec2(tex_offset.x * i, 0.0)).rgba * weight[i];
-            result += texture(image, fs_in.TexCoord - vec2(tex_offset.x * i, 0.0)).rgba * weight[i];
-        }
-    }
-    else
-    {
-        for(int i = 1; i < 5; ++i)
-        {
-            result += texture(image, fs_in.TexCoord + vec2(0.0, tex_offset.y * i)).rgba * weight[i];
-            result += texture(image, fs_in.TexCoord - vec2(0.0, tex_offset.y * i)).rgba * weight[i];
-        }
-    }
-    FragColor = result;
+struct BlurConstants {
+  int horizontal;
+  float weights[5];
+};
+
+[[vk::push_constant]]
+ConstantBuffer<BlurConstants> constants;
+
+[[vk::binding(0, 0)]]
+Sampler2D image;
+
+[shader("fragment")]
+float4 main(BlurInput input) : SV_Target {
+  uint width;
+  uint height;
+  image.GetDimensions(width, height);
+  float2 texel_offset = 1.0f / float2(width, height);
+  float4 result = image.Sample(input.tex_coord) * constants.weights[0];
+  for (int i = 1; i < 5; ++i) {
+    float2 offset = constants.horizontal != 0 ? float2(texel_offset.x * float(i), 0.0f)
+                                               : float2(0.0f, texel_offset.y * float(i));
+    result += image.Sample(input.tex_coord + offset) * constants.weights[i];
+    result += image.Sample(input.tex_coord - offset) * constants.weights[i];
+  }
+  return result;
 }

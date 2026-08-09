@@ -1,0 +1,9 @@
+// @evoengine-dialect native
+__exported import EvoEngine.RenderInfo;
+__exported import EvoEngine.Environment;
+__exported import EvoEngine.Cameras;
+__exported import EvoEngine.Instances;
+__exported import EvoEngine.Kernel;
+__exported import EvoEngine.Lights;
+__exported import EvoEngine.Textures;
+__exported import EvoEngine.GltfMaterial;

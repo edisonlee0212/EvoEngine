@@ -19,6 +19,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace evo_engine {
 struct ApplicationInitializationSettings;
@@ -873,7 +874,6 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
-
 #pragma region Ray Tracing Pipelines
   /// Ray tracing pipeline for rendering cameras with ray tracing.
   std::shared_ptr<RayTracingPipeline> ray_tracing_camera_pipeline;

@@ -447,7 +447,12 @@ bool VulkanPipelineCache::SaveLocked() {
     return false;
   size_t size = 0;
   auto result = vkGetPipelineCacheData(device_, cache_, &size, nullptr);
-  if (result != VK_SUCCESS || size == 0 || size > kMaxCacheFileBytes - kFileHeaderBytes) {
+  if (result != VK_SUCCESS || size == 0) {
+    return false;
+  }
+  if (size > kMaxCacheFileBytes - kFileHeaderBytes) {
+    EVOENGINE_WARNING("Vulkan pipeline cache not saved: " + std::to_string(size) + " bytes exceeds the configured " +
+                      std::to_string(kMaxCacheFileBytes) + " byte limit.")
     return false;
   }
   std::vector<uint8_t> payload;

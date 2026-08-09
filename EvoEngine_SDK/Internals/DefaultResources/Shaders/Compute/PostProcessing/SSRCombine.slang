@@ -1,31 +1,35 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+[[vk::binding(0, 1)]]
+Sampler2D originalColor;
 
-#include "PerFrame.slangh"
-#include "SSRConstants.slangh"
+[[vk::binding(1, 1)]]
+Sampler2D reflectedColorVisibility;
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+[[vk::binding(21, 2)]]
+Sampler2D inNormalRoughness;
 
-layout(set = 1, binding = 0) uniform sampler2D originalColor;
-layout(set = 1, binding = 1) uniform sampler2D reflectedColorVisibility;
-layout(set = 2, binding = 21) uniform sampler2D inNormalRoughness;
-layout(set = 2, binding = 22) uniform sampler2D inPbrFlags;
-layout(set = 3, binding = 0, rgba32f) uniform writeonly image2D outColor;
+[[vk::binding(22, 2)]]
+Sampler2D inPbrFlags;
 
-void main() {
-  uvec2 pixel = gl_GlobalInvocationID.xy;
-  uvec2 resolution = uvec2(imageSize(outColor));
-  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
-    return;
-  }
+[[vk::binding(0, 3)]]
+[vk::image_format("rgba32f")]
+RWTexture2D<float4> outColor;
 
-  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
-  float roughness = textureLod(inNormalRoughness, texCoord, 0.0f).a;
-  float metallic = textureLod(inPbrFlags, texCoord, 0.0f).x;
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  uint2 pixel = dispatch_thread_id.xy;
+  uint width = 0;
+  uint height = 0;
+  outColor.GetDimensions(width, height);
+  uint2 resolution = uint2(width, height);
+  if (any(pixel >= resolution)) return;
 
-  vec4 color = textureLod(originalColor, texCoord, 0.0f);
-  vec4 reflected = textureLod(reflectedColorVisibility, texCoord, 0.0f);
-
-  float factor = clamp(reflected.a * metallic * (1.f - roughness), 0.0f, 1.0f);
-  vec3 result = color.xyz * (1.0f - factor) + reflected.rgb * factor;
-  imageStore(outColor, ivec2(pixel), vec4(result.xyz, color.w));
+  float2 tex_coord = (float2(pixel) + float2(0.5f)) / float2(resolution);
+  float roughness = inNormalRoughness.SampleLevel(tex_coord, 0.0f).a;
+  float metallic = inPbrFlags.SampleLevel(tex_coord, 0.0f).x;
+  float4 color = originalColor.SampleLevel(tex_coord, 0.0f);
+  float4 reflected = reflectedColorVisibility.SampleLevel(tex_coord, 0.0f);
+  float factor = clamp(reflected.a * metallic * (1.0f - roughness), 0.0f, 1.0f);
+  outColor[int2(pixel)] = float4(color.xyz * (1.0f - factor) + reflected.rgb * factor, color.w);
 }

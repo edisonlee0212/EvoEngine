@@ -1,57 +1,55 @@
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
-
-layout(push_constant) uniform BLUR_CONSTANTS {
+// @evoengine-dialect native
+struct BlurConstants {
   int horizontal;
   float weight0;
   float weight1;
   float weight2;
   float weight3;
   float weight4;
+  float padding0;
+  float padding1;
 };
 
-layout(set = 0, binding = 0) uniform sampler2D image;
-layout(set = 0, binding = 1, rgba32f) uniform writeonly image2D outImage;
+[[vk::push_constant]]
+ConstantBuffer<BlurConstants> constants;
+
+[[vk::binding(0, 0)]]
+Sampler2D image;
+
+[[vk::binding(1, 0)]]
+[vk::image_format("rgba32f")]
+RWTexture2D<float4> outImage;
 
 float BlurWeight(int index) {
-  if (index == 0) {
-    return weight0;
-  }
-  if (index == 1) {
-    return weight1;
-  }
-  if (index == 2) {
-    return weight2;
-  }
-  if (index == 3) {
-    return weight3;
-  }
-  return weight4;
+  if (index == 0) return constants.weight0;
+  if (index == 1) return constants.weight1;
+  if (index == 2) return constants.weight2;
+  if (index == 3) return constants.weight3;
+  return constants.weight4;
 }
 
-void main() {
-  uvec2 pixel = gl_GlobalInvocationID.xy;
-  uvec2 resolution = uvec2(imageSize(outImage));
-  if (pixel.x >= resolution.x || pixel.y >= resolution.y) {
-    return;
+[shader("compute")]
+[numthreads(16, 16, 1)]
+void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
+  uint2 pixel = dispatch_thread_id.xy;
+  uint width = 0;
+  uint height = 0;
+  outImage.GetDimensions(width, height);
+  uint2 resolution = uint2(width, height);
+  if (any(pixel >= resolution)) return;
+
+  float2 tex_coord = (float2(pixel) + float2(0.5f)) / float2(resolution);
+  uint source_width = 0;
+  uint source_height = 0;
+  image.GetDimensions(source_width, source_height);
+  float2 tex_offset = 1.0f / float2(source_width, source_height);
+  float4 result = image.SampleLevel(tex_coord, 0.0f) * BlurWeight(0);
+
+  for (int i = 1; i < 5; ++i) {
+    float weight = BlurWeight(i);
+    float2 offset = constants.horizontal != 0 ? float2(tex_offset.x * i, 0.0f) : float2(0.0f, tex_offset.y * i);
+    result += image.SampleLevel(tex_coord + offset, 0.0f) * weight;
+    result += image.SampleLevel(tex_coord - offset, 0.0f) * weight;
   }
-
-  vec2 texCoord = (vec2(pixel) + vec2(0.5f)) / vec2(resolution);
-  vec2 texOffset = 1.0 / textureSize(image, 0);
-  vec4 result = textureLod(image, texCoord, 0.0f).rgba * BlurWeight(0);
-
-  if (horizontal != 0) {
-    for (int i = 1; i < 5; ++i) {
-      float weight = BlurWeight(i);
-      result += textureLod(image, texCoord + vec2(texOffset.x * i, 0.0), 0.0f).rgba * weight;
-      result += textureLod(image, texCoord - vec2(texOffset.x * i, 0.0), 0.0f).rgba * weight;
-    }
-  } else {
-    for (int i = 1; i < 5; ++i) {
-      float weight = BlurWeight(i);
-      result += textureLod(image, texCoord + vec2(0.0, texOffset.y * i), 0.0f).rgba * weight;
-      result += textureLod(image, texCoord - vec2(0.0, texOffset.y * i), 0.0f).rgba * weight;
-    }
-  }
-
-  imageStore(outImage, ivec2(pixel), result);
+  outImage[int2(pixel)] = result;
 }

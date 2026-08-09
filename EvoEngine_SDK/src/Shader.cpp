@@ -10,6 +10,7 @@
 #include <limits>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <thread>
 #include "AssetManager.hpp"
 #include "Console.hpp"
@@ -27,12 +28,13 @@
 using namespace evo_engine;
 
 namespace {
-constexpr uint32_t kShaderCacheSchema = 11;
+constexpr uint32_t kShaderCacheSchema = 12;
 constexpr uint32_t kSlangDependencyCacheSchema = 1;
 constexpr uint32_t kVulkanTarget = 13;
 constexpr uint32_t kSpirvTarget = 14;
 constexpr uint32_t kSpirvMagic = 0x07230203;
 constexpr const char* kDefaultShaderEntryPoint = "main";
+constexpr std::string_view kStrictNativeMarker = "@evoengine-dialect native";
 constexpr uint64_t kMaxSlangDependencyCount = 4096;
 constexpr uint64_t kMaxSlangDependencyPathBytes = 32768;
 
@@ -42,6 +44,8 @@ struct ShaderCompileTarget {
 
 struct ShaderCompileRequest {
   ShaderCompileTarget target = {};
+  ShaderSourceDialect source_dialect = ShaderSourceDialect::NativeSlang;
+  bool strict_native = false;
   ShaderType shader_type = ShaderType::Unknown;
   std::string entry_point = kDefaultShaderEntryPoint;
   std::string global_defines;
@@ -102,7 +106,9 @@ std::atomic<uint64_t> compilation_count = 0;
 std::atomic<uint64_t> coalesced_wait_count = 0;
 std::atomic<uint64_t> corrupt_entry_count = 0;
 std::atomic<uint64_t> failure_count = 0;
-std::atomic<uint64_t> slang_frontend_count = 0;
+std::atomic<uint64_t> native_slang_frontend_count = 0;
+std::atomic<uint64_t> compatibility_slang_frontend_count = 0;
+std::atomic<uint64_t> glslang_frontend_count = 0;
 
 std::string LowercaseExtension(const std::filesystem::path& path) {
   std::string extension = path.extension().string();
@@ -128,10 +134,89 @@ std::set<std::filesystem::path> MakeShaderIncludePaths(const std::filesystem::pa
   return include_paths;
 }
 
+std::string StripShaderComments(const std::string& source) {
+  std::string result = source;
+  bool line_comment = false;
+  bool block_comment = false;
+  for (size_t index = 0; index < result.size(); ++index) {
+    if (line_comment) {
+      if (result[index] == '\n') {
+        line_comment = false;
+      } else {
+        result[index] = ' ';
+      }
+      continue;
+    }
+    if (block_comment) {
+      if (index + 1 < result.size() && result[index] == '*' && result[index + 1] == '/') {
+        result[index++] = ' ';
+        result[index] = ' ';
+        block_comment = false;
+      } else if (result[index] != '\n') {
+        result[index] = ' ';
+      }
+      continue;
+    }
+    if (index + 1 < result.size() && result[index] == '/' && result[index + 1] == '/') {
+      result[index++] = ' ';
+      result[index] = ' ';
+      line_comment = true;
+    } else if (index + 1 < result.size() && result[index] == '/' && result[index + 1] == '*') {
+      result[index++] = ' ';
+      result[index] = ' ';
+      block_comment = true;
+    }
+  }
+  return result;
+}
+
 bool UsesCompatibilitySyntax(const std::string& source) {
-  return source.find("#extension GL_") != std::string::npos || source.find("layout(") != std::string::npos ||
-         source.find("layout (") != std::string::npos || source.find("precision highp") != std::string::npos ||
-         source.find("readonly buffer") != std::string::npos || source.find("writeonly buffer") != std::string::npos;
+  const auto uncommented = StripShaderComments(source);
+  return uncommented.find("#extension GL_") != std::string::npos || uncommented.find("layout(") != std::string::npos ||
+         uncommented.find("layout (") != std::string::npos ||
+         uncommented.find("precision highp") != std::string::npos ||
+         uncommented.find("readonly buffer") != std::string::npos ||
+         uncommented.find("writeonly buffer") != std::string::npos;
+}
+
+bool HasPreprocessorInclude(const std::string& source) {
+  std::istringstream stream(source);
+  std::string line;
+  while (std::getline(stream, line)) {
+    auto cursor = line.find_first_not_of(" \t");
+    if (cursor == std::string::npos || line[cursor++] != '#') {
+      continue;
+    }
+    cursor = line.find_first_not_of(" \t", cursor);
+    constexpr std::string_view include = "include";
+    const auto end = cursor == std::string::npos ? cursor : cursor + include.size();
+    if (cursor != std::string::npos && line.compare(cursor, include.size(), include) == 0 &&
+        (end == line.size() || std::isspace(static_cast<unsigned char>(line[end])) || line[end] == '<' ||
+         line[end] == '"')) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool HasStrictNativeMarker(const std::string& source) {
+  return source.find(kStrictNativeMarker) != std::string::npos;
+}
+
+bool ValidateStrictNativeSource(const ShaderCompileRequest& request, std::string& diagnostics) {
+  if (!request.strict_native) {
+    return true;
+  }
+  bool valid = true;
+  if (HasPreprocessorInclude(request.source)) {
+    diagnostics += "Strict native Slang source may not use #include; use import.\n";
+    valid = false;
+  }
+  if (UsesCompatibilitySyntax(request.source)) {
+    diagnostics += "Strict native Slang source contains GLSL compatibility syntax.\n";
+    valid = false;
+  }
+  return valid;
 }
 
 bool IsSupportedSlangInputLanguage(const uint32_t input_language) {
@@ -158,12 +243,21 @@ const char* ShaderCompilerBackendName(const ShaderCompileRequest& request) {
   return ShouldCompileWithGlslang(request) ? "glslang" : "slang";
 }
 
-ShaderCompileRequest MakeSlangCompileRequest(const ShaderType shader_type, std::string source,
-                                             const std::filesystem::path& path) {
+ShaderCompileRequest MakeSlangCompileRequest(
+    const ShaderType shader_type, std::string source, const std::filesystem::path& path,
+    const ShaderSourceDialect requested_dialect = ShaderSourceDialect::Automatic) {
   ShaderCompileRequest request;
   request.shader_type = shader_type;
   request.source = std::move(source);
-  if (UsesCompatibilitySyntax(request.source)) {
+  request.source_dialect = requested_dialect;
+  if (request.source_dialect == ShaderSourceDialect::Automatic) {
+    request.source_dialect = UsesCompatibilitySyntax(request.source) ? ShaderSourceDialect::GlslCompatibility
+                                                                     : ShaderSourceDialect::NativeSlang;
+    request.strict_native = HasStrictNativeMarker(request.source);
+  } else {
+    request.strict_native = request.source_dialect == ShaderSourceDialect::NativeSlang;
+  }
+  if (request.source_dialect == ShaderSourceDialect::GlslCompatibility) {
     request.target.slang_input_language = SLANG_SOURCE_LANGUAGE_GLSL;
   }
   request.path = path;
@@ -216,6 +310,7 @@ std::string MakeShaderTargetProfileString(const ShaderCompileRequest& request) {
          << SlangInputDialectName(request.target.slang_input_language);
   stream << ";shader_invocation_reorder_ext="
          << (RequiresShaderInvocationReorderCapability(request) ? "true" : "false");
+  stream << ";strict_native=" << (request.strict_native ? "true" : "false");
   return stream.str();
 }
 
@@ -982,6 +1077,19 @@ std::string MakeSlangModuleName(const std::filesystem::path& path) {
   if (!std::isalpha(static_cast<unsigned char>(name.front())) && name.front() != '_') {
     name.insert(name.begin(), '_');
   }
+  if (!path.empty()) {
+    auto normalized_path = path_utils::NormalizeAbsolutePath(path).generic_string();
+#ifdef _WIN32
+    std::transform(normalized_path.begin(), normalized_path.end(), normalized_path.begin(), [](const unsigned char c) {
+      return static_cast<char>(std::tolower(c));
+    });
+#endif
+    uint64_t path_hash = 14695981039346656037ull;
+    HashBytes(path_hash, normalized_path.data(), normalized_path.size());
+    std::ostringstream suffix;
+    suffix << '_' << std::hex << std::setw(16) << std::setfill('0') << path_hash;
+    name += suffix.str();
+  }
   return name;
 }
 
@@ -1199,7 +1307,7 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   session_desc.targets = &target_desc;
   session_desc.targetCount = 1;
   session_desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
-  session_desc.allowGLSLSyntax = true;
+  session_desc.allowGLSLSyntax = request.source_dialect == ShaderSourceDialect::GlslCompatibility;
   session_desc.searchPaths = include_paths.empty() ? nullptr : include_paths.data();
   session_desc.searchPathCount = static_cast<SlangInt>(include_paths.size());
   session_desc.compilerOptionEntries = session_options.data();
@@ -1410,8 +1518,10 @@ void CollectSlangDescriptorBindings(slang::TypeLayoutReflection* type_layout, co
     for (SlangInt range_index = 0; range_index < range_count; ++range_index) {
       const auto binding =
           TryConvertSlangInt(type_layout->getDescriptorSetDescriptorRangeIndexOffset(set_index, range_index));
-      const auto descriptor_count =
-          TryConvertSlangInt(type_layout->getDescriptorSetDescriptorRangeDescriptorCount(set_index, range_index));
+      const auto raw_descriptor_count =
+          type_layout->getDescriptorSetDescriptorRangeDescriptorCount(set_index, range_index);
+      const bool unbounded = static_cast<size_t>(raw_descriptor_count) == SLANG_UNBOUNDED_SIZE;
+      const auto descriptor_count = unbounded ? std::optional<uint32_t>{0u} : TryConvertSlangInt(raw_descriptor_count);
       if (!binding || !descriptor_count) {
         diagnostics += "Slang reflection reported an unsupported descriptor binding or count.\n";
         continue;
@@ -1426,6 +1536,7 @@ void CollectSlangDescriptorBindings(slang::TypeLayoutReflection* type_layout, co
       reflected.set = *set;
       reflected.binding = *binding;
       reflected.descriptor_count = *descriptor_count;
+      reflected.unbounded = unbounded;
       reflected.descriptor_type = descriptor_type;
       reflected.stage_flags = stage_flags;
       reflection.descriptor_bindings.emplace_back(std::move(reflected));
@@ -1518,6 +1629,9 @@ bool ReflectSlangRequest(const ShaderCompileRequest& request, ShaderReflectionIn
                          std::string& diagnostics) {
   reflection = {};
   diagnostics.clear();
+  if (!ValidateStrictNativeSource(request, diagnostics)) {
+    return false;
+  }
   if (!IsSupportedSlangInputLanguage(request.target.slang_input_language)) {
     diagnostics = "Unsupported Slang reflection request.";
     return false;
@@ -1682,6 +1796,10 @@ ShaderCacheKey MakeSlangBinaryCacheKey(const ShaderCompileRequest& request, cons
 
 ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   ShaderCompileResult result;
+  if (!ValidateStrictNativeSource(request, result.diagnostics)) {
+    failure_count.fetch_add(1);
+    return result;
+  }
   if (!IsSupportedSlangInputLanguage(request.target.slang_input_language)) {
     result.diagnostics = "Unsupported Slang compile request.";
     failure_count.fetch_add(1);
@@ -1720,7 +1838,11 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   }
 
   std::string frontend_source;
-  slang_frontend_count.fetch_add(1);
+  if (request.source_dialect == ShaderSourceDialect::NativeSlang) {
+    native_slang_frontend_count.fetch_add(1);
+  } else {
+    compatibility_slang_frontend_count.fetch_add(1);
+  }
   Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, *session, result.diagnostics, frontend_source);
   if (!module) {
     EVOENGINE_ERROR("Failed to load Slang module: " + request.path.string() + "\n" + result.diagnostics)
@@ -1748,6 +1870,7 @@ ShaderCompileResult CompileGlsl(const ShaderCompileRequest& request) {
   }
   const auto key = MakeShaderCacheKey(request, MakeGlslangCompilerVersionString(), preprocessed_source);
   CompileShaderWithCache(request, key, result, [&](std::vector<uint32_t>& binaries) {
+    glslang_frontend_count.fetch_add(1);
     return CompilePreprocessedGlsl(request, preprocessed_source, binaries);
   });
   return result;
@@ -1771,13 +1894,15 @@ bool CompileShaderToSpirv(const ShaderCompileRequest& request, std::vector<uint3
 }
 
 bool Shader::CompileToSpirv(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries,
-                            const std::filesystem::path& path) {
-  return CompileShaderToSpirv(MakeSlangCompileRequest(shader_type, source, path), binaries);
+                            const std::filesystem::path& path, const ShaderSourceDialect source_dialect) {
+  return CompileShaderToSpirv(MakeSlangCompileRequest(shader_type, source, path, source_dialect), binaries);
 }
 
 bool Shader::ReflectSlang(const ShaderType shader_type, const std::string& source, ShaderReflectionInfo& reflection,
-                          std::string& diagnostics, const std::filesystem::path& path) {
-  return ReflectSlangRequest(MakeSlangCompileRequest(shader_type, source, path), reflection, diagnostics);
+                          std::string& diagnostics, const std::filesystem::path& path,
+                          const ShaderSourceDialect source_dialect) {
+  return ReflectSlangRequest(MakeSlangCompileRequest(shader_type, source, path, source_dialect), reflection,
+                             diagnostics);
 }
 
 ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
@@ -1810,7 +1935,10 @@ ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
                   << ": Slang expects " << VkDescriptorTypeName(reflected.descriptor_type) << ", host declares "
                   << VkDescriptorTypeName(host_binding.descriptorType) << ".\n";
     }
-    if (host_binding.descriptorCount < reflected.descriptor_count) {
+    if (reflected.unbounded && host_binding.descriptorCount == 0) {
+      diagnostics << "Descriptor count mismatch for unbounded set " << reflected.set << ", binding "
+                  << reflected.binding << ": host declares zero descriptors.\n";
+    } else if (!reflected.unbounded && host_binding.descriptorCount < reflected.descriptor_count) {
       diagnostics << "Descriptor count mismatch for set " << reflected.set << ", binding " << reflected.binding
                   << ": Slang expects " << reflected.descriptor_count << ", host declares "
                   << host_binding.descriptorCount << ".\n";
@@ -1838,8 +1966,16 @@ ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
 }
 
 ShaderCompileCacheStats Shader::GetCompileCacheStats() {
-  return {memory_hit_count.load(),     disk_hit_count.load(),      disk_miss_count.load(), compilation_count.load(),
-          coalesced_wait_count.load(), corrupt_entry_count.load(), failure_count.load(),   slang_frontend_count.load()};
+  return {memory_hit_count.load(),
+          disk_hit_count.load(),
+          disk_miss_count.load(),
+          compilation_count.load(),
+          coalesced_wait_count.load(),
+          corrupt_entry_count.load(),
+          failure_count.load(),
+          native_slang_frontend_count.load(),
+          compatibility_slang_frontend_count.load(),
+          glslang_frontend_count.load()};
 }
 
 void Shader::ResetCompileCacheStats() {
@@ -1850,7 +1986,9 @@ void Shader::ResetCompileCacheStats() {
   coalesced_wait_count.store(0);
   corrupt_entry_count.store(0);
   failure_count.store(0);
-  slang_frontend_count.store(0);
+  native_slang_frontend_count.store(0);
+  compatibility_slang_frontend_count.store(0);
+  glslang_frontend_count.store(0);
 }
 
 void Shader::ClearInMemoryCompileCache() {

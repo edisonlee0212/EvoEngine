@@ -1,24 +1,27 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.PerFrame;
+import EvoEngine.GizmosConstants;
+import EvoEngine.InstancedData;
 
-#include "GizmosConstants.slangh"
-#include "Basic.slangh"
+struct GizmoInstancedVertexInput {
+  [[vk::location(0)]]
+  float3 position : POSITION;
+};
 
-#define EE_PER_FRAME_SET 0
-#define EE_PER_PASS_SET 1
-#define EE_PER_GROUP_SET 2
-#define EE_PER_COMMAND_SET 3
+struct GizmoColoredVertexOutput {
+  float4 position : SV_Position;
+  [[vk::location(0)]]
+  float4 color : COLOR0;
+};
 
-layout (location = 0) in vec3 inPosition;
-
-layout (location = 0) out VS_OUT {
-	vec4 Color;
-} vs_out;
-
-void main()
-{
-	vs_out.Color = EE_INSTANCED_DATA[gl_InstanceIndex].color;
-
-	mat4 scaleMatrix = EE_GET_SCALE_MATRIX();
-	mat4 matrix = EE_MODEL_MATRIX * EE_INSTANCED_DATA[gl_InstanceIndex].instance_matrix * scaleMatrix;
-	gl_Position = EE_CAMERAS[EE_CAMERA_INDEX].projection_view * vec4(vec3(matrix * vec4(inPosition, 1.0)), 1.0);
+[shader("vertex")]
+GizmoColoredVertexOutput main(GizmoInstancedVertexInput input, uint instance_index : SV_InstanceID) {
+  GizmoColoredVertexOutput output;
+  InstancedData instance = EE_INSTANCED_DATA[instance_index];
+  output.color = instance.color;
+  float4 position = mul(float4(input.position, 1.0f), EE_GET_GIZMO_SCALE_MATRIX());
+  position = mul(position, instance.instance_matrix);
+  position = mul(position, EE_GIZMOS_CONSTANTS.model_matrix);
+  output.position = mul(position, EE_CAMERAS[EE_GIZMOS_CONSTANTS.camera_index].projection_view);
+  return output;
 }

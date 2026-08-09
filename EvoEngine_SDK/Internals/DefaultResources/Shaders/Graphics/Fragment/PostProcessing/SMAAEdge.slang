@@ -1,25 +1,22 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+import EvoEngine.SMAA;
 
-layout(push_constant) uniform EE_SMAA_CONSTANTS {
-  vec4 metrics;
-  vec4 subsampleIndices;
-  int toneMapped;
-  int debugMode;
-  int padding0;
-  int padding1;
-} pc;
+[[vk::binding(0, 0)]]
+Sampler2D<float4> color_tex;
 
-#define SMAA_SLANGH_4
-#define SMAA_RT_METRICS pc.metrics
-#define SMAA_INCLUDE_VS 0
-#define SMAA_INCLUDE_PS 1
-#include "SMAA/SMAA.hlsl"
-
-layout(set = 0, binding = 0) uniform sampler2D colorTex;
-layout(location = 0) in vec2 inTexcoord;
-layout(location = 1) in vec4 inOffset[3];
-layout(location = 0) out vec4 outEdges;
-
-void main() {
-  outEdges = vec4(SMAALumaEdgeDetectionPS(inTexcoord, inOffset, colorTex), 0.0f, 0.0f);
+[shader("fragment")]
+float4 main([[vk::location(0)]] float2 texcoord : TEXCOORD0,
+            [[vk::location(1)]] float4 offset0 : TEXCOORD1,
+            [[vk::location(2)]] float4 offset1 : TEXCOORD2,
+            [[vk::location(3)]] float4 offset2 : TEXCOORD3) : SV_Target0 {
+  float4 offsets[3] = {offset0, offset1, offset2};
+#if defined(SMAA_PRESET_LOW)
+  return float4(SMAALumaEdgeDetectionPS(SmaaLowPreset(), texcoord, offsets, color_tex), 0.0f, 0.0f);
+#elif defined(SMAA_PRESET_MEDIUM)
+  return float4(SMAALumaEdgeDetectionPS(SmaaMediumPreset(), texcoord, offsets, color_tex), 0.0f, 0.0f);
+#elif defined(SMAA_PRESET_HIGH)
+  return float4(SMAALumaEdgeDetectionPS(SmaaHighPreset(), texcoord, offsets, color_tex), 0.0f, 0.0f);
+#else
+  return float4(SMAALumaEdgeDetectionPS(SmaaUltraPreset(), texcoord, offsets, color_tex), 0.0f, 0.0f);
+#endif
 }

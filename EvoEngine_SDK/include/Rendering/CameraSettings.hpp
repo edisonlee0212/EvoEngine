@@ -47,6 +47,19 @@ struct CameraSettings {
     Enabled,
   };
 
+  struct RayOutputSettings {
+    bool albedo = false;
+    bool normal = false;
+    bool ray_count = false;
+    bool path_length = false;
+    bool time = false;
+    bool debug = false;
+
+    [[nodiscard]] bool AnyEnabled() const {
+      return albedo || normal || ray_count || path_length || time || debug;
+    }
+  };
+
   /** @brief The near clipping distance for the camera. */
   float near_distance = 0.1f;
 
@@ -74,7 +87,7 @@ struct CameraSettings {
   /**
    * \brief Ray tracing sample per pixel
    */
-  int sample_size = 4;
+  int sample_size = 1;
   /**
    * \brief Ray tracing bounces
    */
@@ -85,21 +98,15 @@ struct CameraSettings {
   float gamma = 2.2f;
 
   /**
-   * \brief Clamp high-energy ray tracing samples before accumulation to reduce fireflies.
-   */
-  bool firefly_clamp_enabled = true;
-  /**
-   * \brief Luminance threshold used when firefly_clamp_enabled is true.
+   * \brief Luminance threshold used to clamp high-energy ray tracing samples before accumulation.
    */
   float firefly_clamp_threshold = 10.0f;
 
-  /**
-   * \brief Enables emissive-triangle next-event sampling for ray cameras.
-   */
-  bool emissive_triangle_nee_enabled = true;
-
   /** @brief Selects a shared RTX/RayQuery diagnostic output. */
   RayDebugView ray_debug_view = RayDebugView::Beauty;
+
+  /** @brief Optional ray-camera diagnostic outputs. */
+  RayOutputSettings ray_outputs{};
 
   /**
    * \brief Enables per-pixel adaptive ray tracing accumulation.

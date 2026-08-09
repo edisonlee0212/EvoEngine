@@ -149,6 +149,8 @@ void PostProcessingCameraResources::ResetTemporalState() {
   current_jitter = {};
   previous_jitter = {};
   jitter_frame_index = 0;
+  previous_inverse_projection = glm::mat4(1.0f);
+  previous_inverse_view = glm::mat4(1.0f);
   previous_matrices_valid = false;
   tone_mapping.auto_exposure_time_initialized = false;
   tone_mapping.luminance_reset_pending = true;

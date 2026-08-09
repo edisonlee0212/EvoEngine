@@ -1,15 +1,10 @@
-#extension GL_ARB_shading_language_include : enable
+// @evoengine-dialect native
+struct GizmoColoredFragmentInput {
+  [[vk::location(0)]]
+  float4 color : COLOR0;
+};
 
-#include "GizmosConstants.slangh"
-#include "Basic.slangh"
-
-layout(location = 0) out vec4 FragColor;
-
-layout(location = 0) in VS_OUT {
-	vec4 Color;
-} fs_in;
-
-void main()
-{
-	FragColor = fs_in.Color;
+[shader("fragment")]
+float4 main(GizmoColoredFragmentInput input) : SV_Target {
+  return input.color;
 }

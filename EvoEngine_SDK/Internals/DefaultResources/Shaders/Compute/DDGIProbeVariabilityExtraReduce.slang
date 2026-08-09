@@ -1,3 +1,4 @@
+// @evoengine-dialect native
 struct EeDdgiVariabilityExtraReduceConstants {
   uint4 input_output_extent;
 };

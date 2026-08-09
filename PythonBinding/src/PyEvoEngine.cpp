@@ -45,10 +45,47 @@ void EnsureRenderLayer() {
 }
 }  // namespace
 
+bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, const int samples_per_frame,
+                                                        const int bounces) {
+  if (samples_per_frame <= 0 || bounces < 0) {
+    EVOENGINE_ERROR("Invalid capture camera sample or bounce settings.")
+    return false;
+  }
+
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!main_camera) {
+    EVOENGINE_ERROR("No main camera in scene!")
+    return false;
+  }
+
+  const auto& render_mode_names = Camera::GetCameraRenderModeNames();
+  const auto mode_it = std::find(render_mode_names.begin(), render_mode_names.end(), render_mode);
+  if (mode_it == render_mode_names.end()) {
+    EVOENGINE_ERROR("Unsupported capture camera render mode: " + render_mode)
+    return false;
+  }
+  const auto requested_mode = static_cast<Camera::CameraRenderMode>(std::distance(render_mode_names.begin(), mode_it));
+  const auto resolved_mode = Camera::ResolveCameraRenderMode(requested_mode);
+  if (resolved_mode != requested_mode) {
+    EVOENGINE_ERROR("Capture camera render mode " + render_mode + " is unavailable; refusing fallback to " +
+                    Camera::GetCameraRenderModeName(resolved_mode) + ".")
+    return false;
+  }
+
+  main_camera->camera_render_mode = requested_mode;
+  main_camera->camera_settings.sample_size = samples_per_frame;
+  main_camera->camera_settings.bounce = bounces;
+  main_camera->camera_settings.auto_spp_enabled = false;
+  main_camera->ResetFrameCount();
+  return true;
+}
+
 bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resolution_y,
-                                      const std::filesystem::path& output_path, const int warmup_frames) {
-  if (resolution_x <= 0 || resolution_y <= 0) {
-    EVOENGINE_ERROR("Resolution error!");
+                                      const std::filesystem::path& output_path, const int warmup_frames,
+                                      const bool require_accumulated_frames) {
+  if (resolution_x <= 0 || resolution_y <= 0 || warmup_frames < 0) {
+    EVOENGINE_ERROR("Invalid capture resolution or frame count!")
     return false;
   }
 
@@ -87,9 +124,35 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     return false;
   }
   main_camera->Resize({resolution_x, resolution_y});
-  const auto loop_count = std::max(1, warmup_frames);
-  for (int i = 0; i < loop_count; i++) {
-    application.Loop();
+  if (require_accumulated_frames) {
+    const auto target_frame_count = static_cast<uint32_t>(std::max(1, warmup_frames));
+    const auto maximum_loop_count = target_frame_count + 600u;
+    main_camera->ResetFrameCount();
+    uint32_t loop_count = 0;
+    while (main_camera->GetFrameCount() < target_frame_count && loop_count < maximum_loop_count) {
+      if (!application.Loop()) {
+        EVOENGINE_ERROR("Application ended before the capture accumulation target was reached.")
+        return false;
+      }
+      ++loop_count;
+    }
+    if (main_camera->GetFrameCount() < target_frame_count) {
+      EVOENGINE_ERROR(
+          "Capture accumulation target was not reached. Requested frames: " + std::to_string(target_frame_count) +
+          ", accumulated frames: " + std::to_string(main_camera->GetFrameCount()) + ".")
+      return false;
+    }
+    const auto samples_per_frame = static_cast<uint64_t>(std::max(main_camera->camera_settings.sample_size, 1));
+    EVOENGINE_LOG(
+        "Capture accumulation: mode=" + std::string(Camera::GetCameraRenderModeName(main_camera->camera_render_mode)) +
+        ", frames=" + std::to_string(main_camera->GetFrameCount()) +
+        ", samples_per_frame=" + std::to_string(samples_per_frame) +
+        ", total_spp=" + std::to_string(main_camera->GetFrameCount() * samples_per_frame))
+  } else {
+    const auto loop_count = std::max(1, warmup_frames);
+    for (int i = 0; i < loop_count; i++) {
+      application.Loop();
+    }
   }
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);
@@ -225,8 +288,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("RunWindowless", &RunWindowless);
   m.def("RunDemoWindowless", &RunDemoWindowless, py::arg("demo_setup_name"), py::arg("resource_folder_path"),
         py::arg("clear_generated_project_files") = true);
+  m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
+        py::arg("samples_per_frame"), py::arg("bounces"));
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
-        py::arg("output_path"), py::arg("warmup_frames") = 1);
+        py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false);
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);

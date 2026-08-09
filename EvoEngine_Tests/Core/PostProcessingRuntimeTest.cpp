@@ -127,11 +127,15 @@ TEST_F(PostProcessingRuntime, TechniqueAndExplicitCameraResetsKeepScratchIndepen
   resources.current_jitter = {0.25f, -0.25f};
   resources.previous_jitter = {-0.25f, 0.25f};
   resources.jitter_frame_index = 7;
+  resources.previous_inverse_projection = glm::mat4(2.0f);
+  resources.previous_inverse_view = glm::mat4(3.0f);
   resources.previous_matrices_valid = true;
   camera.ResetFrameCount();
   EXPECT_EQ(resources.current_jitter, glm::vec2(0.0f));
   EXPECT_EQ(resources.previous_jitter, glm::vec2(0.0f));
   EXPECT_EQ(resources.jitter_frame_index, 0u);
+  EXPECT_EQ(resources.previous_inverse_projection, glm::mat4(1.0f));
+  EXPECT_EQ(resources.previous_inverse_view, glm::mat4(1.0f));
   EXPECT_FALSE(resources.previous_matrices_valid);
   EXPECT_EQ(resources.stack.source_color_texture, source);
 }
