@@ -33,6 +33,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint probe_index = dispatch_thread_id.x;
   uint dispatch_probe_count = max(constants.probe_count_ray_count_and_flags.x, 1u);
   uint ray_count = max(constants.probe_count_ray_count_and_flags.y, 1u);
+  uint uniform_ray_count = min(max(constants.probe_count_ray_count_and_flags.z, 1u), ray_count);
   bool reset_classification = constants.probe_count_ray_count_and_flags.w != 0u;
   if (probe_index >= dispatch_probe_count) {
     return;
@@ -50,7 +51,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
             probe_index / probes_per_layer);
   uint physical_probe_index =
       EE_DDGI_SCROLL_PROBE_INDEX(logical_probe_grid, constants.probe_scroll_offset.xyz, total_probe_counts);
-  uint fixed_ray_count = min(constants.probe_counts.w, ray_count);
+  uint fixed_ray_count = min(constants.probe_counts.w, uniform_ray_count);
   if (fixed_ray_count == 0u) {
     EE_DDGI_WRITE_PROBE_CLASSIFICATION(physical_probe_index, 0.0f);
     return;
@@ -77,7 +78,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
       continue;
     }
     float hit_distance = EE_DDGI_PROBE_RAY_SIGNED_DISTANCE(ray_data);
-    float3 ray_direction = EE_DDGI_PROBE_RAY_DIRECTION(ray_index, ray_count, fixed_ray_count);
+    float3 ray_direction = EE_DDGI_PROBE_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count);
     float voxel_plane_distance = EE_DDGI_VOXEL_PLANE_DISTANCE(ray_direction, constants.probe_step_x.xyz,
                                                               constants.probe_step_y.xyz, constants.probe_step_z.xyz);
     if (hit_distance <= voxel_plane_distance) {

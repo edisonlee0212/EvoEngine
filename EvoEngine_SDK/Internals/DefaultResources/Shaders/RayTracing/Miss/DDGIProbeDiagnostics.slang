@@ -17,15 +17,15 @@ float3 EE_DDGI_SAMPLE_ENVIRONMENT_CUBEMAP(const uint environment_index, const fl
 
 float3 EE_DDGI_MISS_RADIANCE(const float3 direction) {
   if (EE_ENVIRONMENT.background_color.w == 1.0f) {
-    return max(EE_ENVIRONMENT.background_color.rgb * EE_ENVIRONMENT.diffuse_fallback_intensity, float3(0.0f));
+    return max(EE_ENVIRONMENT.background_color.rgb * EE_ENVIRONMENT.diffuse_sky_intensity, float3(0.0f));
   }
-  if (EE_ENVIRONMENT.diffuse_fallback_intensity <= 0.0f) {
+  if (EE_ENVIRONMENT.diffuse_sky_intensity <= 0.0f) {
     return float3(0.0f);
   }
   const uint environment_index =
       EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.w;
   return EE_DDGI_SAMPLE_ENVIRONMENT_CUBEMAP(environment_index, direction) *
-         EE_ENVIRONMENT.diffuse_fallback_intensity;
+         EE_ENVIRONMENT.diffuse_sky_intensity;
 }
 
 [shader("miss")]

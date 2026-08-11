@@ -25,7 +25,7 @@ reflection probes, and DDGI authoring. The target ownership is:
   reference;
 - `EnvironmentalLighting` owns local reflection-probe definitions, DDGI authoring/settings, the shared indirect
   environment source, `environment_lighting_intensity`, `diffuse_fallback_intensity`, and
-  `specular_fallback_intensity`.
+  `specular_fallback_intensity`, plus the shared reflection-probe bake background.
 
 `RenderLayer` remains the renderer orchestrator. It consumes resolved scene lighting inputs and exposes runtime state in
 the editor inspector, but it should not be the authoring owner for DDGI volumes, local probes, camera background, or global
@@ -56,6 +56,9 @@ assets are serialized into the scene's `LocalAssets` storage. The renderer consu
 asset for local probes and DDGI volumes. There is no scene-local `ReflectionProbe` or `DdgiVolume` runtime, inspector,
 serialization, or extraction path.
 
+The Environmental Lighting inspector groups asset authoring into **General**, **DDGI**, and **Reflection Probes** tabs.
+The tab selection is editor-session state only and does not affect serialization or runtime behavior.
+
 Visible background and lighting are independent:
 
 ```text
@@ -84,7 +87,6 @@ valid finite DDGI gather at shaded point
 
 otherwise:
   -> ResolvedEnvironmentalLighting::indirect_environment_source
-     * environment_lighting_intensity
      * diffuse_fallback_intensity
 ```
 
@@ -92,10 +94,9 @@ The engine-default indirect environment source supplies the source payload when 
 assigned, but the fallback contribution still uses the resolved fallback intensity.
 
 `environment_lighting_intensity` is a source sampling/input scale, not a final surface-lighting multiplier. It scales
-environment radiance when the indirect source is sampled by DDGI miss rays, raster diffuse IBL fallback, ray-camera
-environment lighting, and reflection-probe baking. It does not multiply final valid DDGI irradiance. It also does not
-multiply final valid local reflection-probe samples; local probes use their captured prefiltered payload and per-probe
-local intensity.
+environment radiance when the indirect source is sampled by DDGI miss rays and ray-camera environment events. It does not
+multiply raster diffuse/specular fallbacks, final valid DDGI irradiance, a reflection-probe bake background, or final valid
+local reflection-probe samples.
 
 Raster specular IBL resolves as:
 
@@ -105,10 +106,8 @@ valid local reflection probe at shaded point
 
 otherwise, or for remaining local-probe blend weight:
   -> scene global reflection probe fallback
-     * environment_lighting_intensity
      * specular_fallback_intensity
   -> engine default global reflection probe, when the scene fallback is missing or not ready
-     * environment_lighting_intensity
      * specular_fallback_intensity
 ```
 
@@ -131,12 +130,11 @@ Ray cameras do not use `Scene::global_reflection_probe_fallback` as their enviro
 provides the raster/global prefiltered specular fallback payload. Ray cameras ignore `diffuse_fallback_intensity` and
 `specular_fallback_intensity` because they do not have a DDGI-missing or reflection-probe-missing fallback path.
 
-DDGI probe-ray misses and diffuse IBL fallback use the same indirect environment source. DDGI remains diffuse-only and
-does not become a hidden specular source. DDGI miss radiance is
-`indirect_environment_source * environment_lighting_intensity * diffuse_fallback_intensity`, while valid DDGI surface
-irradiance is used as accumulated. Reflection-probe baking uses scene/environmental-lighting inputs rather than the active
-camera's visible background. Bake environment input uses `environment_lighting_intensity` only; fallback factors do not
-affect bake input.
+DDGI probe-ray misses and diffuse IBL fallback use the same indirect environment source but independent intensity controls.
+DDGI miss radiance is `indirect_environment_source * environment_lighting_intensity`; raster diffuse fallback is
+`indirect_environment_source * diffuse_fallback_intensity`. Valid DDGI surface irradiance is used as accumulated.
+Reflection-probe baking uses its own camera-style Background source, color/assets, and intensity for visible miss pixels.
+Bake background intensity is independent of Environmental Lighting intensity and both fallback factors.
 
 The runtime model is asset-owned and has no legacy scene-component compatibility path.
 
@@ -325,22 +323,24 @@ clearcoat normal so MIS never combines differently coated radiance values.
 ### Emissive-Triangle Next-Event Sampling
 
 RT-pipeline and RayQuery cameras plus RT-pipeline DDGI share one emissive-triangle distribution. Eligible emitters are
-fill-mode rigid deferred/forward `MeshRenderer` instances with a valid owned BLAS and triangle range. Opaque and
-alpha-masked materials participate; blended, transmissive, diffuse-transmissive, and unlit materials do not. Moving rigid
-transforms are supported. Override-BLAS or override-range meshes, skinned and morph/deformed meshes, particle/instanced
-meshes, strands, Gaussian splats, and external geometry are excluded until sampled geometry can match the TLAS exactly.
-Excluded categories retain hit-time emission where their existing material path permits it.
+fill-mode rigid, skinned, particle-instanced, and override-BLAS/triangle-range instances collected by the deferred,
+forward, or transparent paths. External DDGI geometry participates when it supplies its packed triangle count as well
+as the existing offset. Every entry must have a triangle material payload matching the TLAS; strands, Gaussian splats,
+unlit materials, and external geometry without a count remain hit-only emitters.
 
-Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. The Power distribution uses
-world-space triangle area times emissive-factor luminance, with a two-sided importance factor where applicable; each
-entry's area PDF is derived from the exact quantized CDF interval so sampling and hit-side MIS have identical discrete
-support. Textures are deliberately excluded from the proposal distribution; the
-sampled UV0-UV3 emission is evaluated exactly at mip 0 with the shared texture transform and sRGB rules. Hits on table
-emitters use that same explicit-LOD radiance for the competing BSDF estimator; unsupported hit-only emitters retain their
-ray-footprint LOD. This keeps the MIS estimators on one integrand without requiring CPU texture readback.
+Each entry identifies the packed `GeometryStorage` instance/primitive pair used by the BLAS. A numerically robust alias
+table gives O(1) selection and preserves positive support across extreme area/power ratios. The proposal uses world-space
+triangle area times a seven-point estimate of emissive-texture luminance, including UV0-UV3 selection, texture transform,
+sampler wrapping, sRGB decoding, and two-sided importance. If CPU texels are unavailable it falls back to factor
+luminance; a small factor-derived support floor prevents a sparse estimate from removing a genuinely emissive triangle.
+Masked and blended proposals also estimate per-triangle opacity from base-color alpha and vertex alpha, reducing rejected
+samples without conditioning or changing the estimator.
+The stored area PDF remains the exact triangle-selection probability divided by world area. Sampled-point and hit-side
+emission use the same explicit-LOD material evaluator, so MIS still combines estimators on one integrand.
 
 Each frame slot retains its distribution across `RenderInstanceStorage::Clear()`. An exact ordered signature of the
-eligible rigid mesh/material handles, packed triangle range, ray instance index, model transform, and derived importance
+eligible mesh/material handles, emissive-texture content, packed triangle range, ray instance index, model transform,
+and derived importance
 gates the triangle walk; unchanged slots restore only the table count and do not transform, sort, compare, or upload the
 triangle records again. The key intentionally does not use the global geometry-storage revision, so unrelated skinned
 mesh updates cannot invalidate the static-emitter table. The storage buffer is uploaded only when that exact signature
@@ -349,11 +349,12 @@ changes.
 Emissive NEE is an always-on, independent one-sample estimator in addition to the existing punctual/environment
 estimator. It uses
 the area-to-solid-angle PDF and balance-heuristic MIS against the BSDF or volume phase PDF. BSDF/phase rays that hit a
-table emitter perform a key lookup and apply the reciprocal MIS weight. Primary and Dirac hits, unsupported emitters, and
-zero-width CDF entries keep hit weight 1. Hit-time emission remains available for matched energy tests.
+table emitter perform a key lookup and apply the reciprocal MIS weight. Primary and Dirac hits and unsupported emitters
+keep hit weight 1. Hit-time emission remains available for matched energy tests. Blend-material samples multiply emission
+by deterministic sampled opacity, matching their stochastic camera visibility in expectation.
 
-DDGI reuses the same record lookup, CDF, reconstruction, material evaluation, and area-to-solid-angle PDF without camera
-BSDF MIS. It applies one Lambert receiver sample with binary visibility and light-technique weight one at each eligible
+DDGI reuses the same record lookup, alias-table selection, reconstruction, material evaluation, and area-to-solid-angle
+PDF without camera BSDF MIS. It applies one Lambert receiver sample with binary visibility and light-technique weight one at each eligible
 non-fixed front-face probe hit; direct emitter hits remain unweighted. The default-on global DDGI setting and each
 volume's `Inherit`/`On`/`Off` override disable only this explicit estimator, never direct-hit emission.
 
@@ -399,21 +400,21 @@ Set 2 still owns shared shadow-map and DDGI atlas bindings.
 
 The refactor replaces scattered scene-environment controls with three resolved environmental-lighting scalars:
 `environment_lighting_intensity`, `diffuse_fallback_intensity`, and `specular_fallback_intensity`.
-`environment_lighting_intensity` scales sampled indirect environment radiance for DDGI probe-ray misses, raster diffuse
-IBL fallback, ray-camera environment events, and reflection-probe bake environment input. It does not scale visible camera
-background, direct lights, primary emission, accumulated DDGI irradiance, or valid runtime local reflection-probe payloads.
+`environment_lighting_intensity` scales sampled indirect environment radiance for DDGI probe-ray misses and ray-camera
+environment events. It does not scale raster diffuse/specular fallbacks, visible camera or reflection-bake backgrounds,
+direct lights, primary emission, accumulated DDGI irradiance, or valid runtime local reflection-probe payloads.
 
-`diffuse_fallback_intensity` is diffuse-fallback-only. It scales DDGI miss radiance and raster diffuse IBL fallback after
-the indirect environment source has been scaled by `environment_lighting_intensity`. It does not scale accumulated DDGI
-surface irradiance, ray-camera environment lighting, reflection-probe baking, specular fallback, direct light, emission,
-or visible camera background.
+`diffuse_fallback_intensity` is diffuse-fallback-only. It directly scales raster diffuse IBL when no valid DDGI gather is
+available. It does not scale DDGI miss radiance, accumulated DDGI surface irradiance, ray-camera environment lighting,
+reflection-probe baking, specular fallback, direct light, emission, or visible camera background.
 
 `specular_fallback_intensity` is specular-fallback-only. It scales the scene-global or engine-global prefiltered fallback
 when no local reflection probe covers the shaded point, or when local probe blending leaves remaining weight to the
 fallback. It does not scale valid local reflection-probe samples, ray-camera environment lighting, reflection-probe
 baking, diffuse fallback, direct light, emission, DDGI, or visible camera background.
 
-Local probes keep their own authored `reflection_intensity`. Selection uses the shaded world position, not the camera
+Local probes keep their own authored `reflection_intensity`. The asset-level **Enable local probe reflections** switch
+removes every local probe from runtime selection without disabling authoring, bounds, or baking. Selection uses the shaded world position, not the camera
 position, and blends at most one strictly lower-priority boundary probe before returning uncovered weight to the scene
 global fallback. Missing, unloaded, disabled, or invalid local payloads also return their weight to the same global
 fallback. After selection, rough probe specular is multiplied by the scalar visibility confidence derived from material
@@ -423,8 +424,8 @@ back to white, and the term never affects direct, emissive, background, diffuse,
 The scene-global `GlobalReflectionProbe` fallback supplies the prefiltered specular payload. If it is missing or not
 runtime-ready, raster lighting binds the engine default global reflection probe so descriptors remain valid. A zero
 `specular_fallback_intensity` makes that bound fallback contribute black. The indirect environment source supplies
-diffuse irradiance, unfiltered radiance, and sampling data for DDGI misses, diffuse IBL fallback, ray-camera environment
-lighting, and reflection-probe bake environment input. DDGI remains diffuse-only and does not become a specular source.
+  diffuse irradiance, unfiltered radiance, and sampling data for DDGI misses, diffuse IBL fallback, and ray-camera
+  environment lighting. DDGI remains diffuse-only and does not become a specular source.
 See [Reflection probes](reflection-probes.md) for persistence, selection, baking, and format contracts.
 
 Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and `OffscreenPreviewRenderer`, which build a
@@ -475,7 +476,9 @@ Ray cameras default to one sample per pixel per frame. Emissive-triangle NEE and
 firefly luminance threshold remains configurable.
 
 Ray-camera history is owned by each camera. A single history slot retains radiance, convergence, and enabled optional
-output images, and is invalidated when the render technique, scene, extent, or relevant camera state changes. Optional
+output images. Scene changes invalidate every camera, while camera-state changes invalidate only the changed camera;
+the Scene camera affects the main camera only when `Copy Transform` is enabled. Render technique and extent changes also
+invalidate the owning camera. Per-camera directional-shadow cascade fits are not treated as global scene changes. Optional
 outputs use the shared descriptor layout and are allocated only when requested.
 
 Ray-camera shaders under `DefaultResources/Shaders` use the native Slang frontend. Shared modules are imported by module

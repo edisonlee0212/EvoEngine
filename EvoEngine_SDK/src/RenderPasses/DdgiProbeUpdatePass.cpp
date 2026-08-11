@@ -47,9 +47,15 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   const auto* variability_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_variability_atlas);
   const auto* metadata_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_metadata);
   const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
+  const auto* sample_info_binding = parameters.use_guided_sampling
+                                        ? context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_sample_info)
+                                        : nullptr;
   if (!ray_output_binding || !ray_output_binding->buffer || !irradiance_binding || !irradiance_binding->image ||
       !visibility_binding || !visibility_binding->image || !variability_binding || !variability_binding->image ||
       !metadata_binding || !metadata_binding->buffer || !state_binding || !state_binding->buffer) {
+    return;
+  }
+  if (parameters.use_guided_sampling && (!sample_info_binding || !sample_info_binding->buffer)) {
     return;
   }
   const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
@@ -74,6 +80,8 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   descriptor_set->UpdateBufferDescriptorBinding(4, state_binding->buffer);
   image_info.imageView = variability_view->GetVkImageView();
   descriptor_set->UpdateImageDescriptorBinding(5, image_info);
+  descriptor_set->UpdateBufferDescriptorBinding(
+      6, parameters.use_guided_sampling ? sample_info_binding->buffer : state_binding->buffer);
 
   const auto physical_device = Platform::GetSelectedPhysicalDevice();
   if (!physical_device) {
@@ -147,7 +155,7 @@ DdgiProbeUpdatePass::DispatchSize DdgiProbeUpdatePass::CalculateDispatchSize(con
   return dispatch;
 }
 
-RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor() {
+RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor(const bool use_guided_sampling) {
   RenderPassDescriptor descriptor{
       RenderPassNames::ddgi_probe_update,
       RenderPassQueue::Graphics,
@@ -163,6 +171,10 @@ RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor() {
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}};
   descriptor.dependencies = {RenderPassNames::ddgi_ray_diagnostics};
+  if (use_guided_sampling) {
+    descriptor.resources.push_back(
+        {RenderResourceNames::frame_ddgi_ray_sample_info, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+  }
   return descriptor;
 }
 

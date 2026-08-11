@@ -2,6 +2,8 @@
 
 #include "Serialization.hpp"
 
+#include <glm/common.hpp>
+
 using namespace evo_engine;
 
 void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings) {
@@ -9,9 +11,10 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
 
   out << YAML::Key << "runtime" << YAML::Value << YAML::BeginMap;
   out << YAML::Key << "enabled" << YAML::Value << settings.runtime.enabled;
-  out << YAML::Key << "pause_updates" << YAML::Value << settings.runtime.pause_updates;
   out << YAML::Key << "enable_emissive_mesh_sampling" << YAML::Value << settings.runtime.enable_emissive_mesh_sampling;
   out << YAML::Key << "ray_count" << YAML::Value << settings.runtime.ray_count;
+  out << YAML::Key << "guided_ray_count" << YAML::Value << settings.runtime.guided_ray_count;
+  out << YAML::Key << "guided_emitter_count" << YAML::Value << settings.runtime.guided_emitter_count;
   out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
   out << YAML::Key << "hysteresis" << YAML::Value << settings.runtime.hysteresis;
   out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
@@ -56,24 +59,6 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "atlas_probe_columns" << YAML::Value << settings.storage.atlas_probe_columns;
   out << YAML::EndMap;
 
-  out << YAML::Key << "debug" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "enabled" << YAML::Value << settings.debug.enabled;
-  out << YAML::Key << "visualize_probe_positions" << YAML::Value << settings.debug.visualize_probe_positions;
-  out << YAML::Key << "visualize_selected_probe" << YAML::Value << settings.debug.visualize_selected_probe;
-  out << YAML::Key << "visualize_probe_state" << YAML::Value << settings.debug.visualize_probe_state;
-  out << YAML::Key << "visualize_probe_illumination" << YAML::Value << settings.debug.visualize_probe_illumination;
-  out << YAML::Key << "show_rays" << YAML::Value << settings.debug.show_rays;
-  out << YAML::Key << "selected_probe_index" << YAML::Value << settings.debug.selected_probe_index;
-  out << YAML::Key << "visualization_scale" << YAML::Value << settings.debug.visualization_scale;
-  out << YAML::Key << "probe_visualization_mode" << YAML::Value << settings.debug.probe_visualization_mode;
-  out << YAML::Key << "probe_visualization_depth_mode" << YAML::Value << settings.debug.probe_visualization_depth_mode;
-  out << YAML::Key << "probe_visualization_radius" << YAML::Value << settings.debug.probe_visualization_radius;
-  out << YAML::Key << "probe_visualization_intensity" << YAML::Value << settings.debug.probe_visualization_intensity;
-  out << YAML::Key << "probe_visualization_alpha" << YAML::Value << settings.debug.probe_visualization_alpha;
-  out << YAML::Key << "selected_probe_visualization_scale" << YAML::Value
-      << settings.debug.selected_probe_visualization_scale;
-  out << YAML::EndMap;
-
   out << YAML::EndMap;
 }
 
@@ -81,12 +66,14 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
   if (const auto runtime = in["runtime"]) {
     if (runtime["enabled"])
       settings.runtime.enabled = runtime["enabled"].as<bool>();
-    if (runtime["pause_updates"])
-      settings.runtime.pause_updates = runtime["pause_updates"].as<bool>();
     if (runtime["enable_emissive_mesh_sampling"])
       settings.runtime.enable_emissive_mesh_sampling = runtime["enable_emissive_mesh_sampling"].as<bool>();
     if (runtime["ray_count"])
       settings.runtime.ray_count = runtime["ray_count"].as<int>();
+    if (runtime["guided_ray_count"])
+      settings.runtime.guided_ray_count = runtime["guided_ray_count"].as<int>();
+    if (runtime["guided_emitter_count"])
+      settings.runtime.guided_emitter_count = runtime["guided_emitter_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
     if (runtime["hysteresis"])
@@ -154,34 +141,35 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
     if (storage["atlas_probe_columns"])
       settings.storage.atlas_probe_columns = storage["atlas_probe_columns"].as<int>();
   }
-  if (const auto debug = in["debug"]) {
-    if (debug["enabled"])
-      settings.debug.enabled = debug["enabled"].as<bool>();
-    if (debug["visualize_probe_positions"])
-      settings.debug.visualize_probe_positions = debug["visualize_probe_positions"].as<bool>();
-    if (debug["visualize_selected_probe"])
-      settings.debug.visualize_selected_probe = debug["visualize_selected_probe"].as<bool>();
-    if (debug["visualize_probe_state"])
-      settings.debug.visualize_probe_state = debug["visualize_probe_state"].as<bool>();
-    if (debug["visualize_probe_illumination"])
-      settings.debug.visualize_probe_illumination = debug["visualize_probe_illumination"].as<bool>();
-    if (debug["show_rays"])
-      settings.debug.show_rays = debug["show_rays"].as<bool>();
-    if (debug["selected_probe_index"])
-      settings.debug.selected_probe_index = debug["selected_probe_index"].as<int>();
-    if (debug["visualization_scale"])
-      settings.debug.visualization_scale = debug["visualization_scale"].as<float>();
-    if (debug["probe_visualization_mode"])
-      settings.debug.probe_visualization_mode = debug["probe_visualization_mode"].as<int>();
-    if (debug["probe_visualization_depth_mode"])
-      settings.debug.probe_visualization_depth_mode = debug["probe_visualization_depth_mode"].as<int>();
-    if (debug["probe_visualization_radius"])
-      settings.debug.probe_visualization_radius = debug["probe_visualization_radius"].as<float>();
-    if (debug["probe_visualization_intensity"])
-      settings.debug.probe_visualization_intensity = debug["probe_visualization_intensity"].as<float>();
-    if (debug["probe_visualization_alpha"])
-      settings.debug.probe_visualization_alpha = debug["probe_visualization_alpha"].as<float>();
-    if (debug["selected_probe_visualization_scale"])
-      settings.debug.selected_probe_visualization_scale = debug["selected_probe_visualization_scale"].as<float>();
-  }
+  settings.ClampSettings();
+}
+
+void evo_engine::DdgiSettings::ClampSettings() {
+  runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
+  runtime.guided_ray_count = glm::clamp(runtime.guided_ray_count, 0, 4096);
+  runtime.guided_emitter_count = glm::clamp(runtime.guided_emitter_count, 1, 8);
+  runtime.warmup_frames = glm::clamp(runtime.warmup_frames, 0, 4096);
+  runtime.hysteresis = glm::clamp(runtime.hysteresis, 0.0f, 1.0f);
+  runtime.normal_bias = glm::clamp(runtime.normal_bias, 0.0f, 10.0f);
+  runtime.view_bias = glm::clamp(runtime.view_bias, 0.0f, 10.0f);
+  runtime.max_ray_distance = glm::clamp(runtime.max_ray_distance, 0.05f, 1e27f);
+  runtime.distance_exponent = glm::clamp(runtime.distance_exponent, 0.0f, 256.0f);
+  runtime.irradiance_gamma = glm::clamp(runtime.irradiance_gamma, 0.1f, 16.0f);
+  runtime.visibility_moment_bias = glm::clamp(runtime.visibility_moment_bias, 0.0f, 10.0f);
+  runtime.irradiance_threshold = glm::clamp(runtime.irradiance_threshold, 0.0f, 1.0f);
+  runtime.brightness_threshold = glm::clamp(runtime.brightness_threshold, 0.0f, 1.0f);
+  volume_defaults.probe_counts = glm::clamp(volume_defaults.probe_counts, glm::ivec3(1), glm::ivec3(256));
+  volume_defaults.probe_spacing = glm::clamp(volume_defaults.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f));
+  volume_defaults.movement_type =
+      glm::clamp(volume_defaults.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
+                 static_cast<int>(DdgiVolumeMovementType::Scrolling));
+  volume_defaults.relocation_distance = glm::clamp(volume_defaults.relocation_distance, 0.0f, 10000.0f);
+  volume_defaults.random_ray_backface_threshold = glm::clamp(volume_defaults.random_ray_backface_threshold, 0.0f, 1.0f);
+  volume_defaults.fixed_ray_backface_threshold = glm::clamp(volume_defaults.fixed_ray_backface_threshold, 0.0f, 1.0f);
+  volume_defaults.probe_variability_threshold = glm::clamp(volume_defaults.probe_variability_threshold, 0.0f, 10.0f);
+  volume_defaults.probe_variability_min_samples = glm::clamp(volume_defaults.probe_variability_min_samples, 0, 4096);
+  storage.max_probe_count = glm::clamp(storage.max_probe_count, 1, 16777216);
+  storage.irradiance_tile_resolution = glm::clamp(storage.irradiance_tile_resolution, 1, 128);
+  storage.visibility_tile_resolution = glm::clamp(storage.visibility_tile_resolution, 1, 128);
+  storage.atlas_probe_columns = glm::clamp(storage.atlas_probe_columns, 1, 4096);
 }

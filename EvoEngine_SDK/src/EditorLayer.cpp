@@ -126,6 +126,21 @@ glm::vec3 SanitizeVelocity(const glm::vec3& velocity) {
                                                                                              : glm::vec3(0.0f);
 }
 
+bool MatricesNear(const glm::mat4& lhs, const glm::mat4& rhs) {
+  for (glm::length_t column = 0; column < 4; ++column) {
+    for (glm::length_t row = 0; row < 4; ++row) {
+      if (glm::abs(lhs[column][row] - rhs[column][row]) > 1.0e-4f) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool IsFiniteVector(const glm::vec3& value) {
+  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
 struct AspectFitRect {
   ImVec2 offset = {0.0f, 0.0f};
   ImVec2 size = {0.0f, 0.0f};
@@ -1226,25 +1241,22 @@ void EditorLayer::OnCreate() {
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
-    if (ImGui::Selectable("Position##Local", &local_position_selected_) && local_position_selected_) {
-      local_rotation_selected_ = false;
-      local_scale_selected_ = false;
+    if (ImGui::Selectable("Position##Local", local_position_selected_)) {
+      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Translate);
     }
     if (ImGui::DragFloat3("##LocalRotation", &previously_stored_rotation_.x, 1.0f, 0, 0, "%.3f",
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
-    if (ImGui::Selectable("Rotation##Local", &local_rotation_selected_) && local_rotation_selected_) {
-      local_position_selected_ = false;
-      local_scale_selected_ = false;
+    if (ImGui::Selectable("Rotation##Local", local_rotation_selected_)) {
+      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Rotate);
     }
     if (ImGui::DragFloat3("##LocalScale", &previously_stored_scale_.x, 0.01f, 0, 0, "%.3f",
                           reload ? ImGuiSliderFlags_ReadOnly : 0))
       edited = true;
     ImGui::SameLine();
-    if (ImGui::Selectable("Scale##Local", &local_scale_selected_) && local_scale_selected_) {
-      local_rotation_selected_ = false;
-      local_position_selected_ = false;
+    if (ImGui::Selectable("Scale##Local", local_scale_selected_)) {
+      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Scale);
     }
     if (edited) {
       ltp->value = glm::translate(previously_stored_position_) *
@@ -1726,6 +1738,9 @@ void EditorLayer::DrawAssetInspectorWindows() {
     if (i < inspecting_assets_.size() && inspecting_assets_[i].asset &&
         inspecting_assets_[i].asset->GetHandle().GetValue() == asset_handle) {
       inspecting_assets_[i].open = open;
+      if (!open) {
+        ClearEnvironmentalLightingGizmoTarget(Handle(asset_handle));
+      }
     }
   }
 
@@ -1974,7 +1989,7 @@ void EditorLayer::UpdateSceneState(const std::shared_ptr<Scene>& scene) {
     }
   }
 
-  if (scene && !scene->IsEntityValid(selected_entity_)) {
+  if (scene && selected_entity_.GetIndex() != 0 && !scene->IsEntityValid(selected_entity_)) {
     SetSelectedEntity(Entity());
   }
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
@@ -2177,7 +2192,7 @@ void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
           });
         }
       }
-    } else {
+    } else if (selected_entity_.GetIndex() != 0) {
       SetSelectedEntity(Entity());
     }
   } else {
@@ -3628,7 +3643,6 @@ void EditorLayer::RequestEditorLayout(const EditorLayoutSettings& settings) {
     if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
       render_layer->enable_inspection = *settings.panels.render_layer_inspection;
       if (!*settings.panels.render_layer_inspection) {
-        render_layer->force_ddgi_inspection_layout = false;
       }
     }
   }
@@ -3812,6 +3826,7 @@ void EditorLayer::SceneCameraWindow() {
 #pragma region Scene Window
 
   scene_camera_window_focused_ = false;
+  suppress_scene_camera_selection_ = false;
   if (ImGui::Begin("Scene")) {
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -3869,7 +3884,9 @@ void EditorLayer::SceneCameraWindow() {
             if (ImGui::Combo("Render Mode", Camera::GetCameraRenderModeNames(), mode)) {
               scene_camera->camera_render_mode = Camera::NormalizeCameraRenderMode(mode);
               scene_camera->ResetFrameCount();
+              suppress_scene_camera_selection_ = true;
             }
+            suppress_scene_camera_selection_ |= ImGui::IsItemHovered() || ImGui::IsItemActive();
           }
           ImGui::EndChild();
         }
@@ -3891,7 +3908,40 @@ void EditorLayer::SceneCameraWindow() {
         const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
                         : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
                                                    : ImGuizmo::OPERATION::SCALE;
-        if (scene->IsEntityValid(selected_entity_)) {
+        if (environmental_lighting_gizmo_target_) {
+          const auto target = *environmental_lighting_gizmo_target_;
+          const auto lighting = target.lighting.lock();
+          const auto active_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+          const bool local_probe_valid = target.type == EnvironmentalLightingGizmoTargetType::LocalReflectionProbe &&
+                                         lighting && target.index < lighting->local_reflection_probes.size() &&
+                                         lighting->local_reflection_probes[target.index].stable_id == target.stable_id;
+          const bool ddgi_volume_valid = target.type == EnvironmentalLightingGizmoTargetType::DdgiVolume && lighting &&
+                                         target.index < lighting->ddgi_volumes.size() &&
+                                         lighting->ddgi_volumes[target.index].stable_id == target.stable_id;
+          if (!lighting || active_lighting != lighting || (!local_probe_valid && !ddgi_volume_valid)) {
+            ClearEnvironmentalLightingGizmoTarget();
+          } else {
+            auto& transform = local_probe_valid ? lighting->local_reflection_probes[target.index].transform
+                                                : lighting->ddgi_volumes[target.index].transform;
+            const auto authored_pivot =
+                ddgi_volume_valid ? lighting->ddgi_volumes[target.index].volume_origin : glm::vec3(0.0f);
+            const auto pivot = IsFiniteVector(authored_pivot) ? authored_pivot : glm::vec3(0.0f);
+            auto gizmo_transform = CreateAuthoringGizmoTransform(transform, pivot);
+            ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
+                                 glm::value_ptr(gizmo_transform));
+            gizmo_displaying_ = true;
+            if (ImGuizmo::IsUsing()) {
+              glm::mat4 normalized(1.0f);
+              if (TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized) &&
+                  !MatricesNear(transform, normalized)) {
+                transform = normalized;
+                lighting->SetUnsaved();
+              }
+              gizmo_using_ = true;
+            }
+          }
+        }
+        if (!environmental_lighting_gizmo_target_ && scene->IsEntityValid(selected_entity_)) {
           auto transform = scene->GetDataComponent<Transform>(selected_entity_);
           GlobalTransform parent_global_transform;
           if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
@@ -4299,7 +4349,91 @@ Entity EditorLayer::GetSelectedEntity() const {
   return selected_entity_;
 }
 
+glm::mat4 EditorLayer::ComposeAuthoringTransform(const glm::vec3& position, const glm::vec3& rotation_degrees,
+                                                 const glm::vec3& scale) {
+  return glm::translate(position) * glm::mat4_cast(glm::quat(glm::radians(rotation_degrees))) * glm::scale(scale);
+}
+
+bool EditorLayer::TryNormalizeAuthoringTransform(const glm::mat4& transform, glm::mat4& normalized, glm::vec3& position,
+                                                 glm::vec3& rotation_degrees, glm::vec3& scale) {
+  for (glm::length_t column = 0; column < 4; ++column) {
+    for (glm::length_t row = 0; row < 4; ++row) {
+      if (!std::isfinite(transform[column][row])) {
+        return false;
+      }
+    }
+  }
+  const auto determinant = glm::determinant(glm::mat3(transform));
+  Transform decomposed_transform;
+  decomposed_transform.value = transform;
+  if (!std::isfinite(determinant) || glm::abs(determinant) <= 1.0e-8f ||
+      !decomposed_transform.Decompose(position, rotation_degrees, scale) || !IsFiniteVector(position) ||
+      !IsFiniteVector(rotation_degrees) || !IsFiniteVector(scale) ||
+      !glm::all(glm::greaterThan(glm::abs(scale), glm::vec3(1.0e-8f)))) {
+    return false;
+  }
+  rotation_degrees = glm::degrees(rotation_degrees);
+  normalized = ComposeAuthoringTransform(position, rotation_degrees, scale);
+  return true;
+}
+
+glm::mat4 EditorLayer::CreateAuthoringGizmoTransform(const glm::mat4& transform, const glm::vec3& local_pivot) {
+  return transform * glm::translate(local_pivot);
+}
+
+bool EditorLayer::TryConvertAuthoringGizmoTransform(const glm::mat4& gizmo_transform, const glm::vec3& local_pivot,
+                                                    glm::mat4& transform) {
+  glm::vec3 position(0.0f);
+  glm::vec3 rotation_degrees(0.0f);
+  glm::vec3 scale(1.0f);
+  return TryNormalizeAuthoringTransform(gizmo_transform * glm::translate(-local_pivot), transform, position,
+                                        rotation_degrees, scale);
+}
+
+void EditorLayer::SetEnvironmentalLightingGizmoTarget(const std::shared_ptr<EnvironmentalLighting>& lighting,
+                                                      const EnvironmentalLightingGizmoTargetType type,
+                                                      const size_t index, const uint64_t stable_id) {
+  if (!lighting) {
+    ClearEnvironmentalLightingGizmoTarget();
+    return;
+  }
+  SetSelectedEntity({});
+  environmental_lighting_gizmo_target_ =
+      EnvironmentalLightingGizmoTarget{lighting, lighting->GetHandle(), type, index, stable_id};
+}
+
+bool EditorLayer::IsEnvironmentalLightingGizmoTarget(const EnvironmentalLighting& lighting,
+                                                     const EnvironmentalLightingGizmoTargetType type,
+                                                     const size_t index, const uint64_t stable_id) const {
+  if (!environmental_lighting_gizmo_target_) {
+    return false;
+  }
+  const auto owner = environmental_lighting_gizmo_target_->lighting.lock();
+  return owner.get() == &lighting && environmental_lighting_gizmo_target_->type == type &&
+         environmental_lighting_gizmo_target_->index == index &&
+         environmental_lighting_gizmo_target_->stable_id == stable_id;
+}
+
+bool EditorLayer::IsEnvironmentalLightingGizmoTarget(const EnvironmentalLightingGizmoTargetType type,
+                                                     const Handle& asset_handle, const uint64_t stable_id) const {
+  return environmental_lighting_gizmo_target_ && environmental_lighting_gizmo_target_->type == type &&
+         environmental_lighting_gizmo_target_->asset_handle == asset_handle &&
+         environmental_lighting_gizmo_target_->stable_id == stable_id &&
+         !environmental_lighting_gizmo_target_->lighting.expired();
+}
+
+void EditorLayer::ClearEnvironmentalLightingGizmoTarget() {
+  environmental_lighting_gizmo_target_.reset();
+}
+
+void EditorLayer::ClearEnvironmentalLightingGizmoTarget(const Handle& asset_handle) {
+  if (environmental_lighting_gizmo_target_ && environmental_lighting_gizmo_target_->asset_handle == asset_handle) {
+    ClearEnvironmentalLightingGizmoTarget();
+  }
+}
+
 void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) {
+  ClearEnvironmentalLightingGizmoTarget();
   if (entity == selected_entity_)
     return;
   selected_entity_hierarchy_list_.clear();
@@ -4502,7 +4636,7 @@ void EditorLayer::MouseEntitySelection() {
         Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
       SetSelectedEntity(Entity());
     }
-    if (scene_camera_window_focused_ && !lock_entity_selection_ && !gizmo_using_ &&
+    if (scene_camera_window_focused_ && !lock_entity_selection_ && !gizmo_using_ && !suppress_scene_camera_selection_ &&
         Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
         !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
           mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {
@@ -4769,6 +4903,12 @@ bool EditorLayer::LocalRotationSelected() const {
 
 bool EditorLayer::LocalScaleSelected() const {
   return local_scale_selected_;
+}
+
+void EditorLayer::SelectLocalTransformGizmoOperation(const LocalTransformGizmoOperation operation) {
+  local_position_selected_ = operation == LocalTransformGizmoOperation::Translate;
+  local_rotation_selected_ = operation == LocalTransformGizmoOperation::Rotate;
+  local_scale_selected_ = operation == LocalTransformGizmoOperation::Scale;
 }
 
 glm::vec3& EditorLayer::UnsafeGetPreviouslyStoredPosition() {

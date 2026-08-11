@@ -148,6 +148,7 @@ struct DdgiProbeClassificationPushConstant {
 struct DdgiExternalGeometry {
   std::shared_ptr<BottomLevelAccelerationStructure> bottom_level_acceleration_structure{};
   int32_t triangle_offset = -1;
+  uint32_t triangle_count = 0;
   uint32_t geometry_version = 0;
 
   [[nodiscard]] bool IsValid() const {
@@ -171,6 +172,7 @@ class RenderInstanceStorage {
  public:
   static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
   static constexpr uint32_t kDdgiMaxVolumeCount = 8;
+  static constexpr uint32_t kDdgiMaxEmissiveGuideCount = 8;
   static constexpr uint32_t kReflectionProbeMaxCount = 32;
 
   struct alignas(16) DdgiVolumeInfoBlock {
@@ -261,7 +263,8 @@ class RenderInstanceStorage {
   struct EmissiveTriangleInfoBlock {
     uint32_t instance_index = 0;
     uint32_t primitive_id = 0;
-    float cdf = 0.0f;
+    float alias_probability = 1.0f;
+    uint32_t alias_index = 0;
     float area_pdf = 0.0f;
   };
 
@@ -272,8 +275,37 @@ class RenderInstanceStorage {
     double importance = 0.0;
   };
 
+  struct EmissiveTriangleInventoryStats {
+    uint32_t eligible_instance_count = 0;
+    uint32_t excluded_emissive_instance_count = 0;
+    uint32_t unrepresentable_probability_count = 0;
+    double estimated_emitted_power = 0.0;
+  };
+
+  struct alignas(16) DdgiEmissiveGuideInfoBlock {
+    glm::vec4 center_and_radius = glm::vec4(0.0f);
+    glm::vec4 power_and_reserved = glm::vec4(0.0f);
+  };
+
+  struct DdgiEmissiveGuideCandidate {
+    glm::vec3 bound_min = glm::vec3(0.0f);
+    glm::vec3 bound_max = glm::vec3(0.0f);
+    double estimated_power = 0.0;
+    uint64_t stable_id = 0;
+    uint32_t source_revision = 0;
+    uint32_t instance_index = 0;
+  };
+
+  static_assert(std::is_standard_layout_v<DdgiEmissiveGuideInfoBlock>);
+  static_assert(sizeof(DdgiEmissiveGuideInfoBlock) == 32);
+  static_assert(alignof(DdgiEmissiveGuideInfoBlock) == 16);
+  static_assert(offsetof(DdgiEmissiveGuideInfoBlock, center_and_radius) == 0);
+  static_assert(offsetof(DdgiEmissiveGuideInfoBlock, power_and_reserved) == 16);
+
   [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleInfoBlocks(
       std::vector<EmissiveTriangleCandidate> candidates);
+  [[nodiscard]] static std::vector<DdgiEmissiveGuideInfoBlock> BuildDdgiEmissiveGuideInfoBlocks(
+      std::vector<DdgiEmissiveGuideCandidate> candidates, uint32_t max_guide_count = kDdgiMaxEmissiveGuideCount);
 
   /**
    * @brief Struct to hold environment-related rendering information.
@@ -287,7 +319,7 @@ class RenderInstanceStorage {
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
     alignas(4) float environment_cubemap_index = -1.0f;   ///< Cubemap index for ray-traced environment light.
     alignas(4) float environment_rotation = 0.0f;         ///< Y-axis rotation in radians.
-    alignas(4) float diffuse_fallback_intensity = 1.0f;   ///< Effective raster/DDGI diffuse fallback scale.
+    alignas(4) float diffuse_fallback_intensity = 1.0f;   ///< Raster diffuse IBL fallback scale.
     alignas(4) float specular_fallback_intensity = 1.0f;  ///< Effective raster specular fallback scale.
 
     /**
@@ -984,6 +1016,8 @@ class RenderInstanceStorage {
   [[nodiscard]] const std::vector<GltfTextureInfo>& GetGltfTextureInfos() const;
 
   [[nodiscard]] uint64_t GetDdgiEmissiveInventorySignature() const;
+  [[nodiscard]] const EmissiveTriangleInventoryStats& GetDdgiEmissiveInventoryStats() const;
+  [[nodiscard]] const std::vector<DdgiEmissiveGuideInfoBlock>& GetDdgiEmissiveGuideInfoBlocks() const;
 
   /**
    * @brief Retrieves the list of instance information blocks.
@@ -1036,6 +1070,7 @@ class RenderInstanceStorage {
     uint64_t mesh_handle = 0;
     uint64_t renderer_handle = 0;
     uint64_t material_handle = 0;
+    uint64_t emissive_sampling_signature = 0;
     uint32_t geometry_version = 0;
     int32_t instance_index = -1;
     int32_t material_index = -1;
@@ -1047,8 +1082,10 @@ class RenderInstanceStorage {
     bool operator==(const EmissiveTriangleInstanceSignature& other) const;
   };
   std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
+  std::vector<DdgiEmissiveGuideInfoBlock> ddgi_emissive_guide_info_blocks_{};
   std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
   uint64_t ddgi_emissive_inventory_signature_ = 0;
+  EmissiveTriangleInventoryStats ddgi_emissive_inventory_stats_{};
   bool emissive_triangle_info_dirty_ = false;
 
   /**

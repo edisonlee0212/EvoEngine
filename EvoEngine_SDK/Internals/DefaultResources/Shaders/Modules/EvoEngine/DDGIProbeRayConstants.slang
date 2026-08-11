@@ -11,3 +11,23 @@ public struct DdgiProbeRayConstants {
 };
 
 [[vk::push_constant]] public ConstantBuffer<DdgiProbeRayConstants> EE_DDGI_PROBE_RAY_CONSTANTS;
+
+public uint EE_DDGI_TOTAL_RAY_COUNT() {
+  return max(EE_DDGI_PROBE_RAY_CONSTANTS.probe_counts_and_ray_count.w, 1u);
+}
+
+public uint EE_DDGI_FIXED_RAY_COUNT() {
+  return asuint(EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.z) & 0x3fu;
+}
+
+public uint EE_DDGI_GUIDED_RAY_COUNT() {
+  return (asuint(EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.z) >> 6u) & 0x1fffu;
+}
+
+public uint EE_DDGI_EMISSIVE_GUIDE_COUNT() {
+  return (asuint(EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.z) >> 19u) & 0xfu;
+}
+
+public uint EE_DDGI_UNIFORM_RAY_COUNT() {
+  return EE_DDGI_TOTAL_RAY_COUNT() - min(EE_DDGI_GUIDED_RAY_COUNT(), EE_DDGI_TOTAL_RAY_COUNT());
+}

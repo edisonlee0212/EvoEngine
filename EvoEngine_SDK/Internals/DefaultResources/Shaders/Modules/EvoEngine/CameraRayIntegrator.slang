@@ -1340,7 +1340,8 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>(
     EmissiveTriangleInfo emissive_record;
     emissive_record.instance_index = 0u;
     emissive_record.primitive_id = 0u;
-    emissive_record.cdf = 0.0f;
+    emissive_record.alias_probability = 1.0f;
+    emissive_record.alias_index = 0u;
     emissive_record.area_pdf = 0.0f;
     const bool surface_emissive_visible = true;
     const bool emissive_triangle_hit =

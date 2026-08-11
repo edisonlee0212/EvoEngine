@@ -1,5 +1,6 @@
 #include "EnvironmentalLighting.hpp"
 
+#include "Camera.hpp"
 #include "Serialization.hpp"
 
 #include <cmath>
@@ -44,13 +45,38 @@ void DeserializeIndirectEnvironmentSource(const YAML::Node& in,
     source.rotation = in["rotation"].as<float>();
 }
 
+void SerializeReflectionProbeBakeBackground(YAML::Emitter& out,
+                                            const EnvironmentalLighting::ReflectionProbeBakeBackground& background) {
+  out << YAML::BeginMap;
+  out << YAML::Key << "source" << YAML::Value << Camera::GetBackgroundSourceName(background.source);
+  out << YAML::Key << "intensity" << YAML::Value << background.intensity;
+  out << YAML::Key << "clear_color" << YAML::Value << background.clear_color;
+  background.cubemap.Save("cubemap", out);
+  background.environmental_map.Save("environmental_map", out);
+  out << YAML::EndMap;
+}
+
+void DeserializeReflectionProbeBakeBackground(const YAML::Node& in,
+                                              EnvironmentalLighting::ReflectionProbeBakeBackground& background) {
+  background = {};
+  if (in["source"]) {
+    background.source = Camera::ParseBackgroundSource(in["source"].as<std::string>(),
+                                                      CameraSettings::BackgroundSource::InheritEnvironmentalLighting);
+  }
+  if (in["intensity"])
+    background.intensity = in["intensity"].as<float>();
+  if (in["clear_color"])
+    background.clear_color = in["clear_color"].as<glm::vec4>();
+  background.cubemap.Load("cubemap", in);
+  background.environmental_map.Load("environmental_map", in);
+}
+
 void SerializeLocalReflectionProbe(YAML::Emitter& out, const EnvironmentalLighting::LocalReflectionProbe& probe) {
   out << YAML::BeginMap;
   out << YAML::Key << "name" << YAML::Value << probe.name;
   out << YAML::Key << "stable_id" << YAML::Value << probe.stable_id;
   probe.global_reflection_probe.Save("global_reflection_probe", out);
   out << YAML::Key << "transform" << YAML::Value << probe.transform;
-  out << YAML::Key << "box_extents" << YAML::Value << probe.box_extents;
   out << YAML::Key << "box_projection_extents" << YAML::Value << probe.box_projection_extents;
   out << YAML::Key << "sphere_radius" << YAML::Value << probe.sphere_radius;
   out << YAML::Key << "blend_distance" << YAML::Value << probe.blend_distance;
@@ -72,8 +98,6 @@ void DeserializeLocalReflectionProbe(const YAML::Node& in, EnvironmentalLighting
   probe.global_reflection_probe.Load("global_reflection_probe", in);
   if (in["transform"])
     probe.transform = in["transform"].as<glm::mat4>();
-  if (in["box_extents"])
-    probe.box_extents = in["box_extents"].as<glm::vec3>();
   if (in["box_projection_extents"])
     probe.box_projection_extents = in["box_projection_extents"].as<glm::vec3>();
   if (in["sphere_radius"])
@@ -177,6 +201,11 @@ void evo_engine::EnvironmentalLighting::IndirectEnvironmentSource::CollectAssetR
   }
 }
 
+void evo_engine::EnvironmentalLighting::ReflectionProbeBakeBackground::CollectAssetRef(std::vector<AssetRef>& list) {
+  list.push_back(cubemap);
+  list.push_back(environmental_map);
+}
+
 void evo_engine::EnvironmentalLighting::LocalReflectionProbe::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(global_reflection_probe);
 }
@@ -225,6 +254,7 @@ glm::vec3 evo_engine::EnvironmentalLighting::DdgiVolume::GetProbeLocalPosition(c
 
 void evo_engine::EnvironmentalLighting::CollectAssetRef(std::vector<AssetRef>& list) {
   indirect_environment_source.CollectAssetRef(list);
+  reflection_probe_bake_background.CollectAssetRef(list);
   for (auto& probe : local_reflection_probes) {
     probe.CollectAssetRef(list);
   }
@@ -252,12 +282,15 @@ float evo_engine::EnvironmentalLighting::EvaluateRoughSpecularVisibility(const f
 void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const EnvironmentalLighting& lighting) {
   out << YAML::Key << "indirect_environment_source" << YAML::Value;
   SerializeIndirectEnvironmentSource(out, lighting.indirect_environment_source);
+  out << YAML::Key << "reflection_probe_bake_background" << YAML::Value;
+  SerializeReflectionProbeBakeBackground(out, lighting.reflection_probe_bake_background);
   out << YAML::Key << "environment_lighting_intensity" << YAML::Value << lighting.environment_lighting_intensity;
   out << YAML::Key << "diffuse_fallback_intensity" << YAML::Value << lighting.diffuse_fallback_intensity;
   out << YAML::Key << "specular_fallback_intensity" << YAML::Value << lighting.specular_fallback_intensity;
   out << YAML::Key << "ddgi_settings" << YAML::Value;
   SerializeDdgiSettings(out, lighting.ddgi_settings);
 
+  out << YAML::Key << "local_reflection_probes_enabled" << YAML::Value << lighting.local_reflection_probes_enabled;
   out << YAML::Key << "local_reflection_probes" << YAML::Value << YAML::BeginSeq;
   for (const auto& probe : lighting.local_reflection_probes) {
     SerializeLocalReflectionProbe(out, probe);
@@ -273,15 +306,20 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
 
 void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, EnvironmentalLighting& lighting) {
   lighting.indirect_environment_source = {};
+  lighting.reflection_probe_bake_background = {};
   lighting.environment_lighting_intensity = EnvironmentalLighting::kDefaultEnvironmentLightingIntensity;
   lighting.diffuse_fallback_intensity = EnvironmentalLighting::kDefaultDiffuseFallbackIntensity;
   lighting.specular_fallback_intensity = EnvironmentalLighting::kDefaultSpecularFallbackIntensity;
   lighting.ddgi_settings = {};
+  lighting.local_reflection_probes_enabled = true;
   lighting.local_reflection_probes.clear();
   lighting.ddgi_volumes.clear();
 
   if (const auto source = in["indirect_environment_source"]) {
     DeserializeIndirectEnvironmentSource(source, lighting.indirect_environment_source);
+  }
+  if (const auto background = in["reflection_probe_bake_background"]) {
+    DeserializeReflectionProbeBakeBackground(background, lighting.reflection_probe_bake_background);
   }
   if (in["environment_lighting_intensity"]) {
     lighting.environment_lighting_intensity = in["environment_lighting_intensity"].as<float>();
@@ -294,6 +332,9 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   }
   if (const auto settings = in["ddgi_settings"]) {
     DeserializeDdgiSettings(settings, lighting.ddgi_settings);
+  }
+  if (in["local_reflection_probes_enabled"]) {
+    lighting.local_reflection_probes_enabled = in["local_reflection_probes_enabled"].as<bool>();
   }
   if (const auto probes = in["local_reflection_probes"]) {
     for (const auto& in_probe : probes) {

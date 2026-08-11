@@ -6,9 +6,11 @@
 
 namespace evo_engine {
 class Camera;
+class Buffer;
 class DescriptorSet;
 class DescriptorSetLayout;
 class GraphicsPipeline;
+class Image;
 class Sampler;
 
 struct DdgiProbeVisualizationPushConstant {
@@ -24,6 +26,9 @@ class DdgiProbeVisualizationPass final {
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     std::shared_ptr<Sampler> atlas_sampler;
+    std::shared_ptr<Buffer> probe_metadata_buffer;
+    std::shared_ptr<Buffer> probe_state_buffer;
+    std::shared_ptr<Image> irradiance_atlas;
     std::shared_ptr<Camera> camera;
     uint32_t probe_count = 0;
     bool depth_test = false;

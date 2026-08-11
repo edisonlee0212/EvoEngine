@@ -48,10 +48,9 @@ struct ResolvedEnvironmentalLighting {
   struct LocalReflectionProbe {
     AssetRef global_reflection_probe;
     glm::mat4 transform = glm::mat4(1.0f);
-    glm::vec3 box_extents = glm::vec3(5.0f);
-    glm::vec3 box_projection_extents = glm::vec3(5.0f);
+    glm::vec3 box_projection_extents = glm::vec3(0.5f);
     float sphere_radius = 5.0f;
-    float blend_distance = 1.0f;
+    float blend_distance = 0.05f;
     float reflection_intensity = 1.0f;
     uint64_t stable_id = 0;
     int artist_priority = 0;
@@ -61,6 +60,7 @@ struct ResolvedEnvironmentalLighting {
   };
 
   struct DdgiVolume {
+    std::string name{};
     glm::mat4 transform = glm::mat4(1.0f);
     glm::ivec3 probe_counts = glm::ivec3(10, 6, 16);
     glm::vec3 probe_spacing = glm::vec3(1.5f);
@@ -77,8 +77,8 @@ struct ResolvedEnvironmentalLighting {
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.2f;
-    int probe_variability_min_samples = 16;
+    float probe_variability_threshold = 0.03f;
+    int probe_variability_min_samples = 128;
     int auto_invalidate_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
     int variability_reset_trigger_conditions =
@@ -102,11 +102,11 @@ struct ResolvedEnvironmentalLighting {
   [[nodiscard]] static constexpr bool LightingUsageUsesEnvironmentLightingIntensity(const LightingUsage usage) {
     switch (usage) {
       case LightingUsage::DdgiMissRadiance:
+      case LightingUsage::RayCameraEnvironmentEvent:
+        return true;
       case LightingUsage::DiffuseIblFallback:
       case LightingUsage::GlobalSpecularFallback:
-      case LightingUsage::RayCameraEnvironmentEvent:
       case LightingUsage::ReflectionProbeBakeEnvironmentInput:
-        return true;
       case LightingUsage::ValidDdgiSurfaceIrradiance:
       case LightingUsage::ValidLocalReflectionProbeSample:
         return false;
@@ -116,9 +116,9 @@ struct ResolvedEnvironmentalLighting {
 
   [[nodiscard]] static constexpr bool LightingUsageUsesDiffuseFallbackIntensity(const LightingUsage usage) {
     switch (usage) {
-      case LightingUsage::DdgiMissRadiance:
       case LightingUsage::DiffuseIblFallback:
         return true;
+      case LightingUsage::DdgiMissRadiance:
       case LightingUsage::GlobalSpecularFallback:
       case LightingUsage::RayCameraEnvironmentEvent:
       case LightingUsage::ReflectionProbeBakeEnvironmentInput:

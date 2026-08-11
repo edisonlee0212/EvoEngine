@@ -14,6 +14,20 @@ assets directly. There is no scene-local DDGI private component or extractor fal
 active volumes, owns each volume's resources and convergence state, and exposes aggregate and per-volume runtime/debug
 state in the editor.
 
+DDGI volume transforms use the same Environmental Lighting authoring control as local reflection probes: Position,
+Euler Rotation in degrees, and Scale, composed as translation, rotation, then scale. Serialization remains matrix-based.
+The inspector normalizes perspective or shear to decomposed TRS and resets a non-finite, singular, or undecomposable
+matrix to identity while marking the asset modified.
+
+For an `EnvironmentalLighting` asset assigned to the active scene, a DDGI volume's **Edit in Scene** toggle temporarily
+replaces entity selection with the Scene-camera ImGuizmo. It reuses the editor toolbar's local Position, Rotation, and
+Scale modes; clicking a Position, Rotation, or Scale label in the volume's Transform controls selects that same global
+mode. The gizmo pivot is placed at the visible lattice center (`transform * volume_origin`). The inverse conversion
+updates only the stored matrix, so `volume_origin` is preserved. The active authored bound is drawn once as a translucent
+orange box even when the volume is disabled. Selecting an entity or empty viewport space, pressing Escape, removing or
+reloading the volume, replacing the scene asset, or closing its asset inspector clears the transient target. The target
+is editor-only and is never serialized or displayed over the game main camera.
+
 The authored volume origin is the center of the probe lattice. The first probe position is:
 
 ```text
@@ -38,7 +52,7 @@ falling back to diffuse IBL.
 
 ## Runtime Passes
 
-When DDGI runtime or debug visualization is enabled, the frame graph declares:
+When DDGI runtime is enabled, the frame graph declares:
 
 - frame-local compact DDGI ray-output buffer storing radiance and signed hit distance in 16 bytes per ray;
 - per-frame full ray diagnostics for the selected probe, kept separate from the production ray data;
@@ -73,7 +87,8 @@ DDGI closest-hit shading currently:
 - evaluates enabled directional, point, and spot lights;
 - when emissive sampling is effectively enabled, samples one emissive triangle at each accepted non-fixed probe hit using
   the camera's shared triangle inventory,
-  world-area CDF, uniform-area reconstruction, solid-angle PDF, UV0-UV3 material evaluation, and coated LOD-0
+  world-area/emissive-texture alias table, uniform-area reconstruction, solid-angle PDF, UV0-UV3 material evaluation,
+  and coated LOD-0
   emission. DDGI applies only its Lambert receiver and binary visibility with light-technique weight one; direct emitter
   hits remain unweighted because DDGI has no competing BSDF-continuation technique;
 - casts robustly offset hard TLAS shadow rays for shadow-casting direct lights;
@@ -86,11 +101,22 @@ the alpha mask at LOD 0 so their cutoff matches the deterministic camera/referen
 transmissive, and refractive surfaces remain fully opaque to those rays, although an accepted probe hit still evaluates
 its base color and emissive response. RayQuery DDGI and strand participation are not supported by this path.
 
-The shared emissive inventory admits rigid opaque and alpha-masked deferred/forward meshes. Masked sampled points that
-fail the cutoff contribute zero without resampling, preserving the full-triangle area PDF. Moving rigid transforms
-rebuild the world-area distribution. Morph/deformed or override-BLAS meshes, skinned meshes, particles, external
-instances, alpha-blended/transmissive meshes, strands, and Gaussian splats remain excluded until sampled geometry can
-match their TLAS representation exactly. Participating-medium emissive NEE is also outside this overhaul.
+The shared emissive inventory admits fill-mode rigid, skinned, particle-instanced, override-range, and external triangle
+geometry across deferred, forward, and transparent collections. External DDGI geometry must provide `triangle_count` in
+addition to its packed offset. Emissive texture content, UV set/transform, runtime material changes, geometry versions,
+and moving transforms refresh the proposal and DDGI source signature. Opaque, masked, blend, transmissive, and
+diffuse-transmissive emission use the same sampled material evaluator as the camera ray path; blend emission is weighted
+by sampled opacity. Unlit materials, strands, Gaussian splats, and external triangle ranges without a count remain
+unsupported by emissive NEE and are reported when they have positive emission.
+
+Triangle selection uses a log-domain alias-table build, so a positive emitter retains a representable probability even
+beside an emitter with extreme power. Texture-aware importance uses seven barycentric samples per triangle and falls back
+to factor luminance when CPU texels are unavailable; this changes only the proposal, not the exact sampled-point PDF or
+radiance. Base-color and vertex alpha reduce the proposal weight of mostly cut-out or transparent triangles while a
+support floor preserves unbiased sampling. Rejected masked points and one-sided backfaces still contribute zero without
+conditional retry. A retry would require the exact receiver-dependent acceptance probability to remain unbiased, while
+M1 measured those rejects as a small
+fraction of probe work, so M2 retains the single-sample estimator.
 
 Emissive sampling defaults on through `DdgiSettings::RuntimeSettings::enable_emissive_mesh_sampling`. Each asset-owned
 DDGI volume can inherit that value or force it on/off. Changing the effective value is a ray-source change: active updates
@@ -108,26 +134,53 @@ memory checks, but converged in 311, 307, and 227 frames respectively against th
 was therefore retained and the rejected experimental scheduler switch was removed in M10.
 
 Variability gating requires three consecutive valid complete-volume observations after the authored minimum sample
-count. Invalid, non-finite, negative, and zero-weight readbacks break an unfinished consecutive streak without advancing
-the sample count; an invalid periodic observation preserves an already-converged state and retries. The exit threshold
-is 1.25 times the entry threshold, and a converged volume performs one full refresh observation every 120 eligible
-rendered frames. Changing the threshold, minimum sample count, variability enable, or gating enable restarts convergence
-and schedules an immediate full update without clearing otherwise valid irradiance history.
+count. Each texel first scales coefficient of variation by its mean irradiance up to a 0.25 reference level, suppressing
+near-dark numerical ratios without hiding bright changes. Each observation then reduces active probe texels to an
+average, maximum, and fraction above the authored threshold. M3 captures rejected a raw maximum plus p95 gate because
+isolated stochastic texels prevented convergence for 1024 frames even after energy weighting. The reviewed entry policy
+therefore requires the average to remain below the threshold, at least 85% of texels to be at or below it, and the
+maximum to stay below forty times it. This prevents a materially unstable receiver region or severe localized outlier
+from disappearing into a volume-wide mean without treating every rare sample as permanent motion. Exit uses 1.25 times
+the average/maximum limits and a 15% unstable fraction. Invalid, non-finite,
+negative, inconsistent, and zero-weight readbacks break an unfinished consecutive streak without advancing the sample
+count; an invalid periodic observation preserves an already-converged state and retries. The 15% localized allowance is
+paired with the mean and 40x maximum guards; it accommodates correctly retained black history without allowing a severe
+localized outlier to disappear into the volume average. A converged volume performs one
+full stochastic refresh observation every 120 eligible rendered frames. Changing the threshold, minimum sample count,
+variability enable, or gating enable restarts convergence and schedules an immediate full update without clearing
+otherwise valid irradiance history.
+
+`Scripts/run_ddgi_localized_convergence_validation.py` exercises rare equal-power emission, emissive enable, emissive
+motion, and non-emissive geometry motion against the installed editor. Its evidence records localized metrics,
+transition reset behavior, repeatability, convergence frames, and the exact rays avoided by the post-convergence
+120-frame refresh schedule over a fixed 360-frame horizon.
 
 Variability-policy changes use `DdgiUpdateReasonVariabilityPolicy` rather than the source bit. They still force a full
 zero-hysteresis update, restart variability sampling, and reset the transport sequence, but they are deliberately absent
 from atlas clearing, hard probe-state refresh, and the validation history-reset mask. The original reason values remain
 stable (`Source` is bit 0 through `PeriodicRefresh` at bit 6); the policy reason is bit 7.
 
+Irradiance history uses the atlas alpha channel as a validity marker and repeated-bright-observation confidence. This
+keeps valid black history distinct from a newly cleared atlas. A lone bright observation retains the authored hysteresis
+and the conservative RTXGI-style bright-delta scale; repeated observations progressively relax both, while a
+gamma-domain step limit tied to the authored brightness threshold bounds the response. Confidence decays when the bright
+evidence stops. The pre-gamma `64.0` irradiance ceiling remains a finite-data guard rather than a temporal clamp.
+
+Lighting and emissive-inventory changes restart the deterministic transport sequence but preserve compatible irradiance
+history so the confidence path can respond without a one-frame clear-and-replace spike. Geometry/material-closure
+changes, manual reset, incompatible resources, and full scrolling reset remain hard invalidations. Emissive factor and
+emissive-texture changes are classified by the shared emissive inventory as lighting changes; the material-closure
+fingerprint deliberately excludes those fields.
+
 Contributor tracking mirrors the DDGI TLAS: rigid, skinned, particle-instanced, transparent, and DDGI-capable external
 geometry participate, while strands, Gaussian splats, and external instances without DDGI geometry do not. Only
 ray-visible material fields and referenced texture content, views, and samplers are tracked. The volume's authored
-auto-invalidate trigger mask decides which contributor event classes clear probe history and force a full transport
-refresh; geometry-triggered auto invalidation also resets relocation/classification state. Its variability-reset mask
+auto-invalidate trigger mask decides which contributor event classes force a transport refresh; only geometry-class
+events clear probe history and reset relocation/classification state. Its variability-reset mask
 independently decides which event classes restart convergence, and its warmup mask decides which run through warmup.
 Events remain latched while updates are paused and replay after resume; otherwise ignored events are consumed after policy
-evaluation. The supported rigid opaque/masked emissive inventory has a separate stable fingerprint, so its membership,
-geometry, transform, material, and importance changes feed the geometry event without reacting to unrelated or unsupported
+evaluation. The shared emissive inventory has a separate stable fingerprint, so its membership, geometry, transform,
+emissive material, texture, and importance changes feed the lighting event without reacting to unrelated or unsupported
 emitter assets.
 
 The update shader writes:
@@ -185,20 +238,19 @@ confidence denominator, while irradiance-atlas alpha marks the valid support in 
 radiance weighting but not readiness. Full-atlas and scrolling clears write alpha zero, and valid directional updates
 write alpha one. A converged black sample therefore remains valid, while a cleared black sample falls back to diffuse
 IBL until probes populate it. Deferred and transparent raster lighting compose diffuse indirect as
-`I * diffuse_AO * mix(S * diffuse_ibl, ddgi_diffuse_with_S_scaled_sky_misses, clamp(coverage * confidence, 0, 1))`.
-`S` is the scene's **Sky Light Intensity Scale** and `I` is **Indirect Lighting Intensity**. DDGI uses the same
+`diffuse_AO * mix(F * diffuse_ibl, ddgi_diffuse_with_E_scaled_sky_misses, clamp(coverage * confidence, 0, 1))`.
+`E` is **Environment lighting intensity** and `F` is **Diffuse fallback intensity**. DDGI uses the same
 Fresnel/metallic diffuse-energy weight. Deferred opaque lighting includes material occlusion and GTAO in `diffuse_AO`;
 transparent lighting includes material occlusion but not screen-space GTAO because GTAO is reconstructed from the opaque
-depth and GBuffer. Direct light, primary emission, and split-sum reflection-probe specular remain outside `I`.
+depth and GBuffer. Direct light, primary emission, and split-sum reflection-probe specular remain outside this composition.
 
 Metallic surfaces therefore receive no Lambertian DDGI while retaining reflection-probe lighting. Non-finite gather data
-falls back to diffuse IBL instead of contaminating the specular path. Recursive probe-hit shading remains Lambert-only and
-does not contain `I`; the receiver applies `I` once after diffuse composition. Outside the volume or without any active
-finite probe contribution, raster lighting falls back continuously to `S`-scaled diffuse IBL and recursive probe-hit DDGI
+falls back to diffuse IBL instead of contaminating the specular path. Recursive probe-hit shading remains Lambert-only.
+Outside the volume or without any active finite probe contribution, raster lighting falls back continuously to `F`-scaled diffuse IBL and recursive probe-hit DDGI
 returns zero.
 
-Probe miss radiance uses `S`, so `S` and underlying environment-source changes enter the DDGI source signature and refresh
-affected probe history. `I` is a resolve-only control and schedules no probe rays. Changing `S` does not rebuild the
+Probe miss radiance uses `E`, so `E` and underlying environment-source changes enter the DDGI source signature and refresh
+affected probe history. `F` is a resolve-only fallback control and schedules no probe rays. Changing `E` does not rebuild the
 intensity-independent environment PDF, diffuse convolution, or GGX-prefiltered cubemap; replacing or editing the source
 does. Camera-visible primary background remains controlled by the camera's `background_intensity`, independently of both
 lighting controls. SSR is post-processing and ray-traced reflections are not part of this lighting contract.
@@ -218,23 +270,278 @@ reference captures remain under `EvoEngine_Tests/Rendering/DDGI/References/` for
 Runtime coverage is owned by the focused installed-editor validation scripts for DDGI app, emissive behavior,
 multi-volume behavior, environment lighting, and reflection probes.
 
+## Small-Emitter Baseline
+
+`Scripts/run_ddgi_small_emitter_baseline.py` captures the small-emitter evidence contract. It compares the existing
+large emitter with a small emitter at equal radiance and a small emitter whose radiance is scaled by the transformed
+box surface-area ratio so total emitted power matches the large source. No analytic-light proxy participates.
+
+Every fixture produces linear-HDR DDGI-enabled, DDGI-disabled, and 256-SPP Vulkan ray-tracing reference captures at
+1920x1080. The script reports receiver-wall and receiver-floor luminance, isolated DDGI contribution, convergence,
+logical memory, GPU timestamps, and deterministic equal-power repeatability. The RTX 5070 is the authoritative
+same-machine performance device; other supported Vulkan devices remain correctness targets.
+
+```powershell
+python Scripts/run_ddgi_small_emitter_baseline.py --config RelWithDebInfo
+```
+
+Evidence is written under `out/ddgi-small-emitter/m0` by default. The approved acceptance limits are 15% equal-power
+small-versus-large DDGI energy error, 30% DDGI-versus-path-traced receiver energy error, 0.30 energy-normalized receiver
+relative L2, `1e-6` repeat relative L2, 48 static convergence frames, and 5% aggregate DDGI median GPU-time regression
+on the RTX 5070.
+
+`Scripts/run_ddgi_emissive_m2_validation.py` is the installed-editor acceptance matrix for the shared alias-table
+sampler. It covers equal-power repeatability, multiple emitters, textured UV0/UV3 emitters, alpha-cutout rejection, and
+one- versus double-sided behavior with exact GPU outcome accounting:
+
+```powershell
+python Scripts/run_ddgi_emissive_m2_validation.py
+```
+
+`Scripts/run_ddgi_temporal_response_validation.py` captures frame-exact emissive enable, disable, and HDR response curves
+at 1, 2, 4, 8, 16, and 32 update frames. It compares them with settled output and the legacy `0.97` hysteresis plus
+`0.25` bright-delta recurrence, and checks exact steady repeats for large emissive, environment, and analytic-light
+fixtures. Reports use schema 6 and record `capture.response_frames`.
+
+```powershell
+python Scripts/run_ddgi_temporal_response_validation.py
+```
+
+## Emissive Mesh Authoring
+
+The `MeshRenderer` and `SkinnedMeshRenderer` inspectors include a **DDGI emissive authoring** section. It keeps the
+emissive mesh as the only light representation and shows HDR radiance RGB/luminance, estimated world-space emitting
+area, factor-only emitted power (`pi * area * luminance`, doubled for a double-sided material), positive-area triangle
+candidates, and the current authoring eligibility reason. Skinned-mesh area is explicitly labeled as a bind-pose
+estimate.
+
+The same panel exposes emissive radiance, texture, sidedness, and alpha mode, and explains their sampling cost. A
+textured-emission preview is labeled factor-only because the live DDGI inventory includes texture and opacity energy;
+the Render Layer DDGI inspector remains authoritative for runtime inventory power, exclusions, and zero-probability
+entries after geometry upload.
+
+`Apply target power to radiance` is an explicit user action. It preserves radiance chromaticity by scaling the material
+emissive factor against the current area preview. It never creates, pairs, or edits an analytic light, and the engine
+never changes radiance automatically when mesh area changes.
+
 ## Debugging
 
-DDGI debug visualization is scene-camera-only. The main camera is kept free of probe overlays.
+The Render Layer inspector is runtime-focused and split into compact Overview, Visualization, and Diagnostics sections.
+Persistent global settings and all per-volume authoring live in Environmental Lighting. Inspector state is session-only:
+it is not serialized, is cleared on scene load, and applies to every active volume in the scene.
 
-With runtime enabled, Pause updates stops probe tracing but preserves compatible history for lighting. Debug-only
-resource views never enable GI; with runtime disabled, only Rays traces diagnostic probe rays, and those rays do not
-contribute lighting.
+Pause updates stops probe tracing while retaining compatible atlases for lighting. Newly enabled volumes may allocate
+their persistent resources while paused, but remain uninitialized until updates resume. Reset history is hidden while
+paused. Disabling or removing a volume stops its contribution immediately. Debug controls never enable DDGI or trace
+probe rays when the runtime is disabled.
+
+The Overview reports scene state, aggregate probes and resident memory, then one row per runtime volume with name,
+stable ID, grid, memory, convergence/warmup state, and an explicit Inspect action. Invalid authored volumes remain visible
+with their rejection reason. The selected diagnostic target is a stable volume ID plus probe-grid coordinate; there is no
+viewport picking or implicit retargeting. This runtime diagnostic selection is separate from the Environmental Lighting
+inspector's explicit whole-volume **Edit in Scene** authoring toggle.
+
+| Visualization target | Probe spheres | Selected marker | Selected rays |
+| --- | --- | --- | --- |
+| Raster editor scene viewport | Yes, all runtime volumes | Yes | Yes |
+| Game main camera | No | No | No |
+| RTX or RayQuery camera | No | No | No |
+
+`Invalid` means the authored runtime set failed atomic validation; inspect the error row and Environmental Lighting
+settings. `Resources unavailable` means the selected volume has not prepared its buffers/atlases. `Paused / stale frozen`
+means tracked scene inputs changed while the last valid atlas remains in use. `Reset pending` clears only after every
+valid runtime volume traces the reset frame. A missing diagnostic target is intentional after its volume is disabled or
+removed; choose `Inspect` on another row explicitly.
 
 Available debug surfaces include:
 
-- `DDGIProbeVisualization` for probe spheres sampled from GPU atlas/state data;
-- `DDGIProbeRayVisualization` for selected-probe ray lines captured into the dedicated full diagnostic buffer;
+- the Environmental Lighting inspector's DDGI volume bounds, drawn as translucent orange filled boxes with depth testing
+  and no depth writes;
+- `DDGIProbeVisualization` for every active volume, sampled from its GPU atlas/state data. Radius is a fraction of that
+  volume's minimum transformed probe spacing;
+- `DDGIProbeRayVisualization` for the explicitly selected volume and probe only;
 - inspector metadata readback for selected probe irradiance, hit/miss/backface ratios, visibility distance, relocation,
   active state, and update reason;
-- inspector emissive readback for the primary volume's effective setting plus shared-triangle, enabled-volume, and
-  candidate-ray upper-bound counts. `DDGI Probe Trace` GPU timing includes nested emissive visibility-ray cost;
-- a forced atlas readout layout through `Scripts/capture_readme_editor_screenshot.py --ddgi-atlas-preview`.
+- an opt-in emissive sampling readback with actual eligible-hit, NEE-attempt, triangle-selection, categorized rejection,
+  shadow, zero-radiance, and nonzero-contribution counts. The older candidate-ray value is explicitly labeled as an
+  upper bound. The same counters are emitted under `emissive_sampling` in validation report schema 5;
+- emissive inventory diagnostics for estimated emitted power, eligible and excluded positive-emission instances, and
+  unrepresentable sampling probabilities. The inspector warns when geometry is excluded or positive power cannot be
+  represented in the alias table. `DDGI Probe Trace` GPU timing includes nested emissive visibility-ray cost;
+- explicit probe and ray opacity controls, with selected-probe state readback scheduled only while its readout is open.
+
+Exact emissive event counters are disabled by default. `Capture emissive sampling` is a coalesced, scene-wide one-shot
+request. It waits while paused, captures ready volumes after resume, and retains the latest completed snapshot. Only an
+active request allocates the small counter/readback buffers and enables shader atomics.
+
+`Capture isolated gather timing` is also a one-shot action. It deliberately repeats the DDGI gather in a separate
+full-resolution pass so GPU timestamps can isolate gather cost; enabling generic live GPU timing no longer pays that
+profiling pass unless this DDGI option is selected. Headless DDGI reports and the multi-volume performance validation
+opt in explicitly. On the RTX 5070 M4 captures, the isolated pass cost approximately 0.15 ms at 1920x1080, which is now
+avoided during ordinary live GPU profiling. This changes profiling overhead only, not the deferred-lighting estimator.
+
+The M6 RTX 5070 / 1920x1080 profile recorded the following median milliseconds. `Gather profile overhead` is the
+explicit duplicate measurement pass and is not production deferred-lighting cost when the option is off.
+
+| Scene | Probe trace | Atlas update | Gather profile overhead |
+| --- | ---: | ---: | ---: |
+| Equal-power small emitter | 0.041 | 0.061 | 0.147 |
+| Large emitter | 0.039 | 0.061 | 0.153 |
+| Cornell | 0.091 | 0.111 | 0.142 |
+| Sponza | 0.416 | 0.242 | 0.540 |
+| Scrolling | 0.040 | 0.060 | 0.147 |
+| Eight-volume overlap | 0.209 | 0.090 | 0.489 |
+
+Evidence is in `out/ddgi-small-emitter/m4-baseline/evidence.json`, `out/ddgi-small-emitter/m6-profile`, and
+`out/ddgi-small-emitter/m6-multivolume/evidence.json`. Production emissive event atomics and selected-ray readbacks were
+already disabled when their debug options are off. No probe-trace or gather estimator rewrite was adopted in M6: the
+remaining static small-emitter error requires a correctly weighted emitter-guided probe-direction estimator, while the
+reviewed shortcuts would bias the directional atlas or trade correctness for an unproven timing gain.
+
+## Graphics QoL Closeout
+
+The M0-M7 series was validated on an NVIDIA GeForce RTX 5070 at 1920x1080. The installed-editor evidence is under
+`out/ddgi-small-emitter/m7-app`, `m7-emissive`, `m7-convergence`, and `m7-temporal`; the eight-volume timing and lifecycle
+evidence remains under `m6-multivolume`. The final runtime captures cover application readiness, direct emissive-mesh
+sampling, exact repeats, localized convergence, light and geometry changes, temporal response, scrolling, and
+multi-volume removal without introducing an analytic-light representation.
+
+The production closeout commands and installed executables are:
+
+```powershell
+python Scripts/install_apps.py --config RelWithDebInfo --no-open --incremental --jobs 16
+cmake --preset vs2026-x64 -DEvoEngine_App-DDGIApp=ON
+cmake --build out/build/vs2026-x64 --config RelWithDebInfo --target DDGIApp --parallel 16
+cmake --install out/build/vs2026-x64 --config RelWithDebInfo
+```
+
+- Editor: `out/install/vs2026-x64/bin/EvoEngineEditor.exe`
+- Cornell DDGI player: `out/install/vs2026-x64/bin/DDGIApp.exe`
+
+The complete CTest run passed 558 of 559 tests on its first pass, including all rendering goldens. Its sole failure was
+the expected SDK shader-policy inventory delta for the new shared emissive-sampling module (176 modules and 287 imports
+instead of 175 and 285); the checked policy manifest was regenerated and the focused policy gate then passed. Focused
+DDGI tests, production shader compilation/reflection, Python syntax checks, C++ formatting, runtime validators, and
+application installation also passed.
+
+The uniform-only static small-emitter fixture is about 92% below the equal-power large-emitter DDGI result. Diagnostics
+and ablations isolate the dominant loss to uniform probe-direction/direct-hit probability, rather than emitter
+inventory, temporal retention, or convergence freeze. The guided-direction path below addresses that probability while
+preserving the directional irradiance-atlas estimator and direct emissive mesh as the sole light representation; an
+analytic proxy and unweighted ray steering remain out of scope.
+
+### Guided-Direction Estimator Contract
+
+Guided probe directions use a balance mixture, never an unweighted replacement for the uniform sphere. For
+`N = N_uniform + N_guided`, the exact per-frame mixture is
+`p_mix(w) = (N_uniform * (1 / 4pi) + N_guided * p_guided(w)) / N`. Each irradiance texel accumulates
+`radiance * max(dot(w, texel_direction), 0) / (2pi * p_mix(w) * N)`, matching the existing `2pi` gather decode.
+Nested emissive-triangle NEE remains part of the radiance sample and is not divided by the outer PDF a second time.
+
+The initial guide proposal is a normalized mixture of conservative emissive-instance spherical caps. Its PDF is the
+sum of every selected cap containing the direction, including overlaps. Probe-inside-bound caps become the full sphere;
+invalid or omitted emitters receive no guide probability but remain reachable through the uniform component. Bounds are
+sampling metadata only: every ray still traces the real TLAS and evaluates the real emissive material.
+
+M8 freezes the first production experiment at the current uniform population plus 32 additive guided irradiance rays.
+Visibility, relocation, classification, and hit-distance metadata retain the original uniform/fixed populations. The
+zero-guidance path must remain bit-compatible. CPU reference tests cover cap construction/sampling, overlapping PDFs,
+full-sphere and zero-emitter fallback, numerical PDF normalization, and constant-radiance invariance at 0%, 25%, and 50%
+guide fractions before production ray generation changes.
+
+M9 aggregates that same emissive-triangle inventory into at most eight deterministic per-instance guide records. Each
+record stores a conservative world-space bounding sphere, estimated emitted power, stable renderer identity, source
+revision, and ray-tracing instance index. Records are sorted by power with stable identity/revision/index tie breaks;
+invalid records are removed and lower-ranked emitters remain reachable through uniform rays. Skinned, instanced,
+transparent, textured, alpha-masked, animated, and external sources therefore inherit the existing inventory's
+eligibility and invalidation rather than creating a second light list.
+
+`guided_ray_count` defaults to zero. In that state guide and per-ray sample-info resources have zero bytes and are not
+allocated. Enabling the staged path accounts one 48-byte guide record per configured top-K entry and one 16-byte exact
+direction/inverse-mixture-PDF record per probe ray. These records are proposal metadata only; every guided ray still
+traces the scene TLAS and evaluates the real mesh material.
+
+M10 appends the configured guided population after the unchanged uniform/fixed population. Uniform and guided rays both
+store their exact traced direction and inverse complete mixture PDF. Serial, parallel-direct, and parallel-shared
+irradiance updates accumulate the weighted cosine integral with the fixed total population denominator; misses,
+backfaces, zero radiance, and rejected samples therefore remain zero-valued samples rather than shrinking the
+denominator. Visibility moments, hit-distance metadata, relocation, classification, and excessive-backface evidence
+read only the original uniform/fixed rays. With `guided_ray_count: 0`, descriptors omit the guide resources and the
+original ray generation and self-normalized atlas update remain unchanged.
+
+The installed RTX 5070 additive experiment is reproducible with:
+
+```powershell
+$env:EVOENGINE_DDGI_PROBE_UPDATE_VARIANT = "parallel-shared"
+python Scripts/run_ddgi_small_emitter_baseline.py --guided-rays 32 --guided-emitters 4 `
+  --output-dir out/ddgi-small-emitter/m10-guided-shared
+```
+
+At 384 probes and 128 uniform plus 32 guided rays, equal-power small-versus-large receiver error falls from 92.17% to
+6.53%. The deterministic repeat and the parallel-direct versus parallel-shared output are byte-exact. The small-emitter
+energy-normalized receiver L2 is 0.089; absolute energy differs from its path reference by 33.60%, while the large
+fixture already differs by 31.61%, so the pre-existing absolute-energy calibration remains a separate limitation. The
+small-emitter report records one active guide, 983040 ray-output bytes, 192 guide bytes, 983040 sample-info bytes,
+1989648 transient bytes per frame, and 4858080 peak logical bytes. Median probe trace is 0.046 ms; atlas update is
+0.063 ms on parallel-shared and 0.118 ms on parallel-direct. Reports expose uniform/guided/guide counts and the two new
+resource classes explicitly.
+
+M11 keeps guide-population changes as soft transport changes. Appearance, disappearance, motion, power, or configured
+guide-count changes restart the deterministic ray sequence, warmup, and localized variability convergence, but do not
+clear layout-compatible irradiance history. Geometry, incompatible resources, full scroll resets, and explicit manual
+resets remain hard invalidations. No guidance-specific temporal gain, radiance clamp, or convergence threshold was
+added: the existing weighted irradiance variability and repeated-observation confidence policy consume the corrected
+estimator directly.
+
+The installed 128+32 validation passes rare-emitter, emission-enable, rigid-emitter-motion, and occluder-motion
+convergence in 35 frames with exact replay. Emission enable preserves history, reaches 90% settled response by frame 16,
+and disable reaches 90% by frame 1. The maximum HDR response peak is 1.204 times settled output. Large emissive,
+environment, and analytic-light settled repeats are exact, and the guided multi-emitter, textured UV0/UV3, alpha-cutout,
+one-sided, and double-sided fixture matrix passes. Source/ABI tests additionally require every visibility, metadata,
+relocation, and classification path to use the original uniform population.
+
+M12 compared the additive experiment with two same-budget allocations on the RTX 5070, using 384 probes and the
+parallel-shared update. The timings are medians from the installed editor; transient and peak values are logical DDGI
+resource bytes reported by the runtime.
+
+| Uniform + guided rays | Equal-power size error | Normalized receiver L2 | Trace + update | Transient bytes | Peak bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| 128 + 0 | 91.75% | 0.626 | 0.0956 ms | 804360 | 2487312 |
+| 128 + 32 additive | 6.53% | 0.089 | 0.1086 ms | 1989648 | 4858080 |
+| 96 + 32 same-budget | 7.58% | 0.093 | 0.0893 ms | 1592336 | 4063456 |
+| 64 + 64 same-budget | 7.37% | 0.094 | 0.0784 ms | 1592336 | 4063456 |
+
+The 96+32 allocation is the recommended opt-in preset: it retains 75% of the original uniform visibility evidence,
+passes the 15% size-error, 0.30 normalized-L2, repeatability, temporal-response, and 5% aggregate-time gates, and makes
+the combined trace/update median 6.6% lower than 128 uniform rays in this fixture. The 64+64 result offers no material
+quality benefit while halving the uniform visibility population. Neither same-budget run passes the 30% absolute
+path-reference energy gate (33.80% and 34.23% error), but the corresponding large-emitter references are already 31.04%
+and 31.65% low. That common absolute-energy calibration is not hidden by a guide-specific gain.
+
+Guidance remains disabled by default. Although same-budget trace/update time passes the target-case gate, exact
+direction/PDF storage raises peak logical DDGI bytes by 63% and transient bytes by 98%, and the complete scene matrix
+does not justify imposing that cost on scenes which do not need small-emitter guidance. The uniform-only default is
+therefore bit-compatible and allocation-free. A future compact sample-info representation is the prerequisite for
+reconsidering the default; a light tree or directional history cache was not added because top-K cone evaluation did
+not dominate the measured trace.
+
+The recommended preset is reproducible with:
+
+```powershell
+$env:EVOENGINE_DDGI_PROBE_UPDATE_VARIANT = "parallel-shared"
+python Scripts/run_ddgi_small_emitter_baseline.py --uniform-rays 96 --guided-rays 32 --guided-emitters 4 `
+  --output-dir out/ddgi-small-emitter/m12-same-budget-25
+```
+
+In authored settings this corresponds to `Ray count: 96`, `Guided ray count: 32`, and `Guided emitter count: 4`.
+Non-NVIDIA Vulkan devices use the same estimator and existing serial/direct/shared hardware fallback selection; their
+timings are correctness evidence only and are not compared with the RTX 5070 performance gate.
+
+The RTX 5070 small equal-power baseline uses 384 probes and 128 rays per probe. It records 786432 ray-output bytes,
+805904 transient bytes per frame, 2490400 peak logical bytes, 0.041 ms median probe trace, 0.061 ms atlas update, and
+0.147 ms isolated gather at 1920x1080. Equal-power small-versus-large DDGI receiver energy remains 92.17% low, versus
+3.73% in the 256-SPP path-traced reference, with exact deterministic repeats. The guided series retains the approved
+15% size-error, 30% path-reference energy, 0.30 normalized receiver L2, `1e-6` repeat, and 5% aggregate GPU-time gates.
 
 ## Rendering Demo Baseline
 

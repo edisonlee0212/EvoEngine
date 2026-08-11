@@ -104,7 +104,11 @@ struct EditorCommandLine {
   std::optional<std::string> preview_ddgi_fixture;
   std::optional<std::filesystem::path> preview_ddgi_report_path;
   uint32_t preview_ddgi_seed = 0x6d2b79f5u;
+  std::optional<int> preview_ddgi_uniform_ray_count;
+  int preview_ddgi_guided_ray_count = 0;
+  int preview_ddgi_guided_emitter_count = 4;
   size_t preview_ddgi_measure_frames = 120;
+  size_t preview_ddgi_response_frames = 0;
   bool preview_ddgi_disabled = false;
   bool preview_ddgi_reference = false;
   std::string preview_ddgi_phase = "ad-hoc";
@@ -792,11 +796,41 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ddgi-seed requires an unsigned integer.");
       }
       command_line.preview_ddgi_seed = static_cast<uint32_t>(std::stoul(argv[++arg_index], nullptr, 0));
+    } else if (argument == "--preview-ddgi-guided-rays") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
+      }
+      command_line.preview_ddgi_guided_ray_count = std::stoi(argv[++arg_index]);
+      if (command_line.preview_ddgi_guided_ray_count < 0 || command_line.preview_ddgi_guided_ray_count > 4096) {
+        throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
+      }
+    } else if (argument == "--preview-ddgi-uniform-rays") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ddgi-uniform-rays requires a value between 1 and 4096.");
+      }
+      const int uniform_ray_count = std::stoi(argv[++arg_index]);
+      if (uniform_ray_count < 1 || uniform_ray_count > 4096) {
+        throw std::invalid_argument("--preview-ddgi-uniform-rays requires a value between 1 and 4096.");
+      }
+      command_line.preview_ddgi_uniform_ray_count = uniform_ray_count;
+    } else if (argument == "--preview-ddgi-guided-emitters") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
+      }
+      command_line.preview_ddgi_guided_emitter_count = std::stoi(argv[++arg_index]);
+      if (command_line.preview_ddgi_guided_emitter_count < 1 || command_line.preview_ddgi_guided_emitter_count > 8) {
+        throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
+      }
     } else if (argument == "--preview-ddgi-measure-frames") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-measure-frames requires a positive integer.");
       }
       command_line.preview_ddgi_measure_frames = static_cast<size_t>(std::max(1, std::stoi(argv[++arg_index])));
+    } else if (argument == "--preview-ddgi-response-frames") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-ddgi-response-frames requires a positive integer.");
+      }
+      command_line.preview_ddgi_response_frames = static_cast<size_t>(std::max(1, std::stoi(argv[++arg_index])));
     } else if (argument == "--preview-ddgi-disabled") {
       command_line.preview_ddgi_disabled = true;
     } else if (argument == "--preview-ddgi-reference") {
@@ -899,6 +933,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "alpha-tested",
                                                "scrolling",
                                                "emissive-small",
+                                               "emissive-small-equal-radiance",
+                                               "emissive-small-equal-power",
                                                "emissive-large",
                                                "emissive-textured-uv0",
                                                "emissive-textured-uv1",
@@ -907,7 +943,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "emissive-one-sided",
                                                "emissive-double-sided",
                                                "emissive-alpha-cutout",
+                                               "emissive-multi",
                                                "emissive-moving-rigid",
+                                               "emissive-enable",
+                                               "emissive-disable",
+                                               "emissive-enable-hdr",
+                                               "geometry-moving",
+                                               "analytic-light",
                                                "emissive-direct-hit",
                                                "emissive-empty"};
     if (fixture_ids.find(*command_line.preview_ddgi_fixture) == fixture_ids.end()) {
@@ -921,7 +963,19 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     if (command_line.demo_profile_id != required_profile) {
       throw std::invalid_argument("DDGI validation fixture requires its canonical demo profile.");
     }
-    const auto expected_image_extension = *command_line.preview_ddgi_fixture == "furnace" ? ".hdr" : ".png";
+    const bool small_emitter_baseline_fixture = *command_line.preview_ddgi_fixture == "emissive-small" ||
+                                                *command_line.preview_ddgi_fixture == "emissive-small-equal-radiance" ||
+                                                *command_line.preview_ddgi_fixture == "emissive-small-equal-power" ||
+                                                *command_line.preview_ddgi_fixture == "emissive-large";
+    const bool temporal_response_fixture = *command_line.preview_ddgi_fixture == "emissive-enable" ||
+                                           *command_line.preview_ddgi_fixture == "emissive-disable" ||
+                                           *command_line.preview_ddgi_fixture == "emissive-enable-hdr" ||
+                                           *command_line.preview_ddgi_fixture == "emissive-empty";
+    const auto expected_image_extension = *command_line.preview_ddgi_fixture == "furnace" ||
+                                                  *command_line.preview_ddgi_fixture == "analytic-light" ||
+                                                  small_emitter_baseline_fixture || temporal_response_fixture
+                                              ? ".hdr"
+                                              : ".png";
     if (!command_line.preview_capture_deterministic || command_line.preview_capture_width != 1920 ||
         command_line.preview_capture_height != 1080 ||
         command_line.demo_preview_capture_path->extension() != expected_image_extension) {
@@ -1403,7 +1457,7 @@ std::string HexBytes(const std::array<uint8_t, Size>& bytes) {
 
 void WriteDdgiValidationReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
                                const std::string& fixture_id, const uint32_t seed, const size_t measure_frames,
-                               const size_t warmup_frames, const glm::uvec2 resolution,
+                               const size_t response_frames, const size_t warmup_frames, const glm::uvec2 resolution,
                                const Camera::CameraRenderMode render_mode, const std::string& phase,
                                const size_t run_index, const size_t convergence_frames, const bool convergence_observed,
                                const uint32_t history_reset_reasons_after_transition, const bool ddgi_enabled) {
@@ -1422,7 +1476,8 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   const auto& validation_volume_defaults = validation_lighting->ddgi_settings.volume_defaults;
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto memory = Platform::GetGpuMemorySnapshot();
-  const auto performance = render_layer->GetDdgiLastPerformanceStats();
+  (void)render_layer->RefreshDdgiProbeDebugData();
+  const auto performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
   const auto gpu_timestamps = Platform::GetGpuTimestampStats();
   auto render_mode_name = std::string(Camera::GetCameraRenderModeName(render_mode));
   std::transform(render_mode_name.begin(), render_mode_name.end(), render_mode_name.begin(), [](const char character) {
@@ -1435,21 +1490,28 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   if (!output) {
     throw std::runtime_error("Failed to open DDGI validation report: " + report_path.string());
   }
+  const bool dynamic_fixture = fixture_id == "scrolling" || fixture_id == "emissive-moving-rigid" ||
+                               fixture_id == "emissive-enable" || fixture_id == "emissive-disable" ||
+                               fixture_id == "emissive-enable-hdr" || fixture_id == "geometry-moving";
+  const auto transition_kind = fixture_id == "emissive-enable" || fixture_id == "emissive-enable-hdr"
+                                   ? "enable-emission"
+                               : fixture_id == "emissive-disable" ? "disable-emission"
+                               : fixture_id == "geometry-moving"  ? "translate-occluder-x"
+                                                                  : "translate-x-one-spacing";
   output << std::setprecision(17);
-  output << "{\n  \"schema_version\": 2,\n"
+  output << "{\n  \"schema_version\": 7,\n"
          << "  \"fixture_id\": \"" << JsonEscape(fixture_id) << "\",\n"
-         << "  \"fixture_definition\": {\"version\": 2, \"sha256\": "
-            "\"550dafe0fd4d2280df82668be22b92683966bb063e4c30baff151498e7ff3c8e\"},\n"
+         << "  \"fixture_definition\": {\"version\": 6, \"sha256\": "
+            "\"0f1012c5000072ad7c6ecaf74727f3e34fc0bbec3cf5d69e0ba8ffb8705239ea\"},\n"
          << "  \"image_file\": \"" << JsonEscape(image_path.filename().string()) << "\",\n"
          << "  \"capture\": {\"phase\": \"" << JsonEscape(phase) << "\", \"run_index\": " << run_index
          << ", \"output_encoding\": \"" << (image_path.extension() == ".hdr" ? "linear-rgbe-hdr" : "srgb8-png")
-         << "\", \"transition_kind\": \""
-         << (fixture_id == "scrolling" || fixture_id == "emissive-moving-rigid" ? "translate-x-one-spacing" : "none")
-         << "\", \"transition_applied\": "
-         << (fixture_id == "scrolling" || fixture_id == "emissive-moving-rigid" ? "true" : "false")
+         << "\", \"transition_kind\": \"" << (dynamic_fixture ? transition_kind : "none")
+         << "\", \"transition_applied\": " << (dynamic_fixture ? "true" : "false")
          << ", \"history_reset_after_transition\": "
          << (history_reset_reasons_after_transition != 0u ? "true" : "false")
-         << ", \"history_reset_reasons_after_transition\": " << history_reset_reasons_after_transition << "},\n"
+         << ", \"history_reset_reasons_after_transition\": " << history_reset_reasons_after_transition
+         << ", \"response_frames\": " << response_frames << "},\n"
          << "  \"build\": {\"configuration\": \"" << EVOENGINE_BUILD_CONFIGURATION << "\"},\n"
          << "  \"contract\": {\"resolution\": [" << resolution.x << ", " << resolution.y << "], \"render_mode\": \""
          << render_mode_name
@@ -1478,19 +1540,42 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << static_cast<unsigned>(fingerprint.conformance_version[3]) << "]},\n"
          << "  \"convergence\": {\"observed\": " << (convergence_observed ? "true" : "false")
          << ", \"frames\": " << convergence_frames << ", \"variability\": " << performance.probe_variability_average
-         << "},\n"
+         << ", \"variability_maximum\": " << performance.probe_variability_maximum
+         << ", \"unstable_fraction\": " << performance.probe_variability_unstable_fraction << "},\n"
          << "  \"ddgi\": {\"active_probes\": " << performance.active_probe_count
          << ", \"storage_probes\": " << performance.storage_probe_count
          << ", \"updated_probes\": " << performance.updated_probe_count
-         << ", \"rays_per_probe\": " << performance.ray_count
+         << ", \"rays_per_probe\": " << performance.ray_count + performance.guided_ray_count
+         << ", \"uniform_rays_per_probe\": " << performance.ray_count
+         << ", \"guided_rays_per_probe\": " << performance.guided_ray_count
+         << ", \"emissive_guides\": " << performance.emissive_guide_count
          << ", \"recorded_rays\": " << performance.recorded_ray_sample_count
          << ", \"lighting_descriptors_bound\": " << (performance.lighting_descriptors_bound ? "true" : "false")
          << "},\n"
+         << "  \"emissive_sampling\": {\"stats_available\": "
+         << (performance.emissive_sampling_stats_available ? "true" : "false")
+         << ", \"inventory_triangles\": " << performance.emissive_triangle_count
+         << ", \"eligible_instances\": " << performance.emissive_eligible_instance_count
+         << ", \"excluded_emissive_instances\": " << performance.emissive_excluded_instance_count
+         << ", \"unrepresentable_probabilities\": " << performance.emissive_unrepresentable_probability_count
+         << ", \"estimated_emitted_power\": " << performance.emissive_estimated_power
+         << ", \"candidate_rays_upper_bound\": " << performance.emissive_sampling_candidate_ray_count
+         << ", \"nee_attempts\": " << performance.emissive_nee_attempt_count
+         << ", \"zero_pdf_rejects\": " << performance.emissive_zero_pdf_reject_count
+         << ", \"emitter_backface_rejects\": " << performance.emissive_emitter_backface_reject_count
+         << ", \"alpha_mask_rejects\": " << performance.emissive_alpha_mask_reject_count
+         << ", \"invalid_sample_rejects\": " << performance.emissive_invalid_sample_reject_count
+         << ", \"receiver_backface_rejects\": " << performance.emissive_receiver_backface_reject_count
+         << ", \"shadowed_samples\": " << performance.emissive_shadowed_sample_count
+         << ", \"zero_radiance_samples\": " << performance.emissive_zero_radiance_sample_count
+         << ", \"nonzero_contributions\": " << performance.emissive_nonzero_contribution_count << "},\n"
          << "  \"logical_memory\": {\"scope\": \"validation-volume-logical-resources-v1\", "
             "\"probe_metadata_bytes\": "
          << performance.probe_metadata_byte_size << ", \"probe_state_bytes\": " << performance.probe_state_byte_size
          << ", \"probe_update_index_bytes\": 0"
          << ", \"ray_output_bytes\": " << performance.ray_output_byte_size
+         << ", \"emissive_guide_bytes\": " << performance.emissive_guide_byte_size
+         << ", \"ray_sample_info_bytes\": " << performance.ray_sample_info_byte_size
          << ", \"irradiance_atlas_bytes\": " << performance.irradiance_atlas_byte_size
          << ", \"visibility_atlas_bytes\": " << performance.visibility_atlas_byte_size
          << ", \"variability_atlas_bytes\": " << performance.variability_atlas_byte_size
@@ -1641,8 +1726,9 @@ void CaptureDemoPreview(
     const bool preview_strand_gizmo_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi,
     const std::optional<std::string>& preview_ddgi_fixture,
     const std::optional<std::filesystem::path>& preview_ddgi_report_path, const uint32_t preview_ddgi_seed,
-    const size_t preview_ddgi_measure_frames, const bool preview_ddgi_disabled, const bool preview_ddgi_reference,
-    const std::string& preview_ddgi_phase, const size_t preview_ddgi_run_index) {
+    const size_t preview_ddgi_measure_frames, const size_t preview_ddgi_response_frames,
+    const bool preview_ddgi_disabled, const bool preview_ddgi_reference, const std::string& preview_ddgi_phase,
+    const size_t preview_ddgi_run_index) {
   auto output_extension = output_path.extension().string();
   std::transform(output_extension.begin(), output_extension.end(), output_extension.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
@@ -1968,7 +2054,7 @@ void CaptureDemoPreview(
   }
   size_t ddgi_convergence_frames = 0;
   bool ddgi_convergence_observed = false;
-  uint32_t ddgi_history_reset_reasons_after_transition = RenderLayer::DdgiUpdateReasonNone;
+  uint32_t ddgi_history_reset_reasons_after_transition = DdgiUpdateReasonNone;
   if (preview_ddgi_fixture && preview_ddgi_report_path) {
     if (!render_layer || !Platform::GpuTimestampCaptureAvailable() || !Platform::GpuTimestampCaptureEnabled()) {
       throw std::runtime_error("DDGI validation requires available and enabled GPU timestamp capture.");
@@ -1978,28 +2064,23 @@ void CaptureDemoPreview(
       throw std::runtime_error("DDGI validation requires an active scene.");
     }
     const bool dynamic_fixture =
-        *preview_ddgi_fixture == "scrolling" || *preview_ddgi_fixture == "emissive-moving-rigid";
-    constexpr uint32_t history_reset_reason_mask = RenderLayer::DdgiUpdateReasonSource |
-                                                   RenderLayer::DdgiUpdateReasonManualReset |
-                                                   RenderLayer::DdgiUpdateReasonSceneInput;
+        *preview_ddgi_fixture == "scrolling" || *preview_ddgi_fixture == "emissive-moving-rigid" ||
+        *preview_ddgi_fixture == "emissive-enable" || *preview_ddgi_fixture == "emissive-disable" ||
+        *preview_ddgi_fixture == "emissive-enable-hdr" || *preview_ddgi_fixture == "geometry-moving";
+    constexpr uint32_t history_reset_reason_mask =
+        DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonSceneInput;
     const auto record_transition_reset_reasons = [&]() {
-      if (dynamic_fixture) {
+      if (dynamic_fixture && render_layer->GetDdgiInspectorSnapshot().last_probe_history_cleared) {
         ddgi_history_reset_reasons_after_transition |=
-            render_layer->GetDdgiLastProbeUpdateReasons() & history_reset_reason_mask;
+            render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & history_reset_reason_mask;
       }
     };
     if (dynamic_fixture && !AdvanceDdgiValidationFixture(active_scene, *preview_ddgi_fixture)) {
       throw std::runtime_error("DDGI validation fixture could not advance its dynamic target.");
     }
-    if (!preview_ddgi_disabled) {
+    if (!preview_ddgi_disabled && preview_ddgi_response_frames == 0) {
       if (!dynamic_fixture) {
-        auto& ddgi_settings = render_layer->GetDdgiSettings();
-        ddgi_settings.runtime.reset_probe_history = true;
-        if (const auto lighting = active_scene->environmental_lighting.Get<EnvironmentalLighting>()) {
-          lighting->ddgi_settings = ddgi_settings;
-        } else {
-          throw std::runtime_error("DDGI validation timing requires asset-owned EnvironmentalLighting settings.");
-        }
+        render_layer->RequestDdgiHistoryReset();
       }
       constexpr size_t max_convergence_frames = 1024;
       while (ddgi_convergence_frames < max_convergence_frames) {
@@ -2008,23 +2089,26 @@ void CaptureDemoPreview(
         }
         record_transition_reset_reasons();
         ++ddgi_convergence_frames;
-        if (render_layer->GetDdgiLastPerformanceStats().probe_variability_converged) {
+        if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
           ddgi_convergence_observed = true;
           break;
         }
       }
       if (!ddgi_convergence_observed) {
-        const auto& performance = render_layer->GetDdgiLastPerformanceStats();
+        const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
         std::ostringstream message;
         message << "DDGI validation did not converge within " << max_convergence_frames
                 << " frames: variability=" << performance.probe_variability_average
+                << ", maximum=" << performance.probe_variability_maximum
+                << ", unstable_fraction=" << performance.probe_variability_unstable_fraction
                 << ", samples=" << performance.probe_variability_sample_count
                 << ", warmup=" << performance.probe_warmup_frame_index << "/" << performance.probe_warmup_frame_count
                 << ", updated_probes=" << performance.updated_probe_count
-                << ", update_reasons=" << render_layer->GetDdgiLastProbeUpdateReasons() << ".";
+                << ", update_reasons=" << render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons << ".";
         throw std::runtime_error(message.str());
       }
-      auto& ddgi_settings = render_layer->GetDdgiSettings();
+      auto& ddgi_settings =
+          render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
       ddgi_settings.volume_defaults.enable_probe_variability_gating = false;
       if (const auto lighting = active_scene->environmental_lighting.Get<EnvironmentalLighting>()) {
         for (auto& volume : lighting->ddgi_volumes) {
@@ -2042,7 +2126,9 @@ void CaptureDemoPreview(
     }
     Platform::WaitForFrameSubmissions("DDGI Validation Warmup Fence Wait");
     Platform::ResetGpuTimestampStats();
-    for (size_t frame = 0; frame < preview_ddgi_measure_frames; ++frame) {
+    const auto measurement_frame_count =
+        preview_ddgi_response_frames > 0 ? preview_ddgi_response_frames : preview_ddgi_measure_frames;
+    for (size_t frame = 0; frame < measurement_frame_count; ++frame) {
       if (!ApplicationContext::Get().Loop()) {
         throw std::runtime_error("Application ended during DDGI GPU timing measurement.");
       }
@@ -2093,10 +2179,11 @@ void CaptureDemoPreview(
   }
   if (preview_ddgi_fixture && preview_ddgi_report_path) {
     WriteDdgiValidationReport(
-        *preview_ddgi_report_path, output_path, *preview_ddgi_fixture, preview_ddgi_seed, preview_ddgi_measure_frames,
-        warmup_frames, glm::uvec2(render_extent.width, render_extent.height), resolved_render_mode, preview_ddgi_phase,
-        preview_ddgi_run_index, ddgi_convergence_frames, ddgi_convergence_observed,
-        ddgi_history_reset_reasons_after_transition, !preview_ddgi_disabled);
+        *preview_ddgi_report_path, output_path, *preview_ddgi_fixture, preview_ddgi_seed,
+        preview_ddgi_response_frames > 0 ? preview_ddgi_response_frames : preview_ddgi_measure_frames,
+        preview_ddgi_response_frames, warmup_frames, glm::uvec2(render_extent.width, render_extent.height),
+        resolved_render_mode, preview_ddgi_phase, preview_ddgi_run_index, ddgi_convergence_frames,
+        ddgi_convergence_observed, ddgi_history_reset_reasons_after_transition, !preview_ddgi_disabled);
   }
 
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
@@ -2136,13 +2223,15 @@ void RunBistroSmoke(const int width, const int height) {
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before Bistro smoke readiness.");
     }
-    const auto stats = render_layer->GetDdgiLastPerformanceStats();
+    const auto stats = render_layer->GetDdgiInspectorSnapshot().aggregate;
     observed_ddgi_execution |= stats.recorded_probe_update_count > 0 && stats.recorded_ray_sample_count > 0 &&
                                stats.lighting_descriptors_bound;
-    if (!ddgi_ready && render_layer->GetDdgiSettings().runtime.enabled && observed_ddgi_execution &&
-        stats.active_probe_count > 0 && stats.storage_probe_count >= stats.active_probe_count &&
-        stats.irradiance_atlas_extent.x > 0 && stats.irradiance_atlas_extent.y > 0 &&
-        stats.visibility_atlas_extent.x > 0 && stats.visibility_atlas_extent.y > 0) {
+    if (!ddgi_ready &&
+        render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings.runtime.enabled &&
+        observed_ddgi_execution && stats.active_probe_count > 0 &&
+        stats.storage_probe_count >= stats.active_probe_count && stats.irradiance_atlas_extent.x > 0 &&
+        stats.irradiance_atlas_extent.y > 0 && stats.visibility_atlas_extent.x > 0 &&
+        stats.visibility_atlas_extent.y > 0) {
       ddgi_ready = true;
       std::cout << "EVOENGINE_BISTRO_DDGI_READY active_probes=" << stats.active_probe_count
                 << " storage_probes=" << stats.storage_probe_count
@@ -2191,7 +2280,7 @@ void RunBistroSmoke(const int width, const int height) {
     const auto now = std::chrono::steady_clock::now();
     if (now - last_heartbeat_time >= std::chrono::seconds(1)) {
       const auto elapsed_seconds = std::chrono::duration<double>(now - ready_time).count();
-      const auto stats = render_layer->GetDdgiLastPerformanceStats();
+      const auto stats = render_layer->GetDdgiInspectorSnapshot().aggregate;
       std::cout << "EVOENGINE_BISTRO_SMOKE_HEARTBEAT elapsed_seconds=" << elapsed_seconds
                 << " active_probes=" << stats.active_probe_count << std::endl;
       last_heartbeat_time = now;
@@ -2254,10 +2343,25 @@ int main(const int argc, char** argv) {
             auto& ddgi = lighting->ddgi_settings;
             ddgi.runtime.deterministic_ray_seed_enabled = true;
             ddgi.runtime.deterministic_ray_seed = command_line.preview_ddgi_seed;
+            if (command_line.preview_ddgi_uniform_ray_count) {
+              ddgi.runtime.ray_count = *command_line.preview_ddgi_uniform_ray_count;
+            }
+            ddgi.runtime.guided_ray_count = command_line.preview_ddgi_guided_ray_count;
+            ddgi.runtime.guided_emitter_count = command_line.preview_ddgi_guided_emitter_count;
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
+            if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+                render_layer && command_line.preview_ddgi_report_path.has_value() &&
+                !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference) {
+              render_layer->RequestDdgiEmissiveSamplingCapture();
+              render_layer->RequestDdgiGatherTimingCapture();
+            }
             if (command_line.preview_ddgi_reference &&
                 (*command_line.preview_ddgi_fixture == "scrolling" ||
-                 *command_line.preview_ddgi_fixture == "emissive-moving-rigid") &&
+                 *command_line.preview_ddgi_fixture == "emissive-moving-rigid" ||
+                 *command_line.preview_ddgi_fixture == "emissive-enable" ||
+                 *command_line.preview_ddgi_fixture == "emissive-disable" ||
+                 *command_line.preview_ddgi_fixture == "emissive-enable-hdr" ||
+                 *command_line.preview_ddgi_fixture == "geometry-moving") &&
                 !AdvanceDdgiValidationFixture(scene, *command_line.preview_ddgi_fixture)) {
               throw std::runtime_error("DDGI reference fixture could not advance its dynamic target.");
             }
@@ -2286,8 +2390,8 @@ int main(const int argc, char** argv) {
               command_line.preview_strand_punctual_fixture, command_line.preview_strand_gizmo_fixture,
               command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
               command_line.preview_ddgi_fixture, command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
-              command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_disabled,
-              command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
+              command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_response_frames,
+              command_line.preview_ddgi_disabled, command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
               command_line.preview_ddgi_run_index);
           ApplicationContext::Get().Terminate();
           std::cout.flush();

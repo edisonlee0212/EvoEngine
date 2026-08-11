@@ -45,6 +45,8 @@ CAPTURE_NAMES = (
     "m15-boundary-center",
     "m15-boundary-right",
     "m15-camera-moved-occluded",
+    "debug-bounds-off",
+    "debug-bounds-on",
 )
 REGIONS = {
     "left": (0.29, 0.38, 0.41, 0.60),
@@ -187,7 +189,14 @@ def validate_images(images: dict[str, PngImage]) -> dict[str, object]:
         "indirect_intensity_nrmse": normalized_rms(
             images["m15-occluded-material"], images["m15-occluded-indirect-double"]
         ),
+        "debug_bounds_nrmse": normalized_rms(images["debug-bounds-off"], images["debug-bounds-on"]),
     }
+    debug_off = images["debug-bounds-off"]
+    debug_on = images["debug-bounds-on"]
+    debug_bounds_changed_fraction = sum(
+        max(abs(debug_off.rgba[index + channel] - debug_on.rgba[index + channel]) for channel in range(3)) > 8
+        for index in range(0, len(debug_off.rgba), 4)
+    ) / (debug_off.width * debug_off.height)
     scalar_channel_error = max(
         max(
             abs(image.rgba[index] - image.rgba[index + 1]),
@@ -260,11 +269,18 @@ def validate_images(images: dict[str, PngImage]) -> dict[str, object]:
         "boundary_is_finite_nonblack": min(boundary_luminances) > 0.0001
         and max(boundary_luminances) < min(boundary_luminances) * 2.0 + 0.01,
         "moved_camera_keeps_specular": luminance(metrics["m15-camera-moved-occluded"]["center"]) > 0.0001,
+        "transformed_debug_bounds_are_visible": deltas["debug_bounds_nrmse"] > 0.0001
+        and 0.01 < debug_bounds_changed_fraction < 0.1,
     }
     failed = sorted(name for name, passed in checks.items() if not passed)
     if failed:
         raise RuntimeError("Reflection probe PNG checks failed: " + ", ".join(failed))
-    return {"regions": metrics, "deltas": deltas, "checks": checks}
+    return {
+        "regions": metrics,
+        "deltas": deltas,
+        "debug_bounds_changed_fraction": debug_bounds_changed_fraction,
+        "checks": checks,
+    }
 
 
 def main() -> int:
@@ -392,6 +408,8 @@ def main() -> int:
             raise RuntimeError("Reflection probe report does not contain the canonical capture sequence.")
         expected_counts = dict.fromkeys(CAPTURE_NAMES, 5)
         expected_counts["removed"] = 4
+        expected_counts["debug-bounds-off"] = 4
+        expected_counts["debug-bounds-on"] = 4
         if any(
             capture.get("finite") is not True or capture.get("probe_count") != expected_counts[capture["name"]]
             for capture in captures

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "AssetRef.hpp"
+#include "CameraSettings.hpp"
 #include "DdgiSettings.hpp"
 #include "IAsset.hpp"
 
@@ -43,15 +44,24 @@ class EnvironmentalLighting final : public IAsset {
     void CollectAssetRef(std::vector<AssetRef>& list);
   };
 
+  struct ReflectionProbeBakeBackground {
+    CameraSettings::BackgroundSource source = CameraSettings::BackgroundSource::InheritEnvironmentalLighting;
+    AssetRef cubemap;
+    AssetRef environmental_map;
+    glm::vec4 clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    float intensity = 1.0f;
+
+    void CollectAssetRef(std::vector<AssetRef>& list);
+  };
+
   struct LocalReflectionProbe {
     std::string name = "Local Reflection Probe";
     uint64_t stable_id = 0;
     AssetRef global_reflection_probe;
     glm::mat4 transform = glm::mat4(1.0f);
-    glm::vec3 box_extents = glm::vec3(5.0f);
-    glm::vec3 box_projection_extents = glm::vec3(5.0f);
+    glm::vec3 box_projection_extents = glm::vec3(0.5f);
     float sphere_radius = 5.0f;
-    float blend_distance = 1.0f;
+    float blend_distance = 0.05f;
     float reflection_intensity = 1.0f;
     int artist_priority = 0;
     int shape = static_cast<int>(LocalReflectionProbeShape::Box);
@@ -80,8 +90,8 @@ class EnvironmentalLighting final : public IAsset {
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.2f;
-    int probe_variability_min_samples = 16;
+    float probe_variability_threshold = 0.03f;
+    int probe_variability_min_samples = 128;
     int auto_invalidate_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
     int variability_reset_trigger_conditions =
@@ -94,10 +104,12 @@ class EnvironmentalLighting final : public IAsset {
   };
 
   IndirectEnvironmentSource indirect_environment_source{};
+  ReflectionProbeBakeBackground reflection_probe_bake_background{};
   float environment_lighting_intensity = kDefaultEnvironmentLightingIntensity;
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  bool local_reflection_probes_enabled = true;
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiVolume> ddgi_volumes;
 

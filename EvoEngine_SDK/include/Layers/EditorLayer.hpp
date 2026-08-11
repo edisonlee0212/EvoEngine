@@ -27,7 +27,11 @@
 
 namespace evo_engine {
 
+class EnvironmentalLighting;
 class ProjectContentBrowserPanel;
+
+enum class EnvironmentalLightingGizmoTargetType : uint8_t { LocalReflectionProbe, DdgiVolume };
+enum class LocalTransformGizmoOperation : uint8_t { Translate, Rotate, Scale };
 
 struct EditorFloatingWindowLayout {
   enum class Anchor { UpperLeft, UpperRight, LowerLeft, LowerRight };
@@ -322,6 +326,24 @@ class EditorLayer : public ILayer {
    */
   void SetSelectedEntity(const Entity& entity, bool open_menu = true);
 
+  static glm::mat4 ComposeAuthoringTransform(const glm::vec3& position, const glm::vec3& rotation_degrees,
+                                             const glm::vec3& scale);
+  static bool TryNormalizeAuthoringTransform(const glm::mat4& transform, glm::mat4& normalized, glm::vec3& position,
+                                             glm::vec3& rotation_degrees, glm::vec3& scale);
+  static glm::mat4 CreateAuthoringGizmoTransform(const glm::mat4& transform, const glm::vec3& local_pivot);
+  static bool TryConvertAuthoringGizmoTransform(const glm::mat4& gizmo_transform, const glm::vec3& local_pivot,
+                                                glm::mat4& transform);
+
+  void SetEnvironmentalLightingGizmoTarget(const std::shared_ptr<EnvironmentalLighting>& lighting,
+                                           EnvironmentalLightingGizmoTargetType type, size_t index, uint64_t stable_id);
+  [[nodiscard]] bool IsEnvironmentalLightingGizmoTarget(const EnvironmentalLighting& lighting,
+                                                        EnvironmentalLightingGizmoTargetType type, size_t index,
+                                                        uint64_t stable_id) const;
+  [[nodiscard]] bool IsEnvironmentalLightingGizmoTarget(EnvironmentalLightingGizmoTargetType type,
+                                                        const Handle& asset_handle, uint64_t stable_id) const;
+  void ClearEnvironmentalLightingGizmoTarget();
+  void ClearEnvironmentalLightingGizmoTarget(const Handle& asset_handle);
+
   float scene_camera_resolution_multiplier = 1.0f; /**< Multiplier for the scene camera resolution. */
 
   /**
@@ -408,6 +430,8 @@ class EditorLayer : public ILayer {
    * @return True if the local scale is selected, false otherwise.
    */
   [[nodiscard]] bool LocalScaleSelected() const;
+
+  void SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation operation);
 
 #pragma region ImGui Helpers
   /**
@@ -1038,9 +1062,17 @@ class EditorLayer : public ILayer {
   friend class ProjectManager;
   friend class RenderInstanceStorage;
 
-  int selection_alpha_ = 0;                          /**< Alpha value for the selected entity. */
-  bool gizmo_displaying_ = false;                    /**< Indicates if any gizmo is being displayed. */
-  bool gizmo_using_ = false;                         /**< Indicates if any gizmo is being used. */
+  int selection_alpha_ = 0;       /**< Alpha value for the selected entity. */
+  bool gizmo_displaying_ = false; /**< Indicates if any gizmo is being displayed. */
+  bool gizmo_using_ = false;      /**< Indicates if any gizmo is being used. */
+  struct EnvironmentalLightingGizmoTarget {
+    std::weak_ptr<EnvironmentalLighting> lighting;
+    Handle asset_handle = Handle(0);
+    EnvironmentalLightingGizmoTargetType type = EnvironmentalLightingGizmoTargetType::LocalReflectionProbe;
+    size_t index = 0;
+    uint64_t stable_id = 0;
+  };
+  std::optional<EnvironmentalLightingGizmoTarget> environmental_lighting_gizmo_target_;
   void* mapped_entity_index_data_;                   /**< Pointer to mapped entity index data. */
   std::unique_ptr<Buffer> entity_index_read_buffer_; /**< Buffer for reading entity index. */
 
@@ -1071,6 +1103,7 @@ class EditorLayer : public ILayer {
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */
+  bool suppress_scene_camera_selection_ = false;
 
 #pragma region Registrations
 

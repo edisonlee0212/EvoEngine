@@ -27,6 +27,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint probe_index = dispatch_thread_id.x;
   uint dispatch_probe_count = max(constants.probe_count_ray_count_and_flags.x, 1u);
   uint ray_count = max(constants.probe_count_ray_count_and_flags.y, 1u);
+  uint uniform_ray_count = min(max(constants.probe_count_ray_count_and_flags.z, 1u), ray_count);
   bool reset_offsets = constants.probe_count_ray_count_and_flags.w != 0u;
   if (probe_index >= dispatch_probe_count) {
     return;
@@ -56,7 +57,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   }
 
   float3 relocation_offset = EE_DDGI_PROBE_STATE[physical_probe_index].xyz;
-  uint fixed_ray_count = min(constants.probe_counts.w, ray_count);
+  uint fixed_ray_count = min(constants.probe_counts.w, uniform_ray_count);
   if (fixed_ray_count == 0u) {
     return;
   }
@@ -100,15 +101,15 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   if (closest_backface_ray_index != invalid_ray_index &&
       backface_count / float(fixed_ray_count) > fixed_ray_backface_threshold) {
     float3 closest_backface_direction =
-        EE_DDGI_PROBE_RAY_DIRECTION(closest_backface_ray_index, ray_count, fixed_ray_count);
+        EE_DDGI_PROBE_RAY_DIRECTION(closest_backface_ray_index, uniform_ray_count, fixed_ray_count);
     candidate_offset =
         relocation_offset + closest_backface_direction * (closest_backface_distance + relocation_distance * 0.5f);
   } else if (closest_frontface_ray_index != invalid_ray_index && closest_frontface_distance < relocation_distance &&
              farthest_frontface_ray_index != invalid_ray_index) {
     float3 closest_frontface_direction =
-        EE_DDGI_PROBE_RAY_DIRECTION(closest_frontface_ray_index, ray_count, fixed_ray_count);
+        EE_DDGI_PROBE_RAY_DIRECTION(closest_frontface_ray_index, uniform_ray_count, fixed_ray_count);
     float3 farthest_frontface_direction =
-        EE_DDGI_PROBE_RAY_DIRECTION(farthest_frontface_ray_index, ray_count, fixed_ray_count);
+        EE_DDGI_PROBE_RAY_DIRECTION(farthest_frontface_ray_index, uniform_ray_count, fixed_ray_count);
     if (dot(closest_frontface_direction, farthest_frontface_direction) <= 0.0f) {
       candidate_offset = relocation_offset + farthest_frontface_direction * min(farthest_frontface_distance, 1.0f);
     }

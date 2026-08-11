@@ -33,7 +33,7 @@ void main(inout PointCloudRayTracingPayload hit_value, in BuiltInTriangleInterse
           ? float4(0.0f)
           : EE_RT_TEXTURE_GRADIENTS(0.0f, RayTCurrent(), world_geometric_normal, ray_direction, instance.model, v0, v1,
                                     v2, EE_RT_SPHERICAL_RAY_SPREAD(
-                                            EE_DDGI_PROBE_RAY_CONSTANTS.probe_counts_and_ray_count.w));
+                                            EE_DDGI_UNIFORM_RAY_COUNT()));
   const EeRayTracingSurfaceAttributes surface_attributes =
       EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(v0, v1, v2, barycentrics, tex_gradients);
   const bool alpha_mask_passes =

@@ -40,14 +40,14 @@ void DispatchReduction(const VkCommandBuffer vk_command_buffer, const std::share
                        const std::shared_ptr<ImageView>& input_view, const std::shared_ptr<Buffer>& state_buffer,
                        const std::shared_ptr<ImageView>& output_view, const glm::uvec2 input_extent,
                        const glm::uvec2 output_extent, const uint32_t tile_resolution, const uint32_t atlas_columns,
-                       const uint32_t probe_count) {
+                       const uint32_t probe_count, const float variability_threshold) {
   const auto descriptor_set =
       CreateVariabilityDescriptorSet(descriptor_set_layout, input_view, state_buffer, output_view);
   DdgiProbeVariabilityPushConstant push_constant;
   push_constant.input_output_extent = {glm::max(input_extent.x, 1u), glm::max(input_extent.y, 1u),
                                        glm::max(output_extent.x, 1u), glm::max(output_extent.y, 1u)};
   push_constant.atlas_parameters = {glm::max(tile_resolution, 1u), glm::max(atlas_columns, 1u),
-                                    glm::max(probe_count, 1u), 0u};
+                                    glm::max(probe_count, 1u), glm::floatBitsToUint(variability_threshold)};
   pipeline->Bind(vk_command_buffer);
   pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
   pipeline->PushConstant(vk_command_buffer, 0, push_constant);
@@ -58,7 +58,7 @@ void DispatchReduction(const VkCommandBuffer vk_command_buffer, const std::share
 
 bool CopyReductionResultToReadback(const VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,
                                    const std::shared_ptr<Buffer>& readback_buffer) {
-  if (!image || !readback_buffer || readback_buffer->GetSize() < sizeof(glm::vec2)) {
+  if (!image || !readback_buffer || readback_buffer->GetSize() < sizeof(glm::vec4)) {
     return false;
   }
   ApplyDdgiImageDependency(vk_command_buffer, image, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
@@ -109,7 +109,7 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
   DispatchReduction(vk_command_buffer, parameters.reduce_pipeline, parameters.descriptor_set_layout,
                     *parameters.transient_resources, input_view, state_binding->buffer, output_view, input_extent,
                     output_extent, parameters.layout.tile_resolution, parameters.layout.columns,
-                    parameters.layout.probe_count);
+                    parameters.layout.probe_count, parameters.variability_threshold);
 
   auto current_input_view = reduction_a_view;
   auto current_output_view = reduction_b_view;
@@ -125,7 +125,7 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
     DispatchReduction(vk_command_buffer, parameters.extra_reduce_pipeline, parameters.descriptor_set_layout,
                       *parameters.transient_resources, current_input_view, {}, current_output_view,
                       current_input_extent, current_output_extent, parameters.layout.tile_resolution,
-                      parameters.layout.columns, parameters.layout.probe_count);
+                      parameters.layout.columns, parameters.layout.probe_count, parameters.variability_threshold);
     current_input_view = current_output_view;
     current_input_image = current_output_image;
     current_output_view = current_input_view == reduction_a_view ? reduction_b_view : reduction_a_view;

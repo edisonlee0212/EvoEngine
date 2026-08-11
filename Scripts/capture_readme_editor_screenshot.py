@@ -26,8 +26,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", type=Path, help="capture output path")
     parser.add_argument("--demo-setup", default="Rendering", choices=("Rendering", "CornellBox", "ThinWall"))
     parser.add_argument("--inspect-render-layer", action="store_true", help="open the RenderLayer inspection window")
-    parser.add_argument("--ddgi-atlas-preview", action="store_true", help="force the DDGI atlas readout layout")
-    parser.add_argument("--ddgi-ray-overlay", action="store_true", help="enable selected DDGI probe ray overlay")
     parser.add_argument("--width", type=int, default=1920)
     parser.add_argument("--height", type=int, default=1080)
     parser.add_argument("--timeout", type=float, default=180.0)
@@ -62,8 +60,6 @@ def write_run_config(
     output: Path,
     demo_setup: str,
     inspect_render_layer: bool,
-    ddgi_atlas_preview: bool,
-    ddgi_ray_overlay: bool,
     width: int,
     height: int,
     warmup_frames: int,
@@ -76,9 +72,7 @@ def write_run_config(
             demo_setup: {demo_setup}
             screenshot_width: {width}
             screenshot_height: {height}
-            inspect_render_layer: {str(inspect_render_layer or ddgi_atlas_preview or ddgi_ray_overlay).lower()}
-            ddgi_atlas_preview: {str(ddgi_atlas_preview).lower()}
-            ddgi_ray_overlay: {str(ddgi_ray_overlay).lower()}
+            inspect_render_layer: {str(inspect_render_layer).lower()}
             warmup_frames: {warmup_frames}
             max_load_frames: 30000
             exit_on_complete: true
@@ -120,8 +114,6 @@ def main() -> int:
         output,
         args.demo_setup,
         args.inspect_render_layer,
-        args.ddgi_atlas_preview,
-        args.ddgi_ray_overlay,
         args.width,
         args.height,
         args.warmup_frames,

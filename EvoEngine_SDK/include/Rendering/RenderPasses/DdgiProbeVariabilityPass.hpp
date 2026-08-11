@@ -23,6 +23,7 @@ class DdgiProbeVariabilityPass final {
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     DdgiAtlasLayout layout;
+    float variability_threshold = 0.0f;
     std::shared_ptr<Buffer> readback_buffer;
     bool* readback_recorded = nullptr;
     float* record_time_ms = nullptr;

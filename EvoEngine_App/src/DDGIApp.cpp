@@ -146,7 +146,7 @@ int FailDdgiApp(const std::string& reason) {
       return FailDdgiApp("application ended before DDGIApp screenshot warmup completed");
     }
     if (const auto render_layer = application.GetLayer<RenderLayer>()) {
-      const auto performance = render_layer->GetDdgiLastPerformanceStats();
+      const auto performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
       observed_probe_update_count = glm::max(observed_probe_update_count, performance.recorded_probe_update_count);
       observed_ray_sample_count = glm::max(observed_ray_sample_count, performance.recorded_ray_sample_count);
     }
@@ -162,7 +162,7 @@ int FailDdgiApp(const std::string& reason) {
   if (resolution.x != command_line.width || resolution.y != command_line.height || !main_camera->Rendered()) {
     return FailDdgiApp("main camera did not render at the requested screenshot resolution");
   }
-  const auto performance = render_layer->GetDdgiLastPerformanceStats();
+  const auto performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
   if (performance.active_probe_count == 0 || performance.storage_probe_count < performance.active_probe_count ||
       observed_probe_update_count == 0 || observed_ray_sample_count == 0 || !performance.lighting_descriptors_bound) {
     return FailDdgiApp("DDGI did not reach a render-ready state before screenshot capture");

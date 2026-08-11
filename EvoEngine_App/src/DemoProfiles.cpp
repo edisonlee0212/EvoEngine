@@ -6,6 +6,7 @@
 #include "ApplicationInitializationSettings.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
+#include "DdgiRuntime.hpp"
 #include "EditorLayer.hpp"
 #include "Entity.hpp"
 #include "EnvironmentalLighting.hpp"
@@ -15,6 +16,7 @@
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "PathUtils.hpp"
+#include "RenderLayer.hpp"
 #include "Scene.hpp"
 #include "SkinnedMesh.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -211,11 +213,13 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
 
   auto& settings = lighting->ddgi_settings;
   settings.runtime.enabled = true;
-  settings.debug.enabled = true;
-  settings.debug.visualize_probe_positions = true;
-  settings.debug.visualize_selected_probe = true;
-  settings.debug.visualization_scale = 2.0f;
-  settings.debug.selected_probe_index = 129;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    auto& session = render_layer->GetDdgiSessionState();
+    session.show_probes = true;
+    session.show_selected_probe = true;
+    session.selected_volume_id = asset_volume->stable_id;
+    session.selected_probe_grid = DdgiRuntime::GetProbeGridIndex(asset_volume->probe_counts, 129u);
+  }
 
   if (asset_volume->probe_spacing.x < 0.05f) {
     asset_volume->probe_spacing.x = 0.05f;
@@ -675,19 +679,15 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
 
   auto& ddgi_settings = lighting->ddgi_settings;
   ddgi_settings.runtime.enabled = true;
-  ddgi_settings.runtime.pause_updates = false;
   ddgi_settings.runtime.ray_count = 256;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
-  ddgi_settings.runtime.reset_probe_history = true;
   ddgi_settings.storage.max_probe_count =
       kDdgiCornellBoxProbeCounts.x * kDdgiCornellBoxProbeCounts.y * kDdgiCornellBoxProbeCounts.z;
-  ddgi_settings.debug.enabled = false;
-  ddgi_settings.debug.visualize_probe_positions = false;
-  ddgi_settings.debug.visualize_selected_probe = false;
-  ddgi_settings.debug.visualize_probe_state = false;
-  ddgi_settings.debug.visualize_probe_illumination = false;
-  ddgi_settings.debug.show_rays = false;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    render_layer->GetDdgiSessionState().pause_updates = false;
+    render_layer->RequestDdgiHistoryReset();
+  }
 
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->Resize(kDdgiCornellBoxExtent);

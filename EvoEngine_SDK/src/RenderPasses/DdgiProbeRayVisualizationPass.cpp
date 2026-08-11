@@ -21,17 +21,13 @@ void RecordProbeRayVisualization(const VkCommandBuffer vk_command_buffer, const 
                                  const DdgiProbeRayVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
       !parameters.descriptor_set_layout || !parameters.transient_resources || !parameters.camera ||
-      !parameters.camera->GetRenderTexture() || parameters.push_constant.camera_ray_count.y == 0u) {
-    return;
-  }
-  const auto* diagnostics_binding =
-      context.GetResourceBinding(RenderResourceNames::frame_ddgi_selected_ray_diagnostics);
-  if (!diagnostics_binding || !diagnostics_binding->buffer) {
+      !parameters.camera->GetRenderTexture() || !parameters.selected_ray_diagnostics_buffer ||
+      parameters.push_constant.camera_ray_count.y == 0u) {
     return;
   }
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
-  descriptor_set->UpdateBufferDescriptorBinding(0, diagnostics_binding->buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(0, parameters.selected_ray_diagnostics_buffer);
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
@@ -85,9 +81,7 @@ RenderPassDescriptor DdgiProbeRayVisualizationPass::CreateDescriptor(const char*
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
-       {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
-       {RenderResourceNames::frame_ddgi_selected_ray_diagnostics, RenderResourceUsage::Read,
-        RenderResourceState::ShaderRead}}};
+       {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment}}};
   descriptor.dependencies = {dependency ? dependency : RenderPassNames::deferred_camera};
   return descriptor;
 }

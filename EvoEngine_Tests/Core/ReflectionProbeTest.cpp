@@ -164,7 +164,7 @@ TEST(ReflectionProbe, RoughSpecularVisibilityCapsUntrustedGrazingOcclusion) {
             EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 0.2f, 1.0f, 1.0f));
 }
 
-TEST(ReflectionProbe, BakeEnvironmentInputUsesSourceIntensityOnly) {
+TEST(ReflectionProbe, BakeUsesIndependentCameraStyleBackground) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   ASSERT_FALSE(render_layer.empty());
 
@@ -175,13 +175,17 @@ TEST(ReflectionProbe, BakeEnvironmentInputUsesSourceIntensityOnly) {
   ASSERT_FALSE(fingerprint.empty());
   ASSERT_FALSE(bake.empty());
 
-  EXPECT_NE(fingerprint.find("MixDdgiFloat(fingerprint, resolved_lighting.environment_lighting_intensity)"),
-            std::string::npos);
+  EXPECT_NE(fingerprint.find("bake_background_source"), std::string::npos);
+  EXPECT_NE(fingerprint.find("MixDdgiFloat(fingerprint, bake_background_intensity)"), std::string::npos);
+  EXPECT_NE(fingerprint.find("MixDdgiVec4(fingerprint, bake_background.clear_color)"), std::string::npos);
+  EXPECT_NE(fingerprint.find("Camera::BackgroundSource::EnvironmentalMap"), std::string::npos);
   EXPECT_EQ(fingerprint.find("diffuse_fallback_intensity"), std::string::npos);
   EXPECT_EQ(fingerprint.find("specular_fallback_intensity"), std::string::npos);
-  EXPECT_NE(bake.find("camera->camera_settings.background_intensity = "
-                      "glm::max(resolved_lighting.environment_lighting_intensity, 0.0f)"),
-            std::string::npos);
+  EXPECT_NE(bake.find("lighting->reflection_probe_bake_background"), std::string::npos);
+  EXPECT_NE(bake.find("camera->camera_settings.background_intensity"), std::string::npos);
+  EXPECT_NE(bake.find("camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
+  EXPECT_NE(bake.find("camera->skybox = background.cubemap"), std::string::npos);
+  EXPECT_NE(bake.find("camera->background_environment = background.environmental_map"), std::string::npos);
   EXPECT_EQ(bake.find("diffuse_fallback_intensity"), std::string::npos);
   EXPECT_EQ(bake.find("specular_fallback_intensity"), std::string::npos);
 }
@@ -192,8 +196,18 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
 
   EXPECT_NE(demo_scene.find("AddReflectionProbeValidationLocalProbe"), std::string::npos);
   EXPECT_NE(demo_scene.find("RunEnvironmentalLightingLocalProbeBake"), std::string::npos);
+  EXPECT_NE(demo_scene.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 1.0f);"), std::string::npos);
+  EXPECT_NE(demo_scene.find("editor_layer->OpenAssetInspector(lighting)"), std::string::npos);
+  EXPECT_NE(demo_scene.find("capture(\"debug-bounds-off\")"), std::string::npos);
+  EXPECT_NE(demo_scene.find("capture(\"debug-bounds-on\")"), std::string::npos);
   EXPECT_NE(demo_scene.find("FindEnvironmentalLightingLocalReflectionProbe(scene, kSponzaLocalProbeNames.front())"),
             std::string::npos);
+  EXPECT_NE(demo_scene.find("probe_transform.SetScale(definition.size)"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{3.7f, 5.9f, 13.7f}"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{2.4f, 4.4f, 13.7f}"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{2.9f, 4.4f, 5.4f}"), std::string::npos);
+  EXPECT_EQ(demo_scene.find("definition.extents"), std::string::npos);
+  EXPECT_EQ(demo_scene.find("probe.box_extents"), std::string::npos);
   EXPECT_EQ(demo_scene.find("#include \"ReflectionProbe.hpp\""), std::string::npos);
   EXPECT_EQ(demo_scene.find("GetOrSetPrivateComponent<ReflectionProbe>"), std::string::npos);
   EXPECT_EQ(demo_scene.find("HasPrivateComponent<ReflectionProbe>"), std::string::npos);
@@ -203,6 +217,87 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
   EXPECT_EQ(demo_scene.find("GetGlobalReflectionProbeBakeFingerprint"), std::string::npos);
   EXPECT_EQ(demo_scene.find("stale_rebake"), std::string::npos);
   EXPECT_NE(demo_scene.find("explicit_rebake"), std::string::npos);
+}
+
+TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) {
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto editor = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  ASSERT_FALSE(inspector.empty());
+  ASSERT_FALSE(editor.empty());
+  const auto authoring =
+      ExtractBetween(inspector, "bool AuthoringTransformsEqual", "const char* GetGlobalReflectionProbeSourceKindName");
+  const auto helpers = ExtractBetween(editor, "glm::mat4 EditorLayer::ComposeAuthoringTransform",
+                                      "void EditorLayer::SetEnvironmentalLightingGizmoTarget");
+  ASSERT_FALSE(authoring.empty());
+  ASSERT_FALSE(helpers.empty());
+
+  EXPECT_NE(helpers.find("decomposed_transform.Decompose(position, rotation_degrees, scale)"), std::string::npos);
+  EXPECT_NE(helpers.find("glm::translate(position) * glm::mat4_cast(glm::quat(glm::radians(rotation_degrees))) *"),
+            std::string::npos);
+  EXPECT_NE(helpers.find("glm::determinant(glm::mat3(transform))"), std::string::npos);
+  EXPECT_NE(authoring.find("transform = glm::mat4(1.0f)"), std::string::npos);
+  EXPECT_NE(authoring.find("AuthoringTransformsEqual(transform, normalized)"), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::DragFloat3(\"##AuthoringPosition\""), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::DragFloat3(\"##AuthoringRotation\""), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::DragFloat3(\"##AuthoringScale\""), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::Selectable(\"Position##Authoring\""), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::Selectable(\"Rotation##Authoring\""), std::string::npos);
+  EXPECT_NE(authoring.find("ImGui::Selectable(\"Scale##Authoring\""), std::string::npos);
+  EXPECT_EQ(authoring.find("Column 0"), std::string::npos);
+  EXPECT_EQ(authoring.find("DragFloat4"), std::string::npos);
+  EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", probe.transform)"),
+            std::string::npos);
+  EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", volume.transform)"),
+            std::string::npos);
+}
+
+TEST(ReflectionProbe, EnvironmentalLightingBoundsUseFilledDepthTestedVolumes) {
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto render_instance_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  const auto gizmo_constants = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/GizmosConstants.slang"));
+  ASSERT_FALSE(inspector.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(render_instance_storage.empty());
+  ASSERT_FALSE(gizmo_constants.empty());
+  const auto bounds = ExtractBetween(inspector, "GizmoSettings MakeBoundingVolumeGizmoSettings() {",
+                                     "void RenderReflectionProbeBounds");
+  const auto ddgi_bounds = ExtractBetween(inspector, "void InspectDdgiRuntime", "if (ImGui::TreeNodeEx(\"Overview\"");
+  const auto gizmos = ExtractBetween(render_layer, "void RenderLayer::RenderGizmos() const",
+                                     "void RenderLayer::ForEachCollectedCamera");
+  ASSERT_FALSE(bounds.empty());
+  ASSERT_FALSE(ddgi_bounds.empty());
+  ASSERT_FALSE(gizmos.empty());
+
+  EXPECT_NE(bounds.find("VK_POLYGON_MODE_FILL"), std::string::npos);
+  EXPECT_NE(bounds.find("cull_mode = VK_CULL_MODE_NONE"), std::string::npos);
+  EXPECT_NE(bounds.find("blending = true"), std::string::npos);
+  EXPECT_NE(bounds.find("gizmo_settings.depth_test = true"), std::string::npos);
+  EXPECT_NE(bounds.find("gizmo_settings.depth_write = false"), std::string::npos);
+  EXPECT_EQ(bounds.find("VK_POLYGON_MODE_LINE"), std::string::npos);
+  EXPECT_NE(bounds.find("DrawGizmoCube(color, probe.transform, 1.0f, gizmo_settings)"), std::string::npos);
+  EXPECT_NE(bounds.find("glm::max(probe.sphere_radius, 0.001f)"), std::string::npos);
+  EXPECT_NE(bounds.find("if (!editor_layer || (!include_disabled && !probe.enabled))"), std::string::npos);
+  EXPECT_NE(bounds.find("if (probe.debug_draw_bounds &&"), std::string::npos);
+  EXPECT_NE(bounds.find("glm::vec4(0.1f, 0.8f, 1.0f, 0.55f), true"), std::string::npos);
+  EXPECT_NE(bounds.find("RenderEnvironmentalLightingProbeBound(editor_layer, probe, color)"), std::string::npos);
+  EXPECT_NE(ddgi_bounds.find("MakeBoundingVolumeGizmoSettings()"), std::string::npos);
+  EXPECT_NE(ddgi_bounds.find("glm::vec4(1.0f, 0.45f, 0.05f, 0.35f)"), std::string::npos);
+  EXPECT_EQ(ddgi_bounds.find("VK_POLYGON_MODE_LINE"), std::string::npos);
+  EXPECT_EQ(inspector.find("Box half extents"), std::string::npos);
+  EXPECT_EQ(inspector.find("probe.box_extents"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("info.shape_parameters = glm::vec4(glm::vec3(0.5f), probe.sphere_radius)"),
+            std::string::npos);
+  EXPECT_EQ(gizmos.find("RecordCommandsMainQueue([&]"), std::string::npos);
+  size_t capture_count = 0;
+  for (size_t position = 0; (position = gizmos.find("[this, i, current_frame_index", position)) != std::string::npos;
+       position += 1u) {
+    ++capture_count;
+  }
+  EXPECT_EQ(capture_count, 3u);
+  EXPECT_EQ(gizmo_constants.find("float4x4(1.0f)"), std::string::npos);
+  EXPECT_NE(gizmo_constants.find("float4x4(size, 0.0f, 0.0f, 0.0f"), std::string::npos);
 }
 
 TEST(ReflectionProbe, SceneGlobalFallbackSerializesAndFiltersRuntimeReadiness) {

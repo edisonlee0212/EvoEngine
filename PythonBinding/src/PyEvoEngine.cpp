@@ -434,7 +434,7 @@ bool PyEvoEngine::IsCurrentSceneDdgiEnabled() {
 
   const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
   const auto& settings = resolved_lighting.ddgi_settings;
-  if (!settings.runtime.enabled || settings.runtime.pause_updates) {
+  if (!settings.runtime.enabled || render_layer->GetDdgiSessionState().pause_updates) {
     return false;
   }
 

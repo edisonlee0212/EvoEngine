@@ -6,6 +6,7 @@
 
 namespace evo_engine {
 class Camera;
+class Buffer;
 class DescriptorSet;
 class DescriptorSetLayout;
 class GraphicsPipeline;
@@ -22,6 +23,7 @@ class DdgiProbeRayVisualizationPass final {
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
+    std::shared_ptr<Buffer> selected_ray_diagnostics_buffer;
     std::shared_ptr<Camera> camera;
     bool depth_test = false;
     DdgiProbeRayVisualizationPushConstant push_constant;

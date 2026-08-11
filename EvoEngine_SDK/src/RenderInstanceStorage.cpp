@@ -16,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <glm/gtc/constants.hpp>
 #include <limits>
 #include <unordered_map>
 
@@ -26,6 +27,170 @@ uint64_t MixDdgiInventorySignature(const uint64_t seed, const uint64_t value) {
   return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
 }
 
+float DecodeSrgbChannel(const float value) {
+  return value <= 0.04045f ? value / 12.92f : std::pow((value + 0.055f) / 1.055f, 2.4f);
+}
+
+int WrapTextureCoordinate(const int coordinate, const int size, const VkSamplerAddressMode mode) {
+  if (size <= 1) {
+    return 0;
+  }
+  if (mode == VK_SAMPLER_ADDRESS_MODE_REPEAT) {
+    return ((coordinate % size) + size) % size;
+  }
+  if (mode == VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT) {
+    const int period = size * 2;
+    const int wrapped = ((coordinate % period) + period) % period;
+    return wrapped < size ? wrapped : period - wrapped - 1;
+  }
+  return glm::clamp(coordinate, 0, size - 1);
+}
+
+glm::vec2 SelectTexCoord(const Vertex& vertex, const int32_t tex_coord) {
+  if (tex_coord == 1) {
+    return vertex.tex_coord_1;
+  }
+  if (tex_coord == 2) {
+    return vertex.tex_coord_2;
+  }
+  if (tex_coord == 3) {
+    return vertex.tex_coord_3;
+  }
+  return vertex.tex_coord;
+}
+
+constexpr std::array<glm::vec3, 7> kTriangleImportanceSamples = {glm::vec3(1.0f / 3.0f),
+                                                                 glm::vec3(2.0f / 3.0f, 1.0f / 6.0f, 1.0f / 6.0f),
+                                                                 glm::vec3(1.0f / 6.0f, 2.0f / 3.0f, 1.0f / 6.0f),
+                                                                 glm::vec3(1.0f / 6.0f, 1.0f / 6.0f, 2.0f / 3.0f),
+                                                                 glm::vec3(0.5f, 0.5f, 0.0f),
+                                                                 glm::vec3(0.0f, 0.5f, 0.5f),
+                                                                 glm::vec3(0.5f, 0.0f, 0.5f)};
+
+glm::vec4 SampleLocalTexture(const Texture2D& texture, const glm::vec2 uv) {
+  const auto& pixels = texture.PeekLocalData();
+  const auto resolution = texture.GetResolution();
+  if (pixels.size() != static_cast<size_t>(resolution.x) * resolution.y || resolution.x == 0u || resolution.y == 0u) {
+    return glm::vec4(1.0f);
+  }
+  const auto& sampler = texture.GetSamplerSettings();
+  const glm::vec2 texel = uv * glm::vec2(resolution) - 0.5f;
+  const glm::ivec2 base = glm::ivec2(glm::floor(texel));
+  const glm::vec2 blend = glm::fract(texel);
+  const auto fetch = [&](const int x, const int y) {
+    const int wrapped_x = WrapTextureCoordinate(x, static_cast<int>(resolution.x), sampler.address_mode_u);
+    const int wrapped_y = WrapTextureCoordinate(y, static_cast<int>(resolution.y), sampler.address_mode_v);
+    glm::vec4 value = glm::max(pixels[static_cast<size_t>(wrapped_y) * resolution.x + wrapped_x], glm::vec4(0.0f));
+    if (texture.SamplesLinearSrgb()) {
+      value = {DecodeSrgbChannel(value.x), DecodeSrgbChannel(value.y), DecodeSrgbChannel(value.z), value.w};
+    }
+    return value;
+  };
+  const glm::vec4 row_0 = glm::mix(fetch(base.x, base.y), fetch(base.x + 1, base.y), blend.x);
+  const glm::vec4 row_1 = glm::mix(fetch(base.x, base.y + 1), fetch(base.x + 1, base.y + 1), blend.x);
+  return glm::mix(row_0, row_1, blend.y);
+}
+
+double EstimateTriangleEmissiveImportance(Material& material, const GltfShadeMaterial& shade_material, const Vertex& v0,
+                                          const Vertex& v1, const Vertex& v2) {
+  const glm::vec3 factor = glm::max(shade_material.emissive_factor, glm::vec3(0.0f));
+  const double factor_luminance = glm::dot(factor, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+  if (shade_material.emissive_texture == 0u ||
+      shade_material.emissive_texture >= material.material_data.texture_infos.size()) {
+    return factor_luminance;
+  }
+  const auto texture = material.GetTexture(shade_material.emissive_texture);
+  if (!texture || texture->PeekLocalData().empty()) {
+    return factor_luminance;
+  }
+  const auto& texture_info = material.material_data.texture_infos[shade_material.emissive_texture];
+  const glm::vec2 uv0 = SelectTexCoord(v0, texture_info.tex_coord);
+  const glm::vec2 uv1 = SelectTexCoord(v1, texture_info.tex_coord);
+  const glm::vec2 uv2 = SelectTexCoord(v2, texture_info.tex_coord);
+  double luminance_sum = 0.0;
+  for (const auto barycentric : kTriangleImportanceSamples) {
+    const glm::vec2 uv =
+        texture_info.uv_transform * glm::vec3(uv0 * barycentric.x + uv1 * barycentric.y + uv2 * barycentric.z, 1.0f);
+    const glm::vec3 radiance = factor * glm::vec3(SampleLocalTexture(*texture, uv));
+    luminance_sum += glm::dot(radiance, glm::vec3(0.2126f, 0.7152f, 0.0722f));
+  }
+  return glm::max(luminance_sum / static_cast<double>(kTriangleImportanceSamples.size()), factor_luminance * 1.0e-4);
+}
+
+double EstimateTriangleOpacityImportance(Material& material, const GltfShadeMaterial& shade_material, const Vertex& v0,
+                                         const Vertex& v1, const Vertex& v2) {
+  if (shade_material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Opaque)) {
+    return 1.0;
+  }
+  const bool has_texture = shade_material.pbr_base_color_texture != 0u &&
+                           shade_material.pbr_base_color_texture < material.material_data.texture_infos.size();
+  const auto texture = has_texture ? material.GetTexture(shade_material.pbr_base_color_texture) : nullptr;
+  const auto* texture_info =
+      has_texture ? &material.material_data.texture_infos[shade_material.pbr_base_color_texture] : nullptr;
+  const glm::vec2 uv0 = texture_info ? SelectTexCoord(v0, texture_info->tex_coord) : glm::vec2(0.0f);
+  const glm::vec2 uv1 = texture_info ? SelectTexCoord(v1, texture_info->tex_coord) : glm::vec2(0.0f);
+  const glm::vec2 uv2 = texture_info ? SelectTexCoord(v2, texture_info->tex_coord) : glm::vec2(0.0f);
+  double opacity_sum = 0.0;
+  for (const auto barycentric : kTriangleImportanceSamples) {
+    float opacity =
+        shade_material.pbr_base_color_factor.a * glm::dot(glm::vec3(v0.color.a, v1.color.a, v2.color.a), barycentric);
+    if (texture && !texture->PeekLocalData().empty()) {
+      const glm::vec2 uv =
+          texture_info->uv_transform * glm::vec3(uv0 * barycentric.x + uv1 * barycentric.y + uv2 * barycentric.z, 1.0f);
+      opacity *= SampleLocalTexture(*texture, uv).a;
+    }
+    opacity = glm::clamp(opacity, 0.0f, 1.0f);
+    opacity_sum += shade_material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Mask)
+                       ? static_cast<double>(opacity >= shade_material.alpha_cutoff)
+                       : opacity;
+  }
+  return glm::max(opacity_sum / kTriangleImportanceSamples.size(), 1.0e-4);
+}
+
+uint64_t GetTextureSamplingSignature(Material& material, const uint16_t texture_slot) {
+  if (texture_slot == 0u || texture_slot >= material.material_data.texture_infos.size()) {
+    return 0u;
+  }
+  const auto texture = material.GetTexture(texture_slot);
+  if (!texture) {
+    return 0u;
+  }
+  uint64_t signature = texture->GetHandle().GetValue();
+  uint64_t content_signature = signature;
+  (void)TextureStorage::TryGetTexture2DContentSignature(texture->GetTextureStorageIndex(), content_signature);
+  signature = MixDdgiInventorySignature(signature, content_signature);
+  const auto& texture_info = material.material_data.texture_infos[texture_slot];
+  signature = MixDdgiInventorySignature(signature, static_cast<uint32_t>(texture_info.tex_coord));
+  for (int column = 0; column < 3; ++column) {
+    for (int row = 0; row < 2; ++row) {
+      const float component = texture_info.uv_transform[column][row];
+      uint32_t bits = 0;
+      std::memcpy(&bits, &component, sizeof(bits));
+      signature = MixDdgiInventorySignature(signature, bits);
+    }
+  }
+  const auto& sampler = texture->GetSamplerSettings();
+  signature = MixDdgiInventorySignature(signature, sampler.address_mode_u);
+  signature = MixDdgiInventorySignature(signature, sampler.address_mode_v);
+  signature = MixDdgiInventorySignature(signature, texture->SamplesLinearSrgb());
+  return signature;
+}
+
+uint64_t GetEmissiveSamplingSignature(Material& material, const GltfShadeMaterial& shade_material) {
+  uint64_t signature = GetTextureSamplingSignature(material, shade_material.emissive_texture);
+  signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(shade_material.emissive_factor.x));
+  signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(shade_material.emissive_factor.y));
+  signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(shade_material.emissive_factor.z));
+  signature = MixDdgiInventorySignature(signature, static_cast<uint32_t>(shade_material.alpha_mode));
+  if (shade_material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque)) {
+    signature = MixDdgiInventorySignature(signature,
+                                          GetTextureSamplingSignature(material, shade_material.pbr_base_color_texture));
+    signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(shade_material.pbr_base_color_factor.a));
+    signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(shade_material.alpha_cutoff));
+  }
+  return signature;
+}
+
 template <typename Signatures>
 uint64_t HashDdgiEmissiveInventorySignature(const Signatures& signatures) {
   std::vector<uint64_t> entry_hashes;
@@ -33,6 +198,7 @@ uint64_t HashDdgiEmissiveInventorySignature(const Signatures& signatures) {
   for (const auto& entry : signatures) {
     auto hash = MixDdgiInventorySignature(entry.mesh_handle, entry.renderer_handle);
     hash = MixDdgiInventorySignature(hash, entry.material_handle);
+    hash = MixDdgiInventorySignature(hash, entry.emissive_sampling_signature);
     hash = MixDdgiInventorySignature(hash, entry.geometry_version);
     hash = MixDdgiInventorySignature(hash, entry.triangle_count);
     for (int column = 0; column < 4; ++column) {
@@ -335,6 +501,8 @@ bool RenderInstanceStorage::ExternalRenderInstance::operator!=(const ExternalRen
   if (ddgi_geometry.bottom_level_acceleration_structure != other.ddgi_geometry.bottom_level_acceleration_structure)
     return true;
   if (ddgi_geometry.triangle_offset != other.ddgi_geometry.triangle_offset)
+    return true;
+  if (ddgi_geometry.triangle_count != other.ddgi_geometry.triangle_count)
     return true;
   return false;
 }
@@ -968,10 +1136,10 @@ bool RenderInstanceStorage::ReflectionProbeInfoBlock::operator!=(const Reflectio
 bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==(
     const EmissiveTriangleInstanceSignature& other) const {
   return mesh_handle == other.mesh_handle && renderer_handle == other.renderer_handle &&
-         material_handle == other.material_handle && geometry_version == other.geometry_version &&
-         instance_index == other.instance_index && material_index == other.material_index &&
-         triangle_offset == other.triangle_offset && triangle_count == other.triangle_count && model == other.model &&
-         importance == other.importance;
+         material_handle == other.material_handle && emissive_sampling_signature == other.emissive_sampling_signature &&
+         geometry_version == other.geometry_version && instance_index == other.instance_index &&
+         material_index == other.material_index && triangle_offset == other.triangle_offset &&
+         triangle_count == other.triangle_count && model == other.model && importance == other.importance;
 }
 
 std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
@@ -988,28 +1156,93 @@ std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStor
                      (lhs.instance_index == rhs.instance_index && lhs.primitive_id < rhs.primitive_id);
             });
 
-  double total_weight = 0.0;
+  double maximum_log_weight = -std::numeric_limits<double>::infinity();
   for (const auto& candidate : candidates) {
-    total_weight += candidate.area * candidate.importance;
+    maximum_log_weight = glm::max(maximum_log_weight, std::log(candidate.area) + std::log(candidate.importance));
   }
-  if (!std::isfinite(total_weight) || total_weight <= 0.0) {
+  if (!std::isfinite(maximum_log_weight)) {
+    return {};
+  }
+
+  std::vector<double> probabilities(candidates.size());
+  double scaled_weight_sum = 0.0;
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    probabilities[i] = std::exp(std::log(candidates[i].area) + std::log(candidates[i].importance) - maximum_log_weight);
+    scaled_weight_sum += probabilities[i];
+  }
+  if (!std::isfinite(scaled_weight_sum) || scaled_weight_sum <= 0.0) {
     return {};
   }
 
   std::vector<EmissiveTriangleInfoBlock> result;
   result.reserve(candidates.size());
-  double cumulative_weight = 0.0;
-  for (const auto& candidate : candidates) {
-    cumulative_weight += candidate.area * candidate.importance;
-    const float cdf = static_cast<float>(glm::min(cumulative_weight / total_weight, 1.0));
-    result.push_back({candidate.instance_index, candidate.primitive_id, cdf, 0.0f});
+  std::vector<double> alias_probabilities(candidates.size());
+  std::vector<size_t> underfull_entries;
+  std::vector<size_t> full_entries;
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    probabilities[i] /= scaled_weight_sum;
+    alias_probabilities[i] = probabilities[i] * static_cast<double>(candidates.size());
+    result.push_back({candidates[i].instance_index, candidates[i].primitive_id, 1.0f, static_cast<uint32_t>(i), 0.0f});
+    (alias_probabilities[i] < 1.0 ? underfull_entries : full_entries).emplace_back(i);
   }
-  result.back().cdf = 1.0f;
-  float previous_cdf = 0.0f;
+  while (!underfull_entries.empty() && !full_entries.empty()) {
+    const auto underfull_index = underfull_entries.back();
+    underfull_entries.pop_back();
+    const auto full_index = full_entries.back();
+    full_entries.pop_back();
+    result[underfull_index].alias_probability =
+        static_cast<float>(glm::clamp(alias_probabilities[underfull_index], 0.0, 1.0));
+    result[underfull_index].alias_index = static_cast<uint32_t>(full_index);
+    alias_probabilities[full_index] += alias_probabilities[underfull_index] - 1.0;
+    (alias_probabilities[full_index] < 1.0 ? underfull_entries : full_entries).emplace_back(full_index);
+  }
+  std::vector<double> quantized_probabilities(candidates.size());
   for (size_t i = 0; i < result.size(); ++i) {
-    const float selection_pdf = result[i].cdf - previous_cdf;
-    result[i].area_pdf = selection_pdf > 0.0f ? selection_pdf / static_cast<float>(candidates[i].area) : 0.0f;
-    previous_cdf = result[i].cdf;
+    const double direct_probability = static_cast<double>(result[i].alias_probability) / result.size();
+    quantized_probabilities[i] += direct_probability;
+    quantized_probabilities[result[i].alias_index] += 1.0 / result.size() - direct_probability;
+  }
+  for (size_t i = 0; i < result.size(); ++i) {
+    result[i].area_pdf = static_cast<float>(quantized_probabilities[i] / candidates[i].area);
+  }
+  return result;
+}
+
+std::vector<RenderInstanceStorage::DdgiEmissiveGuideInfoBlock> RenderInstanceStorage::BuildDdgiEmissiveGuideInfoBlocks(
+    std::vector<DdgiEmissiveGuideCandidate> candidates, const uint32_t max_guide_count) {
+  const auto finite_vector = [](const glm::vec3& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+  };
+  candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
+                                  [&](const auto& candidate) {
+                                    return !finite_vector(candidate.bound_min) || !finite_vector(candidate.bound_max) ||
+                                           glm::any(glm::greaterThan(candidate.bound_min, candidate.bound_max)) ||
+                                           !std::isfinite(candidate.estimated_power) ||
+                                           candidate.estimated_power <= 0.0;
+                                  }),
+                   candidates.end());
+  std::sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
+    if (lhs.estimated_power != rhs.estimated_power) {
+      return lhs.estimated_power > rhs.estimated_power;
+    }
+    if (lhs.stable_id != rhs.stable_id) {
+      return lhs.stable_id < rhs.stable_id;
+    }
+    if (lhs.source_revision != rhs.source_revision) {
+      return lhs.source_revision < rhs.source_revision;
+    }
+    return lhs.instance_index < rhs.instance_index;
+  });
+  candidates.resize(glm::min(static_cast<size_t>(max_guide_count), candidates.size()));
+
+  std::vector<DdgiEmissiveGuideInfoBlock> result;
+  result.reserve(candidates.size());
+  for (const auto& candidate : candidates) {
+    const auto center = 0.5f * (candidate.bound_min + candidate.bound_max);
+    const auto radius = 0.5f * glm::length(candidate.bound_max - candidate.bound_min);
+    const auto power = static_cast<float>(
+        glm::min(candidate.estimated_power, static_cast<double>((std::numeric_limits<float>::max)())));
+    result.push_back({glm::vec4(center, radius), glm::vec4(power, 0.0f, 0.0f, 0.0f)});
   }
   return result;
 }
@@ -1369,90 +1602,228 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
   if (!Platform::RayAccelerationStructureEnabled()) {
     emissive_triangle_info_dirty_ = !emissive_triangle_info_blocks_.empty();
     emissive_triangle_info_blocks_.clear();
+    ddgi_emissive_guide_info_blocks_.clear();
     emissive_triangle_instance_signatures_.clear();
+    ddgi_emissive_inventory_stats_ = {};
     ddgi_emissive_inventory_signature_ = 0;
     render_info_block.emissive_triangle_parameters = glm::uvec4(0u);
     return;
   }
 
   struct EmissiveTriangleInstance {
-    std::shared_ptr<MeshRenderInstance> render_instance;
+    std::shared_ptr<IRenderInstance> render_instance;
+    uint32_t instance_index;
     uint32_t triangle_offset;
     uint32_t triangle_count;
-    double importance;
+    glm::mat4 model;
+    double sidedness;
+    uint64_t stable_id;
+    uint32_t source_revision;
   };
   std::vector<EmissiveTriangleInstance> emissive_instances;
   std::vector<EmissiveTriangleInstanceSignature> signatures;
+  EmissiveTriangleInventoryStats inventory_stats{};
   const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
-  const auto append_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection) {
+  const auto record_excluded_if_emissive = [&](const std::shared_ptr<IRenderInstance>& render_instance) {
+    if (!render_instance || render_instance->material_index < 0 ||
+        static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
+      return;
+    }
+    const auto& material = shade_materials[render_instance->material_index];
+    const glm::vec3 factor = glm::max(material.emissive_factor, glm::vec3(0.0f));
+    if (std::isfinite(factor.x) && std::isfinite(factor.y) && std::isfinite(factor.z) &&
+        glm::dot(factor, glm::vec3(0.2126f, 0.7152f, 0.0722f)) > 0.0f) {
+      ++inventory_stats.excluded_emissive_instance_count;
+    }
+  };
+  const auto append_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance, const uint64_t mesh_handle,
+                                   const uint32_t instance_index, const uint32_t triangle_offset,
+                                   const uint32_t triangle_count, const glm::mat4& model,
+                                   const bool has_ray_tracing_geometry) {
+    if (!render_instance || !render_instance->material || render_instance->material_index < 0 ||
+        static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
+      return;
+    }
+    const auto& material = shade_materials[render_instance->material_index];
+    const glm::vec3 emissive_factor = glm::max(material.emissive_factor, glm::vec3(0.0f));
+    double importance = static_cast<double>(glm::dot(emissive_factor, glm::vec3(0.2126f, 0.7152f, 0.0722f)));
+    if (!std::isfinite(importance) || importance <= 0.0) {
+      return;
+    }
+    if (!has_ray_tracing_geometry || instance_index >= instance_info_blocks_.size() || triangle_count == 0u ||
+        render_instance->polygon_mode != VK_POLYGON_MODE_FILL || material.unlit != 0) {
+      ++inventory_stats.excluded_emissive_instance_count;
+      return;
+    }
+    const float transform_determinant = glm::determinant(glm::mat3(model));
+    if (!std::isfinite(transform_determinant) || transform_determinant == 0.0f) {
+      ++inventory_stats.excluded_emissive_instance_count;
+      return;
+    }
+    const double sidedness = material.double_sided != 0 ? 2.0 : 1.0;
+    importance *= sidedness;
+    GlobalTransform signature_model{};
+    signature_model.value = model;
+    const auto emissive_sampling_signature = GetEmissiveSamplingSignature(*render_instance->material, material);
+    signatures.push_back(
+        {mesh_handle, render_instance->renderer_handle, render_instance->material->GetHandle().GetValue(),
+         emissive_sampling_signature, render_instance->geometry_version, static_cast<int32_t>(instance_index),
+         render_instance->material_index, triangle_offset, triangle_count, signature_model, importance});
+    const uint64_t stable_id = render_instance->renderer_handle != 0u ? render_instance->renderer_handle.GetValue()
+                                                                      : static_cast<uint64_t>(instance_index);
+    const auto source_revision = static_cast<uint32_t>(MixDdgiInventorySignature(
+        emissive_sampling_signature, static_cast<uint64_t>(render_instance->geometry_version)));
+    emissive_instances.push_back({render_instance, instance_index, triangle_offset, triangle_count, model, sidedness,
+                                  stable_id, source_revision});
+    ++inventory_stats.eligible_instance_count;
+  };
+  const auto append_mesh_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection) {
     collection->ForEachMeshRenderInstance([&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
-      if (!render_instance || !render_instance->mesh || !render_instance->mesh->blas_ ||
-          !render_instance->mesh->triangle_range_ || !render_instance->material ||
-          render_instance->instance_index < 0 || render_instance->polygon_mode != VK_POLYGON_MODE_FILL ||
-          render_instance->ray_tracing_blas || render_instance->ray_tracing_triangle_range ||
-          render_instance->material->draw_settings.blending || render_instance->material_index < 0 ||
-          static_cast<size_t>(render_instance->material_index) >= shade_materials.size()) {
+      if (!render_instance || !render_instance->mesh || !render_instance->mesh->triangle_range_) {
+        record_excluded_if_emissive(render_instance);
         return;
       }
-
-      const auto& material = shade_materials[render_instance->material_index];
-      if ((material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Opaque) &&
-           material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Mask)) ||
-          material.transmission_factor > 0.0f || material.diffuse_transmission_factor > 0.0f || material.unlit != 0) {
-        return;
-      }
-      const float transform_determinant = glm::determinant(glm::mat3(render_instance->model.value));
-      if (!std::isfinite(transform_determinant) || transform_determinant == 0.0f) {
-        return;
-      }
-      const glm::vec3 emissive_factor = glm::max(material.emissive_factor, glm::vec3(0.0f));
-      double importance = static_cast<double>(glm::dot(emissive_factor, glm::vec3(0.2126f, 0.7152f, 0.0722f)));
-      if (!std::isfinite(importance) || importance <= 0.0) {
-        return;
-      }
-      if (material.double_sided != 0) {
-        importance *= 2.0;
-      }
-
-      const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
-      const auto triangle_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
-      signatures.push_back({render_instance->mesh->GetHandle().GetValue(), render_instance->renderer_handle,
-                            render_instance->material->GetHandle().GetValue(), render_instance->geometry_version,
-                            render_instance->instance_index, render_instance->material_index, triangle_offset,
-                            triangle_count, render_instance->model, importance});
-      emissive_instances.push_back({render_instance, triangle_offset, triangle_count, importance});
+      const auto triangle_range = render_instance->ray_tracing_triangle_range &&
+                                          render_instance->ray_tracing_triangle_range->prev_frame_index_count != 0u
+                                      ? render_instance->ray_tracing_triangle_range
+                                      : render_instance->mesh->triangle_range_;
+      append_instance(render_instance, render_instance->mesh->GetHandle().GetValue(), render_instance->instance_index,
+                      triangle_range->prev_frame_offset, triangle_range->prev_frame_index_count,
+                      render_instance->model.value,
+                      static_cast<bool>(render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas
+                                                                          : render_instance->mesh->blas_));
     });
   };
-  append_collection(deferred_render_instances);
-  append_collection(forward_render_instances);
+  const auto append_skinned_collection = [&](const std::shared_ptr<SkinnedMeshRenderInstanceCollection>& collection) {
+    collection->ForEachSkinnedMeshRenderInstance(
+        [&](const std::shared_ptr<SkinnedMeshRenderInstance>& render_instance) {
+          if (!render_instance || !render_instance->skinned_mesh) {
+            record_excluded_if_emissive(render_instance);
+            return;
+          }
+          auto triangle_range = render_instance->ray_tracing_triangle_range;
+          if (!triangle_range || triangle_range->prev_frame_index_count == 0u) {
+            triangle_range = render_instance->skinned_mesh->ray_tracing_triangle_range_;
+          }
+          if (!triangle_range || triangle_range->prev_frame_index_count == 0u) {
+            triangle_range = render_instance->skinned_mesh->skinned_triangle_range_;
+          }
+          if (!triangle_range) {
+            record_excluded_if_emissive(render_instance);
+            return;
+          }
+          append_instance(render_instance, render_instance->skinned_mesh->GetHandle().GetValue(),
+                          render_instance->instance_index, triangle_range->prev_frame_offset,
+                          triangle_range->prev_frame_index_count, render_instance->model.value,
+                          static_cast<bool>(render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas
+                                                                              : render_instance->skinned_mesh->blas_));
+        });
+  };
+  const auto append_instanced_collection = [&](const std::shared_ptr<InstancedRenderInstanceCollection>& collection) {
+    collection->ForEachInstancedRenderInstance([&](const std::shared_ptr<InstancedRenderInstance>& render_instance) {
+      if (!render_instance || !render_instance->mesh || !render_instance->mesh->triangle_range_) {
+        record_excluded_if_emissive(render_instance);
+        return;
+      }
+      if (render_instance->ray_tracing_instance_indices.empty()) {
+        record_excluded_if_emissive(render_instance);
+      }
+      for (const auto instance_index : render_instance->ray_tracing_instance_indices) {
+        if (instance_index >= instance_info_blocks_.size()) {
+          continue;
+        }
+        append_instance(render_instance, render_instance->mesh->GetHandle().GetValue(), instance_index,
+                        render_instance->mesh->triangle_range_->prev_frame_offset,
+                        render_instance->mesh->triangle_range_->prev_frame_index_count,
+                        instance_info_blocks_[instance_index].model.value,
+                        static_cast<bool>(render_instance->mesh->blas_));
+      }
+    });
+  };
+  append_mesh_collection(deferred_render_instances);
+  append_skinned_collection(deferred_skinned_render_instances);
+  append_instanced_collection(deferred_instanced_render_instances);
+  append_mesh_collection(forward_render_instances);
+  append_skinned_collection(forward_skinned_render_instances);
+  append_instanced_collection(forward_instanced_render_instances);
+  append_mesh_collection(transparent_render_instances);
+  append_skinned_collection(transparent_skinned_render_instances);
+  append_instanced_collection(transparent_instanced_render_instances);
+  external_render_instances->ForEachExternalRenderInstance(
+      [&](const std::shared_ptr<ExternalRenderInstance>& render_instance) {
+        if (!render_instance || !render_instance->HasDdgiRayTracingGeometry()) {
+          record_excluded_if_emissive(render_instance);
+          return;
+        }
+        append_instance(render_instance, 0u, render_instance->instance_index,
+                        static_cast<uint32_t>(render_instance->ddgi_geometry.triangle_offset),
+                        render_instance->ddgi_geometry.triangle_count, render_instance->model.value, true);
+      });
 
   if (emissive_triangle_instance_signatures_ == signatures) {
+    inventory_stats.unrepresentable_probability_count =
+        ddgi_emissive_inventory_stats_.unrepresentable_probability_count;
+    inventory_stats.estimated_emitted_power = ddgi_emissive_inventory_stats_.estimated_emitted_power;
+    ddgi_emissive_inventory_stats_ = inventory_stats;
     render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
+    render_info_block.emissive_triangle_parameters.y = static_cast<uint32_t>(ddgi_emissive_guide_info_blocks_.size());
     return;
   }
 
   std::vector<EmissiveTriangleCandidate> candidates;
+  std::vector<DdgiEmissiveGuideCandidate> guide_candidates;
   for (const auto& emissive_instance : emissive_instances) {
     const auto& render_instance = emissive_instance.render_instance;
+    const auto& material = shade_materials[render_instance->material_index];
+    glm::vec3 bound_min((std::numeric_limits<float>::max)());
+    glm::vec3 bound_max((std::numeric_limits<float>::lowest)());
+    double estimated_power = 0.0;
+    bool has_finite_bounds = false;
     for (uint32_t primitive_id = 0; primitive_id < emissive_instance.triangle_count; ++primitive_id) {
       const auto& triangle = GeometryStorage::PeekTriangle(emissive_instance.triangle_offset + primitive_id);
-      const glm::vec3 p0 =
-          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.x).position, 1.0f));
-      const glm::vec3 p1 =
-          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.y).position, 1.0f));
-      const glm::vec3 p2 =
-          glm::vec3(render_instance->model.value * glm::vec4(GeometryStorage::PeekVertex(triangle.z).position, 1.0f));
+      const auto& v0 = GeometryStorage::PeekVertex(triangle.x);
+      const auto& v1 = GeometryStorage::PeekVertex(triangle.y);
+      const auto& v2 = GeometryStorage::PeekVertex(triangle.z);
+      const glm::vec3 p0 = glm::vec3(emissive_instance.model * glm::vec4(v0.position, 1.0f));
+      const glm::vec3 p1 = glm::vec3(emissive_instance.model * glm::vec4(v1.position, 1.0f));
+      const glm::vec3 p2 = glm::vec3(emissive_instance.model * glm::vec4(v2.position, 1.0f));
+      const auto finite_position = [](const glm::vec3& value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+      };
+      if (finite_position(p0) && finite_position(p1) && finite_position(p2)) {
+        bound_min = glm::min(bound_min, glm::min(p0, glm::min(p1, p2)));
+        bound_max = glm::max(bound_max, glm::max(p0, glm::max(p1, p2)));
+        has_finite_bounds = true;
+      }
       const glm::vec3 weighted_normal = glm::cross(p1 - p0, p2 - p0);
       const double area = 0.5 * static_cast<double>(glm::length(weighted_normal));
-      candidates.push_back(
-          {static_cast<uint32_t>(render_instance->instance_index), primitive_id, area, emissive_instance.importance});
+      const double importance = EstimateTriangleEmissiveImportance(*render_instance->material, material, v0, v1, v2) *
+                                EstimateTriangleOpacityImportance(*render_instance->material, material, v0, v1, v2) *
+                                emissive_instance.sidedness;
+      if (std::isfinite(area) && area > 0.0 && std::isfinite(importance) && importance > 0.0) {
+        const auto triangle_power = glm::pi<double>() * area * importance;
+        inventory_stats.estimated_emitted_power += triangle_power;
+        estimated_power += triangle_power;
+      }
+      candidates.push_back({emissive_instance.instance_index, primitive_id, area, importance});
+    }
+    if (has_finite_bounds) {
+      guide_candidates.push_back({bound_min, bound_max, estimated_power, emissive_instance.stable_id,
+                                  emissive_instance.source_revision, emissive_instance.instance_index});
     }
   }
   emissive_triangle_info_blocks_ = BuildEmissiveTriangleInfoBlocks(std::move(candidates));
+  ddgi_emissive_guide_info_blocks_ = BuildDdgiEmissiveGuideInfoBlocks(std::move(guide_candidates));
+  inventory_stats.unrepresentable_probability_count = static_cast<uint32_t>(std::count_if(
+      emissive_triangle_info_blocks_.begin(), emissive_triangle_info_blocks_.end(), [](const auto& record) {
+        return record.area_pdf <= 0.0f;
+      }));
+  ddgi_emissive_inventory_stats_ = inventory_stats;
   emissive_triangle_instance_signatures_ = std::move(signatures);
   ddgi_emissive_inventory_signature_ = HashDdgiEmissiveInventorySignature(emissive_triangle_instance_signatures_);
   emissive_triangle_info_dirty_ = true;
   render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
+  render_info_block.emissive_triangle_parameters.y = static_cast<uint32_t>(ddgi_emissive_guide_info_blocks_.size());
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -1750,8 +2121,8 @@ void RenderInstanceStorage::CollectEnvironment(const std::shared_ptr<Scene>& tar
   const float specular_fallback_intensity = glm::max(resolved_lighting.specular_fallback_intensity, 0.0f);
   environment_info_block.diffuse_sky_intensity = environment_lighting_intensity;
   environment_info_block.global_reflection_intensity = environment_lighting_intensity;
-  environment_info_block.diffuse_fallback_intensity = environment_lighting_intensity * diffuse_fallback_intensity;
-  environment_info_block.specular_fallback_intensity = environment_lighting_intensity * specular_fallback_intensity;
+  environment_info_block.diffuse_fallback_intensity = diffuse_fallback_intensity;
+  environment_info_block.specular_fallback_intensity = specular_fallback_intensity;
   render_info_block.indirect_lighting_intensity = 1.0f;
 }
 
@@ -1962,6 +2333,16 @@ const std::vector<GltfTextureInfo>& RenderInstanceStorage::GetGltfTextureInfos()
 
 uint64_t RenderInstanceStorage::GetDdgiEmissiveInventorySignature() const {
   return ddgi_emissive_inventory_signature_;
+}
+
+const RenderInstanceStorage::EmissiveTriangleInventoryStats& RenderInstanceStorage::GetDdgiEmissiveInventoryStats()
+    const {
+  return ddgi_emissive_inventory_stats_;
+}
+
+const std::vector<RenderInstanceStorage::DdgiEmissiveGuideInfoBlock>&
+RenderInstanceStorage::GetDdgiEmissiveGuideInfoBlocks() const {
+  return ddgi_emissive_guide_info_blocks_;
 }
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {
@@ -2189,11 +2570,15 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
       return true;
   }
 
-  if (directional_light_info_blocks_.size() != other.directional_light_info_blocks_.size())
-    return true;
-  for (uint32_t i = 0; i < directional_light_info_blocks_.size(); i++) {
-    if (directional_light_info_blocks_[i] != other.directional_light_info_blocks_[i])
+  const auto directional_light_count = static_cast<size_t>(render_info_block.directional_light_size);
+  const auto comparable_directional_light_count = std::min(
+      {directional_light_count, directional_light_info_blocks_.size(), other.directional_light_info_blocks_.size()});
+  for (size_t i = 0; i < comparable_directional_light_count; ++i) {
+    const auto& current = directional_light_info_blocks_[i];
+    const auto& previous = other.directional_light_info_blocks_[i];
+    if (current.HasSceneLightingDifference(previous)) {
       return true;
+    }
   }
 
   if (point_light_info_blocks_.size() != other.point_light_info_blocks_.size())
@@ -2217,11 +2602,6 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
 
   if (emissive_triangle_instance_signatures_ != other.emissive_triangle_instance_signatures_)
     return true;
-
-  for (uint32_t i = 0; i < camera_info_blocks_.size(); i++) {
-    if (camera_info_blocks_[i] != other.camera_info_blocks_[i])
-      return true;
-  }
 
   if (*gaussian_splat_render_instances != *other.gaussian_splat_render_instances)
     return true;
@@ -2413,7 +2793,7 @@ void RenderInstanceStorage::CollectReflectionProbes(const std::shared_ptr<Scene>
     const auto& probe = resolved_lighting.local_reflection_probes[index];
     auto& info = render_info_block.reflection_probes[index];
     info.world_to_probe = glm::inverse(probe.transform);
-    info.shape_parameters = glm::vec4(probe.box_extents, probe.sphere_radius);
+    info.shape_parameters = glm::vec4(glm::vec3(0.5f), probe.sphere_radius);
     info.projection_parameters = glm::vec4(probe.box_projection_extents, probe.blend_distance);
     info.lighting_parameters = glm::vec4(probe.reflection_intensity, static_cast<float>(probe.artist_priority),
                                          static_cast<float>(probe.shape), probe.box_projection ? 1.0f : 0.0f);

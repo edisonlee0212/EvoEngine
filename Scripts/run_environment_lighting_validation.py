@@ -18,24 +18,24 @@ from compare_reference_render import PngImage, compare_render_images, read_image
 
 RASTER_CONTROL_NAMES = (
     "default",
-    "indirect-off",
+    "diffuse-fallback-off",
     "all-off",
-    "sky-off",
+    "environment-off",
     "background-only",
     "background-lit",
-    "sky-double",
-    "indirect-double",
-    "sky-off-indirect-double",
-    "sky-double-indirect-off",
-    "both-double",
+    "environment-double",
+    "diffuse-fallback-double",
+    "specular-fallback-off",
+    "specular-fallback-double",
+    "fallbacks-double",
 )
 RAY_CONTROL_NAMES = (
     "ray-neutral-reference",
-    "ray-sky-double",
+    "ray-environment-double",
     "ray-background-lit",
-    "ray-indirect-off",
-    "ray-indirect-double",
-    "ray-sky-off",
+    "ray-fallbacks-off",
+    "ray-fallbacks-double",
+    "ray-environment-off",
     "ray-all-off",
 )
 SYNTHETIC_CAPTURE_NAMES = RASTER_CONTROL_NAMES + RAY_CONTROL_NAMES
@@ -316,9 +316,9 @@ def validate_m15_image_matrix(
             value["rim"] + 0.03 >= value["center"] for value in sphere_retention.values()
         ),
         "probe_intensity_is_diffuse_invariant": deltas["probe_intensity_diffuse_nrmse"] < 1.0e-5,
-        "ssao_is_diffuse_only": deltas["ssao_specular_nrmse"] < 1.0e-5,
+        "ssao_retains_material_and_ddgi_specular_visibility": deltas["ssao_specular_nrmse"] > 1.0e-5,
         "indirect_intensity_does_not_scale_specular": deltas["indirect_intensity_specular_nrmse"] < 1.0e-5,
-        "ddgi_disabled_does_not_change_specular": deltas["ddgi_disabled_specular_nrmse"] < 1.0e-5,
+        "ddgi_visibility_changes_rough_specular": deltas["ddgi_disabled_specular_nrmse"] > 1.0e-5,
         "ddgi_outside_does_not_change_specular": deltas["ddgi_outside_specular_nrmse"] < 1.0e-5,
         "adjacent_rooms_are_nonblack_and_distinct": metrics["sponza-gtao-left-room"]["sponza_room"] > 0.0001
         and metrics["sponza-gtao-right-room"]["sponza_room"] > 0.0001
@@ -334,21 +334,21 @@ def validate_image_matrix(
     metrics: dict[str, dict[str, float]], linear_metrics: dict[str, dict[str, float]]
 ) -> None:
     default = metrics["default"]
-    indirect_off = metrics["indirect-off"]
+    diffuse_fallback_off = metrics["diffuse-fallback-off"]
     all_off = metrics["all-off"]
-    sky_off = metrics["sky-off"]
+    environment_off = metrics["environment-off"]
     background = metrics["background-only"]
     background_lit = metrics["background-lit"]
-    sky_double = metrics["sky-double"]
-    indirect_double = metrics["indirect-double"]
-    sky_double_indirect_off = metrics["sky-double-indirect-off"]
-    both_double = metrics["both-double"]
+    environment_double = metrics["environment-double"]
+    diffuse_fallback_double = metrics["diffuse-fallback-double"]
+    specular_fallback_off = metrics["specular-fallback-off"]
+    specular_fallback_double = metrics["specular-fallback-double"]
     ray_neutral = metrics["ray-neutral-reference"]
-    ray_sky_double = metrics["ray-sky-double"]
+    ray_environment_double = metrics["ray-environment-double"]
     ray_background_lit = metrics["ray-background-lit"]
-    ray_indirect_off = metrics["ray-indirect-off"]
-    ray_indirect_double = metrics["ray-indirect-double"]
-    ray_sky_off = metrics["ray-sky-off"]
+    ray_fallbacks_off = metrics["ray-fallbacks-off"]
+    ray_fallbacks_double = metrics["ray-fallbacks-double"]
+    ray_environment_off = metrics["ray-environment-off"]
     ray_all_off = metrics["ray-all-off"]
     sponza = metrics["sponza-default"]
     near_black = lambda value: value < 0.02
@@ -363,9 +363,6 @@ def validate_image_matrix(
         and equal(background["background"], background_lit["background"])
         and equal(background["dielectric"], all_off["dielectric"])
         and equal(background["metal"], all_off["metal"])
-        and equal(background_lit["dielectric"], both_double["dielectric"])
-        and equal(background_lit["metal"], both_double["metal"])
-        and equal(background_lit["ibl_diffuse"], both_double["ibl_diffuse"])
         and ray_background_lit["background"] > ray_neutral["background"] + 0.01
         and ray_equal(ray_background_lit["dielectric"], ray_neutral["dielectric"])
         and ray_equal(ray_background_lit["metal"], ray_neutral["metal"])
@@ -375,70 +372,62 @@ def validate_image_matrix(
             for name in SYNTHETIC_CAPTURE_NAMES
             if name not in ("background-only", "background-lit", "ray-background-lit")
         ),
-        "sky_scale_owns_global_specular": indirect_off["metal"] > all_off["metal"] + 0.01
-        and sky_double_indirect_off["metal"] > indirect_off["metal"] + 0.01,
-        "sky_scale_owns_diffuse_source": default["dielectric"] > sky_off["dielectric"] + 0.01
-        and default["ibl_diffuse"] > sky_off["ibl_diffuse"] + 0.01,
-        "indirect_owns_diffuse": default["dielectric"] > indirect_off["dielectric"] + 0.01
-        and default["ibl_diffuse"] > indirect_off["ibl_diffuse"] + 0.01
-        and indirect_double["ibl_diffuse"] > default["ibl_diffuse"] + 0.01
-        and sky_double["ibl_diffuse"] > sky_double_indirect_off["ibl_diffuse"] + 0.01
-        and both_double["ibl_diffuse"] > sky_double["ibl_diffuse"] + 0.01,
-        "sky_scale_is_applied_once": scales_twice(
-            linear_metrics["all-off"]["metal"],
-            linear_metrics["indirect-off"]["metal"],
-            linear_metrics["sky-double-indirect-off"]["metal"],
-        ),
-        "sky_scale_is_applied_once_to_diffuse": scales_twice(
-            linear_metrics["sky-off"]["ibl_diffuse"],
+        "environment_owns_ddgi_source": default["dielectric"] > environment_off["dielectric"] + 0.01
+        and environment_double["dielectric"] > default["dielectric"] + 0.01
+        and equal(environment_off["ibl_diffuse"], default["ibl_diffuse"])
+        and equal(default["ibl_diffuse"], environment_double["ibl_diffuse"])
+        and equal(environment_off["metal"], default["metal"])
+        and equal(default["metal"], environment_double["metal"]),
+        "diffuse_fallback_owns_diffuse": default["ibl_diffuse"] > diffuse_fallback_off["ibl_diffuse"] + 0.01
+        and diffuse_fallback_double["ibl_diffuse"] > default["ibl_diffuse"] + 0.01
+        and equal(diffuse_fallback_off["metal"], default["metal"])
+        and equal(default["metal"], diffuse_fallback_double["metal"]),
+        "specular_fallback_owns_specular": default["metal"] > specular_fallback_off["metal"] + 0.01
+        and specular_fallback_double["metal"] > default["metal"] + 0.01
+        and equal(specular_fallback_off["ibl_diffuse"], default["ibl_diffuse"])
+        and equal(default["ibl_diffuse"], specular_fallback_double["ibl_diffuse"]),
+        "diffuse_fallback_is_applied_once": scales_twice(
+            linear_metrics["diffuse-fallback-off"]["ibl_diffuse"],
             linear_metrics["default"]["ibl_diffuse"],
-            linear_metrics["sky-double"]["ibl_diffuse"],
+            linear_metrics["diffuse-fallback-double"]["ibl_diffuse"],
         ),
-        "indirect_intensity_is_applied_once": scales_twice(
-            linear_metrics["indirect-off"]["ibl_diffuse"],
-            linear_metrics["default"]["ibl_diffuse"],
-            linear_metrics["indirect-double"]["ibl_diffuse"],
+        "specular_fallback_is_applied_once": scales_twice(
+            linear_metrics["specular-fallback-off"]["metal"],
+            linear_metrics["default"]["metal"],
+            linear_metrics["specular-fallback-double"]["metal"],
         ),
-        "ray_sky_scale_is_applied_once": scales_twice(
-            linear_metrics["ray-sky-off"]["metal"],
+        "ray_environment_is_applied_once": scales_twice(
+            linear_metrics["ray-environment-off"]["metal"],
             linear_metrics["ray-neutral-reference"]["metal"],
-            linear_metrics["ray-sky-double"]["metal"],
-        ),
-        "ray_sky_scale_is_applied_once_to_diffuse": scales_twice(
-            linear_metrics["ray-sky-off"]["ibl_diffuse"],
+            linear_metrics["ray-environment-double"]["metal"],
+        ) and scales_twice(
+            linear_metrics["ray-environment-off"]["ibl_diffuse"],
             linear_metrics["ray-neutral-reference"]["ibl_diffuse"],
-            linear_metrics["ray-sky-double"]["ibl_diffuse"],
+            linear_metrics["ray-environment-double"]["ibl_diffuse"],
         ),
-        "ray_indirect_intensity_is_applied_once": scales_twice(
-            linear_metrics["ray-indirect-off"]["ibl_diffuse"],
-            linear_metrics["ray-neutral-reference"]["ibl_diffuse"],
-            linear_metrics["ray-indirect-double"]["ibl_diffuse"],
-        ),
-        "metal_is_indirect_invariant": equal(indirect_off["metal"], default["metal"])
-        and equal(default["metal"], indirect_double["metal"])
-        and equal(sky_double_indirect_off["metal"], sky_double["metal"])
-        and equal(sky_double["metal"], both_double["metal"]),
+        "ray_fallbacks_are_ignored": ray_equal(ray_fallbacks_off["dielectric"], ray_neutral["dielectric"])
+        and ray_equal(ray_fallbacks_double["dielectric"], ray_neutral["dielectric"])
+        and ray_equal(ray_fallbacks_off["metal"], ray_neutral["metal"])
+        and ray_equal(ray_fallbacks_double["metal"], ray_neutral["metal"])
+        and ray_equal(ray_fallbacks_off["ibl_diffuse"], ray_neutral["ibl_diffuse"])
+        and ray_equal(ray_fallbacks_double["ibl_diffuse"], ray_neutral["ibl_diffuse"]),
         "direct_is_invariant": all_off["direct"] > 0.02
-        and equal(all_off["direct"], sky_off["direct"])
-        and equal(all_off["direct"], indirect_off["direct"])
-        and equal(all_off["direct"], metrics["sky-off-indirect-double"]["direct"])
-        and equal(all_off["direct"], sky_double_indirect_off["direct"]),
+        and equal(all_off["direct"], environment_off["direct"])
+        and equal(all_off["direct"], diffuse_fallback_off["direct"]),
         "emission_is_invariant": default["emission"] > 0.02
         and all(equal(default["emission"], metrics[name]["emission"]) for name in raster_names[1:]),
         "ray_ownership": ray_all_off["direct"] > 0.01
         and ray_neutral["emission"] > 0.01
-        and ray_neutral["dielectric"] > ray_indirect_off["dielectric"] + 0.01
-        and ray_equal(ray_neutral["metal"], ray_indirect_off["metal"])
-        and ray_equal(ray_neutral["metal"], ray_indirect_double["metal"])
-        and ray_neutral["metal"] > ray_sky_off["metal"] + 0.01
-        and ray_equal(ray_all_off["direct"], ray_indirect_off["direct"])
-        and ray_equal(ray_all_off["direct"], ray_indirect_double["direct"])
-        and ray_equal(ray_all_off["direct"], ray_sky_double["direct"])
-        and ray_equal(ray_all_off["direct"], ray_sky_off["direct"])
-        and ray_equal(ray_neutral["emission"], ray_indirect_off["emission"])
-        and ray_equal(ray_neutral["emission"], ray_indirect_double["emission"])
-        and ray_equal(ray_neutral["emission"], ray_sky_double["emission"])
-        and ray_equal(ray_neutral["emission"], ray_sky_off["emission"])
+        and ray_neutral["dielectric"] > ray_environment_off["dielectric"] + 0.01
+        and ray_neutral["metal"] > ray_environment_off["metal"] + 0.01
+        and ray_equal(ray_all_off["direct"], ray_fallbacks_off["direct"])
+        and ray_equal(ray_all_off["direct"], ray_fallbacks_double["direct"])
+        and ray_equal(ray_all_off["direct"], ray_environment_double["direct"])
+        and ray_equal(ray_all_off["direct"], ray_environment_off["direct"])
+        and ray_equal(ray_neutral["emission"], ray_fallbacks_off["emission"])
+        and ray_equal(ray_neutral["emission"], ray_fallbacks_double["emission"])
+        and ray_equal(ray_neutral["emission"], ray_environment_double["emission"])
+        and ray_equal(ray_neutral["emission"], ray_environment_off["emission"])
         and ray_equal(ray_neutral["emission"], ray_all_off["emission"]),
         "sponza_exact_metal_is_lit": sponza["sponza_exact_metal"] > 0.02,
     }
@@ -540,7 +529,7 @@ def main() -> int:
             raise RuntimeError(f"Environment lighting report was not written: {report_path}")
         report = json.loads(report_path.read_text(encoding="utf-8"))
         contract = report.get("contract", {})
-        if report.get("schema_version") != 3 or report.get("passed") is not True:
+        if report.get("schema_version") != 4 or report.get("passed") is not True:
             raise RuntimeError("Environment lighting report did not pass its schema contract.")
         expected_contract = {
             "resolution": [1920, 1080],
@@ -594,42 +583,30 @@ def main() -> int:
         if not isinstance(captures, list) or [capture.get("name") for capture in captures] != list(CAPTURE_NAMES):
             raise RuntimeError("Environment lighting report does not contain the ordered M15 capture matrix.")
         expected_controls = {
-            "default": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "indirect-off": {"background": 0.0, "sky": 1.0, "indirect": 0.0},
-            "all-off": {"background": 0.0, "sky": 0.0, "indirect": 0.0},
-            "sky-off": {"background": 0.0, "sky": 0.0, "indirect": 1.0},
-            "background-only": {"background": 1.0, "sky": 0.0, "indirect": 0.0},
-            "background-lit": {"background": 1.0, "sky": 2.0, "indirect": 2.0},
-            "sky-double": {"background": 0.0, "sky": 2.0, "indirect": 1.0},
-            "indirect-double": {"background": 0.0, "sky": 1.0, "indirect": 2.0},
-            "sky-off-indirect-double": {"background": 0.0, "sky": 0.0, "indirect": 2.0},
-            "sky-double-indirect-off": {"background": 0.0, "sky": 2.0, "indirect": 0.0},
-            "both-double": {"background": 0.0, "sky": 2.0, "indirect": 2.0},
-            "ray-neutral-reference": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "ray-sky-double": {"background": 0.0, "sky": 2.0, "indirect": 1.0},
-            "ray-background-lit": {"background": 1.0, "sky": 1.0, "indirect": 1.0},
-            "ray-indirect-off": {"background": 0.0, "sky": 1.0, "indirect": 0.0},
-            "ray-indirect-double": {"background": 0.0, "sky": 1.0, "indirect": 2.0},
-            "ray-sky-off": {"background": 0.0, "sky": 0.0, "indirect": 1.0},
-            "ray-all-off": {"background": 0.0, "sky": 0.0, "indirect": 0.0},
-            "sponza-default": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-diffuse": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-unoccluded": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-beauty": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-diffuse": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-diffuse-probe-double": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-visibility": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-occluded": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-ssao-diffuse": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-ssao-occluded": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-occluded-indirect-double": {"background": 0.0, "sky": 1.0, "indirect": 2.0},
-            "sponza-gtao-occluded-ddgi-disabled": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-occluded-ddgi-outside": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-left-room": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-gtao-right-room": {"background": 0.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-repeatability-anchor": {"background": 1.0, "sky": 1.0, "indirect": 1.0},
-            "sponza-ray-reference": {"background": 1.0, "sky": 1.0, "indirect": 1.0},
+            name: {"background": 0.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0}
+            for name in CAPTURE_NAMES
         }
+        expected_controls.update({
+            "diffuse-fallback-off": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 0.0, "specular_fallback": 1.0},
+            "all-off": {"background": 0.0, "environment": 0.0, "diffuse_fallback": 0.0, "specular_fallback": 0.0},
+            "environment-off": {"background": 0.0, "environment": 0.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "background-only": {"background": 1.0, "environment": 0.0, "diffuse_fallback": 0.0, "specular_fallback": 0.0},
+            "background-lit": {"background": 1.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "environment-double": {"background": 0.0, "environment": 2.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "diffuse-fallback-double": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 2.0, "specular_fallback": 1.0},
+            "specular-fallback-off": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 0.0},
+            "specular-fallback-double": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 2.0},
+            "fallbacks-double": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 2.0, "specular_fallback": 2.0},
+            "ray-environment-double": {"background": 0.0, "environment": 2.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "ray-background-lit": {"background": 1.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "ray-fallbacks-off": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 0.0, "specular_fallback": 0.0},
+            "ray-fallbacks-double": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 2.0, "specular_fallback": 2.0},
+            "ray-environment-off": {"background": 0.0, "environment": 0.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "ray-all-off": {"background": 0.0, "environment": 0.0, "diffuse_fallback": 0.0, "specular_fallback": 0.0},
+            "sponza-gtao-occluded-indirect-double": {"background": 0.0, "environment": 1.0, "diffuse_fallback": 2.0, "specular_fallback": 1.0},
+            "sponza-repeatability-anchor": {"background": 1.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+            "sponza-ray-reference": {"background": 1.0, "environment": 1.0, "diffuse_fallback": 1.0, "specular_fallback": 1.0},
+        })
         expected_modes = dict.fromkeys(
             (*RASTER_CONTROL_NAMES, "sponza-default", *SPONZA_M15_CAPTURE_NAMES, "sponza-repeatability-anchor"),
             "Rasterization",

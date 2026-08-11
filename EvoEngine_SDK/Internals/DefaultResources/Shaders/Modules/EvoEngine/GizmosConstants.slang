@@ -12,9 +12,9 @@ public struct EeGizmosConstants {
 public ConstantBuffer<EeGizmosConstants> EE_GIZMOS_CONSTANTS;
 
 public float4x4 EE_GET_GIZMO_SCALE_MATRIX() {
-  float4x4 result = float4x4(1.0f);
-  result[0] *= EE_GIZMOS_CONSTANTS.size;
-  result[1] *= EE_GIZMOS_CONSTANTS.size;
-  result[2] *= EE_GIZMOS_CONSTANTS.size;
-  return result;
+  const float size = EE_GIZMOS_CONSTANTS.size;
+  return float4x4(size, 0.0f, 0.0f, 0.0f,
+                  0.0f, size, 0.0f, 0.0f,
+                  0.0f, 0.0f, size, 0.0f,
+                  0.0f, 0.0f, 0.0f, 1.0f);
 }
