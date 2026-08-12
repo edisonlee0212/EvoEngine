@@ -941,10 +941,11 @@ class RenderInstanceStorage {
    * @param scene The scene from which to build render instances.
    * @param world_bound The world bounds for the scene.
    */
-  void BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
-                      bool include_editor_cameras = true,
-                      const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera = nullptr,
-                      bool include_reflection_probes = true);
+  void BuildFromScene(
+      const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
+      bool include_editor_cameras = true,
+      const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
+      bool include_reflection_probes = true);
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.

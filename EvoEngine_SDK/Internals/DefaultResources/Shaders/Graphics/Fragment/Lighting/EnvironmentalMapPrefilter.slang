@@ -2,6 +2,7 @@
 struct EeCubemapProcessConstants {
   float4x4 projection_view;
   float preset_value;
+  uint sample_count;
 };
 
 [[vk::push_constant]]
@@ -57,17 +58,19 @@ float3 ImportanceSampleGGX(float2 xi, float3 n, float roughness) {
   return normalize(tangent * h.x + bitangent * h.y + n * h.z);
 }
 
-[shader("fragment")]
-float4 main(CubemapFragmentInput input) : SV_Target {
+[shader("fragment")] float4 main(CubemapFragmentInput input) : SV_Target {
   float3 n = normalize(input.world_pos);
+  if (constants.preset_value <= 0.0f) {
+    return float4(environmentMap.SampleLevel(n, 0.0f).rgb, 1.0f);
+  }
   float3 r = n;
   float3 v = r;
-  static const uint SAMPLE_COUNT = 1024u;
+  uint sample_count = max(constants.sample_count, 1u);
   float3 prefiltered_color = float3(0.0f);
   float total_weight = 0.0f;
 
-  for (uint i = 0u; i < SAMPLE_COUNT; ++i) {
-    float2 xi = Hammersley(i, SAMPLE_COUNT);
+  for (uint i = 0u; i < sample_count; ++i) {
+    float2 xi = Hammersley(i, sample_count);
     float3 h = ImportanceSampleGGX(xi, n, constants.preset_value);
     float3 l = normalize(2.0f * dot(v, h) * h - v);
     float ndotl = max(dot(n, l), 0.0f);
@@ -82,7 +85,7 @@ float4 main(CubemapFragmentInput input) : SV_Target {
       environmentMap.GetDimensions(0, width, height, levels);
       float2 source_size = max(float2(width, height), float2(1.0f));
       float sa_texel = 4.0f * PI / (6.0f * source_size.x * source_size.y);
-      float sa_sample = 1.0f / (float(SAMPLE_COUNT) * pdf + 0.0001f);
+      float sa_sample = 1.0f / (float(sample_count) * pdf + 0.0001f);
       float mip_level = constants.preset_value == 0.0f ? 0.0f : 0.5f * log2(sa_sample / sa_texel);
       prefiltered_color += environmentMap.SampleLevel(l, mip_level).rgb * ndotl;
       total_weight += ndotl;

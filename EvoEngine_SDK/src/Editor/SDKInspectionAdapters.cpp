@@ -2427,7 +2427,11 @@ bool InspectGlobalReflectionProbe(InspectorContext& context, GlobalReflectionPro
     }
   }
   ImGui::Text("Canonical: 256x256, 9 mips, RGBA16F");
-  ImGui::Text("Payload: %zu bytes", reflection_probe.GetCanonicalPayloadByteSize());
+  if (reflection_probe.GetCanonicalPayloadByteSize() == 0 && reflection_probe.IsRuntimeReady()) {
+    ImGui::Text("Payload: GPU resident; downloaded on save");
+  } else {
+    ImGui::Text("Payload: %zu bytes", reflection_probe.GetCanonicalPayloadByteSize());
+  }
   ImGui::Text("Source: %s", reflection_probe.GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked ? "baked"
                             : reflection_probe.GetSourceKind() == GlobalReflectionProbe::SourceKind::Imported
                                 ? "imported"
@@ -2657,11 +2661,19 @@ bool QueueEnvironmentalLightingLocalProbeBake(InspectorContext& context,
 }
 
 uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, const EnvironmentalLighting& lighting) {
-  uint32_t queued_count = 0;
-  for (const auto& probe : lighting.local_reflection_probes) {
-    queued_count += QueueEnvironmentalLightingLocalProbeBake(context, probe) ? 1u : 0u;
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_ERROR("Environmental lighting reflection probe bakes were not queued: the render layer is unavailable.")
+    return 0;
   }
-  return queued_count;
+  std::vector<RenderLayer::ReflectionProbeBakeRequest> requests;
+  requests.reserve(lighting.local_reflection_probes.size());
+  for (const auto& probe : lighting.local_reflection_probes) {
+    auto payload_ref = probe.global_reflection_probe;
+    requests.emplace_back(RenderLayer::ReflectionProbeBakeRequest{glm::vec3(probe.transform[3]),
+                                                                  payload_ref.Get<GlobalReflectionProbe>()});
+  }
+  return render_layer->QueueGlobalReflectionProbeBakeBatch(ResolveInspectorScene(context), requests);
 }
 
 void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
@@ -2678,6 +2690,9 @@ void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
   } else {
     ImGui::Text("Payload: %s (%s)", payload->IsRuntimeReady() ? "runtime ready" : "not ready",
                 GetGlobalReflectionProbeSourceKindName(payload->GetSourceKind()));
+    if (!payload->Saved() && payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked) {
+      ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Persistence: unsaved GPU bake");
+    }
   }
 
   if (ImGui::Button("Bake Local Probe Payload")) {
@@ -2976,7 +2991,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           changed = ImGui::Combo("Shape", &probe.shape, shapes, IM_ARRAYSIZE(shapes)) || changed;
           changed = ImGui::DragInt("Artist priority", &probe.artist_priority) || changed;
           changed = ImGui::DragFloat("Sphere radius", &probe.sphere_radius, 0.05f, 0.001f, 10000.0f) || changed;
-          changed = ImGui::DragFloat("Blend distance", &probe.blend_distance, 0.05f, 0.0f, 10000.0f) || changed;
+          changed = ImGui::DragFloat("Blend distance", &probe.blend_distance, 0.01f, 0.0f, 10000.0f) || changed;
           changed =
               ImGui::DragFloat("Reflection intensity", &probe.reflection_intensity, 0.01f, 0.0f, 10000.0f) || changed;
           changed = ImGui::Checkbox("Box projection", &probe.box_projection) || changed;

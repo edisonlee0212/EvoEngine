@@ -2488,7 +2488,7 @@ TEST(DdgiVolume, OffscreenPreviewRenderingDoesNotTouchSceneDdgiTracking) {
       "render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();", immediate_render);
   const auto restore_definition = render_layer_source.find("const auto restore = [&]", immediate_render);
   const auto isolated_prepare = render_layer_source.find(
-      "PrepareSceneForRendering(scene, false, false, false, false, reflection_probe_capture ? &injected_camera : "
+      "PrepareSceneForRendering(scene, false, false, false, false, reflection_probe_capture ? &injected_cameras : "
       "nullptr,",
       immediate_render);
   const auto camera_render = render_layer_source.find(

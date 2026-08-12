@@ -1501,6 +1501,41 @@ void RunEnvironmentalLightingLocalProbeBake(const std::shared_ptr<Scene>& scene,
   throw std::runtime_error(std::string(context) + " reflection probe bake timed out.");
 }
 
+uint32_t RunEnvironmentalLightingLocalProbeBakeBatch(
+    const std::shared_ptr<Scene>& scene, RenderLayer& render_layer,
+    const std::vector<const EnvironmentalLighting::LocalReflectionProbe*>& probes, const char* context) {
+  std::vector<RenderLayer::ReflectionProbeBakeRequest> requests;
+  std::vector<std::shared_ptr<GlobalReflectionProbe>> payloads;
+  requests.reserve(probes.size());
+  payloads.reserve(probes.size());
+  for (const auto* probe : probes) {
+    auto payload_ref = probe->global_reflection_probe;
+    const auto payload = payload_ref.Get<GlobalReflectionProbe>();
+    if (!payload) {
+      throw std::runtime_error(std::string(context) + " has a missing reflection probe payload.");
+    }
+    requests.push_back({glm::vec3(probe->transform[3]), payload});
+    payloads.emplace_back(payload);
+  }
+  const auto queued_count = render_layer.QueueGlobalReflectionProbeBakeBatch(scene, requests);
+  if (queued_count != requests.size()) {
+    throw std::runtime_error(std::string(context) + " could not queue its reflection probe bake batch.");
+  }
+  for (size_t frame = 0; frame < 600u; ++frame) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error(std::string("Application ended during ") + context + " reflection probe batch.");
+    }
+    const bool ready = std::all_of(payloads.begin(), payloads.end(), [](const auto& payload) {
+      return !payload->Saved() && payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked &&
+             payload->IsRuntimeReady();
+    });
+    if (ready) {
+      return queued_count;
+    }
+  }
+  throw std::runtime_error(std::string(context) + " reflection probe batch timed out.");
+}
+
 void ConfigureMainSceneCamera(const std::shared_ptr<Scene>& scene, const glm::vec3& position) {
   const auto main_camera = scene->main_camera.Get<Camera>();
   main_camera->Resize({1920, 1080});
@@ -1684,14 +1719,14 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
   struct ProbeDefinition {
     glm::vec3 position;
     glm::vec3 size;
-    float blend_distance;
     int priority;
   };
-  constexpr std::array definitions = {ProbeDefinition{{-2.5f, 0.75f, -3.32f}, {3.7f, 5.9f, 13.7f}, 0.1f / 3.7f, 50},
-                                      ProbeDefinition{{2.2f, 1.41f, -3.32f}, {2.4f, 4.4f, 13.7f}, 0.4f / 2.4f, 40},
-                                      ProbeDefinition{{0.175f, 1.41f, 1.23f}, {2.9f, 4.4f, 5.4f}, 0.8f / 2.9f, 30},
-                                      ProbeDefinition{{0.175f, 1.41f, -3.32f}, {2.9f, 4.4f, 5.4f}, 0.8f / 2.9f, 20},
-                                      ProbeDefinition{{0.175f, 1.41f, -7.88f}, {2.9f, 4.4f, 5.4f}, 0.8f / 2.9f, 10}};
+  constexpr float blend_distance = 0.03f;
+  constexpr std::array definitions = {ProbeDefinition{{-2.5f, 0.75f, -3.32f}, {3.7f, 5.9f, 13.7f}, 50},
+                                      ProbeDefinition{{2.2f, 1.41f, -3.32f}, {2.4f, 4.4f, 13.7f}, 40},
+                                      ProbeDefinition{{0.175f, 1.41f, 1.23f}, {2.9f, 4.4f, 5.4f}, 30},
+                                      ProbeDefinition{{0.175f, 1.41f, -3.32f}, {2.9f, 4.4f, 5.4f}, 20},
+                                      ProbeDefinition{{0.175f, 1.41f, -7.88f}, {2.9f, 4.4f, 5.4f}, 10}};
   for (size_t index = 0; index < definitions.size(); ++index) {
     const auto asset = std::dynamic_pointer_cast<GlobalReflectionProbe>(
         ProjectManager::GetOrCreateAsset(kSponzaLocalProbePaths[index]));
@@ -1705,7 +1740,7 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
     probe_transform.SetScale(definition.size);
     AddEnvironmentalLightingLocalReflectionProbe(
         *lighting, kSponzaLocalProbeNames[index], probe_transform.value, asset, definition.priority,
-        EnvironmentalLighting::LocalReflectionProbeShape::Box, 1.0f, definition.blend_distance, true);
+        EnvironmentalLighting::LocalReflectionProbeShape::Box, 1.0f, blend_distance, true);
   }
 }
 
@@ -2905,9 +2940,8 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
       throw std::runtime_error(std::string("Sponza authoring probe is missing: ") + kSponzaLocalProbeNames[index]);
     }
   }
-  for (const auto& probe : probes) {
-    RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, *probe, "Sponza");
-  }
+  std::vector<const EnvironmentalLighting::LocalReflectionProbe*> batch_probes(probes.begin(), probes.end());
+  RunEnvironmentalLightingLocalProbeBakeBatch(scene, *render_layer, batch_probes, "Sponza");
 
   const auto output_directory = resource_root / "EvoEngine-DemoProjects/Rendering/Assets" / kSponzaLightingDirectory;
   std::filesystem::create_directories(output_directory);
@@ -2917,9 +2951,9 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
   }
   const auto export_probe = [&](const std::shared_ptr<GlobalReflectionProbe>& asset,
                                 const std::filesystem::path& relative_path) {
-    if (!asset || !asset->IsRuntimeReady() ||
+    if (!asset || !asset->IsRuntimeReady() || !asset->Export(output_directory / relative_path.filename()) ||
         asset->GetCanonicalPayloadByteSize() != GlobalReflectionProbe::kCanonicalPayloadByteSize ||
-        asset->GetPayloadHash() == 0u || !asset->Export(output_directory / relative_path.filename())) {
+        asset->GetPayloadHash() == 0u) {
       throw std::runtime_error("Sponza reflection probe export failed: " + relative_path.string());
     }
   };
@@ -2927,8 +2961,7 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
   for (size_t index = 0; index < probes.size(); ++index) {
     auto asset_ref = probes[index]->global_reflection_probe;
     const auto asset = asset_ref.Get<GlobalReflectionProbe>();
-    if (!asset || asset->GetSourceKind() != GlobalReflectionProbe::SourceKind::Baked ||
-        asset->GetSourceFingerprint() == 0u) {
+    if (!asset || asset->GetSourceKind() != GlobalReflectionProbe::SourceKind::Baked) {
       throw std::runtime_error(std::string("Sponza reflection probe bake is incomplete: ") +
                                kSponzaLocalProbePaths[index]);
     }
@@ -3449,20 +3482,40 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   if (!ApplicationContext::Get().Loop()) {
     throw std::runtime_error("Application ended while preparing reflection probe bake controls.");
   }
+  const uint64_t first_persisted_hash_before =
+      YAML::LoadFile(first_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>();
   RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, get_bake_probe(0), "Reflection probe validation");
-  const uint64_t first_fingerprint = first_bake->GetSourceFingerprint();
+  const bool first_bake_deferred =
+      !first_bake->Saved() && first_bake->GetPayloadHash() == 0u && first_bake->GetCanonicalPayloadByteSize() == 0u &&
+      first_bake->IsRuntimeReady() &&
+      YAML::LoadFile(first_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>() ==
+          first_persisted_hash_before;
+  if (!first_bake->Save()) {
+    throw std::runtime_error("Reflection probe validation could not explicitly save its first baked payload.");
+  }
   const uint64_t first_payload_hash = first_bake->GetPayloadHash();
   const auto first_bake_document = YAML::LoadFile(first_bake->GetAbsolutePath().string());
   const bool persisted_payload_is_canonical =
       first_bake_document["pixels"] &&
       first_bake_document["pixels"].as<YAML::Binary>().size() == GlobalReflectionProbe::kCanonicalPayloadByteSize;
   red_probe.global_reflection_probe = blue_asset;
+  const uint64_t second_persisted_hash_before =
+      YAML::LoadFile(second_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>();
   RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, get_bake_probe(1), "Reflection probe validation");
+  const bool second_bake_deferred =
+      !second_bake->Saved() && second_bake->GetPayloadHash() == 0u &&
+      second_bake->GetCanonicalPayloadByteSize() == 0u && second_bake->IsRuntimeReady() &&
+      YAML::LoadFile(second_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>() ==
+          second_persisted_hash_before;
+  if (!second_bake->Save()) {
+    throw std::runtime_error("Reflection probe validation could not explicitly save its second baked payload.");
+  }
   red_probe.global_reflection_probe = red_asset;
+  const bool deferred_bake_persistence = first_bake_deferred && second_bake_deferred;
   const bool bake_contract =
       first_bake->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked &&
-      second_bake->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked && first_fingerprint != 0u &&
-      first_fingerprint == second_bake->GetSourceFingerprint() && first_payload_hash == second_bake->GetPayloadHash() &&
+      second_bake->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked &&
+      first_payload_hash == second_bake->GetPayloadHash() &&
       first_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
       second_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
       first_bake->GetRuntimeFormat() == GlobalReflectionProbe::kCanonicalFormat && first_bake->GetCubemap() &&
@@ -3497,8 +3550,6 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   SetEnvironmentalLightingDiffuseFallback(scene, 0.0f);
   lighting->indirect_environment_source.color = original_background_color + glm::vec3(0.03125f, 0.0f, 0.0f);
   refresh_bake_statuses();
-  const std::array no_auto_fingerprints_before = {first_bake->GetSourceFingerprint(),
-                                                  second_bake->GetSourceFingerprint()};
   const std::array no_auto_payload_hashes_before = {first_bake->GetPayloadHash(), second_bake->GetPayloadHash()};
   bool explicit_payload_active_without_bake = true;
   for (size_t frame = 0; frame < 4u; ++frame) {
@@ -3511,10 +3562,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
         get_bake_probe(0).global_reflection_probe.Get<GlobalReflectionProbe>() == first_bake &&
         get_bake_probe(1).global_reflection_probe.Get<GlobalReflectionProbe>() == second_bake;
   }
-  const std::array no_auto_fingerprints_after = {first_bake->GetSourceFingerprint(),
-                                                 second_bake->GetSourceFingerprint()};
   const std::array no_auto_payload_hashes_after = {first_bake->GetPayloadHash(), second_bake->GetPayloadHash()};
-  const bool no_auto_fingerprints_unchanged = no_auto_fingerprints_before == no_auto_fingerprints_after;
   const bool no_auto_payload_hashes_unchanged = no_auto_payload_hashes_before == no_auto_payload_hashes_after;
   const uint64_t imported_payload_hash_after_observation = red_asset->GetPayloadHash();
   const bool imported_probe_unchanged = imported_status_before == "Imported" &&
@@ -3563,15 +3611,22 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   const double explicit_payload_render_delta = normalized_rms(explicit_payload_enabled, explicit_payload_disabled);
   const bool explicit_payload_rendered = explicit_payload_render_delta > 0.0001;
 
-  const uint64_t single_fingerprint_before = first_bake->GetSourceFingerprint();
   const uint64_t single_payload_hash_before = first_bake->GetPayloadHash();
+  const uint64_t single_persisted_hash_before =
+      YAML::LoadFile(first_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>();
   RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, get_bake_probe(0), "Reflection probe validation");
-  const uint64_t single_fingerprint_after = first_bake->GetSourceFingerprint();
+  const bool single_rebake_deferred =
+      !first_bake->Saved() && first_bake->GetPayloadHash() == 0u && first_bake->GetCanonicalPayloadByteSize() == 0u &&
+      first_bake->IsRuntimeReady() &&
+      YAML::LoadFile(first_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>() ==
+          single_persisted_hash_before;
+  if (!first_bake->Save()) {
+    throw std::runtime_error("Reflection probe validation could not explicitly save its single rebake.");
+  }
   const uint64_t single_payload_hash_after = first_bake->GetPayloadHash();
-  const bool single_rebake_ready =
-      GetEnvironmentalLightingLocalProbeBakeStatus(get_bake_probe(0)) == "Ready" && first_bake->IsRuntimeReady() &&
-      single_fingerprint_after != 0u && single_fingerprint_after != single_fingerprint_before &&
-      single_payload_hash_after != 0u && single_payload_hash_after != single_payload_hash_before;
+  const bool single_rebake_ready = GetEnvironmentalLightingLocalProbeBakeStatus(get_bake_probe(0)) == "Ready" &&
+                                   first_bake->IsRuntimeReady() && single_payload_hash_after != 0u &&
+                                   single_payload_hash_after != single_payload_hash_before;
 
   lighting->indirect_environment_source.color = original_background_color + glm::vec3(0.015625f, 0.0f, 0.0f);
   refresh_bake_statuses();
@@ -3579,24 +3634,54 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   std::vector<uint32_t> batch_pending_counts;
   std::array<bool, 2> batch_observed_pending{false, false};
   uint32_t batch_max_pending = 0;
-  size_t batch_queued_count = 0;
+  uint32_t batch_queued_count = 0;
+  bool batch_bakes_deferred = true;
+  Platform::ResetGpuTimestampStats();
+  const auto batch_start = std::chrono::steady_clock::now();
+  std::vector<const EnvironmentalLighting::LocalReflectionProbe*> batch_probes;
+  batch_probes.reserve(bake_probe_indices.size());
   for (size_t index = 0; index < bake_probe_indices.size(); ++index) {
-    ++batch_queued_count;
-    batch_pending_counts.emplace_back(1u);
+    batch_probes.emplace_back(&get_bake_probe(index));
     batch_observed_pending[index] = true;
-    batch_max_pending = std::max(batch_max_pending, 1u);
-    RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, get_bake_probe(index),
-                                           "Reflection probe validation batch");
-    refresh_bake_statuses();
-    batch_pending_counts.emplace_back(0u);
   }
+  batch_pending_counts.emplace_back(static_cast<uint32_t>(batch_probes.size()));
+  batch_max_pending = static_cast<uint32_t>(batch_probes.size());
+  batch_queued_count = RunEnvironmentalLightingLocalProbeBakeBatch(scene, *render_layer, batch_probes,
+                                                                   "Reflection probe validation batch");
+  const double batch_wall_milliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - batch_start).count();
+  batch_pending_counts.emplace_back(0u);
+  for (size_t index = 0; index < bake_probe_indices.size(); ++index) {
+    batch_bakes_deferred &= !bake_assets[index]->Saved() && bake_assets[index]->GetPayloadHash() == 0u &&
+                            bake_assets[index]->GetCanonicalPayloadByteSize() == 0u &&
+                            bake_assets[index]->IsRuntimeReady();
+    if (!bake_assets[index]->Save()) {
+      throw std::runtime_error("Reflection probe validation could not explicitly save its batch rebake.");
+    }
+    refresh_bake_statuses();
+  }
+  for (int frame = 0; frame < Platform::kMaxFramesInFlight; ++frame) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended while resolving reflection probe batch timing scopes.");
+    }
+  }
+  const auto batch_gpu_timings = Platform::GetGpuTimestampStats();
+  const auto batch_cpu_timings = Platform::GetCpuTimingStats();
+  const auto find_timing = [](const std::vector<GpuTimestampStats>& timings, const std::string& name) {
+    const auto found = std::find_if(timings.begin(), timings.end(), [&](const auto& timing) {
+      return timing.name == name;
+    });
+    return found == timings.end() ? GpuTimestampStats{} : *found;
+  };
+  const auto batch_gpu_total = find_timing(batch_gpu_timings, "Reflection Probe Bake GPU Total");
+  const auto batch_face_capture = find_timing(batch_gpu_timings, "Reflection Probe Face Capture");
+  const auto batch_prefilter = find_timing(batch_gpu_timings, "Reflection Probe GGX Prefilter");
+  const auto batch_cpu_total = find_timing(batch_cpu_timings, "Reflection Probe Bake Total CPU");
   const bool batch_finished = all_bake_probe_statuses_are("Ready");
   const uint64_t imported_payload_hash_after_batch = red_asset->GetPayloadHash();
   const bool imported_probe_unchanged_after_batch =
       imported_probe_unchanged && GetEnvironmentalLightingLocalProbeBakeStatus(red_probe) == "Imported" &&
       imported_payload_hash_after_batch == imported_payload_hash_before;
-  const std::array batch_source_fingerprints = {first_bake->GetSourceFingerprint(),
-                                                second_bake->GetSourceFingerprint()};
   const std::array batch_payload_hashes = {first_bake->GetPayloadHash(), second_bake->GetPayloadHash()};
   const bool batch_payloads_nonblack = std::all_of(bake_assets.begin(), bake_assets.end(), [](const auto& asset) {
     const auto& payload = asset->GetCanonicalPayload();
@@ -3609,10 +3694,8 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
     return false;
   });
   const bool batch_final_ready =
-      batch_finished && batch_source_fingerprints[0] != 0u &&
-      batch_source_fingerprints[0] == batch_source_fingerprints[1] && batch_payload_hashes[0] != 0u &&
-      batch_payload_hashes[0] == batch_payload_hashes[1] && first_bake->IsRuntimeReady() &&
-      second_bake->IsRuntimeReady() &&
+      batch_finished && batch_payload_hashes[0] != 0u && batch_payload_hashes[0] == batch_payload_hashes[1] &&
+      first_bake->IsRuntimeReady() && second_bake->IsRuntimeReady() &&
       first_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
       second_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
       get_bake_probe(0).global_reflection_probe.Get<GlobalReflectionProbe>() == first_bake &&
@@ -4036,19 +4119,20 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
            render_layer->render_settings.indirect_lighting_debug_view ==
                RenderSettings::IndirectLightingDebugView::Beauty},
       {"canonical_nonrecursive_bake", bake_contract && baked_nonblack},
+      {"explicit_bake_defers_persistence", deferred_bake_persistence && single_rebake_deferred && batch_bakes_deferred},
       {"bake_targets_are_unique", unique_bake_entries && unique_bake_assets && initial_bakes_ready},
       {"explicit_bakes_do_not_run_automatically",
-       explicit_payload_active_without_bake && no_auto_fingerprints_unchanged && no_auto_payload_hashes_unchanged},
+       explicit_payload_active_without_bake && no_auto_payload_hashes_unchanged},
       {"explicit_bakes_keep_last_valid_payload", explicit_payload_active_without_bake && explicit_payload_rendered},
       {"single_explicit_rebake_finishes_ready", single_rebake_ready},
       {"imported_probe_is_not_invalidated", imported_probe_unchanged_after_batch},
       {"batch_explicit_rebake_queues_both", batch_queued_count == 2u},
-      {"batch_explicit_rebake_is_serial", batch_max_pending == 1u && batch_observed_pending[0] &&
-                                              batch_observed_pending[1] &&
-                                              std::all_of(batch_pending_counts.begin(), batch_pending_counts.end(),
-                                                          [](const uint32_t count) {
-                                                            return count <= 1u;
-                                                          })},
+      {"batch_explicit_rebake_is_one_request", batch_max_pending == 2u && batch_observed_pending[0] &&
+                                                   batch_observed_pending[1] &&
+                                                   std::all_of(batch_pending_counts.begin(), batch_pending_counts.end(),
+                                                               [](const uint32_t count) {
+                                                                 return count <= 2u;
+                                                               })},
       {"batch_explicit_rebake_finishes_ready", batch_final_ready},
       {"deferred_lighting_timing_is_complete",
        deferred_lighting_sample_count == timing_measure_frames &&
@@ -4146,8 +4230,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
     }
     report << "}}";
   }
-  report << "\n  ],\n  \"bake\": {\"fingerprint\": " << first_fingerprint
-         << ", \"payload_hash\": " << first_payload_hash
+  report << "\n  ],\n  \"bake\": {\"payload_hash\": " << first_payload_hash
          << ", \"nonrecursive_equal\": " << (bake_contract ? "true" : "false")
          << ", \"nonblack\": " << (baked_nonblack ? "true" : "false")
          << ", \"persisted_payload_bytes\": " << GlobalReflectionProbe::kCanonicalPayloadByteSize
@@ -4158,20 +4241,15 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
             "\"final_controls\": {\"sky\": 1.0, \"indirect\": 0.0}, "
             "\"no_auto_rebake\": {\"frames\": 4, \"payload_active\": "
          << (explicit_payload_active_without_bake ? "true" : "false")
-         << ", \"fingerprints_unchanged\": " << (no_auto_fingerprints_unchanged ? "true" : "false")
          << ", \"payload_hashes_unchanged\": " << (no_auto_payload_hashes_unchanged ? "true" : "false")
          << ", \"last_valid_payload_rendered\": " << (explicit_payload_rendered ? "true" : "false")
          << ", \"render_nrmse\": " << explicit_payload_render_delta
          << ", \"enabled_image\": \"explicit-payload-enabled.png\", \"disabled_image\": "
             "\"explicit-payload-disabled.png\""
-         << ", \"fingerprints_before\": [" << no_auto_fingerprints_before[0] << ", " << no_auto_fingerprints_before[1]
-         << "], \"fingerprints_after\": [" << no_auto_fingerprints_after[0] << ", " << no_auto_fingerprints_after[1]
-         << "], \"payload_hashes_before\": [" << no_auto_payload_hashes_before[0] << ", "
+         << ", \"payload_hashes_before\": [" << no_auto_payload_hashes_before[0] << ", "
          << no_auto_payload_hashes_before[1] << "], \"payload_hashes_after\": [" << no_auto_payload_hashes_after[0]
          << ", " << no_auto_payload_hashes_after[1]
          << "]}, \"single\": {\"ready\": " << (single_rebake_ready ? "true" : "false")
-         << ", \"fingerprint_before\": " << single_fingerprint_before
-         << ", \"fingerprint_after\": " << single_fingerprint_after
          << ", \"payload_hash_before\": " << single_payload_hash_before
          << ", \"payload_hash_after\": " << single_payload_hash_after << "}, \"imported_probe\": {\"status\": \""
          << imported_status_before << "\", \"payload_hash_before\": " << imported_payload_hash_before
@@ -4183,10 +4261,18 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   }
   report << "], \"max_pending\": " << batch_max_pending << ", \"both_observed_pending\": "
          << (batch_observed_pending[0] && batch_observed_pending[1] ? "true" : "false")
-         << ", \"final_ready\": " << (batch_final_ready ? "true" : "false") << ", \"source_fingerprints\": ["
-         << batch_source_fingerprints[0] << ", " << batch_source_fingerprints[1] << "], \"payload_hashes\": ["
+         << ", \"final_ready\": " << (batch_final_ready ? "true" : "false") << ", \"payload_hashes\": ["
          << batch_payload_hashes[0] << ", " << batch_payload_hashes[1]
-         << "]}},\n  \"gpu_timing\": {\"scope\": \"Deferred Lighting\", "
+         << "], \"timing\": {\"wall_ms\": " << batch_wall_milliseconds
+         << ", \"gpu_total_ms\": " << batch_gpu_total.last_milliseconds
+         << ", \"gpu_total_samples\": " << batch_gpu_total.sample_count
+         << ", \"face_capture_ms\": " << batch_face_capture.total_milliseconds
+         << ", \"face_capture_samples\": " << batch_face_capture.sample_count
+         << ", \"ggx_prefilter_ms\": " << batch_prefilter.total_milliseconds
+         << ", \"ggx_prefilter_samples\": " << batch_prefilter.sample_count
+         << ", \"cpu_total_ms\": " << batch_cpu_total.last_milliseconds
+         << ", \"cpu_total_samples\": " << batch_cpu_total.sample_count
+         << "}}},\n  \"gpu_timing\": {\"scope\": \"Deferred Lighting\", "
             "\"warmup_frames\": 8, \"measure_frames\": 120, \"sample_count\": "
          << deferred_lighting_sample_count << ", \"median_ms\": " << deferred_lighting_median_ms
          << ", \"p95_ms\": " << deferred_lighting_p95_ms

@@ -298,10 +298,19 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<PostProcessingRendererResources>& GetPostProcessingRendererResources() const;
+  struct ReflectionProbeBakeRequest {
+    glm::vec3 position{};
+    std::shared_ptr<GlobalReflectionProbe> target{};
+  };
   [[nodiscard]] bool QueueGlobalReflectionProbeBake(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
                                                     const std::shared_ptr<GlobalReflectionProbe>& target);
+  [[nodiscard]] uint32_t QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<Scene>& scene,
+                                                             const std::vector<ReflectionProbeBakeRequest>& requests);
 
  private:
+  using RenderCommandRecorder =
+      std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
+
   struct DdgiReadbackTicket {
     std::shared_ptr<Buffer> buffer{};
     std::shared_ptr<FrameSubmissionState> submission{};
@@ -558,6 +567,15 @@ class RenderLayer final : public ILayer {
   mutable DdgiSessionState ddgi_session_state_{};
   std::unique_ptr<Lighting> lighting_;
   std::shared_ptr<Texture2D> environmental_brdf_lut_ = {};
+  std::vector<std::shared_ptr<Camera>> reflection_probe_capture_cameras_ = {};
+  Handle reflection_probe_shadow_camera_handle_{};
+  std::shared_ptr<Cubemap> reflection_probe_capture_raw_cubemap_ = {};
+  std::shared_ptr<Cubemap> reflection_probe_capture_filtered_cubemap_ = {};
+  std::vector<std::vector<std::shared_ptr<ImageView>>> reflection_probe_capture_filtered_mip_views_ = {};
+  std::shared_ptr<Image> reflection_probe_capture_filter_depth_image_ = {};
+  std::shared_ptr<ImageView> reflection_probe_capture_filter_depth_view_ = {};
+  std::shared_ptr<DescriptorSet> reflection_probe_capture_filter_descriptor_set_ = {};
+  std::shared_ptr<GraphicsPipeline> reflection_probe_capture_prefilter_pipeline_ = {};
   /**
    * \brief Called after the RenderLayer object is created.
    */
@@ -567,7 +585,8 @@ class RenderLayer final : public ILayer {
   /**
    * \brief Prepares shadow maps for point and spot lights.
    */
-  void PreparePointAndSpotLightShadowMap(bool immediate = false, bool include_external = true) const;
+  void PreparePointAndSpotLightShadowMap(bool immediate = false, bool include_external = true,
+                                         const RenderCommandRecorder* command_recorder = nullptr) const;
 
   /**
    * \brief Prepares the environmental BRDF LUT texture.
@@ -582,7 +601,9 @@ class RenderLayer final : public ILayer {
    */
   void RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
                       const std::shared_ptr<Camera>& camera, bool immediate = false,
-                      bool reflection_probe_capture = false) const;
+                      bool reflection_probe_capture = false, int camera_index_override = -1,
+                      int directional_shadow_camera_index = -1,
+                      const RenderCommandRecorder* command_recorder = nullptr) const;
 
   /**
    * \brief Renders to the specified camera using ray tracing.
@@ -617,11 +638,11 @@ class RenderLayer final : public ILayer {
    * \brief Prepares the render layer for rendering.
    */
   void PrepareForRendering();
-  void PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, bool include_editor_cameras = true,
-                                bool update_editor_selection = true, bool update_ray_tracing = true,
-                                bool track_ddgi_scene_inputs = true,
-                                const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera = nullptr,
-                                bool include_reflection_probes = true);
+  void PrepareSceneForRendering(
+      const std::shared_ptr<Scene>& scene, bool include_editor_cameras = true, bool update_editor_selection = true,
+      bool update_ray_tracing = true, bool track_ddgi_scene_inputs = true,
+      const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
+      bool include_reflection_probes = true);
 
   void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                              const std::shared_ptr<RenderInstanceStorage>& render_instances);
@@ -638,14 +659,13 @@ class RenderLayer final : public ILayer {
   void RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,
                                       const GlobalTransform& camera_global_transform,
                                       const std::shared_ptr<Camera>& camera, bool reflection_probe_capture = false);
-  bool BakeReflectionProbe(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
-                           const std::shared_ptr<GlobalReflectionProbe>& target, uint64_t& source_fingerprint,
-                           std::string& error, bool& retry);
-  void QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
-                                             const std::shared_ptr<GlobalReflectionProbe>& target,
+  [[nodiscard]] const std::vector<std::shared_ptr<Camera>>& GetOrCreateReflectionProbeCaptureCameras(size_t count);
+  bool PrepareReflectionProbeCaptureResources(VkFormat raw_format);
+  bool BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
+                            const std::vector<ReflectionProbeBakeRequest>& requests, std::string& error, bool& retry);
+  void QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene,
+                                             const std::vector<ReflectionProbeBakeRequest>& requests,
                                              uint32_t retry_count);
-  [[nodiscard]] uint64_t GetReflectionProbeCaptureFingerprint(const std::shared_ptr<Scene>& scene,
-                                                              const glm::vec3& position) const;
 
   /**
    * \brief Performs all rendering operations for this render layer.
@@ -664,11 +684,11 @@ class RenderLayer final : public ILayer {
    * \param track_ddgi_scene_inputs Whether this scene should update active DDGI change tracking.
    * \return True if scene-wide render changes require all collected camera histories to reset.
    */
-  bool UpdateRenderInstanceStorage(const std::shared_ptr<Scene>& scene, uint32_t current_frame_index,
-                                   bool include_editor_cameras = true, bool update_editor_selection = true,
-                                   bool track_ddgi_scene_inputs = true,
-                                   const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera = nullptr,
-                                   bool include_reflection_probes = true);
+  bool UpdateRenderInstanceStorage(
+      const std::shared_ptr<Scene>& scene, uint32_t current_frame_index, bool include_editor_cameras = true,
+      bool update_editor_selection = true, bool track_ddgi_scene_inputs = true,
+      const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
+      bool include_reflection_probes = true);
   void BindRenderInstanceStorage(uint32_t current_frame_index,
                                  const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetRasterLightingTextureDescriptorSet(

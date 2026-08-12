@@ -127,7 +127,8 @@ Cubemap::~Cubemap() {
   TextureStorage::UnRegisterCubemap(texture_storage_handle_);
 }
 
-void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels, const VkFormat format) const {
+void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels, const VkFormat format,
+                         const bool transition_to_shader_read) const {
   if (Platform::Initialized() && PeekStorage().image) {
     SynchronizeCubemapResourceMutation();
   }
@@ -138,7 +139,7 @@ void Cubemap::Initialize(const uint32_t resolution, const uint32_t mip_levels, c
   local_rgba16f_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;
-  RefStorage().Initialize(resolution, mip_levels, format);
+  RefStorage().Initialize(resolution, mip_levels, format, transition_to_shader_read);
 }
 
 void Cubemap::UploadLocalData() const {

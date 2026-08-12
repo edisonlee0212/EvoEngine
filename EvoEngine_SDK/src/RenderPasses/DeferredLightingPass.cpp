@@ -12,7 +12,8 @@
 
 using namespace evo_engine;
 
-RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_occlusion_enabled) {
+RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_occlusion_enabled,
+                                                            const bool depth_pyramid_enabled) {
   RenderPassDescriptor descriptor{
       RenderPassNames::deferred_camera,
       RenderPassQueue::Graphics,
@@ -22,9 +23,12 @@ RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_o
         RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
-      {RenderPassNames::depth_pyramid}};
+      {depth_pyramid_enabled ? RenderPassNames::depth_pyramid : RenderPassNames::deferred_geometry}};
+  if (depth_pyramid_enabled) {
+    descriptor.resources.push_back(
+        {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+  }
   if (ambient_occlusion_enabled) {
     descriptor.resources.push_back(
         {RenderResourceNames::camera_ambient_occlusion, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
@@ -78,8 +82,10 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
                                                parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
         RenderInstancePushConstant push_constant;
         push_constant.camera_index = parameters.camera_index;
-        push_constant.light_split_index =
-            parameters.fade_selection ? glm::max(128, 256 - parameters.selection_alpha) : 256;
+        push_constant.light_split_index = parameters.directional_shadow_camera_index >= 0
+                                              ? -parameters.directional_shadow_camera_index - 1
+                                          : parameters.fade_selection ? glm::max(128, 256 - parameters.selection_alpha)
+                                                                      : 256;
         push_constant.instance_index = parameters.fade_selection ? 1 : 0;
         parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();

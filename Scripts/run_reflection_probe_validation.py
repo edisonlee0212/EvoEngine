@@ -451,8 +451,6 @@ def main() -> int:
             bake.get("nonrecursive_equal") is not True
             or bake.get("nonblack") is not True
             or bake.get("persisted_payload_bytes") != 4194288
-            or not isinstance(bake.get("fingerprint"), int)
-            or bake["fingerprint"] == 0
         ):
             raise RuntimeError("Reflection probe canonical non-recursive bake evidence is invalid.")
         explicit_rebake = report.get("explicit_rebake", {})
@@ -468,7 +466,7 @@ def main() -> int:
             or explicit_rebake.get("final_controls") != {"sky": 1.0, "indirect": 0.0}
         ):
             raise RuntimeError("Reflection probe explicit-bake evidence is invalid.")
-        for key in ("fingerprints_before", "fingerprints_after", "payload_hashes_before", "payload_hashes_after"):
+        for key in ("payload_hashes_before", "payload_hashes_after"):
             values = no_auto.get(key)
             if (
                 not isinstance(values, list)
@@ -479,7 +477,6 @@ def main() -> int:
         if (
             no_auto.get("frames") != 4
             or no_auto.get("payload_active") is not True
-            or no_auto.get("fingerprints_unchanged") is not True
             or no_auto.get("payload_hashes_unchanged") is not True
             or no_auto.get("last_valid_payload_rendered") is not True
             or not isinstance(no_auto.get("render_nrmse"), (int, float))
@@ -487,17 +484,11 @@ def main() -> int:
             or no_auto["render_nrmse"] <= 0.0001
             or no_auto.get("enabled_image") != "explicit-payload-enabled.png"
             or no_auto.get("disabled_image") != "explicit-payload-disabled.png"
-            or no_auto["fingerprints_before"] != no_auto["fingerprints_after"]
             or no_auto["payload_hashes_before"] != no_auto["payload_hashes_after"]
         ):
             raise RuntimeError("Reflection probes baked automatically or lost their explicit payload.")
         if (
             single.get("ready") is not True
-            or not isinstance(single.get("fingerprint_before"), int)
-            or not isinstance(single.get("fingerprint_after"), int)
-            or single["fingerprint_before"] == 0
-            or single["fingerprint_after"] == 0
-            or single["fingerprint_before"] == single["fingerprint_after"]
             or not isinstance(single.get("payload_hash_before"), int)
             or not isinstance(single.get("payload_hash_after"), int)
             or single["payload_hash_before"] == 0
@@ -514,26 +505,33 @@ def main() -> int:
         ):
             raise RuntimeError("Imported reflection probe explicit-bake evidence is invalid.")
         pending_counts = batch.get("pending_counts")
-        source_fingerprints = batch.get("source_fingerprints")
         payload_hashes = batch.get("payload_hashes")
+        batch_timing = batch.get("timing", {})
         if (
             batch.get("queued_count") != 2
             or not isinstance(pending_counts, list)
             or not pending_counts
-            or any(not isinstance(value, int) or value < 0 or value > 1 for value in pending_counts)
-            or batch.get("max_pending") != 1
+            or any(not isinstance(value, int) or value < 0 or value > 2 for value in pending_counts)
+            or batch.get("max_pending") != 2
             or batch.get("both_observed_pending") is not True
             or batch.get("final_ready") is not True
-            or not isinstance(source_fingerprints, list)
-            or len(source_fingerprints) != 2
-            or source_fingerprints[0] == 0
-            or source_fingerprints[0] != source_fingerprints[1]
             or not isinstance(payload_hashes, list)
             or len(payload_hashes) != 2
             or payload_hashes[0] == 0
             or payload_hashes[0] != payload_hashes[1]
         ):
-            raise RuntimeError("Reflection probe serial batch-rebake evidence is invalid.")
+            raise RuntimeError("Reflection probe batch-rebake evidence is invalid.")
+        for key in ("wall_ms", "gpu_total_ms", "face_capture_ms", "ggx_prefilter_ms", "cpu_total_ms"):
+            value = batch_timing.get(key)
+            if not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0.0:
+                raise RuntimeError(f"Reflection probe batch timing field {key!r} is invalid.")
+        for key in ("gpu_total_samples", "cpu_total_samples"):
+            if batch_timing.get(key) != 1:
+                raise RuntimeError(f"Reflection probe batch timing field {key!r} does not describe one batch.")
+        for key in ("face_capture_samples", "ggx_prefilter_samples"):
+            value = batch_timing.get(key)
+            if not isinstance(value, int) or value < 0 or value > 2:
+                raise RuntimeError(f"Reflection probe batch timing field {key!r} is invalid.")
         gpu_timing = report.get("gpu_timing", {})
         timing_samples = gpu_timing.get("samples_ms")
         if (

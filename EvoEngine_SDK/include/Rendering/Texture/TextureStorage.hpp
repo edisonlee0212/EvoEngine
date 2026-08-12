@@ -188,7 +188,7 @@ class CubemapStorage {
    * @param resolution The resolution of the cubemap.
    * @param mip_levels The number of mip levels.
    */
-  void Initialize(uint32_t resolution, uint32_t mip_levels, VkFormat format);
+  void Initialize(uint32_t resolution, uint32_t mip_levels, VkFormat format, bool transition_to_shader_read = true);
 
   /**
    * @brief Retrieves the Vulkan image layout of the cubemap.

@@ -27,12 +27,14 @@ probe's storage encoding.
 
 Every accepted asset is linear HDR in Vulkan face order, at 256x256 with nine mips and
 `VK_FORMAT_R16G16B16A16_SFLOAT`. The six faces and all mips contain exactly 524,286 texels, or 4,194,288 serialized bytes.
-The persistent CPU copy is packed half data; there is no steady-state FP32 mirror. An `Empty` asset keeps its canonical
+Persisted and imported CPU payloads use packed half data; there is no steady-state FP32 mirror. A newly baked unsaved
+asset may remain GPU-only until save. An `Empty` asset keeps its canonical
 black placeholder for safe serialization and descriptors, but it is not a valid local-lighting source and therefore falls
 through to global IBL. Loading rejects a wrong schema, format,
 layout, resolution, mip count, byte count, payload hash, NaN, infinity, negative RGB radiance, or value that overflowed
-FP16. Rejected imports leave the previous runtime asset untouched. Saves publish through a temporary file replacement,
-and an editor bake reloads the successfully persisted document before exposing it as the active runtime payload. Empty
+FP16. Rejected imports leave the previous runtime asset untouched. Saves download the current GPU cubemap and publish
+through a temporary file replacement; an editor bake exposes its completed GPU cubemap without persisting or reloading
+it. Empty
 maps, metadata-only wrappers, and old noncanonical documents are rejected instead of migrated.
 
 The scene inspector assigns `Scene::global_reflection_probe_fallback` and an optional `EnvironmentalLighting` asset. The
@@ -130,24 +132,46 @@ output or an engine-global outdoor fallback.
 ## Explicit bake policy
 
 An asset-owned local probe's **Bake Local Probe Payload** action performs one explicit six-face raster capture at the
-entry transform position. It does not update automatically. The fixed contract is 256x256 per face, 90-degree projection,
+entry transform position. It publishes the prefiltered cubemap to the assigned `GlobalReflectionProbe` in GPU memory and
+marks that asset unsaved, but it does not write or reload the asset file. The newly baked result is used immediately by
+rendering. The previous on-disk payload remains unchanged until the user explicitly saves the probe asset; saving performs
+the canonical GPU readback, validation, content hash, and atomic file replacement. Reloading or discarding the asset
+before saving restores the previous persisted payload. It does not update automatically. The fixed contract is 256x256 per face, 90-degree projection,
 near plane 0.1, far plane 1000, linear HDR with no tone mapping, and canonical Vulkan face orientation. The shared
 camera-style **Background** controls above **Add Local Reflection Probe** select Clear Color, Cubemap, Environmental Map,
-Inherit Environmental Lighting, or Engine Default Skybox plus an independent intensity. A deterministic version-2 content fingerprint
-covers the capture position, selected bake background and referenced content, built-in
-geometry/material/texture content, direct lights, shadow-map and strand-tessellation settings, application shadow
-resolutions and light limits, and DDGI configuration. `diffuse_fallback_intensity` and
+Inherit Environmental Lighting, or Engine Default Skybox plus an independent intensity. `diffuse_fallback_intensity` and
 `specular_fallback_intensity` are forced to zero during capture and are not bake inputs. Debug visualization is forced off
 without reducing the authored directional-shadow PCF sample count.
-The inspector reports payload readiness, imported content, a shared-asset overwrite, or an actionable bake/load error.
+The inspector reports payload readiness, imported content, an unsaved GPU-resident bake, a shared-asset overwrite, or an actionable bake/load error.
 **Bake Local Probe Payload** refreshes one entry. The editor does not run a stale scan or batch stale rebake from probe
 inspection. Retryable capture preparation is bounded; paused, unconverged DDGI fails the requested bake with an actionable
 status instead of holding the queue indefinitely. Bakes never run automatically; imported probe assets remain valid when
-scene lighting changes.
+scene lighting changes. Explicit baking is never an implicit save operation.
 
-Version 2 hashes structural YAML with stable map ordering, ignores volatile asset/entity handles, and resolves referenced
-asset content. The stored fingerprint is provenance for explicit bakes and future tooling; probe inspection does not
-compare it against the live scene.
+The captured base cubemap generates a conventional source mip hierarchy before specular filtering. The prefiltered
+reflection cubemap copies its perfectly smooth base level directly, then evaluates GGX convolution for progressively
+rougher levels with decreasing deterministic sample budgets. Filtering samples the source hierarchy at the GGX-derived
+LOD; it does not treat ordinary box-filtered mips as roughness-prefiltered reflections.
+
+`RenderLayer` owns a reusable 256x256 raster target and a lightweight pool of six face-camera records per probe in the
+current request. **Bake All Local Probe Payloads** is one renderer batch: it drains prior frame work once, prepares one
+render snapshot for every face of every requested probe, records point/spot shadows once, and records all face captures,
+copies, mip generation, and GGX filtering into one command buffer with one submission and wait. Reflection capture omits
+motion vectors, motion coverage, the depth pyramid, ambient occlusion, and post-processing. Raw capture, GGX
+scratch/output resources, and the shared GGX pipeline persist across probe bakes; only each completed filtered image is
+copied into its target probe asset. Per-bake camera state and authored background are refreshed without 1x1 construction
+or resize. These renderer-transient resources are released only after outstanding GPU work is drained, and the batch
+recorder is the foundation for M42's budgeted normal-frame scheduling.
+
+Reflection captures never render directional shadow maps. They reuse the completed atlas, camera matrices, split depths,
+and cascade policy from the preferred raster camera: the main camera when it renders raster lighting, otherwise the
+editor Scene camera. This includes the ray-traced-main-camera case, because its fallback Scene camera supplies the raster
+shadow atlas. A requested bake waits for that preferred camera's shadow data instead of silently performing a separate
+capture shadow pass. Point and spot shadows remain camera-independent and are rendered once per explicit bake batch.
+
+Explicit bakes do not calculate or store a source-scene fingerprint. The serialized probe retains only its source kind,
+canonical pixels, and payload hash. CPU timing records frame drain, snapshot preparation, submit/wait, and total bake
+time; GPU timing separates total batch work, face capture, and GGX prefiltering.
 
 The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, the selected visible
 bake background scaled by its own intensity, and only converged DDGI. Background selection affects visible miss pixels, not

@@ -94,6 +94,11 @@ struct GpuTimestampStats {
   [[nodiscard]] double PercentileMilliseconds(double percentile) const;
 };
 
+struct ImmediateGpuTimestampAction {
+  std::string name{};
+  std::function<void(VkCommandBuffer)> action{};
+};
+
 struct GpuMemoryHeapStats {
   uint32_t heap_index = 0;
   bool device_local = false;
@@ -831,6 +836,8 @@ class Platform final {
 
   static void ImmediateSubmitWithGpuTimestamp(const std::string& name,
                                               const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+  static void ImmediateSubmitWithGpuTimestamps(const std::string& total_name,
+                                               const std::vector<ImmediateGpuTimestampAction>& actions);
 
   static void SetGpuTimestampCaptureEnabled(bool enabled);
   [[nodiscard]] static bool GpuTimestampCaptureEnabled();

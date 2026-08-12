@@ -501,8 +501,7 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
   EXPECT_NE(render_layer_source.find("#include \"EnvironmentalLightingResolver.hpp\""), std::string::npos);
   EXPECT_NE(render_layer_source.find("ResolveEnvironmentalLighting(scene)"), std::string::npos);
   EXPECT_NE(render_layer_source.find("ValidateGlobalReflectionProbeBakeRequest"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("BakeReflectionProbe(scene, position, target, source_fingerprint, error, retry)"),
-            std::string::npos);
+  EXPECT_NE(render_layer_source.find("BakeReflectionProbes(scene, requests, error, retry)"), std::string::npos);
   EXPECT_NE(render_instance_source.find("#include \"EnvironmentalLightingResolver.hpp\""), std::string::npos);
   EXPECT_NE(render_instance_source.find("ResolveEnvironmentalLighting(target_scene)"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("UnsafeGetPrivateComponentOwnersList<DdgiVolume>"), std::string::npos);

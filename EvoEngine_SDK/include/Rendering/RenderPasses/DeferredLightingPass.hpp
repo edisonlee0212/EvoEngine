@@ -21,6 +21,7 @@ class DeferredLightingPass final {
     std::shared_ptr<DescriptorSet> lighting_descriptor_set;
     std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set;
     int camera_index = -1;
+    int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
     bool count_draw_calls = false;
     bool fade_selection = false;
@@ -29,7 +30,8 @@ class DeferredLightingPass final {
     RecordCommands record_commands;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled = false);
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled = false,
+                                                             bool depth_pyramid_enabled = true);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine

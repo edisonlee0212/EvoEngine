@@ -2747,10 +2747,11 @@ int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& mat
   return RegisterMaterial(material, BuildMaterialGltfData(*material));
 }
 
-void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene,
-                                           Bound& world_bound, const bool include_editor_cameras,
-                                           const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera,
-                                           const bool include_reflection_probes) {
+void RenderInstanceStorage::BuildFromScene(
+    const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
+    const bool include_editor_cameras,
+    const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
+    const bool include_reflection_probes) {
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
   CollectEnvironment(scene);
@@ -2764,8 +2765,12 @@ void RenderInstanceStorage::BuildFromScene(const RenderSettings& render_settings
     CollectEditorCameras(scene, cameras);
   }
   CollectCameras(scene, cameras);
-  if (injected_camera && injected_camera->second) {
-    cameras.emplace_back(*injected_camera);
+  if (injected_cameras) {
+    for (const auto& injected_camera : *injected_cameras) {
+      if (injected_camera.second) {
+        cameras.emplace_back(injected_camera);
+      }
+    }
   }
   for (const auto& camera_info : cameras) {
     CameraInfoBlock camera_info_block;

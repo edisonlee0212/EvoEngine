@@ -729,7 +729,7 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
       render_layer, "void RenderLayer::RenderSceneToCameraImmediately", "void RenderLayer::RenderAll");
   EXPECT_NE(immediate_render.find("std::make_shared<RenderInstanceStorage>()"), std::string::npos);
   EXPECT_NE(immediate_render.find("PrepareSceneForRendering(scene, false, false, false, false,"), std::string::npos);
-  EXPECT_NE(immediate_render.find("reflection_probe_capture ? &injected_camera : nullptr"), std::string::npos);
+  EXPECT_NE(immediate_render.find("reflection_probe_capture ? &injected_cameras : nullptr"), std::string::npos);
   EXPECT_NE(immediate_render.find("!reflection_probe_capture"), std::string::npos);
   EXPECT_NE(
       immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture)"),
@@ -1177,8 +1177,7 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
                               "VertexInputAttributeSet::PositionNormal"),
             std::string::npos);
   EXPECT_EQ(CountOccurrences(cubemap, "vertex_input_attribute_set = VertexInputAttributeSet::Position"), 2);
-  EXPECT_NE(global_reflection_probe.find("prefilter_construct_pipeline_->vertex_input_attribute_set = "
-                                         "VertexInputAttributeSet::Position"),
+  EXPECT_NE(global_reflection_probe.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::Position"),
             std::string::npos);
   EXPECT_NE(light_probe.find("irradiance_construct_pipeline_->vertex_input_attribute_set = "
                              "VertexInputAttributeSet::Position"),

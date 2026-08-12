@@ -411,6 +411,7 @@ class Camera final : public IPrivateComponent {
   /**
    * @brief Updates the deferred shading GBuffer resources.
    */
+  void InitializeRenderResources(glm::uvec2 size);
   void UpdateGBuffer();
   RayCameraHistoryResources& AcquireRayCameraHistory(
       RayCameraHistoryTechnique technique, uint64_t scene_handle, VkExtent3D extent,

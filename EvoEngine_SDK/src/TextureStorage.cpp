@@ -336,7 +336,8 @@ GpuWorkHandle EnqueueTextureUpload(const std::shared_ptr<Image>& target_image,
 }
 }  // namespace
 
-void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const VkFormat format) {
+void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const VkFormat format,
+                                const bool transition_to_shader_read) {
   if (!Platform::Initialized())
     return;
   Clear();
@@ -391,9 +392,11 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const 
   }
   sampler = std::make_shared<Sampler>(sampler_info);
 
-  Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-  });
+  if (transition_to_shader_read) {
+    Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
+      image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    });
+  }
 
   for (int i = 0; i < 6; i++) {
     VkImageViewCreateInfo face_view_info{};

@@ -168,26 +168,184 @@ TEST(ReflectionProbe, BakeUsesIndependentCameraStyleBackground) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   ASSERT_FALSE(render_layer.empty());
 
-  const auto fingerprint = ExtractBetween(render_layer, "uint64_t RenderLayer::GetReflectionProbeCaptureFingerprint",
-                                          "bool RenderLayer::QueueGlobalReflectionProbeBake");
   const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbe", "void RenderLayer::RenderAll");
-  ASSERT_FALSE(fingerprint.empty());
+      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
   ASSERT_FALSE(bake.empty());
 
-  EXPECT_NE(fingerprint.find("bake_background_source"), std::string::npos);
-  EXPECT_NE(fingerprint.find("MixDdgiFloat(fingerprint, bake_background_intensity)"), std::string::npos);
-  EXPECT_NE(fingerprint.find("MixDdgiVec4(fingerprint, bake_background.clear_color)"), std::string::npos);
-  EXPECT_NE(fingerprint.find("Camera::BackgroundSource::EnvironmentalMap"), std::string::npos);
-  EXPECT_EQ(fingerprint.find("diffuse_fallback_intensity"), std::string::npos);
-  EXPECT_EQ(fingerprint.find("specular_fallback_intensity"), std::string::npos);
   EXPECT_NE(bake.find("lighting->reflection_probe_bake_background"), std::string::npos);
-  EXPECT_NE(bake.find("camera->camera_settings.background_intensity"), std::string::npos);
-  EXPECT_NE(bake.find("camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
-  EXPECT_NE(bake.find("camera->skybox = background.cubemap"), std::string::npos);
-  EXPECT_NE(bake.find("camera->background_environment = background.environmental_map"), std::string::npos);
-  EXPECT_EQ(bake.find("diffuse_fallback_intensity"), std::string::npos);
-  EXPECT_EQ(bake.find("specular_fallback_intensity"), std::string::npos);
+  EXPECT_NE(bake.find("face_camera->camera_settings.background_intensity"), std::string::npos);
+  EXPECT_NE(bake.find("face_camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
+  EXPECT_NE(bake.find("face_camera->skybox = background.cubemap"), std::string::npos);
+  EXPECT_NE(bake.find("face_camera->background_environment = background.environmental_map"), std::string::npos);
+  EXPECT_NE(bake.find("capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f"),
+            std::string::npos);
+  EXPECT_NE(bake.find("capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f"),
+            std::string::npos);
+}
+
+TEST(ReflectionProbe, ExplicitBakeDefersReadbackAndPersistenceUntilAssetSave) {
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto probe = ReadTextFile(SourcePath("EvoEngine_SDK/src/GlobalReflectionProbe.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(probe.empty());
+  ASSERT_FALSE(inspector.empty());
+
+  const auto bake =
+      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
+  const auto serialize =
+      ExtractBetween(probe, "void GlobalReflectionProbe::Serialize", "void GlobalReflectionProbe::Deserialize");
+  const auto save =
+      ExtractBetween(probe, "bool GlobalReflectionProbe::SaveInternal", "bool GlobalReflectionProbe::LoadInternal");
+  ASSERT_FALSE(bake.empty());
+  ASSERT_FALSE(serialize.empty());
+  ASSERT_FALSE(save.empty());
+
+  EXPECT_NE(bake.find("target->cubemap_ = output_cubemaps[index]"), std::string::npos);
+  EXPECT_NE(bake.find("target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked"), std::string::npos);
+  EXPECT_NE(bake.find("target->SetUnsaved()"), std::string::npos);
+  EXPECT_EQ(bake.find("Serialization::SaveAsset"), std::string::npos);
+  EXPECT_EQ(bake.find("target->Load()"), std::string::npos);
+  EXPECT_EQ(bake.find("GetCanonicalPayload"), std::string::npos);
+  EXPECT_NE(serialize.find("cubemap_->GetRgba16fData(payload, true)"), std::string::npos);
+  EXPECT_NE(serialize.find("payload_hash_ = CalculatePayloadHash(payload)"), std::string::npos);
+  EXPECT_NE(save.find("Serialize(out)"), std::string::npos);
+  EXPECT_NE(inspector.find("Persistence: unsaved GPU bake"), std::string::npos);
+  EXPECT_NE(inspector.find("Payload: GPU resident; downloaded on save"), std::string::npos);
+}
+
+TEST(ReflectionProbe, PrefilterUsesDirectBaseMipAndProgressiveSampleBudgets) {
+  const auto probe = ReadTextFile(SourcePath("EvoEngine_SDK/src/GlobalReflectionProbe.cpp"));
+  const auto shader = ReadTextFile(SourcePath(
+      "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang"));
+  ASSERT_FALSE(probe.empty());
+  ASSERT_FALSE(shader.empty());
+
+  const auto filtered = ExtractBetween(probe, "bool GlobalReflectionProbe::ConstructFilteredFromCubemap",
+                                       "void GlobalReflectionProbe::MarkBaked");
+  ASSERT_FALSE(filtered.empty());
+  EXPECT_NE(probe.find("kPrefilterSampleCounts"), std::string::npos);
+  EXPECT_NE(filtered.find("filtered_cubemap->Initialize(kResolution, kMipLevels, kCanonicalFormat)"),
+            std::string::npos);
+  EXPECT_EQ(filtered.find("SetRgba16fData"), std::string::npos);
+  EXPECT_NE(probe.find("kPrefilterSampleCounts[mip]"), std::string::npos);
+  EXPECT_NE(shader.find("constants.preset_value <= 0.0f"), std::string::npos);
+  EXPECT_NE(shader.find("environmentMap.SampleLevel(n, 0.0f)"), std::string::npos);
+  EXPECT_NE(shader.find("uint sample_count = max(constants.sample_count, 1u)"), std::string::npos);
+  EXPECT_EQ(shader.find("SAMPLE_COUNT = 1024u"), std::string::npos);
+}
+
+TEST(ReflectionProbe, ExplicitBakesUseOneSnapshotSubmissionAndReusableCaptureResources) {
+  const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/RenderLayer.hpp"));
+  const auto camera = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  ASSERT_FALSE(header.empty());
+  ASSERT_FALSE(camera.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  const auto create = ExtractBetween(
+      render_layer, "const std::vector<std::shared_ptr<Camera>>& RenderLayer::GetOrCreateReflectionProbeCaptureCameras",
+      "bool RenderLayer::PrepareReflectionProbeCaptureResources");
+  const auto resources = ExtractBetween(render_layer, "bool RenderLayer::PrepareReflectionProbeCaptureResources",
+                                        "bool RenderLayer::BakeReflectionProbes");
+  const auto bake =
+      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
+  const auto render_to_camera =
+      ExtractBetween(render_layer, "void RenderLayer::RenderToCamera(", "void RenderLayer::RenderToCameraRayTracing");
+  ASSERT_FALSE(create.empty());
+  ASSERT_FALSE(resources.empty());
+  ASSERT_FALSE(bake.empty());
+  ASSERT_FALSE(render_to_camera.empty());
+
+  EXPECT_NE(header.find("std::vector<std::shared_ptr<Camera>> reflection_probe_capture_cameras_"), std::string::npos);
+  EXPECT_NE(header.find("reflection_probe_capture_raw_cubemap_"), std::string::npos);
+  EXPECT_NE(header.find("reflection_probe_capture_filtered_cubemap_"), std::string::npos);
+  EXPECT_NE(create.find("InitializeRenderResources("), std::string::npos);
+  EXPECT_NE(create.find("ResetRenderState()"), std::string::npos);
+  EXPECT_NE(create.find("ResetFrameCount()"), std::string::npos);
+  EXPECT_NE(resources.find("if (!reflection_probe_capture_raw_cubemap_)"), std::string::npos);
+  EXPECT_NE(resources.find("if (!reflection_probe_capture_filtered_cubemap_)"), std::string::npos);
+  EXPECT_NE(resources.find("GlobalReflectionProbe::AcquirePrefilterPipeline"), std::string::npos);
+  EXPECT_NE(bake.find("GetOrCreateReflectionProbeCaptureCameras(requests.size() * 6u)"), std::string::npos);
+  EXPECT_EQ(bake.find("RenderSceneToCameraImmediately"), std::string::npos);
+  EXPECT_EQ(bake.find("ConstructBakedFromCubemap"), std::string::npos);
+  const auto submit = bake.find("Platform::ImmediateSubmitWithGpuTimestamps");
+  ASSERT_NE(submit, std::string::npos);
+  EXPECT_EQ(bake.find("Platform::ImmediateSubmitWithGpuTimestamps", submit + 1), std::string::npos);
+  const auto snapshot = bake.find("PrepareSceneForRendering");
+  ASSERT_NE(snapshot, std::string::npos);
+  EXPECT_EQ(bake.find("PrepareSceneForRendering", snapshot + 1), std::string::npos);
+  EXPECT_NE(bake.find("PreparePointAndSpotLightShadowMap(false, false, &recorder)"), std::string::npos);
+  EXPECT_NE(bake.find("RenderToCamera(scene, face_transforms[face_index], camera, true, true, camera_index,"),
+            std::string::npos);
+  EXPECT_NE(bake.find("GlobalReflectionProbe::RecordPrefilter"), std::string::npos);
+  EXPECT_EQ(bake.find("ProduceSerializable<Camera>"), std::string::npos);
+  EXPECT_EQ(bake.find("camera->OnCreate()"), std::string::npos);
+  EXPECT_EQ(bake.find("camera->Resize("), std::string::npos);
+  EXPECT_NE(render_to_camera.find("if (!reflection_probe_capture)"), std::string::npos);
+  EXPECT_NE(render_to_camera.find(
+                "DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture)"),
+            std::string::npos);
+  EXPECT_NE(camera.find("void Camera::OnCreate() {\n  InitializeRenderResources({1, 1});"), std::string::npos);
+}
+
+TEST(ReflectionProbe, BakeAllUsesOneBatchAndReusesPreferredCameraDirectionalShadows) {
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto deferred_pass = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/DeferredLightingPass.cpp"));
+  const auto lighting =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
+  ASSERT_FALSE(inspector.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(deferred_pass.empty());
+  ASSERT_FALSE(lighting.empty());
+
+  const auto queue = ExtractBetween(inspector, "uint32_t QueueEnvironmentalLightingLocalProbeBakes",
+                                    "void InspectEnvironmentalLightingLocalProbePayload");
+  const auto bake =
+      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
+  const auto render_to_camera =
+      ExtractBetween(render_layer, "void RenderLayer::RenderToCamera(", "void RenderLayer::RenderToCameraRayTracing");
+  ASSERT_FALSE(queue.empty());
+  ASSERT_FALSE(bake.empty());
+  ASSERT_FALSE(render_to_camera.empty());
+
+  EXPECT_NE(queue.find("QueueGlobalReflectionProbeBakeBatch"), std::string::npos);
+  EXPECT_EQ(queue.find("QueueEnvironmentalLightingLocalProbeBake(context, probe)"), std::string::npos);
+  EXPECT_EQ(render_layer.find("GetReflectionProbeCaptureFingerprint"), std::string::npos);
+  EXPECT_EQ(render_layer.find("source_fingerprint"), std::string::npos);
+  EXPECT_NE(bake.find("Platform::WaitForFrameSubmissions"), std::string::npos);
+  EXPECT_EQ(bake.find("Platform::WaitForFrameSubmissions", bake.find("Platform::WaitForFrameSubmissions") + 1),
+            std::string::npos);
+  EXPECT_NE(bake.find("PreparePointAndSpotLightShadowMap(false, false, &recorder)"), std::string::npos);
+  EXPECT_NE(bake.find("for (size_t request_index = 0; request_index < requests.size(); ++request_index)"),
+            std::string::npos);
+  EXPECT_NE(bake.find("directional_shadow_camera_index"), std::string::npos);
+  EXPECT_NE(render_to_camera.find("if (!reflection_probe_capture)"), std::string::npos);
+  EXPECT_NE(render_to_camera.find("DirectionalLightShadowPass::CreateDescriptor()"), std::string::npos);
+  EXPECT_NE(render_to_camera.find("deferred_geometry_descriptor.dependencies.clear()"), std::string::npos);
+  EXPECT_NE(deferred_pass.find("-parameters.directional_shadow_camera_index - 1"), std::string::npos);
+  EXPECT_NE(lighting.find("EE_FUNC_DIRECTIONAL_SHADOW_CAMERA_INDEX"), std::string::npos);
+  EXPECT_NE(lighting.find("EE_CAMERAS[directionalShadowCameraIndex].view"), std::string::npos);
+  EXPECT_NE(render_layer.find("preferred_shadow_camera = main_camera"), std::string::npos);
+  EXPECT_NE(render_layer.find("preferred_shadow_camera = scene_camera"), std::string::npos);
+}
+
+TEST(ReflectionProbe, ExplicitBakeRecordsCpuAndGpuStageTimings) {
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  ASSERT_FALSE(render_layer.empty());
+  const auto bake =
+      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
+  ASSERT_FALSE(bake.empty());
+
+  EXPECT_EQ(bake.find("Reflection Probe Bake Fingerprint CPU"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Bake Frame Drain CPU"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Bake Snapshot CPU"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Bake Submit Wait CPU"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Bake Total CPU"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Bake GPU Total"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe Face Capture"), std::string::npos);
+  EXPECT_NE(bake.find("Reflection Probe GGX Prefilter"), std::string::npos);
 }
 
 TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightingEntries) {
@@ -196,6 +354,10 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
 
   EXPECT_NE(demo_scene.find("AddReflectionProbeValidationLocalProbe"), std::string::npos);
   EXPECT_NE(demo_scene.find("RunEnvironmentalLightingLocalProbeBake"), std::string::npos);
+  EXPECT_NE(demo_scene.find("RunEnvironmentalLightingLocalProbeBakeBatch"), std::string::npos);
+  EXPECT_NE(demo_scene.find("QueueGlobalReflectionProbeBakeBatch"), std::string::npos);
+  EXPECT_NE(demo_scene.find("Platform::ResetGpuTimestampStats()"), std::string::npos);
+  EXPECT_NE(demo_scene.find("Reflection Probe Bake GPU Total"), std::string::npos);
   EXPECT_NE(demo_scene.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 1.0f);"), std::string::npos);
   EXPECT_NE(demo_scene.find("editor_layer->OpenAssetInspector(lighting)"), std::string::npos);
   EXPECT_NE(demo_scene.find("capture(\"debug-bounds-off\")"), std::string::npos);
@@ -203,6 +365,9 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
   EXPECT_NE(demo_scene.find("FindEnvironmentalLightingLocalReflectionProbe(scene, kSponzaLocalProbeNames.front())"),
             std::string::npos);
   EXPECT_NE(demo_scene.find("probe_transform.SetScale(definition.size)"), std::string::npos);
+  EXPECT_NE(demo_scene.find("constexpr float blend_distance = 0.03f;"), std::string::npos);
+  EXPECT_NE(demo_scene.find("LocalReflectionProbeShape::Box, 1.0f, blend_distance, true"), std::string::npos);
+  EXPECT_EQ(demo_scene.find("definition.blend_distance"), std::string::npos);
   EXPECT_NE(demo_scene.find("{3.7f, 5.9f, 13.7f}"), std::string::npos);
   EXPECT_NE(demo_scene.find("{2.4f, 4.4f, 13.7f}"), std::string::npos);
   EXPECT_NE(demo_scene.find("{2.9f, 4.4f, 5.4f}"), std::string::npos);
@@ -247,6 +412,7 @@ TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) 
   EXPECT_EQ(authoring.find("DragFloat4"), std::string::npos);
   EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", probe.transform)"),
             std::string::npos);
+  EXPECT_NE(inspector.find("DragFloat(\"Blend distance\", &probe.blend_distance, 0.01f"), std::string::npos);
   EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", volume.transform)"),
             std::string::npos);
 }
@@ -354,17 +520,19 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   payload[2] = glm::packHalf1x16(0.25f);
   ASSERT_TRUE(source->SetCanonicalPayload(payload));
   EXPECT_TRUE(source->IsRuntimeReady());
-  source->MarkBaked(0x123456789abcdef0ull);
+  source->MarkBaked();
 
   YAML::Emitter local_out;
   local_out << YAML::BeginMap;
   Serialization::SerializeObject(local_out, *source);
   local_out << YAML::EndMap;
+  const auto local_node = YAML::Load(local_out.c_str());
+  EXPECT_EQ(local_node["schema_version"].as<uint32_t>(), GlobalReflectionProbe::kSchemaVersion);
+  EXPECT_FALSE(local_node["source_fingerprint"]);
   const auto local_restored = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
   ASSERT_TRUE(local_restored);
-  Serialization::DeserializeObject(YAML::Load(local_out.c_str()), *local_restored);
+  Serialization::DeserializeObject(local_node, *local_restored);
   EXPECT_EQ(local_restored->GetSourceKind(), GlobalReflectionProbe::SourceKind::Baked);
-  EXPECT_EQ(local_restored->GetSourceFingerprint(), source->GetSourceFingerprint());
   EXPECT_EQ(local_restored->GetPayloadHash(), source->GetPayloadHash());
   EXPECT_EQ(local_restored->GetCanonicalPayload(), payload);
 
@@ -380,7 +548,6 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   ASSERT_TRUE(restored);
   ASSERT_TRUE(Serialization::LoadAsset(*restored, asset_path));
   EXPECT_EQ(restored->GetSourceKind(), GlobalReflectionProbe::SourceKind::Baked);
-  EXPECT_EQ(restored->GetSourceFingerprint(), 0x123456789abcdef0ull);
   EXPECT_EQ(restored->GetPayloadHash(), source->GetPayloadHash());
   EXPECT_EQ(restored->GetCanonicalPayloadByteSize(), GlobalReflectionProbe::kCanonicalPayloadByteSize);
   ASSERT_EQ(restored->GetCanonicalPayload().size(), payload.size());
@@ -388,7 +555,6 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
       std::equal(restored->GetCanonicalPayload().begin(), restored->GetCanonicalPayload().end(), payload.begin()));
   EXPECT_TRUE(restored->SupportsStagedLoading());
   const auto restored_kind = restored->GetSourceKind();
-  const auto restored_fingerprint = restored->GetSourceFingerprint();
   const auto restored_hash = restored->GetPayloadHash();
   const auto restored_payload = restored->GetCanonicalPayload();
 
@@ -399,7 +565,6 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   }
   EXPECT_FALSE(Serialization::LoadAsset(*restored, malformed_path));
   EXPECT_EQ(restored->GetSourceKind(), restored_kind);
-  EXPECT_EQ(restored->GetSourceFingerprint(), restored_fingerprint);
   EXPECT_EQ(restored->GetPayloadHash(), restored_hash);
   EXPECT_EQ(restored->GetCanonicalPayload(), restored_payload);
 
@@ -409,7 +574,6 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   }
   EXPECT_FALSE(Serialization::LoadAsset(*restored, truncated_path));
   EXPECT_EQ(restored->GetSourceKind(), restored_kind);
-  EXPECT_EQ(restored->GetSourceFingerprint(), restored_fingerprint);
   EXPECT_EQ(restored->GetPayloadHash(), restored_hash);
   EXPECT_EQ(restored->GetCanonicalPayload(), restored_payload);
 
@@ -422,7 +586,19 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   }
   EXPECT_FALSE(Serialization::LoadAsset(*restored, mismatched_hash_path));
   EXPECT_EQ(restored->GetSourceKind(), restored_kind);
-  EXPECT_EQ(restored->GetSourceFingerprint(), restored_fingerprint);
+  EXPECT_EQ(restored->GetPayloadHash(), restored_hash);
+  EXPECT_EQ(restored->GetCanonicalPayload(), restored_payload);
+
+  const auto previous_schema_path = directory.Path() / "previous-schema.evereflectionprobe";
+  auto previous_schema_node = YAML::LoadFile(asset_path.string());
+  previous_schema_node["schema_version"] = 1u;
+  previous_schema_node["source_fingerprint"] = 123u;
+  {
+    std::ofstream previous_schema(previous_schema_path, std::ios::trunc);
+    previous_schema << previous_schema_node;
+  }
+  EXPECT_FALSE(Serialization::LoadAsset(*restored, previous_schema_path));
+  EXPECT_EQ(restored->GetSourceKind(), restored_kind);
   EXPECT_EQ(restored->GetPayloadHash(), restored_hash);
   EXPECT_EQ(restored->GetCanonicalPayload(), restored_payload);
 
@@ -433,7 +609,6 @@ TEST(ReflectionProbe, GlobalAssetPersistenceIsVersionedAndRejectsMalformedDocume
   }
   EXPECT_FALSE(Serialization::LoadAsset(*restored, legacy_path));
   EXPECT_EQ(restored->GetSourceKind(), restored_kind);
-  EXPECT_EQ(restored->GetSourceFingerprint(), restored_fingerprint);
   EXPECT_EQ(restored->GetPayloadHash(), restored_hash);
   EXPECT_EQ(restored->GetCanonicalPayload(), restored_payload);
 }

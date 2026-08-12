@@ -830,6 +830,51 @@ void Platform::ImmediateSubmitWithGpuTimestamp(const std::string& name,
   }
 }
 
+void Platform::ImmediateSubmitWithGpuTimestamps(const std::string& total_name,
+                                                const std::vector<ImmediateGpuTimestampAction>& actions) {
+  auto& graphics = GetInstance();
+  const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
+  const uint32_t query_count = static_cast<uint32_t>(actions.size() * 2u + 2u);
+  if (!graphics.gpu_timestamp_capture_enabled_ || !graphics.gpu_timestamp_capture_available_ ||
+      graphics.immediate_gpu_timestamp_query_pool_ == VK_NULL_HANDLE || query_count > kGpuTimestampQueriesPerFrame) {
+    ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+      for (const auto& entry : actions) {
+        entry.action(command_buffer);
+      }
+    });
+    return;
+  }
+  ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    vkCmdResetQueryPool(command_buffer, graphics.immediate_gpu_timestamp_query_pool_, 0, query_count);
+    vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, graphics.immediate_gpu_timestamp_query_pool_,
+                        0);
+    uint32_t query = 1;
+    for (const auto& entry : actions) {
+      vkCmdWriteTimestamp2(command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           graphics.immediate_gpu_timestamp_query_pool_, query++);
+      entry.action(command_buffer);
+      vkCmdWriteTimestamp2(command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           graphics.immediate_gpu_timestamp_query_pool_, query++);
+    }
+    vkCmdWriteTimestamp(command_buffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                        graphics.immediate_gpu_timestamp_query_pool_, query);
+  });
+  std::vector<uint64_t> timestamps(query_count);
+  if (vkGetQueryPoolResults(graphics.vk_device_, graphics.immediate_gpu_timestamp_query_pool_, 0, query_count,
+                            timestamps.size() * sizeof(uint64_t), timestamps.data(), sizeof(uint64_t),
+                            VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
+    return;
+  }
+  const auto milliseconds = [&](const uint32_t begin, const uint32_t end) {
+    return static_cast<double>(TimestampDelta(timestamps[begin], timestamps[end], graphics.gpu_timestamp_valid_bits_)) *
+           graphics.gpu_timestamp_period_nanoseconds_ / 1.0e6;
+  };
+  graphics.AccumulateGpuTimestamp(total_name, milliseconds(0, query_count - 1u));
+  for (uint32_t index = 0; index < actions.size(); ++index) {
+    graphics.AccumulateGpuTimestamp(actions[index].name, milliseconds(index * 2u + 1u, index * 2u + 2u));
+  }
+}
+
 void Platform::SetGpuTimestampCaptureEnabled(const bool enabled) {
   auto& graphics = GetInstance();
   const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
@@ -2180,7 +2225,7 @@ void Platform::InitializeGpuTimestampResources() {
   for (auto& frame : gpu_timestamp_frames_) {
     CheckVk(vkCreateQueryPool(vk_device_, &query_pool_create_info, nullptr, &frame.query_pool));
   }
-  query_pool_create_info.queryCount = 2;
+  query_pool_create_info.queryCount = kGpuTimestampQueriesPerFrame;
   CheckVk(vkCreateQueryPool(vk_device_, &query_pool_create_info, nullptr, &immediate_gpu_timestamp_query_pool_));
   gpu_timestamp_capture_available_ = true;
 }

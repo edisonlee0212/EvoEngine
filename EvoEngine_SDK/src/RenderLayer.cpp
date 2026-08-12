@@ -961,8 +961,6 @@ uint64_t MixDdgiSignature(const uint64_t seed, const uint64_t value) {
   return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
 }
 
-constexpr uint64_t kReflectionProbeCaptureFingerprintVersion = 2u;
-
 uint64_t MixDdgiFloat(const uint64_t seed, const float value) {
   return MixDdgiSignature(seed, static_cast<uint64_t>(glm::floatBitsToUint(value)));
 }
@@ -985,237 +983,6 @@ uint64_t MixDdgiMat4(uint64_t seed, const glm::mat4& value) {
     }
   }
   return seed;
-}
-
-uint64_t MixStableText(uint64_t seed, const std::string& value) {
-  for (const unsigned char character : value) {
-    seed = MixDdgiSignature(seed, character);
-  }
-  return seed;
-}
-
-uint64_t MixStableYaml(uint64_t seed, const YAML::Node& node) {
-  seed = MixDdgiSignature(seed, static_cast<uint64_t>(node.Type()));
-  if (node.IsScalar()) {
-    return MixStableText(seed, node.Scalar());
-  }
-  if (node.IsSequence()) {
-    seed = MixDdgiSignature(seed, node.size());
-    for (const auto& value : node) {
-      seed = MixStableYaml(seed, value);
-    }
-    return seed;
-  }
-  if (!node.IsMap()) {
-    return seed;
-  }
-  std::vector<std::string> keys;
-  keys.reserve(node.size());
-  for (const auto& value : node) {
-    keys.emplace_back(value.first.Scalar());
-  }
-  std::sort(keys.begin(), keys.end());
-  seed = MixDdgiSignature(seed, keys.size());
-  for (const auto& key : keys) {
-    seed = MixStableText(seed, key);
-    if (key == "asset_handle_" || key == "entity_handle_") {
-      seed = MixDdgiSignature(seed, 0u);
-    } else {
-      seed = MixStableYaml(seed, node[key]);
-    }
-  }
-  return seed;
-}
-
-uint64_t GetStableSerializedObjectHash(const ISerializable& object, uint64_t seed = 0x535441424c45594dull) {
-  YAML::Emitter out;
-  out << YAML::BeginMap;
-  Serialization::SerializeObject(out, object);
-  out << YAML::EndMap;
-  return MixStableYaml(seed, YAML::Load(out.c_str()));
-}
-
-uint64_t GetStableSerializedAssetHash(const std::shared_ptr<IAsset>& asset) {
-  if (!asset) {
-    return 0;
-  }
-  struct CacheEntry {
-    std::weak_ptr<IAsset> asset;
-    uint32_t version = 0;
-    uint64_t hash = 0;
-  };
-  static std::unordered_map<const IAsset*, CacheEntry> cache;
-  const bool cacheable = std::dynamic_pointer_cast<Mesh>(asset) || std::dynamic_pointer_cast<SkinnedMesh>(asset) ||
-                         std::dynamic_pointer_cast<Strands>(asset) || std::dynamic_pointer_cast<Texture2D>(asset);
-  if (cacheable) {
-    if (const auto found = cache.find(asset.get());
-        found != cache.end() && found->second.asset.lock() == asset && found->second.version == asset->GetVersion()) {
-      return found->second.hash;
-    }
-  }
-  auto hash = MixStableText(0x4153534554434f4eull, asset->GetTypeName());
-  hash = GetStableSerializedObjectHash(*asset, hash);
-  if (cacheable) {
-    cache[asset.get()] = {asset, asset->GetVersion(), hash};
-  }
-  return hash;
-}
-
-uint64_t GetStableAssetGraphHash(const std::shared_ptr<IAsset>& root) {
-  std::unordered_set<const IAsset*> visiting;
-  const std::function<uint64_t(const std::shared_ptr<IAsset>&)> recurse =
-      [&](const std::shared_ptr<IAsset>& asset) -> uint64_t {
-    if (!asset) {
-      return 0;
-    }
-    if (!visiting.insert(asset.get()).second) {
-      return 0x4359434c45415354ull;
-    }
-    std::vector<AssetRef> references;
-    Serialization::CollectAssetRefs(*asset, references);
-    auto hash = GetStableSerializedAssetHash(asset);
-    for (auto& reference : references) {
-      const auto referenced_asset = reference.Get<IAsset>();
-      if (referenced_asset) {
-        hash = MixStableText(hash, referenced_asset->GetTypeName());
-      }
-      hash = MixDdgiSignature(hash, recurse(referenced_asset));
-    }
-    visiting.erase(asset.get());
-    return hash;
-  };
-  return recurse(root);
-}
-
-uint64_t GetStableSceneComponentHash(const std::shared_ptr<Scene>& scene, const Entity owner,
-                                     const std::shared_ptr<IPrivateComponent>& component) {
-  auto hash = MixStableText(0x434f4d504f4e454eull, component->GetTypeName());
-  hash = MixDdgiSignature(hash, scene->IsEntityEnabled(owner) ? 1u : 0u);
-  hash = MixDdgiSignature(hash, component->IsEnabled() ? 1u : 0u);
-  hash = MixDdgiMat4(hash, scene->GetDataComponent<GlobalTransform>(owner).value);
-  hash = GetStableSerializedObjectHash(*component, hash);
-  std::vector<AssetRef> references;
-  Serialization::CollectAssetRefs(*component, references);
-  for (auto& reference : references) {
-    const auto referenced_asset = reference.Get<IAsset>();
-    if (referenced_asset) {
-      hash = MixStableText(hash, referenced_asset->GetTypeName());
-    }
-    hash = MixDdgiSignature(hash, GetStableAssetGraphHash(referenced_asset));
-  }
-  if (const auto skinned_renderer = std::dynamic_pointer_cast<SkinnedMeshRenderer>(component);
-      skinned_renderer && skinned_renderer->bone_matrices) {
-    for (const auto& matrix : skinned_renderer->bone_matrices->value) {
-      hash = MixDdgiMat4(hash, matrix);
-    }
-  }
-  return hash;
-}
-
-template <typename Component>
-void AppendStableSceneComponentHashes(const std::shared_ptr<Scene>& scene, std::vector<uint64_t>& hashes) {
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Component>()) {
-    for (const auto& owner : *owners) {
-      if (const auto component = scene->GetOrSetPrivateComponent<Component>(owner).lock()) {
-        hashes.emplace_back(GetStableSceneComponentHash(scene, owner, component));
-      }
-    }
-  }
-}
-
-void AppendStableLodGroupHashes(const std::shared_ptr<Scene>& scene, std::vector<uint64_t>& hashes) {
-  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
-    for (const auto& owner : *owners) {
-      const auto group = scene->GetOrSetPrivateComponent<LodGroup>(owner).lock();
-      if (!group) {
-        continue;
-      }
-      auto hash = 0x4c4f4447524f5550ull;
-      hash = MixDdgiSignature(hash, scene->IsEntityEnabled(owner) ? 1u : 0u);
-      hash = MixDdgiSignature(hash, group->IsEnabled() ? 1u : 0u);
-      hash = MixDdgiMat4(hash, scene->GetDataComponent<GlobalTransform>(owner).value);
-      hash = MixDdgiSignature(hash, group->override_lod_factor ? 1u : 0u);
-      if (group->override_lod_factor) {
-        hash = MixDdgiFloat(hash, group->lod_factor);
-      }
-      for (const auto& lod : group->lods) {
-        hash = MixDdgiSignature(hash, static_cast<uint32_t>(lod.index));
-        hash = MixDdgiFloat(hash, lod.lod_offset);
-        hash = MixDdgiFloat(hash, lod.transition_width);
-        for (auto renderer : lod.renderers) {
-          if (const auto component = renderer.Get<IPrivateComponent>()) {
-            hash = MixDdgiSignature(hash, GetStableSceneComponentHash(scene, component->GetOwner(), component));
-          } else {
-            hash = MixDdgiSignature(hash, 0u);
-          }
-        }
-      }
-      hashes.emplace_back(hash);
-    }
-  }
-}
-
-std::vector<uint64_t> CollectStableReflectionProbeSourceHashes(const std::shared_ptr<Scene>& scene) {
-  std::vector<uint64_t> hashes;
-  AppendStableSceneComponentHashes<MeshRenderer>(scene, hashes);
-  AppendStableSceneComponentHashes<SkinnedMeshRenderer>(scene, hashes);
-  AppendStableSceneComponentHashes<Particles>(scene, hashes);
-  AppendStableSceneComponentHashes<StrandsRenderer>(scene, hashes);
-  AppendStableSceneComponentHashes<DirectionalLight>(scene, hashes);
-  AppendStableSceneComponentHashes<PointLight>(scene, hashes);
-  AppendStableSceneComponentHashes<SpotLight>(scene, hashes);
-  AppendStableLodGroupHashes(scene, hashes);
-  std::sort(hashes.begin(), hashes.end());
-  return hashes;
-}
-
-uint64_t GetReflectionProbeSceneSourceFingerprint(const std::shared_ptr<Scene>& scene) {
-  if (!scene) {
-    return 0u;
-  }
-  const auto signatures = CollectStableReflectionProbeSourceHashes(scene);
-  auto fingerprint = MixDdgiSignature(0x52504653434e4553ull, signatures.size());
-  for (const auto signature : signatures) {
-    fingerprint = MixDdgiSignature(fingerprint, signature);
-  }
-  return fingerprint;
-}
-
-uint64_t GetStableCubemapHash(const std::shared_ptr<Cubemap>& cubemap) {
-  if (!cubemap) {
-    return 0;
-  }
-  struct CacheEntry {
-    std::weak_ptr<Cubemap> cubemap;
-    uint32_t version = 0;
-    uint64_t generation = 0;
-    uint64_t hash = 0;
-  };
-  static std::unordered_map<const Cubemap*, CacheEntry> cache;
-  const auto generation = cubemap->PeekStorage().content_generation;
-  if (const auto found = cache.find(cubemap.get()); found != cache.end() && found->second.cubemap.lock() == cubemap &&
-                                                    found->second.version == cubemap->GetVersion() &&
-                                                    found->second.generation == generation) {
-    return found->second.hash;
-  }
-  auto hash = MixDdgiSignature(0x4355424553544142ull, cubemap->GetResolution());
-  hash = MixDdgiSignature(hash, cubemap->GetMipLevels());
-  hash = MixDdgiSignature(hash, static_cast<uint32_t>(cubemap->GetFormat()));
-  if (cubemap->GetFormat() == VK_FORMAT_R16G16B16A16_SFLOAT) {
-    std::vector<uint16_t> pixels;
-    cubemap->GetRgba16fData(pixels);
-    for (const auto pixel : pixels) {
-      hash = MixDdgiSignature(hash, pixel);
-    }
-  } else {
-    std::vector<glm::vec4> pixels;
-    cubemap->GetRgbaChannelData(pixels);
-    for (const auto& pixel : pixels) {
-      hash = MixDdgiVec4(hash, pixel);
-    }
-  }
-  cache[cubemap.get()] = {cubemap, cubemap->GetVersion(), generation, hash};
-  return hash;
 }
 
 uint64_t MakeDdgiEnvironmentSignature(const RenderInstanceStorage::EnvironmentInfoBlock& environment,
@@ -3524,11 +3291,11 @@ void RenderLayer::PrepareForRendering() {
   PrepareSceneForRendering(scene);
 }
 
-void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, const bool include_editor_cameras,
-                                           const bool update_editor_selection, const bool update_ray_tracing,
-                                           const bool track_ddgi_scene_inputs,
-                                           const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera,
-                                           const bool include_reflection_probes) {
+void RenderLayer::PrepareSceneForRendering(
+    const std::shared_ptr<Scene>& scene, const bool include_editor_cameras, const bool update_editor_selection,
+    const bool update_ray_tracing, const bool track_ddgi_scene_inputs,
+    const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
+    const bool include_reflection_probes) {
   if (!scene)
     return;
   const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
@@ -3549,7 +3316,7 @@ void RenderLayer::PrepareSceneForRendering(const std::shared_ptr<Scene>& scene, 
   }
   const bool render_instance_updated =
       UpdateRenderInstanceStorage(scene, current_frame_index, include_editor_cameras, update_editor_selection,
-                                  track_ddgi_scene_inputs, injected_camera, include_reflection_probes);
+                                  track_ddgi_scene_inputs, injected_cameras, include_reflection_probes);
 
   const bool update_ray_tracing_resources = update_ray_tracing && Platform::RayAccelerationStructureEnabled();
   if (update_ray_tracing_resources) {
@@ -4529,8 +4296,9 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
   };
   try {
     render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
-    const std::pair<GlobalTransform, std::shared_ptr<Camera>> injected_camera{camera_global_transform, camera};
-    PrepareSceneForRendering(scene, false, false, false, false, reflection_probe_capture ? &injected_camera : nullptr,
+    const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras{
+        {camera_global_transform, camera}};
+    PrepareSceneForRendering(scene, false, false, false, false, reflection_probe_capture ? &injected_cameras : nullptr,
                              !reflection_probe_capture);
     const auto capture_render_instances = render_instances_list_[current_frame_index];
     bool render_info_changed = false;
@@ -4567,214 +4335,198 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
   restore();
 }
 
-uint64_t RenderLayer::GetReflectionProbeCaptureFingerprint(const std::shared_ptr<Scene>& scene,
-                                                           const glm::vec3& position) const {
-  if (!scene || scene.get() != GetScene().get() || render_instances_list_.empty()) {
-    return 0;
-  }
-  const auto render_instances = render_instances_list_[Platform::GetCurrentFrameIndex()];
-  if (!render_instances) {
-    return 0;
-  }
-
-  uint64_t fingerprint = 0x52504650524f4245ull;
-  fingerprint = MixDdgiSignature(fingerprint, kReflectionProbeCaptureFingerprintVersion);
-  fingerprint = MixDdgiSignature(fingerprint, GlobalReflectionProbe::kSchemaVersion);
-  fingerprint = MixDdgiSignature(fingerprint, GlobalReflectionProbe::kResolution);
-  fingerprint = MixDdgiSignature(fingerprint, GlobalReflectionProbe::kMipLevels);
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(GlobalReflectionProbe::kCanonicalFormat));
-  fingerprint = MixDdgiFloat(fingerprint, GlobalReflectionProbe::kBakeNearPlane);
-  fingerprint = MixDdgiFloat(fingerprint, GlobalReflectionProbe::kBakeFarPlane);
-  fingerprint = MixDdgiVec3(fingerprint, position);
-
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.max_shadow_distance);
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.shadow_cascade_split_lambda);
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(render_settings.shadow_cascade_fit_mode));
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(render_settings.pcf_sample_amount));
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(render_settings.directional_pcf_sample_amount));
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.shadow_cascade_transition_width);
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.shadow_distance_fade);
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.strands_subdivision_x_factor);
-  fingerprint = MixDdgiFloat(fingerprint, render_settings.strands_subdivision_y_factor);
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(render_settings.strands_subdivision_max_x));
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(render_settings.strands_subdivision_max_y));
-  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.directional_light_shadow_map_resolution);
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.point_light_shadow_map_resolution);
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.spot_light_shadow_map_resolution);
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.max_directional_light_size);
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.max_point_light_size);
-  fingerprint = MixDdgiSignature(fingerprint, graphics_settings.max_spot_light_size);
-
-  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
-  const auto& indirect_source = resolved_lighting.indirect_environment_source;
-  const auto lighting = GetAssignedEnvironmentalLighting(scene);
-  const auto bake_background =
-      lighting ? lighting->reflection_probe_bake_background : EnvironmentalLighting::ReflectionProbeBakeBackground{};
-  const auto bake_background_source = Camera::NormalizeBackgroundSource(static_cast<uint32_t>(bake_background.source));
-  const auto bake_background_intensity =
-      std::isfinite(bake_background.intensity) ? glm::max(bake_background.intensity, 0.0f) : 1.0f;
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(bake_background_source));
-  fingerprint = MixDdgiFloat(fingerprint, bake_background_intensity);
-  fingerprint = MixDdgiFloat(fingerprint, resolved_lighting.environment_lighting_intensity);
-  fingerprint = MixDdgiSignature(fingerprint, static_cast<uint32_t>(indirect_source.kind));
-  const auto mix_cubemap = [&](const std::shared_ptr<Cubemap>& cubemap) {
-    fingerprint = MixDdgiSignature(fingerprint, GetStableCubemapHash(cubemap));
-  };
-  if (indirect_source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color) {
-    fingerprint = MixDdgiVec3(fingerprint, indirect_source.color);
-  } else {
-    fingerprint = MixDdgiFloat(fingerprint, indirect_source.gamma);
-    fingerprint = MixDdgiFloat(fingerprint, indirect_source.rotation);
-    if (const auto environmental_map = ResolveIndirectEnvironmentMap(indirect_source)) {
-      environmental_map->EnsureEnvironmentSource();
-      auto cubemap_ref = environmental_map->environment_cubemap;
-      mix_cubemap(cubemap_ref.Get<Cubemap>());
-      auto light_probe_ref = environmental_map->light_probe;
-      if (const auto light_probe = light_probe_ref.Get<LightProbe>()) {
-        mix_cubemap(light_probe->GetCubemap());
-      } else {
-        mix_cubemap({});
-      }
-    } else {
-      mix_cubemap({});
-      mix_cubemap({});
-    }
-  }
-  switch (bake_background_source) {
-    case Camera::BackgroundSource::ClearColor:
-      fingerprint = MixDdgiVec4(fingerprint, bake_background.clear_color);
-      break;
-    case Camera::BackgroundSource::Cubemap: {
-      auto cubemap_ref = bake_background.cubemap;
-      const auto cubemap = cubemap_ref.Get<Cubemap>();
-      mix_cubemap(cubemap ? cubemap : Resources::GetInstance().GetDefaultSkybox());
-      break;
-    }
-    case Camera::BackgroundSource::EnvironmentalMap: {
-      auto map_ref = bake_background.environmental_map;
-      if (const auto environmental_map = map_ref.Get<EnvironmentalMap>()) {
-        environmental_map->EnsureEnvironmentSource();
-        auto cubemap_ref = environmental_map->environment_cubemap;
-        const auto cubemap = cubemap_ref.Get<Cubemap>();
-        mix_cubemap(cubemap ? cubemap : Resources::GetInstance().GetDefaultSkybox());
-      } else {
-        mix_cubemap(Resources::GetInstance().GetDefaultSkybox());
-      }
-      break;
-    }
-    case Camera::BackgroundSource::InheritEnvironmentalLighting:
-      if (indirect_source.kind != ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color) {
-        const auto environmental_map = ResolveIndirectEnvironmentMap(indirect_source);
-        if (environmental_map) {
-          environmental_map->EnsureEnvironmentSource();
-          auto cubemap_ref = environmental_map->environment_cubemap;
-          const auto cubemap = cubemap_ref.Get<Cubemap>();
-          mix_cubemap(cubemap ? cubemap : Resources::GetInstance().GetDefaultSkybox());
-        } else {
-          mix_cubemap(Resources::GetInstance().GetDefaultSkybox());
-        }
-      }
-      break;
-    case Camera::BackgroundSource::EngineDefaultSkybox:
-      mix_cubemap(Resources::GetInstance().GetDefaultSkybox());
-      break;
-  }
-  if (const auto reflection_probe = scene->GetGlobalReflectionProbeFallback(false)) {
-    fingerprint = MixDdgiSignature(fingerprint, reflection_probe->GetPayloadHash());
-  } else {
-    fingerprint = MixDdgiSignature(fingerprint, 0u);
-  }
-
-  fingerprint = MixDdgiSignature(fingerprint, GetReflectionProbeSceneSourceFingerprint(scene));
-
-  const auto& render_info = render_instances->render_info_block;
-  fingerprint = MixDdgiSignature(fingerprint, render_info.ddgi_volume_header.x);
-  for (uint32_t index = 0;
-       index < glm::min(render_info.ddgi_volume_header.x, RenderInstanceStorage::kDdgiMaxVolumeCount); ++index) {
-    const auto& volume = render_info.ddgi_volumes[index];
-    fingerprint = MixDdgiVec4(fingerprint, volume.first_probe);
-    fingerprint = MixDdgiVec4(fingerprint, volume.probe_step_x);
-    fingerprint = MixDdgiVec4(fingerprint, volume.probe_step_y);
-    fingerprint = MixDdgiVec4(fingerprint, volume.probe_step_z);
-    fingerprint = MixDdgiVec4(fingerprint, volume.probe_counts);
-    fingerprint = MixDdgiVec4(fingerprint, volume.volume_parameters);
-    fingerprint = MixDdgiVec4(fingerprint, volume.lighting_parameters);
-    fingerprint = MixDdgiSignature(fingerprint, volume.identity_and_flags.z);
-    fingerprint = MixDdgiSignature(fingerprint, volume.identity_and_flags.w);
-  }
-  return fingerprint;
-}
-
 bool RenderLayer::QueueGlobalReflectionProbeBake(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
                                                  const std::shared_ptr<GlobalReflectionProbe>& target) {
-  std::string error;
-  if (!ValidateGlobalReflectionProbeBakeRequest(scene, position, target, error)) {
-    EVOENGINE_ERROR("Environmental lighting reflection probe bake was not queued: " + error)
-    return false;
-  }
-  if (scene.get() != GetScene().get()) {
-    EVOENGINE_ERROR(
-        "Environmental lighting reflection probe bake was not queued: reflection probes can only bake the active "
-        "scene.")
-    return false;
-  }
-  QueueGlobalReflectionProbeBakeAttempt(scene, position, target, 0u);
-  return true;
+  return QueueGlobalReflectionProbeBakeBatch(scene, {{position, target}}) == 1u;
 }
 
-void RenderLayer::QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
-                                                        const std::shared_ptr<GlobalReflectionProbe>& target,
+uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<Scene>& scene,
+                                                          const std::vector<ReflectionProbeBakeRequest>& requests) {
+  if (scene.get() != GetScene().get()) {
+    EVOENGINE_ERROR(
+        "Environmental lighting reflection probe bakes were not queued: reflection probes can only bake the active "
+        "scene.")
+    return 0u;
+  }
+  std::vector<ReflectionProbeBakeRequest> valid_requests;
+  valid_requests.reserve(requests.size());
+  std::unordered_set<uint64_t> target_handles;
+  for (const auto& request : requests) {
+    std::string error;
+    const auto target_handle = request.target ? request.target->GetHandle().GetValue() : 0u;
+    if (ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error) &&
+        target_handles.emplace(target_handle).second) {
+      valid_requests.emplace_back(request);
+    } else if (error.empty()) {
+      EVOENGINE_ERROR(
+          "Environmental lighting reflection probe bake was not queued: the batch contains a duplicate "
+          "output asset.")
+    } else {
+      EVOENGINE_ERROR("Environmental lighting reflection probe bake was not queued: " + error)
+    }
+  }
+  if (valid_requests.empty()) {
+    return 0u;
+  }
+  const auto queued_count = static_cast<uint32_t>(valid_requests.size());
+  QueueGlobalReflectionProbeBakeAttempt(scene, valid_requests, 0u);
+  return queued_count;
+}
+
+void RenderLayer::QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene,
+                                                        const std::vector<ReflectionProbeBakeRequest>& requests,
                                                         const uint32_t retry_count) {
-  ApplicationContext::Get().QueueEndOfLoopAction([scene, position, target, retry_count] {
+  ApplicationContext::Get().QueueEndOfLoopAction([scene, requests, retry_count] {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     std::string error;
     if (!render_layer) {
-      EVOENGINE_ERROR("Environmental lighting reflection probe bake failed: the render layer became unavailable.")
+      EVOENGINE_ERROR("Environmental lighting reflection probe bakes failed: the render layer became unavailable.")
       return;
     }
-    if (!ValidateGlobalReflectionProbeBakeRequest(scene, position, target, error)) {
-      EVOENGINE_ERROR("Environmental lighting reflection probe bake failed: " + error)
-      return;
+    for (const auto& request : requests) {
+      if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error)) {
+        EVOENGINE_ERROR("Environmental lighting reflection probe bakes failed: " + error)
+        return;
+      }
     }
     bool retry = false;
-    uint64_t source_fingerprint = 0u;
-    if (render_layer->BakeReflectionProbe(scene, position, target, source_fingerprint, error, retry)) {
-      EVOENGINE_LOG("Baked environmental lighting reflection probe payload.")
+    if (render_layer->BakeReflectionProbes(scene, requests, error, retry)) {
+      EVOENGINE_LOG("Baked " + std::to_string(requests.size()) +
+                    " environmental lighting reflection probe payload(s) in GPU memory; save the assets to persist "
+                    "them.")
       return;
     }
     if (retry && retry_count + 1u < kStandaloneReflectionProbeBakeMaxRetryFrames) {
-      render_layer->QueueGlobalReflectionProbeBakeAttempt(scene, position, target, retry_count + 1u);
+      render_layer->QueueGlobalReflectionProbeBakeAttempt(scene, requests, retry_count + 1u);
       return;
     }
-    const auto message = retry ? "Environmental lighting reflection probe bake timed out: " + error
-                               : "Environmental lighting reflection probe bake failed: " + error;
+    const auto message = retry ? "Environmental lighting reflection probe bakes timed out: " + error
+                               : "Environmental lighting reflection probe bakes failed: " + error;
     EVOENGINE_ERROR(message)
   });
 }
 
-bool RenderLayer::BakeReflectionProbe(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
-                                      const std::shared_ptr<GlobalReflectionProbe>& target,
-                                      uint64_t& source_fingerprint, std::string& error, bool& retry) {
+const std::vector<std::shared_ptr<Camera>>& RenderLayer::GetOrCreateReflectionProbeCaptureCameras(const size_t count) {
+  reflection_probe_capture_cameras_.resize(count);
+  for (size_t index = 0; index < count; ++index) {
+    auto& camera = reflection_probe_capture_cameras_[index];
+    if (!camera) {
+      camera = Serialization::ProduceSerializable<Camera>();
+      if (!camera) {
+        reflection_probe_capture_cameras_.clear();
+        return reflection_probe_capture_cameras_;
+      }
+      if (index == 0) {
+        camera->InitializeRenderResources({GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution});
+      } else {
+        camera->size_ = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution};
+      }
+      camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      camera->camera_settings.fov = 180.0f;
+      camera->camera_settings.near_distance = GlobalReflectionProbe::kBakeNearPlane;
+      camera->camera_settings.far_distance = GlobalReflectionProbe::kBakeFarPlane;
+      camera->camera_settings.fade_ratio = 1.0f;
+    }
+    camera->ResetRenderState();
+    camera->ResetFrameCount();
+  }
+  return reflection_probe_capture_cameras_;
+}
+
+bool RenderLayer::PrepareReflectionProbeCaptureResources(const VkFormat raw_format) {
+  if (!reflection_probe_capture_raw_cubemap_) {
+    reflection_probe_capture_raw_cubemap_ = AssetManager::CreateTemporaryAsset<Cubemap>();
+    reflection_probe_capture_raw_cubemap_->Initialize(GlobalReflectionProbe::kResolution,
+                                                      GlobalReflectionProbe::kMipLevels, raw_format, false);
+  }
+  if (!reflection_probe_capture_filtered_cubemap_) {
+    reflection_probe_capture_filtered_cubemap_ = AssetManager::CreateTemporaryAsset<Cubemap>();
+    reflection_probe_capture_filtered_cubemap_->Initialize(GlobalReflectionProbe::kResolution,
+                                                           GlobalReflectionProbe::kMipLevels,
+                                                           GlobalReflectionProbe::kCanonicalFormat, false);
+  }
+  if (!reflection_probe_capture_raw_cubemap_->GetImage() ||
+      reflection_probe_capture_raw_cubemap_->GetFormat() != raw_format ||
+      !reflection_probe_capture_filtered_cubemap_->GetImage()) {
+    return false;
+  }
+  if (reflection_probe_capture_filtered_mip_views_.empty()) {
+    reflection_probe_capture_filtered_mip_views_.resize(6);
+    for (uint32_t face = 0; face < 6; ++face) {
+      auto& face_views = reflection_probe_capture_filtered_mip_views_[face];
+      face_views.reserve(GlobalReflectionProbe::kMipLevels);
+      for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
+        VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        view_info.image = reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage();
+        view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view_info.format = GlobalReflectionProbe::kCanonicalFormat;
+        view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        view_info.subresourceRange.baseMipLevel = mip;
+        view_info.subresourceRange.levelCount = 1;
+        view_info.subresourceRange.baseArrayLayer = face;
+        view_info.subresourceRange.layerCount = 1;
+        face_views.emplace_back(std::make_shared<ImageView>(view_info));
+      }
+    }
+  }
+  if (!reflection_probe_capture_filter_depth_image_) {
+    VkImageCreateInfo image_info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.format = Platform::Constants::shadow_map;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    reflection_probe_capture_filter_depth_image_ = std::make_shared<Image>(image_info);
+
+    VkImageViewCreateInfo view_info{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view_info.image = reflection_probe_capture_filter_depth_image_->GetVkImage();
+    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view_info.format = Platform::Constants::shadow_map;
+    view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    view_info.subresourceRange.levelCount = 1;
+    view_info.subresourceRange.layerCount = 1;
+    reflection_probe_capture_filter_depth_view_ = std::make_shared<ImageView>(view_info);
+  }
+  if (!reflection_probe_capture_filter_descriptor_set_) {
+    reflection_probe_capture_filter_descriptor_set_ =
+        std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
+  }
+  if (!reflection_probe_capture_prefilter_pipeline_) {
+    reflection_probe_capture_prefilter_pipeline_ =
+        GlobalReflectionProbe::AcquirePrefilterPipeline(GetRenderTexturePresentDescriptorSetLayout());
+  }
+  return reflection_probe_capture_filter_depth_image_ && reflection_probe_capture_filter_depth_view_ &&
+         reflection_probe_capture_filter_descriptor_set_ && reflection_probe_capture_prefilter_pipeline_ &&
+         reflection_probe_capture_prefilter_pipeline_->Initialized();
+}
+
+bool RenderLayer::BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
+                                       const std::vector<ReflectionProbeBakeRequest>& requests, std::string& error,
+                                       bool& retry) {
+  const auto bake_start = std::chrono::steady_clock::now();
+  const auto record_cpu_time = [](const std::string& name, const std::chrono::steady_clock::time_point start) {
+    Platform::RecordCpuTimingSample(
+        name, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+  };
   retry = false;
-  source_fingerprint = 0;
   error.clear();
   if (!scene || scene.get() != GetScene().get()) {
     error = "Reflection probes can only bake the active scene.";
     return false;
   }
-  if (!target) {
-    error = "Assign a persistent GlobalReflectionProbe asset before baking.";
+  if (requests.empty()) {
+    error = "No reflection probes were requested.";
     return false;
   }
-  if (const auto global = GetAssignedGlobalReflectionProbe(scene);
-      global && (global == target || global->GetHandle() == target->GetHandle())) {
-    error = "The scene's global reflection probe cannot also be a local bake output.";
-    return false;
-  }
-  if (target->IsTemporary()) {
-    error = "Assign a persistent GlobalReflectionProbe asset before baking.";
-    return false;
+  for (const auto& request : requests) {
+    if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error)) {
+      return false;
+    }
   }
   if (!Platform::Initialized()) {
     error = "The Vulkan renderer is not initialized.";
@@ -4809,108 +4561,242 @@ bool RenderLayer::BakeReflectionProbe(const std::shared_ptr<Scene>& scene, const
     error = "Waiting for active DDGI history and convergence.";
     return false;
   }
-  source_fingerprint = GetReflectionProbeCaptureFingerprint(scene, position);
-  if (source_fingerprint == 0u) {
+  const auto frame_wait_start = std::chrono::steady_clock::now();
+  Platform::WaitForFrameSubmissions("Reflection Probe Bake Fence Wait");
+  record_cpu_time("Reflection Probe Bake Frame Drain CPU", frame_wait_start);
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto previous_render_instances = render_instances_list_[current_frame_index];
+  if (!previous_render_instances) {
     retry = true;
     error = "Waiting for the active scene render snapshot.";
     return false;
   }
-
-  Platform::WaitForFrameSubmissions("Reflection Probe Bake Fence Wait");
+  const auto shadow_camera = std::find_if(
+      previous_render_instances->cameras.begin(), previous_render_instances->cameras.end(), [&](const auto& entry) {
+        return entry.second && entry.second->GetHandle() == reflection_probe_shadow_camera_handle_;
+      });
+  if (previous_render_instances->render_info_block.directional_light_size > 0 &&
+      shadow_camera == previous_render_instances->cameras.end()) {
+    retry = true;
+    error = "Waiting for the main camera or editor Scene camera directional shadow map.";
+    return false;
+  }
+  const bool previous_need_fade = need_fade_;
+  const auto restore = [&] {
+    render_instances_list_[current_frame_index] = previous_render_instances;
+    need_fade_ = previous_need_fade;
+    if (previous_render_instances) {
+      BindRenderInstanceStorage(current_frame_index, previous_render_instances);
+    }
+  };
   try {
-    const auto camera = Serialization::ProduceSerializable<Camera>();
-    if (!camera) {
-      error = "Failed to create the reflection probe capture camera.";
+    const auto& face_cameras = GetOrCreateReflectionProbeCaptureCameras(requests.size() * 6u);
+    const auto camera = face_cameras.front();
+    if (!camera || std::any_of(face_cameras.begin(), face_cameras.end(), [](const auto& face_camera) {
+          return !face_camera;
+        })) {
+      error = "Failed to create the reflection probe capture cameras.";
       return false;
     }
-    camera->OnCreate();
-    camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-    camera->camera_settings.fov = 180.0f;
-    camera->camera_settings.near_distance = GlobalReflectionProbe::kBakeNearPlane;
-    camera->camera_settings.far_distance = GlobalReflectionProbe::kBakeFarPlane;
-    camera->camera_settings.fade_ratio = 1.0f;
     const auto lighting = GetAssignedEnvironmentalLighting(scene);
     const auto background =
         lighting ? lighting->reflection_probe_bake_background : EnvironmentalLighting::ReflectionProbeBakeBackground{};
-    camera->camera_settings.background_source =
-        Camera::NormalizeBackgroundSource(static_cast<uint32_t>(background.source));
-    camera->camera_settings.background_intensity =
-        std::isfinite(background.intensity) ? glm::max(background.intensity, 0.0f) : 1.0f;
-    camera->camera_settings.clear_color = background.clear_color;
-    camera->skybox = background.cubemap;
-    camera->background_environment = background.environmental_map;
-    camera->Resize({GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution});
+    for (const auto& face_camera : face_cameras) {
+      face_camera->camera_settings.background_source =
+          Camera::NormalizeBackgroundSource(static_cast<uint32_t>(background.source));
+      face_camera->camera_settings.background_intensity =
+          std::isfinite(background.intensity) ? glm::max(background.intensity, 0.0f) : 1.0f;
+      face_camera->camera_settings.clear_color = background.clear_color;
+      face_camera->skybox = background.cubemap;
+      face_camera->background_environment = background.environmental_map;
+    }
     if (!camera->GetRenderTexture() || !camera->GetRenderTexture()->GetColorImage()) {
       error = "Failed to allocate the reflection probe capture target.";
       return false;
     }
-
-    const auto raw_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
-    raw_cubemap->Initialize(GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kMipLevels,
-                            camera->GetRenderTexture()->GetColorImage()->GetFormat());
-    if (!raw_cubemap->GetImage()) {
-      error = "Failed to allocate the reflection probe cubemap.";
+    const auto capture_format = camera->GetRenderTexture()->GetColorImage()->GetFormat();
+    if (!PrepareReflectionProbeCaptureResources(capture_format)) {
+      error = "Failed to allocate reusable reflection probe capture resources.";
       return false;
     }
-    raw_cubemap->BeginGpuWrite();
-    Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-      raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-    });
 
     constexpr std::array<glm::vec3, 6> directions = {glm::vec3(1, 0, 0),  glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0),
                                                      glm::vec3(0, -1, 0), glm::vec3(0, 0, 1),  glm::vec3(0, 0, -1)};
     constexpr std::array<glm::vec3, 6> up_directions = {glm::vec3(0, -1, 0), glm::vec3(0, -1, 0), glm::vec3(0, 0, 1),
                                                         glm::vec3(0, 0, -1), glm::vec3(0, -1, 0), glm::vec3(0, -1, 0)};
-    for (uint32_t face = 0; face < directions.size(); ++face) {
-      GlobalTransform camera_transform;
-      camera_transform.SetValue(position, glm::quatLookAt(directions[face], up_directions[face]), glm::vec3(1.0f));
-      RenderSceneToCameraImmediately(scene, camera_transform, camera, true);
+    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras;
+    injected_cameras.reserve(face_cameras.size() + 1u);
+    if (shadow_camera != previous_render_instances->cameras.end()) {
+      injected_cameras.emplace_back(*shadow_camera);
+    }
+    std::vector<GlobalTransform> face_transforms;
+    face_transforms.reserve(face_cameras.size());
+    for (const auto& request : requests) {
+      for (uint32_t face = 0; face < directions.size(); ++face) {
+        auto& camera_transform = face_transforms.emplace_back();
+        camera_transform.SetValue(request.position, glm::quatLookAt(directions[face], up_directions[face]),
+                                  glm::vec3(1.0f));
+        injected_cameras.emplace_back(camera_transform, face_cameras[face_transforms.size() - 1u]);
+      }
+    }
 
-      const auto source_image = camera->GetRenderTexture()->GetColorImage();
-      const auto source_layout = source_image->GetLayout();
-      Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    const auto snapshot_start = std::chrono::steady_clock::now();
+    render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
+    PrepareSceneForRendering(scene, false, false, false, false, &injected_cameras, false);
+    const auto capture_render_instances = render_instances_list_[current_frame_index];
+    if (!capture_render_instances) {
+      restore();
+      error = "Failed to prepare the reflection probe render snapshot.";
+      return false;
+    }
+    const int directional_shadow_camera_index =
+        shadow_camera == previous_render_instances->cameras.end()
+            ? -1
+            : capture_render_instances->GetCameraIndex(shadow_camera->second->GetHandle());
+    capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f;
+    capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f;
+    if (previous_render_instances) {
+      PreserveDdgiRenderInfo(capture_render_instances->render_info_block, previous_render_instances->render_info_block);
+    }
+    capture_render_instances->render_info_block.reflection_probe_header = glm::uvec4(0u);
+    capture_render_instances->render_info_block.reflection_probes = {};
+    capture_render_instances->render_info_block.debug_visualization = 0;
+    capture_render_instances->render_info_block.shadow_fade_parameters.y = 0.0f;
+    capture_render_instances->render_info_block.shadow_debug_parameters =
+        glm::ivec4(0, 0, 0, glm::clamp(capture_render_instances->render_info_block.shadow_debug_parameters.w, 1, 64));
+    capture_render_instances->Upload();
+    BindRenderInstanceStorage(current_frame_index, capture_render_instances);
+    record_cpu_time("Reflection Probe Bake Snapshot CPU", snapshot_start);
+
+    std::vector<std::shared_ptr<Cubemap>> output_cubemaps;
+    output_cubemaps.reserve(requests.size());
+    for (const auto& request : requests) {
+      auto output_cubemap = request.target->cubemap_;
+      if (!output_cubemap || output_cubemap->GetResolution() != GlobalReflectionProbe::kResolution ||
+          output_cubemap->GetMipLevels() != GlobalReflectionProbe::kMipLevels ||
+          output_cubemap->GetFormat() != GlobalReflectionProbe::kCanonicalFormat || !output_cubemap->GetImage()) {
+        output_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
+        output_cubemap->Initialize(GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kMipLevels,
+                                   GlobalReflectionProbe::kCanonicalFormat, false);
+      }
+      if (!output_cubemap->GetImage()) {
+        restore();
+        error = "Failed to allocate a reflection probe output cubemap.";
+        return false;
+      }
+      output_cubemaps.emplace_back(output_cubemap);
+    }
+
+    const auto invalidate_gpu_content = [](const std::shared_ptr<Cubemap>& cubemap) {
+      cubemap->local_data_.clear();
+      cubemap->local_rgba16f_data_.clear();
+      cubemap->local_data_dirty_ = false;
+      cubemap->gpu_content_valid_ = false;
+    };
+    invalidate_gpu_content(reflection_probe_capture_raw_cubemap_);
+    invalidate_gpu_content(reflection_probe_capture_filtered_cubemap_);
+    for (const auto& output_cubemap : output_cubemaps) {
+      invalidate_gpu_content(output_cubemap);
+    }
+
+    VkDescriptorImageInfo descriptor_image_info{};
+    descriptor_image_info.imageView = reflection_probe_capture_raw_cubemap_->GetImageView()->GetVkImageView();
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.sampler = reflection_probe_capture_raw_cubemap_->GetSampler()->GetVkSampler();
+    reflection_probe_capture_filter_descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
+
+    const auto source_image = camera->GetRenderTexture()->GetColorImage();
+    std::vector<VkImageCopy> copies;
+    copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * 6);
+    for (uint32_t face = 0; face < 6; ++face) {
+      for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
         VkImageCopy copy{};
-        copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.srcSubresource.layerCount = 1;
-        copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        copy.dstSubresource.baseArrayLayer = face;
-        copy.dstSubresource.layerCount = 1;
-        copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-        source_image->TransitImageLayout(command_buffer, source_layout);
-      });
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1};
+        copy.dstSubresource = copy.srcSubresource;
+        const auto mip_width = glm::max(GlobalReflectionProbe::kResolution >> mip, 1u);
+        copy.extent = {mip_width, mip_width, 1};
+        copies.emplace_back(copy);
+      }
     }
-    Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-      raw_cubemap->GetImage()->GenerateMipmaps(command_buffer);
-    });
-    raw_cubemap->MarkGpuContentValid();
+    std::vector<ImmediateGpuTimestampAction> bake_actions;
+    bake_actions.reserve(requests.size() * 2u + 1u);
+    bake_actions.push_back({"Reflection Probe Point Spot Shadows", [&](const VkCommandBuffer command_buffer) {
+                              const RenderCommandRecorder recorder =
+                                  [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
+                                    action(command_buffer);
+                                  };
+                              PreparePointAndSpotLightShadowMap(false, false, &recorder);
+                            }});
+    for (size_t request_index = 0; request_index < requests.size(); ++request_index) {
+      bake_actions.push_back(
+          {"Reflection Probe Face Capture", [&, request_index](const VkCommandBuffer command_buffer) {
+             const RenderCommandRecorder recorder =
+                 [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
+                   action(command_buffer);
+                 };
+             reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(
+                 command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+             for (uint32_t face = 0; face < 6u; ++face) {
+               const auto face_index = request_index * 6u + face;
+               const auto camera_index =
+                   capture_render_instances->GetCameraIndex(face_cameras[face_index]->GetHandle());
+               RenderToCamera(scene, face_transforms[face_index], camera, true, true, camera_index,
+                              directional_shadow_camera_index, &recorder);
+               source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+               VkImageCopy copy{};
+               copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+               copy.srcSubresource.layerCount = 1;
+               copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+               copy.dstSubresource.baseArrayLayer = face;
+               copy.dstSubresource.layerCount = 1;
+               copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
+               vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                              reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
+                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+             }
+             reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
+           }});
+      bake_actions.push_back(
+          {"Reflection Probe GGX Prefilter", [&, request_index](const VkCommandBuffer command_buffer) {
+             GlobalReflectionProbe::RecordPrefilter(
+                 command_buffer, reflection_probe_capture_filtered_cubemap_,
+                 reflection_probe_capture_filtered_mip_views_, reflection_probe_capture_filter_depth_image_,
+                 reflection_probe_capture_filter_depth_view_, reflection_probe_capture_filter_descriptor_set_,
+                 reflection_probe_capture_prefilter_pipeline_);
+             reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
+                 command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+             output_cubemaps[request_index]->GetImage()->TransitImageLayout(command_buffer,
+                                                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+             vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
+                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                            output_cubemaps[request_index]->GetImage()->GetVkImage(),
+                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
+             reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
+                 command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+             output_cubemaps[request_index]->GetImage()->TransitImageLayout(command_buffer,
+                                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+           }});
+    }
+    const auto submit_start = std::chrono::steady_clock::now();
+    Platform::ImmediateSubmitWithGpuTimestamps("Reflection Probe Bake GPU Total", bake_actions);
+    record_cpu_time("Reflection Probe Bake Submit Wait CPU", submit_start);
 
-    const auto filtered = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
-    if (!filtered->ConstructFromCubemap(raw_cubemap)) {
-      error = "Failed to prefilter the baked reflection probe payload.";
-      return false;
+    reflection_probe_capture_raw_cubemap_->MarkGpuContentValid();
+    reflection_probe_capture_filtered_cubemap_->MarkGpuContentValid();
+    for (size_t index = 0; index < requests.size(); ++index) {
+      const auto& target = requests[index].target;
+      output_cubemaps[index]->MarkGpuContentValid();
+      target->cubemap_ = output_cubemaps[index];
+      target->RebuildMipMapViews();
+      target->payload_hash_ = 0u;
+      target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked;
+      target->SetUnsaved();
     }
-    const auto& payload = filtered->GetCanonicalPayload();
-    if (payload.size() * sizeof(uint16_t) != GlobalReflectionProbe::kCanonicalPayloadByteSize) {
-      error = "The baked reflection probe payload has an invalid byte count.";
-      return false;
-    }
-    if (!GlobalReflectionProbe::ValidateCanonicalPayload(payload, error)) {
-      return false;
-    }
-    filtered->MarkBaked(source_fingerprint);
-    if (!Serialization::SaveAsset(*filtered, target->GetAbsolutePath())) {
-      error = "The reflection probe bake could not be saved; the previous asset remains active.";
-      return false;
-    }
-    if (!target->Load()) {
-      error = "The reflection probe was saved but could not be published to the active asset.";
-      return false;
-    }
+    restore();
+    record_cpu_time("Reflection Probe Bake Total CPU", bake_start);
     return true;
   } catch (const std::exception& exception) {
+    restore();
     error = exception.what();
     return false;
   }
@@ -5472,10 +5358,49 @@ void RenderLayer::RenderAll() {
     }
   }
   PreparePointAndSpotLightShadowMap();
-  for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
+  std::shared_ptr<Camera> preferred_shadow_camera;
+  const auto can_render_directional_shadows = [](const std::shared_ptr<Camera>& camera) {
+    return camera && camera->require_rendering_ &&
+           Camera::ResolveCameraRenderMode(camera->camera_render_mode) == Camera::CameraRenderMode::Rasterization;
+  };
+  if (scene) {
+    auto main_camera_ref = scene->main_camera;
+    const auto main_camera = main_camera_ref.Get<Camera>();
+    if (can_render_directional_shadows(main_camera)) {
+      preferred_shadow_camera = main_camera;
+    }
+  }
+  if (!preferred_shadow_camera) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      const auto scene_camera = editor_layer->GetSceneCamera();
+      if (can_render_directional_shadows(scene_camera)) {
+        preferred_shadow_camera = scene_camera;
+      }
+    }
+  }
+  const auto render_raster_camera = [&](const GlobalTransform& camera_global_transform,
+                                        const std::shared_ptr<Camera>& camera) {
     camera->rendered_ = false;
     if (camera->require_rendering_) {
-      RenderToCamera(scene, cameraGlobalTransform, camera);
+      RenderToCamera(scene, camera_global_transform, camera);
+      if (camera->rendered_ &&
+          Camera::ResolveCameraRenderMode(camera->camera_render_mode) == Camera::CameraRenderMode::Rasterization) {
+        reflection_probe_shadow_camera_handle_ = camera->GetHandle();
+      }
+    }
+  };
+  for (const auto& [camera_global_transform, camera] : current_render_instances->cameras) {
+    if (camera != preferred_shadow_camera) {
+      render_raster_camera(camera_global_transform, camera);
+    }
+  }
+  if (preferred_shadow_camera) {
+    const auto found = std::find_if(current_render_instances->cameras.begin(), current_render_instances->cameras.end(),
+                                    [&](const auto& entry) {
+                                      return entry.second == preferred_shadow_camera;
+                                    });
+    if (found != current_render_instances->cameras.end()) {
+      render_raster_camera(found->first, found->second);
     }
   }
 
@@ -5770,7 +5695,8 @@ void RenderLayer::ApplyAnimators() const {
   }
 }
 
-void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const bool include_external) const {
+void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const bool include_external,
+                                                    const RenderCommandRecorder* command_recorder) const {
   const bool count_draw_calls = count_shadow_rendering_draw_calls;
   const bool use_mesh_shader = Platform::MeshShaderEnabled() && enable_meshlet;
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -5780,7 +5706,9 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
       use_mesh_shader ? spot_light_shadow_pipeline_mesh_shader : spot_light_shadow_pipeline_normal_opaque;
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const auto record_commands = [&](const std::function<void(VkCommandBuffer)>& action) {
-    if (immediate) {
+    if (command_recorder) {
+      (*command_recorder)(action);
+    } else if (immediate) {
       Platform::ImmediateSubmit(action);
     } else {
       Platform::RecordCommandsMainQueue(action);
@@ -6026,7 +5954,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
 bool RenderLayer::UpdateRenderInstanceStorage(
     const std::shared_ptr<Scene>& scene, const uint32_t current_frame_index, const bool include_editor_cameras,
     const bool update_editor_selection, const bool track_ddgi_scene_inputs,
-    const std::pair<GlobalTransform, std::shared_ptr<Camera>>* injected_camera, const bool include_reflection_probes) {
+    const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
+    const bool include_reflection_probes) {
   const ProfilerScope profiler_scope("RenderLayer::UpdateRenderInstanceStorage", "Render");
   auto lod_center = glm::vec3(0.f);
   float lod_max_distance = FLT_MAX;
@@ -6038,9 +5967,10 @@ bool RenderLayer::UpdateRenderInstanceStorage(
       lod_set = true;
     }
   }
-  if (injected_camera) {
-    lod_center = injected_camera->first.GetPosition();
-    lod_max_distance = injected_camera->second ? injected_camera->second->camera_settings.far_distance : FLT_MAX;
+  if (injected_cameras && !injected_cameras->empty()) {
+    lod_center = injected_cameras->front().first.GetPosition();
+    lod_max_distance =
+        injected_cameras->front().second ? injected_cameras->front().second->camera_settings.far_distance : FLT_MAX;
     lod_set = true;
   } else if (!lod_set) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
@@ -6054,8 +5984,8 @@ bool RenderLayer::UpdateRenderInstanceStorage(
   auto world_bound = scene->GetBound();
   need_fade_ = false;
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  current_render_instances->BuildFromScene(render_settings, scene, world_bound, include_editor_cameras, injected_camera,
-                                           include_reflection_probes);
+  current_render_instances->BuildFromScene(render_settings, scene, world_bound, include_editor_cameras,
+                                           injected_cameras, include_reflection_probes);
   const auto previous_render_instances =
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
@@ -6321,13 +6251,16 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
 }
 void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
                                  const std::shared_ptr<Camera>& camera, const bool immediate,
-                                 const bool reflection_probe_capture) const {
+                                 const bool reflection_probe_capture, const int camera_index_override,
+                                 const int directional_shadow_camera_index,
+                                 const RenderCommandRecorder* command_recorder) const {
   const ProfilerScope profiler_scope("RenderLayer::RenderToCamera", "Render");
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto current_render_instances = render_instances_list_[current_frame_index];
   const auto lighting_descriptor_set =
       lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr;
-  const int camera_index = current_render_instances->GetCameraIndex(camera->GetHandle());
+  const int camera_index = camera_index_override >= 0 ? camera_index_override
+                                                      : current_render_instances->GetCameraIndex(camera->GetHandle());
   bool ambient_occlusion_enabled = false;
   if (!immediate) {
     if (const auto post_processing_stack = camera->post_processing_stack_ref.Get<PostProcessingStack>();
@@ -6419,7 +6352,9 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       glm::max(ray_visualization_miss_distance, 0.001f),
       glm::clamp(ddgi_session_state_.ray_visualization_alpha, 0.0f, 1.0f)};
   const auto record_commands = [&](const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
-    if (immediate) {
+    if (command_recorder) {
+      (*command_recorder)(action);
+    } else if (immediate) {
       Platform::ImmediateSubmit(action);
     } else {
       Platform::RecordCommandsMainQueue(action);
@@ -6443,49 +6378,55 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (!reflection_probe_capture) {
       AddExternalRenderResources(camera_render_graph, external_render_resource_descriptors);
     }
-    camera_render_graph.AddPass(
-        DirectionalLightShadowPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-          const auto& directional_light_shadow_opaque_pipeline = use_mesh_shader
-                                                                     ? directional_light_shadow_pipeline_mesh_shader
-                                                                     : directional_light_shadow_pipeline_normal_opaque;
-          const auto shadow_extent = lighting_->directional_light_shadow_map_->GetExtent();
-          DirectionalLightShadowPass::Execute(
-              context,
-              {current_render_instances,
-               directional_light_shadow_opaque_pipeline,
-               instanced_directional_light_shadow_pipeline_opaque,
-               skinned_directional_light_shadow_pipeline_opaque,
-               use_mesh_shader ? strands_directional_light_shadow_pipeline : nullptr,
-               per_frame_descriptor_sets_[current_frame_index],
-               meshlet_descriptor_sets_[current_frame_index],
-               use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr,
-               camera_index,
-               static_cast<int>(graphics_settings.max_directional_light_size),
-               current_frame_index,
-               {shadow_extent.width, shadow_extent.height},
-               use_mesh_shader,
-               enable_indirect_rendering,
-               count_draw_calls,
-               [&](const uint32_t split, const VkAttachmentLoadOp load_op, const VkAttachmentStoreOp store_op) {
-                 return lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(split, load_op, store_op);
-               },
-               [&](const VkCommandBuffer vk_command_buffer, const int light_index, const int split_index,
-                   const glm::ivec4& viewport, const glm::mat4& light_space_matrix) {
-                 if (!reflection_probe_capture) {
-                   for (const auto& func : directional_light_shadow_map_external_functions) {
-                     const auto prim_count =
-                         func(vk_command_buffer, {light_index, split_index, viewport, light_space_matrix});
-                     if (count_draw_calls) {
-                       Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow,
-                                                     RenderDrawCallKind::Direct, current_frame_index, prim_count);
+    if (!reflection_probe_capture) {
+      camera_render_graph.AddPass(
+          DirectionalLightShadowPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            const auto& directional_light_shadow_opaque_pipeline =
+                use_mesh_shader ? directional_light_shadow_pipeline_mesh_shader
+                                : directional_light_shadow_pipeline_normal_opaque;
+            const auto shadow_extent = lighting_->directional_light_shadow_map_->GetExtent();
+            DirectionalLightShadowPass::Execute(
+                context,
+                {current_render_instances,
+                 directional_light_shadow_opaque_pipeline,
+                 instanced_directional_light_shadow_pipeline_opaque,
+                 skinned_directional_light_shadow_pipeline_opaque,
+                 use_mesh_shader ? strands_directional_light_shadow_pipeline : nullptr,
+                 per_frame_descriptor_sets_[current_frame_index],
+                 meshlet_descriptor_sets_[current_frame_index],
+                 use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr,
+                 camera_index,
+                 static_cast<int>(graphics_settings.max_directional_light_size),
+                 current_frame_index,
+                 {shadow_extent.width, shadow_extent.height},
+                 use_mesh_shader,
+                 enable_indirect_rendering,
+                 count_draw_calls,
+                 [&](const uint32_t split, const VkAttachmentLoadOp load_op, const VkAttachmentStoreOp store_op) {
+                   return lighting_->GetLayeredDirectionalLightDepthAttachmentInfo(split, load_op, store_op);
+                 },
+                 [&](const VkCommandBuffer vk_command_buffer, const int light_index, const int split_index,
+                     const glm::ivec4& viewport, const glm::mat4& light_space_matrix) {
+                   if (!reflection_probe_capture) {
+                     for (const auto& func : directional_light_shadow_map_external_functions) {
+                       const auto prim_count =
+                           func(vk_command_buffer, {light_index, split_index, viewport, light_space_matrix});
+                       if (count_draw_calls) {
+                         Platform::CountRenderPassDraw(RenderPassDrawBucket::DirectionalLightShadow,
+                                                       RenderDrawCallKind::Direct, current_frame_index, prim_count);
+                       }
                      }
                    }
-                 }
-               },
-               record_commands});
-        });
+                 },
+                 record_commands});
+          });
+    }
+    auto deferred_geometry_descriptor = DeferredGeometryPass::CreateDescriptor();
+    if (reflection_probe_capture) {
+      deferred_geometry_descriptor.dependencies.clear();
+    }
     camera_render_graph.AddPass(
-        DeferredGeometryPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        std::move(deferred_geometry_descriptor), [&](const RenderGraphExecutionContext& context) {
           const auto& deferred_prepass_pipeline =
               use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
           DeferredGeometryPass::Execute(
@@ -6511,25 +6452,28 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                },
                record_commands});
         });
-    camera_render_graph.AddPass(MotionVectorPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-      MotionVectorPass::Execute(
-          context,
-          {camera, current_render_instances, per_frame_descriptor_sets_[current_frame_index], motion_vectors_pipeline_,
-           motion_vectors_layout_, active_camera_transient_resources, camera_index, record_commands});
-    });
-    camera_render_graph.AddPass(
-        MotionCoveragePass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-          MotionCoveragePass::Execute(
-              context,
-              {camera, current_render_instances, raster_material_per_frame_descriptor_sets_[current_frame_index],
-               skinned_motion_vectors_pipeline_, transparent_motion_vectors_pipeline_, motion_coverage_layout_,
-               active_camera_transient_resources, camera_index, reflection_probe_capture ? false : wire_frame,
-               record_commands});
-        });
-    camera_render_graph.AddPass(DepthPyramidPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-      DepthPyramidPass::Execute(context, {camera, depth_pyramid_pipeline_, depth_pyramid_layout_,
-                                          active_camera_transient_resources, record_commands});
-    });
+    if (!reflection_probe_capture) {
+      camera_render_graph.AddPass(
+          MotionVectorPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            MotionVectorPass::Execute(
+                context, {camera, current_render_instances, per_frame_descriptor_sets_[current_frame_index],
+                          motion_vectors_pipeline_, motion_vectors_layout_, active_camera_transient_resources,
+                          camera_index, record_commands});
+          });
+      camera_render_graph.AddPass(
+          MotionCoveragePass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            MotionCoveragePass::Execute(
+                context,
+                {camera, current_render_instances, raster_material_per_frame_descriptor_sets_[current_frame_index],
+                 skinned_motion_vectors_pipeline_, transparent_motion_vectors_pipeline_, motion_coverage_layout_,
+                 active_camera_transient_resources, camera_index, wire_frame, record_commands});
+          });
+      camera_render_graph.AddPass(
+          DepthPyramidPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+            DepthPyramidPass::Execute(context, {camera, depth_pyramid_pipeline_, depth_pyramid_layout_,
+                                                active_camera_transient_resources, record_commands});
+          });
+    }
     if (ambient_occlusion_enabled) {
       camera_render_graph.AddPass(AmbientOcclusionPass::CreateDescriptor(),
                                   [&](const RenderGraphExecutionContext& context) {
@@ -6548,7 +6492,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       ddgi_session_state_.gather_timing_capture_pending = false;
     }
     camera_render_graph.AddPass(
-        DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled),
+        DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
         [&](const RenderGraphExecutionContext& context) {
           const bool fade_selection =
               !reflection_probe_capture && need_fade_ && editor_layer && editor_layer->highlight_selection_;
@@ -6558,8 +6502,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           DeferredLightingPass::Execute(
               context,
               {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
-               lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index, current_frame_index,
-               count_draw_calls, fade_selection, selection_alpha,
+               lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
+               directional_shadow_camera_index, current_frame_index, count_draw_calls, fade_selection, selection_alpha,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  if (!reflection_probe_capture) {
                    for (const auto& func : forward_rendering_external_functions) {
@@ -6705,11 +6649,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
         ddgi_probe_ray_visualization_enabled
             ? RenderPassNames::ddgi_probe_ray_visualization
             : (ddgi_probe_visualization_enabled ? RenderPassNames::ddgi_probe_visualization : post_lighting_dependency);
-    camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
-                                [&](const RenderGraphExecutionContext& context) {
-                                  PostProcessingPass::Execute(context,
-                                                              {camera, active_camera_transient_resources, immediate});
-                                });
+    if (!reflection_probe_capture) {
+      camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
+                                  [&](const RenderGraphExecutionContext& context) {
+                                    PostProcessingPass::Execute(context,
+                                                                {camera, active_camera_transient_resources, immediate});
+                                  });
+    }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid camera render graph.")
     }
@@ -6924,6 +6870,16 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  reflection_probe_capture_cameras_.clear();
+  reflection_probe_shadow_camera_handle_ = {};
+  reflection_probe_capture_raw_cubemap_.reset();
+  reflection_probe_capture_filtered_cubemap_.reset();
+  reflection_probe_capture_filtered_mip_views_.clear();
+  reflection_probe_capture_filter_depth_view_.reset();
+  reflection_probe_capture_filter_depth_image_.reset();
+  reflection_probe_capture_filter_descriptor_set_.reset();
+  reflection_probe_capture_prefilter_pipeline_.reset();
+  GlobalReflectionProbe::shared_prefilter_construct_pipeline_.reset();
   post_processing_renderer_resources_.reset();
   ray_camera_shader_variant_cache_.reset();
   ray_tracing_camera_pipeline.reset();

@@ -97,8 +97,8 @@ class Cubemap final : public IAsset {
    * @param resolution The resolution of the cubemap.
    * @param mip_levels The number of mip levels (default is 1).
    */
-  void Initialize(uint32_t resolution, uint32_t mip_levels = 1,
-                  VkFormat format = Platform::Constants::texture_2d) const;
+  void Initialize(uint32_t resolution, uint32_t mip_levels = 1, VkFormat format = Platform::Constants::texture_2d,
+                  bool transition_to_shader_read = true) const;
 
   /**
    * @brief Stores all cubemap texels in Vulkan face order (+X, -X, +Y, -Y, +Z, -Z), then mip-major order per face.
