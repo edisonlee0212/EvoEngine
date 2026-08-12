@@ -166,21 +166,24 @@ TEST(ReflectionProbe, RoughSpecularVisibilityCapsUntrustedGrazingOcclusion) {
 
 TEST(ReflectionProbe, BakeUsesIndependentCameraStyleBackground) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto lighting =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(lighting.empty());
 
-  const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
-  ASSERT_FALSE(bake.empty());
+  const auto prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareReflectionProbeBake",
+                                      "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph");
+  ASSERT_FALSE(prepare.empty());
 
-  EXPECT_NE(bake.find("lighting->reflection_probe_bake_background"), std::string::npos);
-  EXPECT_NE(bake.find("face_camera->camera_settings.background_intensity"), std::string::npos);
-  EXPECT_NE(bake.find("face_camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
-  EXPECT_NE(bake.find("face_camera->skybox = background.cubemap"), std::string::npos);
-  EXPECT_NE(bake.find("face_camera->background_environment = background.environmental_map"), std::string::npos);
-  EXPECT_NE(bake.find("capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f"),
+  EXPECT_NE(prepare.find("lighting->reflection_probe_bake_background"), std::string::npos);
+  EXPECT_NE(prepare.find("face_camera->camera_settings.background_intensity"), std::string::npos);
+  EXPECT_NE(prepare.find("face_camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
+  EXPECT_NE(prepare.find("face_camera->skybox = background.cubemap"), std::string::npos);
+  EXPECT_NE(prepare.find("face_camera->background_environment = background.environmental_map"), std::string::npos);
+  EXPECT_NE(lighting.find("reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.diffuse_fallback_intensity"),
             std::string::npos);
-  EXPECT_NE(bake.find("capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f"),
-            std::string::npos);
+  EXPECT_NE(lighting.find("EE_BASIC_CONSTANTS.instance_index == 2 ? 0"), std::string::npos);
+  EXPECT_NE(lighting.find("if (EE_BASIC_CONSTANTS.instance_index == 2)"), std::string::npos);
 }
 
 TEST(ReflectionProbe, ExplicitBakeDefersReadbackAndPersistenceUntilAssetSave) {
@@ -191,22 +194,22 @@ TEST(ReflectionProbe, ExplicitBakeDefersReadbackAndPersistenceUntilAssetSave) {
   ASSERT_FALSE(probe.empty());
   ASSERT_FALSE(inspector.empty());
 
-  const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
+  const auto publish = ExtractBetween(render_layer, "void RenderLayer::PublishSubmittedReflectionProbeBake",
+                                      "void RenderLayer::RenderAll");
   const auto serialize =
       ExtractBetween(probe, "void GlobalReflectionProbe::Serialize", "void GlobalReflectionProbe::Deserialize");
   const auto save =
       ExtractBetween(probe, "bool GlobalReflectionProbe::SaveInternal", "bool GlobalReflectionProbe::LoadInternal");
-  ASSERT_FALSE(bake.empty());
+  ASSERT_FALSE(publish.empty());
   ASSERT_FALSE(serialize.empty());
   ASSERT_FALSE(save.empty());
 
-  EXPECT_NE(bake.find("target->cubemap_ = output_cubemaps[index]"), std::string::npos);
-  EXPECT_NE(bake.find("target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked"), std::string::npos);
-  EXPECT_NE(bake.find("target->SetUnsaved()"), std::string::npos);
-  EXPECT_EQ(bake.find("Serialization::SaveAsset"), std::string::npos);
-  EXPECT_EQ(bake.find("target->Load()"), std::string::npos);
-  EXPECT_EQ(bake.find("GetCanonicalPayload"), std::string::npos);
+  EXPECT_NE(publish.find("target->cubemap_ = output"), std::string::npos);
+  EXPECT_NE(publish.find("target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked"), std::string::npos);
+  EXPECT_NE(publish.find("target->SetUnsaved()"), std::string::npos);
+  EXPECT_EQ(render_layer.find("Serialization::SaveAsset"), std::string::npos);
+  EXPECT_EQ(render_layer.find("target->Load()"), std::string::npos);
+  EXPECT_EQ(publish.find("GetCanonicalPayload"), std::string::npos);
   EXPECT_NE(serialize.find("cubemap_->GetRgba16fData(payload, true)"), std::string::npos);
   EXPECT_NE(serialize.find("payload_hash_ = CalculatePayloadHash(payload)"), std::string::npos);
   EXPECT_NE(save.find("Serialize(out)"), std::string::npos);
@@ -235,7 +238,7 @@ TEST(ReflectionProbe, PrefilterUsesDirectBaseMipAndProgressiveSampleBudgets) {
   EXPECT_EQ(shader.find("SAMPLE_COUNT = 1024u"), std::string::npos);
 }
 
-TEST(ReflectionProbe, ExplicitBakesUseOneSnapshotSubmissionAndReusableCaptureResources) {
+TEST(ReflectionProbe, ExplicitBakesUseCachedGraphSharedBindingsAndNormalFrameSubmission) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/RenderLayer.hpp"));
   const auto camera = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
@@ -247,15 +250,18 @@ TEST(ReflectionProbe, ExplicitBakesUseOneSnapshotSubmissionAndReusableCaptureRes
       render_layer, "const std::vector<std::shared_ptr<Camera>>& RenderLayer::GetOrCreateReflectionProbeCaptureCameras",
       "bool RenderLayer::PrepareReflectionProbeCaptureResources");
   const auto resources = ExtractBetween(render_layer, "bool RenderLayer::PrepareReflectionProbeCaptureResources",
-                                        "bool RenderLayer::BakeReflectionProbes");
-  const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
-  const auto render_to_camera =
-      ExtractBetween(render_layer, "void RenderLayer::RenderToCamera(", "void RenderLayer::RenderToCameraRayTracing");
+                                        "void RenderLayer::FailReflectionProbeBakeBatch");
+  const auto prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareReflectionProbeBake",
+                                      "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph");
+  const auto graph = ExtractBetween(render_layer, "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph",
+                                    "void RenderLayer::RecordPreparedReflectionProbeBake");
+  const auto record = ExtractBetween(render_layer, "void RenderLayer::RecordPreparedReflectionProbeBake",
+                                     "void RenderLayer::PublishSubmittedReflectionProbeBake");
   ASSERT_FALSE(create.empty());
   ASSERT_FALSE(resources.empty());
-  ASSERT_FALSE(bake.empty());
-  ASSERT_FALSE(render_to_camera.empty());
+  ASSERT_FALSE(prepare.empty());
+  ASSERT_FALSE(graph.empty());
+  ASSERT_FALSE(record.empty());
 
   EXPECT_NE(header.find("std::vector<std::shared_ptr<Camera>> reflection_probe_capture_cameras_"), std::string::npos);
   EXPECT_NE(header.find("reflection_probe_capture_raw_cubemap_"), std::string::npos);
@@ -266,30 +272,29 @@ TEST(ReflectionProbe, ExplicitBakesUseOneSnapshotSubmissionAndReusableCaptureRes
   EXPECT_NE(resources.find("if (!reflection_probe_capture_raw_cubemap_)"), std::string::npos);
   EXPECT_NE(resources.find("if (!reflection_probe_capture_filtered_cubemap_)"), std::string::npos);
   EXPECT_NE(resources.find("GlobalReflectionProbe::AcquirePrefilterPipeline"), std::string::npos);
-  EXPECT_NE(bake.find("GetOrCreateReflectionProbeCaptureCameras(requests.size() * 6u)"), std::string::npos);
-  EXPECT_EQ(bake.find("RenderSceneToCameraImmediately"), std::string::npos);
-  EXPECT_EQ(bake.find("ConstructBakedFromCubemap"), std::string::npos);
-  const auto submit = bake.find("Platform::ImmediateSubmitWithGpuTimestamps");
-  ASSERT_NE(submit, std::string::npos);
-  EXPECT_EQ(bake.find("Platform::ImmediateSubmitWithGpuTimestamps", submit + 1), std::string::npos);
-  const auto snapshot = bake.find("PrepareSceneForRendering");
-  ASSERT_NE(snapshot, std::string::npos);
-  EXPECT_EQ(bake.find("PrepareSceneForRendering", snapshot + 1), std::string::npos);
-  EXPECT_NE(bake.find("PreparePointAndSpotLightShadowMap(false, false, &recorder)"), std::string::npos);
-  EXPECT_NE(bake.find("RenderToCamera(scene, face_transforms[face_index], camera, true, true, camera_index,"),
-            std::string::npos);
-  EXPECT_NE(bake.find("GlobalReflectionProbe::RecordPrefilter"), std::string::npos);
-  EXPECT_EQ(bake.find("ProduceSerializable<Camera>"), std::string::npos);
-  EXPECT_EQ(bake.find("camera->OnCreate()"), std::string::npos);
-  EXPECT_EQ(bake.find("camera->Resize("), std::string::npos);
-  EXPECT_NE(render_to_camera.find("if (!reflection_probe_capture)"), std::string::npos);
-  EXPECT_NE(render_to_camera.find(
-                "DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture)"),
-            std::string::npos);
+  EXPECT_NE(prepare.find("GetOrCreateReflectionProbeCaptureCameras(batch.requests.size() * 6u)"), std::string::npos);
+  EXPECT_EQ(record.find("RenderSceneToCameraImmediately"), std::string::npos);
+  EXPECT_EQ(record.find("ConstructBakedFromCubemap"), std::string::npos);
+  EXPECT_EQ(record.find("ImmediateSubmit"), std::string::npos);
+  EXPECT_EQ(record.find("WaitForFrameSubmissions"), std::string::npos);
+  EXPECT_NE(record.find("Platform::RecordCommandsMainQueue"), std::string::npos);
+  EXPECT_NE(graph.find("reflection_probe_capture_render_graph_plan_.valid"), std::string::npos);
+  EXPECT_NE(graph.find("AddDefaultRasterCameraResources"), std::string::npos);
+  EXPECT_NE(graph.find("geometry_descriptor.dependencies.clear()"), std::string::npos);
+  EXPECT_NE(record.find("reflection_probe_capture_render_graph_.Execute"), std::string::npos);
+  EXPECT_NE(record.find("emplace_back()"), std::string::npos);
+  EXPECT_NE(record.find("capture_lighting_descriptor_set"), std::string::npos);
+  EXPECT_EQ(record.find("face_lighting_descriptor_sets"), std::string::npos);
+  EXPECT_EQ(record.find("PreparePointAndSpotLightShadowMap"), std::string::npos);
+  EXPECT_NE(record.find("GlobalReflectionProbe::RecordPrefilter"), std::string::npos);
+  EXPECT_EQ(prepare.find("ProduceSerializable<Camera>"), std::string::npos);
+  EXPECT_EQ(prepare.find("camera->OnCreate()"), std::string::npos);
+  EXPECT_EQ(prepare.find("camera->Resize("), std::string::npos);
+  EXPECT_NE(render_layer.find("prepared_reflection_probe_bake_->injected_cameras"), std::string::npos);
   EXPECT_NE(camera.find("void Camera::OnCreate() {\n  InitializeRenderResources({1, 1});"), std::string::npos);
 }
 
-TEST(ReflectionProbe, BakeAllUsesOneBatchAndReusesPreferredCameraDirectionalShadows) {
+TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
   const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto deferred_pass = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/DeferredLightingPass.cpp"));
@@ -302,28 +307,24 @@ TEST(ReflectionProbe, BakeAllUsesOneBatchAndReusesPreferredCameraDirectionalShad
 
   const auto queue = ExtractBetween(inspector, "uint32_t QueueEnvironmentalLightingLocalProbeBakes",
                                     "void InspectEnvironmentalLightingLocalProbePayload");
-  const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
-  const auto render_to_camera =
-      ExtractBetween(render_layer, "void RenderLayer::RenderToCamera(", "void RenderLayer::RenderToCameraRayTracing");
+  const auto record = ExtractBetween(render_layer, "void RenderLayer::RecordPreparedReflectionProbeBake",
+                                     "void RenderLayer::PublishSubmittedReflectionProbeBake");
+  const auto render_all = ExtractBetween(render_layer, "void RenderLayer::RenderAll", "void RenderLayer::RenderGizmos");
   ASSERT_FALSE(queue.empty());
-  ASSERT_FALSE(bake.empty());
-  ASSERT_FALSE(render_to_camera.empty());
+  ASSERT_FALSE(record.empty());
+  ASSERT_FALSE(render_all.empty());
 
   EXPECT_NE(queue.find("QueueGlobalReflectionProbeBakeBatch"), std::string::npos);
   EXPECT_EQ(queue.find("QueueEnvironmentalLightingLocalProbeBake(context, probe)"), std::string::npos);
   EXPECT_EQ(render_layer.find("GetReflectionProbeCaptureFingerprint"), std::string::npos);
   EXPECT_EQ(render_layer.find("source_fingerprint"), std::string::npos);
-  EXPECT_NE(bake.find("Platform::WaitForFrameSubmissions"), std::string::npos);
-  EXPECT_EQ(bake.find("Platform::WaitForFrameSubmissions", bake.find("Platform::WaitForFrameSubmissions") + 1),
+  EXPECT_EQ(record.find("Platform::WaitForFrameSubmissions"), std::string::npos);
+  EXPECT_EQ(record.find("PreparePointAndSpotLightShadowMap"), std::string::npos);
+  EXPECT_NE(render_all.find("PreparePointAndSpotLightShadowMap();"), std::string::npos);
+  EXPECT_NE(record.find("for (size_t request_index = 0; request_index < requests.size(); ++request_index)"),
             std::string::npos);
-  EXPECT_NE(bake.find("PreparePointAndSpotLightShadowMap(false, false, &recorder)"), std::string::npos);
-  EXPECT_NE(bake.find("for (size_t request_index = 0; request_index < requests.size(); ++request_index)"),
-            std::string::npos);
-  EXPECT_NE(bake.find("directional_shadow_camera_index"), std::string::npos);
-  EXPECT_NE(render_to_camera.find("if (!reflection_probe_capture)"), std::string::npos);
-  EXPECT_NE(render_to_camera.find("DirectionalLightShadowPass::CreateDescriptor()"), std::string::npos);
-  EXPECT_NE(render_to_camera.find("deferred_geometry_descriptor.dependencies.clear()"), std::string::npos);
+  EXPECT_NE(record.find("directional_shadow_camera_index"), std::string::npos);
+  EXPECT_NE(render_all.find("RecordPreparedReflectionProbeBake(current_render_instances)"), std::string::npos);
   EXPECT_NE(deferred_pass.find("-parameters.directional_shadow_camera_index - 1"), std::string::npos);
   EXPECT_NE(lighting.find("EE_FUNC_DIRECTIONAL_SHADOW_CAMERA_INDEX"), std::string::npos);
   EXPECT_NE(lighting.find("EE_CAMERAS[directionalShadowCameraIndex].view"), std::string::npos);
@@ -334,18 +335,21 @@ TEST(ReflectionProbe, BakeAllUsesOneBatchAndReusesPreferredCameraDirectionalShad
 TEST(ReflectionProbe, ExplicitBakeRecordsCpuAndGpuStageTimings) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   ASSERT_FALSE(render_layer.empty());
-  const auto bake =
-      ExtractBetween(render_layer, "bool RenderLayer::BakeReflectionProbes", "void RenderLayer::RenderAll");
-  ASSERT_FALSE(bake.empty());
+  const auto prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareReflectionProbeBake",
+                                      "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph");
+  const auto record = ExtractBetween(render_layer, "void RenderLayer::RecordPreparedReflectionProbeBake",
+                                     "void RenderLayer::PublishSubmittedReflectionProbeBake");
+  ASSERT_FALSE(prepare.empty());
+  ASSERT_FALSE(record.empty());
 
-  EXPECT_EQ(bake.find("Reflection Probe Bake Fingerprint CPU"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Bake Frame Drain CPU"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Bake Snapshot CPU"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Bake Submit Wait CPU"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Bake Total CPU"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Bake GPU Total"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe Face Capture"), std::string::npos);
-  EXPECT_NE(bake.find("Reflection Probe GGX Prefilter"), std::string::npos);
+  EXPECT_EQ(render_layer.find("Reflection Probe Bake Fingerprint CPU"), std::string::npos);
+  EXPECT_EQ(render_layer.find("Reflection Probe Bake Frame Drain CPU"), std::string::npos);
+  EXPECT_EQ(render_layer.find("Reflection Probe Bake Submit Wait CPU"), std::string::npos);
+  EXPECT_NE(prepare.find("Reflection Probe Bake Prepare CPU"), std::string::npos);
+  EXPECT_NE(record.find("Reflection Probe Bake Record CPU"), std::string::npos);
+  EXPECT_NE(record.find("Reflection Probe Bake GPU Total"), std::string::npos);
+  EXPECT_NE(record.find("Reflection Probe Face Capture"), std::string::npos);
+  EXPECT_NE(record.find("Reflection Probe GGX Prefilter"), std::string::npos);
 }
 
 TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightingEntries) {
@@ -358,6 +362,9 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
   EXPECT_NE(demo_scene.find("QueueGlobalReflectionProbeBakeBatch"), std::string::npos);
   EXPECT_NE(demo_scene.find("Platform::ResetGpuTimestampStats()"), std::string::npos);
   EXPECT_NE(demo_scene.find("Reflection Probe Bake GPU Total"), std::string::npos);
+  EXPECT_NE(demo_scene.find("Reflection Probe Bake Prepare CPU"), std::string::npos);
+  EXPECT_NE(demo_scene.find("Reflection Probe Bake Record CPU"), std::string::npos);
+  EXPECT_NE(demo_scene.find("EVOENGINE_SPONZA_LOCAL_PROBE_BATCH_TIMING"), std::string::npos);
   EXPECT_NE(demo_scene.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 1.0f);"), std::string::npos);
   EXPECT_NE(demo_scene.find("editor_layer->OpenAssetInspector(lighting)"), std::string::npos);
   EXPECT_NE(demo_scene.find("capture(\"debug-bounds-off\")"), std::string::npos);

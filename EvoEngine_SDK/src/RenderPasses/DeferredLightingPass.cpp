@@ -86,7 +86,7 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
                                               ? -parameters.directional_shadow_camera_index - 1
                                           : parameters.fade_selection ? glm::max(128, 256 - parameters.selection_alpha)
                                                                       : 256;
-        push_constant.instance_index = parameters.fade_selection ? 1 : 0;
+        push_constant.instance_index = parameters.reflection_probe_capture ? 2 : parameters.fade_selection ? 1 : 0;
         parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
         mesh->DrawIndexed(vk_command_buffer, parameters.pipeline->states, 1);

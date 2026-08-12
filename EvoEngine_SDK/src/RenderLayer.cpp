@@ -1982,6 +1982,8 @@ void RenderLayer::OnCreate() {
   post_processing_renderer_resources_ = std::make_shared<PostProcessingRendererResources>();
   render_graph_transient_resource_stores_.clear();
   render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
+  submitted_reflection_probe_bakes_.clear();
+  submitted_reflection_probe_bakes_.resize(Platform::GetMaxFramesInFlight());
   ray_camera_render_graph_plan_cache_.Clear();
   ray_camera_history_cameras_.clear();
   retired_ray_camera_history_stats_ = {};
@@ -3288,7 +3290,10 @@ void RenderLayer::ClearAllCameras() const {
 void RenderLayer::PrepareForRendering() {
   const ProfilerScope profiler_scope("RenderLayer::PrepareForRendering", "Render");
   const auto scene = GetScene();
-  PrepareSceneForRendering(scene);
+  PrepareReflectionProbeBake(scene);
+  const auto* injected_cameras =
+      prepared_reflection_probe_bake_ ? &prepared_reflection_probe_bake_->injected_cameras : nullptr;
+  PrepareSceneForRendering(scene, true, true, true, true, injected_cameras);
 }
 
 void RenderLayer::PrepareSceneForRendering(
@@ -4355,12 +4360,13 @@ uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<
     std::string error;
     const auto target_handle = request.target ? request.target->GetHandle().GetValue() : 0u;
     if (ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error) &&
-        target_handles.emplace(target_handle).second) {
+        target_handles.emplace(target_handle).second &&
+        pending_reflection_probe_bake_targets_.find(target_handle) == pending_reflection_probe_bake_targets_.end()) {
       valid_requests.emplace_back(request);
     } else if (error.empty()) {
       EVOENGINE_ERROR(
-          "Environmental lighting reflection probe bake was not queued: the batch contains a duplicate "
-          "output asset.")
+          "Environmental lighting reflection probe bake was not queued: the output asset is duplicated or already "
+          "pending.")
     } else {
       EVOENGINE_ERROR("Environmental lighting reflection probe bake was not queued: " + error)
     }
@@ -4369,41 +4375,16 @@ uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<
     return 0u;
   }
   const auto queued_count = static_cast<uint32_t>(valid_requests.size());
-  QueueGlobalReflectionProbeBakeAttempt(scene, valid_requests, 0u);
+  for (const auto& request : valid_requests) {
+    pending_reflection_probe_bake_targets_.emplace(request.target->GetHandle().GetValue());
+  }
+  reflection_probe_bake_queue_.push_back({scene, std::move(valid_requests), 0u});
   return queued_count;
 }
 
-void RenderLayer::QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene,
-                                                        const std::vector<ReflectionProbeBakeRequest>& requests,
-                                                        const uint32_t retry_count) {
-  ApplicationContext::Get().QueueEndOfLoopAction([scene, requests, retry_count] {
-    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-    std::string error;
-    if (!render_layer) {
-      EVOENGINE_ERROR("Environmental lighting reflection probe bakes failed: the render layer became unavailable.")
-      return;
-    }
-    for (const auto& request : requests) {
-      if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error)) {
-        EVOENGINE_ERROR("Environmental lighting reflection probe bakes failed: " + error)
-        return;
-      }
-    }
-    bool retry = false;
-    if (render_layer->BakeReflectionProbes(scene, requests, error, retry)) {
-      EVOENGINE_LOG("Baked " + std::to_string(requests.size()) +
-                    " environmental lighting reflection probe payload(s) in GPU memory; save the assets to persist "
-                    "them.")
-      return;
-    }
-    if (retry && retry_count + 1u < kStandaloneReflectionProbeBakeMaxRetryFrames) {
-      render_layer->QueueGlobalReflectionProbeBakeAttempt(scene, requests, retry_count + 1u);
-      return;
-    }
-    const auto message = retry ? "Environmental lighting reflection probe bakes timed out: " + error
-                               : "Environmental lighting reflection probe bakes failed: " + error;
-    EVOENGINE_ERROR(message)
-  });
+bool RenderLayer::IsGlobalReflectionProbeBakePending(const std::shared_ptr<GlobalReflectionProbe>& target) const {
+  return target && pending_reflection_probe_bake_targets_.find(target->GetHandle().GetValue()) !=
+                       pending_reflection_probe_bake_targets_.end();
 }
 
 const std::vector<std::shared_ptr<Camera>>& RenderLayer::GetOrCreateReflectionProbeCaptureCameras(const size_t count) {
@@ -4505,41 +4486,65 @@ bool RenderLayer::PrepareReflectionProbeCaptureResources(const VkFormat raw_form
          reflection_probe_capture_prefilter_pipeline_->Initialized();
 }
 
-bool RenderLayer::BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
-                                       const std::vector<ReflectionProbeBakeRequest>& requests, std::string& error,
-                                       bool& retry) {
-  const auto bake_start = std::chrono::steady_clock::now();
-  const auto record_cpu_time = [](const std::string& name, const std::chrono::steady_clock::time_point start) {
-    Platform::RecordCpuTimingSample(
-        name, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count());
+void RenderLayer::FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error,
+                                               const bool timed_out) {
+  for (const auto& request : batch.requests) {
+    if (request.target) {
+      pending_reflection_probe_bake_targets_.erase(request.target->GetHandle().GetValue());
+    }
+  }
+  EVOENGINE_ERROR(std::string("Environmental lighting reflection probe bakes ") +
+                  (timed_out ? "timed out: " : "failed: ") + error)
+}
+
+void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene) {
+  if (prepared_reflection_probe_bake_ && prepared_reflection_probe_bake_->scene.get() != scene.get()) {
+    const ReflectionProbeBakeBatch batch{prepared_reflection_probe_bake_->scene,
+                                         prepared_reflection_probe_bake_->requests, 0u};
+    FailReflectionProbeBakeBatch(batch, "The active scene changed before capture submission.", false);
+    prepared_reflection_probe_bake_.reset();
+  }
+  if (prepared_reflection_probe_bake_ || reflection_probe_bake_queue_.empty() ||
+      std::any_of(submitted_reflection_probe_bakes_.begin(), submitted_reflection_probe_bakes_.end(),
+                  [](const auto& submission) {
+                    return submission.has_value();
+                  })) {
+    return;
+  }
+  const auto prepare_start = std::chrono::steady_clock::now();
+  auto& batch = reflection_probe_bake_queue_.front();
+  const auto retry = [&](const std::string& error) {
+    if (++batch.retry_count < kStandaloneReflectionProbeBakeMaxRetryFrames) {
+      return;
+    }
+    FailReflectionProbeBakeBatch(batch, error, true);
+    reflection_probe_bake_queue_.pop_front();
   };
-  retry = false;
-  error.clear();
-  if (!scene || scene.get() != GetScene().get()) {
-    error = "Reflection probes can only bake the active scene.";
-    return false;
+  std::string error;
+  if (!scene || batch.scene.get() != scene.get()) {
+    FailReflectionProbeBakeBatch(batch, "Reflection probes can only bake the active scene.", false);
+    reflection_probe_bake_queue_.pop_front();
+    return;
   }
-  if (requests.empty()) {
-    error = "No reflection probes were requested.";
-    return false;
-  }
-  for (const auto& request : requests) {
+  for (const auto& request : batch.requests) {
     if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error)) {
-      return false;
+      FailReflectionProbeBakeBatch(batch, error, false);
+      reflection_probe_bake_queue_.pop_front();
+      return;
     }
   }
   if (!Platform::Initialized()) {
-    error = "The Vulkan renderer is not initialized.";
-    return false;
+    FailReflectionProbeBakeBatch(batch, "The Vulkan renderer is not initialized.", false);
+    reflection_probe_bake_queue_.pop_front();
+    return;
   }
   if (!ProjectManager::IsProjectIdle() || AssetManager::GetAssetLoadSnapshot().Active() ||
       TextureStorage::HasPendingUploads() || GeometryStorage::HasPendingUploads()) {
-    retry = true;
-    error = "Waiting for pending project, asset, texture, or geometry work.";
-    return false;
+    retry("Waiting for pending project, asset, texture, or geometry work.");
+    return;
   }
-  const auto ddgi_settings = ResolveEnvironmentalLighting(GetScene()).ddgi_settings;
-  const auto ddgi_capture_pending =
+  const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
+  const bool ddgi_capture_pending =
       ddgi_settings.runtime.enabled &&
       std::any_of(ddgi_ordered_volume_ids_.begin(), ddgi_ordered_volume_ids_.end(),
                   [&](const uint64_t stable_entity_id) {
@@ -4554,50 +4559,23 @@ bool RenderLayer::BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
                   });
   if (ddgi_capture_pending) {
     if (ddgi_session_state_.pause_updates) {
-      error = "Active DDGI is paused before reflection-probe capture became ready.";
-      return false;
+      FailReflectionProbeBakeBatch(batch, "Active DDGI is paused before reflection-probe capture became ready.", false);
+      reflection_probe_bake_queue_.pop_front();
+    } else {
+      retry("Waiting for active DDGI history and convergence.");
     }
-    retry = true;
-    error = "Waiting for active DDGI history and convergence.";
-    return false;
+    return;
   }
-  const auto frame_wait_start = std::chrono::steady_clock::now();
-  Platform::WaitForFrameSubmissions("Reflection Probe Bake Fence Wait");
-  record_cpu_time("Reflection Probe Bake Frame Drain CPU", frame_wait_start);
-  const auto current_frame_index = Platform::GetCurrentFrameIndex();
-  const auto previous_render_instances = render_instances_list_[current_frame_index];
-  if (!previous_render_instances) {
-    retry = true;
-    error = "Waiting for the active scene render snapshot.";
-    return false;
-  }
-  const auto shadow_camera = std::find_if(
-      previous_render_instances->cameras.begin(), previous_render_instances->cameras.end(), [&](const auto& entry) {
-        return entry.second && entry.second->GetHandle() == reflection_probe_shadow_camera_handle_;
-      });
-  if (previous_render_instances->render_info_block.directional_light_size > 0 &&
-      shadow_camera == previous_render_instances->cameras.end()) {
-    retry = true;
-    error = "Waiting for the main camera or editor Scene camera directional shadow map.";
-    return false;
-  }
-  const bool previous_need_fade = need_fade_;
-  const auto restore = [&] {
-    render_instances_list_[current_frame_index] = previous_render_instances;
-    need_fade_ = previous_need_fade;
-    if (previous_render_instances) {
-      BindRenderInstanceStorage(current_frame_index, previous_render_instances);
-    }
-  };
+
   try {
-    const auto& face_cameras = GetOrCreateReflectionProbeCaptureCameras(requests.size() * 6u);
-    const auto camera = face_cameras.front();
-    if (!camera || std::any_of(face_cameras.begin(), face_cameras.end(), [](const auto& face_camera) {
-          return !face_camera;
+    const auto& face_cameras = GetOrCreateReflectionProbeCaptureCameras(batch.requests.size() * 6u);
+    if (face_cameras.empty() || !face_cameras.front() ||
+        std::any_of(face_cameras.begin(), face_cameras.end(), [](const auto& camera) {
+          return !camera;
         })) {
-      error = "Failed to create the reflection probe capture cameras.";
-      return false;
+      throw std::runtime_error("Failed to create the reflection probe capture cameras.");
     }
+    const auto camera = face_cameras.front();
     const auto lighting = GetAssignedEnvironmentalLighting(scene);
     const auto background =
         lighting ? lighting->reflection_probe_bake_background : EnvironmentalLighting::ReflectionProbeBakeBackground{};
@@ -4610,196 +4588,269 @@ bool RenderLayer::BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
       face_camera->skybox = background.cubemap;
       face_camera->background_environment = background.environmental_map;
     }
-    if (!camera->GetRenderTexture() || !camera->GetRenderTexture()->GetColorImage()) {
-      error = "Failed to allocate the reflection probe capture target.";
-      return false;
-    }
-    const auto capture_format = camera->GetRenderTexture()->GetColorImage()->GetFormat();
-    if (!PrepareReflectionProbeCaptureResources(capture_format)) {
-      error = "Failed to allocate reusable reflection probe capture resources.";
-      return false;
+    if (!camera->GetRenderTexture() || !camera->GetRenderTexture()->GetColorImage() ||
+        !PrepareReflectionProbeCaptureResources(camera->GetRenderTexture()->GetColorImage()->GetFormat())) {
+      throw std::runtime_error("Failed to allocate reusable reflection probe capture resources.");
     }
 
+    PreparedReflectionProbeBake prepared;
+    prepared.scene = scene;
+    prepared.requests = batch.requests;
+    prepared.injected_cameras.reserve(face_cameras.size());
+    prepared.output_cubemaps.reserve(batch.requests.size());
     constexpr std::array<glm::vec3, 6> directions = {glm::vec3(1, 0, 0),  glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0),
                                                      glm::vec3(0, -1, 0), glm::vec3(0, 0, 1),  glm::vec3(0, 0, -1)};
     constexpr std::array<glm::vec3, 6> up_directions = {glm::vec3(0, -1, 0), glm::vec3(0, -1, 0), glm::vec3(0, 0, 1),
                                                         glm::vec3(0, 0, -1), glm::vec3(0, -1, 0), glm::vec3(0, -1, 0)};
-    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras;
-    injected_cameras.reserve(face_cameras.size() + 1u);
-    if (shadow_camera != previous_render_instances->cameras.end()) {
-      injected_cameras.emplace_back(*shadow_camera);
-    }
-    std::vector<GlobalTransform> face_transforms;
-    face_transforms.reserve(face_cameras.size());
-    for (const auto& request : requests) {
+    for (const auto& request : batch.requests) {
+      auto output = AssetManager::CreateTemporaryAsset<Cubemap>();
+      output->Initialize(GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kMipLevels,
+                         GlobalReflectionProbe::kCanonicalFormat, false);
+      if (!output->GetImage()) {
+        throw std::runtime_error("Failed to allocate a reflection probe output cubemap.");
+      }
+      prepared.output_cubemaps.emplace_back(std::move(output));
       for (uint32_t face = 0; face < directions.size(); ++face) {
-        auto& camera_transform = face_transforms.emplace_back();
-        camera_transform.SetValue(request.position, glm::quatLookAt(directions[face], up_directions[face]),
-                                  glm::vec3(1.0f));
-        injected_cameras.emplace_back(camera_transform, face_cameras[face_transforms.size() - 1u]);
+        GlobalTransform transform;
+        transform.SetValue(request.position, glm::quatLookAt(directions[face], up_directions[face]), glm::vec3(1.0f));
+        prepared.injected_cameras.emplace_back(transform, face_cameras[prepared.injected_cameras.size()]);
       }
     }
-
-    const auto snapshot_start = std::chrono::steady_clock::now();
-    render_instances_list_[current_frame_index] = std::make_shared<RenderInstanceStorage>();
-    PrepareSceneForRendering(scene, false, false, false, false, &injected_cameras, false);
-    const auto capture_render_instances = render_instances_list_[current_frame_index];
-    if (!capture_render_instances) {
-      restore();
-      error = "Failed to prepare the reflection probe render snapshot.";
-      return false;
-    }
-    const int directional_shadow_camera_index =
-        shadow_camera == previous_render_instances->cameras.end()
-            ? -1
-            : capture_render_instances->GetCameraIndex(shadow_camera->second->GetHandle());
-    capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f;
-    capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f;
-    if (previous_render_instances) {
-      PreserveDdgiRenderInfo(capture_render_instances->render_info_block, previous_render_instances->render_info_block);
-    }
-    capture_render_instances->render_info_block.reflection_probe_header = glm::uvec4(0u);
-    capture_render_instances->render_info_block.reflection_probes = {};
-    capture_render_instances->render_info_block.debug_visualization = 0;
-    capture_render_instances->render_info_block.shadow_fade_parameters.y = 0.0f;
-    capture_render_instances->render_info_block.shadow_debug_parameters =
-        glm::ivec4(0, 0, 0, glm::clamp(capture_render_instances->render_info_block.shadow_debug_parameters.w, 1, 64));
-    capture_render_instances->Upload();
-    BindRenderInstanceStorage(current_frame_index, capture_render_instances);
-    record_cpu_time("Reflection Probe Bake Snapshot CPU", snapshot_start);
-
-    std::vector<std::shared_ptr<Cubemap>> output_cubemaps;
-    output_cubemaps.reserve(requests.size());
-    for (const auto& request : requests) {
-      auto output_cubemap = request.target->cubemap_;
-      if (!output_cubemap || output_cubemap->GetResolution() != GlobalReflectionProbe::kResolution ||
-          output_cubemap->GetMipLevels() != GlobalReflectionProbe::kMipLevels ||
-          output_cubemap->GetFormat() != GlobalReflectionProbe::kCanonicalFormat || !output_cubemap->GetImage()) {
-        output_cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
-        output_cubemap->Initialize(GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kMipLevels,
-                                   GlobalReflectionProbe::kCanonicalFormat, false);
-      }
-      if (!output_cubemap->GetImage()) {
-        restore();
-        error = "Failed to allocate a reflection probe output cubemap.";
-        return false;
-      }
-      output_cubemaps.emplace_back(output_cubemap);
-    }
-
-    const auto invalidate_gpu_content = [](const std::shared_ptr<Cubemap>& cubemap) {
-      cubemap->local_data_.clear();
-      cubemap->local_rgba16f_data_.clear();
-      cubemap->local_data_dirty_ = false;
-      cubemap->gpu_content_valid_ = false;
-    };
-    invalidate_gpu_content(reflection_probe_capture_raw_cubemap_);
-    invalidate_gpu_content(reflection_probe_capture_filtered_cubemap_);
-    for (const auto& output_cubemap : output_cubemaps) {
-      invalidate_gpu_content(output_cubemap);
-    }
-
-    VkDescriptorImageInfo descriptor_image_info{};
-    descriptor_image_info.imageView = reflection_probe_capture_raw_cubemap_->GetImageView()->GetVkImageView();
-    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    descriptor_image_info.sampler = reflection_probe_capture_raw_cubemap_->GetSampler()->GetVkSampler();
-    reflection_probe_capture_filter_descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
-
-    const auto source_image = camera->GetRenderTexture()->GetColorImage();
-    std::vector<VkImageCopy> copies;
-    copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * 6);
-    for (uint32_t face = 0; face < 6; ++face) {
-      for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
-        VkImageCopy copy{};
-        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1};
-        copy.dstSubresource = copy.srcSubresource;
-        const auto mip_width = glm::max(GlobalReflectionProbe::kResolution >> mip, 1u);
-        copy.extent = {mip_width, mip_width, 1};
-        copies.emplace_back(copy);
-      }
-    }
-    std::vector<ImmediateGpuTimestampAction> bake_actions;
-    bake_actions.reserve(requests.size() * 2u + 1u);
-    bake_actions.push_back({"Reflection Probe Point Spot Shadows", [&](const VkCommandBuffer command_buffer) {
-                              const RenderCommandRecorder recorder =
-                                  [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
-                                    action(command_buffer);
-                                  };
-                              PreparePointAndSpotLightShadowMap(false, false, &recorder);
-                            }});
-    for (size_t request_index = 0; request_index < requests.size(); ++request_index) {
-      bake_actions.push_back(
-          {"Reflection Probe Face Capture", [&, request_index](const VkCommandBuffer command_buffer) {
-             const RenderCommandRecorder recorder =
-                 [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
-                   action(command_buffer);
-                 };
-             reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(
-                 command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-             for (uint32_t face = 0; face < 6u; ++face) {
-               const auto face_index = request_index * 6u + face;
-               const auto camera_index =
-                   capture_render_instances->GetCameraIndex(face_cameras[face_index]->GetHandle());
-               RenderToCamera(scene, face_transforms[face_index], camera, true, true, camera_index,
-                              directional_shadow_camera_index, &recorder);
-               source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-               VkImageCopy copy{};
-               copy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-               copy.srcSubresource.layerCount = 1;
-               copy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-               copy.dstSubresource.baseArrayLayer = face;
-               copy.dstSubresource.layerCount = 1;
-               copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-               vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                              reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
-                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
-             }
-             reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
-           }});
-      bake_actions.push_back(
-          {"Reflection Probe GGX Prefilter", [&, request_index](const VkCommandBuffer command_buffer) {
-             GlobalReflectionProbe::RecordPrefilter(
-                 command_buffer, reflection_probe_capture_filtered_cubemap_,
-                 reflection_probe_capture_filtered_mip_views_, reflection_probe_capture_filter_depth_image_,
-                 reflection_probe_capture_filter_depth_view_, reflection_probe_capture_filter_descriptor_set_,
-                 reflection_probe_capture_prefilter_pipeline_);
-             reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-                 command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-             output_cubemaps[request_index]->GetImage()->TransitImageLayout(command_buffer,
-                                                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-             vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                            output_cubemaps[request_index]->GetImage()->GetVkImage(),
-                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
-             reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-                 command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-             output_cubemaps[request_index]->GetImage()->TransitImageLayout(command_buffer,
-                                                                            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-           }});
-    }
-    const auto submit_start = std::chrono::steady_clock::now();
-    Platform::ImmediateSubmitWithGpuTimestamps("Reflection Probe Bake GPU Total", bake_actions);
-    record_cpu_time("Reflection Probe Bake Submit Wait CPU", submit_start);
-
-    reflection_probe_capture_raw_cubemap_->MarkGpuContentValid();
-    reflection_probe_capture_filtered_cubemap_->MarkGpuContentValid();
-    for (size_t index = 0; index < requests.size(); ++index) {
-      const auto& target = requests[index].target;
-      output_cubemaps[index]->MarkGpuContentValid();
-      target->cubemap_ = output_cubemaps[index];
-      target->RebuildMipMapViews();
-      target->payload_hash_ = 0u;
-      target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked;
-      target->SetUnsaved();
-    }
-    restore();
-    record_cpu_time("Reflection Probe Bake Total CPU", bake_start);
-    return true;
+    prepared_reflection_probe_bake_ = std::move(prepared);
+    reflection_probe_bake_queue_.pop_front();
+    Platform::RecordCpuTimingSample(
+        "Reflection Probe Bake Prepare CPU",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count());
   } catch (const std::exception& exception) {
-    restore();
-    error = exception.what();
-    return false;
+    FailReflectionProbeBakeBatch(batch, exception.what(), false);
+    reflection_probe_bake_queue_.pop_front();
   }
+}
+
+void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
+  if (reflection_probe_capture_render_graph_plan_.valid) {
+    return;
+  }
+  reflection_probe_capture_render_graph_.Clear();
+  AddDefaultRasterCameraResources(reflection_probe_capture_render_graph_);
+  auto geometry_descriptor = DeferredGeometryPass::CreateDescriptor();
+  geometry_descriptor.dependencies.clear();
+  reflection_probe_capture_render_graph_.AddPass(
+      geometry_descriptor, [this](const RenderGraphExecutionContext& context) {
+        const auto& capture = *reflection_probe_capture_graph_context_;
+        const auto& geometry_pipeline =
+            capture.use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
+        DeferredGeometryPass::Execute(
+            context, {capture.camera,
+                      capture.render_instances,
+                      geometry_pipeline,
+                      instanced_deferred_prepass_pipeline,
+                      skinned_deferred_prepass_pipeline,
+                      capture.use_mesh_shader ? strands_deferred_prepass_pipeline : nullptr,
+                      raster_material_per_frame_descriptor_sets_[capture.current_frame_index],
+                      meshlet_descriptor_sets_[capture.current_frame_index],
+                      capture.use_mesh_shader ? strand_meshlet_descriptor_sets_[capture.current_frame_index] : nullptr,
+                      capture.camera_index,
+                      capture.current_frame_index,
+                      capture.use_mesh_shader,
+                      enable_indirect_rendering,
+                      true,
+                      false,
+                      false,
+                      {},
+                      capture.record_commands});
+      });
+  reflection_probe_capture_render_graph_.AddPass(
+      DeferredLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
+        const auto& capture = *reflection_probe_capture_graph_context_;
+        DeferredLightingPass::Execute(context, {capture.camera,
+                                                deferred_lighting_pass_pipeline,
+                                                raster_material_per_frame_descriptor_sets_[capture.current_frame_index],
+                                                capture.lighting_descriptor_set,
+                                                capture.raster_lighting_texture_descriptor_set,
+                                                capture.camera_index,
+                                                capture.directional_shadow_camera_index,
+                                                capture.current_frame_index,
+                                                false,
+                                                false,
+                                                true,
+                                                0,
+                                                {},
+                                                capture.record_commands});
+      });
+  if (!reflection_probe_capture_render_graph_.Validate()) {
+    throw std::runtime_error("Invalid reflection probe capture render graph.");
+  }
+  reflection_probe_capture_render_graph_plan_ = reflection_probe_capture_render_graph_.Compile(
+      CreateCameraRenderGraphCompileContext(reflection_probe_capture_cameras_.front()));
+}
+
+void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<RenderInstanceStorage>& render_instances) {
+  if (!prepared_reflection_probe_bake_ || !render_instances) {
+    return;
+  }
+  auto& prepared = *prepared_reflection_probe_bake_;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto retry = [&](const std::string& error) {
+    if (++prepared.retry_count < kStandaloneReflectionProbeBakeMaxRetryFrames) {
+      return;
+    }
+    const ReflectionProbeBakeBatch batch{prepared.scene, prepared.requests, prepared.retry_count};
+    FailReflectionProbeBakeBatch(batch, error, true);
+    prepared_reflection_probe_bake_.reset();
+  };
+  int directional_shadow_camera_index = -1;
+  if (render_instances->render_info_block.directional_light_size > 0) {
+    directional_shadow_camera_index = render_instances->GetCameraIndex(reflection_probe_shadow_camera_handle_);
+    if (directional_shadow_camera_index < 0) {
+      retry("Waiting for the main camera or editor Scene camera directional shadow map.");
+      return;
+    }
+  }
+  const auto camera = reflection_probe_capture_cameras_.front();
+  EnsureReflectionProbeCaptureRenderGraph();
+  auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+  resources.BindImages(RenderResourceNames::camera_g_buffer,
+                       {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
+                        camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
+  if (lighting_ && lighting_->directional_light_shadow_map_) {
+    resources.BindImage(RenderResourceNames::lighting_directional_shadow_map, lighting_->directional_light_shadow_map_);
+  }
+  auto& transient_resources = render_graph_transient_resource_stores_.at(current_frame_index).emplace_back();
+  transient_resources.Allocate(reflection_probe_capture_render_graph_.GetResources(),
+                               reflection_probe_capture_render_graph_plan_);
+  transient_resources.Bind(resources);
+
+  std::vector<int> face_camera_indices;
+  face_camera_indices.reserve(prepared.injected_cameras.size());
+  for (const auto& [transform, face_camera] : prepared.injected_cameras) {
+    const auto camera_index = render_instances->GetCameraIndex(face_camera->GetHandle());
+    if (camera_index < 0) {
+      retry("Waiting for the reflection probe capture cameras in the active render snapshot.");
+      return;
+    }
+    face_camera_indices.emplace_back(camera_index);
+  }
+  const auto capture_lighting_descriptor_set =
+      GetRasterLightingTextureDescriptorSet(current_frame_index, face_camera_indices.front(), render_instances);
+
+  const auto invalidate_gpu_content = [](const std::shared_ptr<Cubemap>& cubemap) {
+    cubemap->local_data_.clear();
+    cubemap->local_rgba16f_data_.clear();
+    cubemap->local_data_dirty_ = false;
+    cubemap->gpu_content_valid_ = false;
+  };
+  invalidate_gpu_content(reflection_probe_capture_raw_cubemap_);
+  invalidate_gpu_content(reflection_probe_capture_filtered_cubemap_);
+  for (const auto& output : prepared.output_cubemaps) {
+    invalidate_gpu_content(output);
+  }
+  VkDescriptorImageInfo descriptor_image_info{};
+  descriptor_image_info.imageView = reflection_probe_capture_raw_cubemap_->GetImageView()->GetVkImageView();
+  descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  descriptor_image_info.sampler = reflection_probe_capture_raw_cubemap_->GetSampler()->GetVkSampler();
+  reflection_probe_capture_filter_descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
+
+  std::vector<VkImageCopy> copies;
+  copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * 6u);
+  for (uint32_t face = 0; face < 6u; ++face) {
+    for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
+      VkImageCopy copy{};
+      copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1};
+      copy.dstSubresource = copy.srcSubresource;
+      const auto mip_width = glm::max(GlobalReflectionProbe::kResolution >> mip, 1u);
+      copy.extent = {mip_width, mip_width, 1};
+      copies.emplace_back(copy);
+    }
+  }
+
+  const auto record_start = std::chrono::steady_clock::now();
+  const auto source_image = camera->GetRenderTexture()->GetColorImage();
+  const auto requests = prepared.requests;
+  const auto outputs = prepared.output_cubemaps;
+  Platform::RecordCommandsMainQueue([&, requests, outputs](const VkCommandBuffer command_buffer) {
+    const auto total_timestamp = Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe Bake GPU Total");
+    const RenderCommandRecorder recorder = [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
+      action(command_buffer);
+    };
+    for (size_t request_index = 0; request_index < requests.size(); ++request_index) {
+      const auto capture_timestamp = Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe Face Capture");
+      reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      for (uint32_t face = 0; face < 6u; ++face) {
+        const auto face_index = request_index * 6u + face;
+        ReflectionProbeCaptureGraphContext capture_context{
+            camera,
+            render_instances,
+            lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr,
+            capture_lighting_descriptor_set,
+            recorder,
+            face_camera_indices[face_index],
+            directional_shadow_camera_index,
+            current_frame_index,
+            Platform::MeshShaderEnabled() && enable_meshlet};
+        reflection_probe_capture_graph_context_ = &capture_context;
+        reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
+        reflection_probe_capture_graph_context_ = nullptr;
+        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        VkImageCopy copy{};
+        copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, face, 1};
+        copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
+        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
+                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+      }
+      reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
+      Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
+
+      const auto prefilter_timestamp =
+          Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe GGX Prefilter");
+      GlobalReflectionProbe::RecordPrefilter(
+          command_buffer, reflection_probe_capture_filtered_cubemap_, reflection_probe_capture_filtered_mip_views_,
+          reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
+          reflection_probe_capture_filter_descriptor_set_, reflection_probe_capture_prefilter_pipeline_);
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outputs[request_index]->GetImage()->GetVkImage(),
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
+          command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
+    }
+    Platform::EndGpuTimestampScope(command_buffer, total_timestamp);
+  });
+  submitted_reflection_probe_bakes_[current_frame_index] = SubmittedReflectionProbeBake{requests, outputs};
+  prepared_reflection_probe_bake_.reset();
+  Platform::RecordCpuTimingSample(
+      "Reflection Probe Bake Record CPU",
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - record_start).count());
+}
+
+void RenderLayer::PublishSubmittedReflectionProbeBake(const uint32_t frame_index) {
+  if (frame_index >= submitted_reflection_probe_bakes_.size() || !submitted_reflection_probe_bakes_[frame_index]) {
+    return;
+  }
+  auto submission = std::move(*submitted_reflection_probe_bakes_[frame_index]);
+  submitted_reflection_probe_bakes_[frame_index].reset();
+  reflection_probe_capture_raw_cubemap_->MarkGpuContentValid();
+  reflection_probe_capture_filtered_cubemap_->MarkGpuContentValid();
+  for (size_t index = 0; index < submission.requests.size(); ++index) {
+    const auto& target = submission.requests[index].target;
+    const auto& output = submission.output_cubemaps[index];
+    output->MarkGpuContentValid();
+    target->cubemap_ = output;
+    target->RebuildMipMapViews();
+    target->payload_hash_ = 0u;
+    target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked;
+    target->SetUnsaved();
+    pending_reflection_probe_bake_targets_.erase(target->GetHandle().GetValue());
+  }
+  EVOENGINE_LOG("Baked " + std::to_string(submission.requests.size()) +
+                " environmental lighting reflection probe payload(s) in GPU memory; save the assets to persist them.")
 }
 
 void RenderLayer::RenderAll() {
@@ -5403,6 +5454,7 @@ void RenderLayer::RenderAll() {
       render_raster_camera(found->first, found->second);
     }
   }
+  RecordPreparedReflectionProbeBake(current_render_instances);
 
   if (Platform::RayAccelerationStructureEnabled() && current_render_instances->mesh_top_level_acceleration_structure) {
     for (const auto& [cameraGlobalTransform, camera] : current_render_instances->cameras) {
@@ -6503,7 +6555,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               context,
               {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
                lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
-               directional_shadow_camera_index, current_frame_index, count_draw_calls, fade_selection, selection_alpha,
+               directional_shadow_camera_index, current_frame_index, count_draw_calls, fade_selection,
+               reflection_probe_capture, selection_alpha,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  if (!reflection_probe_capture) {
                    for (const auto& func : forward_rendering_external_functions) {
@@ -6857,6 +6910,7 @@ void RenderLayer::RenderToCameraRayTracing(const std::shared_ptr<Scene>& scene,
 
 void RenderLayer::PreUpdate() {
   const ProfilerScope profiler_scope("RenderLayer::PreUpdate", "Render");
+  PublishSubmittedReflectionProbeBake(Platform::GetCurrentFrameIndex());
   const auto scene = GetScene();
   if (!scene)
     return;
@@ -6870,6 +6924,9 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
+  for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {
+    PublishSubmittedReflectionProbeBake(frame_index);
+  }
   reflection_probe_capture_cameras_.clear();
   reflection_probe_shadow_camera_handle_ = {};
   reflection_probe_capture_raw_cubemap_.reset();
@@ -6879,6 +6936,13 @@ void RenderLayer::OnDestroy() {
   reflection_probe_capture_filter_depth_image_.reset();
   reflection_probe_capture_filter_descriptor_set_.reset();
   reflection_probe_capture_prefilter_pipeline_.reset();
+  reflection_probe_capture_render_graph_.Clear();
+  reflection_probe_capture_render_graph_plan_ = {};
+  reflection_probe_capture_graph_context_ = nullptr;
+  reflection_probe_bake_queue_.clear();
+  prepared_reflection_probe_bake_.reset();
+  submitted_reflection_probe_bakes_.clear();
+  pending_reflection_probe_bake_targets_.clear();
   GlobalReflectionProbe::shared_prefilter_construct_pipeline_.reset();
   post_processing_renderer_resources_.reset();
   ray_camera_shader_variant_cache_.reset();

@@ -186,7 +186,7 @@ float EE_ROUGH_SPECULAR_VISIBILITY(float materialOcclusion, float screenSpaceVis
 
 public
 int EE_INDIRECT_LIGHTING_DEBUG_VIEW() {
-  return int(round(EE_RENDER_INFO.shadow_fade_parameters.y));
+  return EE_BASIC_CONSTANTS.instance_index == 2 ? 0 : int(round(EE_RENDER_INFO.shadow_fade_parameters.y));
 }
 
 bool EE_REFLECTION_PROBE_INFLUENCE(ReflectionProbeInfo probe, float3 frag_pos, out float3 local_position,
@@ -313,12 +313,14 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
   const float3 R = reflect(-viewDir, normal);
   result.diffuse_weight = (float3(1.0f) - F) * (1.0f - metallic);
+  const bool reflectionProbeCapture = EE_BASIC_CONSTANTS.instance_index == 2;
 
   const float3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f
                                 ? EE_ENVIRONMENT.background_color.xyz
                                 : pow(resources.sampleIrradiance(EE_ENVIRONMENT_LOCAL_DIRECTION(normal)),
                                       float3(1.0f / EE_ENVIRONMENT.gamma));
-  result.diffuse = result.diffuse_weight * irradiance * albedo * EE_ENVIRONMENT.diffuse_fallback_intensity;
+  result.diffuse = result.diffuse_weight * irradiance * albedo *
+                   (reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.diffuse_fallback_intensity);
 
   const uint reflection_levels = resources.prefilteredLevelCount();
   const float reflectionLodScale = float(max(int(reflection_levels) - 1, 0));
@@ -327,9 +329,11 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
            ? EE_ENVIRONMENT.background_color.xyz
            : pow(resources.samplePrefiltered(EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale),
                  float3(1.0f / EE_ENVIRONMENT.gamma))) *
-      EE_ENVIRONMENT.specular_fallback_intensity;
-  const float3 prefilteredColor =
-      EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness, globalPrefiltered);
+      (reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.specular_fallback_intensity);
+  const float3 prefilteredColor = reflectionProbeCapture
+                                      ? float3(0.0f)
+                                      : EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness,
+                                                                         globalPrefiltered);
   const float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   result.unoccluded_specular = prefilteredColor * (F * brdf.x + float3(F90 * brdf.y));
   const bool gtaoVisibilityAvailable = (EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].raster_lighting_flags & 1u) != 0u;
@@ -597,6 +601,8 @@ float3 EE_FUNC_DIRECTIONAL_SHADOW_CASCADE_COLOR(int cascadeIndex) {
 
 public
 float4 EE_FUNC_DIRECTIONAL_SHADOW_DEBUG(float dist, float3 fragPos) {
+  if (EE_BASIC_CONSTANTS.instance_index == 2)
+    return float4(0.0f);
   int mode = EE_RENDER_INFO.shadow_debug_parameters.x;
   if (mode <= 0) {
     return float4(0.0f);

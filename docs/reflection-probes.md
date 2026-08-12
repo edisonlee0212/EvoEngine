@@ -154,24 +154,25 @@ rougher levels with decreasing deterministic sample budgets. Filtering samples t
 LOD; it does not treat ordinary box-filtered mips as roughness-prefiltered reflections.
 
 `RenderLayer` owns a reusable 256x256 raster target and a lightweight pool of six face-camera records per probe in the
-current request. **Bake All Local Probe Payloads** is one renderer batch: it drains prior frame work once, prepares one
-render snapshot for every face of every requested probe, records point/spot shadows once, and records all face captures,
-copies, mip generation, and GGX filtering into one command buffer with one submission and wait. Reflection capture omits
-motion vectors, motion coverage, the depth pyramid, ambient occlusion, and post-processing. Raw capture, GGX
-scratch/output resources, and the shared GGX pipeline persist across probe bakes; only each completed filtered image is
-copied into its target probe asset. Per-bake camera state and authored background are refreshed without 1x1 construction
-or resize. These renderer-transient resources are released only after outstanding GPU work is drained, and the batch
-recorder is the foundation for M42's budgeted normal-frame scheduling.
+current request. **Bake All Local Probe Payloads** is one renderer batch. Its face cameras are injected into the next
+normal immutable frame snapshot; after ordinary camera/shadow work, one cached two-pass capture graph records every face,
+copy, source-mip generation, and GGX filter into that frame's main command buffer. All faces reuse one graph plan, resource
+registry, and transient binding set. There is no bake-private immediate submission, global frame drain, or CPU fence wait.
+The new output cubemaps remain private until the submitted frame slot is recycled and its fence has completed, then the
+whole batch is published to the target assets. Reflection capture omits motion vectors, motion coverage, the depth
+pyramid, ambient occlusion, and post-processing. Raw capture, GGX scratch resources, and the shared GGX pipeline persist
+across probe bakes. Per-bake camera state and authored background are refreshed without 1x1 construction or resize.
 
-Reflection captures never render directional shadow maps. They reuse the completed atlas, camera matrices, split depths,
-and cascade policy from the preferred raster camera: the main camera when it renders raster lighting, otherwise the
-editor Scene camera. This includes the ray-traced-main-camera case, because its fallback Scene camera supplies the raster
-shadow atlas. A requested bake waits for that preferred camera's shadow data instead of silently performing a separate
-capture shadow pass. Point and spot shadows remain camera-independent and are rendered once per explicit bake batch.
+Reflection captures never render their own shadow maps. They reuse the current frame's point and spot atlases plus the
+completed directional atlas, camera matrices, split depths, and cascade policy from the preferred raster camera: the main
+camera when it renders raster lighting, otherwise the editor Scene camera. This includes the ray-traced-main-camera case,
+because its fallback Scene camera supplies the raster shadow atlas. Capture recording follows the preferred raster camera,
+so the reused directional data is already present earlier in the same command buffer.
 
 Explicit bakes do not calculate or store a source-scene fingerprint. The serialized probe retains only its source kind,
-canonical pixels, and payload hash. CPU timing records frame drain, snapshot preparation, submit/wait, and total bake
-time; GPU timing separates total batch work, face capture, and GGX prefiltering.
+canonical pixels, and payload hash. CPU timing records preparation and command recording without counting frame-fence
+latency as work; wall timing includes deferred frame-slot completion. GPU timing separates total batch work, face capture,
+and GGX prefiltering.
 
 The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, the selected visible
 bake background scaled by its own intensity, and only converged DDGI. Background selection affects visible miss pixels, not

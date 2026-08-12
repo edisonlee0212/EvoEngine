@@ -1494,7 +1494,8 @@ void RunEnvironmentalLightingLocalProbeBake(const std::shared_ptr<Scene>& scene,
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error(std::string("Application ended during ") + context + " reflection probe baking.");
     }
-    if (GetEnvironmentalLightingLocalProbeBakeStatus(probe) == "Ready" && payload->IsRuntimeReady()) {
+    if (!render_layer.IsGlobalReflectionProbeBakePending(payload) &&
+        GetEnvironmentalLightingLocalProbeBakeStatus(probe) == "Ready" && payload->IsRuntimeReady()) {
       return;
     }
   }
@@ -1525,9 +1526,9 @@ uint32_t RunEnvironmentalLightingLocalProbeBakeBatch(
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error(std::string("Application ended during ") + context + " reflection probe batch.");
     }
-    const bool ready = std::all_of(payloads.begin(), payloads.end(), [](const auto& payload) {
-      return !payload->Saved() && payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked &&
-             payload->IsRuntimeReady();
+    const bool ready = std::all_of(payloads.begin(), payloads.end(), [&](const auto& payload) {
+      return !render_layer.IsGlobalReflectionProbeBakePending(payload) && !payload->Saved() &&
+             payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked && payload->IsRuntimeReady();
     });
     if (ready) {
       return queued_count;
@@ -1674,7 +1675,7 @@ void ConfigureRenderingDemoDdgi(const std::shared_ptr<Scene>& scene) {
 
 bool SponzaProbeAuthoringRequested() {
   const auto* value = std::getenv("EVOENGINE_SPONZA_PROBE_AUTHORING");
-  return value && std::string(value) == "overwrite";
+  return value && (std::string(value) == "overwrite" || std::string(value) == "benchmark");
 }
 
 std::shared_ptr<EnvironmentalMap> LoadSponzaEnvironment() {
@@ -2941,7 +2942,36 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
     }
   }
   std::vector<const EnvironmentalLighting::LocalReflectionProbe*> batch_probes(probes.begin(), probes.end());
+  Platform::SetGpuTimestampCaptureEnabled(true);
+  Platform::ResetGpuTimestampStats();
+  const auto bake_start = std::chrono::steady_clock::now();
   RunEnvironmentalLightingLocalProbeBakeBatch(scene, *render_layer, batch_probes, "Sponza");
+  const double bake_wall_milliseconds =
+      std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - bake_start).count();
+  for (int frame = 0; frame < Platform::kMaxFramesInFlight; ++frame) {
+    if (!ApplicationContext::Get().Loop()) {
+      throw std::runtime_error("Application ended while resolving Sponza reflection probe timing scopes.");
+    }
+  }
+  const auto find_timing = [](const std::vector<GpuTimestampStats>& timings, const std::string& name) {
+    const auto found = std::find_if(timings.begin(), timings.end(), [&](const auto& timing) {
+      return timing.name == name;
+    });
+    return found == timings.end() ? GpuTimestampStats{} : *found;
+  };
+  const auto gpu_total = find_timing(Platform::GetGpuTimestampStats(), "Reflection Probe Bake GPU Total");
+  const auto cpu_timings = Platform::GetCpuTimingStats();
+  const auto cpu_prepare = find_timing(cpu_timings, "Reflection Probe Bake Prepare CPU");
+  const auto cpu_record = find_timing(cpu_timings, "Reflection Probe Bake Record CPU");
+  std::cout << "EVOENGINE_SPONZA_LOCAL_PROBE_BATCH_TIMING probes=" << probes.size()
+            << " wall_ms=" << bake_wall_milliseconds
+            << " cpu_total_ms=" << cpu_prepare.last_milliseconds + cpu_record.last_milliseconds
+            << " cpu_prepare_ms=" << cpu_prepare.last_milliseconds << " cpu_record_ms=" << cpu_record.last_milliseconds
+            << " gpu_total_ms=" << gpu_total.last_milliseconds << std::endl;
+  if (std::string(std::getenv("EVOENGINE_SPONZA_PROBE_AUTHORING")) == "benchmark") {
+    std::cout << "EVOENGINE_SPONZA_PROBE_AUTHORING_COMPLETE assets=0" << std::endl;
+    return true;
+  }
 
   const auto output_directory = resource_root / "EvoEngine-DemoProjects/Rendering/Assets" / kSponzaLightingDirectory;
   std::filesystem::create_directories(output_directory);
@@ -3676,7 +3706,9 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   const auto batch_gpu_total = find_timing(batch_gpu_timings, "Reflection Probe Bake GPU Total");
   const auto batch_face_capture = find_timing(batch_gpu_timings, "Reflection Probe Face Capture");
   const auto batch_prefilter = find_timing(batch_gpu_timings, "Reflection Probe GGX Prefilter");
-  const auto batch_cpu_total = find_timing(batch_cpu_timings, "Reflection Probe Bake Total CPU");
+  const auto batch_cpu_prepare = find_timing(batch_cpu_timings, "Reflection Probe Bake Prepare CPU");
+  const auto batch_cpu_record = find_timing(batch_cpu_timings, "Reflection Probe Bake Record CPU");
+  const double batch_cpu_total_milliseconds = batch_cpu_prepare.last_milliseconds + batch_cpu_record.last_milliseconds;
   const bool batch_finished = all_bake_probe_statuses_are("Ready");
   const uint64_t imported_payload_hash_after_batch = red_asset->GetPayloadHash();
   const bool imported_probe_unchanged_after_batch =
@@ -4270,8 +4302,10 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
          << ", \"face_capture_samples\": " << batch_face_capture.sample_count
          << ", \"ggx_prefilter_ms\": " << batch_prefilter.total_milliseconds
          << ", \"ggx_prefilter_samples\": " << batch_prefilter.sample_count
-         << ", \"cpu_total_ms\": " << batch_cpu_total.last_milliseconds
-         << ", \"cpu_total_samples\": " << batch_cpu_total.sample_count
+         << ", \"cpu_total_ms\": " << batch_cpu_total_milliseconds
+         << ", \"cpu_prepare_ms\": " << batch_cpu_prepare.last_milliseconds
+         << ", \"cpu_record_ms\": " << batch_cpu_record.last_milliseconds
+         << ", \"cpu_total_samples\": " << std::min(batch_cpu_prepare.sample_count, batch_cpu_record.sample_count)
          << "}}},\n  \"gpu_timing\": {\"scope\": \"Deferred Lighting\", "
             "\"warmup_frames\": 8, \"measure_frames\": 120, \"sample_count\": "
          << deferred_lighting_sample_count << ", \"median_ms\": " << deferred_lighting_median_ms

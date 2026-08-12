@@ -15,11 +15,13 @@
 #include "ResolvedEnvironmentalLighting.hpp"
 
 #include <array>
+#include <deque>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace evo_engine {
@@ -306,10 +308,42 @@ class RenderLayer final : public ILayer {
                                                     const std::shared_ptr<GlobalReflectionProbe>& target);
   [[nodiscard]] uint32_t QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<Scene>& scene,
                                                              const std::vector<ReflectionProbeBakeRequest>& requests);
+  [[nodiscard]] bool IsGlobalReflectionProbeBakePending(const std::shared_ptr<GlobalReflectionProbe>& target) const;
 
  private:
   using RenderCommandRecorder =
       std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
+
+  struct ReflectionProbeBakeBatch {
+    std::shared_ptr<Scene> scene{};
+    std::vector<ReflectionProbeBakeRequest> requests{};
+    uint32_t retry_count = 0;
+  };
+
+  struct PreparedReflectionProbeBake {
+    std::shared_ptr<Scene> scene{};
+    std::vector<ReflectionProbeBakeRequest> requests{};
+    std::vector<std::shared_ptr<Cubemap>> output_cubemaps{};
+    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras{};
+    uint32_t retry_count = 0;
+  };
+
+  struct SubmittedReflectionProbeBake {
+    std::vector<ReflectionProbeBakeRequest> requests{};
+    std::vector<std::shared_ptr<Cubemap>> output_cubemaps{};
+  };
+
+  struct ReflectionProbeCaptureGraphContext {
+    std::shared_ptr<Camera> camera{};
+    std::shared_ptr<RenderInstanceStorage> render_instances{};
+    std::shared_ptr<DescriptorSet> lighting_descriptor_set{};
+    std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set{};
+    RenderCommandRecorder record_commands{};
+    int camera_index = -1;
+    int directional_shadow_camera_index = -1;
+    uint32_t current_frame_index = 0;
+    bool use_mesh_shader = false;
+  };
 
   struct DdgiReadbackTicket {
     std::shared_ptr<Buffer> buffer{};
@@ -576,6 +610,13 @@ class RenderLayer final : public ILayer {
   std::shared_ptr<ImageView> reflection_probe_capture_filter_depth_view_ = {};
   std::shared_ptr<DescriptorSet> reflection_probe_capture_filter_descriptor_set_ = {};
   std::shared_ptr<GraphicsPipeline> reflection_probe_capture_prefilter_pipeline_ = {};
+  RenderGraph reflection_probe_capture_render_graph_{};
+  RenderGraphExecutionPlan reflection_probe_capture_render_graph_plan_{};
+  ReflectionProbeCaptureGraphContext* reflection_probe_capture_graph_context_ = nullptr;
+  std::deque<ReflectionProbeBakeBatch> reflection_probe_bake_queue_{};
+  std::optional<PreparedReflectionProbeBake> prepared_reflection_probe_bake_{};
+  std::vector<std::optional<SubmittedReflectionProbeBake>> submitted_reflection_probe_bakes_{};
+  std::unordered_set<uint64_t> pending_reflection_probe_bake_targets_{};
   /**
    * \brief Called after the RenderLayer object is created.
    */
@@ -661,11 +702,11 @@ class RenderLayer final : public ILayer {
                                       const std::shared_ptr<Camera>& camera, bool reflection_probe_capture = false);
   [[nodiscard]] const std::vector<std::shared_ptr<Camera>>& GetOrCreateReflectionProbeCaptureCameras(size_t count);
   bool PrepareReflectionProbeCaptureResources(VkFormat raw_format);
-  bool BakeReflectionProbes(const std::shared_ptr<Scene>& scene,
-                            const std::vector<ReflectionProbeBakeRequest>& requests, std::string& error, bool& retry);
-  void QueueGlobalReflectionProbeBakeAttempt(const std::shared_ptr<Scene>& scene,
-                                             const std::vector<ReflectionProbeBakeRequest>& requests,
-                                             uint32_t retry_count);
+  void PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene);
+  void RecordPreparedReflectionProbeBake(const std::shared_ptr<RenderInstanceStorage>& render_instances);
+  void PublishSubmittedReflectionProbeBake(uint32_t frame_index);
+  void FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error, bool timed_out);
+  void EnsureReflectionProbeCaptureRenderGraph();
 
   /**
    * \brief Performs all rendering operations for this render layer.
