@@ -30,7 +30,6 @@ struct DdgiSettings {
     int guided_ray_count = 0;
     int guided_emitter_count = 4;
     int warmup_frames = 16;
-    float hysteresis = 0.97f;
     float normal_bias = 0.1f;
     float view_bias = 0.1f;
     float max_ray_distance = 1e27f;

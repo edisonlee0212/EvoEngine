@@ -1865,6 +1865,20 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     }
   }
 
+  if (ImGui::TreeNodeEx("Blending", ImGuiTreeNodeFlags_DefaultOpen)) {
+    ImGui::DragFloat("Normal hysteresis", &render_layer.render_settings.ddgi_hysteresis, 0.001f, 0.0f, 1.0f, "%.3f");
+    ImGui::DragFloat("Boosted hysteresis", &render_layer.render_settings.ddgi_boosted_hysteresis, 0.001f, 0.0f, 1.0f,
+                     "%.3f");
+    ImGui::DragFloat("Restore speed", &render_layer.render_settings.ddgi_hysteresis_restore_speed, 0.001f, 0.0f, 1.0f,
+                     "%.3f");
+    render_layer.render_settings.ddgi_hysteresis = glm::clamp(render_layer.render_settings.ddgi_hysteresis, 0.0f, 1.0f);
+    render_layer.render_settings.ddgi_boosted_hysteresis =
+        glm::clamp(render_layer.render_settings.ddgi_boosted_hysteresis, 0.0f, 1.0f);
+    render_layer.render_settings.ddgi_hysteresis_restore_speed =
+        glm::clamp(render_layer.render_settings.ddgi_hysteresis_restore_speed, 0.0f, 1.0f);
+    ImGui::TreePop();
+  }
+
   if (ImGui::TreeNodeEx("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
     const auto resident_probes = std::accumulate(snapshot.volumes.begin(), snapshot.volumes.end(), 0ull,
                                                  [](const uint64_t total, const auto& volume) {
@@ -1877,6 +1891,8 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     ImGui::Text("Status: %s", GetDdgiSceneStatus(snapshot, session));
     ImGui::Text("Volumes: %zu   Probes: %llu   Memory: %s", snapshot.volumes.size(),
                 static_cast<unsigned long long>(resident_probes), FormatDdgiBytes(resident_bytes).c_str());
+    ImGui::Text("Hysteresis boost: %u active, %u restoring", snapshot.aggregate.hysteresis_boosted_volume_count,
+                snapshot.aggregate.hysteresis_restoring_volume_count);
     if (!snapshot.validation_error.empty()) {
       ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", snapshot.validation_error.c_str());
     }
@@ -1911,6 +1927,9 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(GetDdgiVolumeStatus(volume, session));
         ImGui::TextDisabled("%s", DdgiRuntime::FormatUpdateReasons(volume.last_probe_update_reasons).c_str());
+        ImGui::TextDisabled(
+            "Hysteresis %.3f (%s)", volume.current_hysteresis,
+            volume.hysteresis_boost_restoring ? "restoring" : (volume.hysteresis_boost_active ? "boosted" : "normal"));
         ImGui::TableNextColumn();
         if (session.selected_volume_id == volume.stable_entity_id) {
           ImGui::TextUnformatted("Selected");
@@ -2677,7 +2696,8 @@ uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, co
 }
 
 void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
-                                                   const EnvironmentalLighting::LocalReflectionProbe& probe) {
+                                                   const EnvironmentalLighting::LocalReflectionProbe& probe,
+                                                   const bool bake_available) {
   const auto payload = probe.global_reflection_probe.Peek<GlobalReflectionProbe>();
   const auto payload_handle = probe.global_reflection_probe.GetAssetHandle();
   if (!payload && payload_handle.GetValue() == 0) {
@@ -2695,10 +2715,15 @@ void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
     }
   }
 
+  ImGui::BeginDisabled(!bake_available);
   if (ImGui::Button("Bake Local Probe Payload")) {
     if (QueueEnvironmentalLightingLocalProbeBake(context, probe)) {
       EVOENGINE_LOG("Queued environmental lighting reflection probe bake.")
     }
+  }
+  ImGui::EndDisabled();
+  if (!bake_available && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip("Disable dynamic local probe updates before baking a persistent payload.");
   }
 }
 
@@ -2769,7 +2794,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                                             : std::shared_ptr<EnvironmentalLighting>{};
   const auto lighting_asset = active_lighting.get() == &lighting ? active_lighting : nullptr;
   const bool scene_gizmo_available = lighting_asset != nullptr;
-  bool changed = false;
+  bool changed = lighting.RepairStableIds();
   if (ImGui::BeginTabBar("EnvironmentalLightingInspectionTabs")) {
     if (ImGui::BeginTabItem("General")) {
       changed = InspectEnvironmentalLightingSource(context, lighting.indirect_environment_source) || changed;
@@ -2800,7 +2825,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                                    RenderInstanceStorage::kDdgiMaxEmissiveGuideCount) ||
                     changed;
           changed = ImGui::DragInt("Warm up frames", &runtime.warmup_frames, 1.0f, 0, 4096) || changed;
-          changed = ImGui::DragFloat("Hysteresis", &runtime.hysteresis, 0.001f, 0.0f, 1.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f) || changed;
@@ -2874,6 +2898,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           volume.fixed_ray_backface_threshold = defaults.fixed_ray_backface_threshold;
           volume.probe_variability_threshold = defaults.probe_variability_threshold;
           volume.probe_variability_min_samples = defaults.probe_variability_min_samples;
+          lighting.RepairStableIds();
           changed = true;
         }
         for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
@@ -2887,9 +2912,12 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                 scene_gizmo_available);
             const bool stable_id_changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id);
             changed = stable_id_changed || changed;
-            if (stable_id_changed && editing_in_scene) {
-              editor_layer->SetEnvironmentalLightingGizmoTarget(
-                  lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id);
+            if (stable_id_changed) {
+              lighting.RepairStableIds();
+              if (editing_in_scene) {
+                editor_layer->SetEnvironmentalLightingGizmoTarget(
+                    lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id);
+              }
             }
             changed = InspectAuthoringTransform(editor_layer, "Transform", volume.transform) || changed;
             changed = ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256) || changed;
@@ -2922,11 +2950,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             changed =
                 ImGui::DragInt("Probe variability min samples", &volume.probe_variability_min_samples, 1, 0, 1000000) ||
                 changed;
-            changed = InspectDdgiVolumeTriggerConditions("Auto invalidate history on scene changes",
-                                                         volume.auto_invalidate_trigger_conditions) ||
+            changed = InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers",
+                                                         volume.hysteresis_boost_trigger_conditions) ||
                       changed;
-            changed =
-                InspectDdgiVolumeTriggerConditions("Warmup triggers", volume.warmup_trigger_conditions) || changed;
             changed = InspectDdgiVolumeTriggerConditions("Variability reset triggers",
                                                          volume.variability_reset_trigger_conditions) ||
                       changed;
@@ -2949,19 +2975,61 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("Reflection Probes")) {
       changed = ImGui::Checkbox("Enable local probe reflections", &lighting.local_reflection_probes_enabled) || changed;
+      auto& dynamic_settings = lighting.dynamic_reflection_probe_settings;
+      const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+      const bool explicit_bake_pending = render_layer && render_layer->HasPendingGlobalReflectionProbeBake();
+      ImGui::BeginDisabled(!dynamic_settings.enabled && explicit_bake_pending);
+      changed = ImGui::Checkbox("Enable dynamic local probe updates", &dynamic_settings.enabled) || changed;
+      ImGui::EndDisabled();
+      if (!dynamic_settings.enabled && explicit_bake_pending &&
+          ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Wait for the explicit reflection-probe bake to finish.");
+      }
+      ImGui::BeginDisabled(!dynamic_settings.enabled);
+      changed = ImGui::SliderInt("Faces per frame", &dynamic_settings.faces_per_frame, 1, 6) || changed;
+      if (render_layer) {
+        const auto stats = render_layer->GetDynamicReflectionProbeStats();
+        ImGui::Text("Dynamic status: %s (continuous), queued %u, in progress %u", stats.active ? "active" : "idle",
+                    stats.queued_probe_count, stats.in_progress_probe_count);
+        if (stats.in_progress_probe_count != 0u) {
+          ImGui::Text("Current probe: %llu (%u/6 faces)",
+                      static_cast<unsigned long long>(stats.current_probe_stable_id), stats.completed_face_count);
+        } else {
+          ImGui::TextUnformatted("Current probe: none (0/6 faces)");
+        }
+        ImGui::Text("Published generations: %llu, transient GPU: %.2f MiB",
+                    static_cast<unsigned long long>(stats.published_generation_count),
+                    static_cast<double>(stats.transient_gpu_bytes) / (1024.0 * 1024.0));
+        ImGui::Text("Published A/B: %u/%u, transitioning: %u (%.3f-%.3f)", stats.generation_a_probe_count,
+                    stats.generation_b_probe_count, stats.transitioning_probe_count, stats.minimum_transition_weight,
+                    stats.maximum_transition_weight);
+        ImGui::Text("Last GPU: total %.3f ms, capture %.3f ms, prefilter %.3f ms", stats.last_update_gpu_ms,
+                    stats.last_capture_gpu_ms, stats.last_prefilter_gpu_ms);
+        if (dynamic_settings.enabled && ImGui::Button("Reset Dynamic Probe History")) {
+          render_layer->ResetDynamicReflectionProbeHistory();
+        }
+      }
+      ImGui::EndDisabled();
+      dynamic_settings.Clamp();
       auto& background = lighting.reflection_probe_bake_background;
       changed = InspectCameraBackground(editor_layer, background.source, background.intensity, background.clear_color,
                                         background.cubemap, background.environmental_map) ||
                 changed;
       if (ImGui::Button("Add Local Reflection Probe")) {
         lighting.local_reflection_probes.emplace_back();
+        lighting.RepairStableIds();
         changed = true;
       }
+      ImGui::BeginDisabled(dynamic_settings.enabled);
       if (ImGui::Button("Bake All Local Probe Payloads")) {
         const auto queued_count = QueueEnvironmentalLightingLocalProbeBakes(context, lighting);
         EVOENGINE_LOG("Queued " + std::to_string(queued_count) + "/" +
                       std::to_string(lighting.local_reflection_probes.size()) +
                       " environmental lighting reflection probe bakes.")
+      }
+      ImGui::EndDisabled();
+      if (dynamic_settings.enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("Disable dynamic local probe updates before baking persistent payloads.");
       }
       for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
         auto& probe = lighting.local_reflection_probes[index];
@@ -2975,15 +3043,18 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               probe.stable_id, scene_gizmo_available);
           const bool stable_id_changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &probe.stable_id);
           changed = stable_id_changed || changed;
-          if (stable_id_changed && editing_in_scene) {
-            editor_layer->SetEnvironmentalLightingGizmoTarget(
-                lighting_asset, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id);
+          if (stable_id_changed) {
+            lighting.RepairStableIds();
+            if (editing_in_scene) {
+              editor_layer->SetEnvironmentalLightingGizmoTarget(
+                  lighting_asset, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id);
+            }
           }
           changed = editor_layer->DragAndDropButton<GlobalReflectionProbe>(probe.global_reflection_probe,
                                                                            "Global Reflection Probe") ||
                     changed;
           if (ImGui::TreeNode("Payload status")) {
-            InspectEnvironmentalLightingLocalProbePayload(context, probe);
+            InspectEnvironmentalLightingLocalProbePayload(context, probe, !dynamic_settings.enabled);
             ImGui::TreePop();
           }
           changed = InspectAuthoringTransform(editor_layer, "Transform", probe.transform) || changed;

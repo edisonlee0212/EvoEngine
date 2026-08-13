@@ -105,6 +105,8 @@ struct DdgiPerformanceStats {
   bool probe_warmup_active = false;
   bool lighting_descriptors_bound = false;
   float probe_update_hysteresis = 0.0f;
+  uint32_t hysteresis_boosted_volume_count = 0;
+  uint32_t hysteresis_restoring_volume_count = 0;
   float atlas_prepare_record_ms = 0.0f;
   float ray_diagnostics_record_ms = 0.0f;
   float probe_update_record_ms = 0.0f;
@@ -123,9 +125,17 @@ enum DdgiUpdateReason : uint32_t {
   DdgiUpdateReasonSteadyState = 1u << 2u,
   DdgiUpdateReasonConverged = 1u << 3u,
   DdgiUpdateReasonWarmup = 1u << 4u,
-  DdgiUpdateReasonSceneInput = 1u << 5u,
+  DdgiUpdateReasonSceneChange = 1u << 5u,
   DdgiUpdateReasonPeriodicRefresh = 1u << 6u,
-  DdgiUpdateReasonVariabilityPolicy = 1u << 7u
+  DdgiUpdateReasonVariabilityPolicy = 1u << 7u,
+  DdgiUpdateReasonHysteresisRestore = 1u << 8u
+};
+
+struct DdgiHysteresisBoostUpdate {
+  float hysteresis = 0.0f;
+  bool active = false;
+  bool force_update = false;
+  bool restoring = false;
 };
 
 struct DdgiVolumeRuntimeInfo {
@@ -162,6 +172,9 @@ struct DdgiVolumeRuntimeStats {
   bool warmup_active = false;
   bool converged = false;
   bool pending_scene_changes = false;
+  float current_hysteresis = 0.0f;
+  bool hysteresis_boost_active = false;
+  bool hysteresis_boost_restoring = false;
   uint64_t resident_byte_size = 0;
   glm::vec3 first_probe = glm::vec3(0.0f);
   glm::vec3 probe_step_x = glm::vec3(0.0f);
@@ -284,9 +297,12 @@ class DdgiRuntime final {
                                                                             uint64_t max_storage_buffer_range);
   [[nodiscard]] static bool ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& previous,
                                                            const DdgiFrameResourceLayout& current);
-  [[nodiscard]] static float CalculateUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons);
-  [[nodiscard]] static float CalculateUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons,
-                                                       uint32_t warmup_frame_index);
+  [[nodiscard]] static DdgiHysteresisBoostUpdate AdvanceHysteresisBoost(float current_hysteresis, bool active,
+                                                                        float normal_hysteresis,
+                                                                        float boosted_hysteresis, float restore_speed,
+                                                                        bool scene_changed);
+  [[nodiscard]] static float CalculateUpdateHysteresis(float hysteresis, uint32_t warmup_frame_count,
+                                                       uint32_t update_reasons, uint32_t warmup_frame_index);
   [[nodiscard]] static float CalculateUpdateBrightnessThreshold(const DdgiSettings& settings);
   [[nodiscard]] static std::string FormatUpdateReasons(uint32_t reasons);
   [[nodiscard]] static float CalculateVolumeBlendWeight(const glm::vec3& probe_coordinate,

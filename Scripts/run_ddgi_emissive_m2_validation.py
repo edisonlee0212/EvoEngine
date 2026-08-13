@@ -55,6 +55,7 @@ def capture(
     timeout: float = 900.0,
     guided_rays: int = 0,
     guided_emitters: int = 4,
+    warmup_frames: int = 8,
 ):
     hdr_fixtures = {
         "emissive-small-equal-power",
@@ -73,7 +74,7 @@ def capture(
             "--preview-render-mode",
             "rasterization",
             "--preview-warmup-frames",
-            "8",
+            str(warmup_frames),
             "--preview-ddgi-report",
             str(report_path),
             "--preview-ddgi-measure-frames",

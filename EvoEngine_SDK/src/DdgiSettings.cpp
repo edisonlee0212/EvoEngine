@@ -16,7 +16,6 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "guided_ray_count" << YAML::Value << settings.runtime.guided_ray_count;
   out << YAML::Key << "guided_emitter_count" << YAML::Value << settings.runtime.guided_emitter_count;
   out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
-  out << YAML::Key << "hysteresis" << YAML::Value << settings.runtime.hysteresis;
   out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
   out << YAML::Key << "view_bias" << YAML::Value << settings.runtime.view_bias;
   out << YAML::Key << "max_ray_distance" << YAML::Value << settings.runtime.max_ray_distance;
@@ -76,8 +75,6 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.guided_emitter_count = runtime["guided_emitter_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
-    if (runtime["hysteresis"])
-      settings.runtime.hysteresis = runtime["hysteresis"].as<float>();
     if (runtime["normal_bias"])
       settings.runtime.normal_bias = runtime["normal_bias"].as<float>();
     if (runtime["view_bias"])
@@ -149,7 +146,6 @@ void evo_engine::DdgiSettings::ClampSettings() {
   runtime.guided_ray_count = glm::clamp(runtime.guided_ray_count, 0, 4096);
   runtime.guided_emitter_count = glm::clamp(runtime.guided_emitter_count, 1, 8);
   runtime.warmup_frames = glm::clamp(runtime.warmup_frames, 0, 4096);
-  runtime.hysteresis = glm::clamp(runtime.hysteresis, 0.0f, 1.0f);
   runtime.normal_bias = glm::clamp(runtime.normal_bias, 0.0f, 10.0f);
   runtime.view_bias = glm::clamp(runtime.view_bias, 0.0f, 10.0f);
   runtime.max_ray_distance = glm::clamp(runtime.max_ray_distance, 0.05f, 1e27f);

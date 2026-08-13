@@ -4,6 +4,7 @@
 #include "Serialization.hpp"
 
 #include <cmath>
+#include <unordered_set>
 
 using namespace evo_engine;
 
@@ -14,6 +15,27 @@ glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
 
 glm::vec3 ClampDdgiProbeSpacing(const glm::vec3& value) {
   return glm::clamp(value, glm::vec3(0.05f), glm::vec3(10000.0f));
+}
+
+template <typename Entry>
+bool RepairEntryStableIds(std::vector<Entry>& entries) {
+  std::unordered_set<uint64_t> used_ids;
+  std::vector<size_t> invalid_indices;
+  for (size_t index = 0; index < entries.size(); ++index) {
+    if (entries[index].stable_id == 0u || !used_ids.emplace(entries[index].stable_id).second) {
+      invalid_indices.emplace_back(index);
+    }
+  }
+
+  uint64_t candidate = 1u;
+  for (const auto index : invalid_indices) {
+    while (used_ids.find(candidate) != used_ids.end()) {
+      ++candidate;
+    }
+    entries[index].stable_id = candidate;
+    used_ids.emplace(candidate++);
+  }
+  return !invalid_indices.empty();
 }
 
 void SerializeIndirectEnvironmentSource(YAML::Emitter& out,
@@ -69,6 +91,24 @@ void DeserializeReflectionProbeBakeBackground(const YAML::Node& in,
     background.clear_color = in["clear_color"].as<glm::vec4>();
   background.cubemap.Load("cubemap", in);
   background.environmental_map.Load("environmental_map", in);
+}
+
+void SerializeDynamicReflectionProbeSettings(YAML::Emitter& out,
+                                             const EnvironmentalLighting::DynamicReflectionProbeSettings& settings) {
+  out << YAML::BeginMap;
+  out << YAML::Key << "enabled" << YAML::Value << settings.enabled;
+  out << YAML::Key << "faces_per_frame" << YAML::Value << settings.faces_per_frame;
+  out << YAML::EndMap;
+}
+
+void DeserializeDynamicReflectionProbeSettings(const YAML::Node& in,
+                                               EnvironmentalLighting::DynamicReflectionProbeSettings& settings) {
+  settings = {};
+  if (in["enabled"])
+    settings.enabled = in["enabled"].as<bool>();
+  if (in["faces_per_frame"])
+    settings.faces_per_frame = in["faces_per_frame"].as<int>();
+  settings.Clamp();
 }
 
 void SerializeLocalReflectionProbe(YAML::Emitter& out, const EnvironmentalLighting::LocalReflectionProbe& probe) {
@@ -139,8 +179,8 @@ void SerializeDdgiVolume(YAML::Emitter& out, const EnvironmentalLighting::DdgiVo
   out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
   out << YAML::Key << "probe_variability_threshold" << YAML::Value << volume.probe_variability_threshold;
   out << YAML::Key << "probe_variability_min_samples" << YAML::Value << volume.probe_variability_min_samples;
-  out << YAML::Key << "auto_invalidate_trigger_conditions" << YAML::Value << volume.auto_invalidate_trigger_conditions;
-  out << YAML::Key << "warmup_trigger_conditions" << YAML::Value << volume.warmup_trigger_conditions;
+  out << YAML::Key << "hysteresis_boost_trigger_conditions" << YAML::Value
+      << volume.hysteresis_boost_trigger_conditions;
   out << YAML::Key << "variability_reset_trigger_conditions" << YAML::Value
       << volume.variability_reset_trigger_conditions;
   out << YAML::EndMap;
@@ -186,10 +226,26 @@ void DeserializeDdgiVolume(const YAML::Node& in, EnvironmentalLighting::DdgiVolu
     volume.probe_variability_threshold = in["probe_variability_threshold"].as<float>();
   if (in["probe_variability_min_samples"])
     volume.probe_variability_min_samples = in["probe_variability_min_samples"].as<int>();
-  if (in["auto_invalidate_trigger_conditions"])
-    volume.auto_invalidate_trigger_conditions = in["auto_invalidate_trigger_conditions"].as<int>();
-  if (in["warmup_trigger_conditions"])
-    volume.warmup_trigger_conditions = in["warmup_trigger_conditions"].as<int>();
+  bool has_boost_triggers = in["hysteresis_boost_trigger_conditions"].IsDefined();
+  if (has_boost_triggers)
+    volume.hysteresis_boost_trigger_conditions = in["hysteresis_boost_trigger_conditions"].as<int>();
+  if (in["scene_change_hysteresis_trigger_conditions"]) {
+    const auto legacy_triggers = in["scene_change_hysteresis_trigger_conditions"].as<int>();
+    volume.hysteresis_boost_trigger_conditions =
+        has_boost_triggers ? volume.hysteresis_boost_trigger_conditions | legacy_triggers : legacy_triggers;
+    has_boost_triggers = true;
+  }
+  if (in["warmup_trigger_conditions"]) {
+    const auto legacy_triggers = in["warmup_trigger_conditions"].as<int>();
+    volume.hysteresis_boost_trigger_conditions =
+        has_boost_triggers ? volume.hysteresis_boost_trigger_conditions | legacy_triggers : legacy_triggers;
+    has_boost_triggers = true;
+  }
+  if (in["auto_invalidate_trigger_conditions"]) {
+    const auto legacy_triggers = in["auto_invalidate_trigger_conditions"].as<int>();
+    volume.hysteresis_boost_trigger_conditions =
+        has_boost_triggers ? volume.hysteresis_boost_trigger_conditions | legacy_triggers : legacy_triggers;
+  }
   if (in["variability_reset_trigger_conditions"])
     volume.variability_reset_trigger_conditions = in["variability_reset_trigger_conditions"].as<int>();
 }
@@ -204,6 +260,16 @@ void evo_engine::EnvironmentalLighting::IndirectEnvironmentSource::CollectAssetR
 void evo_engine::EnvironmentalLighting::ReflectionProbeBakeBackground::CollectAssetRef(std::vector<AssetRef>& list) {
   list.push_back(cubemap);
   list.push_back(environmental_map);
+}
+
+void evo_engine::EnvironmentalLighting::DynamicReflectionProbeSettings::Clamp() {
+  faces_per_frame = glm::clamp(faces_per_frame, 1, 6);
+}
+
+bool evo_engine::EnvironmentalLighting::RepairStableIds() {
+  const bool local_probe_ids_changed = RepairEntryStableIds(local_reflection_probes);
+  const bool ddgi_volume_ids_changed = RepairEntryStableIds(ddgi_volumes);
+  return local_probe_ids_changed || ddgi_volume_ids_changed;
 }
 
 void evo_engine::EnvironmentalLighting::LocalReflectionProbe::CollectAssetRef(std::vector<AssetRef>& list) {
@@ -222,8 +288,7 @@ void evo_engine::EnvironmentalLighting::DdgiVolume::ClampSettings() {
   fixed_ray_backface_threshold = glm::clamp(fixed_ray_backface_threshold, 0.0f, 1.0f);
   probe_variability_threshold = glm::clamp(probe_variability_threshold, 0.0f, 10.0f);
   probe_variability_min_samples = glm::clamp(probe_variability_min_samples, 0, 4096);
-  auto_invalidate_trigger_conditions &= DdgiVolumeTriggerConditionAll;
-  warmup_trigger_conditions &= DdgiVolumeTriggerConditionAll;
+  hysteresis_boost_trigger_conditions &= DdgiVolumeTriggerConditionAll;
   variability_reset_trigger_conditions &= DdgiVolumeTriggerConditionAll;
 }
 
@@ -284,6 +349,8 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
   SerializeIndirectEnvironmentSource(out, lighting.indirect_environment_source);
   out << YAML::Key << "reflection_probe_bake_background" << YAML::Value;
   SerializeReflectionProbeBakeBackground(out, lighting.reflection_probe_bake_background);
+  out << YAML::Key << "dynamic_reflection_probe_settings" << YAML::Value;
+  SerializeDynamicReflectionProbeSettings(out, lighting.dynamic_reflection_probe_settings);
   out << YAML::Key << "environment_lighting_intensity" << YAML::Value << lighting.environment_lighting_intensity;
   out << YAML::Key << "diffuse_fallback_intensity" << YAML::Value << lighting.diffuse_fallback_intensity;
   out << YAML::Key << "specular_fallback_intensity" << YAML::Value << lighting.specular_fallback_intensity;
@@ -307,6 +374,7 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
 void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, EnvironmentalLighting& lighting) {
   lighting.indirect_environment_source = {};
   lighting.reflection_probe_bake_background = {};
+  lighting.dynamic_reflection_probe_settings = {};
   lighting.environment_lighting_intensity = EnvironmentalLighting::kDefaultEnvironmentLightingIntensity;
   lighting.diffuse_fallback_intensity = EnvironmentalLighting::kDefaultDiffuseFallbackIntensity;
   lighting.specular_fallback_intensity = EnvironmentalLighting::kDefaultSpecularFallbackIntensity;
@@ -320,6 +388,9 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   }
   if (const auto background = in["reflection_probe_bake_background"]) {
     DeserializeReflectionProbeBakeBackground(background, lighting.reflection_probe_bake_background);
+  }
+  if (const auto settings = in["dynamic_reflection_probe_settings"]) {
+    DeserializeDynamicReflectionProbeSettings(settings, lighting.dynamic_reflection_probe_settings);
   }
   if (in["environment_lighting_intensity"]) {
     lighting.environment_lighting_intensity = in["environment_lighting_intensity"].as<float>();
@@ -350,4 +421,5 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
       lighting.ddgi_volumes.push_back(std::move(volume));
     }
   }
+  lighting.RepairStableIds();
 }

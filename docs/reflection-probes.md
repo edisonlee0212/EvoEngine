@@ -82,16 +82,19 @@ explicitly authored values remain unchanged.
 
 The shaded world position selects the first containing probe. Away from its boundary that primary owns the local result.
 Inside its blend band, at most one containing probe with strictly lower artist priority may contribute; all remaining weight
-returns to the global probe. Missing, unloaded, disabled, or invalid local assets also return their weight to the exact same
-global descriptor, so they cannot cause undefined sampling or black output. Sphere probes use the reflected world direction.
+returns to the environmental fallback. Missing, unloaded, disabled, or invalid local assets use the exact same fallback,
+so they cannot cause undefined sampling or black output. Sphere probes use the reflected world direction.
 Box probes optionally intersect that direction with their local projection bounds and fall back to the unprojected direction
 when the projection is invalid or outside the box.
 
 Global and local radiance use the existing roughness-driven prefiltered mip chain, BRDF LUT, Fresnel, and split-sum
 response. Valid local probe samples use the baked payload and per-probe local intensity; they are not multiplied by
 `environment_lighting_intensity` at surface shading time. Remaining or missing local-probe weight returns to the
-scene-global or engine-global prefiltered fallback, whose contribution is controlled by
-`specular_fallback_intensity` directly. After local/global probe selection, the probe-specular term
+specular fallback. Valid DDGI coverage and confidence replace the scene-global or engine-global prefiltered fallback with
+`DDGI_irradiance / pi` at every material roughness. This reuses the normal-directed diffuse gather and adds no atlas
+samples; it is deliberately a broad lighting proxy rather than a sharp or view-directional reflection. The global
+contribution is controlled by `specular_fallback_intensity` directly, while the DDGI proxy is not.
+After local/fallback probe selection, the probe-specular term
 is multiplied by a scalar visibility confidence composed from material AO, eligible GTAO visibility, and DDGI probe
 visibility. The DDGI value comes from the probe visibility atlas/Chebyshev test, not irradiance RGB; missing, uncovered,
 disabled, or invalid DDGI blends toward white visibility so lack of DDGI coverage does not darken probes. Local probes
@@ -119,8 +122,8 @@ approximation, not directional specular visibility. A diagnostic ramp ending at 
 rough-metal rim; a ramp starting there removed measurable occlusion from the rough dielectric's grazing-only response. A
 3% cap then missed the same dielectric gate after tone mapping and quantization. All candidates were rejected without
 weakening either gate. The term is never RGB, never interpolated by metallic value, and never applied to direct light,
-emission, the visible background, diffuse IBL, or DDGI diffuse irradiance. DDGI irradiance was rejected as a specular
-source because it contains neither the directional nor frequency information needed for a reflection. The renderer exposes
+emission, the visible background, or diffuse IBL. DDGI irradiance supplies only the broad fallback proxy described above;
+it does not replace valid local probes or become sharper on smooth materials. The renderer exposes
 `Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, and `Occluded Probe Specular` diagnostic views for
 isolating this composition.
 
@@ -173,6 +176,36 @@ Explicit bakes do not calculate or store a source-scene fingerprint. The seriali
 canonical pixels, and payload hash. CPU timing records preparation and command recording without counting frame-fence
 latency as work; wall timing includes deferred frame-slot completion. GPU timing separates total batch work, face capture,
 and GGX prefiltering.
+
+## Dynamic local-probe updates
+
+An `EnvironmentalLighting` asset enables scene-wide dynamic local-probe updates by default with a six-face **Faces per
+frame** budget, adjustable from one to six. While enabled, it continuously updates every enabled, contributing local
+probe regardless of scene changes; there is no scene-invalidation or manual mode. The scheduler completes a probe before
+advancing in artist-priority/stable-ID order, spills unused face budget into the next probe, and starts another deterministic
+sweep whenever the current sweep finishes. A position change restarts a partial six-face capture so one generation never
+mixes capture origins. Rotation and scale continue to affect influence/projection metadata without restarting capture.
+
+Dynamic and explicit persistent bakes are mutually exclusive. Explicit bake controls and queue APIs reject work while
+dynamics are active, and dynamic enablement waits until every queued/prepared/submitted explicit bake publishes. Both
+paths share the same capture cameras, stripped render graph, bindings, raw cubemap, GGX scratch resources, and prefilter
+pipeline. Dynamic updates never read back, serialize, reload, mark unsaved, or write a probe asset.
+
+One shared raw six-face cubemap accumulates the current probe. Each dynamic probe owns filtered RGBA16F A and B storage.
+The first update writes B, then updates alternate B/A/B/A. When B first becomes ready, the assigned static payload is the
+transition source; a missing payload uses the existing per-camera global specular IBL fallback. Each later frame linearly
+blends the previous and newest prefiltered HDR samples over one complete scheduled update cycle. The blend reaches one
+before the next filtered write can replace its source, so a third cubemap is unnecessary.
+
+All six faces, mips, and transition targets publish only after the normal frame-slot fence signals. During fence latency the
+previous target remains fully visible. Disabling local-probe contribution restores static/global selection but suspends
+dynamic scheduling and retains the last published A/B textures and transition state; re-enabling contribution resumes from
+that dynamic result. Disabling dynamics, resetting history, removing a probe, or replacing the scene/lighting asset retires
+transient GPU resources after outstanding frame submissions.
+
+The Reflection Probes inspector reports queue/progress counts, current stable ID and face progress, A/B publication counts,
+transition-weight range, capture/prefilter GPU time, and transient memory. **Reset Dynamic Probe History** is shown only
+while dynamics are enabled and never modifies persistent assets.
 
 The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, the selected visible
 bake background scaled by its own intensity, and only converged DDGI. Background selection affects visible miss pixels, not

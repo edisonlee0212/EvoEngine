@@ -1245,7 +1245,7 @@ std::shared_ptr<EnvironmentalLighting> GetOrCreateTemporaryEnvironmentalLighting
 void ConfigureEnvironmentalLightingColorSource(EnvironmentalLighting& lighting, const glm::vec3& color,
                                                const float environment_lighting_intensity,
                                                const float diffuse_fallback_intensity,
-                                               const float specular_fallback_intensity = 0.0f, const float gamma = 2.2f,
+                                               const float specular_fallback_intensity = 1.0f, const float gamma = 2.2f,
                                                const float rotation = 0.0f) {
   lighting.indirect_environment_source = {};
   lighting.indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
@@ -1261,7 +1261,7 @@ void ConfigureEnvironmentalLightingMapSource(EnvironmentalLighting& lighting,
                                              const std::shared_ptr<EnvironmentalMap>& environmental_map,
                                              const float environment_lighting_intensity,
                                              const float diffuse_fallback_intensity,
-                                             const float specular_fallback_intensity = 0.0f,
+                                             const float specular_fallback_intensity = 1.0f,
                                              const glm::vec3& color = glm::vec3(0.0f), const float gamma = 2.2f,
                                              const float rotation = 0.0f) {
   lighting.indirect_environment_source = {};
@@ -1663,7 +1663,6 @@ void ConfigureRenderingDemoDdgi(const std::shared_ptr<Scene>& scene) {
   if (!lighting) {
     return;
   }
-  SetEnvironmentalLightingFallbackIntensities(*lighting, 1.0f, 1.0f);
   auto& settings = lighting->ddgi_settings;
   ConfigureStandardDdgiRuntime(settings, 8192, 0.02f);
   auto& ddgi_volume = ResetEnvironmentalLightingDdgiVolume(*lighting, "DDGI Probe Volume", glm::vec3(0.0f, 0.0f, -6.0f),
@@ -1723,11 +1722,11 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
     int priority;
   };
   constexpr float blend_distance = 0.03f;
-  constexpr std::array definitions = {ProbeDefinition{{-2.5f, 0.75f, -3.32f}, {3.7f, 5.9f, 13.7f}, 50},
-                                      ProbeDefinition{{2.2f, 1.41f, -3.32f}, {2.4f, 4.4f, 13.7f}, 40},
-                                      ProbeDefinition{{0.175f, 1.41f, 1.23f}, {2.9f, 4.4f, 5.4f}, 30},
-                                      ProbeDefinition{{0.175f, 1.41f, -3.32f}, {2.9f, 4.4f, 5.4f}, 20},
-                                      ProbeDefinition{{0.175f, 1.41f, -7.88f}, {2.9f, 4.4f, 5.4f}, 10}};
+  constexpr std::array definitions = {ProbeDefinition{{-2.5f, 0.75f, -3.32f}, {4.0f, 6.2f, 14.5f}, 50},
+                                      ProbeDefinition{{2.2f, 1.41f, -3.32f}, {3.0f, 5.0f, 14.5f}, 40},
+                                      ProbeDefinition{{0.175f, 1.41f, 1.23f}, {3.4f, 5.0f, 5.8f}, 30},
+                                      ProbeDefinition{{0.175f, 1.41f, -3.32f}, {3.4f, 5.0f, 5.8f}, 20},
+                                      ProbeDefinition{{0.175f, 1.41f, -7.88f}, {3.4f, 5.0f, 5.8f}, 10}};
   for (size_t index = 0; index < definitions.size(); ++index) {
     const auto asset = std::dynamic_pointer_cast<GlobalReflectionProbe>(
         ProjectManager::GetOrCreateAsset(kSponzaLocalProbePaths[index]));
@@ -1773,7 +1772,8 @@ void ConfigureRenderingDemoScene(const std::shared_ptr<Scene>& scene) {
   const auto environment = LoadSponzaEnvironment();
   scene->global_reflection_probe_fallback = LoadSponzaGlobalReflectionProbe();
   if (const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene)) {
-    ConfigureEnvironmentalLightingMapSource(*lighting, environment, 1.0f, 1.0f, 1.0f);
+    ConfigureEnvironmentalLightingMapSource(*lighting, environment, 1.0f, lighting->diffuse_fallback_intensity,
+                                            lighting->specular_fallback_intensity);
   }
 
   ConfigureMainSceneCamera(scene, glm::vec3(0, 0, 3));
@@ -2887,6 +2887,9 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
     }
   }
   ConfigureRenderingDemoScene(scene);
+  if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
+    lighting->dynamic_reflection_probe_settings.enabled = false;
+  }
 
   auto& ddgi = RequireEnvironmentalLightingDdgiSettings(scene);
   ddgi.runtime.enabled = true;
@@ -3427,6 +3430,131 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
   if (!lighting) {
     throw std::runtime_error("Reflection probe validation requires an EnvironmentalLighting asset.");
+  }
+  const bool dynamic_validation_requested = std::getenv("EVOENGINE_DYNAMIC_REFLECTION_PROBE_VALIDATION") != nullptr;
+  lighting->dynamic_reflection_probe_settings.enabled = dynamic_validation_requested;
+  bool dynamic_initial_b_sweep = !dynamic_validation_requested;
+  bool dynamic_transition_progress = !dynamic_validation_requested;
+  bool dynamic_a_sweep = !dynamic_validation_requested;
+  bool dynamic_b_sweep = !dynamic_validation_requested;
+  bool dynamic_contribution_resume = !dynamic_validation_requested;
+  bool dynamic_reset = !dynamic_validation_requested;
+  bool dynamic_returned_to_static = !dynamic_validation_requested;
+  size_t dynamic_initial_latency_frames = 0u;
+  size_t dynamic_bab_cycle_frames = 0u;
+  double dynamic_bab_cycle_milliseconds = 0.0;
+  double dynamic_blend_frame_milliseconds = 0.0;
+  uint64_t dynamic_published_generations_observed = 0u;
+  uint64_t dynamic_transient_gpu_bytes = 0u;
+  double dynamic_update_gpu_ms = 0.0;
+  double dynamic_capture_gpu_ms = 0.0;
+  double dynamic_prefilter_gpu_ms = 0.0;
+  if (dynamic_validation_requested) {
+    lighting->ddgi_settings.runtime.enabled = false;
+    lighting->dynamic_reflection_probe_settings.enabled = true;
+    lighting->dynamic_reflection_probe_settings.faces_per_frame = 1;
+    const auto dynamic_cycle_start = std::chrono::steady_clock::now();
+    size_t dynamic_cycle_frame_count = 0u;
+    size_t dynamic_blend_frame_count = 0u;
+    double dynamic_blend_frame_milliseconds_total = 0.0;
+    bool measure_dynamic_blend_frame_time = false;
+    const auto run_dynamic_frame = [&]() {
+      const auto frame_start = std::chrono::steady_clock::now();
+      const bool running = ApplicationContext::Get().Loop();
+      const double frame_milliseconds =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start).count();
+      ++dynamic_cycle_frame_count;
+      if (measure_dynamic_blend_frame_time) {
+        dynamic_blend_frame_milliseconds_total += frame_milliseconds;
+        ++dynamic_blend_frame_count;
+      }
+      return running;
+    };
+    const auto wait_for_dynamic_generation = [&](const uint64_t minimum_generation, const size_t maximum_frames) {
+      for (size_t frame = 0; frame < maximum_frames; ++frame) {
+        const auto stats = render_layer->GetDynamicReflectionProbeStats();
+        if (stats.active && stats.published_generation_count >= minimum_generation) {
+          return stats;
+        }
+        if (!run_dynamic_frame()) {
+          throw std::runtime_error("Application ended during dynamic reflection-probe validation.");
+        }
+      }
+      return render_layer->GetDynamicReflectionProbeStats();
+    };
+    const auto record_dynamic_stats = [&](const RenderLayer::DynamicReflectionProbeStats& stats) {
+      dynamic_published_generations_observed =
+          std::max(dynamic_published_generations_observed, stats.published_generation_count);
+      dynamic_transient_gpu_bytes = std::max(dynamic_transient_gpu_bytes, stats.transient_gpu_bytes);
+      dynamic_update_gpu_ms = std::max(dynamic_update_gpu_ms, stats.last_update_gpu_ms);
+      dynamic_capture_gpu_ms = std::max(dynamic_capture_gpu_ms, stats.last_capture_gpu_ms);
+      dynamic_prefilter_gpu_ms = std::max(dynamic_prefilter_gpu_ms, stats.last_prefilter_gpu_ms);
+    };
+    const auto initial = wait_for_dynamic_generation(5u, 240u);
+    dynamic_initial_latency_frames = dynamic_cycle_frame_count;
+    record_dynamic_stats(initial);
+    dynamic_initial_b_sweep = initial.active && initial.published_generation_count >= 5u &&
+                              initial.generation_a_probe_count == 0u && initial.generation_b_probe_count == 5u &&
+                              initial.transient_gpu_bytes >= 10u * GlobalReflectionProbe::kCanonicalPayloadByteSize;
+    measure_dynamic_blend_frame_time = true;
+    for (size_t frame = 0; frame < 120u && !dynamic_transition_progress; ++frame) {
+      const auto stats = render_layer->GetDynamicReflectionProbeStats();
+      record_dynamic_stats(stats);
+      dynamic_transition_progress = stats.transitioning_probe_count > 0u && stats.maximum_transition_weight > 0.0f &&
+                                    stats.minimum_transition_weight < 1.0f;
+      if (!dynamic_transition_progress && !run_dynamic_frame()) {
+        throw std::runtime_error("Application ended during dynamic reflection-probe transition validation.");
+      }
+    }
+    const auto after_a = wait_for_dynamic_generation(10u, 240u);
+    measure_dynamic_blend_frame_time = false;
+    dynamic_blend_frame_milliseconds =
+        dynamic_blend_frame_count == 0u
+            ? 0.0
+            : dynamic_blend_frame_milliseconds_total / static_cast<double>(dynamic_blend_frame_count);
+    record_dynamic_stats(after_a);
+    dynamic_a_sweep = after_a.published_generation_count >= 10u && after_a.generation_a_probe_count == 5u &&
+                      after_a.generation_b_probe_count == 0u;
+    const auto after_b = wait_for_dynamic_generation(15u, 240u);
+    dynamic_bab_cycle_frames = dynamic_cycle_frame_count;
+    dynamic_bab_cycle_milliseconds =
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - dynamic_cycle_start).count();
+    record_dynamic_stats(after_b);
+    dynamic_b_sweep = after_b.published_generation_count >= 15u && after_b.generation_a_probe_count == 0u &&
+                      after_b.generation_b_probe_count == 5u;
+
+    lighting->local_reflection_probes_enabled = false;
+    for (size_t frame = 0; frame < 4u; ++frame) {
+      if (!ApplicationContext::Get().Loop()) {
+        throw std::runtime_error("Application ended while disabling dynamic reflection probes.");
+      }
+    }
+    const auto contribution_suspended = render_layer->GetDynamicReflectionProbeStats();
+    const auto publications_match = [](const RenderLayer::DynamicReflectionProbeStats& lhs,
+                                       const RenderLayer::DynamicReflectionProbeStats& rhs) {
+      return lhs.published_generation_count == rhs.published_generation_count &&
+             lhs.generation_a_probe_count == rhs.generation_a_probe_count &&
+             lhs.generation_b_probe_count == rhs.generation_b_probe_count;
+    };
+    const bool contribution_suspended_without_reset =
+        !contribution_suspended.active && publications_match(contribution_suspended, after_b);
+    lighting->local_reflection_probes_enabled = true;
+    const auto after_contribution = wait_for_dynamic_generation(after_b.published_generation_count, 8u);
+    record_dynamic_stats(after_contribution);
+    dynamic_contribution_resume = contribution_suspended_without_reset && after_contribution.active &&
+                                  publications_match(after_contribution, after_b);
+
+    render_layer->ResetDynamicReflectionProbeHistory();
+    const auto after_reset = wait_for_dynamic_generation(5u, 240u);
+    record_dynamic_stats(after_reset);
+    dynamic_reset = after_reset.active && after_reset.published_generation_count >= 5u;
+    lighting->dynamic_reflection_probe_settings.enabled = false;
+    for (size_t frame = 0; frame < 4u; ++frame) {
+      if (!ApplicationContext::Get().Loop()) {
+        throw std::runtime_error("Application ended while returning to static reflection probes.");
+      }
+    }
+    dynamic_returned_to_static = !render_layer->GetDynamicReflectionProbeStats().active;
   }
   lighting->local_reflection_probes.reserve(lighting->local_reflection_probes.size() + 2u);
   auto& red_probe = RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Red Box");
@@ -4140,6 +4268,13 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
                                                 static_cast<double>(GlobalReflectionProbe::kCanonicalPayloadByteSize);
   const bool packed_adopted = false;
   const std::vector<std::pair<std::string, bool>> checks{
+      {"dynamic_initial_b_sweep", dynamic_initial_b_sweep},
+      {"dynamic_transition_progress", dynamic_transition_progress},
+      {"dynamic_a_sweep", dynamic_a_sweep},
+      {"dynamic_b_sweep", dynamic_b_sweep},
+      {"dynamic_contribution_resume", dynamic_contribution_resume},
+      {"dynamic_reset", dynamic_reset},
+      {"dynamic_returned_to_static", dynamic_returned_to_static},
       {"captures_finite", std::all_of(captures.begin(), captures.end(),
                                       [](const auto& capture_evidence) {
                                         return capture_evidence.finite;
@@ -4266,6 +4401,16 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
          << ", \"nonrecursive_equal\": " << (bake_contract ? "true" : "false")
          << ", \"nonblack\": " << (baked_nonblack ? "true" : "false")
          << ", \"persisted_payload_bytes\": " << GlobalReflectionProbe::kCanonicalPayloadByteSize
+         << "},\n  \"dynamic_update\": {\"requested\": " << (dynamic_validation_requested ? "true" : "false")
+         << ", \"policy\": \"Continuous A/B\", \"faces_per_frame\": 1"
+         << ", \"initial_sweep_latency_frames\": " << dynamic_initial_latency_frames
+         << ", \"complete_bab_cycle_frames\": " << dynamic_bab_cycle_frames
+         << ", \"complete_bab_cycle_wall_ms\": " << dynamic_bab_cycle_milliseconds
+         << ", \"two_sample_blend_frame_ms_average\": " << dynamic_blend_frame_milliseconds
+         << ", \"published_generations_observed\": " << dynamic_published_generations_observed
+         << ", \"transient_gpu_bytes\": " << dynamic_transient_gpu_bytes
+         << ", \"gpu_update_ms\": " << dynamic_update_gpu_ms << ", \"gpu_face_capture_ms\": " << dynamic_capture_gpu_ms
+         << ", \"gpu_ggx_prefilter_ms\": " << dynamic_prefilter_gpu_ms
          << "},\n  \"explicit_rebake\": {\"asset_entry_count\": 2, \"unique_entries\": "
          << (unique_bake_entries ? "true" : "false")
          << ", \"unique_assets\": " << (unique_bake_assets ? "true" : "false")
@@ -4328,7 +4473,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
          << ", \"boundary_luminance_max\": " << maximum_boundary_luminance
          << "},\n  \"abi\": {"
             "\"new_descriptors\": 0, \"lighting_sampler_count\": 37, \"reflection_probe_info_bytes\": 128, "
-            "\"render_info_bytes\": 5520, \"camera_info_bytes\": 704},\n  \"image_deltas\": {\"box_projection_nrmse\": "
+            "\"render_info_bytes\": 6032, \"camera_info_bytes\": 704},\n  \"image_deltas\": {\"box_projection_nrmse\": "
          << box_projection_delta << ", \"owner_reorder_nrmse\": " << reorder_delta
          << ", \"missing_removal_nrmse\": " << missing_removal_delta
          << ", \"debug_bounds_nrmse\": " << debug_bounds_delta << "},\n  \"packed_runtime\": {\"capability\": "
@@ -4623,8 +4768,9 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   if (!ApplicationContext::Get().Loop()) {
     throw std::runtime_error("Application ended during the sky-scale DDGI invalidation check.");
   }
-  const auto sky_update_reasons = render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons;
-  const auto sky_update_stats = render_layer->GetDdgiInspectorSnapshot().aggregate;
+  const auto sky_update_snapshot = render_layer->GetDdgiInspectorSnapshot();
+  const auto sky_update_reasons = sky_update_snapshot.last_probe_update_reasons;
+  const auto sky_update_stats = sky_update_snapshot.aggregate;
   captures.emplace_back(capture("all-off", Camera::CameraRenderMode::Rasterization, 0.0f, 0.0f, 0.0f, 0.0f, 4u));
   captures.emplace_back(
       capture("environment-off", Camera::CameraRenderMode::Rasterization, 0.0f, 0.0f, 1.0f, 1.0f, 4u));
@@ -4995,7 +5141,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   const auto linear_luminance = [](const CaptureEvidence& capture_evidence, const char* name) {
     return capture_evidence.regions.at(name).linear_luminance;
   };
-  const uint32_t reset_reasons = DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonSceneInput;
+  const uint32_t reset_reasons = DdgiUpdateReasonSource | DdgiUpdateReasonManualReset;
   const auto near_black = [](const double luminance) {
     return luminance < 0.005;
   };
@@ -5204,9 +5350,10 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
       {"indirect_edit_keeps_ddgi_history", (indirect_update_reasons & reset_reasons) == 0u &&
                                                indirect_update_stats.recorded_probe_update_count == 0u &&
                                                indirect_update_stats.recorded_ray_sample_count == 0u},
-      {"sky_edit_invalidates_ddgi", (sky_update_reasons & DdgiUpdateReasonSceneInput) != 0u &&
-                                        sky_update_stats.recorded_probe_update_count > 0u &&
-                                        sky_update_stats.recorded_ray_sample_count > 0u}};
+      {"sky_edit_activates_hysteresis_boost",
+       (sky_update_reasons & DdgiUpdateReasonSceneChange) != 0u &&
+           (sky_update_reasons & DdgiUpdateReasonWarmup) == 0u && !sky_update_snapshot.last_probe_history_cleared &&
+           sky_update_stats.recorded_probe_update_count > 0u && sky_update_stats.recorded_ray_sample_count > 0u}};
 
   const auto report_path = output_directory / "report.json";
   std::ofstream report(report_path, std::ios::trunc);
@@ -5623,7 +5770,7 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   RequestDdgiHistoryReset();
   settings.runtime.ray_count = 32;
   settings.runtime.warmup_frames = 4;
-  settings.runtime.hysteresis = 0.95f;
+  render_layer->render_settings.ddgi_hysteresis = 0.95f;
   settings.runtime.deterministic_ray_seed_enabled = true;
   settings.runtime.deterministic_ray_seed = 0x4d37564fu;
   settings.storage.max_probe_count = static_cast<int>(DdgiRuntime::kMaxResidentProbeCount);

@@ -1455,12 +1455,25 @@ std::string HexBytes(const std::array<uint8_t, Size>& bytes) {
   return stream.str();
 }
 
+struct DdgiHysteresisBoostFrame {
+  float hysteresis = 0.0f;
+  uint32_t update_reasons = DdgiUpdateReasonNone;
+  uint32_t updated_probe_count = 0;
+  uint32_t boosted_volume_count = 0;
+  uint32_t restoring_volume_count = 0;
+};
+
 void WriteDdgiValidationReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
                                const std::string& fixture_id, const uint32_t seed, const size_t measure_frames,
                                const size_t response_frames, const size_t warmup_frames, const glm::uvec2 resolution,
                                const Camera::CameraRenderMode render_mode, const std::string& phase,
                                const size_t run_index, const size_t convergence_frames, const bool convergence_observed,
-                               const uint32_t history_reset_reasons_after_transition, const bool ddgi_enabled) {
+                               const uint32_t history_reset_reasons_after_transition,
+                               const uint32_t transition_update_reasons, const float transition_update_hysteresis,
+                               const bool transition_response_observed, const bool transition_warmup_active,
+                               const std::vector<DdgiHysteresisBoostFrame>& hysteresis_boost_frames,
+                               const bool paused_change_latched, const bool paused_hysteresis_frozen,
+                               const bool ddgi_enabled) {
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     throw std::runtime_error("DDGI validation report requires RenderLayer.");
@@ -1511,7 +1524,24 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"history_reset_after_transition\": "
          << (history_reset_reasons_after_transition != 0u ? "true" : "false")
          << ", \"history_reset_reasons_after_transition\": " << history_reset_reasons_after_transition
-         << ", \"response_frames\": " << response_frames << "},\n"
+         << ", \"transition_response_observed\": " << (transition_response_observed ? "true" : "false")
+         << ", \"transition_update_reasons\": " << transition_update_reasons
+         << ", \"transition_update_hysteresis\": " << transition_update_hysteresis
+         << ", \"transition_warmup_active\": " << (transition_warmup_active ? "true" : "false")
+         << ", \"paused_change_latched\": " << (paused_change_latched ? "true" : "false")
+         << ", \"paused_hysteresis_frozen\": " << (paused_hysteresis_frozen ? "true" : "false")
+         << ", \"response_frames\": " << response_frames << ", \"hysteresis_boost_frames\": [";
+  for (size_t index = 0; index < hysteresis_boost_frames.size(); ++index) {
+    if (index != 0u) {
+      output << ", ";
+    }
+    const auto& frame = hysteresis_boost_frames[index];
+    output << "{\"hysteresis\": " << frame.hysteresis << ", \"update_reasons\": " << frame.update_reasons
+           << ", \"updated_probes\": " << frame.updated_probe_count
+           << ", \"boosted_volumes\": " << frame.boosted_volume_count
+           << ", \"restoring_volumes\": " << frame.restoring_volume_count << "}";
+  }
+  output << "]},\n"
          << "  \"build\": {\"configuration\": \"" << EVOENGINE_BUILD_CONFIGURATION << "\"},\n"
          << "  \"contract\": {\"resolution\": [" << resolution.x << ", " << resolution.y << "], \"render_mode\": \""
          << render_mode_name
@@ -1550,6 +1580,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"guided_rays_per_probe\": " << performance.guided_ray_count
          << ", \"emissive_guides\": " << performance.emissive_guide_count
          << ", \"recorded_rays\": " << performance.recorded_ray_sample_count
+         << ", \"update_hysteresis\": " << performance.probe_update_hysteresis
+         << ", \"boosted_volumes\": " << performance.hysteresis_boosted_volume_count
+         << ", \"restoring_volumes\": " << performance.hysteresis_restoring_volume_count
          << ", \"lighting_descriptors_bound\": " << (performance.lighting_descriptors_bound ? "true" : "false")
          << "},\n"
          << "  \"emissive_sampling\": {\"stats_available\": "
@@ -2055,6 +2088,13 @@ void CaptureDemoPreview(
   size_t ddgi_convergence_frames = 0;
   bool ddgi_convergence_observed = false;
   uint32_t ddgi_history_reset_reasons_after_transition = DdgiUpdateReasonNone;
+  uint32_t ddgi_transition_update_reasons = DdgiUpdateReasonNone;
+  float ddgi_transition_update_hysteresis = 0.0f;
+  bool ddgi_transition_response_observed = false;
+  bool ddgi_transition_warmup_active = false;
+  std::vector<DdgiHysteresisBoostFrame> ddgi_hysteresis_boost_frames;
+  bool ddgi_paused_change_latched = false;
+  bool ddgi_paused_hysteresis_frozen = false;
   if (preview_ddgi_fixture && preview_ddgi_report_path) {
     if (!render_layer || !Platform::GpuTimestampCaptureAvailable() || !Platform::GpuTimestampCaptureEnabled()) {
       throw std::runtime_error("DDGI validation requires available and enabled GPU timestamp capture.");
@@ -2067,16 +2107,57 @@ void CaptureDemoPreview(
         *preview_ddgi_fixture == "scrolling" || *preview_ddgi_fixture == "emissive-moving-rigid" ||
         *preview_ddgi_fixture == "emissive-enable" || *preview_ddgi_fixture == "emissive-disable" ||
         *preview_ddgi_fixture == "emissive-enable-hdr" || *preview_ddgi_fixture == "geometry-moving";
-    constexpr uint32_t history_reset_reason_mask =
-        DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonSceneInput;
-    const auto record_transition_reset_reasons = [&]() {
-      if (dynamic_fixture && render_layer->GetDdgiInspectorSnapshot().last_probe_history_cleared) {
-        ddgi_history_reset_reasons_after_transition |=
-            render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & history_reset_reason_mask;
+    constexpr uint32_t history_reset_reason_mask = DdgiUpdateReasonSource | DdgiUpdateReasonManualReset;
+    const auto record_transition_response = [&]() {
+      const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
+      if (dynamic_fixture && snapshot.last_probe_history_cleared) {
+        ddgi_history_reset_reasons_after_transition |= snapshot.last_probe_update_reasons & history_reset_reason_mask;
+      }
+      const bool scene_change_frame =
+          dynamic_fixture && (snapshot.last_probe_update_reasons & DdgiUpdateReasonSceneChange) != 0u;
+      const bool hysteresis_restore_frame =
+          dynamic_fixture && (snapshot.last_probe_update_reasons & DdgiUpdateReasonHysteresisRestore) != 0u;
+      if (scene_change_frame && !ddgi_transition_response_observed) {
+        ddgi_transition_response_observed = true;
+        ddgi_transition_update_hysteresis = snapshot.aggregate.probe_update_hysteresis;
+      }
+      if (scene_change_frame || hysteresis_restore_frame) {
+        ddgi_transition_update_reasons |= snapshot.last_probe_update_reasons;
+        ddgi_transition_warmup_active = ddgi_transition_warmup_active || snapshot.aggregate.probe_warmup_active;
+        ddgi_hysteresis_boost_frames.push_back(
+            {snapshot.aggregate.probe_update_hysteresis, snapshot.last_probe_update_reasons,
+             snapshot.aggregate.updated_probe_count, snapshot.aggregate.hysteresis_boosted_volume_count,
+             snapshot.aggregate.hysteresis_restoring_volume_count});
       }
     };
+    const auto hysteresis_before_transition = [&] {
+      const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
+      return snapshot.volumes.empty() ? render_layer->render_settings.ddgi_hysteresis
+                                      : snapshot.volumes.front().current_hysteresis;
+    }();
     if (dynamic_fixture && !AdvanceDdgiValidationFixture(active_scene, *preview_ddgi_fixture)) {
       throw std::runtime_error("DDGI validation fixture could not advance its dynamic target.");
+    }
+    if (dynamic_fixture && !preview_ddgi_disabled && preview_ddgi_response_frames == 0) {
+      auto& session = render_layer->GetDdgiSessionState();
+      session.pause_updates = true;
+      for (size_t frame = 0; frame < 3; ++frame) {
+        if (!ApplicationContext::Get().Loop()) {
+          throw std::runtime_error("Application ended during paused DDGI scene-change validation.");
+        }
+      }
+      const auto paused_snapshot = render_layer->GetDdgiInspectorSnapshot();
+      ddgi_paused_change_latched =
+          std::any_of(paused_snapshot.volumes.begin(), paused_snapshot.volumes.end(), [](const auto& volume) {
+            return volume.pending_scene_changes;
+          });
+      ddgi_paused_hysteresis_frozen =
+          !paused_snapshot.volumes.empty() &&
+          std::all_of(paused_snapshot.volumes.begin(), paused_snapshot.volumes.end(), [&](const auto& volume) {
+            return std::abs(volume.current_hysteresis - hysteresis_before_transition) <= 1.0e-6f &&
+                   !volume.hysteresis_boost_active && !volume.hysteresis_boost_restoring;
+          });
+      session.pause_updates = false;
     }
     if (!preview_ddgi_disabled && preview_ddgi_response_frames == 0) {
       if (!dynamic_fixture) {
@@ -2087,7 +2168,7 @@ void CaptureDemoPreview(
         if (!ApplicationContext::Get().Loop()) {
           throw std::runtime_error("Application ended during DDGI convergence measurement.");
         }
-        record_transition_reset_reasons();
+        record_transition_response();
         ++ddgi_convergence_frames;
         if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
           ddgi_convergence_observed = true;
@@ -2121,7 +2202,7 @@ void CaptureDemoPreview(
         if (!ApplicationContext::Get().Loop()) {
           throw std::runtime_error("Application ended during DDGI timing preparation.");
         }
-        record_transition_reset_reasons();
+        record_transition_response();
       }
     }
     Platform::WaitForFrameSubmissions("DDGI Validation Warmup Fence Wait");
@@ -2132,7 +2213,7 @@ void CaptureDemoPreview(
       if (!ApplicationContext::Get().Loop()) {
         throw std::runtime_error("Application ended during DDGI GPU timing measurement.");
       }
-      record_transition_reset_reasons();
+      record_transition_response();
       ++capture_frame_count;
     }
   }
@@ -2183,7 +2264,10 @@ void CaptureDemoPreview(
         preview_ddgi_response_frames > 0 ? preview_ddgi_response_frames : preview_ddgi_measure_frames,
         preview_ddgi_response_frames, warmup_frames, glm::uvec2(render_extent.width, render_extent.height),
         resolved_render_mode, preview_ddgi_phase, preview_ddgi_run_index, ddgi_convergence_frames,
-        ddgi_convergence_observed, ddgi_history_reset_reasons_after_transition, !preview_ddgi_disabled);
+        ddgi_convergence_observed, ddgi_history_reset_reasons_after_transition, ddgi_transition_update_reasons,
+        ddgi_transition_update_hysteresis, ddgi_transition_response_observed, ddgi_transition_warmup_active,
+        ddgi_hysteresis_boost_frames, ddgi_paused_change_latched, ddgi_paused_hysteresis_frozen,
+        !preview_ddgi_disabled);
   }
 
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);

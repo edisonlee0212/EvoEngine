@@ -34,7 +34,7 @@ struct ResolvedEnvironmentalLighting {
   static constexpr uint32_t kMaxLocalReflectionProbeCount = 32u;
   static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
-  static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
+  static constexpr float kDefaultDiffuseFallbackIntensity = 0.0f;
   static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
 
   struct IndirectEnvironmentSource {
@@ -59,6 +59,11 @@ struct ResolvedEnvironmentalLighting {
     bool enabled = true;
   };
 
+  struct DynamicReflectionProbeSettings {
+    uint32_t faces_per_frame = 6u;
+    bool enabled = true;
+  };
+
   struct DdgiVolume {
     std::string name{};
     glm::mat4 transform = glm::mat4(1.0f);
@@ -79,8 +84,7 @@ struct ResolvedEnvironmentalLighting {
     float fixed_ray_backface_threshold = 0.25f;
     float probe_variability_threshold = 0.03f;
     int probe_variability_min_samples = 128;
-    int auto_invalidate_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
+    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int variability_reset_trigger_conditions =
         DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
   };
@@ -91,6 +95,7 @@ struct ResolvedEnvironmentalLighting {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiVolume> ddgi_volumes;
   bool environmental_lighting_asset_assigned = false;

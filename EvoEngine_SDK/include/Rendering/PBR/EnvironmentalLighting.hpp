@@ -29,7 +29,7 @@ class EnvironmentalLighting final : public IAsset {
   static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
   static constexpr int kMaxExactLocalReflectionProbePriority = 1 << 24;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
-  static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
+  static constexpr float kDefaultDiffuseFallbackIntensity = 0.0f;
   static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
   static constexpr float kSpecularVisibilityGrazingOcclusionCap = 0.04f;
   static constexpr float kSpecularVisibilityFullTrustStart = 0.8f;
@@ -52,6 +52,13 @@ class EnvironmentalLighting final : public IAsset {
     float intensity = 1.0f;
 
     void CollectAssetRef(std::vector<AssetRef>& list);
+  };
+
+  struct DynamicReflectionProbeSettings {
+    int faces_per_frame = 6;
+    bool enabled = true;
+
+    void Clamp();
   };
 
   struct LocalReflectionProbe {
@@ -92,8 +99,7 @@ class EnvironmentalLighting final : public IAsset {
     float fixed_ray_backface_threshold = 0.25f;
     float probe_variability_threshold = 0.03f;
     int probe_variability_min_samples = 128;
-    int auto_invalidate_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
+    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int variability_reset_trigger_conditions =
         DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
 
@@ -105,6 +111,7 @@ class EnvironmentalLighting final : public IAsset {
 
   IndirectEnvironmentSource indirect_environment_source{};
   ReflectionProbeBakeBackground reflection_probe_bake_background{};
+  DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   float environment_lighting_intensity = kDefaultEnvironmentLightingIntensity;
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
@@ -113,6 +120,7 @@ class EnvironmentalLighting final : public IAsset {
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiVolume> ddgi_volumes;
 
+  bool RepairStableIds();
   void CollectAssetRef(std::vector<AssetRef>& list);
 
   [[nodiscard]] static float EvaluateRoughSpecularVisibility(float material_occlusion, float screen_space_visibility,

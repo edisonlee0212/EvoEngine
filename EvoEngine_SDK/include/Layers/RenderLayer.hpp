@@ -309,6 +309,26 @@ class RenderLayer final : public ILayer {
   [[nodiscard]] uint32_t QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<Scene>& scene,
                                                              const std::vector<ReflectionProbeBakeRequest>& requests);
   [[nodiscard]] bool IsGlobalReflectionProbeBakePending(const std::shared_ptr<GlobalReflectionProbe>& target) const;
+  [[nodiscard]] bool HasPendingGlobalReflectionProbeBake() const;
+  struct DynamicReflectionProbeStats {
+    bool active = false;
+    uint32_t queued_probe_count = 0;
+    uint32_t in_progress_probe_count = 0;
+    uint32_t generation_a_probe_count = 0;
+    uint32_t generation_b_probe_count = 0;
+    uint32_t transitioning_probe_count = 0;
+    uint64_t current_probe_stable_id = 0;
+    uint32_t completed_face_count = 0;
+    uint64_t published_generation_count = 0;
+    uint64_t transient_gpu_bytes = 0;
+    float minimum_transition_weight = 0.0f;
+    float maximum_transition_weight = 0.0f;
+    double last_update_gpu_ms = 0.0;
+    double last_capture_gpu_ms = 0.0;
+    double last_prefilter_gpu_ms = 0.0;
+  };
+  [[nodiscard]] DynamicReflectionProbeStats GetDynamicReflectionProbeStats() const;
+  void ResetDynamicReflectionProbeHistory();
 
  private:
   using RenderCommandRecorder =
@@ -343,6 +363,55 @@ class RenderLayer final : public ILayer {
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
     bool use_mesh_shader = false;
+  };
+
+  struct DynamicReflectionProbeRuntimeState {
+    glm::vec3 position{};
+    int artist_priority = 0;
+    std::array<std::shared_ptr<Cubemap>, 2> filtered_generations{};
+    uint32_t initial_source_texture_index = 0u;
+    bool initial_source_valid = false;
+    int published_generation = -1;
+    uint32_t next_face = 0;
+    bool completion_in_flight = false;
+    float transition_weight = 0.0f;
+    float transition_start_weight = 0.0f;
+    uint64_t transition_start_face_serial = 0u;
+    uint64_t transition_end_face_serial = 0u;
+    uint64_t published_generation_count = 0;
+    uint64_t capture_revision = 0u;
+  };
+
+  struct DynamicReflectionProbeCaptureJob {
+    uint64_t stable_id = 0;
+    uint32_t first_face = 0;
+    uint32_t face_count = 0;
+    uint32_t first_camera = 0;
+    int output_generation = 0;
+    uint64_t end_face_serial = 0u;
+    uint64_t capture_revision = 0u;
+  };
+
+  struct PreparedDynamicReflectionProbeUpdate {
+    uint64_t epoch = 0;
+    std::vector<DynamicReflectionProbeCaptureJob> jobs{};
+    std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras{};
+  };
+
+  struct SubmittedDynamicReflectionProbeUpdate {
+    struct Completion {
+      uint64_t stable_id = 0;
+      int generation = 0;
+      uint64_t capture_revision = 0u;
+      std::shared_ptr<Cubemap> output{};
+    };
+    uint64_t epoch = 0;
+    std::vector<Completion> completions{};
+  };
+
+  struct RetiredDynamicReflectionProbeResources {
+    std::vector<std::shared_ptr<Cubemap>> cubemaps{};
+    std::shared_ptr<FrameSubmissionState> submission{};
   };
 
   struct DdgiReadbackTicket {
@@ -445,6 +514,10 @@ class RenderLayer final : public ILayer {
     uint32_t frame_probe_warmup_frame_count = 0;
     bool frame_probe_warmup_active = false;
     float frame_probe_update_hysteresis = 0.0f;
+    float current_probe_hysteresis = 0.97f;
+    bool hysteresis_boost_active = false;
+    bool frame_hysteresis_boost_active = false;
+    bool frame_hysteresis_boost_restoring = false;
     bool frame_probe_relocation_reset = false;
     bool frame_probe_relocation_enabled = false;
     bool frame_probe_classification_reset = false;
@@ -452,7 +525,6 @@ class RenderLayer final : public ILayer {
     bool frame_probe_variability_enabled = false;
     float frame_probe_variability_threshold = 0.0f;
     int latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
-    bool latched_scene_geometry_changed = false;
     uint32_t frame_selected_probe_ray_sample_count = 0;
     uint32_t frame_selected_probe_ray_logical_index = 0;
     uint32_t frame_selected_probe_ray_physical_index = 0;
@@ -592,9 +664,7 @@ class RenderLayer final : public ILayer {
   std::vector<uint64_t> ddgi_previous_active_light_keys_;
   std::vector<uint64_t> ddgi_previous_light_signatures_;
   std::vector<uint64_t> ddgi_previous_geometry_signatures_;
-  std::vector<uint64_t> ddgi_previous_probe_state_geometry_signatures_;
   int ddgi_latched_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
-  bool ddgi_latched_scene_geometry_changed_ = false;
   mutable DdgiPerformanceStats ddgi_last_performance_stats_{};
   DdgiEmissiveSamplingStats ddgi_emissive_sampling_capture_snapshot_{};
   bool has_ddgi_emissive_sampling_capture_snapshot_ = false;
@@ -617,6 +687,19 @@ class RenderLayer final : public ILayer {
   std::optional<PreparedReflectionProbeBake> prepared_reflection_probe_bake_{};
   std::vector<std::optional<SubmittedReflectionProbeBake>> submitted_reflection_probe_bakes_{};
   std::unordered_set<uint64_t> pending_reflection_probe_bake_targets_{};
+  std::unordered_map<uint64_t, DynamicReflectionProbeRuntimeState> dynamic_reflection_probe_runtime_states_{};
+  std::deque<uint64_t> dynamic_reflection_probe_queue_{};
+  std::optional<PreparedDynamicReflectionProbeUpdate> prepared_dynamic_reflection_probe_update_{};
+  std::vector<std::optional<SubmittedDynamicReflectionProbeUpdate>> submitted_dynamic_reflection_probe_updates_{};
+  std::vector<RetiredDynamicReflectionProbeResources> retired_dynamic_reflection_probe_resources_{};
+  std::unordered_map<uint64_t, RenderInstanceStorage::ReflectionProbeTextureOverride>
+      dynamic_reflection_probe_texture_overrides_{};
+  std::weak_ptr<Scene> dynamic_reflection_probe_scene_{};
+  Handle dynamic_reflection_probe_lighting_handle_{};
+  uint64_t dynamic_reflection_probe_epoch_ = 1;
+  uint64_t dynamic_reflection_probe_scheduled_face_serial_ = 0u;
+  bool dynamic_reflection_probe_contributing_ = false;
+  bool dynamic_reflection_probe_reset_requested_ = false;
   /**
    * \brief Called after the RenderLayer object is created.
    */
@@ -705,6 +788,15 @@ class RenderLayer final : public ILayer {
   void PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene);
   void RecordPreparedReflectionProbeBake(const std::shared_ptr<RenderInstanceStorage>& render_instances);
   void PublishSubmittedReflectionProbeBake(uint32_t frame_index);
+  void PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scene>& scene);
+  void RecordPreparedDynamicReflectionProbeUpdate(const std::shared_ptr<RenderInstanceStorage>& render_instances);
+  void PublishSubmittedDynamicReflectionProbeUpdate(uint32_t frame_index);
+  void RetireDynamicReflectionProbeRuntime();
+  void RetireDynamicReflectionProbeResources(std::vector<std::shared_ptr<Cubemap>> resources);
+  void CollectRetiredDynamicReflectionProbeResources();
+  void RebuildDynamicReflectionProbeQueue();
+  void SortDynamicReflectionProbeQueue();
+  void UpdateDynamicReflectionProbeTransitions(uint64_t face_serial);
   void FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error, bool timed_out);
   void EnsureReflectionProbeCaptureRenderGraph();
 

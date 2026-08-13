@@ -22,6 +22,13 @@ FIXTURES = {
 }
 REFRESH_INTERVAL = 120
 SCHEDULE_HORIZON = 360
+SCENE_CHANGE_REASON = 1 << 5
+HYSTERESIS_RESTORE_REASON = 1 << 8
+WARMUP_REASON = 1 << 4
+BOOSTED_HYSTERESIS = 0.85
+NORMAL_HYSTERESIS = 0.97
+HYSTERESIS_RESTORE_SPEED = 0.01
+CAPTURE_WARMUP_FRAMES = 40
 
 
 def repo_root() -> Path:
@@ -61,11 +68,12 @@ def main() -> int:
         for fixture in FIXTURES:
             images[fixture], reports[fixture] = capture(
                 editor, output_dir, environment, fixture, timeout=args.timeout,
-                guided_rays=args.guided_rays, guided_emitters=args.guided_emitters
+                guided_rays=args.guided_rays, guided_emitters=args.guided_emitters,
+                warmup_frames=CAPTURE_WARMUP_FRAMES,
             )
         repeat, repeat_report = capture(
             editor, output_dir, environment, "emissive-small-equal-power", "repeat", args.timeout,
-            args.guided_rays, args.guided_emitters
+            args.guided_rays, args.guided_emitters, CAPTURE_WARMUP_FRAMES
         )
         repeatability = compare_hdr_images(images["emissive-small-equal-power"], repeat)
 
@@ -88,9 +96,49 @@ def main() -> int:
             )
             checks[f"{fixture}_transition"] = capture_contract.get("transition_kind") == transition_kind
             if transition_kind != "none":
-                expected_history_reset = fixture != "emissive-enable"
                 checks[f"{fixture}_history_reset"] = (
-                    capture_contract.get("history_reset_after_transition") is expected_history_reset
+                    capture_contract.get("history_reset_after_transition") is False
+                )
+                transition_reasons = int(capture_contract.get("transition_update_reasons", 0))
+                boost_frames = capture_contract.get("hysteresis_boost_frames", [])
+                expected_curve = [BOOSTED_HYSTERESIS] + [
+                    min(BOOSTED_HYSTERESIS + HYSTERESIS_RESTORE_SPEED * frame, NORMAL_HYSTERESIS)
+                    for frame in range(1, 13)
+                ]
+                checks[f"{fixture}_hysteresis_boost"] = (
+                    capture_contract.get("transition_response_observed") is True
+                    and transition_reasons & SCENE_CHANGE_REASON != 0
+                    and transition_reasons & HYSTERESIS_RESTORE_REASON != 0
+                    and transition_reasons & WARMUP_REASON == 0
+                    and capture_contract.get("transition_warmup_active") is False
+                    and math.isclose(
+                        float(capture_contract.get("transition_update_hysteresis", math.nan)),
+                        BOOSTED_HYSTERESIS,
+                        abs_tol=1.0e-6,
+                    )
+                )
+                checks[f"{fixture}_pause_replay"] = (
+                    capture_contract.get("paused_change_latched") is True
+                    and capture_contract.get("paused_hysteresis_frozen") is True
+                )
+                checks[f"{fixture}_hysteresis_curve"] = len(boost_frames) == len(expected_curve) and all(
+                    math.isclose(float(frame.get("hysteresis", math.nan)), expected, abs_tol=1.0e-6)
+                    for frame, expected in zip(boost_frames, expected_curve, strict=True)
+                )
+                checks[f"{fixture}_forced_boost_updates"] = (
+                    bool(boost_frames)
+                    and all(int(frame.get("updated_probes", 0)) > 0 for frame in boost_frames)
+                    and int(boost_frames[0].get("update_reasons", 0)) & SCENE_CHANGE_REASON != 0
+                    and int(boost_frames[0].get("boosted_volumes", 0)) > 0
+                    and int(boost_frames[0].get("restoring_volumes", 0)) == 0
+                    and all(
+                        int(frame.get("update_reasons", 0)) & HYSTERESIS_RESTORE_REASON != 0
+                        and int(frame.get("boosted_volumes", 0)) > 0
+                        and int(frame.get("restoring_volumes", 0)) > 0
+                        for frame in boost_frames[1:]
+                    )
+                    and int(report.get("ddgi", {}).get("boosted_volumes", -1)) == 0
+                    and int(report.get("ddgi", {}).get("restoring_volumes", -1)) == 0
                 )
             active_probes = int(report.get("ddgi", {}).get("active_probes", 0))
             rays_per_probe = int(report.get("ddgi", {}).get("rays_per_probe", 0))
@@ -113,6 +161,7 @@ def main() -> int:
                 "schedule_horizon": SCHEDULE_HORIZON,
                 "guided_rays_per_probe": args.guided_rays,
                 "guided_emitter_limit": args.guided_emitters,
+                "capture_warmup_frames": CAPTURE_WARMUP_FRAMES,
             },
             "checks": checks,
             "repeatability": repeatability,

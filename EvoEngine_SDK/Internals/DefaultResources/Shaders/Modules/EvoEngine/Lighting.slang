@@ -243,6 +243,18 @@ float3 EE_REFLECTION_PROBE_DIRECTION(ReflectionProbeInfo probe, float3 local_pos
       determinant);
 }
 
+float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, int index, ReflectionProbeInfo probe,
+                                                          float3 direction, float lod, float3 global_prefiltered) {
+  const float blend_weight = clamp(asfloat(probe.transition_parameters.z), 0.0f, 1.0f);
+  const float3 source = probe.identity_and_flags.y != 0u
+                            ? resources.sampleReflectionProbe(index * 2, direction, lod)
+                            : global_prefiltered;
+  if (probe.transition_parameters.y == 0u || blend_weight <= 0.0f)
+    return source;
+  const float3 target = resources.sampleReflectionProbe(index * 2 + 1, direction, lod);
+  return blend_weight >= 1.0f ? target : lerp(source, target, blend_weight);
+}
+
 float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, float3 frag_pos,
                                                                  float3 reflection_direction, float roughness,
                                                                  float3 global_prefiltered) {
@@ -283,9 +295,10 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
   const float global_weight = (1.0f - primary_weight) * (1.0f - secondary_raw_weight);
   float3 result = global_prefiltered * global_weight;
   ReflectionProbeInfo primary_probe = EE_RENDER_INFO.reflection_probes[primary];
-  if (primary_probe.identity_and_flags.y != 0u) {
+  if (primary_probe.identity_and_flags.y != 0u || primary_probe.transition_parameters.y != 0u) {
     const float3 direction = EE_REFLECTION_PROBE_DIRECTION(primary_probe, primary_local, reflection_direction);
-    result += resources.sampleReflectionProbe(primary, direction, roughness * 8.0f) *
+    result += EE_SAMPLE_REFLECTION_PROBE(resources, primary, primary_probe, direction, roughness * 8.0f,
+                                         global_prefiltered) *
               primary_probe.lighting_parameters.x * primary_weight;
   } else {
     result += global_prefiltered * primary_weight;
@@ -293,9 +306,10 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
   if (secondary >= 0) {
     const float secondary_weight = (1.0f - primary_weight) * secondary_raw_weight;
     ReflectionProbeInfo secondary_probe = EE_RENDER_INFO.reflection_probes[secondary];
-    if (secondary_probe.identity_and_flags.y != 0u) {
+    if (secondary_probe.identity_and_flags.y != 0u || secondary_probe.transition_parameters.y != 0u) {
       const float3 direction = EE_REFLECTION_PROBE_DIRECTION(secondary_probe, secondary_local, reflection_direction);
-      result += resources.sampleReflectionProbe(secondary, direction, roughness * 8.0f) *
+      result += EE_SAMPLE_REFLECTION_PROBE(resources, secondary, secondary_probe, direction, roughness * 8.0f,
+                                           global_prefiltered) *
                 secondary_probe.lighting_parameters.x * secondary_weight;
     } else {
       result += global_prefiltered * secondary_weight;
@@ -307,7 +321,8 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
 public
 EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILightingResources>(
     T resources, float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
-    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, float ddgiVisibility) {
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility, float3 ddgiIrradiance,
+    float ddgiWeight, float ddgiVisibility) {
   EeEnvironmentalLighting result;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
@@ -330,10 +345,16 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
            : pow(resources.samplePrefiltered(EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * reflectionLodScale),
                  float3(1.0f / EE_ENVIRONMENT.gamma))) *
       (reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.specular_fallback_intensity);
+  float3 reflectionFallback = globalPrefiltered;
+  const float ddgiSpecularWeight = reflectionProbeCapture ? 0.0f : clamp(ddgiWeight, 0.0f, 1.0f);
+  const float3 ddgiSpecularFallback = max(ddgiIrradiance, float3(0.0f)) / EE_DDGI_PI;
+  if (ddgiSpecularWeight > 0.0f && !any(isnan(ddgiSpecularFallback)) && !any(isinf(ddgiSpecularFallback))) {
+    reflectionFallback = lerp(globalPrefiltered, ddgiSpecularFallback, ddgiSpecularWeight);
+  }
   const float3 prefilteredColor = reflectionProbeCapture
                                       ? float3(0.0f)
                                       : EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness,
-                                                                         globalPrefiltered);
+                                                                         reflectionFallback);
   const float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   result.unoccluded_specular = prefilteredColor * (F * brdf.x + float3(F90 * brdf.y));
   const bool gtaoVisibilityAvailable = (EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].raster_lighting_flags & 1u) != 0u;
@@ -349,7 +370,8 @@ float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T resources
                                                                      float3 viewDir, float3 fragPos, float metallic,
                                                                      float roughness, float3 F0, float F90) {
   const EeEnvironmentalLighting environment = EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
-      resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, 1.0f, 1.0f, 1.0f);
+      resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, 1.0f, 1.0f, float3(0.0f), 0.0f,
+      1.0f);
   const float3 diffuseIndirect = environment.diffuse * EE_RENDER_INFO.indirect_lighting_intensity;
   return diffuseIndirect + environment.specular;
 }
@@ -365,15 +387,14 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
   const float ddgiSpecularVisibility = lerp(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight);
   const EeEnvironmentalLighting environment =
       EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0,
-                                                 F90, materialOcclusion, screenSpaceVisibility, ddgiSpecularVisibility);
+                                                 F90, materialOcclusion, screenSpaceVisibility, gather.irradiance,
+                                                 gather_weight, ddgiSpecularVisibility);
   const float3 diffuse_albedo = environment.diffuse_weight * albedo;
   float3 diffuse = environment.diffuse;
-  if (gather_weight > 0.0f) {
-    if (any(diffuse_albedo > float3(0.0f))) {
-      const float3 ddgi_diffuse = EE_DDGI_DIFFUSE_RADIANCE(gather, diffuse_albedo);
-      if (!any(isnan(ddgi_diffuse)) && !any(isinf(ddgi_diffuse))) {
-        diffuse = lerp(diffuse, ddgi_diffuse, gather_weight);
-      }
+  if (gather_weight > 0.0f && any(diffuse_albedo > float3(0.0f))) {
+    const float3 ddgi_diffuse = EE_DDGI_DIFFUSE_RADIANCE(gather, diffuse_albedo);
+    if (!any(isnan(ddgi_diffuse)) && !any(isinf(ddgi_diffuse))) {
+      diffuse = lerp(diffuse, ddgi_diffuse, gather_weight);
     }
   }
   const float indirectVisibility = clamp(materialOcclusion * screenSpaceVisibility, 0.0f, 1.0f);

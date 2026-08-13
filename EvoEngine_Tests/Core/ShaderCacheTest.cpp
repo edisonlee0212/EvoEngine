@@ -681,7 +681,7 @@ import EvoEngine.PerFrame;
 [numthreads(1, 1, 1)]
 void main()
 {
-    static_assert(sizeof(RenderInfo, Std140DataLayout) == 5520, "RenderInfo layout");
+    static_assert(sizeof(RenderInfo, Std140DataLayout) == 6032, "RenderInfo layout");
     static_assert(sizeof(Environment, Std140DataLayout) == 64, "Environment layout");
     static_assert(sizeof(Camera, Std430DataLayout) == 976, "Camera layout");
     static_assert(sizeof(Instance, Std430DataLayout) == 96, "Instance layout");
@@ -1011,6 +1011,8 @@ TEST(ShaderCache, ProductionEnvironmentLightingSlangShadersMatchHostInterface) {
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
   const VkPushConstantRange cubemap_process_range{VK_SHADER_STAGE_ALL, 0,
                                                   static_cast<uint32_t>(sizeof(glm::mat4) + sizeof(float))};
+  const VkPushConstantRange prefilter_range{
+      VK_SHADER_STAGE_ALL, 0, static_cast<uint32_t>(sizeof(glm::mat4) + sizeof(float) + sizeof(uint32_t))};
   auto fragment_sampler_layout = std::make_shared<DescriptorSetLayout>();
   fragment_sampler_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                  VK_SHADER_STAGE_FRAGMENT_BIT, 0);
@@ -1054,7 +1056,7 @@ TEST(ShaderCache, ProductionEnvironmentLightingSlangShadersMatchHostInterface) {
       {ShaderType::Fragment,
        shader_root / "Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang",
        {fragment_sampler_layout},
-       {cubemap_process_range},
+       {prefilter_range},
        std::vector{world_pos_io},
        std::vector<ShaderReflectionStageIo>{}},
       {ShaderType::Fragment,

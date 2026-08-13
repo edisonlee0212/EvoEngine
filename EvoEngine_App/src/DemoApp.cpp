@@ -292,8 +292,8 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
     return FailSmokeTest(application, "Rendering demo environmental lighting asset is missing for DDGI validation");
   }
   if (resolved_lighting.environment_lighting_intensity != 1.0f ||
-      resolved_lighting.diffuse_fallback_intensity != 1.0f) {
-    return FailSmokeTest(application, "Rendering environmental lighting asset is not using neutral diffuse controls");
+      resolved_lighting.diffuse_fallback_intensity != 0.0f || resolved_lighting.specular_fallback_intensity != 1.0f) {
+    return FailSmokeTest(application, "Rendering environmental lighting asset overrides fallback defaults");
   }
   const auto main_camera = scene->main_camera.Get<Camera>();
   if (const auto camera_result = ValidateMainCameraRayTracingSetup(application, config, main_camera, "Rendering demo");
@@ -818,12 +818,11 @@ int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppR
     return FailSmokeTest(application, "Cornell DDGI probe volume is missing for classification validation");
   }
 
-  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
@@ -841,7 +840,7 @@ int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppR
     return SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   };
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   const auto direct_only_summary = capture_summary(true, "initial probe readback");
   if (!direct_only_summary) {
     return 1;
@@ -925,12 +924,11 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
     return FailSmokeTest(application, "Cornell DDGI probe volume is missing for classification surface validation");
   }
 
-  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
@@ -938,7 +936,7 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
   const auto capture_surface_summary = [&](const bool classification_enabled,
                                            const char* phase) -> std::optional<RenderTextureRegionSummary> {
     volume->enable_probe_classification = classification_enabled;
-    ddgi_settings.runtime.hysteresis = 0.0f;
+    render_layer->render_settings.ddgi_hysteresis = 0.0f;
     render_layer->RequestDdgiHistoryReset();
     DisableDdgiProbeReadback(render_layer);
     for (size_t frame_index = 0; frame_index < 3; ++frame_index) {
@@ -998,16 +996,15 @@ int ValidateThinWallDdgiProbeLeakReadback(Application& application, const DemoAp
     return FailSmokeTest(application, "render layer is missing for thin-wall DDGI leak validation");
   }
 
-  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   render_layer->RequestDdgiHistoryReset();
   EnableDdgiProbeReadback(render_layer);
   constexpr glm::ivec3 probe_counts(8, 6, 8);
@@ -1065,16 +1062,15 @@ int ValidateThinWallDdgiSurfaceLeakReadback(Application& application, const Demo
     return FailSmokeTest(application, "main camera render texture is missing for thin-wall DDGI surface validation");
   }
 
-  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   render_layer->RequestDdgiHistoryReset();
   DisableDdgiProbeReadback(render_layer);
   for (size_t frame_index = 0; frame_index < 3; ++frame_index) {

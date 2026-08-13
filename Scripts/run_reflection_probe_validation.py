@@ -577,7 +577,7 @@ def main() -> int:
             "new_descriptors": 0,
             "lighting_sampler_count": 37,
             "reflection_probe_info_bytes": 128,
-            "render_info_bytes": 5520,
+            "render_info_bytes": 6032,
             "camera_info_bytes": 704,
         }
         if abi != expected_abi:

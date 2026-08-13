@@ -142,8 +142,8 @@ ResolvedEnvironmentalLighting::DdgiVolume ToResolvedDdgiVolume(const Environment
   volume.fixed_ray_backface_threshold = glm::clamp(FiniteOr(source.fixed_ray_backface_threshold, 0.25f), 0.0f, 1.0f);
   volume.probe_variability_threshold = glm::clamp(FiniteOr(source.probe_variability_threshold, 0.03f), 0.0f, 10.0f);
   volume.probe_variability_min_samples = glm::clamp(source.probe_variability_min_samples, 0, 4096);
-  volume.auto_invalidate_trigger_conditions = source.auto_invalidate_trigger_conditions & DdgiVolumeTriggerConditionAll;
-  volume.warmup_trigger_conditions = source.warmup_trigger_conditions & DdgiVolumeTriggerConditionAll;
+  volume.hysteresis_boost_trigger_conditions =
+      source.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll;
   volume.variability_reset_trigger_conditions =
       source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll;
   return volume;
@@ -262,6 +262,10 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
   resolved.specular_fallback_intensity = NonNegativeFiniteOr(
       lighting.specular_fallback_intensity, ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
   resolved.ddgi_settings = lighting.ddgi_settings;
+  auto dynamic_settings = lighting.dynamic_reflection_probe_settings;
+  dynamic_settings.Clamp();
+  resolved.dynamic_reflection_probe_settings = {static_cast<uint32_t>(dynamic_settings.faces_per_frame),
+                                                dynamic_settings.enabled};
   ResolveLocalProbes(lighting, resolved);
   ResolveDdgiVolumes(lighting, resolved);
 }

@@ -1130,7 +1130,7 @@ bool RenderInstanceStorage::DdgiVolumeInfoBlock::operator!=(const DdgiVolumeInfo
 bool RenderInstanceStorage::ReflectionProbeInfoBlock::operator!=(const ReflectionProbeInfoBlock& other) const {
   return world_to_probe != other.world_to_probe || shape_parameters != other.shape_parameters ||
          projection_parameters != other.projection_parameters || lighting_parameters != other.lighting_parameters ||
-         identity_and_flags != other.identity_and_flags;
+         identity_and_flags != other.identity_and_flags || transition_parameters != other.transition_parameters;
 }
 
 bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==(
@@ -2751,12 +2751,13 @@ void RenderInstanceStorage::BuildFromScene(
     const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
     const bool include_editor_cameras,
     const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
-    const bool include_reflection_probes) {
+    const bool include_reflection_probes,
+    const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides) {
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
   CollectEnvironment(scene);
   if (include_reflection_probes) {
-    CollectReflectionProbes(scene);
+    CollectReflectionProbes(scene, reflection_probe_texture_overrides);
   } else {
     render_info_block.reflection_probe_header = glm::uvec4(0u);
     render_info_block.reflection_probes = {};
@@ -2785,7 +2786,9 @@ void RenderInstanceStorage::BuildFromScene(
   CollectLights(scene, world_bound);
 }
 
-void RenderInstanceStorage::CollectReflectionProbes(const std::shared_ptr<Scene>& target_scene) {
+void RenderInstanceStorage::CollectReflectionProbes(
+    const std::shared_ptr<Scene>& target_scene,
+    const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* texture_overrides) {
   render_info_block.reflection_probe_header = glm::uvec4(0u);
   render_info_block.reflection_probes = {};
   if (!target_scene) {
@@ -2804,9 +2807,27 @@ void RenderInstanceStorage::CollectReflectionProbes(const std::shared_ptr<Scene>
                                          static_cast<float>(probe.shape), probe.box_projection ? 1.0f : 0.0f);
     info.identity_and_flags.z = static_cast<uint32_t>(probe.stable_id);
     info.identity_and_flags.w = static_cast<uint32_t>(probe.stable_id >> 32u);
+    VkDescriptorImageInfo descriptor_info{};
+    if (texture_overrides) {
+      if (const auto found = texture_overrides->find(probe.stable_id); found != texture_overrides->end()) {
+        const auto& override = found->second;
+        VkDescriptorImageInfo target_descriptor{};
+        if (override.target_valid &&
+            TextureStorage::TryGetCubemapDescriptorImageInfo(override.target_texture_index, target_descriptor)) {
+          if (override.source_valid &&
+              TextureStorage::TryGetCubemapDescriptorImageInfo(override.source_texture_index, descriptor_info)) {
+            info.identity_and_flags.x = override.source_texture_index;
+            info.identity_and_flags.y = 1u;
+          }
+          info.transition_parameters.x = override.target_texture_index;
+          info.transition_parameters.y = 1u;
+          info.transition_parameters.z = glm::floatBitsToUint(glm::clamp(override.blend_weight, 0.0f, 1.0f));
+          continue;
+        }
+      }
+    }
     auto probe_payload_ref = probe.global_reflection_probe;
     if (const auto asset = probe_payload_ref.Get<GlobalReflectionProbe>(); asset && asset->IsRuntimeReady()) {
-      VkDescriptorImageInfo descriptor_info{};
       if (const auto cubemap = asset->GetCubemap();
           cubemap &&
           TextureStorage::TryGetCubemapDescriptorImageInfo(cubemap->GetTextureStorageIndex(), descriptor_info)) {

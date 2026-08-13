@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstddef>
+#include <unordered_map>
 
 namespace evo_engine {
 
@@ -55,6 +56,10 @@ struct RenderSettings {
   int directional_pcf_sample_amount = 16;        ///< Sample amount for directional PCF shadow filtering.
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
+
+  float ddgi_hysteresis = 0.97f;                ///< History weight used by normal DDGI probe updates.
+  float ddgi_boosted_hysteresis = 0.85f;        ///< History weight used while a DDGI hysteresis boost is active.
+  float ddgi_hysteresis_restore_speed = 0.01f;  ///< Hysteresis restored toward normal per unpaused frame.
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
@@ -196,8 +201,17 @@ class RenderInstanceStorage {
     glm::vec4 projection_parameters = glm::vec4(0.0f);
     glm::vec4 lighting_parameters = glm::vec4(0.0f);
     glm::uvec4 identity_and_flags = glm::uvec4(0u);
+    glm::uvec4 transition_parameters = glm::uvec4(0u);
 
     bool operator!=(const ReflectionProbeInfoBlock& other) const;
+  };
+
+  struct ReflectionProbeTextureOverride {
+    uint32_t source_texture_index = 0u;
+    uint32_t target_texture_index = 0u;
+    float blend_weight = 0.0f;
+    bool source_valid = false;
+    bool target_valid = false;
   };
 
   /**
@@ -247,18 +261,19 @@ class RenderInstanceStorage {
   static_assert(alignof(DdgiVolumeInfoBlock) == 16);
   static_assert(sizeof(DdgiVolumeInfoBlock) == 160);
   static_assert(alignof(ReflectionProbeInfoBlock) == 16);
-  static_assert(sizeof(ReflectionProbeInfoBlock) == 128);
+  static_assert(sizeof(ReflectionProbeInfoBlock) == 144);
   static_assert(offsetof(ReflectionProbeInfoBlock, world_to_probe) == 0);
   static_assert(offsetof(ReflectionProbeInfoBlock, shape_parameters) == 64);
   static_assert(offsetof(ReflectionProbeInfoBlock, projection_parameters) == 80);
   static_assert(offsetof(ReflectionProbeInfoBlock, lighting_parameters) == 96);
   static_assert(offsetof(ReflectionProbeInfoBlock, identity_and_flags) == 112);
+  static_assert(offsetof(ReflectionProbeInfoBlock, transition_parameters) == 128);
   static_assert(offsetof(RenderInfoBlock, indirect_lighting_intensity) == 28);
   static_assert(offsetof(RenderInfoBlock, ddgi_volume_header) == 112);
   static_assert(offsetof(RenderInfoBlock, ddgi_volumes) == 128);
   static_assert(offsetof(RenderInfoBlock, reflection_probe_header) == 1408);
   static_assert(offsetof(RenderInfoBlock, reflection_probes) == 1424);
-  static_assert(sizeof(RenderInfoBlock) == 5520);
+  static_assert(sizeof(RenderInfoBlock) == 6032);
 
   struct EmissiveTriangleInfoBlock {
     uint32_t instance_index = 0;
@@ -319,7 +334,7 @@ class RenderInstanceStorage {
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
     alignas(4) float environment_cubemap_index = -1.0f;   ///< Cubemap index for ray-traced environment light.
     alignas(4) float environment_rotation = 0.0f;         ///< Y-axis rotation in radians.
-    alignas(4) float diffuse_fallback_intensity = 1.0f;   ///< Raster diffuse IBL fallback scale.
+    alignas(4) float diffuse_fallback_intensity = 0.0f;   ///< Raster diffuse IBL fallback scale.
     alignas(4) float specular_fallback_intensity = 1.0f;  ///< Effective raster specular fallback scale.
 
     /**
@@ -945,7 +960,8 @@ class RenderInstanceStorage {
       const RenderSettings& render_settings, const std::shared_ptr<Scene>& scene, Bound& world_bound,
       bool include_editor_cameras = true,
       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
-      bool include_reflection_probes = true);
+      bool include_reflection_probes = true,
+      const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides = nullptr);
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
@@ -1159,7 +1175,9 @@ class RenderInstanceStorage {
    * @param target_scene The scene containing the environment settings.
    */
   void CollectEnvironment(const std::shared_ptr<Scene>& target_scene);
-  void CollectReflectionProbes(const std::shared_ptr<Scene>& target_scene);
+  void CollectReflectionProbes(
+      const std::shared_ptr<Scene>& target_scene,
+      const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* texture_overrides = nullptr);
 
   /**
    * @brief Registers an entity with a mesh renderer.

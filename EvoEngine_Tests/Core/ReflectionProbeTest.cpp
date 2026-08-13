@@ -294,6 +294,99 @@ TEST(ReflectionProbe, ExplicitBakesUseCachedGraphSharedBindingsAndNormalFrameSub
   EXPECT_NE(camera.find("void Camera::OnCreate() {\n  InitializeRenderResources({1, 1});"), std::string::npos);
 }
 
+TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndependent) {
+  const auto lighting_header =
+      ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));
+  const auto render_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/RenderLayer.hpp"));
+  const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto render_instances = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  const auto lighting_shader =
+      ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
+  const auto fixed_lighting_shader = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/LightingFixedSet3.slang"));
+  ASSERT_FALSE(lighting_header.empty());
+  ASSERT_FALSE(render_header.empty());
+  ASSERT_FALSE(render_layer.empty());
+  ASSERT_FALSE(render_instances.empty());
+  ASSERT_FALSE(inspector.empty());
+  ASSERT_FALSE(lighting_shader.empty());
+  ASSERT_FALSE(fixed_lighting_shader.empty());
+
+  const auto prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareDynamicReflectionProbeUpdate",
+                                      "void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate");
+  const auto record = ExtractBetween(render_layer, "void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate",
+                                     "void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate");
+  const auto publish = ExtractBetween(render_layer, "void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate",
+                                      "void RenderLayer::RenderAll");
+  const auto queue = ExtractBetween(render_layer, "uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch",
+                                    "bool RenderLayer::IsGlobalReflectionProbeBakePending");
+  ASSERT_FALSE(prepare.empty());
+  ASSERT_FALSE(record.empty());
+  ASSERT_FALSE(publish.empty());
+  ASSERT_FALSE(queue.empty());
+
+  EXPECT_EQ(lighting_header.find("DynamicReflectionProbeUpdatePolicy"), std::string::npos);
+  EXPECT_EQ(lighting_header.find("update_policy"), std::string::npos);
+  EXPECT_EQ(lighting_header.find("Manual"), std::string::npos);
+  EXPECT_NE(lighting_header.find("faces_per_frame = 6"), std::string::npos);
+  EXPECT_NE(lighting_header.find("bool enabled = true"), std::string::npos);
+  EXPECT_NE(render_header.find("std::array<std::shared_ptr<Cubemap>, 2> filtered_generations"), std::string::npos);
+  EXPECT_NE(render_header.find("transition_start_face_serial"), std::string::npos);
+  EXPECT_NE(render_header.find("dynamic_reflection_probe_texture_overrides_"), std::string::npos);
+  EXPECT_NE(prepare.find("while (remaining_budget > 0u && !dynamic_reflection_probe_queue_.empty())"),
+            std::string::npos);
+  EXPECT_NE(prepare.find("6u - state.next_face"), std::string::npos);
+  EXPECT_NE(prepare.find("state.position != position"), std::string::npos);
+  EXPECT_NE(prepare.find("++state.capture_revision"), std::string::npos);
+  EXPECT_NE(prepare.find("const auto has_dynamic_runtime"), std::string::npos);
+  EXPECT_NE(prepare.find("runtime_identity_changed && has_dynamic_runtime()"), std::string::npos);
+  const auto contribution_suspension_begin = prepare.find("if (!lighting->local_reflection_probes_enabled)");
+  const auto contribution_suspension_end = prepare.find("const bool activating", contribution_suspension_begin);
+  ASSERT_NE(contribution_suspension_begin, std::string::npos);
+  ASSERT_NE(contribution_suspension_end, std::string::npos);
+  const auto contribution_suspension =
+      prepare.substr(contribution_suspension_begin, contribution_suspension_end - contribution_suspension_begin);
+  EXPECT_NE(contribution_suspension.find("dynamic_reflection_probe_contributing_ = false"), std::string::npos);
+  EXPECT_EQ(contribution_suspension.find("RetireDynamicReflectionProbeRuntime"), std::string::npos);
+  EXPECT_NE(prepare.find("dynamic_reflection_probe_queue_.erase"), std::string::npos);
+  EXPECT_NE(prepare.find("state.published_generation < 0 ? 1 : 1 - state.published_generation"), std::string::npos);
+  EXPECT_NE(prepare.find("if (idle)"), std::string::npos);
+  EXPECT_NE(prepare.find("UpdateDynamicReflectionProbeTransitions"), std::string::npos);
+  EXPECT_EQ(prepare.find("probe.transform !="), std::string::npos);
+  EXPECT_NE(record.find("reflection_probe_capture_raw_cubemap_"), std::string::npos);
+  EXPECT_NE(record.find("reflection_probe_capture_filtered_cubemap_"), std::string::npos);
+  EXPECT_NE(record.find("GlobalReflectionProbe::RecordPrefilter"), std::string::npos);
+  EXPECT_NE(record.find("Platform::RecordCommandsMainQueue"), std::string::npos);
+  EXPECT_EQ(record.find("ImmediateSubmit"), std::string::npos);
+  EXPECT_EQ(record.find("WaitForFrameSubmissions"), std::string::npos);
+  EXPECT_NE(publish.find("completion.output->MarkGpuContentValid()"), std::string::npos);
+  EXPECT_NE(publish.find("texture_override.source_texture_index"), std::string::npos);
+  EXPECT_NE(publish.find("texture_override.target_texture_index"), std::string::npos);
+  EXPECT_NE(publish.find("texture_override.blend_weight = 0.0f"), std::string::npos);
+  EXPECT_NE(publish.find("state.published_generation = completion.generation"), std::string::npos);
+  EXPECT_NE(publish.find("completion.capture_revision != state.capture_revision"), std::string::npos);
+  EXPECT_NE(publish.find("dynamic_reflection_probe_texture_overrides_"), std::string::npos);
+  EXPECT_NE(render_instances.find("texture_overrides->find(probe.stable_id)"), std::string::npos);
+  EXPECT_NE(queue.find("disable dynamic local probe updates first"), std::string::npos);
+  EXPECT_NE(inspector.find("Enable dynamic local probe updates"), std::string::npos);
+  EXPECT_EQ(inspector.find("Dynamic update policy"), std::string::npos);
+  EXPECT_NE(inspector.find("Published A/B"), std::string::npos);
+  EXPECT_NE(inspector.find("Current probe: none (0/6 faces)"), std::string::npos);
+  EXPECT_NE(inspector.find("Reset Dynamic Probe History"), std::string::npos);
+  EXPECT_EQ(render_layer.find("InvalidateAllDynamicReflectionProbes"), std::string::npos);
+  EXPECT_EQ(render_layer.find("DDGI runtime lighting updated"), std::string::npos);
+  EXPECT_NE(render_layer.find("PreserveReflectionProbeTextureBindings"), std::string::npos);
+  EXPECT_EQ(render_layer.find("PreserveReflectionProbeRenderInfo"), std::string::npos);
+  EXPECT_EQ(record.find("SetUnsaved"), std::string::npos);
+  EXPECT_EQ(record.find("Save"), std::string::npos);
+  EXPECT_EQ(record.find("Download"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("lerp(source, target, blend_weight)"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("index * 2 + 1"), std::string::npos);
+  EXPECT_NE(fixed_lighting_shader.find("EE_REFLECTION_PROBE_MAX_COUNT * 2"), std::string::npos);
+  EXPECT_NE(render_instances.find("transition_parameters.z = glm::floatBitsToUint"), std::string::npos);
+}
+
 TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
   const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
@@ -375,9 +468,9 @@ TEST(ReflectionProbe, DemoSceneReflectionProbeValidationUsesEnvironmentalLightin
   EXPECT_NE(demo_scene.find("constexpr float blend_distance = 0.03f;"), std::string::npos);
   EXPECT_NE(demo_scene.find("LocalReflectionProbeShape::Box, 1.0f, blend_distance, true"), std::string::npos);
   EXPECT_EQ(demo_scene.find("definition.blend_distance"), std::string::npos);
-  EXPECT_NE(demo_scene.find("{3.7f, 5.9f, 13.7f}"), std::string::npos);
-  EXPECT_NE(demo_scene.find("{2.4f, 4.4f, 13.7f}"), std::string::npos);
-  EXPECT_NE(demo_scene.find("{2.9f, 4.4f, 5.4f}"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{4.0f, 6.2f, 14.5f}"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{3.0f, 5.0f, 14.5f}"), std::string::npos);
+  EXPECT_NE(demo_scene.find("{3.4f, 5.0f, 5.8f}"), std::string::npos);
   EXPECT_EQ(demo_scene.find("definition.extents"), std::string::npos);
   EXPECT_EQ(demo_scene.find("probe.box_extents"), std::string::npos);
   EXPECT_EQ(demo_scene.find("#include \"ReflectionProbe.hpp\""), std::string::npos);

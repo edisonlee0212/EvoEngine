@@ -9,7 +9,7 @@ intentional part of the renderer rather than unowned milestone scaffolding.
 
 | Path or class | Disposition | Owning invariant and evidence |
 |---|---|---|
-| Nine-field single-volume `RenderInfoBlock` mirror | Remove | The fixed array of eight `DdgiVolumeInfoBlock` records is the only GPU source. Probe visualization reads slot zero. ABI tests freeze the 112-byte DDGI header and 128-byte volume-array offset; DDGI ends at byte 1408, before the appended local-reflection-probe metadata, and the full block is 5520 bytes. |
+| Nine-field single-volume `RenderInfoBlock` mirror | Remove | The fixed array of eight `DdgiVolumeInfoBlock` records is the only GPU source. Probe visualization reads slot zero. ABI tests freeze the 112-byte DDGI header and 128-byte volume-array offset; DDGI ends at byte 1408, before the appended local-reflection-probe metadata, and the full block is 6032 bytes. |
 | `runtime_state` and `ddgi_runtime` migration aliases | Remove | Per-volume state is accessed through its owning object. A removed-symbol grep and the focused DDGI suite cover the qualified paths. |
 | Scene/settings diagnostic-source overload and cached candidate metadata | Remove | Production diagnostics use the already-resolved per-volume source. Deterministic seeding retains only `selected_volume_index`, which affects the ray rotation and emissive streams. |
 | Debug-volume selector that always selected the primary volume | Remove | All editor diagnostics explicitly use the deterministic primary volume. There is no second hidden selection policy. |

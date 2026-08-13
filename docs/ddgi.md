@@ -158,30 +158,38 @@ transition reset behavior, repeatability, convergence frames, and the exact rays
 Variability-policy changes use `DdgiUpdateReasonVariabilityPolicy` rather than the source bit. They still force a full
 zero-hysteresis update, restart variability sampling, and reset the transport sequence, but they are deliberately absent
 from atlas clearing, hard probe-state refresh, and the validation history-reset mask. The original reason values remain
-stable (`Source` is bit 0 through `PeriodicRefresh` at bit 6); the policy reason is bit 7.
+stable (`Source` is bit 0, `SceneChange` is bit 5, and `PeriodicRefresh` is bit 6); the policy reason is bit 7 and
+`HysteresisRestore` is bit 8.
 
 Irradiance history uses the atlas alpha channel as a validity marker and repeated-bright-observation confidence. This
-keeps valid black history distinct from a newly cleared atlas. A lone bright observation retains the authored hysteresis
+keeps valid black history distinct from a newly cleared atlas. A lone bright observation retains the selected hysteresis
 and the conservative RTXGI-style bright-delta scale; repeated observations progressively relax both, while a
 gamma-domain step limit tied to the authored brightness threshold bounds the response. Confidence decays when the bright
 evidence stops. The pre-gamma `64.0` irradiance ceiling remains a finite-data guard rather than a temporal clamp.
 
-Lighting and emissive-inventory changes restart the deterministic transport sequence but preserve compatible irradiance
-history so the confidence path can respond without a one-frame clear-and-replace spike. Geometry/material-closure
-changes, manual reset, incompatible resources, and full scrolling reset remain hard invalidations. Emissive factor and
+Light membership, lighting, emissive-inventory, geometry, and material-closure changes never clear compatible probe
+history or reset relocation/classification state. Enabled triggers instead snap the volume's current hysteresis to the
+Render Layer's boosted value, which defaults to `0.85`, and force a probe update. Continued changes hold that value.
+After the first quiet frame, hysteresis moves toward the separately configurable `0.97` normal value by the `0.01`
+restore-speed default before each forced update. The final `0.97` update completes recovery, after which normal
+convergence gating resumes. This response neither starts warmup nor changes its frame counter. Manual reset,
+incompatible resources, volume-source changes, and full scrolling reset remain hard invalidations. Emissive factor and
 emissive-texture changes are classified by the shared emissive inventory as lighting changes; the material-closure
-fingerprint deliberately excludes those fields.
+fingerprint deliberately excludes those fields. A changed guided-emitter population also leaves warmup untouched.
 
 Contributor tracking mirrors the DDGI TLAS: rigid, skinned, particle-instanced, transparent, and DDGI-capable external
 geometry participate, while strands, Gaussian splats, and external instances without DDGI geometry do not. Only
 ray-visible material fields and referenced texture content, views, and samplers are tracked. The volume's authored
-auto-invalidate trigger mask decides which contributor event classes force a transport refresh; only geometry-class
-events clear probe history and reset relocation/classification state. Its variability-reset mask
-independently decides which event classes restart convergence, and its warmup mask decides which run through warmup.
+**Hysteresis boost triggers** mask defaults to all contributor event classes and decides which events activate the boost
+described above. The variability-reset mask independently decides which event classes restart convergence. Cold-start
+warmup still ramps the Render Layer's normal hysteresis from zero to populate empty history quickly. Legacy
+`scene_change_hysteresis_trigger_conditions`, `warmup_trigger_conditions`, and `auto_invalidate_trigger_conditions`
+values are migrated into `hysteresis_boost_trigger_conditions` when an older asset is loaded and are no longer serialized.
 Events remain latched while updates are paused and replay after resume; otherwise ignored events are consumed after policy
-evaluation. The shared emissive inventory has a separate stable fingerprint, so its membership, geometry, transform,
-emissive material, texture, and importance changes feed the lighting event without reacting to unrelated or unsupported
-emitter assets.
+evaluation. Boost recovery also freezes while paused. A zero restore speed intentionally holds boosted hysteresis and
+forced updates until the setting changes or DDGI is reset. The shared emissive inventory has a separate stable
+fingerprint, so its membership, geometry, transform, emissive material, texture, and importance changes feed the
+lighting event without reacting to unrelated or unsupported emitter assets.
 
 The update shader writes:
 
@@ -245,7 +253,7 @@ transparent lighting includes material occlusion but not screen-space GTAO becau
 depth and GBuffer. Direct light, primary emission, and split-sum reflection-probe specular remain outside this composition.
 
 Metallic surfaces therefore receive no Lambertian DDGI while retaining reflection-probe lighting. Non-finite gather data
-falls back to diffuse IBL instead of contaminating the specular path. Recursive probe-hit shading remains Lambert-only.
+falls back to diffuse IBL and the global prefiltered specular source. Recursive probe-hit shading remains Lambert-only.
 Outside the volume or without any active finite probe contribution, raster lighting falls back continuously to `F`-scaled diffuse IBL and recursive probe-hit DDGI
 returns zero.
 
@@ -263,7 +271,12 @@ all local reflection probes. The bake therefore does not invent recursive local 
 Rough reflection-probe specular may use the scalar visibility from a valid DDGI gather, blended by DDGI coverage and
 confidence against white visibility. Disabling DDGI, moving outside every DDGI volume, or losing DDGI coverage therefore
 does not darken isolated probe specular, while valid DDGI visibility can reduce leakage on rough probe reflections. DDGI
-irradiance remains diffuse-only and is not used as a directional reflection source.
+irradiance also supplies a broad fallback where local reflection-probe weight is missing. The fallback reuses the existing
+normal-directed gather with no additional atlas samples, converts irradiance to radiance with `/ pi`, and blends by DDGI
+coverage and confidence at every material roughness. It is not multiplied by
+`specular_fallback_intensity`; that setting controls the original global prefiltered fallback blended underneath it. This
+low-frequency proxy does not provide sharp or reflection-direction detail even for smooth materials, never replaces valid
+local-probe weight, and is disabled during reflection-probe capture to prevent feedback.
 
 The frozen DDGI baseline manifest, replay evidence, and baseline validator are no longer checked in. Stable ray-camera
 reference captures remain under `EvoEngine_Tests/Rendering/DDGI/References/` for manual or ad-hoc image comparison.
@@ -340,6 +353,10 @@ stable ID, grid, memory, convergence/warmup state, and an explicit Inspect actio
 with their rejection reason. The selected diagnostic target is a stable volume ID plus probe-grid coordinate; there is no
 viewport picking or implicit retargeting. This runtime diagnostic selection is separate from the Environmental Lighting
 inspector's explicit whole-volume **Edit in Scene** authoring toggle.
+
+Stable IDs preserve each volume's runtime history, resources, ordering tie-break, and diagnostic selection when authored
+volumes are reordered. Environmental Lighting repairs missing or duplicate IDs to deterministic nonzero values when an
+asset loads or is edited. Runtime validation rejects invalid programmatic volume sets before they can alias one state.
 
 | Visualization target | Probe spheres | Selected marker | Selected rays |
 | --- | --- | --- | --- |
@@ -487,9 +504,9 @@ small-emitter report records one active guide, 983040 ray-output bytes, 192 guid
 resource classes explicitly.
 
 M11 keeps guide-population changes as soft transport changes. Appearance, disappearance, motion, power, or configured
-guide-count changes restart the deterministic ray sequence, warmup, and localized variability convergence, but do not
-clear layout-compatible irradiance history. Geometry, incompatible resources, full scroll resets, and explicit manual
-resets remain hard invalidations. No guidance-specific temporal gain, radiance clamp, or convergence threshold was
+guide-count changes restart the deterministic ray sequence and localized variability convergence, but do not restart
+warmup or clear layout-compatible irradiance history. Geometry, incompatible resources, full scroll resets, and explicit
+manual resets remain hard invalidations. No guidance-specific temporal gain, radiance clamp, or convergence threshold was
 added: the existing weighted irradiance variability and repeated-observation confidence policy consume the corrected
 estimator directly.
 

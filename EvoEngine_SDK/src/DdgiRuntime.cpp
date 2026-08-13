@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 using namespace evo_engine;
 
@@ -372,17 +373,34 @@ bool DdgiRuntime::ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& 
          atlas_matches(previous.variability_atlas, current.variability_atlas);
 }
 
-float DdgiRuntime::CalculateUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons) {
-  return CalculateUpdateHysteresis(settings, update_reasons, (std::numeric_limits<uint32_t>::max)());
+evo_engine::DdgiHysteresisBoostUpdate DdgiRuntime::AdvanceHysteresisBoost(
+    const float current_hysteresis, const bool active, const float normal_hysteresis, const float boosted_hysteresis,
+    const float restore_speed, const bool scene_changed) {
+  const auto normal = glm::clamp(normal_hysteresis, 0.0f, 1.0f);
+  const auto boosted = glm::clamp(boosted_hysteresis, 0.0f, 1.0f);
+  if (scene_changed) {
+    return {boosted, boosted != normal, true, false};
+  }
+  if (!active) {
+    return {normal, false, false, false};
+  }
+  const auto speed = glm::clamp(restore_speed, 0.0f, 1.0f);
+  const auto current = glm::clamp(current_hysteresis, 0.0f, 1.0f);
+  const auto delta = normal - current;
+  const bool reached_normal = delta == 0.0f || (speed > 0.0f && std::abs(delta) <= speed + 1e-6f);
+  const auto restored = reached_normal ? normal : current + std::copysign(speed, delta);
+  return {restored, !reached_normal, true, true};
 }
 
-float DdgiRuntime::CalculateUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons,
-                                             const uint32_t warmup_frame_index) {
+float DdgiRuntime::CalculateUpdateHysteresis(const float update_hysteresis, const uint32_t warmup_frame_count,
+                                             const uint32_t update_reasons, const uint32_t warmup_frame_index) {
   if ((update_reasons & (DdgiUpdateReasonManualReset | DdgiUpdateReasonVariabilityPolicy)) != 0u) {
     return 0.0f;
   }
-  const auto hysteresis = glm::clamp(settings.runtime.hysteresis, 0.0f, 1.0f);
-  const auto warmup_frame_count = static_cast<uint32_t>(glm::max(settings.runtime.warmup_frames, 0));
+  const auto hysteresis = glm::clamp(update_hysteresis, 0.0f, 1.0f);
+  if ((update_reasons & (DdgiUpdateReasonSceneChange | DdgiUpdateReasonHysteresisRestore)) != 0u) {
+    return hysteresis;
+  }
   if ((update_reasons & DdgiUpdateReasonWarmup) == 0u || warmup_frame_count == 0u ||
       warmup_frame_index >= warmup_frame_count) {
     return hysteresis;
@@ -415,9 +433,10 @@ std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
   append_reason(DdgiUpdateReasonSteadyState, "Steady state");
   append_reason(DdgiUpdateReasonConverged, "Converged");
   append_reason(DdgiUpdateReasonWarmup, "Warm up");
-  append_reason(DdgiUpdateReasonSceneInput, "Scene input");
+  append_reason(DdgiUpdateReasonSceneChange, "Scene change");
   append_reason(DdgiUpdateReasonPeriodicRefresh, "Periodic refresh");
   append_reason(DdgiUpdateReasonVariabilityPolicy, "Variability policy");
+  append_reason(DdgiUpdateReasonHysteresisRestore, "Hysteresis restore");
   return result.empty() ? "Unknown" : result;
 }
 
@@ -475,7 +494,16 @@ DdgiVolumeSetValidation DdgiRuntime::ValidateVolumeSet(const std::vector<DdgiVol
     return result;
   }
   uint64_t aggregate_probe_count = 0u;
+  std::unordered_set<uint64_t> stable_ids;
   for (const auto& info : infos) {
+    if (info.stable_entity_id == 0u) {
+      result.error = "DDGI volume stable IDs must be nonzero.";
+      return result;
+    }
+    if (!stable_ids.emplace(info.stable_entity_id).second) {
+      result.error = "Duplicate DDGI volume stable ID: " + std::to_string(info.stable_entity_id) + ".";
+      return result;
+    }
     aggregate_probe_count += info.probe_count;
     if (aggregate_probe_count > probe_limit) {
       result.aggregate_probe_count =
