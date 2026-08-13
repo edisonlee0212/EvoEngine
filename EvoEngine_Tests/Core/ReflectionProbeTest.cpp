@@ -164,7 +164,7 @@ TEST(ReflectionProbe, RoughSpecularVisibilityCapsUntrustedGrazingOcclusion) {
             EnvironmentalLighting::EvaluateRoughSpecularVisibility(1.0f, 1.0f, 0.2f, 1.0f, 1.0f));
 }
 
-TEST(ReflectionProbe, BakeUsesIndependentCameraStyleBackground) {
+TEST(ReflectionProbe, BakeBackgroundUsesEnvironmentalLightingIntensity) {
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
   const auto lighting =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
@@ -173,13 +173,19 @@ TEST(ReflectionProbe, BakeUsesIndependentCameraStyleBackground) {
 
   const auto prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareReflectionProbeBake",
                                       "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph");
+  const auto dynamic_prepare = ExtractBetween(render_layer, "void RenderLayer::PrepareDynamicReflectionProbeUpdate",
+                                              "void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate");
   ASSERT_FALSE(prepare.empty());
+  ASSERT_FALSE(dynamic_prepare.empty());
 
   EXPECT_NE(prepare.find("lighting->reflection_probe_bake_background"), std::string::npos);
   EXPECT_NE(prepare.find("face_camera->camera_settings.background_intensity"), std::string::npos);
+  EXPECT_NE(prepare.find("resolved_lighting.environment_lighting_intensity"), std::string::npos);
   EXPECT_NE(prepare.find("face_camera->camera_settings.clear_color = background.clear_color"), std::string::npos);
   EXPECT_NE(prepare.find("face_camera->skybox = background.cubemap"), std::string::npos);
   EXPECT_NE(prepare.find("face_camera->background_environment = background.environmental_map"), std::string::npos);
+  EXPECT_NE(dynamic_prepare.find("resolved.environment_lighting_intensity"), std::string::npos);
+  EXPECT_EQ(render_layer.find("background.intensity"), std::string::npos);
   EXPECT_NE(lighting.find("reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.diffuse_fallback_intensity"),
             std::string::npos);
   EXPECT_NE(lighting.find("EE_BASIC_CONSTANTS.instance_index == 2 ? 0"), std::string::npos);

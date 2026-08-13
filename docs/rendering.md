@@ -94,9 +94,9 @@ The engine-default indirect environment source supplies the source payload when 
 assigned, but the fallback contribution still uses the resolved fallback intensity.
 
 `environment_lighting_intensity` is a source sampling/input scale, not a final surface-lighting multiplier. It scales
-environment radiance when the indirect source is sampled by DDGI miss rays and ray-camera environment events. It does not
-multiply raster diffuse/specular fallbacks, final valid DDGI irradiance, a reflection-probe bake background, or final valid
-local reflection-probe samples.
+environment radiance when the indirect source is sampled by DDGI miss rays and ray-camera environment events, and it is
+the sole intensity for reflection-probe capture backgrounds. It does not multiply raster diffuse/specular fallbacks, final
+valid DDGI irradiance, captured surface radiance, or final valid local reflection-probe samples.
 
 Raster specular IBL resolves as:
 
@@ -133,8 +133,9 @@ provides the raster/global prefiltered specular fallback payload. Ray cameras ig
 DDGI probe-ray misses and diffuse IBL fallback use the same indirect environment source but independent intensity controls.
 DDGI miss radiance is `indirect_environment_source * environment_lighting_intensity`; raster diffuse fallback is
 `indirect_environment_source * diffuse_fallback_intensity`. Valid DDGI surface irradiance is used as accumulated.
-Reflection-probe baking uses its own camera-style Background source, color/assets, and intensity for visible miss pixels.
-Bake background intensity is independent of Environmental Lighting intensity and both fallback factors.
+Reflection-probe baking uses its own camera-style Background source and color/assets for visible miss pixels.
+Probe-capture background intensity always uses `environment_lighting_intensity`; there is no separate authored capture
+intensity. Both fallback factors remain independent.
 
 The runtime model is asset-owned and has no legacy scene-component compatibility path.
 
@@ -400,9 +401,10 @@ Set 2 still owns shared shadow-map and DDGI atlas bindings.
 
 The refactor replaces scattered scene-environment controls with three resolved environmental-lighting scalars:
 `environment_lighting_intensity`, `diffuse_fallback_intensity`, and `specular_fallback_intensity`.
-`environment_lighting_intensity` scales sampled indirect environment radiance for DDGI probe-ray misses and ray-camera
-environment events. It does not scale raster diffuse/specular fallbacks, visible camera or reflection-bake backgrounds,
-direct lights, primary emission, accumulated DDGI irradiance, or valid runtime local reflection-probe payloads.
+`environment_lighting_intensity` scales sampled indirect environment radiance for DDGI probe-ray misses, ray-camera
+environment events, and reflection-probe capture backgrounds. It does not scale raster diffuse/specular fallbacks,
+visible camera backgrounds, direct lights, primary emission, accumulated DDGI irradiance, captured surface radiance, or
+final valid local reflection-probe samples.
 
 `diffuse_fallback_intensity` is diffuse-fallback-only. It directly scales raster diffuse IBL when no valid DDGI gather is
 available. It does not scale DDGI miss radiance, accumulated DDGI surface irradiance, ray-camera environment lighting,

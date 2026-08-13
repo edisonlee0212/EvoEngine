@@ -108,10 +108,10 @@ struct ResolvedEnvironmentalLighting {
     switch (usage) {
       case LightingUsage::DdgiMissRadiance:
       case LightingUsage::RayCameraEnvironmentEvent:
+      case LightingUsage::ReflectionProbeBakeEnvironmentInput:
         return true;
       case LightingUsage::DiffuseIblFallback:
       case LightingUsage::GlobalSpecularFallback:
-      case LightingUsage::ReflectionProbeBakeEnvironmentInput:
       case LightingUsage::ValidDdgiSurfaceIrradiance:
       case LightingUsage::ValidLocalReflectionProbeSample:
         return false;
@@ -149,8 +149,8 @@ struct ResolvedEnvironmentalLighting {
     return false;
   }
 
-  [[nodiscard]] static constexpr bool LocalReflectionProbePayloadsUseEnvironmentLightingIntensity() {
-    return false;
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeBackgroundUsesEnvironmentLightingIntensity() {
+    return true;
   }
 
   [[nodiscard]] static constexpr bool ValidDdgiSurfaceIrradianceUsesEnvironmentLightingIntensity() {

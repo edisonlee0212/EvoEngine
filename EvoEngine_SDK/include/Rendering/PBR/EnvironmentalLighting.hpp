@@ -49,7 +49,6 @@ class EnvironmentalLighting final : public IAsset {
     AssetRef cubemap;
     AssetRef environmental_map;
     glm::vec4 clear_color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    float intensity = 1.0f;
 
     void CollectAssetRef(std::vector<AssetRef>& list);
   };

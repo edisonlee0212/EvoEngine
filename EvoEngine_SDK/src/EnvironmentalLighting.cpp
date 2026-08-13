@@ -71,7 +71,6 @@ void SerializeReflectionProbeBakeBackground(YAML::Emitter& out,
                                             const EnvironmentalLighting::ReflectionProbeBakeBackground& background) {
   out << YAML::BeginMap;
   out << YAML::Key << "source" << YAML::Value << Camera::GetBackgroundSourceName(background.source);
-  out << YAML::Key << "intensity" << YAML::Value << background.intensity;
   out << YAML::Key << "clear_color" << YAML::Value << background.clear_color;
   background.cubemap.Save("cubemap", out);
   background.environmental_map.Save("environmental_map", out);
@@ -85,8 +84,6 @@ void DeserializeReflectionProbeBakeBackground(const YAML::Node& in,
     background.source = Camera::ParseBackgroundSource(in["source"].as<std::string>(),
                                                       CameraSettings::BackgroundSource::InheritEnvironmentalLighting);
   }
-  if (in["intensity"])
-    background.intensity = in["intensity"].as<float>();
   if (in["clear_color"])
     background.clear_color = in["clear_color"].as<glm::vec4>();
   background.cubemap.Load("cubemap", in);

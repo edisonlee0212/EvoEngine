@@ -208,8 +208,9 @@ transition-weight range, capture/prefilter GPU time, and transient memory. **Res
 while dynamics are enabled and never modifies persistent assets.
 
 The bake includes built-in opaque and alpha-masked geometry, direct lighting and shadows, emission, the selected visible
-bake background scaled by its own intensity, and only converged DDGI. Background selection affects visible miss pixels, not
-environment illumination on captured surfaces. It excludes every local reflection
+bake background scaled by `environment_lighting_intensity`, and only converged DDGI. The background has no independent
+intensity input. Background selection affects visible miss pixels, not environment illumination on captured surfaces. It
+excludes every local reflection
 probe, transparent geometry, Gaussian splats, clouds, editor overlays, external render callbacks, SSR, ambient occlusion,
 authored diffuse/specular fallback factors, and all post-processing. This prevents recursive feedback without a metallic
 diffuse proxy. Higher-order local-specular interreflection is intentionally absent: a baked probe can reflect the global

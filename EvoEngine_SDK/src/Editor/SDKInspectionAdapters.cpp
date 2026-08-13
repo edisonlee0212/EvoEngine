@@ -65,7 +65,7 @@ namespace pn = evo_engine::procedural_noise;
 using NoiseGraph = NodeGraph<pn::InputPinData, pn::OutputPinData, pn::NodeData, int>;
 
 bool InspectCameraBackground(const std::shared_ptr<EditorLayer>& editor_layer, CameraSettings::BackgroundSource& source,
-                             float& intensity, glm::vec4& clear_color, AssetRef& cubemap, AssetRef& environmental_map) {
+                             float* intensity, glm::vec4& clear_color, AssetRef& cubemap, AssetRef& environmental_map) {
   if (!editor_layer || !ImGui::TreeNodeEx("Background", ImGuiTreeNodeFlags_DefaultOpen)) {
     return false;
   }
@@ -75,7 +75,9 @@ bool InspectCameraBackground(const std::shared_ptr<EditorLayer>& editor_layer, C
     source = Camera::NormalizeBackgroundSource(source_index);
     changed = true;
   }
-  changed = ImGui::DragFloat("Intensity", &intensity, 0.01f, 0.0f, 10.0f) || changed;
+  if (intensity) {
+    changed = ImGui::DragFloat("Intensity", intensity, 0.01f, 0.0f, 10.0f) || changed;
+  }
   switch (source) {
     case CameraSettings::BackgroundSource::ClearColor:
       changed = ImGui::ColorEdit4("Clear Color", reinterpret_cast<float*>(&clear_color)) || changed;
@@ -607,7 +609,7 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
   }
 
   changed = InspectCameraBackground(editor_layer, camera.camera_settings.background_source,
-                                    camera.camera_settings.background_intensity, camera.camera_settings.clear_color,
+                                    &camera.camera_settings.background_intensity, camera.camera_settings.clear_color,
                                     camera.skybox, camera.background_environment) ||
             changed;
 
@@ -3012,7 +3014,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       ImGui::EndDisabled();
       dynamic_settings.Clamp();
       auto& background = lighting.reflection_probe_bake_background;
-      changed = InspectCameraBackground(editor_layer, background.source, background.intensity, background.clear_color,
+      changed = InspectCameraBackground(editor_layer, background.source, nullptr, background.clear_color,
                                         background.cubemap, background.environmental_map) ||
                 changed;
       if (ImGui::Button("Add Local Reflection Probe")) {

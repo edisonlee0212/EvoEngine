@@ -4668,7 +4668,8 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
     retry("Waiting for pending project, asset, texture, or geometry work.");
     return;
   }
-  const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  const auto& ddgi_settings = resolved_lighting.ddgi_settings;
   const bool ddgi_capture_pending =
       ddgi_settings.runtime.enabled &&
       std::any_of(ddgi_ordered_volume_ids_.begin(), ddgi_ordered_volume_ids_.end(),
@@ -4707,8 +4708,7 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
     for (const auto& face_camera : face_cameras) {
       face_camera->camera_settings.background_source =
           Camera::NormalizeBackgroundSource(static_cast<uint32_t>(background.source));
-      face_camera->camera_settings.background_intensity =
-          std::isfinite(background.intensity) ? glm::max(background.intensity, 0.0f) : 1.0f;
+      face_camera->camera_settings.background_intensity = resolved_lighting.environment_lighting_intensity;
       face_camera->camera_settings.clear_color = background.clear_color;
       face_camera->skybox = background.cubemap;
       face_camera->background_environment = background.environmental_map;
@@ -5256,8 +5256,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
   for (uint32_t index = 0; index < camera_count; ++index) {
     cameras[index]->camera_settings.background_source =
         Camera::NormalizeBackgroundSource(static_cast<uint32_t>(background.source));
-    cameras[index]->camera_settings.background_intensity =
-        std::isfinite(background.intensity) ? glm::max(background.intensity, 0.0f) : 1.0f;
+    cameras[index]->camera_settings.background_intensity = resolved.environment_lighting_intensity;
     cameras[index]->camera_settings.clear_color = background.clear_color;
     cameras[index]->skybox = background.cubemap;
     cameras[index]->background_environment = background.environmental_map;

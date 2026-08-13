@@ -52,7 +52,7 @@ TEST(EnvironmentalLightingContract, FallbackControlsApplyOnlyToFallbackUses) {
       ResolvedEnvironmentalLighting::LightingUsage::GlobalSpecularFallback));
   EXPECT_TRUE(ResolvedEnvironmentalLighting::LightingUsageUsesEnvironmentLightingIntensity(
       ResolvedEnvironmentalLighting::LightingUsage::RayCameraEnvironmentEvent));
-  EXPECT_FALSE(ResolvedEnvironmentalLighting::LightingUsageUsesEnvironmentLightingIntensity(
+  EXPECT_TRUE(ResolvedEnvironmentalLighting::LightingUsageUsesEnvironmentLightingIntensity(
       ResolvedEnvironmentalLighting::LightingUsage::ReflectionProbeBakeEnvironmentInput));
   EXPECT_FALSE(ResolvedEnvironmentalLighting::LightingUsageUsesEnvironmentLightingIntensity(
       ResolvedEnvironmentalLighting::LightingUsage::ValidDdgiSurfaceIrradiance));
@@ -85,7 +85,7 @@ TEST(EnvironmentalLightingContract, FallbackControlsApplyOnlyToFallbackUses) {
   EXPECT_FALSE(ResolvedEnvironmentalLighting::LightingUsageUsesSpecularFallbackIntensity(
       ResolvedEnvironmentalLighting::LightingUsage::ValidLocalReflectionProbeSample));
 
-  EXPECT_FALSE(ResolvedEnvironmentalLighting::LocalReflectionProbePayloadsUseEnvironmentLightingIntensity());
+  EXPECT_TRUE(ResolvedEnvironmentalLighting::ReflectionProbeBakeBackgroundUsesEnvironmentLightingIntensity());
   EXPECT_FALSE(ResolvedEnvironmentalLighting::ValidDdgiSurfaceIrradianceUsesEnvironmentLightingIntensity());
   EXPECT_FALSE(ResolvedEnvironmentalLighting::ReflectionProbeBakeUsesFallbackIntensities());
 }
@@ -190,6 +190,11 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
   ASSERT_FALSE(render_layer.empty());
   EXPECT_NE(header.find("struct ReflectionProbeBakeBackground"), std::string::npos);
   EXPECT_NE(header.find("CameraSettings::BackgroundSource::InheritEnvironmentalLighting"), std::string::npos);
+  const auto background_begin = header.find("struct ReflectionProbeBakeBackground");
+  const auto background_end = header.find("};", background_begin);
+  ASSERT_NE(background_begin, std::string::npos);
+  ASSERT_NE(background_end, std::string::npos);
+  EXPECT_EQ(header.substr(background_begin, background_end - background_begin).find("intensity"), std::string::npos);
   EXPECT_NE(header.find("bool local_reflection_probes_enabled = true"), std::string::npos);
   EXPECT_NE(serialization.find("reflection_probe_bake_background"), std::string::npos);
   EXPECT_NE(serialization.find("local_reflection_probes_enabled"), std::string::npos);
@@ -204,6 +209,9 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
   EXPECT_LT(master, background);
   EXPECT_LT(background, add);
   EXPECT_NE(render_layer.find("camera->camera_settings.background_source"), std::string::npos);
+  EXPECT_NE(render_layer.find("background_intensity = resolved_lighting.environment_lighting_intensity"),
+            std::string::npos);
+  EXPECT_NE(render_layer.find("background_intensity = resolved.environment_lighting_intensity"), std::string::npos);
   EXPECT_NE(render_layer.find("camera->skybox = background.cubemap"), std::string::npos);
   EXPECT_NE(render_layer.find("camera->background_environment = background.environmental_map"), std::string::npos);
 }
@@ -284,7 +292,7 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(header.find("kDefaultSpecularFallbackIntensity"), std::string::npos);
   EXPECT_NE(header.find("LightingUsageUsesDiffuseFallbackIntensity"), std::string::npos);
   EXPECT_NE(header.find("LightingUsageUsesSpecularFallbackIntensity"), std::string::npos);
-  EXPECT_NE(header.find("LocalReflectionProbePayloadsUseEnvironmentLightingIntensity"), std::string::npos);
+  EXPECT_NE(header.find("ReflectionProbeBakeBackgroundUsesEnvironmentLightingIntensity"), std::string::npos);
   EXPECT_NE(header.find("RayCameraUsesGlobalReflectionProbeAsRadianceSource"), std::string::npos);
   EXPECT_EQ(header.find("indirect_sky_intensity"), std::string::npos);
   EXPECT_EQ(header.find("global_reflection_fallback_intensity"), std::string::npos);
@@ -298,8 +306,9 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(rendering_docs.find("specular_fallback_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(rendering_docs.find("fallback contribution still uses the resolved fallback intensity"), std::string::npos);
   EXPECT_NE(rendering_docs.find("DDGI miss radiance is"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Bake background intensity is independent"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("valid runtime local reflection-probe payloads"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("Probe-capture background intensity always uses `environment_lighting_intensity`"),
+            std::string::npos);
+  EXPECT_NE(rendering_docs.find("valid local reflection probe at shaded point"), std::string::npos);
   EXPECT_NE(rendering_docs.find("environment_lighting_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(rendering_docs.find("renderer consumption path exist"), std::string::npos);
   EXPECT_NE(rendering_docs.find("asset for local probes and DDGI volumes"), std::string::npos);

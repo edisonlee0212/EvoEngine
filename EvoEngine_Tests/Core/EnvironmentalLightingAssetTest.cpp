@@ -255,7 +255,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   lighting->reflection_probe_bake_background.cubemap = bake_cubemap;
   lighting->reflection_probe_bake_background.environmental_map = environment;
   lighting->reflection_probe_bake_background.clear_color = glm::vec4(0.6f, 0.4f, 0.2f, 1.0f);
-  lighting->reflection_probe_bake_background.intensity = 1.75f;
   lighting->dynamic_reflection_probe_settings.enabled = true;
   lighting->dynamic_reflection_probe_settings.faces_per_frame = 4;
   lighting->environment_lighting_intensity = 0.35f;
@@ -313,7 +312,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_EQ(node["indirect_environment_source"]["environmental_map"]["asset_handle_"].as<uint64_t>(),
             environment->GetHandle().GetValue());
   EXPECT_EQ(node["reflection_probe_bake_background"]["source"].as<std::string>(), "Cubemap");
-  EXPECT_FLOAT_EQ(node["reflection_probe_bake_background"]["intensity"].as<float>(), 1.75f);
+  EXPECT_FALSE(node["reflection_probe_bake_background"]["intensity"]);
   EXPECT_EQ(node["reflection_probe_bake_background"]["cubemap"]["asset_handle_"].as<uint64_t>(),
             bake_cubemap->GetHandle().GetValue());
   EXPECT_TRUE(node["dynamic_reflection_probe_settings"]["enabled"].as<bool>());
@@ -353,7 +352,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_EQ(restored.reflection_probe_bake_background.cubemap.GetAssetHandle(), bake_cubemap->GetHandle());
   EXPECT_EQ(restored.reflection_probe_bake_background.environmental_map.GetAssetHandle(), environment->GetHandle());
   EXPECT_EQ(restored.reflection_probe_bake_background.clear_color, glm::vec4(0.6f, 0.4f, 0.2f, 1.0f));
-  EXPECT_FLOAT_EQ(restored.reflection_probe_bake_background.intensity, 1.75f);
   EXPECT_TRUE(restored.dynamic_reflection_probe_settings.enabled);
   EXPECT_EQ(restored.dynamic_reflection_probe_settings.faces_per_frame, 4);
   EXPECT_FLOAT_EQ(restored.environment_lighting_intensity, 0.35f);
@@ -461,6 +459,28 @@ TEST(EnvironmentalLightingAsset, ReflectionProbeBakeBackgroundRoundTripsEveryCam
   }
 }
 
+TEST(EnvironmentalLightingAsset, ReflectionProbeBakeBackgroundIgnoresLegacyIntensity) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  EnvironmentalLighting lighting;
+  DeserializeEnvironmentalLighting(YAML::Load(R"(
+reflection_probe_bake_background:
+  source: Clear Color
+  intensity: 4.5
+  clear_color: [0.1, 0.2, 0.3, 1.0]
+)"),
+                                   lighting);
+  EXPECT_EQ(lighting.reflection_probe_bake_background.source, CameraSettings::BackgroundSource::ClearColor);
+  EXPECT_EQ(lighting.reflection_probe_bake_background.clear_color, glm::vec4(0.1f, 0.2f, 0.3f, 1.0f));
+
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeEnvironmentalLighting(out, lighting);
+  out << YAML::EndMap;
+  EXPECT_FALSE(YAML::Load(out.c_str())["reflection_probe_bake_background"]["intensity"]);
+}
+
 TEST(EnvironmentalLightingAsset, SceneReferenceSerializesAndClonesWithoutRendererConsumption) {
   Application app;
   ApplicationContextScope scope(app);
@@ -524,7 +544,6 @@ TEST(EnvironmentalLightingAsset, SceneCreatesAndEmbedsTemporaryEnvironmentalLigh
   EXPECT_EQ(resolved.dynamic_reflection_probe_settings.faces_per_frame, 6u);
   EXPECT_EQ(created_lighting->reflection_probe_bake_background.source,
             CameraSettings::BackgroundSource::InheritEnvironmentalLighting);
-  EXPECT_FLOAT_EQ(created_lighting->reflection_probe_bake_background.intensity, 1.0f);
   EXPECT_TRUE(created_lighting->local_reflection_probes_enabled);
 
   scene->environmental_lighting.Clear();
