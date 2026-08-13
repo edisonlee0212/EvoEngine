@@ -36,13 +36,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable override.")
     parser.add_argument("--timeout", type=float, default=900.0, help="Per-launch timeout in seconds.")
     parser.add_argument("--reuse-settled", action="store_true", help="Reuse existing settled/repeat captures.")
-    parser.add_argument("--guided-rays", type=int, default=0, help="Guided irradiance rays per probe.")
+    parser.add_argument("--uniform-rays", type=int, default=192, help="Uniform/fixed rays per probe.")
+    parser.add_argument("--guided-rays", type=int, default=64, help="Guided irradiance rays per probe.")
     parser.add_argument("--guided-emitters", type=int, default=4, help="Maximum emissive guide records.")
     return parser.parse_args()
 
 
 def capture(editor: Path, output_dir: Path, environment: dict[str, str], fixture: str, suffix: str,
-            timeout: float, response_frames: int = 0, guided_rays: int = 0, guided_emitters: int = 4):
+            timeout: float, response_frames: int = 0, guided_rays: int = 0, guided_emitters: int = 4,
+            uniform_rays: int | None = None):
     image_path = output_dir / f"{fixture}-{suffix}.hdr"
     report_path = output_dir / f"{fixture}-{suffix}.json"
     command = common_command(editor, image_path, fixture, 1920, 1080)
@@ -54,6 +56,8 @@ def capture(editor: Path, output_dir: Path, environment: dict[str, str], fixture
         "--preview-ddgi-guided-rays", str(guided_rays),
         "--preview-ddgi-guided-emitters", str(guided_emitters),
     ))
+    if uniform_rays is not None:
+        command.extend(("--preview-ddgi-uniform-rays", str(uniform_rays)))
     if response_frames:
         command.extend(("--preview-ddgi-response-frames", str(response_frames)))
     run_command(command, editor.parent, environment, timeout, output_dir / f"{fixture}-{suffix}.log")
@@ -95,8 +99,8 @@ def main() -> int:
         args = parse_args()
         if args.timeout <= 0:
             raise ValueError("--timeout must be positive.")
-        if args.guided_rays < 0 or args.guided_rays > 4096 or args.guided_emitters < 1 or args.guided_emitters > 8:
-            raise ValueError("Guided rays must be 0-4096 and guided emitters must be 1-8.")
+        if args.uniform_rays < 1 or args.uniform_rays > 4096 or args.guided_rays < 0 or args.guided_rays > 4096 or args.guided_emitters < 1 or args.guided_emitters > 8:
+            raise ValueError("Uniform rays must be 1-4096, guided rays 0-4096, and guided emitters 1-8.")
         root = repo_root()
         editor = (args.editor or root / "out/install/vs2026-x64/bin/EvoEngineEditor.exe").resolve()
         if not editor.is_file():
@@ -110,7 +114,7 @@ def main() -> int:
         settled_capture = load_capture if args.reuse_settled else (
             lambda directory, fixture, suffix: capture(
                 editor, directory, environment, fixture, suffix, args.timeout, 0,
-                args.guided_rays, args.guided_emitters
+                args.guided_rays, args.guided_emitters, args.uniform_rays
             )
         )
         dark, dark_report = settled_capture(output_dir, "emissive-empty", "settled")
@@ -136,15 +140,15 @@ def main() -> int:
         for frame in RESPONSE_FRAMES:
             enabled, reports[f"enable-{frame}"] = capture(
                 editor, output_dir, environment, "emissive-enable", f"response-{frame}", args.timeout, frame,
-                args.guided_rays, args.guided_emitters
+                args.guided_rays, args.guided_emitters, args.uniform_rays
             )
             disabled, reports[f"disable-{frame}"] = capture(
                 editor, output_dir, environment, "emissive-disable", f"response-{frame}", args.timeout, frame,
-                args.guided_rays, args.guided_emitters
+                args.guided_rays, args.guided_emitters, args.uniform_rays
             )
             hdr, reports[f"hdr-{frame}"] = capture(
                 editor, output_dir, environment, "emissive-enable-hdr", f"response-{frame}", args.timeout, frame,
-                args.guided_rays, args.guided_emitters
+                args.guided_rays, args.guided_emitters, args.uniform_rays
             )
             on_curve[frame] = receiver_contribution(enabled, dark) / settled_energy
             off_curve[frame] = receiver_contribution(disabled, dark) / settled_energy
@@ -186,6 +190,7 @@ def main() -> int:
                 "legacy_hysteresis": 0.97,
                 "legacy_bright_delta_scale": 0.25,
                 "guided_rays_per_probe": args.guided_rays,
+                "uniform_rays_per_probe": args.uniform_rays,
                 "guided_emitter_limit": args.guided_emitters,
             },
             "checks": checks,

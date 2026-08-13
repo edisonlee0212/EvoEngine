@@ -136,6 +136,39 @@ float CalculateGuidedDirectionMixturePdf(const uint32_t uniform_ray_count, const
           static_cast<float>(guided_ray_count) * guided_pdf) /
          static_cast<float>(total_ray_count);
 }
+
+uint32_t PackOctahedralDirection(const glm::vec3& input_direction) {
+  const auto denominator = std::abs(input_direction.x) + std::abs(input_direction.y) + std::abs(input_direction.z);
+  auto direction =
+      denominator > 0.0f && std::isfinite(denominator) ? input_direction / denominator : glm::vec3(0.0f, 0.0f, 1.0f);
+  auto encoded = glm::vec2(direction);
+  if (direction.z < 0.0f) {
+    const auto sign_not_zero = glm::vec2(encoded.x >= 0.0f ? 1.0f : -1.0f, encoded.y >= 0.0f ? 1.0f : -1.0f);
+    encoded = (glm::vec2(1.0f) - glm::abs(glm::vec2(encoded.y, encoded.x))) * sign_not_zero;
+  }
+  const auto pack_snorm = [](const float value) {
+    return static_cast<uint16_t>(static_cast<int16_t>(
+        std::round(glm::clamp(value, -1.0f, 1.0f) * static_cast<float>((std::numeric_limits<int16_t>::max)()))));
+  };
+  return static_cast<uint32_t>(pack_snorm(encoded.x)) | static_cast<uint32_t>(pack_snorm(encoded.y)) << 16u;
+}
+
+glm::vec3 UnpackOctahedralDirection(const uint32_t packed_direction) {
+  const auto unpack_snorm = [](const uint16_t value) {
+    return (std::max)(static_cast<float>(static_cast<int16_t>(value)) /
+                          static_cast<float>((std::numeric_limits<int16_t>::max)()),
+                      -1.0f);
+  };
+  const auto encoded =
+      glm::vec2(unpack_snorm(static_cast<uint16_t>(packed_direction)), unpack_snorm(packed_direction >> 16u));
+  auto direction = glm::vec3(encoded, 1.0f - std::abs(encoded.x) - std::abs(encoded.y));
+  if (direction.z < 0.0f) {
+    const auto sign_not_zero = glm::vec2(direction.x >= 0.0f ? 1.0f : -1.0f, direction.y >= 0.0f ? 1.0f : -1.0f);
+    direction =
+        glm::vec3((glm::vec2(1.0f) - glm::abs(glm::vec2(direction.y, direction.x))) * sign_not_zero, direction.z);
+  }
+  return glm::normalize(direction);
+}
 }  // namespace
 
 TEST(DdgiVolume, SessionDebugStateIsTransientAndPersistentYamlOmitsLegacyKeys) {
@@ -145,6 +178,9 @@ TEST(DdgiVolume, SessionDebugStateIsTransientAndPersistentYamlOmitsLegacyKeys) {
   EXPECT_EQ(yaml.find("pause_updates"), std::string::npos);
   EXPECT_EQ(yaml.find("reset_probe_history"), std::string::npos);
   EXPECT_EQ(yaml.find("debug:"), std::string::npos);
+  EXPECT_NE(yaml.find("ray_count: 192"), std::string::npos);
+  EXPECT_NE(yaml.find("guided_ray_count: 64"), std::string::npos);
+  EXPECT_NE(yaml.find("guided_emitter_count: 4"), std::string::npos);
 
   RenderLayer::DdgiSessionState session;
   EXPECT_FALSE(session.pause_updates);
@@ -199,9 +235,9 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
   EXPECT_EQ(sizeof(DdgiProbeRayData), 16u);
   EXPECT_EQ(alignof(DdgiProbeRayData), 16u);
   EXPECT_EQ(offsetof(DdgiProbeRayData, radiance_and_signed_distance), 0u);
-  EXPECT_EQ(sizeof(DdgiProbeRaySampleInfo), 16u);
-  EXPECT_EQ(alignof(DdgiProbeRaySampleInfo), 16u);
-  EXPECT_EQ(offsetof(DdgiProbeRaySampleInfo, direction_and_inverse_pdf), 0u);
+  EXPECT_EQ(sizeof(DdgiProbeRaySampleInfo), 8u);
+  EXPECT_EQ(alignof(DdgiProbeRaySampleInfo), 8u);
+  EXPECT_EQ(offsetof(DdgiProbeRaySampleInfo, packed_direction_and_inverse_pdf), 0u);
   EXPECT_EQ(sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock), 32u);
   EXPECT_EQ(alignof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock), 16u);
   EXPECT_EQ(offsetof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock, center_and_radius), 0u);
@@ -209,7 +245,8 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
   EXPECT_EQ(sizeof(DdgiEmissiveSamplingStats), 36u);
   EXPECT_EQ(alignof(DdgiEmissiveSamplingStats), alignof(uint32_t));
   EXPECT_EQ(offsetof(DdgiEmissiveSamplingStats, nonzero_contribution_count), 32u);
-  EXPECT_EQ(DdgiSettings{}.runtime.guided_ray_count, 0);
+  EXPECT_EQ(DdgiSettings{}.runtime.ray_count, 192);
+  EXPECT_EQ(DdgiSettings{}.runtime.guided_ray_count, 64);
   EXPECT_EQ(DdgiSettings{}.runtime.guided_emitter_count, 4);
   EXPECT_EQ(sizeof(PointCloudSample), 128u);
   EXPECT_EQ(sizeof(DdgiProbeRayTracingPushConstant), 128u);
@@ -326,30 +363,30 @@ TEST(DdgiVolume, EmissiveGuidesFilterSortAndTruncate) {
   EXPECT_FLOAT_EQ(extreme[0].power_and_reserved.x, (std::numeric_limits<float>::max)());
 }
 
-TEST(DdgiVolume, GuidedResourcesAreDisabledByDefaultAndAccountedWhenEnabled) {
+TEST(DdgiVolume, GuidedResourcesUseDefaultPresetAndRemainOptional) {
   DdgiSettings settings;
-  settings.runtime.ray_count = 128;
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
   ASSERT_TRUE(layout.valid) << layout.error;
-  EXPECT_EQ(layout.emissive_guide_byte_size, 0u);
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 0u);
-  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 128ull * sizeof(DdgiProbeRayData));
-
-  settings.runtime.guided_ray_count = 32;
-  settings.runtime.guided_emitter_count = 4;
-  layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
-  ASSERT_TRUE(layout.valid) << layout.error;
   EXPECT_EQ(layout.emissive_guide_byte_size, 4ull * sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock));
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 160ull * sizeof(DdgiProbeRaySampleInfo));
-  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 160ull * sizeof(DdgiProbeRayData));
-  EXPECT_EQ(layout.selected_ray_diagnostics_byte_size, 160ull * sizeof(PointCloudSample));
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 256ull * sizeof(DdgiProbeRaySampleInfo));
+  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 256ull * sizeof(DdgiProbeRayData));
+  EXPECT_EQ(layout.selected_ray_diagnostics_byte_size, 256ull * sizeof(PointCloudSample));
 
+  settings.runtime.ray_count = 96;
+  settings.runtime.guided_ray_count = 32;
+  layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 384u);
+  ASSERT_TRUE(layout.valid) << layout.error;
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 384ull * 128ull * 8ull);
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 384ull * 128ull * sizeof(glm::uvec2));
+  EXPECT_EQ(layout.ray_sample_info_byte_size * 2ull, 384ull * 128ull * sizeof(glm::vec4));
+
+  settings.runtime.ray_count = 192;
   settings.runtime.enable_emissive_mesh_sampling = false;
   layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
   ASSERT_TRUE(layout.valid) << layout.error;
   EXPECT_EQ(layout.emissive_guide_byte_size, 0u);
   EXPECT_EQ(layout.ray_sample_info_byte_size, 0u);
-  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 128ull * sizeof(DdgiProbeRayData));
+  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 192ull * sizeof(DdgiProbeRayData));
 }
 
 TEST(DdgiVolume, GuidedDirectionReferenceMathPreservesPdfAndConstantRadiance) {
@@ -387,7 +424,7 @@ TEST(DdgiVolume, GuidedDirectionReferenceMathPreservesPdfAndConstantRadiance) {
   guided_pdf_integral /= kIntegrationSampleCount;
   EXPECT_NEAR(guided_pdf_integral, 1.0, 0.015);
 
-  const auto estimate_constant_radiance = [&](const uint32_t guided_ray_count) {
+  const auto estimate_constant_radiance = [&](const uint32_t guided_ray_count, const bool quantize_direction) {
     constexpr uint32_t kTotalRayCount = 1u << 16u;
     const auto uniform_ray_count = kTotalRayCount - guided_ray_count;
     double result = 0.0;
@@ -397,7 +434,9 @@ TEST(DdgiVolume, GuidedDirectionReferenceMathPreservesPdfAndConstantRadiance) {
       const auto direction = SampleSphericalCap(full_sphere, sample);
       const auto guided_pdf = EvaluateGuidedDirectionPdf(caps, weights, direction);
       const auto mixture_pdf = CalculateGuidedDirectionMixturePdf(uniform_ray_count, guided_ray_count, guided_pdf);
-      result += (std::max)(direction.z, 0.0f) / mixture_pdf;
+      const auto update_direction =
+          quantize_direction ? UnpackOctahedralDirection(PackOctahedralDirection(direction)) : direction;
+      result += (std::max)(update_direction.z, 0.0f) / mixture_pdf;
     }
     for (uint32_t index = 0; index < guided_ray_count; ++index) {
       const auto selector = (static_cast<float>(index) + 0.5f) / guided_ray_count;
@@ -409,13 +448,55 @@ TEST(DdgiVolume, GuidedDirectionReferenceMathPreservesPdfAndConstantRadiance) {
       const auto direction = SampleSphericalCap(caps[cap_index], sample);
       const auto guided_pdf = EvaluateGuidedDirectionPdf(caps, weights, direction);
       const auto mixture_pdf = CalculateGuidedDirectionMixturePdf(uniform_ray_count, guided_ray_count, guided_pdf);
-      result += (std::max)(direction.z, 0.0f) / mixture_pdf;
+      const auto update_direction =
+          quantize_direction ? UnpackOctahedralDirection(PackOctahedralDirection(direction)) : direction;
+      result += (std::max)(update_direction.z, 0.0f) / mixture_pdf;
     }
     return result / (2.0 * glm::pi<double>() * kTotalRayCount);
   };
-  EXPECT_NEAR(estimate_constant_radiance(0u), 0.5, 0.002);
-  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 4u), 0.5, 0.01);
-  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 2u), 0.5, 0.015);
+  for (const auto guided_ray_count : {0u, (1u << 16u) / 4u, (1u << 16u) / 2u}) {
+    const auto reference = estimate_constant_radiance(guided_ray_count, false);
+    const auto compact = estimate_constant_radiance(guided_ray_count, true);
+    EXPECT_NEAR(compact, reference, 1e-5);
+  }
+  EXPECT_NEAR(estimate_constant_radiance(0u, false), 0.5, 0.002);
+  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 4u, false), 0.5, 0.01);
+  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 2u, false), 0.5, 0.015);
+}
+
+TEST(DdgiVolume, CompactGuidedRayMetadataPreservesDirectionAndPdfAccuracy) {
+  constexpr uint32_t kDirectionCount = 1u << 16u;
+  float maximum_angular_error_degrees = 0.0f;
+  for (uint32_t index = 0u; index < kDirectionCount; ++index) {
+    const auto z = 1.0f - 2.0f * (static_cast<float>(index) + 0.5f) / kDirectionCount;
+    const auto phi = glm::two_pi<float>() * glm::fract(static_cast<float>(index) * 0.61803398875f);
+    const auto radial = std::sqrt((std::max)(0.0f, 1.0f - z * z));
+    const auto direction = glm::vec3(radial * std::cos(phi), radial * std::sin(phi), z);
+    const auto packed = PackOctahedralDirection(direction);
+    EXPECT_EQ(PackOctahedralDirection(direction), packed);
+    const auto decoded = UnpackOctahedralDirection(packed);
+    const auto direction_length =
+        std::sqrt(static_cast<double>(direction.x) * direction.x + static_cast<double>(direction.y) * direction.y +
+                  static_cast<double>(direction.z) * direction.z);
+    const auto decoded_length =
+        std::sqrt(static_cast<double>(decoded.x) * decoded.x + static_cast<double>(decoded.y) * decoded.y +
+                  static_cast<double>(decoded.z) * decoded.z);
+    const auto direction_dot =
+        glm::clamp((static_cast<double>(direction.x) * decoded.x + static_cast<double>(direction.y) * decoded.y +
+                    static_cast<double>(direction.z) * decoded.z) /
+                       (direction_length * decoded_length),
+                   -1.0, 1.0);
+    const auto angular_error_degrees = glm::degrees(std::acos(direction_dot));
+    maximum_angular_error_degrees =
+        (std::max)(maximum_angular_error_degrees, static_cast<float>(angular_error_degrees));
+  }
+  EXPECT_LT(maximum_angular_error_degrees, 0.005f);
+
+  for (const float inverse_pdf : {0.0f, 1.0f, 4.0f * glm::pi<float>(), 1.0e-8f, 1.0e8f}) {
+    const DdgiProbeRaySampleInfo sample_info{glm::uvec2(
+        PackOctahedralDirection(glm::normalize(glm::vec3(1.0f, -2.0f, 3.0f))), glm::floatBitsToUint(inverse_pdf))};
+    EXPECT_EQ(glm::uintBitsToFloat(sample_info.packed_direction_and_inverse_pdf.y), inverse_pdf);
+  }
 }
 
 TEST(DdgiVolume, DdgiProbeUpdateSchedulingCoversTexelsRaysAndBordersExactlyOnce) {
@@ -683,7 +764,8 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(demo_app_source.find("ResolveEnvironmentalLighting(scene)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("FindEnvironmentalLightingDdgiVolume(scene, \"DDGI Probe Volume\")"),
             std::string::npos);
-  EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.ray_count != 256"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.ray_count != 192"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.guided_ray_count != 64"), std::string::npos);
   EXPECT_NE(demo_app_source.find("GetDdgiSessionState().show_probes"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.probe_counts != glm::ivec3(10, 6, 16)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.probe_spacing != glm::vec3(1.5f)"), std::string::npos);
@@ -814,6 +896,9 @@ TEST(DdgiVolume, TemporalResponseValidationUsesFrameExactHdrContracts) {
   }
   EXPECT_NE(editor_source.find("--preview-ddgi-response-frames"), std::string::npos);
   EXPECT_NE(editor_source.find("\\\"response_frames\\\""), std::string::npos);
+  EXPECT_NE(validation_source.find("--uniform-rays"), std::string::npos);
+  EXPECT_NE(validation_source.find("--preview-ddgi-uniform-rays"), std::string::npos);
+  EXPECT_NE(validation_source.find("\"uniform_rays_per_probe\""), std::string::npos);
   EXPECT_NE(validation_source.find("RESPONSE_FRAMES = (1, 2, 4, 8, 16, 32)"), std::string::npos);
   EXPECT_NE(validation_source.find("confidence_response_reaches_90_percent_by_16_frames"), std::string::npos);
   EXPECT_NE(validation_source.find("darkening_reaches_90_percent_by_8_frames"), std::string::npos);
@@ -1000,6 +1085,7 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutUsesActiveVolumeProbeCount) {
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 128;
+  settings.runtime.guided_ray_count = 0;
 
   const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 252);
 
@@ -1024,6 +1110,7 @@ TEST(DdgiVolume, CompactRayMemoryAccountingCoversRepresentativeAndMaximumLayouts
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 256;
+  settings.runtime.guided_ray_count = 0;
 
   const auto representative = DdgiRuntime::CalculateFrameResourceLayout(settings, 8192);
   ASSERT_TRUE(representative.valid) << representative.error;
@@ -1060,7 +1147,11 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   EXPECT_NE(compact.find("struct DdgiProbeRayData"), std::string::npos);
   EXPECT_NE(compact.find("float4 radiance_and_signed_distance;"), std::string::npos);
   EXPECT_NE(compact.find("struct DdgiProbeRaySampleInfo"), std::string::npos);
-  EXPECT_NE(compact.find("float4 direction_and_inverse_pdf;"), std::string::npos);
+  EXPECT_NE(compact.find("uint2 packed_direction_and_inverse_pdf;"), std::string::npos);
+  EXPECT_NE(compact.find("packSnorm2x16"), std::string::npos);
+  EXPECT_NE(compact.find("unpackSnorm2x16ToFloat"), std::string::npos);
+  EXPECT_NE(compact.find("asuint(inverse_mixture_pdf)"), std::string::npos);
+  EXPECT_NE(compact.find("asfloat(sample_info.packed_direction_and_inverse_pdf.y)"), std::string::npos);
   EXPECT_NE(compact.find("struct DdgiEmissiveGuideInfo"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_MISS_DISTANCE = 1e27f"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_INACTIVE_DISTANCE = -1e27f"), std::string::npos);
@@ -1091,6 +1182,8 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   EXPECT_NE(raygen.find("[[vk::binding(20, 2)]] StructuredBuffer<DdgiEmissiveGuideInfo>"), std::string::npos);
   EXPECT_NE(raygen.find("[[vk::binding(21, 2)]] RWStructuredBuffer<DdgiProbeRaySampleInfo>"), std::string::npos);
   EXPECT_NE(update.find("[[vk::binding(6, 1)]]"), std::string::npos);
+  EXPECT_NE(update.find("EE_DDGI_PROBE_RAY_DIRECTION(sample_info)"), std::string::npos);
+  EXPECT_NE(update.find("EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info)"), std::string::npos);
   EXPECT_NE(update.find("1.0f / (2.0f * EE_DDGI_PI * max(float(blend_ray_count), 1.0f))"), std::string::npos);
   const auto visibility_call = ExtractBetween(update, "float2 directional_visibility =", "int2 atlas_texel");
   EXPECT_NE(visibility_call.find("EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS"), std::string::npos);
@@ -1122,6 +1215,7 @@ TEST(DdgiVolume, RenderLayerAcceptsExactProbeCapAndRejectsCapPlusOne) {
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 16;
+  settings.runtime.guided_ray_count = 0;
 
   EXPECT_TRUE(DdgiRuntime::ValidateProbeGrid({4, 4, 2}, 32));
   EXPECT_FALSE(DdgiRuntime::ValidateProbeGrid({4, 4, 3}, 32));
@@ -1497,6 +1591,17 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(gather_source.find("float EE_DDGI_GATHER_VISIBILITY"), std::string::npos);
   EXPECT_NE(gather_source.find("EE_DDGI_VOLUME_BLEND_WEIGHT(volume_probe_coordinate"), std::string::npos);
   EXPECT_NE(gather_source.find("decoded_irradiance *= decoded_irradiance * (2.0f * EE_DDGI_PI);"), std::string::npos);
+  EXPECT_NE(gather_source.find("float3 linear_irradiance"), std::string::npos);
+  EXPECT_NE(gather_source.find("linear_irradiance_sum += pow(encoded_irradiance, float3(irradiance_gamma))"),
+            std::string::npos);
+  EXPECT_NE(gather_source.find("if (gather_linear_irradiance)"), std::string::npos);
+  EXPECT_NE(gather_source.find("result.linear_irradiance = linear_irradiance;"), std::string::npos);
+  EXPECT_NE(gather_source.find("primary.linear_irradiance * primary_effective_weight"), std::string::npos);
+  EXPECT_NE(gather_source.find("EE_DDGI_PROBE_BLEND_LOSS"), std::string::npos);
+  EXPECT_NE(lighting_source.find("if (debugView == 5)"), std::string::npos);
+  EXPECT_NE(lighting_source.find("EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, debugView == 5)"),
+            std::string::npos);
+  EXPECT_NE(lighting_source.find("return EE_DDGI_PROBE_BLEND_LOSS(gather);"), std::string::npos);
   EXPECT_NE(gather_source.find("diffuse_albedo / EE_DDGI_PI * gather_result.irradiance"), std::string::npos);
   EXPECT_NE(gather_source.find("isnan(result.coverage) || isinf(result.coverage)"), std::string::npos);
   EXPECT_NE(gather_source.find("return isnan(weight) || isinf(weight) ? 0.0f"), std::string::npos);
@@ -1690,6 +1795,21 @@ TEST(DdgiVolume, DdgiGatherConfidenceAndDiffuseEnergyContracts) {
   EXPECT_NEAR(composed_ddgi_diffuse.r, 3.0f / kPi, 1e-6f);
   EXPECT_NE(composed_ddgi_diffuse.r, (raw_ddgi_diffuse * kIndirectIntensity * kIndirectIntensity).r);
   EXPECT_FLOAT_EQ(glm::clamp(2.0f * 2.0f, 0.0f, 1.0f), 1.0f);
+}
+
+TEST(DdgiVolume, ProbeBlendLossMeasuresNonlinearCrossProbeDarkening) {
+  const auto blend = [](const float first, const float second, const float weight) {
+    const auto linear = glm::mix(first, second, weight);
+    const auto nonlinear = std::pow(glm::mix(std::sqrt(first), std::sqrt(second), weight), 2.0f);
+    return std::pair(linear, (std::max)(linear - nonlinear, 0.0f));
+  };
+
+  const auto [constant, constant_loss] = blend(0.5f, 0.5f, 0.5f);
+  EXPECT_FLOAT_EQ(constant, 0.5f);
+  EXPECT_NEAR(constant_loss, 0.0f, 1e-6f);
+  const auto [high_contrast, high_contrast_loss] = blend(0.0f, 1.0f, 0.5f);
+  EXPECT_FLOAT_EQ(high_contrast, 0.5f);
+  EXPECT_FLOAT_EQ(high_contrast_loss, 0.25f);
 }
 
 TEST(DdgiVolume, DdgiProbeMissRaysSampleSceneEnvironment) {
@@ -3021,6 +3141,7 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutRespondsToResourceSizingInputs) {
   settings.storage.irradiance_tile_resolution = 6;
   settings.storage.visibility_tile_resolution = 14;
   settings.runtime.ray_count = 11;
+  settings.runtime.guided_ray_count = 0;
 
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 37);
 

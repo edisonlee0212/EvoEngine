@@ -26,8 +26,8 @@ struct DdgiSettings {
   struct RuntimeSettings {
     bool enabled = false;
     bool enable_emissive_mesh_sampling = true;
-    int ray_count = 256;
-    int guided_ray_count = 0;
+    int ray_count = 192;
+    int guided_ray_count = 64;
     int guided_emitter_count = 4;
     int warmup_frames = 16;
     float normal_bias = 0.1f;

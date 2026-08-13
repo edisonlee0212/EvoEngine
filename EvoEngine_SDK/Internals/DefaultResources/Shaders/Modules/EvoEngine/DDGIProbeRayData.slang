@@ -17,8 +17,52 @@ struct DdgiProbeRayData {
 public
 struct DdgiProbeRaySampleInfo {
  public
-  float4 direction_and_inverse_pdf;
+  uint2 packed_direction_and_inverse_pdf;
 };
+
+public
+float2 EE_DDGI_OCTAHEDRAL_SIGN_NOT_ZERO(float2 value) {
+  return float2(value.x >= 0.0f ? 1.0f : -1.0f, value.y >= 0.0f ? 1.0f : -1.0f);
+}
+
+public
+uint EE_DDGI_PACK_OCTAHEDRAL_DIRECTION(float3 direction) {
+  float denominator = abs(direction.x) + abs(direction.y) + abs(direction.z);
+  float3 octahedral = denominator > 0.0f && isfinite(denominator) ? direction / denominator : float3(0.0f, 0.0f, 1.0f);
+  float2 encoded = octahedral.xy;
+  if (octahedral.z < 0.0f) {
+    encoded = (1.0f - abs(encoded.yx)) * EE_DDGI_OCTAHEDRAL_SIGN_NOT_ZERO(encoded);
+  }
+  return packSnorm2x16(clamp(encoded, float2(-1.0f), float2(1.0f)));
+}
+
+public
+float3 EE_DDGI_UNPACK_OCTAHEDRAL_DIRECTION(uint packed_direction) {
+  float2 encoded = unpackSnorm2x16ToFloat(packed_direction);
+  float3 direction = float3(encoded, 1.0f - abs(encoded.x) - abs(encoded.y));
+  if (direction.z < 0.0f) {
+    direction.xy = (1.0f - abs(direction.yx)) * EE_DDGI_OCTAHEDRAL_SIGN_NOT_ZERO(direction.xy);
+  }
+  return normalize(direction);
+}
+
+public
+DdgiProbeRaySampleInfo EE_DDGI_PACK_PROBE_RAY_SAMPLE_INFO(float3 direction, float inverse_mixture_pdf) {
+  DdgiProbeRaySampleInfo result;
+  result.packed_direction_and_inverse_pdf =
+      uint2(EE_DDGI_PACK_OCTAHEDRAL_DIRECTION(direction), asuint(inverse_mixture_pdf));
+  return result;
+}
+
+public
+float3 EE_DDGI_PROBE_RAY_DIRECTION(DdgiProbeRaySampleInfo sample_info) {
+  return EE_DDGI_UNPACK_OCTAHEDRAL_DIRECTION(sample_info.packed_direction_and_inverse_pdf.x);
+}
+
+public
+float EE_DDGI_PROBE_RAY_INVERSE_PDF(DdgiProbeRaySampleInfo sample_info) {
+  return asfloat(sample_info.packed_direction_and_inverse_pdf.y);
+}
 
 public
 struct DdgiEmissiveGuideInfo {

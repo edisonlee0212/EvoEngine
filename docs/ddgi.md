@@ -257,6 +257,12 @@ falls back to diffuse IBL and the global prefiltered specular source. Recursive 
 Outside the volume or without any active finite probe contribution, raster lighting falls back continuously to `F`-scaled diffuse IBL and recursive probe-hit DDGI
 returns zero.
 
+The Render Layer's `DDGI Probe Blend Loss` indirect-lighting diagnostic displays the non-negative irradiance difference
+between energy-preserving linear cross-probe interpolation and the production square-root-domain interpolation. It uses
+the same valid probes, visibility weights, multi-volume composition, coverage, and confidence as production gathering.
+Black means the neighboring probe samples agree; brighter colored regions identify energy reduced by nonlinear blending.
+The view is diagnostic only and does not change beauty rendering, probe history, or atlas contents.
+
 Probe miss radiance uses `E`, so `E` and underlying environment-source changes enter the DDGI source signature and refresh
 affected probe history. `F` is a resolve-only fallback control and schedules no probe rays. Changing `E` does not rebuild the
 intensity-independent environment PDF, diffuse convolution, or GGX-prefiltered cubemap; replacing or editing the source
@@ -473,10 +479,12 @@ invalid records are removed and lower-ranked emitters remain reachable through u
 transparent, textured, alpha-masked, animated, and external sources therefore inherit the existing inventory's
 eligibility and invalidation rather than creating a second light list.
 
-`guided_ray_count` defaults to zero. In that state guide and per-ray sample-info resources have zero bytes and are not
-allocated. Enabling the staged path accounts one 48-byte guide record per configured top-K entry and one 16-byte exact
-direction/inverse-mixture-PDF record per probe ray. These records are proposal metadata only; every guided ray still
-traces the scene TLAS and evaluates the real mesh material.
+The runtime defaults to 192 uniform rays, 64 guided rays, and at most four emissive guides. Setting `guided_ray_count`
+to zero retains the allocation-free uniform-only path: guide and per-ray sample-info resources then have zero bytes and
+are not allocated. The guided path accounts one 32-byte guide record per configured top-K entry and one 8-byte compact
+direction/inverse-mixture-PDF record per probe ray. The unit direction uses two signed normalized 16-bit octahedral
+coordinates; the inverse PDF retains its original 32-bit float bits. These records are proposal metadata only; every
+guided ray still traces the scene TLAS and evaluates the real mesh material.
 
 M10 appends the configured guided population after the unchanged uniform/fixed population. Uniform and guided rays both
 store their exact traced direction and inverse complete mixture PDF. Serial, parallel-direct, and parallel-shared
@@ -498,7 +506,7 @@ At 384 probes and 128 uniform plus 32 guided rays, equal-power small-versus-larg
 6.53%. The deterministic repeat and the parallel-direct versus parallel-shared output are byte-exact. The small-emitter
 energy-normalized receiver L2 is 0.089; absolute energy differs from its path reference by 33.60%, while the large
 fixture already differs by 31.61%, so the pre-existing absolute-energy calibration remains a separate limitation. The
-small-emitter report records one active guide, 983040 ray-output bytes, 192 guide bytes, 983040 sample-info bytes,
+pre-compaction small-emitter report records one active guide, 983040 ray-output bytes, 192 guide bytes, 983040 sample-info bytes,
 1989648 transient bytes per frame, and 4858080 peak logical bytes. Median probe trace is 0.046 ms; atlas update is
 0.063 ms on parallel-shared and 0.118 ms on parallel-direct. Reports expose uniform/guided/guide counts and the two new
 resource classes explicitly.
@@ -517,40 +525,59 @@ environment, and analytic-light settled repeats are exact, and the guided multi-
 one-sided, and double-sided fixture matrix passes. Source/ABI tests additionally require every visibility, metadata,
 relocation, and classification path to use the original uniform population.
 
-M12 compared the additive experiment with two same-budget allocations on the RTX 5070, using 384 probes and the
-parallel-shared update. The timings are medians from the installed editor; transient and peak values are logical DDGI
-resource bytes reported by the runtime.
+M65 reran the additive experiment and two same-budget allocations on the RTX 5070 after sample-info compaction, using
+384 probes and the parallel-shared update. The timings are medians from the installed editor; transient and peak values
+are logical DDGI resource bytes reported by the runtime.
 
 | Uniform + guided rays | Equal-power size error | Normalized receiver L2 | Trace + update | Transient bytes | Peak bytes |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| 128 + 0 | 91.75% | 0.626 | 0.0956 ms | 804360 | 2487312 |
-| 128 + 32 additive | 6.53% | 0.089 | 0.1086 ms | 1989648 | 4858080 |
-| 96 + 32 same-budget | 7.58% | 0.093 | 0.0893 ms | 1592336 | 4063456 |
-| 64 + 64 same-budget | 7.37% | 0.094 | 0.0784 ms | 1592336 | 4063456 |
+| 128 + 0 | 92.32% | 0.609 | 0.0964 ms | 805904 | 2490400 |
+| 128 + 32 additive | 6.61% | 0.076 | 0.1010 ms | 1498128 | 3874976 |
+| 96 + 32 same-budget | 7.69% | 0.078 | 0.0834 ms | 1199120 | 3276960 |
+| 64 + 64 same-budget | 7.47% | 0.082 | 0.0727 ms | 1199120 | 3276960 |
 
-The 96+32 allocation is the recommended opt-in preset: it retains 75% of the original uniform visibility evidence,
-passes the 15% size-error, 0.30 normalized-L2, repeatability, temporal-response, and 5% aggregate-time gates, and makes
-the combined trace/update median 6.6% lower than 128 uniform rays in this fixture. The 64+64 result offers no material
-quality benefit while halving the uniform visibility population. Neither same-budget run passes the 30% absolute
-path-reference energy gate (33.80% and 34.23% error), but the corresponding large-emitter references are already 31.04%
-and 31.65% low. That common absolute-energy calibration is not hidden by a guide-specific gain.
+The 96+32 allocation remains the recommended opt-in preset. It retains 75% of the original uniform visibility evidence,
+passes the 15% size-error, 0.30 normalized-L2, repeatability, localized-convergence, and aggregate-time gates, and makes
+the combined trace/update median 13.5% lower than 128 uniform rays in this fixture. The 64+64 result is faster but offers
+no material quality benefit, has slightly worse normalized receiver error, and leaves only half of the population
+available for uniform visibility evidence or scenes without eligible guides. The 96+32 small-emitter absolute path-
+reference error is 30.56%, while its large-emitter reference is already 27.58% low; M62 isolated that shared deficit to
+spatial/transport approximation rather than the guided estimator, so it is not hidden with a guide-specific gain.
 
-Guidance remains disabled by default. Although same-budget trace/update time passes the target-case gate, exact
-direction/PDF storage raises peak logical DDGI bytes by 63% and transient bytes by 98%, and the complete scene matrix
-does not justify imposing that cost on scenes which do not need small-emitter guidance. The uniform-only default is
-therefore bit-compatible and allocation-free. A future compact sample-info representation is the prerequisite for
-reconsidering the default; a light tree or directional history cache was not added because top-K cone evaluation did
-not dominate the measured trace.
+M65 initially left guidance disabled by default because its installed temporal-response rerun did not pass the existing gate.
+The 96+32 response reaches 66.48% of settled energy at frame 8, 84.82% at frame 16, and 88.34% at frame 32, below the
+required 90% by frame 16. The same preset passes the localized convergence, emitter-motion, occluder-motion, and exact-
+replay matrix. Enabling it by default is deferred until the temporal response is corrected without weakening the gate.
 
-The recommended preset is reproducible with:
+M66 repeated the decision at the actual 256-ray production budget. At 384 probes, 192 uniform plus 64 guided rays
+reduces equal-power size error from 91.13% for 256 uniform rays to 7.70%, normalized receiver L2 from 0.604 to 0.075,
+and median trace-plus-update time from 0.1644 ms to 0.1444 ms. Its small-emitter path-reference error is 29.60%, its
+deterministic repeat is exact, and the localized convergence/motion matrix passes. The compact guided resources increase
+transient logical memory from 1608720 to 2395152 bytes and peak memory from 4096032 to 5669024 bytes.
+
+The 192+64 temporal response reaches 67.68% at frame 8, 79.39% at frame 16, and 81.37% at frame 32. It therefore fails
+both the 90%-by-frame-16 gate and the frame-16 requirement to exceed the projected legacy response by 0.5. M66 accepts
+that slower, smoother brightening transition as a product tradeoff and makes 192+64 the production default because of
+its large settled-quality improvement, lower measured trace-plus-update time, and unchanged total ray budget. The
+response gate remains documented evidence rather than being weakened; guided history adaptation can be improved later.
+
+Compact sample info halves its buffer from 16 to 8 bytes per ray: the 384-probe 96+32 fixture uses 393216 sample-info
+bytes. Compared with 128 uniform rays, the opt-in preset adds 393216 transient bytes and 786560 peak logical bytes while
+keeping the same total ray population. A 65536-direction CPU sweep bounds octahedral round-trip error below 0.005
+degrees, and the stored inverse PDF is bit-exact. Installed 1920x1080 validation records zero repeat error. Parallel-
+direct and parallel-shared independently repeat exactly; their decoded direction caching differs in 40-48 output pixels
+with at most `3.4e-5` relative L2, so compact cross-variant equivalence is numerical rather than byte-exact. A light tree
+or directional history cache was not added because top-K cone evaluation did not dominate the measured trace.
+
+The production default is reproducible with:
 
 ```powershell
 $env:EVOENGINE_DDGI_PROBE_UPDATE_VARIANT = "parallel-shared"
-python Scripts/run_ddgi_small_emitter_baseline.py --uniform-rays 96 --guided-rays 32 --guided-emitters 4 `
-  --output-dir out/ddgi-small-emitter/m12-same-budget-25
+python Scripts/run_ddgi_small_emitter_baseline.py --uniform-rays 192 --guided-rays 64 --guided-emitters 4 `
+  --output-dir out/ddgi-small-emitter/m66-same-budget-192-64
 ```
 
-In authored settings this corresponds to `Ray count: 96`, `Guided ray count: 32`, and `Guided emitter count: 4`.
+In authored settings this corresponds to `Ray count: 192`, `Guided ray count: 64`, and `Guided emitter count: 4`.
 Non-NVIDIA Vulkan devices use the same estimator and existing serial/direct/shared hardware fallback selection; their
 timings are correctness evidence only and are not compared with the RTX 5070 performance gate.
 
@@ -571,7 +598,7 @@ The Rendering demo DDGI baseline uses:
 - asset-owned DDGI volume with 10x6x16 probes;
 - 1.5 probe spacing;
 - local volume origin `(0, 3, 3)`;
-- 256 rays per probe;
+- 192 uniform plus 64 guided rays per probe;
 - 245760 ray samples per full update;
 - 0.02 normal/visibility bias;
 - relocation enabled;

@@ -56,6 +56,7 @@ def capture(
     guided_rays: int = 0,
     guided_emitters: int = 4,
     warmup_frames: int = 8,
+    uniform_rays: int | None = None,
 ):
     hdr_fixtures = {
         "emissive-small-equal-power",
@@ -85,6 +86,8 @@ def capture(
             str(guided_emitters),
         )
     )
+    if uniform_rays is not None:
+        command.extend(("--preview-ddgi-uniform-rays", str(uniform_rays)))
     run_command(command, editor.parent, environment, timeout, output_dir / f"{fixture}-{suffix}.log")
     image = require_hdr(image_path, 1920, 1080) if image_path.suffix == ".hdr" else read_image(image_path)
     if (image.width, image.height) != (1920, 1080):

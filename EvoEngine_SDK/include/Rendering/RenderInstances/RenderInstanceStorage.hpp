@@ -41,6 +41,7 @@ struct RenderSettings {
     UnoccludedProbeSpecular = 2,
     SpecularVisibility = 3,
     OccludedProbeSpecular = 4,
+    DdgiProbeBlendLoss = 5,
   };
 
   float max_shadow_distance = 400;           ///< Maximum shadow distance in the scene.

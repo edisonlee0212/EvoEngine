@@ -382,7 +382,8 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
                                                                           float metallic, float roughness, float3 F0,
                                                                           float F90, float materialOcclusion,
                                                                           float screenSpaceVisibility) {
-  const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos);
+  const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
+  const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, debugView == 5);
   const float gather_weight = EE_DDGI_GATHER_WEIGHT(gather);
   const float ddgiSpecularVisibility = lerp(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight);
   const EeEnvironmentalLighting environment =
@@ -401,7 +402,6 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
   const float3 diffuseIndirect = diffuse * indirectVisibility * EE_RENDER_INFO.indirect_lighting_intensity;
   const float3 unoccludedSpecular = environment.unoccluded_specular;
   const float3 specular = environment.specular;
-  const int debugView = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debugView == 1)
     return diffuseIndirect;
   if (debugView == 2)
@@ -410,6 +410,8 @@ float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T reso
     return float3(environment.specular_visibility);
   if (debugView == 4)
     return specular;
+  if (debugView == 5)
+    return EE_DDGI_PROBE_BLEND_LOSS(gather);
   return diffuseIndirect + specular;
 }
 

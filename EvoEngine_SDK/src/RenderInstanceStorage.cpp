@@ -1057,7 +1057,7 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   shadow_fade_parameters = glm::vec4(
       glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
                  glm::max(target_render_settings.max_shadow_distance, 0.0f)),
-      static_cast<float>(glm::clamp(static_cast<int>(target_render_settings.indirect_lighting_debug_view), 0, 4)), 0.0f,
+      static_cast<float>(glm::clamp(static_cast<int>(target_render_settings.indirect_lighting_debug_view), 0, 5)), 0.0f,
       0.0f);
   strands_subdivision_x_factor = target_render_settings.strands_subdivision_x_factor;
   strands_subdivision_y_factor = target_render_settings.strands_subdivision_y_factor;

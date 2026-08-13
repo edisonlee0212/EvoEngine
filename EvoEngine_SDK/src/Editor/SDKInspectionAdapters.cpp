@@ -1462,8 +1462,12 @@ void InspectRenderLayerGeneralSettings(RenderLayer& render_layer) {
   }
   ImGui::Checkbox("Indirect Rendering", &render_layer.enable_indirect_rendering);
   ImGui::Checkbox("Show entities", &render_layer.render_settings.enable_debug_visualization);
-  const char* indirect_lighting_debug_views[] = {"Beauty", "Diffuse Indirect", "Unoccluded Probe Specular",
-                                                 "Specular Visibility", "Occluded Probe Specular"};
+  const char* indirect_lighting_debug_views[] = {"Beauty",
+                                                 "Diffuse Indirect",
+                                                 "Unoccluded Probe Specular",
+                                                 "Specular Visibility",
+                                                 "Occluded Probe Specular",
+                                                 "DDGI Probe Blend Loss"};
   auto indirect_lighting_debug_view = static_cast<int>(render_layer.render_settings.indirect_lighting_debug_view);
   if (ImGui::Combo("Indirect lighting debug", &indirect_lighting_debug_view, indirect_lighting_debug_views,
                    IM_ARRAYSIZE(indirect_lighting_debug_views))) {

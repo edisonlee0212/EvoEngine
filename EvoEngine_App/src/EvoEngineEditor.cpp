@@ -105,7 +105,7 @@ struct EditorCommandLine {
   std::optional<std::filesystem::path> preview_ddgi_report_path;
   uint32_t preview_ddgi_seed = 0x6d2b79f5u;
   std::optional<int> preview_ddgi_uniform_ray_count;
-  int preview_ddgi_guided_ray_count = 0;
+  std::optional<int> preview_ddgi_guided_ray_count;
   int preview_ddgi_guided_emitter_count = 4;
   size_t preview_ddgi_measure_frames = 120;
   size_t preview_ddgi_response_frames = 0;
@@ -800,10 +800,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
       }
-      command_line.preview_ddgi_guided_ray_count = std::stoi(argv[++arg_index]);
-      if (command_line.preview_ddgi_guided_ray_count < 0 || command_line.preview_ddgi_guided_ray_count > 4096) {
+      const int guided_ray_count = std::stoi(argv[++arg_index]);
+      if (guided_ray_count < 0 || guided_ray_count > 4096) {
         throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
       }
+      command_line.preview_ddgi_guided_ray_count = guided_ray_count;
     } else if (argument == "--preview-ddgi-uniform-rays") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-uniform-rays requires a value between 1 and 4096.");
@@ -2430,7 +2431,9 @@ int main(const int argc, char** argv) {
             if (command_line.preview_ddgi_uniform_ray_count) {
               ddgi.runtime.ray_count = *command_line.preview_ddgi_uniform_ray_count;
             }
-            ddgi.runtime.guided_ray_count = command_line.preview_ddgi_guided_ray_count;
+            if (command_line.preview_ddgi_guided_ray_count) {
+              ddgi.runtime.guided_ray_count = *command_line.preview_ddgi_guided_ray_count;
+            }
             ddgi.runtime.guided_emitter_count = command_line.preview_ddgi_guided_emitter_count;
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
             if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();

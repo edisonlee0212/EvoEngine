@@ -124,8 +124,8 @@ rough-metal rim; a ramp starting there removed measurable occlusion from the rou
 weakening either gate. The term is never RGB, never interpolated by metallic value, and never applied to direct light,
 emission, the visible background, or diffuse IBL. DDGI irradiance supplies only the broad fallback proxy described above;
 it does not replace valid local probes or become sharper on smooth materials. The renderer exposes
-`Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, and `Occluded Probe Specular` diagnostic views for
-isolating this composition.
+`Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, `Occluded Probe Specular`, and
+`DDGI Probe Blend Loss` diagnostic views for isolating this composition and DDGI's nonlinear cross-probe interpolation.
 
 The Rendering/Sponza demo owns a tracked sky source, global probe, and five box-projected asset-owned local probe entries
 under `Resources/EvoEngine-DemoProjects/Rendering/Assets/Lighting/Sponza`. The local volumes cover the left gallery, right

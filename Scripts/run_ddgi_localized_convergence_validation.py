@@ -41,7 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=root / "out/ddgi-small-emitter/m3")
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable override.")
     parser.add_argument("--timeout", type=float, default=900.0, help="Per-launch timeout in seconds.")
-    parser.add_argument("--guided-rays", type=int, default=0, help="Guided irradiance rays per probe.")
+    parser.add_argument("--uniform-rays", type=int, default=192, help="Uniform/fixed rays per probe.")
+    parser.add_argument("--guided-rays", type=int, default=64, help="Guided irradiance rays per probe.")
     parser.add_argument("--guided-emitters", type=int, default=4, help="Maximum emissive guide records.")
     return parser.parse_args()
 
@@ -51,8 +52,8 @@ def main() -> int:
         args = parse_args()
         if args.timeout <= 0:
             raise ValueError("--timeout must be positive.")
-        if args.guided_rays < 0 or args.guided_rays > 4096 or args.guided_emitters < 1 or args.guided_emitters > 8:
-            raise ValueError("Guided rays must be 0-4096 and guided emitters must be 1-8.")
+        if args.uniform_rays < 1 or args.uniform_rays > 4096 or args.guided_rays < 0 or args.guided_rays > 4096 or args.guided_emitters < 1 or args.guided_emitters > 8:
+            raise ValueError("Uniform rays must be 1-4096, guided rays 0-4096, and guided emitters 1-8.")
         root = repo_root()
         editor = (args.editor or root / "out/install/vs2026-x64/bin/EvoEngineEditor.exe").resolve()
         if not editor.is_file():
@@ -69,11 +70,11 @@ def main() -> int:
             images[fixture], reports[fixture] = capture(
                 editor, output_dir, environment, fixture, timeout=args.timeout,
                 guided_rays=args.guided_rays, guided_emitters=args.guided_emitters,
-                warmup_frames=CAPTURE_WARMUP_FRAMES,
+                warmup_frames=CAPTURE_WARMUP_FRAMES, uniform_rays=args.uniform_rays,
             )
         repeat, repeat_report = capture(
             editor, output_dir, environment, "emissive-small-equal-power", "repeat", args.timeout,
-            args.guided_rays, args.guided_emitters, CAPTURE_WARMUP_FRAMES
+            args.guided_rays, args.guided_emitters, CAPTURE_WARMUP_FRAMES, args.uniform_rays
         )
         repeatability = compare_hdr_images(images["emissive-small-equal-power"], repeat)
 
@@ -160,6 +161,7 @@ def main() -> int:
                 "refresh_interval": REFRESH_INTERVAL,
                 "schedule_horizon": SCHEDULE_HORIZON,
                 "guided_rays_per_probe": args.guided_rays,
+                "uniform_rays_per_probe": args.uniform_rays,
                 "guided_emitter_limit": args.guided_emitters,
                 "capture_warmup_frames": CAPTURE_WARMUP_FRAMES,
             },

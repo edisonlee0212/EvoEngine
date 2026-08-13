@@ -679,7 +679,8 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
 
   auto& ddgi_settings = lighting->ddgi_settings;
   ddgi_settings.runtime.enabled = true;
-  ddgi_settings.runtime.ray_count = 256;
+  ddgi_settings.runtime.ray_count = 192;
+  ddgi_settings.runtime.guided_ray_count = 64;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
   ddgi_settings.storage.max_probe_count =

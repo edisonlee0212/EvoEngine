@@ -183,9 +183,8 @@ float3 EE_DDGI_SAMPLE_GUIDED_DIRECTION(const float3 origin, const uint guide_cou
     float mixture_pdf =
         (float(uniform_blend_ray_count) * (1.0f / (4.0f * EE_DDGI_PI)) + float(guided_ray_count) * guided_pdf) /
         max(float(blend_ray_count), 1.0f);
-    DdgiProbeRaySampleInfo sample_info;
-    sample_info.direction_and_inverse_pdf =
-        float4(direction, isfinite(mixture_pdf) && mixture_pdf > 0.0f ? rcp(mixture_pdf) : 0.0f);
+    DdgiProbeRaySampleInfo sample_info = EE_DDGI_PACK_PROBE_RAY_SAMPLE_INFO(
+        direction, isfinite(mixture_pdf) && mixture_pdf > 0.0f ? rcp(mixture_pdf) : 0.0f);
     EE_DDGI_PROBE_RAY_SAMPLE_INFO[sample_index] = sample_info;
   }
 

@@ -174,8 +174,8 @@ float4 EE_DDGI_DIRECTIONAL_IRRADIANCE(uint ray_offset, uint fixed_ray_count, uin
     float inverse_mixture_pdf = 1.0f;
     if (mixture_weighted) {
       DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[ray_offset + ray_index];
-      ray_direction = sample_info.direction_and_inverse_pdf.xyz;
-      inverse_mixture_pdf = sample_info.direction_and_inverse_pdf.w;
+      ray_direction = EE_DDGI_PROBE_RAY_DIRECTION(sample_info);
+      inverse_mixture_pdf = EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info);
     } else {
       ray_direction = EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count,
                                                           EE_DDGI_PROBE_RAY_ROTATION());
@@ -568,8 +568,9 @@ void EE_DDGI_CACHE_RAY_CHUNK(uint ray_offset, uint chunk_base, uint chunk_count,
     EE_DDGI_SHARED_PROBE_RAY_DATA[chunk_index] =
         EE_DDGI_PROBE_RAY_DATA[ray_offset + ray_index].radiance_and_signed_distance;
     if (mixture_weighted) {
+      DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[ray_offset + ray_index];
       EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index] =
-          EE_DDGI_PROBE_RAY_SAMPLE_INFO[ray_offset + ray_index].direction_and_inverse_pdf;
+          float4(EE_DDGI_PROBE_RAY_DIRECTION(sample_info), EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info));
     } else {
       EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index] =
           float4(EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count,
