@@ -5,7 +5,7 @@ __exported import EvoEngine.Lighting;
 [[vk::binding(1, 3)]] SamplerCube EE_RASTER_SKYBOX;
 [[vk::binding(2, 3)]] SamplerCube EE_RASTER_IRRADIANCE_MAP;
 [[vk::binding(3, 3)]] SamplerCube EE_RASTER_PREFILTERED_MAP;
-[[vk::binding(5, 3)]] SamplerCube EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT];
+[[vk::binding(5, 3)]] SamplerCube EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT * 2];
 
 struct EeLightingResources : ILightingResources {
   float3 sampleSky(float3 direction) {
@@ -46,6 +46,38 @@ struct EeLightingResources : ILightingResources {
       case 29: return EE_RASTER_REFLECTION_PROBES[29].SampleLevel(direction, lod).rgb;
       case 30: return EE_RASTER_REFLECTION_PROBES[30].SampleLevel(direction, lod).rgb;
       case 31: return EE_RASTER_REFLECTION_PROBES[31].SampleLevel(direction, lod).rgb;
+      case 32: return EE_RASTER_REFLECTION_PROBES[32].SampleLevel(direction, lod).rgb;
+      case 33: return EE_RASTER_REFLECTION_PROBES[33].SampleLevel(direction, lod).rgb;
+      case 34: return EE_RASTER_REFLECTION_PROBES[34].SampleLevel(direction, lod).rgb;
+      case 35: return EE_RASTER_REFLECTION_PROBES[35].SampleLevel(direction, lod).rgb;
+      case 36: return EE_RASTER_REFLECTION_PROBES[36].SampleLevel(direction, lod).rgb;
+      case 37: return EE_RASTER_REFLECTION_PROBES[37].SampleLevel(direction, lod).rgb;
+      case 38: return EE_RASTER_REFLECTION_PROBES[38].SampleLevel(direction, lod).rgb;
+      case 39: return EE_RASTER_REFLECTION_PROBES[39].SampleLevel(direction, lod).rgb;
+      case 40: return EE_RASTER_REFLECTION_PROBES[40].SampleLevel(direction, lod).rgb;
+      case 41: return EE_RASTER_REFLECTION_PROBES[41].SampleLevel(direction, lod).rgb;
+      case 42: return EE_RASTER_REFLECTION_PROBES[42].SampleLevel(direction, lod).rgb;
+      case 43: return EE_RASTER_REFLECTION_PROBES[43].SampleLevel(direction, lod).rgb;
+      case 44: return EE_RASTER_REFLECTION_PROBES[44].SampleLevel(direction, lod).rgb;
+      case 45: return EE_RASTER_REFLECTION_PROBES[45].SampleLevel(direction, lod).rgb;
+      case 46: return EE_RASTER_REFLECTION_PROBES[46].SampleLevel(direction, lod).rgb;
+      case 47: return EE_RASTER_REFLECTION_PROBES[47].SampleLevel(direction, lod).rgb;
+      case 48: return EE_RASTER_REFLECTION_PROBES[48].SampleLevel(direction, lod).rgb;
+      case 49: return EE_RASTER_REFLECTION_PROBES[49].SampleLevel(direction, lod).rgb;
+      case 50: return EE_RASTER_REFLECTION_PROBES[50].SampleLevel(direction, lod).rgb;
+      case 51: return EE_RASTER_REFLECTION_PROBES[51].SampleLevel(direction, lod).rgb;
+      case 52: return EE_RASTER_REFLECTION_PROBES[52].SampleLevel(direction, lod).rgb;
+      case 53: return EE_RASTER_REFLECTION_PROBES[53].SampleLevel(direction, lod).rgb;
+      case 54: return EE_RASTER_REFLECTION_PROBES[54].SampleLevel(direction, lod).rgb;
+      case 55: return EE_RASTER_REFLECTION_PROBES[55].SampleLevel(direction, lod).rgb;
+      case 56: return EE_RASTER_REFLECTION_PROBES[56].SampleLevel(direction, lod).rgb;
+      case 57: return EE_RASTER_REFLECTION_PROBES[57].SampleLevel(direction, lod).rgb;
+      case 58: return EE_RASTER_REFLECTION_PROBES[58].SampleLevel(direction, lod).rgb;
+      case 59: return EE_RASTER_REFLECTION_PROBES[59].SampleLevel(direction, lod).rgb;
+      case 60: return EE_RASTER_REFLECTION_PROBES[60].SampleLevel(direction, lod).rgb;
+      case 61: return EE_RASTER_REFLECTION_PROBES[61].SampleLevel(direction, lod).rgb;
+      case 62: return EE_RASTER_REFLECTION_PROBES[62].SampleLevel(direction, lod).rgb;
+      case 63: return EE_RASTER_REFLECTION_PROBES[63].SampleLevel(direction, lod).rgb;
     }
     return float3(0.0f);
   }
@@ -80,7 +112,7 @@ public EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
     float f90, float material_occlusion, float screen_space_visibility, float ddgi_visibility) {
   return EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
       EeLightingResources(), albedo, normal, view_dir, frag_pos, metallic, roughness, f0, f90, material_occlusion,
-      screen_space_visibility, ddgi_visibility);
+      screen_space_visibility, float3(0.0f), 0.0f, ddgi_visibility);
 }
 
 public float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(float3 albedo, float3 normal, float3 view_dir, float3 frag_pos,

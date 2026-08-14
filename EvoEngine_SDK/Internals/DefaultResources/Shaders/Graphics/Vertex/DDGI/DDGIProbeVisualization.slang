@@ -56,7 +56,7 @@ float EeDdgiProbeCameraFadeAlpha(float3 probe_position, uint camera_index, float
 DdgiProbeVisualizationOutput main(DdgiProbeVisualizationVertexInput input, uint instance_index : SV_InstanceID) {
   DdgiProbeVisualizationOutput output;
   uint logical_probe_index = instance_index;
-  DdgiVolumeInfo volume = EE_RENDER_INFO.ddgi_volumes[0];
+  DdgiVolumeInfo volume = EE_RENDER_INFO.ddgi_volumes[constants.camera_selected_mode.w];
   uint3 probe_counts = max(uint3(volume.probe_counts.xyz), uint3(1u));
   uint3 probe_grid = EeDdgiGridFromProbeIndex(logical_probe_index, probe_counts);
   int3 probe_scroll_offset = volume.probe_scroll_and_priority.xyz;

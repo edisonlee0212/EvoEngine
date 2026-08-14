@@ -10,6 +10,16 @@ static const uint EE_EMISSIVE_SAMPLER_UNIFORM = 0u;
 public
 static const uint EE_EMISSIVE_SAMPLER_POWER = 1u;
 public
+static const uint EE_DDGI_EMISSIVE_SAMPLE_REJECT_NONE = 0u;
+public
+static const uint EE_DDGI_EMISSIVE_SAMPLE_REJECT_ZERO_PDF = 1u;
+public
+static const uint EE_DDGI_EMISSIVE_SAMPLE_REJECT_EMITTER_BACKFACE = 2u;
+public
+static const uint EE_DDGI_EMISSIVE_SAMPLE_REJECT_ALPHA_MASK = 3u;
+public
+static const uint EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID = 4u;
+public
 struct EeEmissiveTriangleSample {
  public
   float3 position;
@@ -27,6 +37,8 @@ struct EeEmissiveTriangleSample {
   uint primitive_id;
  public
   uint material_index;
+ public
+  uint rejection_reason;
 };
 public
 uint EE_EMISSIVE_TRIANGLE_COUNT() {
@@ -38,7 +50,8 @@ bool EE_FIND_EMISSIVE_TRIANGLE_INDEX(const uint instance_index, const uint primi
   record_index = 0u;
   result.instance_index = 0u;
   result.primitive_id = 0u;
-  result.cdf = 0.0f;
+  result.alias_probability = 1.0f;
+  result.alias_index = 0u;
   result.area_pdf = 0.0f;
   const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
   if (count == 0u) {
@@ -71,20 +84,13 @@ bool EE_FIND_EMISSIVE_TRIANGLE(const uint instance_index, const uint primitive_i
 public
 EmissiveTriangleInfo EE_SAMPLE_EMISSIVE_TRIANGLE_RECORD(const float sample_value, const bool uniform_sampling) {
   const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
-  if (uniform_sampling) {
-    return EE_EMISSIVE_TRIANGLES[min(uint(clamp(sample_value, 0.0f, 0.99999994f) * float(count)), count - 1u)];
+  const float table_sample = clamp(sample_value, 0.0f, 0.99999994f) * float(count);
+  const uint record_index = min(uint(table_sample), count - 1u);
+  const EmissiveTriangleInfo record = EE_EMISSIVE_TRIANGLES[record_index];
+  if (!uniform_sampling && frac(table_sample) >= record.alias_probability) {
+    return EE_EMISSIVE_TRIANGLES[min(record.alias_index, count - 1u)];
   }
-  uint low = 0u;
-  uint high = count - 1u;
-  for (int iteration = 0; iteration < 32 && low < high; ++iteration) {
-    const uint mid = low + (high - low) / 2u;
-    if (sample_value < EE_EMISSIVE_TRIANGLES[mid].cdf) {
-      high = mid;
-    } else {
-      low = mid + 1u;
-    }
-  }
-  return EE_EMISSIVE_TRIANGLES[low];
+  return record;
 }
 public
 float EE_EMISSIVE_TRIANGLE_AREA(const EmissiveTriangleInfo record) {
@@ -100,15 +106,12 @@ public
 float EE_EMISSIVE_TRIANGLE_UNIFORM_AREA_PDF(const EmissiveTriangleInfo record) {
   const float area = EE_EMISSIVE_TRIANGLE_AREA(record);
   const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
-  return count != 0u && area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON
-             ? 1.0f / (float(count) * area)
-             : 0.0f;
+  return count != 0u && area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON ? 1.0f / (float(count) * area) : 0.0f;
 }
 public
 bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
-    const float3 shading_position, const float3 shading_normal, const bool upper_hemisphere,
-    const float record_sample, const float2 barycentric_sample, const uint sampling_mode,
-    out EeEmissiveTriangleSample result) {
+    const float3 shading_position, const float3 shading_normal, const bool upper_hemisphere, const float record_sample,
+    const float2 barycentric_sample, const uint sampling_mode, out EeEmissiveTriangleSample result) {
   result.position = shading_position;
   result.distance = 0.0f;
   result.direction = float3(0.0f, 1.0f, 0.0f);
@@ -117,7 +120,9 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
   result.instance_index = 0u;
   result.primitive_id = 0u;
   result.material_index = 0u;
+  result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_NONE;
   if (EE_EMISSIVE_TRIANGLE_COUNT() == 0u) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
     return false;
   }
   uint record_index = 0u;
@@ -144,6 +149,7 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
   const float3 to_light = light_position - shading_position;
   const float distance_squared = dot(to_light, to_light);
   if (distance_squared <= EE_EMISSIVE_TRIANGLE_RAY_EPSILON * EE_EMISSIVE_TRIANGLE_RAY_EPSILON) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
     return false;
   }
   const float distance = sqrt(distance_squared);
@@ -160,20 +166,25 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
   const float light_cosine = material.double_sided != 0 ? abs(dot(light_geometric_normal, -direction))
                                                         : max(dot(light_geometric_normal, -direction), 0.0f);
   if (light_cosine <= EE_EMISSIVE_TRIANGLE_PDF_EPSILON) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_EMITTER_BACKFACE;
     return false;
   }
   const float area = EE_EMISSIVE_TRIANGLE_AREA(record);
   const float area_pdf = area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON ? selection_pdf / area : 0.0f;
   const float solid_angle_pdf = area_pdf * distance_squared / light_cosine;
   if (solid_angle_pdf <= 0.0f || isnan(solid_angle_pdf) || isinf(solid_angle_pdf)) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_ZERO_PDF;
     return false;
   }
   const EeRayTracingSurfaceAttributes attributes =
       EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(v0, v1, v2, barycentrics, float4(0.0f));
   if (!EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0_SPECIALIZED<feature_mask>(material_index, attributes.tex_coords,
                                                                        attributes.vertex_color.a)) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_ALPHA_MASK;
     return false;
   }
+  const float emitter_opacity = EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<feature_mask>(
+      material_index, attributes.tex_coords, attributes.vertex_color.a);
   const float3 world_shading_normal =
       EE_RT_WORLD_NORMAL(world_normal_matrix, attributes.normal, light_geometric_normal);
   const float3 world_tangent = EE_RT_WORLD_TANGENT(instance.model, attributes.tangent, world_shading_normal);
@@ -192,14 +203,18 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
         EE_RT_SAFE_NORMALIZE(facing_tangent - facing_shading_normal * dot(facing_tangent, facing_shading_normal),
                              EE_GLTF_FALLBACK_TANGENT(facing_shading_normal));
   }
-  const float3 radiance = EE_RT_COATED_EMISSION_LOD0_SPECIALIZED<feature_mask>(
-      material_index, attributes.tex_coords, facing_sign * facing_shading_normal, facing_sign * facing_tangent,
-      tangent_handedness, facing_sign, facing_geometric_normal, -direction);
+  const float3 radiance =
+      EE_RT_COATED_EMISSION_LOD0_SPECIALIZED<feature_mask>(
+          material_index, attributes.tex_coords, facing_sign * facing_shading_normal, facing_sign * facing_tangent,
+          tangent_handedness, facing_sign, facing_geometric_normal, -direction) *
+      emitter_opacity;
   if (any(isnan(radiance)) || any(isinf(radiance))) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
     return false;
   }
   const float3 radiance_over_pdf = max(radiance, float3(0.0f)) / solid_angle_pdf;
   if (any(isnan(radiance_over_pdf)) || any(isinf(radiance_over_pdf))) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
     return false;
   }
   result.position = light_position;

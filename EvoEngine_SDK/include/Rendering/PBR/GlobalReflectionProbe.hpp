@@ -10,13 +10,21 @@ class GlobalReflectionProbe final : public IAsset {
 
  private:
   std::shared_ptr<Cubemap> cubemap_;
-  std::shared_ptr<GraphicsPipeline> prefilter_construct_pipeline_;
+  static std::shared_ptr<GraphicsPipeline> shared_prefilter_construct_pipeline_;
   std::vector<std::vector<std::shared_ptr<ImageView>>> mip_map_views_;
   SourceKind source_kind_ = SourceKind::Empty;
-  uint64_t source_fingerprint_ = 0;
-  uint64_t payload_hash_ = 0;
+  mutable uint64_t payload_hash_ = 0;
 
   void RebuildMipMapViews();
+  bool ConstructFilteredFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap, SourceKind source_kind,
+                                    bool retain_cpu_payload);
+  static std::shared_ptr<GraphicsPipeline> AcquirePrefilterPipeline(
+      const std::shared_ptr<DescriptorSetLayout>& descriptor_set_layout);
+  static void RecordPrefilter(const VkCommandBuffer command_buffer, const std::shared_ptr<Cubemap>& filtered,
+                              const std::vector<std::vector<std::shared_ptr<ImageView>>>& filtered_mip_views,
+                              const std::shared_ptr<Image>& depth_image, const std::shared_ptr<ImageView>& depth_view,
+                              const std::shared_ptr<DescriptorSet>& descriptor_set,
+                              const std::shared_ptr<GraphicsPipeline>& pipeline);
 
   friend class RenderLayer;
   friend class Camera;
@@ -29,7 +37,7 @@ class GlobalReflectionProbe final : public IAsset {
                                   const std::shared_ptr<StagedAssetLoadPayload>& payload);
 
  public:
-  static constexpr uint32_t kSchemaVersion = 1;
+  static constexpr uint32_t kSchemaVersion = 2;
   static constexpr uint32_t kResolution = 256;
   static constexpr uint32_t kMipLevels = 9;
   static constexpr VkFormat kCanonicalFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
@@ -54,15 +62,15 @@ class GlobalReflectionProbe final : public IAsset {
   void Deserialize(const YAML::Node& in);
   [[nodiscard]] std::shared_ptr<Cubemap> GetCubemap() const;
   [[nodiscard]] const std::vector<uint16_t>& GetCanonicalPayload() const;
+  [[nodiscard]] bool ReadCanonicalPayload(std::vector<uint16_t>& payload) const;
   [[nodiscard]] size_t GetCanonicalPayloadByteSize() const;
   [[nodiscard]] VkFormat GetRuntimeFormat() const;
   [[nodiscard]] SourceKind GetSourceKind() const;
-  [[nodiscard]] uint64_t GetSourceFingerprint() const;
   [[nodiscard]] uint64_t GetPayloadHash() const;
   [[nodiscard]] bool IsRuntimeReady() const;
   [[nodiscard]] bool PackedRuntimeFormatSupported() const;
   bool ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap);
-  void MarkBaked(uint64_t source_fingerprint);
+  void MarkBaked();
   bool SetCanonicalPayload(const std::vector<uint16_t>& payload);
   [[nodiscard]] static uint64_t CalculatePayloadHash(const std::vector<uint16_t>& payload);
   static bool ValidateCanonicalPayload(const std::vector<uint16_t>& payload, std::string& error);

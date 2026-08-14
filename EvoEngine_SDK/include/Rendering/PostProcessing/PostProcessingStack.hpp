@@ -348,9 +348,9 @@ class ToneMapping : public IPostProcessing {
     float contrast = 1.0f;
     float saturation = 1.0f;
     float vignette = 0.0f;
-    float auto_exposure_speed = 0.0f;
-    float ev_min_value = -5.0f;
-    float ev_max_value = 10.0f;
+    float auto_exposure_speed = 10.0f;
+    float ev_min_value = -20.0f;
+    float ev_max_value = 20.0f;
     float center_metering_size = 0.5f;
   };
 
@@ -361,9 +361,9 @@ class ToneMapping : public IPostProcessing {
   float saturation = 1.f;
   float vignette = 0.f;
   bool auto_exposure = true;
-  float auto_exposure_speed = 5.f;
-  float ev_min_value = -5.f;
-  float ev_max_value = 10.f;
+  float auto_exposure_speed = 10.f;
+  float ev_min_value = -20.f;
+  float ev_max_value = 20.f;
   bool enable_center_metering = false;
   float center_metering_size = 0.5f;
   int average_mode = 1;

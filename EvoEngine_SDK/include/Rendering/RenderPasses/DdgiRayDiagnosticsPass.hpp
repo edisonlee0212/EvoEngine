@@ -23,11 +23,15 @@ class DdgiRayDiagnosticsPass final {
     std::shared_ptr<Buffer> selected_ray_readback_buffer;
     uint32_t selected_ray_sample_count = 0;
     bool* selected_ray_readback_recorded = nullptr;
+    std::shared_ptr<Buffer> emissive_sampling_stats_readback_buffer;
+    bool capture_emissive_sampling_stats = false;
+    bool* emissive_sampling_stats_readback_recorded = nullptr;
+    bool use_emissive_sampling = false;
     uint32_t* recorded_ray_sample_count = nullptr;
     float* record_time_ms = nullptr;
   };
 
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool use_emissive_sampling = false);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine

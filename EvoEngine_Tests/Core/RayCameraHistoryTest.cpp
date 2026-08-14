@@ -232,6 +232,25 @@ TEST(RayCameraHistory, InvalidationAndSceneChangesDoNotResetUnrelatedCameras) {
   EXPECT_EQ(camera_a.GetRayCameraHistoryStats().invalidation_count, 3u);
 }
 
+TEST(RayCameraHistory, CameraChangesStayOutOfGlobalRenderInstanceInvalidation) {
+  const auto storage_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
+  const auto render_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto editor_layer_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+
+  const auto comparison_start = storage_source.find("bool RenderInstanceStorage::operator!=");
+  const auto comparison_end =
+      storage_source.find("bool RenderInstanceStorage::RegisterMeshDrawCommand", comparison_start);
+  ASSERT_NE(comparison_start, std::string::npos);
+  ASSERT_NE(comparison_end, std::string::npos);
+  const auto comparison = storage_source.substr(comparison_start, comparison_end - comparison_start);
+  EXPECT_EQ(comparison.find("camera_info_blocks_"), std::string::npos);
+  EXPECT_NE(comparison.find("HasSceneLightingDifference"), std::string::npos);
+
+  EXPECT_NE(render_layer_source.find("const auto camera_info_changed"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("camera && camera_info_changed(camera)"), std::string::npos);
+  EXPECT_NE(editor_layer_source.find("scene && apply_transform_to_main_camera"), std::string::npos);
+}
+
 TEST(RayCameraHistory, ResizeAndReleaseRemainBoundedDuringCameraChurn) {
   const auto factory = [](const VkExtent3D extent) {
     return MakeFakeHistory(extent);

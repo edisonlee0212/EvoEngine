@@ -30,7 +30,8 @@ Sampler2D EE_DDGI_IRRADIANCE_ATLAS;
 ConstantBuffer<DdgiProbeVisualizationConstants> constants;
 
 float3 EeDdgiDecodeDebugIrradiance(float3 encoded_irradiance) {
-  float irradiance_gamma = max(EE_RENDER_INFO.ddgi_volumes[0].probe_counts.w, 1.0f);
+  float irradiance_gamma =
+      max(EE_RENDER_INFO.ddgi_volumes[constants.camera_selected_mode.w].probe_counts.w, 1.0f);
   float3 sqrt_irradiance = pow(max(encoded_irradiance, float3(0.0f)), float3(irradiance_gamma * 0.5f));
   return sqrt_irradiance * sqrt_irradiance * (2.0f * EE_DDGI_PI);
 }
@@ -46,7 +47,8 @@ float3 EeDdgiIrradianceDebugColor(float3 encoded_irradiance, float intensity) {
 }
 
 float3 EeDdgiVisibilityDebugColor(float4 visibility) {
-  float average_distance = clamp(visibility.x, 0.0f, 1.0f);
+  float average_distance = clamp(visibility.x / max(constants.radius_intensity_alpha_selected_scale.y, 0.001f), 0.0f,
+                                 1.0f);
   float backface_ratio = clamp(visibility.y, 0.0f, 1.0f);
   float relocation = clamp(visibility.z, 0.0f, 1.0f);
   return lerp(float3(0.95f, 0.1f, 0.05f), float3(0.05f, 0.85f, 1.0f), average_distance) +
@@ -55,12 +57,16 @@ float3 EeDdgiVisibilityDebugColor(float4 visibility) {
 
 [shader("fragment")]
 float4 main(DdgiProbeVisualizationInput input) : SV_Target {
-  uint mode = constants.camera_selected_mode.z;
+  bool selected_only = (constants.camera_selected_mode.z & 0x80000000u) != 0u;
+  if (selected_only && input.selected < 0.5f) discard;
+  uint mode = constants.camera_selected_mode.z & 3u;
   float probe_inactive = clamp(input.state.w, 0.0f, 1.0f);
   float3 color;
   if (mode == 0u) {
-    uint irradiance_tile_size = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.x, 1u);
-    uint irradiance_columns = max(EE_RENDER_INFO.ddgi_volumes[0].atlas_parameters.y, 1u);
+    uint irradiance_tile_size =
+        max(EE_RENDER_INFO.ddgi_volumes[constants.camera_selected_mode.w].atlas_parameters.x, 1u);
+    uint irradiance_columns =
+        max(EE_RENDER_INFO.ddgi_volumes[constants.camera_selected_mode.w].atlas_parameters.y, 1u);
     uint width;
     uint height;
     EE_DDGI_IRRADIANCE_ATLAS.GetDimensions(width, height);

@@ -294,6 +294,7 @@ void AssetManager::DrawAssetInspectorContent(const std::shared_ptr<EditorLayer>&
         false);
 
     if (asset_changed) {
+      editor_layer->ClearEnvironmentalLightingGizmoTarget(asset->GetHandle());
       InvalidateInspectorThumbnailCache(asset);
       if (const auto file = asset->GetFileRecord().lock()) {
         file->InvalidateThumbnail();

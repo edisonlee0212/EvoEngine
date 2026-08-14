@@ -177,7 +177,7 @@ TEST(VolumetricCloudSettings, CloudSettingsDoNotFeedDdgiSceneChangeTriggers) {
       ExtractBetween(storage_update, "if (track_ddgi_scene_inputs) {",
                      "PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);");
   const auto environment_tracker = ExtractBetween(render_layer_source, "const auto track_ddgi_environment_signature",
-                                                  "if (ddgi_settings.runtime.pause_updates)");
+                                                  "if (ddgi_session_state_.pause_updates)");
   ASSERT_FALSE(storage_update.empty());
   ASSERT_FALSE(trigger_block.empty());
   ASSERT_FALSE(environment_tracker.empty());

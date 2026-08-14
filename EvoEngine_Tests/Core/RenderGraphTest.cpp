@@ -1,5 +1,6 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
+#include "DdgiEmissiveSamplingStats.hpp"
 #include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
@@ -699,13 +700,13 @@ TEST(RenderGraph, RenderPassUtilitiesApplyQueueFamilyOwnershipTransfersForQueueC
 }
 
 TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
-  RenderLayer::DdgiSettings settings;
+  DdgiSettings settings;
   settings.volume_defaults.probe_counts = {4, 4, 4};
   settings.storage.atlas_probe_columns = 8;
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 16;
   settings.runtime.ray_count = 32;
-  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_metadata,
@@ -791,10 +792,10 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
 }
 
 TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
-  RenderLayer::DdgiSettings settings;
+  DdgiSettings settings;
   settings.volume_defaults.probe_counts = {2, 2, 2};
   settings.runtime.ray_count = 16;
-  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
@@ -821,6 +822,15 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
                      1,
                      false,
                      layout.selected_ray_diagnostics_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_emissive_sampling_stats,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Persistent,
+                     {},
+                     {},
+                     1,
+                     1,
+                     false,
+                     sizeof(DdgiEmissiveSamplingStats)});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -892,10 +902,10 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
 }
 
 TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
-  RenderLayer::DdgiSettings settings;
+  DdgiSettings settings;
   settings.volume_defaults.probe_counts = {2, 2, 2};
   settings.runtime.ray_count = 16;
-  const auto layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
@@ -922,6 +932,15 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      false,
                      layout.selected_ray_diagnostics_byte_size});
+  graph.AddResource({RenderResourceNames::frame_ddgi_emissive_sampling_stats,
+                     RenderResourceType::Buffer,
+                     RenderResourceLifetime::Persistent,
+                     {},
+                     {},
+                     1,
+                     1,
+                     false,
+                     sizeof(DdgiEmissiveSamplingStats)});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -972,7 +991,7 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      RenderResourceLifetime::Frame,
                      {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
                       layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
+                     "RGBA32F",
                      1,
                      1,
                      true});
@@ -981,7 +1000,7 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      RenderResourceLifetime::Frame,
                      {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
                       layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RG32F",
+                     "RGBA32F",
                      1,
                      1,
                      true});
@@ -1040,13 +1059,13 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
 }
 
 TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
-  auto validate_layout = [](const RenderLayer::DdgiFrameResourceLayout& layout) {
+  auto validate_layout = [](const DdgiFrameResourceLayout& layout) {
     RenderGraph graph;
     auto add_buffer = [&](const char* name, const RenderResourceLifetime lifetime, const bool managed_by_graph,
                           const uint64_t byte_size) {
       graph.AddResource({name, RenderResourceType::Buffer, lifetime, {}, {}, 1, 1, managed_by_graph, byte_size});
     };
-    auto add_atlas = [&](const char* name, const RenderLayer::DdgiAtlasLayout& atlas_layout, const char* format_name) {
+    auto add_atlas = [&](const char* name, const DdgiAtlasLayout& atlas_layout, const char* format_name) {
       graph.AddResource(
           {name,
            RenderResourceType::Image,
@@ -1144,13 +1163,13 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
               plan.barriers.end());
   };
 
-  RenderLayer::DdgiSettings settings;
+  DdgiSettings settings;
   settings.volume_defaults.probe_counts = {2, 2, 2};
   settings.storage.atlas_probe_columns = 4;
   settings.storage.irradiance_tile_resolution = 6;
   settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 12;
-  const auto initial_layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+  const auto initial_layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
   validate_layout(initial_layout);
 
   settings.volume_defaults.probe_counts = {5, 3, 2};
@@ -1158,7 +1177,7 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
   settings.storage.irradiance_tile_resolution = 10;
   settings.storage.visibility_tile_resolution = 18;
   settings.runtime.ray_count = 48;
-  const auto resized_layout = RenderLayer::CalculateDdgiFrameResourceLayout(settings);
+  const auto resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
   ASSERT_NE(resized_layout.irradiance_atlas.resolution, initial_layout.irradiance_atlas.resolution);
   ASSERT_NE(resized_layout.visibility_atlas.resolution, initial_layout.visibility_atlas.resolution);
   validate_layout(resized_layout);

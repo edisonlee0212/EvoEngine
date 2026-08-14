@@ -2,6 +2,8 @@
 public static const float EE_DDGI_PI = 3.14159265359f;
 public static const float EE_DDGI_INACTIVE_RAY_ALPHA = -2.0f;
 public static const uint EE_DDGI_FIXED_RAY_PAYLOAD_FLAG = 1u;
+public static const uint EE_DDGI_EMISSIVE_RAY_PAYLOAD_FLAG = 0x80000000u;
+public static const uint EE_DDGI_RANDOM_SEED_MASK = 0x7fffffffu;
 public static const uint EE_DDGI_RAY_MASK_GEOMETRY = 0x01u;
 public static const uint EE_DDGI_RAY_MASK_SHADOW = 0x02u;
 

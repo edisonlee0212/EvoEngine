@@ -736,11 +736,15 @@ void Camera::Resize(const glm::uvec2& size) {
 }
 
 void Camera::OnCreate() {
+  InitializeRenderResources({1, 1});
+}
+
+void Camera::InitializeRenderResources(const glm::uvec2 size) {
   ray_camera_history_ = {};
   ray_camera_history_counters_ = {};
   ray_camera_history_owner_alive_ = true;
   post_processing_resources_.reset();
-  size_ = glm::uvec2(1, 1);
+  size_ = size;
   frame_count_ = 0;
   camera_settings = {};
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();

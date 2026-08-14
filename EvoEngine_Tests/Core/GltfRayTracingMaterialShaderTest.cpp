@@ -289,7 +289,7 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_EQ(any_hit.find("SHADOW_TRANSMISSION"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_RT_TEXTURE_GRADIENTS"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_RT_SPHERICAL_RAY_SPREAD("), std::string::npos);
-  EXPECT_NE(any_hit.find("EE_DDGI_PROBE_RAY_CONSTANTS.probe_counts_and_ray_count.w"), std::string::npos);
+  EXPECT_NE(any_hit.find("EE_DDGI_UNIFORM_RAY_COUNT()"), std::string::npos);
   EXPECT_NE(any_hit.find("const bool shadow_ray = hit_value.hit_count != 0u;"), std::string::npos);
   EXPECT_NE(any_hit.find("shadow_ray"), std::string::npos);
   EXPECT_NE(any_hit.find("float4(0.0f)"), std::string::npos);
@@ -326,7 +326,8 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(closest_hit.find("EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, attributes.tex_coords"),
             std::string::npos);
   EXPECT_NE(closest_hit.find("EE_EVALUATE_GLTF_RASTER_NORMAL("), std::string::npos);
-  EXPECT_NE(closest_hit.find("unflipped_world_shading_normal, unflipped_world_tangent"), std::string::npos);
+  EXPECT_NE(closest_hit.find("attributes.tex_coords, unflipped_world_shading_normal"), std::string::npos);
+  EXPECT_NE(closest_hit.find("unflipped_world_tangent, world_tangent_handedness"), std::string::npos);
   EXPECT_NE(closest_hit.find("if (!hit_face_is_culled && !fixed_probe_ray)"), std::string::npos);
   EXPECT_NE(closest_hit.find("const bool signed_backface_hit"), std::string::npos);
   EXPECT_NE(closest_hit.find("material.double_sided == 0 || fixed_probe_ray"), std::string::npos);
@@ -346,8 +347,9 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(raygen.find("EE_XXHASH32("), std::string::npos);
   EXPECT_NE(raygen.find("EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w"), std::string::npos);
   EXPECT_NE(raygen.find("primary_ray_seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG"), std::string::npos);
-  EXPECT_NE(render_storage.find("material.alpha_mode != static_cast<int32_t>(GltfAlphaMode::Mask)"), std::string::npos);
-  EXPECT_NE(render_storage.find("render_instance->ray_tracing_blas || render_instance->ray_tracing_triangle_range"),
+  EXPECT_NE(render_storage.find("append_mesh_collection(forward_render_instances)"), std::string::npos);
+  EXPECT_NE(render_storage.find("append_skinned_collection(transparent_skinned_render_instances)"), std::string::npos);
+  EXPECT_NE(render_storage.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"),
             std::string::npos);
   EXPECT_NE(render_layer.find("Shaders/RayTracing/AnyHit/DDGIProbeDiagnostics.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("emissive_dispatch_seed"), std::string::npos);
@@ -1665,9 +1667,13 @@ TEST(GltfRayTracingMaterial, RayCameraLinearOutputUsesPostTonemapping) {
   const auto tone_mapping = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMapping.slang"));
   const auto histogram = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMappingHistogram.slang"));
   const auto auto_exposure = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMappingAutoExposure.slang"));
+  const auto post_processing_header = ReadTextFile(SdkPath("include/Rendering/PostProcessing/PostProcessingStack.hpp"));
+  const auto inspector = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(tone_mapping.empty());
   ASSERT_FALSE(histogram.empty());
   ASSERT_FALSE(auto_exposure.empty());
+  ASSERT_FALSE(post_processing_header.empty());
+  ASSERT_FALSE(inspector.empty());
 
   EXPECT_NE(tone_mapping.find("nvpro_core2 nvshaders tonemap_functions.h.slang"), std::string::npos);
   EXPECT_NE(tone_mapping.find("SPDX-License-Identifier: Apache-2.0"), std::string::npos);
@@ -1684,6 +1690,15 @@ TEST(GltfRayTracingMaterial, RayCameraLinearOutputUsesPostTonemapping) {
   EXPECT_NE(auto_exposure.find("average_mode == 1"), std::string::npos);
   EXPECT_NE(auto_exposure.find("adapted_luminance[0] += (target_luminance - adapted_luminance[0])"), std::string::npos);
   EXPECT_NE(auto_exposure.find("bins[i] = 0u"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("float auto_exposure_speed = 10.f"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("float ev_min_value = -20.f"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("float ev_max_value = 20.f"), std::string::npos);
+  EXPECT_NE(inspector.find("ImGui::Combo(\"Method\", &method, methods, IM_ARRAYSIZE(methods))"), std::string::npos);
+  EXPECT_NE(inspector.find("\"Filmic\", \"Uncharted 2\", \"Clip\", \"ACES\", \"AgX\", \"Khronos PBR\""),
+            std::string::npos);
+  EXPECT_NE(inspector.find("\"EvoEngine Exponential\""), std::string::npos);
+  EXPECT_EQ(inspector.find("ImGui::DragInt(\"Method\""), std::string::npos);
+  EXPECT_NE(inspector.find("Tone Mapping##1"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraEnvironmentLightingStaysInSharedIntegrator) {
@@ -2499,7 +2514,7 @@ TEST(GltfRayTracingMaterial, BistroParityCaptureDisablesUnrelatedStateAndLogsCou
   EXPECT_NE(demo_scene_header.find("LogBistroParityCaptureState"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ApplyBistroParityRendererState"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("lighting->ddgi_settings.runtime.enabled = false"), std::string::npos);
-  EXPECT_NE(demo_scene_source.find("lighting->ddgi_settings.debug.enabled = false"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("lighting->ddgi_settings.runtime.enabled = false"), std::string::npos);
   EXPECT_EQ(demo_scene_source.find("scene->environment.volumetric_cloud_settings"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroReferencePathTraceMaxDepth = 5"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroDirectionalLightIntensity = 10.0f"), std::string::npos);
@@ -2565,6 +2580,10 @@ TEST(GltfRayTracingMaterial, RenderingRegressionProfileIsWiredAndContainsReprese
     EXPECT_NE(demo_scene_source.find(probe), std::string::npos) << probe;
   }
   EXPECT_NE(demo_scene_source.find("&GltfShadeMaterial::emissive_texture"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("emissive-multi"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("DDGI Multi Emitter Left"), std::string::npos);
+  EXPECT_NE(demo_scene_source.find("DDGI Multi Emitter Right"), std::string::npos);
+  EXPECT_NE(editor_source.find("\"emissive-multi\""), std::string::npos);
   EXPECT_NE(demo_scene_source.find("GltfTextureColorSpace::Srgb"), std::string::npos);
   EXPECT_NE(regression_source.find("M42 Material Probe Metallic"), std::string::npos);
   EXPECT_NE(regression_source.find("ConfigureEnvironmentalLightingMapSource(*lighting, "
@@ -2607,24 +2626,42 @@ TEST(GltfRayTracingMaterial, MaterialAbiKeepsAdvancedExtensionTextureSlots) {
 
 TEST(GltfRayTracingMaterial, EmissiveTriangleSamplingContracts) {
   using Record = evo_engine::RenderInstanceStorage::EmissiveTriangleInfoBlock;
-  static_assert(sizeof(Record) == 16);
+  static_assert(sizeof(Record) == 20);
   static_assert(offsetof(Record, instance_index) == 0);
   static_assert(offsetof(Record, primitive_id) == 4);
-  static_assert(offsetof(Record, cdf) == 8);
-  static_assert(offsetof(Record, area_pdf) == 12);
+  static_assert(offsetof(Record, alias_probability) == 8);
+  static_assert(offsetof(Record, alias_index) == 12);
+  static_assert(offsetof(Record, area_pdf) == 16);
 
   const auto records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
       {{2u, 5u, 2.0, 1.0}, {1u, 3u, 1.0, 2.0}, {0u, 0u, 0.0, 1.0}});
   ASSERT_EQ(records.size(), 2u);
   EXPECT_EQ(records[0].instance_index, 1u);
   EXPECT_EQ(records[0].primitive_id, 3u);
-  EXPECT_FLOAT_EQ(records[0].cdf, 0.5f);
+  EXPECT_FLOAT_EQ(records[0].alias_probability, 1.0f);
+  EXPECT_EQ(records[0].alias_index, 0u);
   EXPECT_FLOAT_EQ(records[0].area_pdf, 0.5f);
   EXPECT_EQ(records[1].instance_index, 2u);
   EXPECT_EQ(records[1].primitive_id, 5u);
-  EXPECT_FLOAT_EQ(records[1].cdf, 1.0f);
+  EXPECT_FLOAT_EQ(records[1].alias_probability, 1.0f);
+  EXPECT_EQ(records[1].alias_index, 1u);
   EXPECT_FLOAT_EQ(records[1].area_pdf, 0.25f);
   EXPECT_TRUE(evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks({}).empty());
+
+  const std::array<double, 3> expected_probabilities{0.1, 0.2, 0.7};
+  const auto weighted_records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
+      {{0u, 0u, 1.0, 1.0}, {0u, 1u, 1.0, 2.0}, {0u, 2u, 1.0, 7.0}});
+  ASSERT_EQ(weighted_records.size(), expected_probabilities.size());
+  std::array<double, 3> reconstructed_probabilities{};
+  for (size_t column = 0; column < weighted_records.size(); ++column) {
+    const auto& record = weighted_records[column];
+    reconstructed_probabilities[column] += record.alias_probability / weighted_records.size();
+    reconstructed_probabilities[record.alias_index] += (1.0 - record.alias_probability) / weighted_records.size();
+  }
+  for (size_t index = 0; index < weighted_records.size(); ++index) {
+    EXPECT_NEAR(reconstructed_probabilities[index], expected_probabilities[index], 1.0e-6);
+    EXPECT_NEAR(weighted_records[index].area_pdf, expected_probabilities[index], 1.0e-6);
+  }
 
   constexpr float selection_pdf = 0.25f;
   constexpr float area = 2.0f;
@@ -2642,6 +2679,7 @@ TEST(GltfRayTracingMaterial, RigidEmissiveTrianglesAreSharedByCamerasAndDdgi) {
   const auto emissive_sampling = ReadTextFile(ShaderPath("Modules/EvoEngine/EmissiveTriangleSampling.slang"));
   const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
   const auto render_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));
   const auto ray_query = ReadRayQueryCameraSource();
   const auto camera_settings = ReadTextFile(SdkPath("include/Rendering/CameraSettings.hpp"));
@@ -2661,6 +2699,19 @@ TEST(GltfRayTracingMaterial, RigidEmissiveTrianglesAreSharedByCamerasAndDdgi) {
             std::string::npos);
   EXPECT_NE(render_storage.find("BuildEmissiveTriangleInfoBlocks"), std::string::npos);
   EXPECT_NE(render_storage.find("emissive_triangle_info_dirty_"), std::string::npos);
+  EXPECT_NE(render_storage.find("append_skinned_collection(deferred_skinned_render_instances)"), std::string::npos);
+  EXPECT_NE(render_storage.find("append_instanced_collection(transparent_instanced_render_instances)"),
+            std::string::npos);
+  EXPECT_NE(render_storage.find("ForEachExternalRenderInstance"), std::string::npos);
+  EXPECT_NE(render_storage.find("EstimateTriangleEmissiveImportance"), std::string::npos);
+  EXPECT_NE(render_storage.find("EstimateTriangleOpacityImportance"), std::string::npos);
+  EXPECT_NE(render_storage.find("TryGetTexture2DContentSignature"), std::string::npos);
+  EXPECT_NE(render_storage.find("texture_info.uv_transform"), std::string::npos);
+  EXPECT_NE(render_storage.find("sampler.address_mode_u"), std::string::npos);
+  EXPECT_NE(render_layer.find("external->ddgi_geometry.triangle_count"), std::string::npos);
+  EXPECT_NE(emissive_sampling.find("record.alias_probability"), std::string::npos);
+  EXPECT_NE(emissive_sampling.find("record.alias_index"), std::string::npos);
+  EXPECT_NE(emissive_sampling.find("EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED"), std::string::npos);
   EXPECT_EQ(integrator.find("emissive_triangle_nee_enabled"), std::string::npos);
   EXPECT_EQ(ray_query.find("emissive_triangle_nee_enabled"), std::string::npos);
   EXPECT_EQ(camera_settings.find("emissive_triangle_nee_enabled"), std::string::npos);

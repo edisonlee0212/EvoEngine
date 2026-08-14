@@ -25,12 +25,10 @@ enum DdgiVolumeTriggerCondition : int {
 struct DdgiSettings {
   struct RuntimeSettings {
     bool enabled = false;
-    bool pause_updates = false;
-    bool reset_probe_history = false;
     bool enable_emissive_mesh_sampling = true;
-    int ray_count = 256;
+    int ray_count = 192;
+    int emissive_ray_count = 64;
     int warmup_frames = 16;
-    float hysteresis = 0.97f;
     float normal_bias = 0.1f;
     float view_bias = 0.1f;
     float max_ray_distance = 1e27f;
@@ -52,11 +50,12 @@ struct DdgiSettings {
     bool enable_probe_classification = false;
     bool enable_probe_variability = true;
     bool enable_probe_variability_gating = true;
+    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.2f;
-    int probe_variability_min_samples = 16;
+    float probe_variability_threshold = 0.03f;
+    int probe_variability_min_samples = 128;
   };
 
   struct StorageSettings {
@@ -66,27 +65,11 @@ struct DdgiSettings {
     int atlas_probe_columns = 16;
   };
 
-  struct DebugSettings {
-    bool enabled = false;
-    bool visualize_probe_positions = true;
-    bool visualize_selected_probe = false;
-    bool visualize_probe_state = false;
-    bool visualize_probe_illumination = true;
-    bool show_rays = false;
-    int selected_probe_index = 0;
-    float visualization_scale = 2.0f;
-    int probe_visualization_mode = 0;
-    int probe_visualization_depth_mode = 0;
-    float probe_visualization_radius = 0.08f;
-    float probe_visualization_intensity = 1.0f;
-    float probe_visualization_alpha = 0.95f;
-    float selected_probe_visualization_scale = 2.5f;
-  };
-
   RuntimeSettings runtime{};
   VolumeDefaults volume_defaults{};
   StorageSettings storage{};
-  DebugSettings debug{};
+
+  void ClampSettings();
 };
 
 void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings);

@@ -9,6 +9,7 @@ public interface IDdgiGatherResources {
 }
 public struct EeDdgiGatherResult {
   public float3 irradiance;
+  public float3 linear_irradiance;
   public float coverage;
   public float confidence;
   public float visibility;
@@ -16,6 +17,7 @@ public struct EeDdgiGatherResult {
 public EeDdgiGatherResult EE_DDGI_EMPTY_GATHER() {
   EeDdgiGatherResult result;
   result.irradiance = float3(0.0f);
+  result.linear_irradiance = float3(0.0f);
   result.coverage = 0.0f;
   result.confidence = 0.0f;
   result.visibility = 1.0f;
@@ -48,7 +50,7 @@ public float EE_DDGI_VOLUME_BOUNDARY_WEIGHT(const DdgiVolumeInfo volume, const f
 }
 public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResources>(T resources, const uint volume_index, const DdgiVolumeInfo volume,
                                                     const float3 normal, const float3 view_direction,
-                                                    const float3 position) {
+                                                    const float3 position, const bool gather_linear_irradiance) {
   EeDdgiGatherResult result = EE_DDGI_EMPTY_GATHER();
   if (volume.lighting_parameters.x <= 0.0f) {
     return result;
@@ -89,6 +91,7 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
                    EE_DDGI_AXIS_COORDINATE(base_probe_to_biased_position, volume.probe_step_z.xyz)),
             float3(0.0f), float3(1.0f));
   float3 irradiance_sum = float3(0.0f);
+  float3 linear_irradiance_sum = float3(0.0f);
   float radiance_weight_sum = 0.0f;
   float active_probe_weight_sum = 0.0f;
   float valid_probe_weight_sum = 0.0f;
@@ -144,7 +147,11 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
         visibility_weight *= max(0.05f, clamped_probe_visibility);
         visibility_weight = EE_DDGI_CRUSH_LOW_WEIGHT(max(0.000001f, visibility_weight));
         const float sample_weight = valid_probe_weight * visibility_weight;
-        irradiance_sum += pow(max(irradiance.rgb, float3(0.0f)), float3(irradiance_gamma * 0.5f)) * sample_weight;
+        const float3 encoded_irradiance = max(irradiance.rgb, float3(0.0f));
+        irradiance_sum += pow(encoded_irradiance, float3(irradiance_gamma * 0.5f)) * sample_weight;
+        if (gather_linear_irradiance) {
+          linear_irradiance_sum += pow(encoded_irradiance, float3(irradiance_gamma)) * sample_weight;
+        }
         radiance_weight_sum += sample_weight;
       }
     }
@@ -156,10 +163,15 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
   }
   float3 decoded_irradiance = irradiance_sum / radiance_weight_sum;
   decoded_irradiance *= decoded_irradiance * (2.0f * EE_DDGI_PI);
-  if (any(isnan(decoded_irradiance)) || any(isinf(decoded_irradiance))) {
+  const float3 linear_irradiance = gather_linear_irradiance
+                                       ? linear_irradiance_sum / radiance_weight_sum * (2.0f * EE_DDGI_PI)
+                                       : float3(0.0f);
+  if (any(isnan(decoded_irradiance)) || any(isinf(decoded_irradiance)) || any(isnan(linear_irradiance)) ||
+      any(isinf(linear_irradiance))) {
     return result;
   }
   result.irradiance = decoded_irradiance;
+  result.linear_irradiance = linear_irradiance;
   result.confidence = clamp(valid_probe_weight_sum / active_probe_weight_sum, 0.0f, 1.0f);
   result.visibility = clamp(visibility_sum / valid_probe_weight_sum, 0.0f, 1.0f);
   return result;
@@ -171,6 +183,10 @@ public float EE_DDGI_GATHER_WEIGHT(const EeDdgiGatherResult gather_result) {
 public float EE_DDGI_GATHER_VISIBILITY(const EeDdgiGatherResult gather_result) {
   const float visibility = gather_result.visibility;
   return isnan(visibility) || isinf(visibility) ? 1.0f : clamp(visibility, 0.0f, 1.0f);
+}
+public float3 EE_DDGI_PROBE_BLEND_LOSS(const EeDdgiGatherResult gather_result) {
+  return max(gather_result.linear_irradiance - gather_result.irradiance, float3(0.0f)) *
+         EE_DDGI_GATHER_WEIGHT(gather_result);
 }
 public float3 EE_DDGI_DIFFUSE_RADIANCE(const EeDdgiGatherResult gather_result, const float3 diffuse_albedo) {
   return diffuse_albedo / EE_DDGI_PI * gather_result.irradiance;

@@ -23,26 +23,19 @@ void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const Ren
                               const DdgiProbeVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
       !parameters.descriptor_set_layout || !parameters.transient_resources || !parameters.camera ||
-      !parameters.camera->GetRenderTexture() || !parameters.atlas_sampler || parameters.probe_count == 0u) {
+      !parameters.camera->GetRenderTexture() || !parameters.atlas_sampler || !parameters.probe_metadata_buffer ||
+      !parameters.probe_state_buffer || !parameters.irradiance_atlas || parameters.probe_count == 0u) {
     return;
   }
-  const auto* metadata_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_metadata);
-  const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
-  const auto* irradiance_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
-  if (!metadata_binding || !metadata_binding->buffer || !state_binding || !state_binding->buffer ||
-      !irradiance_binding || !irradiance_binding->image) {
-    return;
-  }
-
-  const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
+  const auto irradiance_view = CreateGraphImageMipView(parameters.irradiance_atlas, 0);
   if (!irradiance_view) {
     return;
   }
   parameters.transient_resources->RetainImageView(irradiance_view);
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
-  descriptor_set->UpdateBufferDescriptorBinding(0, metadata_binding->buffer);
-  descriptor_set->UpdateBufferDescriptorBinding(1, state_binding->buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(0, parameters.probe_metadata_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(1, parameters.probe_state_buffer);
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.sampler = parameters.atlas_sampler->GetVkSampler();
@@ -96,17 +89,16 @@ void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const Ren
 }  // namespace
 
 RenderPassDescriptor DdgiProbeVisualizationPass::CreateDescriptor() {
-  return {
-      RenderPassNames::ddgi_probe_visualization,
-      RenderPassQueue::Graphics,
-      RenderPassScope::Camera,
-      {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
-       {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
-       {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
-       {RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Read, RenderResourceState::General}},
-      {RenderPassNames::deferred_camera}};
+  return {RenderPassNames::ddgi_probe_visualization,
+          RenderPassQueue::Graphics,
+          RenderPassScope::Camera,
+          {
+              {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read,
+               RenderResourceState::General},
+              {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
+              {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
+          },
+          {RenderPassNames::deferred_camera}};
 }
 
 void DdgiProbeVisualizationPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {

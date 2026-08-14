@@ -21,6 +21,7 @@ public struct ReflectionProbeInfo {
   public float4 projection_parameters;
   public float4 lighting_parameters;
   public uint4 identity_and_flags;
+  public uint4 transition_parameters;
 };
 
 public struct RenderInfo {

@@ -76,6 +76,11 @@ bool DirectionalLightInfoBlock::operator!=(const DirectionalLightInfoBlock& othe
   return false;
 }
 
+bool DirectionalLightInfoBlock::HasSceneLightingDifference(const DirectionalLightInfoBlock& other) const {
+  return direction != other.direction || diffuse != other.diffuse || specular != other.specular ||
+         reserved_parameters != other.reserved_parameters || viewport != other.viewport;
+}
+
 void DirectionalLight::OnCreate() {
   SetEnabled(true);
   cast_shadow = true;

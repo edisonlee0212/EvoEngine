@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 
 using namespace evo_engine;
 
@@ -20,6 +21,7 @@ float AxisCoordinate(const glm::vec3& delta, const glm::vec3& axis) {
   }
   return glm::dot(delta, axis) / length_squared;
 }
+
 }  // namespace
 
 uint32_t DdgiRuntime::GetProbeCount(const glm::ivec3& probe_counts) {
@@ -52,8 +54,10 @@ DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeC
                                                                 const uint32_t minimum_sample_count,
                                                                 const float entry_threshold) {
   DdgiProbeConvergenceUpdate update{state};
-  if (!observation.valid || !std::isfinite(observation.average) || !std::isfinite(observation.weight) ||
-      observation.average < 0.0f || observation.weight <= 0.0f) {
+  if (!observation.valid || !std::isfinite(observation.average) || !std::isfinite(observation.maximum) ||
+      !std::isfinite(observation.unstable_fraction) || !std::isfinite(observation.weight) ||
+      observation.average < 0.0f || observation.maximum < 0.0f || observation.unstable_fraction < 0.0f ||
+      observation.unstable_fraction > 1.0f || observation.weight <= 0.0f) {
     if (!state.converged) {
       update.state.stable_sample_count = 0u;
     }
@@ -62,7 +66,10 @@ DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeC
   update.state.sample_count++;
   const auto enter = glm::max(entry_threshold, 0.0f);
   if (state.converged) {
-    if (observation.average > enter * kProbeVariabilityExitThresholdScale) {
+    if (observation.average > enter * kProbeVariabilityExitThresholdScale ||
+        observation.maximum > enter * kProbeVariabilityMaximumThresholdScale * kProbeVariabilityExitThresholdScale ||
+        observation.unstable_fraction >
+            kProbeVariabilityAllowedUnstableFraction * kProbeVariabilityExitUnstableFractionScale) {
       update.state.converged = false;
       update.state.stable_sample_count = 0u;
     }
@@ -72,7 +79,10 @@ DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeC
     update.state.stable_sample_count = 0u;
     return update;
   }
-  update.state.stable_sample_count = observation.average <= enter ? state.stable_sample_count + 1u : 0u;
+  const bool stable = observation.average <= enter &&
+                      observation.maximum <= enter * kProbeVariabilityMaximumThresholdScale &&
+                      observation.unstable_fraction <= kProbeVariabilityAllowedUnstableFraction;
+  update.state.stable_sample_count = stable ? state.stable_sample_count + 1u : 0u;
   if (update.state.stable_sample_count >= kProbeVariabilityStableSampleCount) {
     update.state.stable_sample_count = kProbeVariabilityStableSampleCount;
     update.state.converged = true;
@@ -149,14 +159,6 @@ bool DdgiRuntime::ValidateProbeGrid(const glm::ivec3& probe_counts, const uint32
     error->clear();
   }
   return true;
-}
-
-DdgiRuntimePolicy DdgiRuntime::ResolveRuntimePolicy(const DdgiSettings& settings) {
-  const bool debug_resources =
-      settings.debug.enabled && (settings.debug.show_rays || settings.debug.visualize_probe_illumination);
-  return {settings.runtime.enabled || debug_resources,
-          !settings.runtime.pause_updates &&
-              (settings.runtime.enabled || (settings.debug.enabled && settings.debug.show_rays))};
 }
 
 bool DdgiRuntime::ResolveEmissiveMeshSampling(const bool global_enabled, const int volume_mode) {
@@ -275,6 +277,11 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                                                   const uint32_t max_image_dimension_2d,
                                                                   const uint64_t max_storage_buffer_range) {
   DdgiFrameResourceLayout layout;
+  if (settings.runtime.ray_count < 1 || settings.runtime.ray_count > 4096 || settings.runtime.emissive_ray_count < 0 ||
+      settings.runtime.emissive_ray_count > 4096) {
+    layout.error = "DDGI ray settings are outside their supported ranges.";
+    return layout;
+  }
   if (settings.storage.max_probe_count < 1 || settings.storage.max_probe_count > 16777216 ||
       settings.storage.irradiance_tile_resolution < 1 || settings.storage.irradiance_tile_resolution > 128 ||
       settings.storage.visibility_tile_resolution < 1 || settings.storage.visibility_tile_resolution > 128 ||
@@ -305,11 +312,17 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                          glm::max(1u, (layout.variability_atlas.resolution.y + 15u) / 16u)};
   layout.probe_metadata_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4) * 3ull;
   layout.probe_state_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4);
-  layout.ray_output_byte_size = static_cast<uint64_t>(layout.probe_count) *
-                                static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1)) *
-                                sizeof(DdgiProbeRayData);
-  layout.selected_ray_diagnostics_byte_size =
-      static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1)) * sizeof(PointCloudSample);
+  const auto uniform_ray_count = static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1));
+  const auto emissive_ray_count = settings.runtime.enable_emissive_mesh_sampling
+                                      ? static_cast<uint64_t>(glm::max(settings.runtime.emissive_ray_count, 0))
+                                      : 0ull;
+  const auto total_ray_count = uniform_ray_count + emissive_ray_count;
+  layout.ray_output_byte_size = static_cast<uint64_t>(layout.probe_count) * total_ray_count * sizeof(DdgiProbeRayData);
+  if (emissive_ray_count > 0u) {
+    layout.ray_sample_info_byte_size =
+        static_cast<uint64_t>(layout.probe_count) * emissive_ray_count * sizeof(DdgiProbeRaySampleInfo);
+  }
+  layout.selected_ray_diagnostics_byte_size = total_ray_count * sizeof(PointCloudSample);
   layout.irradiance_atlas_byte_size = static_cast<uint64_t>(layout.irradiance_atlas.resolution.x) *
                                       static_cast<uint64_t>(layout.irradiance_atlas.resolution.y) * 8ull;
   layout.visibility_atlas_byte_size = static_cast<uint64_t>(layout.visibility_atlas.resolution.x) *
@@ -318,17 +331,19 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                        static_cast<uint64_t>(layout.variability_atlas.resolution.y) * sizeof(uint16_t);
   layout.variability_reduction_byte_size = static_cast<uint64_t>(layout.variability_reduction_extent.x) *
                                            static_cast<uint64_t>(layout.variability_reduction_extent.y) *
-                                           sizeof(glm::vec2);
+                                           sizeof(glm::vec4);
   layout.persistent_byte_size = layout.probe_metadata_byte_size + layout.probe_state_byte_size +
                                 layout.irradiance_atlas_byte_size + layout.visibility_atlas_byte_size +
                                 layout.variability_atlas_byte_size;
   layout.per_frame_transient_byte_size = layout.ray_output_byte_size + layout.selected_ray_diagnostics_byte_size +
-                                         2ull * layout.variability_reduction_byte_size + sizeof(glm::vec2);
+                                         layout.ray_sample_info_byte_size +
+                                         2ull * layout.variability_reduction_byte_size + sizeof(glm::vec4);
   layout.peak_resident_byte_size =
       layout.persistent_byte_size + Platform::kMaxFramesInFlight * layout.per_frame_transient_byte_size;
   if (max_storage_buffer_range == 0u || layout.probe_metadata_byte_size > max_storage_buffer_range ||
       layout.probe_state_byte_size > max_storage_buffer_range ||
       layout.ray_output_byte_size > max_storage_buffer_range ||
+      layout.ray_sample_info_byte_size > max_storage_buffer_range ||
       layout.selected_ray_diagnostics_byte_size > max_storage_buffer_range) {
     layout.error = "DDGI storage-buffer allocation exceeds the Vulkan maxStorageBufferRange limit of " +
                    std::to_string(max_storage_buffer_range) + " bytes.";
@@ -352,18 +367,34 @@ bool DdgiRuntime::ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& 
          atlas_matches(previous.variability_atlas, current.variability_atlas);
 }
 
-float DdgiRuntime::CalculateUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons) {
-  return CalculateUpdateHysteresis(settings, update_reasons, (std::numeric_limits<uint32_t>::max)());
+evo_engine::DdgiHysteresisBoostUpdate DdgiRuntime::AdvanceHysteresisBoost(
+    const float current_hysteresis, const bool active, const float normal_hysteresis, const float boosted_hysteresis,
+    const float restore_speed, const bool scene_changed) {
+  const auto normal = glm::clamp(normal_hysteresis, 0.0f, 1.0f);
+  const auto boosted = glm::clamp(boosted_hysteresis, 0.0f, 1.0f);
+  if (scene_changed) {
+    return {boosted, boosted != normal, true, false};
+  }
+  if (!active) {
+    return {normal, false, false, false};
+  }
+  const auto speed = glm::clamp(restore_speed, 0.0f, 1.0f);
+  const auto current = glm::clamp(current_hysteresis, 0.0f, 1.0f);
+  const auto delta = normal - current;
+  const bool reached_normal = delta == 0.0f || (speed > 0.0f && std::abs(delta) <= speed + 1e-6f);
+  const auto restored = reached_normal ? normal : current + std::copysign(speed, delta);
+  return {restored, !reached_normal, true, true};
 }
 
-float DdgiRuntime::CalculateUpdateHysteresis(const DdgiSettings& settings, const uint32_t update_reasons,
-                                             const uint32_t warmup_frame_index) {
-  if ((update_reasons & (DdgiUpdateReasonSource | DdgiUpdateReasonManualReset | DdgiUpdateReasonSceneInput |
-                         DdgiUpdateReasonVariabilityPolicy)) != 0u) {
+float DdgiRuntime::CalculateUpdateHysteresis(const float update_hysteresis, const uint32_t warmup_frame_count,
+                                             const uint32_t update_reasons, const uint32_t warmup_frame_index) {
+  if ((update_reasons & (DdgiUpdateReasonManualReset | DdgiUpdateReasonVariabilityPolicy)) != 0u) {
     return 0.0f;
   }
-  const auto hysteresis = glm::clamp(settings.runtime.hysteresis, 0.0f, 1.0f);
-  const auto warmup_frame_count = static_cast<uint32_t>(glm::max(settings.runtime.warmup_frames, 0));
+  const auto hysteresis = glm::clamp(update_hysteresis, 0.0f, 1.0f);
+  if ((update_reasons & (DdgiUpdateReasonSceneChange | DdgiUpdateReasonHysteresisRestore)) != 0u) {
+    return hysteresis;
+  }
   if ((update_reasons & DdgiUpdateReasonWarmup) == 0u || warmup_frame_count == 0u ||
       warmup_frame_index >= warmup_frame_count) {
     return hysteresis;
@@ -396,9 +427,10 @@ std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
   append_reason(DdgiUpdateReasonSteadyState, "Steady state");
   append_reason(DdgiUpdateReasonConverged, "Converged");
   append_reason(DdgiUpdateReasonWarmup, "Warm up");
-  append_reason(DdgiUpdateReasonSceneInput, "Scene input");
+  append_reason(DdgiUpdateReasonSceneChange, "Scene change");
   append_reason(DdgiUpdateReasonPeriodicRefresh, "Periodic refresh");
   append_reason(DdgiUpdateReasonVariabilityPolicy, "Variability policy");
+  append_reason(DdgiUpdateReasonHysteresisRestore, "Hysteresis restore");
   return result.empty() ? "Unknown" : result;
 }
 
@@ -456,7 +488,16 @@ DdgiVolumeSetValidation DdgiRuntime::ValidateVolumeSet(const std::vector<DdgiVol
     return result;
   }
   uint64_t aggregate_probe_count = 0u;
+  std::unordered_set<uint64_t> stable_ids;
   for (const auto& info : infos) {
+    if (info.stable_entity_id == 0u) {
+      result.error = "DDGI volume stable IDs must be nonzero.";
+      return result;
+    }
+    if (!stable_ids.emplace(info.stable_entity_id).second) {
+      result.error = "Duplicate DDGI volume stable ID: " + std::to_string(info.stable_entity_id) + ".";
+      return result;
+    }
     aggregate_probe_count += info.probe_count;
     if (aggregate_probe_count > probe_limit) {
       result.aggregate_probe_count =

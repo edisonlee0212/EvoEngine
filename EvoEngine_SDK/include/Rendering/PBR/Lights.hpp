@@ -25,6 +25,8 @@ struct DirectionalLightInfoBlock {
    * @return True if the two blocks are not equal, false otherwise.
    */
   bool operator!=(const DirectionalLightInfoBlock& other) const;
+
+  [[nodiscard]] bool HasSceneLightingDifference(const DirectionalLightInfoBlock& other) const;
 };
 
 /**

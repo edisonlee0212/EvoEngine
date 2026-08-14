@@ -14,7 +14,8 @@ public RaytracingAccelerationStructure EE_TLAS;
 public struct EmissiveTriangleInfo {
   public uint instance_index;
   public uint primitive_id;
-  public float cdf;
+  public float alias_probability;
+  public uint alias_index;
   public float area_pdf;
 };
 

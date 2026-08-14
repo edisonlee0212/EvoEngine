@@ -128,8 +128,8 @@ captures `baseline`, `box-unprojected`, `owner-order-reversed`, `camera-moved`, 
 1920x1080. The gate checks adjacent colored receiver regions, a nested priority tie, a lower-priority boundary blend,
 sphere selection, rotated box parallax, roughness-driven mip selection, exact-metal energy, collection-order independence,
 surface-position selection while the camera remains outside every influence volume, and identical global fallback for an
-assigned-but-empty versus removed probe. The two bakes differ only in placed local-probe inputs and must have identical fingerprints
-and payload hashes, proving that capture is non-recursive:
+assigned-but-empty versus removed probe. The two bakes differ only in placed local-probe inputs and must have identical
+payload hashes, proving that capture is non-recursive:
 
 ```powershell
 python Scripts\run_reflection_probe_validation.py --config RelWithDebInfo --output-dir out\reflection-probe-validation-m12

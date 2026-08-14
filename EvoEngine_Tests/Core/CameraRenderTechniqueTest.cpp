@@ -268,6 +268,10 @@ TEST(CameraRenderTechnique, DirectionalAndPunctualPcfCountsUseSeparateRenderInfo
   EXPECT_EQ(render_info.shadow_debug_parameters.w, 7);
   EXPECT_EQ(render_info.pcf_sample_amount, 23);
   EXPECT_FLOAT_EQ(render_info.shadow_fade_parameters.y, 3.0f);
+
+  settings.indirect_lighting_debug_view = RenderSettings::IndirectLightingDebugView::DdgiProbeBlendLoss;
+  render_info.Apply(settings);
+  EXPECT_FLOAT_EQ(render_info.shadow_fade_parameters.y, 5.0f);
 }
 
 TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {

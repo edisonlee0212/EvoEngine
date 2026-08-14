@@ -7,12 +7,12 @@ struct EeDdgiVariabilityExtraReduceConstants {
 ConstantBuffer<EeDdgiVariabilityExtraReduceConstants> constants;
 
 [[vk::binding(0, 0)]]
-[vk::image_format("rg32f")]
-RWTexture2D<float2> EE_DDGI_VARIABILITY_REDUCTION_INPUT;
+[vk::image_format("rgba32f")]
+RWTexture2D<float4> EE_DDGI_VARIABILITY_REDUCTION_INPUT;
 
 [[vk::binding(2, 0)]]
-[vk::image_format("rg32f")]
-RWTexture2D<float2> EE_DDGI_VARIABILITY_REDUCTION_OUTPUT;
+[vk::image_format("rgba32f")]
+RWTexture2D<float4> EE_DDGI_VARIABILITY_REDUCTION_OUTPUT;
 
 [shader("compute")]
 [numthreads(8, 8, 1)]
@@ -25,7 +25,9 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
 
   uint2 input_extent = max(constants.input_output_extent.xy, uint2(1u));
   uint2 base_coord = output_coord * 16u;
-  float weighted_sum = 0.0f;
+  float variability_sum = 0.0f;
+  float variability_maximum = 0.0f;
+  float unstable_count = 0.0f;
   float weight_sum = 0.0f;
   for (uint y = 0u; y < 16u; ++y) {
     for (uint x = 0u; x < 16u; ++x) {
@@ -33,13 +35,13 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
       if (any(input_coord >= input_extent)) {
         continue;
       }
-      float2 sample_value = EE_DDGI_VARIABILITY_REDUCTION_INPUT.Load(int2(input_coord));
-      weighted_sum += sample_value.r * sample_value.g;
-      weight_sum += sample_value.g;
+      float4 sample_value = EE_DDGI_VARIABILITY_REDUCTION_INPUT.Load(int2(input_coord));
+      variability_sum += sample_value.r;
+      variability_maximum = max(variability_maximum, sample_value.g);
+      unstable_count += sample_value.b;
+      weight_sum += sample_value.a;
     }
   }
-  float average = weight_sum > 0.0f ? weighted_sum / weight_sum : 0.0f;
-  float total_possible_weight = 16.0f * 16.0f;
-  float normalized_weight = weight_sum / total_possible_weight;
-  EE_DDGI_VARIABILITY_REDUCTION_OUTPUT[int2(output_coord)] = float2(average, normalized_weight);
+  EE_DDGI_VARIABILITY_REDUCTION_OUTPUT[int2(output_coord)] =
+      float4(variability_sum, variability_maximum, unstable_count, weight_sum);
 }

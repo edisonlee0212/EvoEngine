@@ -345,6 +345,28 @@ TEST(DirectionalShadowCascadeFit, DirectionalLightBlockKeepsHostShaderLayout) {
   EXPECT_EQ(sizeof(DirectionalLightInfoBlock), 384u);
 }
 
+TEST(DirectionalShadowCascadeFit, SceneLightingComparisonIgnoresCameraFittedCascadeData) {
+  DirectionalLightInfoBlock original{};
+  auto camera_moved = original;
+  camera_moved.light_space_matrix[0][3].x = 4.0f;
+  camera_moved.light_frustum_width.x = 12.0f;
+  camera_moved.light_frustum_height.y = 8.0f;
+  camera_moved.light_frustum_distance.z = 20.0f;
+  EXPECT_FALSE(original.HasSceneLightingDifference(camera_moved));
+
+  auto light_rotated = camera_moved;
+  light_rotated.direction = glm::vec4(0.0f, -1.0f, 0.0f, 0.0f);
+  EXPECT_TRUE(original.HasSceneLightingDifference(light_rotated));
+
+  auto light_intensity_changed = camera_moved;
+  light_intensity_changed.diffuse = glm::vec4(2.0f);
+  EXPECT_TRUE(original.HasSceneLightingDifference(light_intensity_changed));
+
+  auto shadow_settings_changed = camera_moved;
+  shadow_settings_changed.reserved_parameters = glm::vec4(0.5f);
+  EXPECT_TRUE(original.HasSceneLightingDifference(shadow_settings_changed));
+}
+
 TEST(DirectionalShadowCascadeFit, DirectionalShadowSamplerUsesLinearDepthComparison) {
   const auto sampler_info = Lighting::GetDirectionalShadowSamplerCreateInfo();
   EXPECT_EQ(sampler_info.magFilter, VK_FILTER_LINEAR);

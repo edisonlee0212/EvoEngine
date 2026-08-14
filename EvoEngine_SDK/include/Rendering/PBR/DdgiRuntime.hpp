@@ -33,6 +33,7 @@ struct DdgiFrameResourceLayout {
   uint64_t probe_metadata_byte_size = 0;
   uint64_t probe_state_byte_size = 0;
   uint64_t ray_output_byte_size = 0;
+  uint64_t ray_sample_info_byte_size = 0;
   uint64_t selected_ray_diagnostics_byte_size = 0;
   uint64_t irradiance_atlas_byte_size = 0;
   uint64_t visibility_atlas_byte_size = 0;
@@ -43,20 +44,30 @@ struct DdgiFrameResourceLayout {
   uint64_t peak_resident_byte_size = 0;
 };
 
-struct DdgiRuntimePolicy {
-  bool use_resources = false;
-  bool trace_probe_rays = false;
-};
-
 struct DdgiPerformanceStats {
   uint32_t active_probe_count = 0;
   uint32_t storage_probe_count = 0;
   uint32_t updated_probe_count = 0;
   uint32_t ray_count = 0;
+  uint32_t emissive_ray_count = 0;
   uint32_t ray_sample_count = 0;
   uint32_t emissive_triangle_count = 0;
+  uint32_t emissive_eligible_instance_count = 0;
+  uint32_t emissive_excluded_instance_count = 0;
+  uint32_t emissive_unrepresentable_probability_count = 0;
+  double emissive_estimated_power = 0.0;
   uint32_t emissive_sampling_enabled_volume_count = 0;
   uint64_t emissive_sampling_candidate_ray_count = 0;
+  bool emissive_sampling_stats_available = false;
+  uint64_t emissive_nee_attempt_count = 0;
+  uint64_t emissive_zero_pdf_reject_count = 0;
+  uint64_t emissive_emitter_backface_reject_count = 0;
+  uint64_t emissive_alpha_mask_reject_count = 0;
+  uint64_t emissive_invalid_sample_reject_count = 0;
+  uint64_t emissive_receiver_backface_reject_count = 0;
+  uint64_t emissive_shadowed_sample_count = 0;
+  uint64_t emissive_zero_radiance_sample_count = 0;
+  uint64_t emissive_nonzero_contribution_count = 0;
   uint32_t recorded_ray_sample_count = 0;
   uint32_t recorded_probe_update_count = 0;
   uint32_t selected_ray_sample_count = 0;
@@ -64,6 +75,7 @@ struct DdgiPerformanceStats {
   uint64_t probe_metadata_byte_size = 0;
   uint64_t probe_state_byte_size = 0;
   uint64_t ray_output_byte_size = 0;
+  uint64_t ray_sample_info_byte_size = 0;
   uint64_t selected_ray_diagnostics_byte_size = 0;
   uint64_t irradiance_atlas_byte_size = 0;
   uint64_t visibility_atlas_byte_size = 0;
@@ -77,6 +89,8 @@ struct DdgiPerformanceStats {
   glm::uvec2 variability_atlas_extent = {0, 0};
   glm::uvec2 variability_reduction_extent = {0, 0};
   float probe_variability_average = 0.0f;
+  float probe_variability_maximum = 0.0f;
+  float probe_variability_unstable_fraction = 0.0f;
   uint32_t probe_variability_sample_count = 0;
   uint32_t probe_variability_stable_sample_count = 0;
   uint32_t probe_variability_required_stable_sample_count = 0;
@@ -88,6 +102,8 @@ struct DdgiPerformanceStats {
   bool probe_warmup_active = false;
   bool lighting_descriptors_bound = false;
   float probe_update_hysteresis = 0.0f;
+  uint32_t hysteresis_boosted_volume_count = 0;
+  uint32_t hysteresis_restoring_volume_count = 0;
   float atlas_prepare_record_ms = 0.0f;
   float ray_diagnostics_record_ms = 0.0f;
   float probe_update_record_ms = 0.0f;
@@ -106,9 +122,17 @@ enum DdgiUpdateReason : uint32_t {
   DdgiUpdateReasonSteadyState = 1u << 2u,
   DdgiUpdateReasonConverged = 1u << 3u,
   DdgiUpdateReasonWarmup = 1u << 4u,
-  DdgiUpdateReasonSceneInput = 1u << 5u,
+  DdgiUpdateReasonSceneChange = 1u << 5u,
   DdgiUpdateReasonPeriodicRefresh = 1u << 6u,
-  DdgiUpdateReasonVariabilityPolicy = 1u << 7u
+  DdgiUpdateReasonVariabilityPolicy = 1u << 7u,
+  DdgiUpdateReasonHysteresisRestore = 1u << 8u
+};
+
+struct DdgiHysteresisBoostUpdate {
+  float hysteresis = 0.0f;
+  bool active = false;
+  bool force_update = false;
+  bool restoring = false;
 };
 
 struct DdgiVolumeRuntimeInfo {
@@ -126,6 +150,7 @@ struct DdgiVolumeRuntimeInfo {
 };
 
 struct DdgiVolumeRuntimeStats {
+  std::string name{};
   uint64_t stable_entity_id = 0;
   uint32_t sorted_index = 0;
   int artist_priority = 0;
@@ -138,6 +163,20 @@ struct DdgiVolumeRuntimeStats {
   bool contributes_lighting = false;
   bool resources_ready = false;
   bool emissive_mesh_sampling_enabled = false;
+  uint32_t last_probe_update_reasons = DdgiUpdateReasonNone;
+  uint32_t warmup_frame_index = 0;
+  uint32_t warmup_frame_count = 0;
+  bool warmup_active = false;
+  bool converged = false;
+  bool pending_scene_changes = false;
+  float current_hysteresis = 0.0f;
+  bool hysteresis_boost_active = false;
+  bool hysteresis_boost_restoring = false;
+  uint64_t resident_byte_size = 0;
+  glm::vec3 first_probe = glm::vec3(0.0f);
+  glm::vec3 probe_step_x = glm::vec3(0.0f);
+  glm::vec3 probe_step_y = glm::vec3(0.0f);
+  glm::vec3 probe_step_z = glm::vec3(0.0f);
   std::array<uint64_t, 5> resource_ids{};
 };
 
@@ -161,6 +200,8 @@ enum class DdgiProbeUpdateVariant { Serial, ParallelDirect, ParallelShared };
 struct DdgiProbeVariabilityObservation {
   bool valid = false;
   float average = 0.0f;
+  float maximum = 0.0f;
+  float unstable_fraction = 0.0f;
   float weight = 0.0f;
 };
 
@@ -199,11 +240,15 @@ class DdgiRuntime final {
   static constexpr uint32_t kProbeUpdateSharedMemoryBytes = 2u * 256u * sizeof(glm::vec4);
   static constexpr uint32_t kProbeVariabilityStableSampleCount = 3u;
   static constexpr float kProbeVariabilityExitThresholdScale = 1.25f;
+  static constexpr float kProbeVariabilityMaximumThresholdScale = 40.0f;
+  static constexpr float kProbeVariabilityAllowedUnstableFraction = 0.15f;
+  static constexpr float kProbeVariabilityExitUnstableFractionScale = 1.5f;
   static constexpr uint32_t kProbeRefreshInterval = 120u;
   static constexpr uint32_t kMaxVolumeCount = RenderInstanceStorage::kDdgiMaxVolumeCount;
   static constexpr uint32_t kMaxResidentProbeCount = 8192u;
   static constexpr uint32_t kProbeRayFlagSkipInactive = 1u << 0u;
   static constexpr uint32_t kProbeRayFlagEmissiveMeshSampling = 1u << 1u;
+  static constexpr uint32_t kProbeRayFlagEmissiveSamplingStats = 1u << 2u;
 
   [[nodiscard]] static uint32_t GetProbeCount(const glm::ivec3& probe_counts);
   [[nodiscard]] static uint32_t GetFixedRayCount(uint32_t ray_count, bool fixed_rays_enabled);
@@ -224,7 +269,6 @@ class DdgiRuntime final {
   [[nodiscard]] static uint32_t GetAllocatedProbeCount(const DdgiSettings& settings, uint32_t probe_count);
   [[nodiscard]] static bool ValidateProbeGrid(const glm::ivec3& probe_counts, uint32_t max_probe_count,
                                               std::string* error = nullptr);
-  [[nodiscard]] static DdgiRuntimePolicy ResolveRuntimePolicy(const DdgiSettings& settings);
   [[nodiscard]] static bool ResolveEmissiveMeshSampling(bool global_enabled, int volume_mode);
   [[nodiscard]] static uint32_t GetProbeRayFlags(bool skip_inactive_probes, bool emissive_mesh_sampling);
   [[nodiscard]] static uint64_t CalculateEmissiveSamplingCandidateRayCount(uint32_t updated_probe_count,
@@ -250,9 +294,12 @@ class DdgiRuntime final {
                                                                             uint64_t max_storage_buffer_range);
   [[nodiscard]] static bool ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& previous,
                                                            const DdgiFrameResourceLayout& current);
-  [[nodiscard]] static float CalculateUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons);
-  [[nodiscard]] static float CalculateUpdateHysteresis(const DdgiSettings& settings, uint32_t update_reasons,
-                                                       uint32_t warmup_frame_index);
+  [[nodiscard]] static DdgiHysteresisBoostUpdate AdvanceHysteresisBoost(float current_hysteresis, bool active,
+                                                                        float normal_hysteresis,
+                                                                        float boosted_hysteresis, float restore_speed,
+                                                                        bool scene_changed);
+  [[nodiscard]] static float CalculateUpdateHysteresis(float hysteresis, uint32_t warmup_frame_count,
+                                                       uint32_t update_reasons, uint32_t warmup_frame_index);
   [[nodiscard]] static float CalculateUpdateBrightnessThreshold(const DdgiSettings& settings);
   [[nodiscard]] static std::string FormatUpdateReasons(uint32_t reasons);
   [[nodiscard]] static float CalculateVolumeBlendWeight(const glm::vec3& probe_coordinate,

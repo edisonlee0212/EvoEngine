@@ -22,5 +22,5 @@ public EeDdgiGatherResult EE_DDGI_GATHER_IRRADIANCE(const uint selected_volume_i
   const uint volume_index = min(selected_volume_index, EE_DDGI_MAX_VOLUME_COUNT - 1u);
   return EE_DDGI_GATHER_VOLUME_IRRADIANCE(EeDdgiSingleVolumeResources(), volume_index,
                                           EE_RENDER_INFO.ddgi_volumes[volume_index], normal, view_direction,
-                                          position);
+                                          position, false);
 }

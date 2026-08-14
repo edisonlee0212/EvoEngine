@@ -2,6 +2,7 @@
 
 #include "AssetRef.hpp"
 #include "DdgiSettings.hpp"
+#include "GlobalReflectionProbe.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -34,7 +35,7 @@ struct ResolvedEnvironmentalLighting {
   static constexpr uint32_t kMaxLocalReflectionProbeCount = 32u;
   static constexpr uint32_t kMaxDdgiVolumeCount = 8u;
   static constexpr float kDefaultEnvironmentLightingIntensity = 1.0f;
-  static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
+  static constexpr float kDefaultDiffuseFallbackIntensity = 0.0f;
   static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
 
   struct IndirectEnvironmentSource {
@@ -46,12 +47,11 @@ struct ResolvedEnvironmentalLighting {
   };
 
   struct LocalReflectionProbe {
-    AssetRef global_reflection_probe;
+    std::shared_ptr<GlobalReflectionProbe> payload;
     glm::mat4 transform = glm::mat4(1.0f);
-    glm::vec3 box_extents = glm::vec3(5.0f);
-    glm::vec3 box_projection_extents = glm::vec3(5.0f);
+    glm::vec3 box_projection_extents = glm::vec3(0.5f);
     float sphere_radius = 5.0f;
-    float blend_distance = 1.0f;
+    float blend_distance = 0.05f;
     float reflection_intensity = 1.0f;
     uint64_t stable_id = 0;
     int artist_priority = 0;
@@ -60,7 +60,13 @@ struct ResolvedEnvironmentalLighting {
     bool enabled = true;
   };
 
+  struct DynamicReflectionProbeSettings {
+    uint32_t faces_per_frame = 6u;
+    bool enabled = true;
+  };
+
   struct DdgiVolume {
+    std::string name{};
     glm::mat4 transform = glm::mat4(1.0f);
     glm::ivec3 probe_counts = glm::ivec3(10, 6, 16);
     glm::vec3 probe_spacing = glm::vec3(1.5f);
@@ -74,13 +80,13 @@ struct ResolvedEnvironmentalLighting {
     bool enable_probe_classification = false;
     bool enable_probe_variability = true;
     bool enable_probe_variability_gating = true;
+    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.2f;
-    int probe_variability_min_samples = 16;
-    int auto_invalidate_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int warmup_trigger_conditions = DdgiVolumeTriggerConditionLightEnableChanged;
+    float probe_variability_threshold = 0.03f;
+    int probe_variability_min_samples = 128;
+    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int variability_reset_trigger_conditions =
         DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
   };
@@ -91,6 +97,7 @@ struct ResolvedEnvironmentalLighting {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiVolume> ddgi_volumes;
   bool environmental_lighting_asset_assigned = false;
@@ -102,11 +109,11 @@ struct ResolvedEnvironmentalLighting {
   [[nodiscard]] static constexpr bool LightingUsageUsesEnvironmentLightingIntensity(const LightingUsage usage) {
     switch (usage) {
       case LightingUsage::DdgiMissRadiance:
-      case LightingUsage::DiffuseIblFallback:
-      case LightingUsage::GlobalSpecularFallback:
       case LightingUsage::RayCameraEnvironmentEvent:
       case LightingUsage::ReflectionProbeBakeEnvironmentInput:
         return true;
+      case LightingUsage::DiffuseIblFallback:
+      case LightingUsage::GlobalSpecularFallback:
       case LightingUsage::ValidDdgiSurfaceIrradiance:
       case LightingUsage::ValidLocalReflectionProbeSample:
         return false;
@@ -116,9 +123,9 @@ struct ResolvedEnvironmentalLighting {
 
   [[nodiscard]] static constexpr bool LightingUsageUsesDiffuseFallbackIntensity(const LightingUsage usage) {
     switch (usage) {
-      case LightingUsage::DdgiMissRadiance:
       case LightingUsage::DiffuseIblFallback:
         return true;
+      case LightingUsage::DdgiMissRadiance:
       case LightingUsage::GlobalSpecularFallback:
       case LightingUsage::RayCameraEnvironmentEvent:
       case LightingUsage::ReflectionProbeBakeEnvironmentInput:
@@ -144,8 +151,8 @@ struct ResolvedEnvironmentalLighting {
     return false;
   }
 
-  [[nodiscard]] static constexpr bool LocalReflectionProbePayloadsUseEnvironmentLightingIntensity() {
-    return false;
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeBackgroundUsesEnvironmentLightingIntensity() {
+    return true;
   }
 
   [[nodiscard]] static constexpr bool ValidDdgiSurfaceIrradianceUsesEnvironmentLightingIntensity() {

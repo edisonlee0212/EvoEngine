@@ -1,7 +1,7 @@
 {
   "counts": {
-    "files": 175,
-    "imports": 285,
+    "files": 176,
+    "imports": 287,
     "macro_control_files": 8
   },
   "macro_adapters": [
@@ -518,6 +518,10 @@
     {
       "module": "EvoEngine.DDGI",
       "path": "Modules/EvoEngine/DDGI.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIEmissiveSamplingStats",
+      "path": "Modules/EvoEngine/DDGIEmissiveSamplingStats.slang"
     },
     {
       "module": "EvoEngine.DDGIGather",

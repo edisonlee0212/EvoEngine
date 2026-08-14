@@ -573,7 +573,7 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_EQ(lighting_shader.find("EE_CUBEMAPS[camera.skybox_tex_index]"), std::string::npos);
   EXPECT_EQ(lighting_shader.find("EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index]"), std::string::npos);
   EXPECT_NE(render_info_shader.find("const uint EE_REFLECTION_PROBE_MAX_COUNT = 32u"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT]"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT * 2]"), std::string::npos);
   const auto environmental_components =
       ExtractSourceRange(lighting_shader, "EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS",
                          "float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT");
@@ -587,9 +587,8 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(lighting_shader.find("global_weight = (1.0f - primary_weight) * (1.0f - secondary_raw_weight)"),
             std::string::npos);
   EXPECT_NE(lighting_shader.find("result += global_prefiltered * primary_weight"), std::string::npos);
-  EXPECT_NE(
-      lighting_shader.find("EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness, globalPrefiltered)"),
-      std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness,"),
+            std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ENVIRONMENT.specular_fallback_intensity"), std::string::npos);
   EXPECT_EQ(environmental_components.find("diffuse_environment_intensity"), std::string::npos);
@@ -636,12 +635,13 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(render_layer.find("kRasterLightingIrradianceBinding"), std::string::npos);
   EXPECT_NE(render_layer.find("kRasterLightingPrefilteredBinding"), std::string::npos);
   EXPECT_NE(render_layer.find("kRasterLightingReflectionProbesBinding = 5"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingDescriptorSamplerCount = 37"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingMaxPerStageSamplerCount = 64"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingDescriptorSamplerCount = 69"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingMaxPerStageSamplerCount = 69"), std::string::npos);
   EXPECT_NE(render_layer.find("maxDescriptorSetSampledImages < kRasterLightingDescriptorSamplerCount"),
             std::string::npos);
   EXPECT_NE(render_layer.find("RenderInstanceStorage::kReflectionProbeMaxCount"), std::string::npos);
-  EXPECT_NE(render_layer.find("image_info = global_prefiltered_info"), std::string::npos);
+  EXPECT_NE(render_layer.find("source_info = global_prefiltered_info"), std::string::npos);
+  EXPECT_NE(render_layer.find("target_info = global_prefiltered_info"), std::string::npos);
 
   EXPECT_NE(render_instance_storage.find("ResolveEnvironmentalLighting(target_scene)"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("resolved_lighting.local_reflection_probes"), std::string::npos);
@@ -729,7 +729,7 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
       render_layer, "void RenderLayer::RenderSceneToCameraImmediately", "void RenderLayer::RenderAll");
   EXPECT_NE(immediate_render.find("std::make_shared<RenderInstanceStorage>()"), std::string::npos);
   EXPECT_NE(immediate_render.find("PrepareSceneForRendering(scene, false, false, false, false,"), std::string::npos);
-  EXPECT_NE(immediate_render.find("reflection_probe_capture ? &injected_camera : nullptr"), std::string::npos);
+  EXPECT_NE(immediate_render.find("reflection_probe_capture ? &injected_cameras : nullptr"), std::string::npos);
   EXPECT_NE(immediate_render.find("!reflection_probe_capture"), std::string::npos);
   EXPECT_NE(
       immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture)"),
@@ -1177,8 +1177,7 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
                               "VertexInputAttributeSet::PositionNormal"),
             std::string::npos);
   EXPECT_EQ(CountOccurrences(cubemap, "vertex_input_attribute_set = VertexInputAttributeSet::Position"), 2);
-  EXPECT_NE(global_reflection_probe.find("prefilter_construct_pipeline_->vertex_input_attribute_set = "
-                                         "VertexInputAttributeSet::Position"),
+  EXPECT_NE(global_reflection_probe.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::Position"),
             std::string::npos);
   EXPECT_NE(light_probe.find("irradiance_construct_pipeline_->vertex_input_attribute_set = "
                              "VertexInputAttributeSet::Position"),

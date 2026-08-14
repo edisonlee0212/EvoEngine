@@ -30,11 +30,12 @@ class DdgiProbeUpdatePass final {
     uint32_t* recorded_probe_update_count = nullptr;
     float* record_time_ms = nullptr;
     bool* path_reported = nullptr;
+    bool use_emissive_sampling = false;
   };
 
   [[nodiscard]] static DispatchSize CalculateDispatchSize(uint32_t probe_count, bool parallel,
                                                           uint32_t max_group_count_x, uint32_t max_group_count_y);
-  [[nodiscard]] static RenderPassDescriptor CreateDescriptor();
+  [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool use_emissive_sampling = false);
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 }  // namespace evo_engine

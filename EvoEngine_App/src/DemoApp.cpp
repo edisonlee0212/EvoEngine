@@ -71,13 +71,31 @@ struct DemoAppRuntimeConfig {
   int screenshot_height = 1080;
   bool exit_on_complete = true;
   bool inspect_render_layer = false;
-  bool ddgi_atlas_preview = false;
-  bool ddgi_ray_overlay = false;
   std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   std::filesystem::path ready_file;
   std::filesystem::path done_file;
   std::filesystem::path screenshot_file;
 };
+
+void EnableDdgiProbeReadback(const std::shared_ptr<RenderLayer>& render_layer) {
+  if (!render_layer)
+    return;
+  auto& session = render_layer->GetDdgiSessionState();
+  if (session.selected_volume_id == 0u) {
+    const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
+    if (!snapshot.volumes.empty())
+      session.selected_volume_id = snapshot.volumes.front().stable_entity_id;
+  }
+  session.show_selected_probe_state = true;
+  session.selected_probe_readback_requested = true;
+}
+
+void DisableDdgiProbeReadback(const std::shared_ptr<RenderLayer>& render_layer) {
+  if (!render_layer)
+    return;
+  render_layer->GetDdgiSessionState().show_selected_probe_state = false;
+  render_layer->GetDdgiSessionState().selected_probe_readback_requested = false;
+}
 
 EnvironmentalLighting::DdgiVolume* FindEnvironmentalLightingDdgiVolume(const std::shared_ptr<Scene>& scene,
                                                                        const std::string& name);
@@ -212,12 +230,6 @@ DemoAppRuntimeConfig LoadRunConfig(const std::filesystem::path& path) {
   if (const auto inspect_render_layer = root["inspect_render_layer"]) {
     config.inspect_render_layer = inspect_render_layer.as<bool>();
   }
-  if (const auto ddgi_atlas_preview = root["ddgi_atlas_preview"]) {
-    config.ddgi_atlas_preview = ddgi_atlas_preview.as<bool>();
-  }
-  if (const auto ddgi_ray_overlay = root["ddgi_ray_overlay"]) {
-    config.ddgi_ray_overlay = ddgi_ray_overlay.as<bool>();
-  }
   if (const auto ready_file = root["ready_file"]) {
     config.ready_file = std::filesystem::absolute(ready_file.as<std::string>());
   }
@@ -280,8 +292,8 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
     return FailSmokeTest(application, "Rendering demo environmental lighting asset is missing for DDGI validation");
   }
   if (resolved_lighting.environment_lighting_intensity != 1.0f ||
-      resolved_lighting.diffuse_fallback_intensity != 1.0f) {
-    return FailSmokeTest(application, "Rendering environmental lighting asset is not using neutral diffuse controls");
+      resolved_lighting.diffuse_fallback_intensity != 0.0f || resolved_lighting.specular_fallback_intensity != 1.0f) {
+    return FailSmokeTest(application, "Rendering environmental lighting asset overrides fallback defaults");
   }
   const auto main_camera = scene->main_camera.Get<Camera>();
   if (const auto camera_result = ValidateMainCameraRayTracingSetup(application, config, main_camera, "Rendering demo");
@@ -289,12 +301,11 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
     return camera_result;
   }
   const auto& ddgi_settings = resolved_lighting.ddgi_settings;
-  if (!ddgi_settings.runtime.enabled || !ddgi_settings.debug.enabled ||
-      !ddgi_settings.debug.visualize_probe_positions) {
+  if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 256 || ddgi_settings.runtime.normal_bias != 0.02f ||
-      ddgi_settings.debug.visualization_scale != 2.0f || ddgi_settings.storage.max_probe_count < 960) {
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
+      ddgi_settings.runtime.normal_bias != 0.02f || ddgi_settings.storage.max_probe_count < 960) {
     return FailSmokeTest(application, "DDGI runtime defaults are not configured for the Rendering demo");
   }
   const auto source_volume = FindEnvironmentalLightingDdgiVolume(scene, "DDGI Probe Volume");
@@ -375,6 +386,10 @@ int ValidateCornellBoxDdgiState(Application& application, const DemoAppRuntimeCo
   if (!scene) {
     return FailSmokeTest(application, "active scene is missing for Cornell DDGI validation");
   }
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  if (!render_layer) {
+    return FailSmokeTest(application, "render layer is missing for Cornell DDGI validation");
+  }
   const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
   if (!resolved_lighting.environmental_lighting_asset_assigned ||
       resolved_lighting.environmental_lighting_asset_missing) {
@@ -391,12 +406,11 @@ int ValidateCornellBoxDdgiState(Application& application, const DemoAppRuntimeCo
   }
 
   const auto& ddgi_settings = resolved_lighting.ddgi_settings;
-  if (!ddgi_settings.runtime.enabled || !ddgi_settings.debug.enabled ||
-      !ddgi_settings.debug.visualize_probe_positions) {
+  if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "Cornell DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 256 || ddgi_settings.runtime.normal_bias != 0.02f ||
-      ddgi_settings.storage.max_probe_count < 512) {
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
+      ddgi_settings.runtime.normal_bias != 0.02f || ddgi_settings.storage.max_probe_count < 512) {
     return FailSmokeTest(application, "Cornell DDGI runtime defaults are not configured");
   }
   const auto source_volume = FindEnvironmentalLightingDdgiVolume(scene, "DDGI Probe Volume");
@@ -455,6 +469,10 @@ int ValidateThinWallDdgiState(Application& application, const DemoAppRuntimeConf
   if (!scene) {
     return FailSmokeTest(application, "active scene is missing for thin-wall DDGI validation");
   }
+  const auto render_layer = application.GetLayer<RenderLayer>();
+  if (!render_layer) {
+    return FailSmokeTest(application, "render layer is missing for thin-wall DDGI validation");
+  }
   const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
   if (!resolved_lighting.environmental_lighting_asset_assigned ||
       resolved_lighting.environmental_lighting_asset_missing) {
@@ -471,12 +489,11 @@ int ValidateThinWallDdgiState(Application& application, const DemoAppRuntimeConf
   }
 
   const auto& ddgi_settings = resolved_lighting.ddgi_settings;
-  if (!ddgi_settings.runtime.enabled || !ddgi_settings.debug.enabled ||
-      !ddgi_settings.debug.visualize_probe_positions) {
+  if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "thin-wall DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 256 || ddgi_settings.runtime.normal_bias != 0.015f ||
-      ddgi_settings.storage.max_probe_count < 512) {
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
+      ddgi_settings.runtime.normal_bias != 0.015f || ddgi_settings.storage.max_probe_count < 512) {
     return FailSmokeTest(application, "thin-wall DDGI runtime defaults are not configured");
   }
   const auto source_volume = FindEnvironmentalLightingDdgiVolume(scene, "DDGI Probe Volume");
@@ -553,7 +570,7 @@ EnvironmentalLighting::DdgiVolume* FindEnvironmentalLightingDdgiVolume(const std
   if (!lighting) {
     return nullptr;
   }
-  for (auto& volume : lighting->ddgi_volumes) {
+  for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
     if (volume.enabled && volume.name == name) {
       return &volume;
     }
@@ -616,8 +633,8 @@ struct DdgiProbeMetadataBlock {
   glm::vec4 state = glm::vec4(0.0f);
 };
 
-bool ReadDdgiProbeMetadataBlock(const RenderLayer::DdgiProbeDebugDataView& debug_data,
-                                const uint32_t physical_probe_index, DdgiProbeMetadataBlock& metadata_block) {
+bool ReadDdgiProbeMetadataBlock(const DdgiProbeDebugDataView& debug_data, const uint32_t physical_probe_index,
+                                DdgiProbeMetadataBlock& metadata_block) {
   if (!debug_data.metadata || physical_probe_index >= debug_data.probe_count) {
     return false;
   }
@@ -642,7 +659,7 @@ float MaxDdgiMetadataDelta(const DdgiProbeMetadataBlock& lhs, const DdgiProbeMet
                   glm::max(max_component(visibility_delta), max_component(state_delta)));
 }
 
-DdgiProbeDebugReadbackSummary SummarizeDdgiProbeDebugReadback(const RenderLayer::DdgiProbeDebugDataView& debug_data) {
+DdgiProbeDebugReadbackSummary SummarizeDdgiProbeDebugReadback(const DdgiProbeDebugDataView& debug_data) {
   DdgiProbeDebugReadbackSummary summary;
   if (!debug_data.metadata) {
     return summary;
@@ -698,7 +715,7 @@ struct RenderTextureRegionSummary {
   bool finite = true;
 };
 
-DdgiProbeRegionSummary SummarizeDdgiProbeRegion(const RenderLayer::DdgiProbeDebugDataView& debug_data,
+DdgiProbeRegionSummary SummarizeDdgiProbeRegion(const DdgiProbeDebugDataView& debug_data,
                                                 const glm::ivec3& probe_counts, const glm::ivec3& probe_begin,
                                                 const glm::ivec3& probe_end) {
   DdgiProbeRegionSummary summary;
@@ -801,30 +818,29 @@ int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppR
     return FailSmokeTest(application, "Cornell DDGI probe volume is missing for classification validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
   });
   const auto capture_summary = [&](const bool reset_history,
                                    const char* phase) -> std::optional<DdgiProbeDebugReadbackSummary> {
-    ddgi_settings.runtime.reset_probe_history = reset_history;
-    ddgi_settings.debug.visualize_probe_state = true;
+    if (reset_history)
+      render_layer->RequestDdgiHistoryReset();
+    EnableDdgiProbeReadback(render_layer);
     if (!application.Loop()) {
       FailSmokeTest(application,
                     std::string("application ended before Cornell DDGI ") + phase + " validation completed");
       return {};
     }
-    return SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+    return SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   };
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   const auto direct_only_summary = capture_summary(true, "initial probe readback");
   if (!direct_only_summary) {
     return 1;
@@ -908,23 +924,21 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
     return FailSmokeTest(application, "Cornell DDGI probe volume is missing for classification surface validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
   });
   const auto capture_surface_summary = [&](const bool classification_enabled,
                                            const char* phase) -> std::optional<RenderTextureRegionSummary> {
     volume->enable_probe_classification = classification_enabled;
-    ddgi_settings.runtime.hysteresis = 0.0f;
-    ddgi_settings.runtime.reset_probe_history = true;
-    ddgi_settings.debug.visualize_probe_state = false;
+    render_layer->render_settings.ddgi_hysteresis = 0.0f;
+    render_layer->RequestDdgiHistoryReset();
+    DisableDdgiProbeReadback(render_layer);
     for (size_t frame_index = 0; frame_index < 3; ++frame_index) {
       if (!application.Loop()) {
         FailSmokeTest(application,
@@ -932,7 +946,6 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
         return {};
       }
     }
-    ddgi_settings.runtime.reset_probe_history = false;
     for (size_t frame_index = 0; frame_index < 2; ++frame_index) {
       if (!application.Loop()) {
         FailSmokeTest(application,
@@ -983,19 +996,17 @@ int ValidateThinWallDdgiProbeLeakReadback(Application& application, const DemoAp
     return FailSmokeTest(application, "render layer is missing for thin-wall DDGI leak validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = true;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
+  render_layer->RequestDdgiHistoryReset();
+  EnableDdgiProbeReadback(render_layer);
   constexpr glm::ivec3 probe_counts(8, 6, 8);
   DdgiProbeRegionSummary lit_side;
   DdgiProbeRegionSummary shadow_side;
@@ -1003,7 +1014,7 @@ int ValidateThinWallDdgiProbeLeakReadback(Application& application, const DemoAp
     if (!application.Loop()) {
       return FailSmokeTest(application, "application ended before thin-wall DDGI leak validation completed");
     }
-    const auto debug_data = render_layer->GetDdgiProbeDebugData(true);
+    const auto debug_data = render_layer->RefreshDdgiProbeDebugData();
     const auto frame_lit_side = SummarizeDdgiProbeRegion(debug_data, probe_counts, {1, 3, 2}, {3, 5, 6});
     const auto frame_shadow_side = SummarizeDdgiProbeRegion(debug_data, probe_counts, {5, 3, 2}, {7, 5, 6});
     if (frame_index == 0 || frame_lit_side.average_irradiance > lit_side.average_irradiance) {
@@ -1051,25 +1062,22 @@ int ValidateThinWallDdgiSurfaceLeakReadback(Application& application, const Demo
     return FailSmokeTest(application, "main camera render texture is missing for thin-wall DDGI surface validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
-  const auto original_hysteresis = ddgi_settings.runtime.hysteresis;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
+  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.runtime.hysteresis = original_hysteresis;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  ddgi_settings.runtime.hysteresis = 0.0f;
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = false;
+  render_layer->render_settings.ddgi_hysteresis = 0.0f;
+  render_layer->RequestDdgiHistoryReset();
+  DisableDdgiProbeReadback(render_layer);
   for (size_t frame_index = 0; frame_index < 3; ++frame_index) {
     if (!application.Loop()) {
       return FailSmokeTest(application, "application ended before thin-wall DDGI surface atlas seed completed");
     }
   }
-  ddgi_settings.runtime.reset_probe_history = false;
   for (size_t frame_index = 0; frame_index < 2; ++frame_index) {
     if (!application.Loop()) {
       return FailSmokeTest(application, "application ended before thin-wall DDGI surface validation completed");
@@ -1111,16 +1119,17 @@ int ValidateRenderingDemoDdgiProbeDebugReadback(Application& application, const 
     return FailSmokeTest(application, "render layer is missing for DDGI probe debug readback validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
-  ddgi_settings.debug.visualize_probe_state = true;
+  EnableDdgiProbeReadback(render_layer);
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI probe debug readback validation completed");
   }
-  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   restore_ddgi_settings.Run();
 
   const auto phase_suffix = std::string(" during ") + phase;
@@ -1164,30 +1173,29 @@ int ValidateRenderingDemoDdgiDisabledLightingReadback(Application& application, 
     return FailSmokeTest(application, "Rendering demo has no lights for DDGI disabled-light validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_disabled_light_state = MakeScopeExit([&]() {
     for (const auto& [light, enabled] : light_component_states) {
       light->SetEnabled(enabled);
     }
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
   for (const auto& [light, enabled] : light_component_states) {
     light->SetEnabled(false);
   }
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = true;
+  render_layer->RequestDdgiHistoryReset();
+  EnableDdgiProbeReadback(render_layer);
   main_camera->ResetFrameCount();
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI disabled-light validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonManualReset) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonManualReset) == 0u) {
     return FailSmokeTest(application, "DDGI disabled-light validation did not refresh history");
   }
 
-  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   if (summary.active_probe_count == 0u) {
     return FailSmokeTest(application, "DDGI disabled-light validation has no active probes");
   }
@@ -1237,15 +1245,14 @@ int ValidateRenderingDemoDdgiSponzaHallwaySurfaceReadback(Application& applicati
     return FailSmokeTest(application, "main camera render texture is missing for Sponza hallway DDGI validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = false;
+  render_layer->RequestDdgiHistoryReset();
+  DisableDdgiProbeReadback(render_layer);
   for (size_t frame_index = 0; frame_index < 4; ++frame_index) {
     main_camera->ResetFrameCount();
     if (!application.Loop()) {
@@ -1298,29 +1305,28 @@ int ValidateRenderingDemoDdgiRelocationReadback(Application& application, const 
     return FailSmokeTest(application, "DDGI probe volume is missing for DDGI relocation validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_relocation_enabled = volume->enable_probe_relocation;
   const auto original_relocation_distance = volume->relocation_distance;
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_relocation_state = MakeScopeExit([&]() {
     volume->enable_probe_relocation = original_relocation_enabled;
     volume->relocation_distance = original_relocation_distance;
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
   volume->enable_probe_relocation = true;
   volume->relocation_distance = glm::max(original_relocation_distance, 0.5f);
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = true;
+  render_layer->RequestDdgiHistoryReset();
+  EnableDdgiProbeReadback(render_layer);
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI relocation validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonManualReset) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonManualReset) == 0u) {
     return FailSmokeTest(application, "DDGI relocation validation did not refresh probe history");
   }
 
-  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   if (summary.active_probe_count == 0u) {
     return FailSmokeTest(application, "DDGI relocation validation has no active probes");
   }
@@ -1352,27 +1358,26 @@ int ValidateRenderingDemoDdgiClassificationReadback(Application& application, co
     return FailSmokeTest(application, "DDGI probe volume is missing for DDGI classification validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
   const auto original_classification_enabled = volume->enable_probe_classification;
-  const auto original_reset_probe_history = ddgi_settings.runtime.reset_probe_history;
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_classification_state = MakeScopeExit([&]() {
     volume->enable_probe_classification = original_classification_enabled;
-    ddgi_settings.runtime.reset_probe_history = original_reset_probe_history;
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
   volume->enable_probe_classification = true;
-  ddgi_settings.runtime.reset_probe_history = true;
-  ddgi_settings.debug.visualize_probe_state = true;
+  render_layer->RequestDdgiHistoryReset();
+  EnableDdgiProbeReadback(render_layer);
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI classification validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonSource) == 0u ||
-      (render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonManualReset) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonSource) == 0u ||
+      (render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonManualReset) == 0u) {
     return FailSmokeTest(application, "DDGI classification validation did not refresh probe source and history");
   }
 
-  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+  const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   if (summary.active_probe_count == 0u) {
     return FailSmokeTest(application, "DDGI classification marked every probe inactive");
   }
@@ -1384,7 +1389,7 @@ int ValidateRenderingDemoDdgiClassificationReadback(Application& application, co
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI classification restore completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonSource) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonSource) == 0u) {
     return FailSmokeTest(application, "DDGI classification validation did not restore the authored volume source");
   }
   return ValidateRenderingDemoDdgiState(application, config);
@@ -1399,12 +1404,13 @@ int ValidateRenderingDemoDdgiIdleReadbackStability(Application& application, con
     return FailSmokeTest(application, "render layer is missing for DDGI idle readback validation");
   }
 
-  auto& ddgi_settings = render_layer->GetDdgiSettings();
-  const auto original_visualize_probe_state = ddgi_settings.debug.visualize_probe_state;
+  auto& ddgi_settings = render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
+  const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    ddgi_settings.debug.visualize_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
+    render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
-  ddgi_settings.debug.visualize_probe_state = true;
+  EnableDdgiProbeReadback(render_layer);
 
   DdgiProbeDebugReadbackSummary baseline_summary;
   constexpr size_t idle_readback_frame_count = 3;
@@ -1413,11 +1419,11 @@ int ValidateRenderingDemoDdgiIdleReadbackStability(Application& application, con
     if (!application.Loop()) {
       return FailSmokeTest(application, "application ended before DDGI idle readback validation completed");
     }
-    if (render_layer->GetDdgiLastProbeUpdateReasons() != RenderLayer::DdgiUpdateReasonSteadyState) {
+    if (render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons != DdgiUpdateReasonSteadyState) {
       return FailSmokeTest(application, "DDGI reported a scene refresh during idle readback validation");
     }
 
-    const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->GetDdgiProbeDebugData(true));
+    const auto summary = SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
     if (summary.active_probe_count == 0u) {
       return FailSmokeTest(application, "DDGI idle readback validation has no active probes");
     }
@@ -1511,14 +1517,14 @@ int ValidateRenderingDemoDdgiManualReset(Application& application, const DemoApp
   if (!render_layer) {
     return FailSmokeTest(application, "render layer is missing for DDGI manual-reset validation");
   }
-  render_layer->GetDdgiSettings().runtime.reset_probe_history = true;
+  render_layer->RequestDdgiHistoryReset();
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI manual-reset validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonManualReset) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonManualReset) == 0u) {
     return FailSmokeTest(application, "DDGI did not report a manual reset refresh");
   }
-  if (render_layer->GetDdgiSettings().runtime.reset_probe_history) {
+  if (render_layer->GetDdgiSessionState().reset_history_requested) {
     return FailSmokeTest(application, "DDGI manual reset request was not consumed");
   }
   return ValidateRenderingDemoDdgiState(application, config);
@@ -1588,7 +1594,7 @@ int ValidateRenderingDemoDdgiSourceRefresh(Application& application, const DemoA
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI source-change validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonSource) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonSource) == 0u) {
     return FailSmokeTest(application, "DDGI did not report a source refresh after DDGI volume mutation");
   }
 
@@ -1596,7 +1602,7 @@ int ValidateRenderingDemoDdgiSourceRefresh(Application& application, const DemoA
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI source-restore validation completed");
   }
-  if ((render_layer->GetDdgiLastProbeUpdateReasons() & RenderLayer::DdgiUpdateReasonSource) == 0u) {
+  if ((render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons & DdgiUpdateReasonSource) == 0u) {
     return FailSmokeTest(application, "DDGI did not report a source refresh after DDGI volume restore");
   }
   return ValidateRenderingDemoDdgiState(application, config);
@@ -1613,7 +1619,7 @@ int ValidateRenderingDemoDdgiIdleSteadyState(Application& application, const Dem
   if (!application.Loop()) {
     return FailSmokeTest(application, "application ended before DDGI idle validation completed");
   }
-  if (render_layer->GetDdgiLastProbeUpdateReasons() != RenderLayer::DdgiUpdateReasonSteadyState) {
+  if (render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons != DdgiUpdateReasonSteadyState) {
     return FailSmokeTest(application, "DDGI reported a scene refresh during idle editor validation");
   }
   return ValidateRenderingDemoDdgiState(application, config);
@@ -1796,7 +1802,7 @@ std::optional<Entity> FindEntityByName(const std::shared_ptr<Scene>& scene, cons
   return {};
 }
 
-void ApplyReadmeScreenshotDdgiInspectionOptions(const DemoAppRuntimeConfig* config) {
+void ApplyReadmeScreenshotInspectionOptions(const DemoAppRuntimeConfig* config) {
   if (!config) {
     return;
   }
@@ -1804,29 +1810,14 @@ void ApplyReadmeScreenshotDdgiInspectionOptions(const DemoAppRuntimeConfig* conf
   if (!render_layer) {
     return;
   }
-  const auto force_ddgi_layout = config->ddgi_atlas_preview || config->ddgi_ray_overlay;
-  if (config->inspect_render_layer || force_ddgi_layout) {
+  if (config->inspect_render_layer) {
     render_layer->enable_inspection = true;
-  }
-  render_layer->force_ddgi_inspection_layout = force_ddgi_layout;
-  if (!force_ddgi_layout) {
-    return;
-  }
-  auto& settings = render_layer->GetDdgiSettings();
-  settings.debug.enabled = true;
-  if (config->ddgi_atlas_preview) {
-    settings.debug.visualize_probe_state = true;
-  }
-  if (config->ddgi_ray_overlay) {
-    settings.debug.show_rays = true;
-    settings.debug.visualize_probe_state = true;
-    settings.debug.visualize_selected_probe = true;
   }
 }
 
 void ApplyReadmeScreenshotEditorSetup(const DemoAppRuntimeConfig* config) {
   ApplyRenderingDemoEditorSetup();
-  ApplyReadmeScreenshotDdgiInspectionOptions(config);
+  ApplyReadmeScreenshotInspectionOptions(config);
 }
 
 int FailEditorScreenshot(Application& application, const std::string& reason) {

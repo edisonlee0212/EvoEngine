@@ -45,13 +45,10 @@ DEFAULT_BUILD_DIR = Path("out/build/vs2026-x64")
 SPONZA_LIGHTING_FILES = (
     "SponzaEnvironment.eveenvironmentalmap",
     "SponzaGlobal.evereflectionprobe",
-    "SponzaLeftGallery.evereflectionprobe",
-    "SponzaRightGallery.evereflectionprobe",
-    "SponzaCentralFront.evereflectionprobe",
-    "SponzaCentralMiddle.evereflectionprobe",
-    "SponzaCentralRear.evereflectionprobe",
+    "SponzaLocal.evereflectionprobepack",
 )
 SPONZA_PROBE_BASE64_PAYLOAD_SIZE = 5_592_384
+SPONZA_LOCAL_PROBE_PACK_PAYLOAD_SIZE = 5 * 4_194_288
 
 
 def repo_root() -> Path:
@@ -120,7 +117,8 @@ def validate_directory(path: Path, label: str, missing: list[str]) -> None:
 def validate_sponza_lighting_assets(root: Path, missing: list[str]) -> None:
     for index, name in enumerate(SPONZA_LIGHTING_FILES):
         path = root / name
-        if not path.is_file() or path.stat().st_size <= (0 if index == 0 else SPONZA_PROBE_BASE64_PAYLOAD_SIZE):
+        minimum_size = (0, SPONZA_PROBE_BASE64_PAYLOAD_SIZE, SPONZA_LOCAL_PROBE_PACK_PAYLOAD_SIZE)[index]
+        if not path.is_file() or path.stat().st_size <= minimum_size:
             missing.append(name)
 
 

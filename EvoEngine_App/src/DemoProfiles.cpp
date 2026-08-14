@@ -6,6 +6,7 @@
 #include "ApplicationInitializationSettings.hpp"
 #include "AssetManager.hpp"
 #include "Camera.hpp"
+#include "DdgiRuntime.hpp"
 #include "EditorLayer.hpp"
 #include "Entity.hpp"
 #include "EnvironmentalLighting.hpp"
@@ -15,6 +16,7 @@
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "PathUtils.hpp"
+#include "RenderLayer.hpp"
 #include "Scene.hpp"
 #include "SkinnedMesh.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -198,7 +200,7 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
     return false;
   }
   auto* asset_volume = [&]() -> EnvironmentalLighting::DdgiVolume* {
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       if (volume.enabled && volume.name == "DDGI Probe Volume") {
         return &volume;
       }
@@ -211,11 +213,13 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
 
   auto& settings = lighting->ddgi_settings;
   settings.runtime.enabled = true;
-  settings.debug.enabled = true;
-  settings.debug.visualize_probe_positions = true;
-  settings.debug.visualize_selected_probe = true;
-  settings.debug.visualization_scale = 2.0f;
-  settings.debug.selected_probe_index = 129;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    auto& session = render_layer->GetDdgiSessionState();
+    session.show_probes = true;
+    session.show_selected_probe = true;
+    session.selected_volume_id = asset_volume->stable_id;
+    session.selected_probe_grid = DdgiRuntime::GetProbeGridIndex(asset_volume->probe_counts, 129u);
+  }
 
   if (asset_volume->probe_spacing.x < 0.05f) {
     asset_volume->probe_spacing.x = 0.05f;
@@ -524,12 +528,11 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     return missing;
   }
   if (id == DemoProfileId::Rendering || id == DemoProfileId::RenderingRegression) {
-    constexpr std::array<const char*, 7> required_files = {
-        "SponzaEnvironment.eveenvironmentalmap", "SponzaGlobal.evereflectionprobe",
-        "SponzaLeftGallery.evereflectionprobe",  "SponzaRightGallery.evereflectionprobe",
-        "SponzaCentralFront.evereflectionprobe", "SponzaCentralMiddle.evereflectionprobe",
-        "SponzaCentralRear.evereflectionprobe"};
-    constexpr auto minimum_probe_file_size = 4u * ((GlobalReflectionProbe::kCanonicalPayloadByteSize + 2u) / 3u);
+    constexpr std::array<const char*, 3> required_files = {"SponzaEnvironment.eveenvironmentalmap",
+                                                           "SponzaGlobal.evereflectionprobe",
+                                                           "SponzaLocal.evereflectionprobepack"};
+    constexpr auto minimum_global_probe_file_size = 4u * ((GlobalReflectionProbe::kCanonicalPayloadByteSize + 2u) / 3u);
+    constexpr auto minimum_local_probe_pack_file_size = 5u * GlobalReflectionProbe::kCanonicalPayloadByteSize;
     const auto lighting_root =
         resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza";
     const auto* authoring_mode = std::getenv("EVOENGINE_SPONZA_PROBE_AUTHORING");
@@ -540,7 +543,10 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
       std::error_code error;
       const auto size =
           std::filesystem::is_regular_file(path, error) && !error ? std::filesystem::file_size(path, error) : 0u;
-      const bool valid = !error && (index == 0u ? size > 0u : authoring_bootstrap || size > minimum_probe_file_size);
+      const auto minimum_size = index == 0u   ? 0u
+                                : index == 1u ? minimum_global_probe_file_size
+                                              : minimum_local_probe_pack_file_size;
+      const bool valid = (index != 0u && authoring_bootstrap) || (!error && size > minimum_size);
       if (!valid) {
         missing.emplace_back(required_files[index]);
       }
@@ -675,19 +681,16 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
 
   auto& ddgi_settings = lighting->ddgi_settings;
   ddgi_settings.runtime.enabled = true;
-  ddgi_settings.runtime.pause_updates = false;
-  ddgi_settings.runtime.ray_count = 256;
+  ddgi_settings.runtime.ray_count = 192;
+  ddgi_settings.runtime.emissive_ray_count = 64;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
-  ddgi_settings.runtime.reset_probe_history = true;
   ddgi_settings.storage.max_probe_count =
       kDdgiCornellBoxProbeCounts.x * kDdgiCornellBoxProbeCounts.y * kDdgiCornellBoxProbeCounts.z;
-  ddgi_settings.debug.enabled = false;
-  ddgi_settings.debug.visualize_probe_positions = false;
-  ddgi_settings.debug.visualize_selected_probe = false;
-  ddgi_settings.debug.visualize_probe_state = false;
-  ddgi_settings.debug.visualize_probe_illumination = false;
-  ddgi_settings.debug.show_rays = false;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    render_layer->GetDdgiSessionState().pause_updates = false;
+    render_layer->RequestDdgiHistoryReset();
+  }
 
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->Resize(kDdgiCornellBoxExtent);
@@ -702,8 +705,9 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   }
 
   if (lighting) {
-    lighting->ddgi_volumes.clear();
-    auto& target_volume = lighting->ddgi_volumes.emplace_back();
+    auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+    ddgi_pack->volumes.clear();
+    auto& target_volume = ddgi_pack->volumes.emplace_back();
     target_volume.name = "DDGI Probe Volume";
     target_volume.stable_id = StableEnvironmentalLightingId(target_volume.name);
     target_volume.enabled = true;
