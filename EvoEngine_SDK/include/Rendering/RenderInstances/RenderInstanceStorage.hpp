@@ -338,6 +338,7 @@ class RenderInstanceStorage {
     int32_t info_index = 0;      ///< Index for additional instance information.
     uint32_t entity_index = 0;   ///< Entity index associated with the instance.
     Handle renderer_handle = 0;  ///< Handle for the renderer.
+    glm::ivec4 ray_tracing_geometry = {};
 
     /**
      * @brief Compares two InstanceInfoBlock objects for inequality.

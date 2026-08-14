@@ -71,6 +71,14 @@ void ComputePipeline::Initialize() {
   pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
   pipeline_info.layout = pipeline_layout_->GetVkPipelineLayout();
   pipeline_info.stage = shader_stage_create_info;
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  VkPipelineCreateFlags2CreateInfoKHR pipeline_flags{};
+  if (linear_swept_spheres_enabled && Platform::RayTracingLinearSweptSpheresEnabled()) {
+    pipeline_flags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO_KHR;
+    pipeline_flags.flags = VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
+    pipeline_info.pNext = &pipeline_flags;
+  }
+#endif
   try {
     Platform::CheckVk(Platform::CreateComputePipeline(pipeline_info, vk_compute_pipeline_, creation_feedback_));
   } catch (const std::runtime_error& error) {

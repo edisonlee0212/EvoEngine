@@ -1776,9 +1776,6 @@ void CaptureDemoPreview(
   const bool linear_hdr_output = output_extension == ".hdr";
   const glm::uvec2 preview_resolution(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
   if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
-    if (!Platform::MeshShaderEnabled()) {
-      throw std::runtime_error("Strand validation requires mesh-shader support.");
-    }
     if (preview_strand_fixture) {
       ConfigureStrandMeshShaderValidation(ApplicationContext::Get().GetActiveScene());
     } else if (preview_strand_punctual_fixture) {
@@ -1967,10 +1964,16 @@ void CaptureDemoPreview(
   const auto resolved_render_mode = Camera::ResolveCameraRenderMode(scene_camera->camera_render_mode);
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (preview_strand_fixture || preview_strand_punctual_fixture || preview_strand_gizmo_fixture) {
-    if (!render_layer || resolved_render_mode != Camera::CameraRenderMode::Rasterization) {
-      throw std::runtime_error("Strand validation requires the raster RenderLayer path.");
+    if (!render_layer) {
+      throw std::runtime_error("Strand validation requires RenderLayer.");
     }
-    render_layer->enable_meshlet = true;
+    const bool ray_strand_fixture = preview_strand_fixture && Camera::IsRayCameraRenderMode(resolved_render_mode);
+    if (!ray_strand_fixture) {
+      if (resolved_render_mode != Camera::CameraRenderMode::Rasterization || !Platform::MeshShaderEnabled()) {
+        throw std::runtime_error("Raster strand validation requires mesh-shader support.");
+      }
+      render_layer->enable_meshlet = true;
+    }
   }
   if (Camera::IsRayCameraRenderMode(resolved_render_mode)) {
     if (!render_layer) {

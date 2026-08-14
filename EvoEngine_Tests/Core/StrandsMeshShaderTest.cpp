@@ -13,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 
 namespace {
@@ -95,6 +96,72 @@ TEST(StrandsMeshShader, ThicknessAwareBoundsUpdateWithGeometry) {
   evo_engine::Jobs::OnDestroy();
 }
 
+TEST(StrandsMeshShader, RayTracingGeometryUsesEightDeterministicIntervalsPerSpan) {
+  std::vector<evo_engine::StrandPoint> points(4);
+  for (size_t i = 0; i < points.size(); ++i) {
+    points[i].position = glm::vec3(static_cast<float>(i), 0.0f, 0.0f);
+    points[i].thickness = -0.25f;
+    points[i].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    points[i].tex_coord = static_cast<float>(i);
+    points[i].color = glm::vec4(static_cast<float>(i));
+  }
+
+  const auto geometry = evo_engine::Strands::BuildRayTracingGeometry(points, {glm::uvec4(0, 1, 2, 3)});
+  ASSERT_EQ(geometry.points.size(), 9u);
+  ASSERT_EQ(geometry.indices.size(), 8u);
+  for (uint32_t index = 0; index < geometry.indices.size(); ++index) {
+    EXPECT_EQ(geometry.indices[index], index);
+  }
+  EXPECT_FLOAT_EQ(geometry.points.front().position.x, 1.0f);
+  EXPECT_FLOAT_EQ(geometry.points.back().position.x, 2.0f);
+  EXPECT_FLOAT_EQ(geometry.points.front().thickness, 0.25f);
+  EXPECT_FLOAT_EQ(geometry.points.back().thickness, 0.25f);
+  EXPECT_EQ(geometry.points[4].normal, glm::vec3(0.0f, 1.0f, 0.0f));
+  EXPECT_FLOAT_EQ(geometry.points[4].tex_coord, 1.5f);
+  EXPECT_NEAR(geometry.points[4].color.x, 1.5f, 0.000001f);
+  EXPECT_NEAR(geometry.points[4].color.y, 1.5f, 0.000001f);
+  EXPECT_NEAR(geometry.points[4].color.z, 1.5f, 0.000001f);
+  EXPECT_NEAR(geometry.points[4].color.w, 1.5f, 0.000001f);
+}
+
+TEST(StrandsMeshShader, RayTracingGeometryMergesSpansAndSeparatesChains) {
+  std::vector<evo_engine::StrandPoint> points(8);
+  for (size_t i = 0; i < points.size(); ++i) {
+    points[i].position = glm::vec3(static_cast<float>(i), 0.0f, 0.0f);
+    points[i].thickness = 0.1f;
+  }
+
+  const auto merged =
+      evo_engine::Strands::BuildRayTracingGeometry(points, {glm::uvec4(0, 1, 2, 3), glm::uvec4(1, 2, 3, 4)});
+  ASSERT_EQ(merged.points.size(), 17u);
+  ASSERT_EQ(merged.indices.size(), 16u);
+  for (uint32_t index = 0; index < merged.indices.size(); ++index) {
+    EXPECT_EQ(merged.indices[index], index);
+  }
+
+  const auto separate =
+      evo_engine::Strands::BuildRayTracingGeometry(points, {glm::uvec4(0, 1, 2, 3), glm::uvec4(4, 5, 6, 7)});
+  ASSERT_EQ(separate.points.size(), 18u);
+  ASSERT_EQ(separate.indices.size(), 16u);
+  EXPECT_EQ(separate.indices[7], 7u);
+  EXPECT_EQ(separate.indices[8], 9u);
+}
+
+TEST(StrandsMeshShader, RayTracingGeometryOmitsInvalidPrimitives) {
+  std::vector<evo_engine::StrandPoint> points(8);
+  for (auto& point : points) {
+    point.position = glm::vec3(1.0f);
+    point.thickness = 0.1f;
+  }
+  EXPECT_TRUE(evo_engine::Strands::BuildRayTracingGeometry(points, {glm::uvec4(0, 1, 2, 3)}).indices.empty());
+
+  points[4].position.x = std::numeric_limits<float>::infinity();
+  const auto invalid = evo_engine::Strands::BuildRayTracingGeometry(
+      points, {glm::uvec4(0, 1, 2, 3), glm::uvec4(4, 5, 6, 7), glm::uvec4(8, 9, 10, 11)});
+  EXPECT_TRUE(invalid.points.empty());
+  EXPECT_TRUE(invalid.indices.empty());
+}
+
 TEST(StrandsMeshShader, LegacyBackendIsRemoved) {
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto strands = ReadRepoFile("EvoEngine_SDK/src/Strands.cpp");
@@ -114,7 +181,11 @@ TEST(StrandsMeshShader, LegacyBackendIsRemoved) {
   EXPECT_EQ(render_layer.find("TessellationControl/Gizmos/GizmosStrands"), std::string::npos);
   EXPECT_NE(render_layer.find("StandardStrands.slang"), std::string::npos);
   EXPECT_NE(strands.find("Platform::Initialized() && Platform::MeshShaderEnabled()"), std::string::npos);
-  EXPECT_NE(render_instances.find("if (!Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_"),
+  EXPECT_NE(render_instances.find("const bool raster_ready = Platform::MeshShaderEnabled()"), std::string::npos);
+  EXPECT_NE(render_instances.find("const bool ray_ready = Platform::RayTracingLinearSweptSpheresEnabled()"),
+            std::string::npos);
+  EXPECT_NE(render_instances.find("if (!raster_ready && !ray_ready)"), std::string::npos);
+  EXPECT_NE(render_instances.find("strands->ray_tracing_index_range_ && strands->ray_tracing_point_range_"),
             std::string::npos);
 }
 

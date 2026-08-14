@@ -289,6 +289,11 @@ bool RequiresShaderInvocationReorderCapability(const ShaderCompileRequest& reque
          SourceDefinesEnabled(request.source, "EE_SHADER_EXECUTION_REORDERING_SUPPORTED");
 }
 
+bool RequiresLinearSweptSphereCapability(const ShaderCompileRequest& request) {
+  return SourceDefinesEnabled(request.global_defines, "EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED") ||
+         SourceDefinesEnabled(request.source, "EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED");
+}
+
 void HashKeyBytes(ShaderCacheKey& key, const void* data, const size_t size) {
   HashBytes(key.low, data, size);
   HashBytes(key.high, data, size);
@@ -310,6 +315,8 @@ std::string MakeShaderTargetProfileString(const ShaderCompileRequest& request) {
          << SlangInputDialectName(request.target.slang_input_language);
   stream << ";shader_invocation_reorder_ext="
          << (RequiresShaderInvocationReorderCapability(request) ? "true" : "false");
+  stream << ";ray_tracing_linear_swept_spheres_nv="
+         << (RequiresLinearSweptSphereCapability(request) ? "true" : "false");
   stream << ";strict_native=" << (request.strict_native ? "true" : "false");
   return stream.str();
 }
@@ -1217,6 +1224,7 @@ std::string MakeSlangCompilerDiagnosticHeader(slang::IGlobalSession& global_sess
          << "." << (kSpirvTarget % 10) << ", matrix layout: row-major, scalar layout: on, Slang input dialect: "
          << SlangInputDialectName(request.target.slang_input_language)
          << ", shader invocation reorder EXT: " << (RequiresShaderInvocationReorderCapability(request) ? "on" : "off")
+         << ", ray tracing linear swept spheres NV: " << (RequiresLinearSweptSphereCapability(request) ? "on" : "off")
          << "\n";
   return stream.str();
 }
@@ -1282,6 +1290,11 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
     session_options.push_back({slang::CompilerOptionName::Capability,
                                {slang::CompilerOptionValueKind::String, 0, 0, "spvShaderInvocationReorderEXT"}});
   }
+  if (RequiresLinearSweptSphereCapability(request)) {
+    session_options.push_back(
+        {slang::CompilerOptionName::Capability,
+         {slang::CompilerOptionValueKind::String, 0, 0, "spvRayTracingLinearSweptSpheresGeometryNV"}});
+  }
   slang::CompilerOptionEntry target_options[] = {
       {slang::CompilerOptionName::EmitSpirvDirectly, {slang::CompilerOptionValueKind::Int, 1}},
       {slang::CompilerOptionName::MatrixLayoutRow, {slang::CompilerOptionValueKind::Int, 1}},
@@ -1310,6 +1323,10 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   session_desc.allowGLSLSyntax = request.source_dialect == ShaderSourceDialect::GlslCompatibility;
   session_desc.searchPaths = include_paths.empty() ? nullptr : include_paths.data();
   session_desc.searchPathCount = static_cast<SlangInt>(include_paths.size());
+  const slang::PreprocessorMacroDesc preprocessor_macros[] = {
+      {"EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED", RequiresLinearSweptSphereCapability(request) ? "1" : "0"}};
+  session_desc.preprocessorMacros = preprocessor_macros;
+  session_desc.preprocessorMacroCount = static_cast<SlangInt>(std::size(preprocessor_macros));
   session_desc.compilerOptionEntries = session_options.data();
   session_desc.compilerOptionEntryCount = static_cast<uint32_t>(session_options.size());
 

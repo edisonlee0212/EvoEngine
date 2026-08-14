@@ -293,10 +293,22 @@ class GeometryStorage final {
   DirtyRange strand_point_dirty_range_;
   DirtyRange strand_meshlet_dirty_range_;
 
+  std::vector<StrandPoint> ray_tracing_strand_points_;
+  std::vector<uint32_t> ray_tracing_strand_indices_;
+  std::vector<std::shared_ptr<RangeDescriptor>> ray_tracing_strand_point_range_descriptors_;
+  std::vector<std::shared_ptr<RangeDescriptor>> ray_tracing_strand_index_range_descriptors_;
+  std::shared_ptr<Buffer> ray_tracing_strand_point_buffer_;
+  std::shared_ptr<Buffer> ray_tracing_strand_index_buffer_;
+  bool require_ray_tracing_strand_data_device_update_ = false;
+  PendingGeometryUpload pending_ray_tracing_strand_upload_;
+  DirtyRange ray_tracing_strand_point_dirty_range_;
+  DirtyRange ray_tracing_strand_index_dirty_range_;
+
   void UploadData();
   void ClearMeshDirtyRanges();
   void ClearSkinnedMeshDirtyRanges();
   void ClearStrandDirtyRanges();
+  void ClearRayTracingStrandDirtyRanges();
   static GpuWorkHandle ScheduleDirtyBufferUpload(const DirtyBufferUpload& upload);
   static void CaptureRangeCommits(const std::vector<std::shared_ptr<RangeDescriptor>>& descriptors,
                                   std::vector<RangeCommit>& commits);
@@ -337,6 +349,8 @@ class GeometryStorage final {
 
   static const std::shared_ptr<Buffer>& GetStrandPointBuffer();
   static const std::shared_ptr<Buffer>& GetStrandMeshletBuffer();
+  static const std::shared_ptr<Buffer>& GetRayTracingStrandPointBuffer();
+  static const std::shared_ptr<Buffer>& GetRayTracingStrandIndexBuffer();
 
   static void BindVertices(VkCommandBuffer vk_command_buffer);
   static void BindSkinnedVertices(VkCommandBuffer vk_command_buffer);
@@ -345,6 +359,8 @@ class GeometryStorage final {
   [[nodiscard]] static const glm::uvec3& PeekTriangle(size_t triangle_index);
   [[nodiscard]] static const SkinnedVertex& PeekSkinnedVertex(size_t skinned_vertex_index);
   [[nodiscard]] static const StrandPoint& PeekStrandPoint(size_t strand_point_index);
+  [[nodiscard]] static const StrandPoint& PeekRayTracingStrandPoint(size_t strand_point_index);
+  [[nodiscard]] static uint32_t PeekRayTracingStrandIndex(size_t strand_index);
 
   static void AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices, std::vector<glm::uvec3>& triangles,
                            const std::shared_ptr<RangeDescriptor>& target_meshlet_range,
@@ -360,10 +376,15 @@ class GeometryStorage final {
                               const std::vector<glm::uvec4>& segments,
                               const std::shared_ptr<RangeDescriptor>& target_strand_meshlet_range,
                               const std::shared_ptr<RangeDescriptor>& target_segment_range);
+  static void AllocateRayTracingStrands(const Handle& handle, const std::vector<StrandPoint>& strand_points,
+                                        const std::vector<uint32_t>& indices,
+                                        const std::shared_ptr<RangeDescriptor>& target_point_range,
+                                        const std::shared_ptr<RangeDescriptor>& target_index_range);
 
   static void FreeMesh(const Handle& handle);
   static void FreeSkinnedMesh(const Handle& handle);
   static void FreeStrands(const Handle& handle);
+  static void FreeRayTracingStrands(const Handle& handle);
 
   static void AllocateParticleInfo(const Handle& handle, const std::shared_ptr<RangeDescriptor>& range_descriptor);
   static void UpdateParticleInfo(const std::shared_ptr<RangeDescriptor>& range_descriptor,

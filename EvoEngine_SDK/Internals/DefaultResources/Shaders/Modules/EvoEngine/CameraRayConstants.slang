@@ -8,7 +8,15 @@ public static const uint EE_CAMERA_RUSSIAN_ROULETTE_MIN_DEPTH = 3u;
 public static const uint EE_CAMERA_RAY_PAYLOAD_SURFACE = 0u;
 public static const uint EE_CAMERA_RAY_PAYLOAD_SHADOW = 1u;
 public static const uint EE_CAMERA_RAY_PAYLOAD_MISS = 2u;
-public static const uint EE_CAMERA_RAY_MASK_SHADOW = 0x02u;
+public static const uint EE_CAMERA_TRIANGLE_RAY_MASK_GEOMETRY = 0x01u;
+public static const uint EE_CAMERA_TRIANGLE_RAY_MASK_SHADOW = 0x02u;
+public static const uint EE_CAMERA_LSS_RAY_MASK_GEOMETRY = 0x04u;
+public static const uint EE_CAMERA_LSS_RAY_MASK_SHADOW = 0x08u;
+public static const uint EE_CAMERA_RAY_MASK_GEOMETRY =
+    EE_CAMERA_TRIANGLE_RAY_MASK_GEOMETRY | EE_CAMERA_LSS_RAY_MASK_GEOMETRY;
+public static const uint EE_CAMERA_RAY_MASK_SHADOW = EE_CAMERA_TRIANGLE_RAY_MASK_SHADOW | EE_CAMERA_LSS_RAY_MASK_SHADOW;
+public static const uint EE_CAMERA_GEOMETRY_TRIANGLE = 0u;
+public static const uint EE_CAMERA_GEOMETRY_LINEAR_SWEPT_SPHERE = 1u;
 public static const float EE_CAMERA_ENVIRONMENT_TYPE_COLOR = 1.0f;
 public static const float EE_CAMERA_ANTIALIASING_STANDARD_DEVIATION = 0.4246609f;
 public static const float EE_CAMERA_MIN_SHADOW_TRANSMISSION = 0.01f;

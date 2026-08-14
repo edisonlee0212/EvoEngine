@@ -216,10 +216,12 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     push_constant.frame_id = history_resources.valid ? history_resources.frame_id : 0u;
     push_constant.frame_samples = static_cast<uint32_t>(std::max(parameters.camera->camera_settings.sample_size, 1));
     push_constant.total_samples = push_constant.frame_id * push_constant.frame_samples;
-    push_constant.shader_execution_reordering = Camera::ResolveShaderExecutionReorderingEnabled(
-                                                    parameters.camera->camera_settings.shader_execution_reordering_mode)
-                                                    ? 1u
-                                                    : 0u;
+    push_constant.shader_execution_reordering =
+        (!Platform::RayTracingLinearSweptSpheresEnabled() &&
+         Camera::ResolveShaderExecutionReorderingEnabled(
+             parameters.camera->camera_settings.shader_execution_reordering_mode))
+            ? 1u
+            : 0u;
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);

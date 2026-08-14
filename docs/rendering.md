@@ -486,6 +486,20 @@ outputs use the shared descriptor layout and are allocated only when requested.
 Ray-camera shaders under `DefaultResources/Shaders` use the native Slang frontend. Shared modules are imported by module
 name, while RTX ray-generation and RayQuery compute entrypoints supply the traversal adapter appropriate to their backend.
 
+Built-in `Strands` participate in both ray-camera modes when the selected device exposes
+`VK_NV_ray_tracing_linear_swept_spheres` with `linearSweptSpheres`. Each cubic span is converted into eight
+view-independent linear swept-sphere intervals and built into a dedicated BLAS. Ray-tracing-pipeline and RayQuery
+traversal share the same strand attribute interpolation, glTF material evaluation, alpha/transmission handling, and
+camera/shadow visibility policy. RayQuery uses disjoint camera-only triangle and LSS masks, selects the nearest committed
+surface, and identifies committed LSS hits with `CommittedIsLssNV`. The ray-tracing camera disables shader execution
+reordering while this geometry is enabled. Strand instances use camera-only TLAS masks, so DDGI and ray pipelines that
+only understand triangles cannot traverse them; emissive strands contribute when hit but are not part of the
+emissive-triangle sampling distribution.
+
+If the extension or feature is unavailable, strand BLAS and ray attribute storage are not created and strands are omitted
+from both ray-camera traversal paths. The camera mode itself remains available, and mesh-shader raster rendering of
+strands is unaffected.
+
 ## Render Graph And Extension Model
 
 `RenderGraph` declares logical resources, pass queues, access plans, and compiled barrier plans. `RenderLayer` applies

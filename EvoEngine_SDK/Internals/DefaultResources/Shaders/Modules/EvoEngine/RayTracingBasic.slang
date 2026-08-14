@@ -21,3 +21,19 @@ public struct EmissiveTriangleInfo {
 
 [[vk::binding(3, 1)]]
 public StructuredBuffer<EmissiveTriangleInfo, Std430DataLayout> EE_EMISSIVE_TRIANGLES;
+
+#if EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED
+public struct RayTracingStrandPoint {
+  public float3 position;
+  public float thickness;
+  public float3 normal;
+  public float tex_coord;
+  public float4 color;
+};
+
+[[vk::binding(4, 1)]]
+public StructuredBuffer<RayTracingStrandPoint, Std430DataLayout> EE_RAY_TRACING_STRAND_POINTS;
+
+[[vk::binding(5, 1)]]
+public StructuredBuffer<uint, Std430DataLayout> EE_RAY_TRACING_STRAND_INDICES;
+#endif

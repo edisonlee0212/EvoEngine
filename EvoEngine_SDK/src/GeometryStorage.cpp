@@ -82,6 +82,11 @@ void GeometryStorage::ClearStrandDirtyRanges() {
   strand_meshlet_dirty_range_.Clear();
 }
 
+void GeometryStorage::ClearRayTracingStrandDirtyRanges() {
+  ray_tracing_strand_point_dirty_range_.Clear();
+  ray_tracing_strand_index_dirty_range_.Clear();
+}
+
 void GeometryStorage::CaptureRangeCommits(const std::vector<std::shared_ptr<RangeDescriptor>>& descriptors,
                                           std::vector<RangeCommit>& commits) {
   commits.clear();
@@ -165,6 +170,7 @@ void GeometryStorage::CompletePendingUploads() {
   CompletePendingUpload(pending_mesh_upload_);
   CompletePendingUpload(pending_skinned_mesh_upload_);
   CompletePendingUpload(pending_strand_upload_);
+  CompletePendingUpload(pending_ray_tracing_strand_upload_);
 }
 
 GpuWorkHandle GeometryStorage::ScheduleDirtyBufferUpload(const DirtyBufferUpload& upload) {
@@ -251,6 +257,13 @@ void GeometryStorage::SchedulePendingUploads() {
                       {make_upload(strand_point_buffer_, strand_point_data_chunks_, strand_point_dirty_range_),
                        make_upload(strand_meshlet_buffer_, strand_meshlets_, strand_meshlet_dirty_range_)},
                       strand_meshlet_range_descriptor_, segment_range_descriptor_);
+
+  ScheduleUploadGroup(
+      require_ray_tracing_strand_data_device_update_, pending_ray_tracing_strand_upload_,
+      {make_upload(ray_tracing_strand_point_buffer_, ray_tracing_strand_points_, ray_tracing_strand_point_dirty_range_),
+       make_upload(ray_tracing_strand_index_buffer_, ray_tracing_strand_indices_,
+                   ray_tracing_strand_index_dirty_range_)},
+      ray_tracing_strand_point_range_descriptors_, ray_tracing_strand_index_range_descriptors_);
 }
 
 void GeometryStorage::UploadData() {
@@ -355,6 +368,22 @@ void GeometryStorage::Initialize() {
 
   storage.require_strand_mesh_data_device_update_ = false;
   storage.ClearStrandDirtyRanges();
+
+  if (Platform::RayTracingLinearSweptSpheresEnabled()) {
+    storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    storage.ray_tracing_strand_point_buffer_ =
+        std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+    storage_buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT |
+                                       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
+                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+                                       VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    storage.ray_tracing_strand_index_buffer_ =
+        std::make_shared<Buffer>(storage_buffer_create_info, vertices_vma_allocation_create_info);
+  }
+  storage.require_ray_tracing_strand_data_device_update_ = false;
+  storage.ClearRayTracingStrandDirtyRanges();
   storage.initialized_ = true;
 }
 
@@ -366,7 +395,8 @@ bool GeometryStorage::HasPendingMeshUploads() {
   const auto& storage = GetInstance();
   return storage.require_mesh_data_device_update_ || storage.pending_mesh_upload_.active ||
          storage.require_skinned_mesh_data_device_update_ || storage.pending_skinned_mesh_upload_.active ||
-         storage.require_strand_mesh_data_device_update_ || storage.pending_strand_upload_.active;
+         storage.require_strand_mesh_data_device_update_ || storage.pending_strand_upload_.active ||
+         storage.require_ray_tracing_strand_data_device_update_ || storage.pending_ray_tracing_strand_upload_.active;
 }
 
 bool GeometryStorage::HasPendingUploads() {
@@ -399,6 +429,7 @@ void GeometryStorage::WaitForPendingUploads() {
   WaitPendingUpload(storage.pending_mesh_upload_);
   WaitPendingUpload(storage.pending_skinned_mesh_upload_);
   WaitPendingUpload(storage.pending_strand_upload_);
+  WaitPendingUpload(storage.pending_ray_tracing_strand_upload_);
   storage.CompletePendingUploads();
   BottomLevelAccelerationStructure::ProcessStaticBuilds();
 }
@@ -438,6 +469,14 @@ const std::shared_ptr<Buffer>& GeometryStorage::GetStrandMeshletBuffer() {
   return storage.strand_meshlet_buffer_;
 }
 
+const std::shared_ptr<Buffer>& GeometryStorage::GetRayTracingStrandPointBuffer() {
+  return GetInstance().ray_tracing_strand_point_buffer_;
+}
+
+const std::shared_ptr<Buffer>& GeometryStorage::GetRayTracingStrandIndexBuffer() {
+  return GetInstance().ray_tracing_strand_index_buffer_;
+}
+
 void GeometryStorage::BindVertices(const VkCommandBuffer vk_command_buffer) {
   const auto& storage = GetInstance();
   storage.vertex_buffer_->BindVertex(vk_command_buffer);
@@ -470,6 +509,14 @@ const StrandPoint& GeometryStorage::PeekStrandPoint(const size_t strand_point_in
   const auto& storage = GetInstance();
   return storage.strand_point_data_chunks_[strand_point_index / Platform::Constants::meshlet_max_vertices_size]
       .strand_point_data[strand_point_index % Platform::Constants::meshlet_max_vertices_size];
+}
+
+const StrandPoint& GeometryStorage::PeekRayTracingStrandPoint(const size_t strand_point_index) {
+  return GetInstance().ray_tracing_strand_points_.at(strand_point_index);
+}
+
+uint32_t GeometryStorage::PeekRayTracingStrandIndex(const size_t strand_index) {
+  return GetInstance().ray_tracing_strand_indices_.at(strand_index);
 }
 
 void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& vertices,
@@ -807,6 +854,41 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
   storage.require_strand_mesh_data_device_update_ = true;
 }
 
+void GeometryStorage::AllocateRayTracingStrands(const Handle& handle, const std::vector<StrandPoint>& strand_points,
+                                                const std::vector<uint32_t>& indices,
+                                                const std::shared_ptr<RangeDescriptor>& target_point_range,
+                                                const std::shared_ptr<RangeDescriptor>& target_index_range) {
+  if (strand_points.empty() || indices.empty()) {
+    return;
+  }
+  auto& storage = GetInstance();
+  WaitPendingUpload(storage.pending_ray_tracing_strand_upload_);
+  storage.CompletePendingUpload(storage.pending_ray_tracing_strand_upload_);
+
+  const auto point_begin = static_cast<uint32_t>(storage.ray_tracing_strand_points_.size());
+  const auto index_begin = static_cast<uint32_t>(storage.ray_tracing_strand_indices_.size());
+  target_point_range->handle_ = handle;
+  target_point_range->offset = point_begin;
+  target_point_range->range = static_cast<uint32_t>(strand_points.size());
+  target_point_range->index_count = static_cast<uint32_t>(strand_points.size());
+  target_index_range->handle_ = handle;
+  target_index_range->offset = index_begin;
+  target_index_range->range = static_cast<uint32_t>(indices.size());
+  target_index_range->index_count = static_cast<uint32_t>(indices.size());
+
+  storage.ray_tracing_strand_points_.insert(storage.ray_tracing_strand_points_.end(), strand_points.begin(),
+                                            strand_points.end());
+  storage.ray_tracing_strand_indices_.reserve(storage.ray_tracing_strand_indices_.size() + indices.size());
+  for (const auto index : indices) {
+    storage.ray_tracing_strand_indices_.emplace_back(point_begin + index);
+  }
+  storage.ray_tracing_strand_point_range_descriptors_.emplace_back(target_point_range);
+  storage.ray_tracing_strand_index_range_descriptors_.emplace_back(target_index_range);
+  storage.ray_tracing_strand_point_dirty_range_.Mark(point_begin, strand_points.size());
+  storage.ray_tracing_strand_index_dirty_range_.Mark(index_begin, indices.size());
+  storage.require_ray_tracing_strand_data_device_update_ = true;
+}
+
 void GeometryStorage::FreeMesh(const Handle& handle) {
   auto& storage = GetInstance();
   if (!storage.initialized_) {
@@ -1010,6 +1092,56 @@ void GeometryStorage::FreeStrands(const Handle& handle) {
   storage.require_strand_mesh_data_device_update_ = true;
 }
 
+void GeometryStorage::FreeRayTracingStrands(const Handle& handle) {
+  auto& storage = GetInstance();
+  if (!storage.initialized_) {
+    return;
+  }
+  WaitPendingUpload(storage.pending_ray_tracing_strand_upload_);
+  storage.CompletePendingUpload(storage.pending_ray_tracing_strand_upload_);
+
+  const auto point_descriptor =
+      std::find_if(storage.ray_tracing_strand_point_range_descriptors_.begin(),
+                   storage.ray_tracing_strand_point_range_descriptors_.end(), [&](const auto& descriptor) {
+                     return descriptor->handle_ == handle;
+                   });
+  const auto index_descriptor =
+      std::find_if(storage.ray_tracing_strand_index_range_descriptors_.begin(),
+                   storage.ray_tracing_strand_index_range_descriptors_.end(), [&](const auto& descriptor) {
+                     return descriptor->handle_ == handle;
+                   });
+  if (point_descriptor == storage.ray_tracing_strand_point_range_descriptors_.end() ||
+      index_descriptor == storage.ray_tracing_strand_index_range_descriptors_.end()) {
+    return;
+  }
+
+  const uint32_t point_offset = (*point_descriptor)->offset;
+  const uint32_t point_count = (*point_descriptor)->range;
+  const uint32_t index_offset = (*index_descriptor)->offset;
+  const uint32_t index_count = (*index_descriptor)->range;
+  storage.ray_tracing_strand_points_.erase(storage.ray_tracing_strand_points_.begin() + point_offset,
+                                           storage.ray_tracing_strand_points_.begin() + point_offset + point_count);
+  storage.ray_tracing_strand_indices_.erase(storage.ray_tracing_strand_indices_.begin() + index_offset,
+                                            storage.ray_tracing_strand_indices_.begin() + index_offset + index_count);
+
+  for (auto descriptor = std::next(point_descriptor);
+       descriptor != storage.ray_tracing_strand_point_range_descriptors_.end(); ++descriptor) {
+    (*descriptor)->offset -= point_count;
+  }
+  for (auto descriptor = std::next(index_descriptor);
+       descriptor != storage.ray_tracing_strand_index_range_descriptors_.end(); ++descriptor) {
+    (*descriptor)->offset -= index_count;
+  }
+  for (auto index = index_offset; index < storage.ray_tracing_strand_indices_.size(); ++index) {
+    storage.ray_tracing_strand_indices_[index] -= point_count;
+  }
+  storage.ray_tracing_strand_point_range_descriptors_.erase(point_descriptor);
+  storage.ray_tracing_strand_index_range_descriptors_.erase(index_descriptor);
+  storage.ray_tracing_strand_point_dirty_range_.MarkTail(point_offset, storage.ray_tracing_strand_points_.size());
+  storage.ray_tracing_strand_index_dirty_range_.MarkTail(index_offset, storage.ray_tracing_strand_indices_.size());
+  storage.require_ray_tracing_strand_data_device_update_ = true;
+}
+
 void GeometryStorage::AllocateParticleInfo(const Handle& handle,
                                            const std::shared_ptr<RangeDescriptor>& range_descriptor) {
   auto& storage = GetInstance();
@@ -1090,13 +1222,17 @@ void GeometryStorage::OnDestroy() {
   storage.CompletePendingUpload(storage.pending_skinned_mesh_upload_);
   WaitPendingUpload(storage.pending_strand_upload_);
   storage.CompletePendingUpload(storage.pending_strand_upload_);
+  WaitPendingUpload(storage.pending_ray_tracing_strand_upload_);
+  storage.CompletePendingUpload(storage.pending_ray_tracing_strand_upload_);
   BottomLevelAccelerationStructure::WaitForStaticBuilds();
   ClearPendingUpload(storage.pending_mesh_upload_);
   ClearPendingUpload(storage.pending_skinned_mesh_upload_);
   ClearPendingUpload(storage.pending_strand_upload_);
+  ClearPendingUpload(storage.pending_ray_tracing_strand_upload_);
   storage.ClearMeshDirtyRanges();
   storage.ClearSkinnedMeshDirtyRanges();
   storage.ClearStrandDirtyRanges();
+  storage.ClearRayTracingStrandDirtyRanges();
 
   storage.vertex_data_chunks_.clear();
   storage.meshlets_.clear();
@@ -1125,6 +1261,13 @@ void GeometryStorage::OnDestroy() {
 
   storage.strand_point_buffer_.reset();
   storage.strand_meshlet_buffer_.reset();
+
+  storage.ray_tracing_strand_points_.clear();
+  storage.ray_tracing_strand_indices_.clear();
+  storage.ray_tracing_strand_point_range_descriptors_.clear();
+  storage.ray_tracing_strand_index_range_descriptors_.clear();
+  storage.ray_tracing_strand_point_buffer_.reset();
+  storage.ray_tracing_strand_index_buffer_.reset();
 
   storage.particle_info_list_data_list_.clear();
   storage.initialized_ = false;

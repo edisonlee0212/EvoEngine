@@ -65,6 +65,20 @@ requested with `--preview-ray-outputs` using `albedo`, `normal`, `ray-count`, `p
 the emitted sidecar and each requested image for dimensions, finiteness, and expected data type. `all` enables these six
 generic outputs.
 
+### Linear Swept Sphere Strands
+
+Use the strand fixture to exercise the same curved, tapered, transformed, shadowed geometry through both ray backends:
+
+```powershell
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\render-validation\strand-raytracing.hdr --preview-strand-fixture --preview-render-mode raytracing --preview-warmup-frames 64 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+out\install\vs2026-x64\bin\EvoEngineEditor.exe --demo rendering-regression --editor --capture-demo-preview out\render-validation\strand-rayquery.hdr --preview-strand-fixture --preview-render-mode rayquery --preview-warmup-frames 64 --preview-sample-size 4 --preview-width 1280 --preview-height 720 --preview-deterministic
+```
+
+On a capable device, require the startup log to report linear swept-sphere support and verify finite, nonblank images with
+the orange single-span and blue multi-span strands visible in both captures. Compare their framing, silhouette, taper,
+material color, transform, and cast-shadow result. On an unsupported device, both commands must still render the scene and
+omit the strands without a Vulkan feature, descriptor, or acceleration-structure validation error.
+
 ## Image Comparison
 
 Verify the image reader before using it for an acceptance comparison:

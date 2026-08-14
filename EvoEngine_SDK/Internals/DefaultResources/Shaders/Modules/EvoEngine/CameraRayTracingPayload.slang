@@ -12,4 +12,7 @@ public struct CameraRayTracingPayload {
   public uint type;
   public uint shadow_is_inside;
   public uint camera_index;
+
+  public float3 object_geometric_normal;
+  public uint geometry_type;
 };

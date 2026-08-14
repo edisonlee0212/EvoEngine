@@ -25,6 +25,10 @@ void RayTracingPipeline::SetMaxRecursionDepth(const uint32_t depth) {
   max_recursion_depth_ = depth;
 }
 
+void RayTracingPipeline::SetLinearSweptSpheresEnabled(const bool enabled) {
+  linear_swept_spheres_enabled_ = enabled;
+}
+
 bool RayTracingPipeline::IsRecursionDepthSupported(const uint32_t requested_depth, const uint32_t device_limit) {
   return requested_depth != 0 && requested_depth <= device_limit;
 }
@@ -153,6 +157,14 @@ void RayTracingPipeline::Initialize() {
 
   VkRayTracingPipelineCreateInfoKHR raytracing_pipeline_create_info{};
   raytracing_pipeline_create_info.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR;
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  VkPipelineCreateFlags2CreateInfoKHR pipeline_flags{};
+  if (linear_swept_spheres_enabled_) {
+    pipeline_flags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO_KHR;
+    pipeline_flags.flags = VK_PIPELINE_CREATE_2_RAY_TRACING_ALLOW_SPHERES_AND_LINEAR_SWEPT_SPHERES_BIT_NV;
+    raytracing_pipeline_create_info.pNext = &pipeline_flags;
+  }
+#endif
   raytracing_pipeline_create_info.layout = pipeline_layout_->GetVkPipelineLayout();
   raytracing_pipeline_create_info.stageCount = shader_stages.size();
   raytracing_pipeline_create_info.pStages = shader_stages.data();
@@ -207,6 +219,8 @@ void RayTracingPipeline::Initialize() {
   // Create binding table buffers for each shader type
   auto raygen_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   auto miss_shader_binding_table = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  const uint32_t hit_record_count = linear_swept_spheres_enabled_ ? 2u : 1u;
+  buffer_create_info.size = handle_size_aligned_ * hit_record_count;
   auto closest_hit_shader_binding_table =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   raygen_shader_binding_table_ = std::move(raygen_shader_binding_table);
@@ -226,7 +240,12 @@ void RayTracingPipeline::Initialize() {
   // Copy the shader handles from the host buffer to the binding tables
   raygen_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data());
   miss_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_);
-  closest_hit_shader_binding_table_->UploadData(handle_size, shader_handle_storage.data() + handle_size_aligned_ * 2);
+  std::vector<uint8_t> hit_shader_handles(handle_size_aligned_ * hit_record_count);
+  for (uint32_t record = 0; record < hit_record_count; ++record) {
+    memcpy(hit_shader_handles.data() + record * handle_size_aligned_,
+           shader_handle_storage.data() + handle_size_aligned_ * 2, handle_size);
+  }
+  closest_hit_shader_binding_table_->UploadData(hit_shader_handles.size(), hit_shader_handles.data());
 }
 
 bool RayTracingPipeline::Initialized() const {
@@ -269,7 +288,7 @@ void RayTracingPipeline::Trace(const VkCommandBuffer vk_command_buffer, const ui
   VkStridedDeviceAddressRegionKHR hit_shader_sbt_entry{};
   hit_shader_sbt_entry.deviceAddress = closest_hit_shader_binding_table_->GetDeviceAddress();
   hit_shader_sbt_entry.stride = handle_size_aligned_;
-  hit_shader_sbt_entry.size = handle_size_aligned_;
+  hit_shader_sbt_entry.size = closest_hit_shader_binding_table_->GetSize();
 
   VkStridedDeviceAddressRegionKHR callable_shader_sbt_entry{};
 
