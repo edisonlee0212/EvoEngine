@@ -326,7 +326,8 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(closest_hit.find("EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, attributes.tex_coords"),
             std::string::npos);
   EXPECT_NE(closest_hit.find("EE_EVALUATE_GLTF_RASTER_NORMAL("), std::string::npos);
-  EXPECT_NE(closest_hit.find("unflipped_world_shading_normal, unflipped_world_tangent"), std::string::npos);
+  EXPECT_NE(closest_hit.find("attributes.tex_coords, unflipped_world_shading_normal"), std::string::npos);
+  EXPECT_NE(closest_hit.find("unflipped_world_tangent, world_tangent_handedness"), std::string::npos);
   EXPECT_NE(closest_hit.find("if (!hit_face_is_culled && !fixed_probe_ray)"), std::string::npos);
   EXPECT_NE(closest_hit.find("const bool signed_backface_hit"), std::string::npos);
   EXPECT_NE(closest_hit.find("material.double_sided == 0 || fixed_probe_ray"), std::string::npos);
