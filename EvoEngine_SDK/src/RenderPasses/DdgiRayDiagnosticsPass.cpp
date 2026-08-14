@@ -34,10 +34,7 @@ void RecordRayDiagnostics(const VkCommandBuffer vk_command_buffer, const RenderG
       context.GetResourceBinding(RenderResourceNames::frame_ddgi_emissive_sampling_stats);
   const auto* irradiance_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
   const auto* visibility_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
-  const auto* guide_binding = parameters.use_guided_sampling
-                                  ? context.GetResourceBinding(RenderResourceNames::frame_ddgi_emissive_guides)
-                                  : nullptr;
-  const auto* sample_info_binding = parameters.use_guided_sampling
+  const auto* sample_info_binding = parameters.use_emissive_sampling
                                         ? context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_sample_info)
                                         : nullptr;
   if (!binding || !binding->buffer || !diagnostics_binding || !diagnostics_binding->buffer || !state_binding ||
@@ -45,8 +42,7 @@ void RecordRayDiagnostics(const VkCommandBuffer vk_command_buffer, const RenderG
       !visibility_binding->image || !emissive_stats_binding || !emissive_stats_binding->buffer) {
     return;
   }
-  if (parameters.use_guided_sampling &&
-      (!guide_binding || !guide_binding->buffer || !sample_info_binding || !sample_info_binding->buffer)) {
+  if (parameters.use_emissive_sampling && (!sample_info_binding || !sample_info_binding->buffer)) {
     return;
   }
   const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
@@ -63,9 +59,7 @@ void RecordRayDiagnostics(const VkCommandBuffer vk_command_buffer, const RenderG
   ray_output_descriptor_set->UpdateBufferDescriptorBinding(2, diagnostics_binding->buffer);
   ray_output_descriptor_set->UpdateBufferDescriptorBinding(19, emissive_stats_binding->buffer);
   ray_output_descriptor_set->UpdateBufferDescriptorBinding(
-      20, parameters.use_guided_sampling ? guide_binding->buffer : state_binding->buffer);
-  ray_output_descriptor_set->UpdateBufferDescriptorBinding(
-      21, parameters.use_guided_sampling ? sample_info_binding->buffer : binding->buffer);
+      21, parameters.use_emissive_sampling ? sample_info_binding->buffer : binding->buffer);
   VkDescriptorImageInfo atlas_info{};
   atlas_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   atlas_info.sampler = parameters.atlas_sampler->GetVkSampler();
@@ -133,7 +127,7 @@ void RecordRayDiagnostics(const VkCommandBuffer vk_command_buffer, const RenderG
 }
 }  // namespace
 
-RenderPassDescriptor DdgiRayDiagnosticsPass::CreateDescriptor(const bool use_guided_sampling) {
+RenderPassDescriptor DdgiRayDiagnosticsPass::CreateDescriptor(const bool use_emissive_sampling) {
   RenderPassDescriptor descriptor{
       RenderPassNames::ddgi_ray_diagnostics,
       RenderPassQueue::RayTracing,
@@ -150,9 +144,7 @@ RenderPassDescriptor DdgiRayDiagnosticsPass::CreateDescriptor(const bool use_gui
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_emissive_sampling_stats, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite}}};
-  if (use_guided_sampling) {
-    descriptor.resources.push_back(
-        {RenderResourceNames::frame_ddgi_emissive_guides, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+  if (use_emissive_sampling) {
     descriptor.resources.push_back({RenderResourceNames::frame_ddgi_ray_sample_info, RenderResourceUsage::Write,
                                     RenderResourceState::StorageReadWrite});
   }

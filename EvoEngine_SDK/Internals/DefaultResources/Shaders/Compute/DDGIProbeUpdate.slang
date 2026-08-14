@@ -71,6 +71,13 @@ uint EE_DDGI_UPDATE_FIXED_RAY_COUNT() {
   return constants.atlas_columns_fixed_ray_count_and_update_mode.z & 0xfffu;
 }
 
+uint EE_DDGI_EMISSIVE_SAMPLE_INFO_INDEX(uint ray_offset, uint ray_index, uint uniform_ray_count,
+                                        uint total_ray_count) {
+  uint probe_index = ray_offset / max(total_ray_count, 1u);
+  uint emissive_ray_count = total_ray_count - min(uniform_ray_count, total_ray_count);
+  return probe_index * emissive_ray_count + ray_index - uniform_ray_count;
+}
+
 uint EE_DDGI_UPDATE_DISPATCH_GROUP_COUNT_X() {
   return max(uint(constants.probe_scroll_offset.w), 1u);
 }
@@ -120,7 +127,7 @@ void EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(out EeDdgiIrradianceAccumulator a
 }
 
 void EE_DDGI_ACCUMULATE_IRRADIANCE(inout EeDdgiIrradianceAccumulator accumulator, DdgiProbeRayData ray_data,
-                                   float3 ray_direction, float inverse_mixture_pdf, float3 texel_direction,
+                                   float3 ray_direction, float inverse_pdf, float3 texel_direction,
                                    uint max_backface_count, bool count_backface) {
   if (!accumulator.valid) {
     return;
@@ -139,20 +146,21 @@ void EE_DDGI_ACCUMULATE_IRRADIANCE(inout EeDdgiIrradianceAccumulator accumulator
     return;
   }
   accumulator.weight_sum += weight;
-  accumulator.irradiance += EE_DDGI_PROBE_RAY_RADIANCE(ray_data) * weight * inverse_mixture_pdf;
+  accumulator.irradiance += EE_DDGI_PROBE_RAY_RADIANCE(ray_data) * weight * inverse_pdf;
 }
 
-float4 EE_DDGI_FINALIZE_IRRADIANCE(EeDdgiIrradianceAccumulator accumulator, uint blend_ray_count,
-                                   bool mixture_weighted) {
-  if (!accumulator.valid) {
+float4 EE_DDGI_FINALIZE_IRRADIANCE(EeDdgiIrradianceAccumulator uniform_accumulator,
+                                   EeDdgiIrradianceAccumulator emissive_accumulator, uint uniform_ray_count,
+                                   uint emissive_ray_count) {
+  if (!uniform_accumulator.valid) {
     return float4(0.0f);
   }
-  float3 irradiance;
-  if (mixture_weighted) {
-    irradiance = accumulator.irradiance * (1.0f / (2.0f * EE_DDGI_PI * max(float(blend_ray_count), 1.0f)));
-  } else {
-    float epsilon = max(float(blend_ray_count), 1.0f) * 1e-9f;
-    irradiance = accumulator.irradiance * (1.0f / (2.0f * max(accumulator.weight_sum, epsilon)));
+  float uniform_epsilon = max(float(uniform_ray_count), 1.0f) * 1e-9f;
+  float3 irradiance = uniform_accumulator.irradiance *
+                      (1.0f / (2.0f * max(uniform_accumulator.weight_sum, uniform_epsilon)));
+  if (emissive_ray_count > 0u) {
+    irradiance += emissive_accumulator.irradiance *
+                  (1.0f / (2.0f * EE_DDGI_PI * float(emissive_ray_count)));
   }
   float irradiance_gamma = max(constants.update_parameters.z, 1.0f);
   irradiance = pow(min(max(irradiance, float3(0.0f)), float3(64.0f)), float3(1.0f / irradiance_gamma));
@@ -161,32 +169,35 @@ float4 EE_DDGI_FINALIZE_IRRADIANCE(EeDdgiIrradianceAccumulator accumulator, uint
 
 float4 EE_DDGI_DIRECTIONAL_IRRADIANCE(uint ray_offset, uint fixed_ray_count, uint uniform_ray_count,
                                       uint total_ray_count, float3 texel_direction) {
-  bool mixture_weighted = total_ray_count > uniform_ray_count;
-  uint blend_ray_count = total_ray_count > fixed_ray_count ? total_ray_count - fixed_ray_count : 0u;
   uint uniform_blend_ray_count = uniform_ray_count > fixed_ray_count ? uniform_ray_count - fixed_ray_count : 0u;
+  uint emissive_ray_count = total_ray_count > uniform_ray_count ? total_ray_count - uniform_ray_count : 0u;
   uint max_backface_count =
       max(1u, uint(float(uniform_blend_ray_count) * clamp(constants.blend_parameters.x, 0.0f, 1.0f)));
-  EeDdgiIrradianceAccumulator accumulator;
-  EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(accumulator);
-  for (uint ray_index = fixed_ray_count; ray_index < total_ray_count; ++ray_index) {
+  EeDdgiIrradianceAccumulator uniform_accumulator;
+  EeDdgiIrradianceAccumulator emissive_accumulator;
+  EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(uniform_accumulator);
+  EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(emissive_accumulator);
+  for (uint ray_index = fixed_ray_count; ray_index < uniform_ray_count; ++ray_index) {
     DdgiProbeRayData ray_data = EE_DDGI_PROBE_RAY_DATA[ray_offset + ray_index];
-    float3 ray_direction;
-    float inverse_mixture_pdf = 1.0f;
-    if (mixture_weighted) {
-      DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[ray_offset + ray_index];
-      ray_direction = EE_DDGI_PROBE_RAY_DIRECTION(sample_info);
-      inverse_mixture_pdf = EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info);
-    } else {
-      ray_direction = EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count,
-                                                          EE_DDGI_PROBE_RAY_ROTATION());
-    }
-    EE_DDGI_ACCUMULATE_IRRADIANCE(accumulator, ray_data, ray_direction, inverse_mixture_pdf, texel_direction,
-                                  max_backface_count, ray_index < uniform_ray_count);
-    if (!accumulator.valid) {
+    float3 ray_direction = EE_DDGI_ROTATED_PROBE_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count,
+                                                               EE_DDGI_PROBE_RAY_ROTATION());
+    EE_DDGI_ACCUMULATE_IRRADIANCE(uniform_accumulator, ray_data, ray_direction, 1.0f, texel_direction,
+                                  max_backface_count, true);
+    if (!uniform_accumulator.valid) {
       break;
     }
   }
-  return EE_DDGI_FINALIZE_IRRADIANCE(accumulator, blend_ray_count, mixture_weighted);
+  if (uniform_accumulator.valid) {
+    for (uint ray_index = uniform_ray_count; ray_index < total_ray_count; ++ray_index) {
+      DdgiProbeRayData ray_data = EE_DDGI_PROBE_RAY_DATA[ray_offset + ray_index];
+      DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[
+          EE_DDGI_EMISSIVE_SAMPLE_INFO_INDEX(ray_offset, ray_index, uniform_ray_count, total_ray_count)];
+      EE_DDGI_ACCUMULATE_IRRADIANCE(emissive_accumulator, ray_data, EE_DDGI_PROBE_RAY_DIRECTION(sample_info),
+                                    EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info), texel_direction, 1u, false);
+    }
+  }
+  return EE_DDGI_FINALIZE_IRRADIANCE(uniform_accumulator, emissive_accumulator, uniform_blend_ray_count,
+                                     emissive_ray_count);
 }
 
 float4 EE_DDGI_BLEND_IRRADIANCE_HISTORY(float4 current_irradiance, float4 history_irradiance, float history_weight) {
@@ -562,13 +573,13 @@ void EE_DDGI_UPDATE_VISIBILITY_DIRECT(uint ray_offset, uint first_blend_ray_inde
 #  if EE_DDGI_PROBE_USE_SHARED_RAYS
 void EE_DDGI_CACHE_RAY_CHUNK(uint ray_offset, uint chunk_base, uint chunk_count, uint uniform_ray_count,
                              uint fixed_ray_count, uint lane_index) {
-  bool mixture_weighted = constants.probe_count_ray_count_and_tile_sizes.y > uniform_ray_count;
   for (uint chunk_index = lane_index; chunk_index < chunk_count; chunk_index += EE_DDGI_PROBE_UPDATE_GROUP_SIZE) {
     uint ray_index = chunk_base + chunk_index;
     EE_DDGI_SHARED_PROBE_RAY_DATA[chunk_index] =
         EE_DDGI_PROBE_RAY_DATA[ray_offset + ray_index].radiance_and_signed_distance;
-    if (mixture_weighted) {
-      DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[ray_offset + ray_index];
+    if (ray_index >= uniform_ray_count) {
+      DdgiProbeRaySampleInfo sample_info = EE_DDGI_PROBE_RAY_SAMPLE_INFO[EE_DDGI_EMISSIVE_SAMPLE_INFO_INDEX(
+          ray_offset, ray_index, uniform_ray_count, constants.probe_count_ray_count_and_tile_sizes.y)];
       EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index] =
           float4(EE_DDGI_PROBE_RAY_DIRECTION(sample_info), EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info));
     } else {
@@ -584,9 +595,8 @@ void EE_DDGI_UPDATE_IRRADIANCE_SHARED(uint ray_offset, uint fixed_ray_count, uin
                                       uint total_ray_count, uint2 tile_origin, uint2 variability_origin, uint tile_size,
                                       float history_weight, uint lane_index) {
   uint texel_count = tile_size * tile_size;
-  bool mixture_weighted = total_ray_count > uniform_ray_count;
-  uint blend_ray_count = total_ray_count > fixed_ray_count ? total_ray_count - fixed_ray_count : 0u;
   uint uniform_blend_ray_count = uniform_ray_count > fixed_ray_count ? uniform_ray_count - fixed_ray_count : 0u;
+  uint emissive_ray_count = total_ray_count > uniform_ray_count ? total_ray_count - uniform_ray_count : 0u;
   uint max_backface_count =
       max(1u, uint(float(uniform_blend_ray_count) * clamp(constants.blend_parameters.x, 0.0f, 1.0f)));
   for (uint batch_base = 0u; batch_base < texel_count; batch_base += EE_DDGI_PROBE_UPDATE_GROUP_SIZE) {
@@ -594,8 +604,10 @@ void EE_DDGI_UPDATE_IRRADIANCE_SHARED(uint ray_offset, uint fixed_ray_count, uin
     bool active_texel = texel_index < texel_count;
     uint2 texel = uint2(texel_index % tile_size, texel_index / tile_size);
     float3 texel_direction = EE_DDGI_OCTAHEDRAL_DIRECTION(texel, tile_size);
-    EeDdgiIrradianceAccumulator accumulator;
-    EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(accumulator);
+    EeDdgiIrradianceAccumulator uniform_accumulator;
+    EeDdgiIrradianceAccumulator emissive_accumulator;
+    EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(uniform_accumulator);
+    EE_DDGI_INITIALIZE_IRRADIANCE_ACCUMULATOR(emissive_accumulator);
     for (uint chunk_base = fixed_ray_count; chunk_base < total_ray_count;
          chunk_base += EE_DDGI_PROBE_UPDATE_SHARED_RAY_COUNT) {
       uint chunk_count = min(EE_DDGI_PROBE_UPDATE_SHARED_RAY_COUNT, total_ray_count - chunk_base);
@@ -605,16 +617,25 @@ void EE_DDGI_UPDATE_IRRADIANCE_SHARED(uint ray_offset, uint fixed_ray_count, uin
         for (uint chunk_index = 0u; chunk_index < chunk_count; ++chunk_index) {
           DdgiProbeRayData ray_data;
           ray_data.radiance_and_signed_distance = EE_DDGI_SHARED_PROBE_RAY_DATA[chunk_index];
-          EE_DDGI_ACCUMULATE_IRRADIANCE(accumulator, ray_data, EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index].xyz,
-                                        EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index].w, texel_direction,
-                                        max_backface_count, chunk_base + chunk_index < uniform_ray_count);
+          const bool uniform_ray = chunk_base + chunk_index < uniform_ray_count;
+          if (uniform_ray) {
+            EE_DDGI_ACCUMULATE_IRRADIANCE(uniform_accumulator, ray_data,
+                                          EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index].xyz, 1.0f, texel_direction,
+                                          max_backface_count, true);
+          } else {
+            EE_DDGI_ACCUMULATE_IRRADIANCE(emissive_accumulator, ray_data,
+                                          EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index].xyz,
+                                          EE_DDGI_SHARED_PROBE_RAY_DIRECTIONS[chunk_index].w, texel_direction, 1u,
+                                          false);
+          }
         }
       }
       GroupMemoryBarrierWithGroupSync();
     }
     if (active_texel) {
       EE_DDGI_STORE_IRRADIANCE_TEXEL(tile_origin, variability_origin, tile_size, texel_index,
-                                     EE_DDGI_FINALIZE_IRRADIANCE(accumulator, blend_ray_count, mixture_weighted),
+                                     EE_DDGI_FINALIZE_IRRADIANCE(uniform_accumulator, emissive_accumulator,
+                                                                 uniform_blend_ray_count, emissive_ray_count),
                                      history_weight);
     }
   }

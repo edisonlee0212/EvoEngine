@@ -145,10 +145,13 @@ the average/maximum limits and a 15% unstable fraction. Invalid, non-finite,
 negative, inconsistent, and zero-weight readbacks break an unfinished consecutive streak without advancing the sample
 count; an invalid periodic observation preserves an already-converged state and retries. The 15% localized allowance is
 paired with the mean and 40x maximum guards; it accommodates correctly retained black history without allowing a severe
-localized outlier to disappear into the volume average. A converged volume performs one
-full stochastic refresh observation every 120 eligible rendered frames. Changing the threshold, minimum sample count,
-variability enable, or gating enable restarts convergence and schedules an immediate full update without clearing
-otherwise valid irradiance history.
+localized outlier to disappear into the volume average. A converged volume normally pauses tracing and performs one full
+stochastic refresh observation every 120 eligible rendered frames. **Pause updates after convergence** is independent of
+variability gating: disabling the pause keeps tracing and variability observations active every rendered frame while
+preserving convergence/readiness diagnostics. Changing the threshold, minimum sample count, variability enable, or
+gating enable restarts convergence and schedules an immediate full update without clearing otherwise valid irradiance
+history. Changing only the pause option preserves the current history and convergence state and changes scheduling on
+the next frame.
 
 `Scripts/run_ddgi_localized_convergence_validation.py` exercises rare equal-power emission, emissive enable, emissive
 motion, and non-emissive geometry motion against the installed editor. Its evidence records localized metrics,
@@ -168,14 +171,15 @@ gamma-domain step limit tied to the authored brightness threshold bounds the res
 evidence stops. The pre-gamma `64.0` irradiance ceiling remains a finite-data guard rather than a temporal clamp.
 
 Light membership, lighting, emissive-inventory, geometry, and material-closure changes never clear compatible probe
-history or reset relocation/classification state. Enabled triggers instead snap the volume's current hysteresis to the
+history or reset relocation/classification state. Geometry changes do schedule one history-preserving relocation update.
+Enabled triggers otherwise snap the volume's current hysteresis to the
 Render Layer's boosted value, which defaults to `0.85`, and force a probe update. Continued changes hold that value.
 After the first quiet frame, hysteresis moves toward the separately configurable `0.97` normal value by the `0.01`
 restore-speed default before each forced update. The final `0.97` update completes recovery, after which normal
 convergence gating resumes. This response neither starts warmup nor changes its frame counter. Manual reset,
 incompatible resources, volume-source changes, and full scrolling reset remain hard invalidations. Emissive factor and
 emissive-texture changes are classified by the shared emissive inventory as lighting changes; the material-closure
-fingerprint deliberately excludes those fields. A changed guided-emitter population also leaves warmup untouched.
+fingerprint deliberately excludes those fields. A changed emissive-ray population also leaves warmup untouched.
 
 Contributor tracking mirrors the DDGI TLAS: rigid, skinned, particle-instanced, transparent, and DDGI-capable external
 geometry participate, while strands, Gaussian splats, and external instances without DDGI geometry do not. Only
@@ -218,6 +222,11 @@ Relocation and classification use the fixed-ray prefix:
 - near-surface probes move toward the farthest opposing frontface;
 - probes with clearance move back toward zero offset only when the candidate remains inside the probe voxel ellipsoid;
 - classification deactivates probes detected inside geometry from fixed-ray backface ratio.
+
+Relocation is intentionally separate from steady-state irradiance tracing. It runs during cold-start/reset warmup,
+once for a geometry-change event, and for newly exposed probe bands when a scrolling volume advances. The resulting
+offsets remain frozen during ordinary continuous irradiance updates, preventing near-surface probes from repeatedly
+oscillating between the outward and return-to-grid relocation rules. Classification remains part of each traced update.
 
 The Rendering demo keeps relocation enabled but classification disabled because curtain backfaces can incorrectly mark
 valid near-wall probes inactive.
@@ -418,7 +427,7 @@ explicit duplicate measurement pass and is not production deferred-lighting cost
 Evidence is in `out/ddgi-small-emitter/m4-baseline/evidence.json`, `out/ddgi-small-emitter/m6-profile`, and
 `out/ddgi-small-emitter/m6-multivolume/evidence.json`. Production emissive event atomics and selected-ray readbacks were
 already disabled when their debug options are off. No probe-trace or gather estimator rewrite was adopted in M6: the
-remaining static small-emitter error requires a correctly weighted emitter-guided probe-direction estimator, while the
+remaining static small-emitter error requires correctly weighted emitter-directed probe sampling, while the
 reviewed shortcuts would bias the directional atlas or trade correctness for an unproven timing gain.
 
 ## Graphics QoL Closeout
@@ -449,143 +458,37 @@ application installation also passed.
 
 The uniform-only static small-emitter fixture is about 92% below the equal-power large-emitter DDGI result. Diagnostics
 and ablations isolate the dominant loss to uniform probe-direction/direct-hit probability, rather than emitter
-inventory, temporal retention, or convergence freeze. The guided-direction path below addresses that probability while
+inventory, temporal retention, or convergence freeze. The exact emissive-ray path below addresses that probability while
 preserving the directional irradiance-atlas estimator and direct emissive mesh as the sole light representation; an
 analytic proxy and unweighted ray steering remain out of scope.
 
-### Guided-Direction Estimator Contract
+### Exact Emissive-Ray Estimator Contract
 
-Guided probe directions use a balance mixture, never an unweighted replacement for the uniform sphere. For
-`N = N_uniform + N_guided`, the exact per-frame mixture is
-`p_mix(w) = (N_uniform * (1 / 4pi) + N_guided * p_guided(w)) / N`. Each irradiance texel accumulates
-`radiance * max(dot(w, texel_direction), 0) / (2pi * p_mix(w) * N)`, matching the existing `2pi` gather decode.
-Nested emissive-triangle NEE remains part of the radiance sample and is not divided by the outer PDF a second time.
+The production population is fixed at 192 uniform structural rays plus 64 exact emissive-triangle rays. There is no
+environment-directed population. Uniform misses still evaluate the normal scene environment, while emissive rays use
+the same power-weighted emissive-triangle inventory and alpha/material eligibility as camera-ray NEE.
 
-The initial guide proposal is a normalized mixture of conservative emissive-instance spherical caps. Its PDF is the
-sum of every selected cap containing the direction, including overlaps. Probe-inside-bound caps become the full sphere;
-invalid or omitted emitters receive no guide probability but remain reachable through the uniform component. Bounds are
-sampling metadata only: every ray still traces the real TLAS and evaluates the real emissive material.
+The two populations are separate Monte Carlo estimators. Uniform rays retain environment misses, analytic-light NEE,
+emissive-triangle NEE at surface hits, and recursive DDGI, but omit direct surface emission whenever emissive rays are
+active. Each emissive ray selects an exact triangle and point, traces the real TLAS to that point, accepts the sample
+only when the first hit is the selected instance and primitive, and contributes only that emitter's direct radiance.
+This separation prevents the same direct-emission integral from being counted by both populations.
 
-M8 freezes the first production experiment at the current uniform population plus 32 additive guided irradiance rays.
-Visibility, relocation, classification, and hit-distance metadata retain the original uniform/fixed populations. The
-zero-guidance path must remain bit-compatible. CPU reference tests cover cap construction/sampling, overlapping PDFs,
-full-sphere and zero-emitter fallback, numerical PDF normalization, and constant-radiance invariance at 0%, 25%, and 50%
-guide fractions before production ray generation changes.
+For a texel direction `n`, uniform radiance retains the existing self-normalized DDGI update. The emissive lane adds
+`sum(L_e * max(dot(w, n), 0) / p_emissive(w)) / (2pi * N_emissive)`. Misses, blockers, backfaces, alpha rejection, and
+invalid samples remain zero-valued samples in the fixed 64-ray denominator. The two linear HDR results are summed before
+the existing clamp, gamma encoding, temporal hysteresis, and atlas write. Visibility moments, hit-distance metadata,
+relocation, classification, and excessive-backface evidence consume only the 192 uniform rays.
 
-M9 aggregates that same emissive-triangle inventory into at most eight deterministic per-instance guide records. Each
-record stores a conservative world-space bounding sphere, estimated emitted power, stable renderer identity, source
-revision, and ray-tracing instance index. Records are sorted by power with stable identity/revision/index tie breaks;
-invalid records are removed and lower-ranked emitters remain reachable through uniform rays. Skinned, instanced,
-transparent, textured, alpha-masked, animated, and external sources therefore inherit the existing inventory's
-eligibility and invalidation rather than creating a second light list.
+Only emissive rays store compact sampling metadata: an octahedral direction and 32-bit inverse solid-angle PDF in 8
+bytes. At 384 probes the default therefore allocates `384 * 64 * 8 = 196608` sample-info bytes. Setting
+`emissive_ray_count` to zero restores the uniform direct-emission path and omits this buffer. Legacy YAML
+`guided_ray_count` migrates to `emissive_ray_count`; the obsolete emitter-limit key is ignored. The bounding-sphere guide
+buffer, top-K emitter cap, mixture-PDF estimator, and environment proposal have been removed.
 
-The runtime defaults to 192 uniform rays, 64 guided rays, and at most four emissive guides. Setting `guided_ray_count`
-to zero retains the allocation-free uniform-only path: guide and per-ray sample-info resources then have zero bytes and
-are not allocated. The guided path accounts one 32-byte guide record per configured top-K entry and one 8-byte compact
-direction/inverse-mixture-PDF record per probe ray. The unit direction uses two signed normalized 16-bit octahedral
-coordinates; the inverse PDF retains its original 32-bit float bits. These records are proposal metadata only; every
-guided ray still traces the scene TLAS and evaluates the real mesh material.
-
-M10 appends the configured guided population after the unchanged uniform/fixed population. Uniform and guided rays both
-store their exact traced direction and inverse complete mixture PDF. Serial, parallel-direct, and parallel-shared
-irradiance updates accumulate the weighted cosine integral with the fixed total population denominator; misses,
-backfaces, zero radiance, and rejected samples therefore remain zero-valued samples rather than shrinking the
-denominator. Visibility moments, hit-distance metadata, relocation, classification, and excessive-backface evidence
-read only the original uniform/fixed rays. With `guided_ray_count: 0`, descriptors omit the guide resources and the
-original ray generation and self-normalized atlas update remain unchanged.
-
-The installed RTX 5070 additive experiment is reproducible with:
-
-```powershell
-$env:EVOENGINE_DDGI_PROBE_UPDATE_VARIANT = "parallel-shared"
-python Scripts/run_ddgi_small_emitter_baseline.py --guided-rays 32 --guided-emitters 4 `
-  --output-dir out/ddgi-small-emitter/m10-guided-shared
-```
-
-At 384 probes and 128 uniform plus 32 guided rays, equal-power small-versus-large receiver error falls from 92.17% to
-6.53%. The deterministic repeat and the parallel-direct versus parallel-shared output are byte-exact. The small-emitter
-energy-normalized receiver L2 is 0.089; absolute energy differs from its path reference by 33.60%, while the large
-fixture already differs by 31.61%, so the pre-existing absolute-energy calibration remains a separate limitation. The
-pre-compaction small-emitter report records one active guide, 983040 ray-output bytes, 192 guide bytes, 983040 sample-info bytes,
-1989648 transient bytes per frame, and 4858080 peak logical bytes. Median probe trace is 0.046 ms; atlas update is
-0.063 ms on parallel-shared and 0.118 ms on parallel-direct. Reports expose uniform/guided/guide counts and the two new
-resource classes explicitly.
-
-M11 keeps guide-population changes as soft transport changes. Appearance, disappearance, motion, power, or configured
-guide-count changes restart the deterministic ray sequence and localized variability convergence, but do not restart
-warmup or clear layout-compatible irradiance history. Geometry, incompatible resources, full scroll resets, and explicit
-manual resets remain hard invalidations. No guidance-specific temporal gain, radiance clamp, or convergence threshold was
-added: the existing weighted irradiance variability and repeated-observation confidence policy consume the corrected
-estimator directly.
-
-The installed 128+32 validation passes rare-emitter, emission-enable, rigid-emitter-motion, and occluder-motion
-convergence in 35 frames with exact replay. Emission enable preserves history, reaches 90% settled response by frame 16,
-and disable reaches 90% by frame 1. The maximum HDR response peak is 1.204 times settled output. Large emissive,
-environment, and analytic-light settled repeats are exact, and the guided multi-emitter, textured UV0/UV3, alpha-cutout,
-one-sided, and double-sided fixture matrix passes. Source/ABI tests additionally require every visibility, metadata,
-relocation, and classification path to use the original uniform population.
-
-M65 reran the additive experiment and two same-budget allocations on the RTX 5070 after sample-info compaction, using
-384 probes and the parallel-shared update. The timings are medians from the installed editor; transient and peak values
-are logical DDGI resource bytes reported by the runtime.
-
-| Uniform + guided rays | Equal-power size error | Normalized receiver L2 | Trace + update | Transient bytes | Peak bytes |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| 128 + 0 | 92.32% | 0.609 | 0.0964 ms | 805904 | 2490400 |
-| 128 + 32 additive | 6.61% | 0.076 | 0.1010 ms | 1498128 | 3874976 |
-| 96 + 32 same-budget | 7.69% | 0.078 | 0.0834 ms | 1199120 | 3276960 |
-| 64 + 64 same-budget | 7.47% | 0.082 | 0.0727 ms | 1199120 | 3276960 |
-
-The 96+32 allocation remains the recommended opt-in preset. It retains 75% of the original uniform visibility evidence,
-passes the 15% size-error, 0.30 normalized-L2, repeatability, localized-convergence, and aggregate-time gates, and makes
-the combined trace/update median 13.5% lower than 128 uniform rays in this fixture. The 64+64 result is faster but offers
-no material quality benefit, has slightly worse normalized receiver error, and leaves only half of the population
-available for uniform visibility evidence or scenes without eligible guides. The 96+32 small-emitter absolute path-
-reference error is 30.56%, while its large-emitter reference is already 27.58% low; M62 isolated that shared deficit to
-spatial/transport approximation rather than the guided estimator, so it is not hidden with a guide-specific gain.
-
-M65 initially left guidance disabled by default because its installed temporal-response rerun did not pass the existing gate.
-The 96+32 response reaches 66.48% of settled energy at frame 8, 84.82% at frame 16, and 88.34% at frame 32, below the
-required 90% by frame 16. The same preset passes the localized convergence, emitter-motion, occluder-motion, and exact-
-replay matrix. Enabling it by default is deferred until the temporal response is corrected without weakening the gate.
-
-M66 repeated the decision at the actual 256-ray production budget. At 384 probes, 192 uniform plus 64 guided rays
-reduces equal-power size error from 91.13% for 256 uniform rays to 7.70%, normalized receiver L2 from 0.604 to 0.075,
-and median trace-plus-update time from 0.1644 ms to 0.1444 ms. Its small-emitter path-reference error is 29.60%, its
-deterministic repeat is exact, and the localized convergence/motion matrix passes. The compact guided resources increase
-transient logical memory from 1608720 to 2395152 bytes and peak memory from 4096032 to 5669024 bytes.
-
-The 192+64 temporal response reaches 67.68% at frame 8, 79.39% at frame 16, and 81.37% at frame 32. It therefore fails
-both the 90%-by-frame-16 gate and the frame-16 requirement to exceed the projected legacy response by 0.5. M66 accepts
-that slower, smoother brightening transition as a product tradeoff and makes 192+64 the production default because of
-its large settled-quality improvement, lower measured trace-plus-update time, and unchanged total ray budget. The
-response gate remains documented evidence rather than being weakened; guided history adaptation can be improved later.
-
-Compact sample info halves its buffer from 16 to 8 bytes per ray: the 384-probe 96+32 fixture uses 393216 sample-info
-bytes. Compared with 128 uniform rays, the opt-in preset adds 393216 transient bytes and 786560 peak logical bytes while
-keeping the same total ray population. A 65536-direction CPU sweep bounds octahedral round-trip error below 0.005
-degrees, and the stored inverse PDF is bit-exact. Installed 1920x1080 validation records zero repeat error. Parallel-
-direct and parallel-shared independently repeat exactly; their decoded direction caching differs in 40-48 output pixels
-with at most `3.4e-5` relative L2, so compact cross-variant equivalence is numerical rather than byte-exact. A light tree
-or directional history cache was not added because top-K cone evaluation did not dominate the measured trace.
-
-The production default is reproducible with:
-
-```powershell
-$env:EVOENGINE_DDGI_PROBE_UPDATE_VARIANT = "parallel-shared"
-python Scripts/run_ddgi_small_emitter_baseline.py --uniform-rays 192 --guided-rays 64 --guided-emitters 4 `
-  --output-dir out/ddgi-small-emitter/m66-same-budget-192-64
-```
-
-In authored settings this corresponds to `Ray count: 192`, `Guided ray count: 64`, and `Guided emitter count: 4`.
-Non-NVIDIA Vulkan devices use the same estimator and existing serial/direct/shared hardware fallback selection; their
-timings are correctness evidence only and are not compared with the RTX 5070 performance gate.
-
-The RTX 5070 small equal-power baseline uses 384 probes and 128 rays per probe. It records 786432 ray-output bytes,
-805904 transient bytes per frame, 2490400 peak logical bytes, 0.041 ms median probe trace, 0.061 ms atlas update, and
-0.147 ms isolated gather at 1920x1080. Equal-power small-versus-large DDGI receiver energy remains 92.17% low, versus
-3.73% in the 256-SPP path-traced reference, with exact deterministic repeats. The guided series retains the approved
-15% size-error, 30% path-reference energy, 0.30 normalized receiver L2, `1e-6` repeat, and 5% aggregate GPU-time gates.
+The earlier 192+64 bounding-sphere experiment motivated the population split but is not performance or quality evidence
+for this exact-triangle estimator. Installed-editor validation must be rerun before quoting settled-energy, temporal-
+response, flicker, or GPU-time results for the new path.
 
 ## Rendering Demo Baseline
 
@@ -598,7 +501,7 @@ The Rendering demo DDGI baseline uses:
 - asset-owned DDGI volume with 10x6x16 probes;
 - 1.5 probe spacing;
 - local volume origin `(0, 3, 3)`;
-- 192 uniform plus 64 guided rays per probe;
+- 192 uniform plus 64 exact emissive rays per probe;
 - 245760 ray samples per full update;
 - 0.02 normal/visibility bias;
 - relocation enabled;

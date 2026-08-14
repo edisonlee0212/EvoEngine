@@ -65,14 +65,6 @@ float EE_DDGI_PROBE_RAY_INVERSE_PDF(DdgiProbeRaySampleInfo sample_info) {
 }
 
 public
-struct DdgiEmissiveGuideInfo {
- public
-  float4 center_and_radius;
- public
-  float4 power_and_reserved;
-};
-
-public
 float3 EE_DDGI_PROBE_RAY_RADIANCE(DdgiProbeRayData ray_data) {
   return max(ray_data.radiance_and_signed_distance.rgb, float3(0.0f));
 }

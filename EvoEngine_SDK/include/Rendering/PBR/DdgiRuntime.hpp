@@ -33,7 +33,6 @@ struct DdgiFrameResourceLayout {
   uint64_t probe_metadata_byte_size = 0;
   uint64_t probe_state_byte_size = 0;
   uint64_t ray_output_byte_size = 0;
-  uint64_t emissive_guide_byte_size = 0;
   uint64_t ray_sample_info_byte_size = 0;
   uint64_t selected_ray_diagnostics_byte_size = 0;
   uint64_t irradiance_atlas_byte_size = 0;
@@ -50,8 +49,7 @@ struct DdgiPerformanceStats {
   uint32_t storage_probe_count = 0;
   uint32_t updated_probe_count = 0;
   uint32_t ray_count = 0;
-  uint32_t guided_ray_count = 0;
-  uint32_t emissive_guide_count = 0;
+  uint32_t emissive_ray_count = 0;
   uint32_t ray_sample_count = 0;
   uint32_t emissive_triangle_count = 0;
   uint32_t emissive_eligible_instance_count = 0;
@@ -77,7 +75,6 @@ struct DdgiPerformanceStats {
   uint64_t probe_metadata_byte_size = 0;
   uint64_t probe_state_byte_size = 0;
   uint64_t ray_output_byte_size = 0;
-  uint64_t emissive_guide_byte_size = 0;
   uint64_t ray_sample_info_byte_size = 0;
   uint64_t selected_ray_diagnostics_byte_size = 0;
   uint64_t irradiance_atlas_byte_size = 0;

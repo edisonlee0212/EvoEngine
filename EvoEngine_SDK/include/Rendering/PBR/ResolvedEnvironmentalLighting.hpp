@@ -79,6 +79,7 @@ struct ResolvedEnvironmentalLighting {
     bool enable_probe_classification = false;
     bool enable_probe_variability = true;
     bool enable_probe_variability_gating = true;
+    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;

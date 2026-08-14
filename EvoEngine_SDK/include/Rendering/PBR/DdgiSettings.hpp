@@ -27,8 +27,7 @@ struct DdgiSettings {
     bool enabled = false;
     bool enable_emissive_mesh_sampling = true;
     int ray_count = 192;
-    int guided_ray_count = 64;
-    int guided_emitter_count = 4;
+    int emissive_ray_count = 64;
     int warmup_frames = 16;
     float normal_bias = 0.1f;
     float view_bias = 0.1f;
@@ -51,6 +50,7 @@ struct DdgiSettings {
     bool enable_probe_classification = false;
     bool enable_probe_variability = true;
     bool enable_probe_variability_gating = true;
+    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;

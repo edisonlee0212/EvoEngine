@@ -1310,7 +1310,7 @@ void ConfigureStandardDdgiRuntime(DdgiSettings& settings, const int max_probe_co
   SetDdgiUpdatesPaused(false);
   settings.runtime.enable_emissive_mesh_sampling = true;
   settings.runtime.ray_count = 192;
-  settings.runtime.guided_ray_count = 64;
+  settings.runtime.emissive_ray_count = 64;
   settings.runtime.normal_bias = normal_bias;
   settings.runtime.visibility_moment_bias = visibility_moment_bias;
   settings.storage.max_probe_count = max_probe_count;
@@ -2333,7 +2333,7 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
   SetDdgiUpdatesPaused(false);
   settings.runtime.enable_emissive_mesh_sampling = true;
   settings.runtime.ray_count = 192;
-  settings.runtime.guided_ray_count = 64;
+  settings.runtime.emissive_ray_count = 64;
   settings.runtime.normal_bias = std::max(0.02f, min_spacing * 0.02f);
   settings.runtime.view_bias = std::max(0.05f, min_spacing * 0.04f);
   RequestDdgiHistoryReset();

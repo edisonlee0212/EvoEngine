@@ -53,8 +53,7 @@ def capture(
     fixture: str,
     suffix: str = "enabled",
     timeout: float = 900.0,
-    guided_rays: int = 0,
-    guided_emitters: int = 4,
+    emissive_rays: int = 0,
     warmup_frames: int = 8,
     uniform_rays: int | None = None,
 ):
@@ -80,10 +79,8 @@ def capture(
             str(report_path),
             "--preview-ddgi-measure-frames",
             "120",
-            "--preview-ddgi-guided-rays",
-            str(guided_rays),
-            "--preview-ddgi-guided-emitters",
-            str(guided_emitters),
+            "--preview-ddgi-emissive-rays",
+            str(emissive_rays),
         )
     )
     if uniform_rays is not None:

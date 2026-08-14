@@ -105,10 +105,10 @@ struct EditorCommandLine {
   std::optional<std::filesystem::path> preview_ddgi_report_path;
   uint32_t preview_ddgi_seed = 0x6d2b79f5u;
   std::optional<int> preview_ddgi_uniform_ray_count;
-  std::optional<int> preview_ddgi_guided_ray_count;
-  int preview_ddgi_guided_emitter_count = 4;
+  std::optional<int> preview_ddgi_emissive_ray_count;
   size_t preview_ddgi_measure_frames = 120;
   size_t preview_ddgi_response_frames = 0;
+  bool preview_ddgi_continuous_updates = false;
   bool preview_ddgi_disabled = false;
   bool preview_ddgi_reference = false;
   std::string preview_ddgi_phase = "ad-hoc";
@@ -796,15 +796,15 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ddgi-seed requires an unsigned integer.");
       }
       command_line.preview_ddgi_seed = static_cast<uint32_t>(std::stoul(argv[++arg_index], nullptr, 0));
-    } else if (argument == "--preview-ddgi-guided-rays") {
+    } else if (argument == "--preview-ddgi-emissive-rays" || argument == "--preview-ddgi-guided-rays") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
+        throw std::invalid_argument("--preview-ddgi-emissive-rays requires a value between 0 and 4096.");
       }
-      const int guided_ray_count = std::stoi(argv[++arg_index]);
-      if (guided_ray_count < 0 || guided_ray_count > 4096) {
-        throw std::invalid_argument("--preview-ddgi-guided-rays requires a value between 0 and 4096.");
+      const int emissive_ray_count = std::stoi(argv[++arg_index]);
+      if (emissive_ray_count < 0 || emissive_ray_count > 4096) {
+        throw std::invalid_argument("--preview-ddgi-emissive-rays requires a value between 0 and 4096.");
       }
-      command_line.preview_ddgi_guided_ray_count = guided_ray_count;
+      command_line.preview_ddgi_emissive_ray_count = emissive_ray_count;
     } else if (argument == "--preview-ddgi-uniform-rays") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-uniform-rays requires a value between 1 and 4096.");
@@ -814,12 +814,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ddgi-uniform-rays requires a value between 1 and 4096.");
       }
       command_line.preview_ddgi_uniform_ray_count = uniform_ray_count;
+    } else if (argument == "--preview-ddgi-continuous-updates") {
+      command_line.preview_ddgi_continuous_updates = true;
     } else if (argument == "--preview-ddgi-guided-emitters") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
       }
-      command_line.preview_ddgi_guided_emitter_count = std::stoi(argv[++arg_index]);
-      if (command_line.preview_ddgi_guided_emitter_count < 1 || command_line.preview_ddgi_guided_emitter_count > 8) {
+      const int legacy_emitter_limit = std::stoi(argv[++arg_index]);
+      if (legacy_emitter_limit < 1 || legacy_emitter_limit > 8) {
         throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
       }
     } else if (argument == "--preview-ddgi-measure-frames") {
@@ -1488,6 +1490,10 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
     throw std::runtime_error("DDGI validation report requires asset-owned EnvironmentalLighting.");
   }
   const auto& validation_volume_defaults = validation_lighting->ddgi_settings.volume_defaults;
+  const bool pause_updates_after_convergence =
+      validation_lighting->ddgi_volumes.empty()
+          ? validation_volume_defaults.pause_probe_updates_after_convergence
+          : validation_lighting->ddgi_volumes.front().pause_probe_updates_after_convergence;
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto memory = Platform::GetGpuMemorySnapshot();
   (void)render_layer->RefreshDdgiProbeDebugData();
@@ -1556,6 +1562,7 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"warmup_frames\": " << warmup_frames
          << ", \"probe_variability_threshold\": " << validation_volume_defaults.probe_variability_threshold
          << ", \"probe_variability_min_samples\": " << validation_volume_defaults.probe_variability_min_samples
+         << ", \"pause_updates_after_convergence\": " << (pause_updates_after_convergence ? "true" : "false")
          << ", \"ddgi_enabled\": " << (ddgi_enabled ? "true" : "false") << "},\n"
          << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
          << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
@@ -1576,10 +1583,9 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << "  \"ddgi\": {\"active_probes\": " << performance.active_probe_count
          << ", \"storage_probes\": " << performance.storage_probe_count
          << ", \"updated_probes\": " << performance.updated_probe_count
-         << ", \"rays_per_probe\": " << performance.ray_count + performance.guided_ray_count
+         << ", \"rays_per_probe\": " << performance.ray_count + performance.emissive_ray_count
          << ", \"uniform_rays_per_probe\": " << performance.ray_count
-         << ", \"guided_rays_per_probe\": " << performance.guided_ray_count
-         << ", \"emissive_guides\": " << performance.emissive_guide_count
+         << ", \"emissive_rays_per_probe\": " << performance.emissive_ray_count
          << ", \"recorded_rays\": " << performance.recorded_ray_sample_count
          << ", \"update_hysteresis\": " << performance.probe_update_hysteresis
          << ", \"boosted_volumes\": " << performance.hysteresis_boosted_volume_count
@@ -1608,7 +1614,6 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << performance.probe_metadata_byte_size << ", \"probe_state_bytes\": " << performance.probe_state_byte_size
          << ", \"probe_update_index_bytes\": 0"
          << ", \"ray_output_bytes\": " << performance.ray_output_byte_size
-         << ", \"emissive_guide_bytes\": " << performance.emissive_guide_byte_size
          << ", \"ray_sample_info_bytes\": " << performance.ray_sample_info_byte_size
          << ", \"irradiance_atlas_bytes\": " << performance.irradiance_atlas_byte_size
          << ", \"visibility_atlas_bytes\": " << performance.visibility_atlas_byte_size
@@ -2191,10 +2196,10 @@ void CaptureDemoPreview(
       }
       auto& ddgi_settings =
           render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
-      ddgi_settings.volume_defaults.enable_probe_variability_gating = false;
+      ddgi_settings.volume_defaults.pause_probe_updates_after_convergence = false;
       if (const auto lighting = active_scene->environmental_lighting.Get<EnvironmentalLighting>()) {
         for (auto& volume : lighting->ddgi_volumes) {
-          volume.enable_probe_variability_gating = false;
+          volume.pause_probe_updates_after_convergence = false;
         }
       } else {
         throw std::runtime_error("DDGI validation timing requires asset-owned EnvironmentalLighting volumes.");
@@ -2431,10 +2436,15 @@ int main(const int argc, char** argv) {
             if (command_line.preview_ddgi_uniform_ray_count) {
               ddgi.runtime.ray_count = *command_line.preview_ddgi_uniform_ray_count;
             }
-            if (command_line.preview_ddgi_guided_ray_count) {
-              ddgi.runtime.guided_ray_count = *command_line.preview_ddgi_guided_ray_count;
+            if (command_line.preview_ddgi_emissive_ray_count) {
+              ddgi.runtime.emissive_ray_count = *command_line.preview_ddgi_emissive_ray_count;
             }
-            ddgi.runtime.guided_emitter_count = command_line.preview_ddgi_guided_emitter_count;
+            if (command_line.preview_ddgi_continuous_updates) {
+              ddgi.volume_defaults.pause_probe_updates_after_convergence = false;
+              for (auto& volume : lighting->ddgi_volumes) {
+                volume.pause_probe_updates_after_convergence = false;
+              }
+            }
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
             if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
                 render_layer && command_line.preview_ddgi_report_path.has_value() &&

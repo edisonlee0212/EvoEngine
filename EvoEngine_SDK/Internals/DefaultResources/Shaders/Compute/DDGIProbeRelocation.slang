@@ -7,6 +7,7 @@ struct EeDdgiProbeRelocationConstants {
   uint4 probe_counts;
   float4 relocation_parameters;
   int4 probe_scroll_offset;
+  int4 probe_scroll_delta;
   float4 probe_step_x;
   float4 probe_step_y;
   float4 probe_step_z;
@@ -28,7 +29,8 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint dispatch_probe_count = max(constants.probe_count_ray_count_and_flags.x, 1u);
   uint ray_count = max(constants.probe_count_ray_count_and_flags.y, 1u);
   uint uniform_ray_count = min(max(constants.probe_count_ray_count_and_flags.z, 1u), ray_count);
-  bool reset_offsets = constants.probe_count_ray_count_and_flags.w != 0u;
+  bool reset_offsets = (constants.probe_count_ray_count_and_flags.w & 1u) != 0u;
+  bool scrolled_probes_only = (constants.probe_count_ray_count_and_flags.w & 2u) != 0u;
   if (probe_index >= dispatch_probe_count) {
     return;
   }
@@ -45,6 +47,10 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint3 logical_probe_grid =
       uint3(probe_index % total_probe_counts.x, (probe_index / total_probe_counts.x) % total_probe_counts.y,
             probe_index / probes_per_layer);
+  if (scrolled_probes_only &&
+      !EE_DDGI_PROBE_IS_NEWLY_EXPOSED(logical_probe_grid, constants.probe_scroll_delta.xyz, total_probe_counts)) {
+    return;
+  }
   uint physical_probe_index =
       EE_DDGI_SCROLL_PROBE_INDEX(logical_probe_grid, constants.probe_scroll_offset.xyz, total_probe_counts);
   float relocation_distance = max(constants.relocation_parameters.x, 0.0f);

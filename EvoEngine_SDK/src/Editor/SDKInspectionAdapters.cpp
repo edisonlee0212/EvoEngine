@@ -2826,10 +2826,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         if (ImGui::TreeNodeEx("Tracing and blending", ImGuiTreeNodeFlags_DefaultOpen)) {
           changed = ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling) || changed;
           changed = ImGui::DragInt("Uniform ray count", &runtime.ray_count, 1.0f, 1, 4096) || changed;
-          changed = ImGui::DragInt("Guided irradiance ray count", &runtime.guided_ray_count, 1.0f, 0, 4096) || changed;
-          changed = ImGui::DragInt("Guided emitter limit", &runtime.guided_emitter_count, 1.0f, 1,
-                                   RenderInstanceStorage::kDdgiMaxEmissiveGuideCount) ||
-                    changed;
+          changed = ImGui::DragInt("Emissive ray count", &runtime.emissive_ray_count, 1.0f, 0, 4096) || changed;
           changed = ImGui::DragInt("Warm up frames", &runtime.warmup_frames, 1.0f, 0, 4096) || changed;
           changed = ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
@@ -2869,6 +2866,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           changed = ImGui::Checkbox("Probe variability", &defaults.enable_probe_variability) || changed;
           changed = ImGui::Checkbox("Probe variability gating", &defaults.enable_probe_variability_gating) || changed;
           changed =
+              ImGui::Checkbox("Pause updates after convergence", &defaults.pause_probe_updates_after_convergence) ||
+              changed;
+          changed =
               ImGui::DragFloat("Relocation distance", &defaults.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
           changed = ImGui::DragFloat("Random ray backface threshold", &defaults.random_ray_backface_threshold, 0.01f,
                                      0.0f, 1.0f) ||
@@ -2899,6 +2899,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           volume.enable_probe_classification = defaults.enable_probe_classification;
           volume.enable_probe_variability = defaults.enable_probe_variability;
           volume.enable_probe_variability_gating = defaults.enable_probe_variability_gating;
+          volume.pause_probe_updates_after_convergence = defaults.pause_probe_updates_after_convergence;
           volume.relocation_distance = defaults.relocation_distance;
           volume.random_ray_backface_threshold = defaults.random_ray_backface_threshold;
           volume.fixed_ray_backface_threshold = defaults.fixed_ray_backface_threshold;
@@ -2942,6 +2943,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
             changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
             changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
+            changed =
+                ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) ||
+                changed;
             changed =
                 ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
             changed = ImGui::DragFloat("Random ray backface threshold", &volume.random_ray_backface_threshold, 0.01f,

@@ -51,8 +51,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=float, default=900.0, help="Per-launch timeout in seconds.")
     parser.add_argument("--editor", type=Path, help="Installed EvoEngineEditor executable override.")
     parser.add_argument("--uniform-rays", type=int, default=192, help="Uniform/fixed rays per probe.")
-    parser.add_argument("--guided-rays", type=int, default=64, help="Additive guided irradiance rays per probe.")
-    parser.add_argument("--guided-emitters", type=int, default=4, help="Maximum emissive guide records (1-8).")
+    parser.add_argument("--emissive-rays", "--guided-rays", dest="emissive_rays", type=int, default=64,
+                        help="Exact emissive-triangle rays per probe.")
     parser.add_argument("--self-test", action="store_true", help="Validate baseline math and region analysis only.")
     return parser.parse_args()
 
@@ -264,8 +264,7 @@ def capture_ddgi(
     height: int,
     measure_frames: int,
     timeout: float,
-    guided_rays: int,
-    guided_emitters: int,
+    emissive_rays: int,
     uniform_rays: int,
 ) -> tuple[HdrImage, dict[str, object]]:
     image_path = output_dir / f"{fixture}-{phase}.hdr"
@@ -282,12 +281,10 @@ def capture_ddgi(
             str(report_path),
             "--preview-ddgi-measure-frames",
             str(measure_frames),
-            "--preview-ddgi-guided-rays",
-            str(guided_rays),
+            "--preview-ddgi-emissive-rays",
+            str(emissive_rays),
             "--preview-ddgi-uniform-rays",
             str(uniform_rays),
-            "--preview-ddgi-guided-emitters",
-            str(guided_emitters),
         ]
     )
     if phase == "disabled":
@@ -383,12 +380,10 @@ def main() -> int:
             raise ValueError("The M0 DDGI small-emitter baseline requires exactly 120 measured DDGI frames.")
         if args.timeout <= 0:
             raise ValueError("--timeout must be positive.")
-        if args.guided_rays < 0 or args.guided_rays > 4096:
-            raise ValueError("--guided-rays must be between 0 and 4096.")
+        if args.emissive_rays < 0 or args.emissive_rays > 4096:
+            raise ValueError("--emissive-rays must be between 0 and 4096.")
         if args.uniform_rays < 1 or args.uniform_rays > 4096:
             raise ValueError("--uniform-rays must be between 1 and 4096.")
-        if args.guided_emitters < 1 or args.guided_emitters > 8:
-            raise ValueError("--guided-emitters must be between 1 and 8.")
 
         root = repo_root()
         editor = (args.editor or root / "out/install/vs2026-x64/bin/EvoEngineEditor.exe").resolve()
@@ -408,11 +403,11 @@ def main() -> int:
         for fixture in FIXTURES:
             enabled, enabled_report = capture_ddgi(
                 editor, output_dir, environment, fixture, "enabled", args.width, args.height,
-                args.measure_frames, args.timeout, args.guided_rays, args.guided_emitters, args.uniform_rays
+                args.measure_frames, args.timeout, args.emissive_rays, args.uniform_rays
             )
             disabled, disabled_report = capture_ddgi(
                 editor, output_dir, environment, fixture, "disabled", args.width, args.height,
-                args.measure_frames, args.timeout, args.guided_rays, args.guided_emitters, args.uniform_rays
+                args.measure_frames, args.timeout, args.emissive_rays, args.uniform_rays
             )
             reference = capture_reference(
                 editor, output_dir, environment, fixture, args.width, args.height, args.timeout
@@ -442,7 +437,7 @@ def main() -> int:
 
         repeat, repeat_report = capture_ddgi(
             editor, output_dir, environment, "emissive-small-equal-power", "repeat", args.width, args.height,
-            args.measure_frames, args.timeout, args.guided_rays, args.guided_emitters, args.uniform_rays
+            args.measure_frames, args.timeout, args.emissive_rays, args.uniform_rays
         )
         equal_power = images["emissive-small-equal-power"]
         repeatability = compare_hdr_images(equal_power["enabled"], repeat)
@@ -498,8 +493,7 @@ def main() -> int:
                 "performance_authority": "NVIDIA GeForce RTX 5070",
                 "small_to_large_box_surface_area_ratio": 46.01934523809524,
                 "uniform_rays_per_probe": args.uniform_rays,
-                "guided_rays_per_probe": args.guided_rays,
-                "guided_emitter_limit": args.guided_emitters,
+                "emissive_rays_per_probe": args.emissive_rays,
             },
             "captures": captures,
             "repeatability": repeatability,

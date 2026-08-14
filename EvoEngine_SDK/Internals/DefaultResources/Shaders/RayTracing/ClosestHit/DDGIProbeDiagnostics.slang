@@ -192,6 +192,15 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
   const int instance_index = int(InstanceID());
   const Instance instance = EE_INSTANCES[instance_index];
   const uint primitive_index = PrimitiveIndex();
+  if ((hit_value.seed & EE_DDGI_EMISSIVE_RAY_PAYLOAD_FLAG) != 0u) {
+    hit_value.hit_count = 1u;
+    hit_value.handle = instance.renderer_handle;
+    hit_value.hit_info.color = float4(0.0f);
+    hit_value.hit_info.vertex_info1 = RayTCurrent();
+    hit_value.hit_info.vertex_info2 = float(instance_index);
+    hit_value.hit_info.vertex_info3 = float(primitive_index);
+    return;
+  }
   const int triangle_offset = instance.triangle_offset + primitive_index;
   const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
   const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
@@ -253,9 +262,12 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
   const bool skip_recursive_ddgi = EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.w > 0.5f;
   float3 shaded_radiance = float3(0.0f);
   if (!hit_face_is_culled && !fixed_probe_ray) {
-    const float3 emissive_radiance = EE_RT_COATED_EMISSION(
-        material_index, surface, attributes.tex_coords, unflipped_world_shading_normal, unflipped_world_tangent,
-        world_tangent_handedness, facing_sign, world_geometric_normal, -ray_direction);
+    const float3 emissive_radiance =
+        EE_DDGI_EMISSIVE_RAY_COUNT() == 0u || material.unlit != 0
+            ? EE_RT_COATED_EMISSION(material_index, surface, attributes.tex_coords, unflipped_world_shading_normal,
+                                    unflipped_world_tangent, world_tangent_handedness, facing_sign,
+                                    world_geometric_normal, -ray_direction)
+            : float3(0.0f);
     float3 recursive_irradiance = float3(0.0f);
     if (!skip_recursive_ddgi) {
       const EeDdgiGatherResult recursive_gather =

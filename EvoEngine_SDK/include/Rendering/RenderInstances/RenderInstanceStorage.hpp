@@ -136,10 +136,12 @@ struct DdgiProbeRelocationPushConstant {
   glm::uvec4 probe_counts = glm::uvec4(1, 1, 1, 0);
   glm::vec4 relocation_parameters = glm::vec4(1.0f, 0.25f, 0.0f, 0.0f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
+  glm::ivec4 probe_scroll_delta = glm::ivec4(0);
   glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
   glm::vec4 probe_step_y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
   glm::vec4 probe_step_z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
 };
+static_assert(sizeof(DdgiProbeRelocationPushConstant) == 128);
 
 struct DdgiProbeClassificationPushConstant {
   glm::uvec4 probe_count_ray_count_and_flags = glm::uvec4(1, 1, 0, 0);
@@ -178,7 +180,6 @@ class RenderInstanceStorage {
  public:
   static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
   static constexpr uint32_t kDdgiMaxVolumeCount = 8;
-  static constexpr uint32_t kDdgiMaxEmissiveGuideCount = 8;
   static constexpr uint32_t kReflectionProbeMaxCount = 32;
 
   struct alignas(16) DdgiVolumeInfoBlock {
@@ -298,30 +299,8 @@ class RenderInstanceStorage {
     double estimated_emitted_power = 0.0;
   };
 
-  struct alignas(16) DdgiEmissiveGuideInfoBlock {
-    glm::vec4 center_and_radius = glm::vec4(0.0f);
-    glm::vec4 power_and_reserved = glm::vec4(0.0f);
-  };
-
-  struct DdgiEmissiveGuideCandidate {
-    glm::vec3 bound_min = glm::vec3(0.0f);
-    glm::vec3 bound_max = glm::vec3(0.0f);
-    double estimated_power = 0.0;
-    uint64_t stable_id = 0;
-    uint32_t source_revision = 0;
-    uint32_t instance_index = 0;
-  };
-
-  static_assert(std::is_standard_layout_v<DdgiEmissiveGuideInfoBlock>);
-  static_assert(sizeof(DdgiEmissiveGuideInfoBlock) == 32);
-  static_assert(alignof(DdgiEmissiveGuideInfoBlock) == 16);
-  static_assert(offsetof(DdgiEmissiveGuideInfoBlock, center_and_radius) == 0);
-  static_assert(offsetof(DdgiEmissiveGuideInfoBlock, power_and_reserved) == 16);
-
   [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleInfoBlocks(
       std::vector<EmissiveTriangleCandidate> candidates);
-  [[nodiscard]] static std::vector<DdgiEmissiveGuideInfoBlock> BuildDdgiEmissiveGuideInfoBlocks(
-      std::vector<DdgiEmissiveGuideCandidate> candidates, uint32_t max_guide_count = kDdgiMaxEmissiveGuideCount);
 
   /**
    * @brief Struct to hold environment-related rendering information.
@@ -1035,7 +1014,6 @@ class RenderInstanceStorage {
 
   [[nodiscard]] uint64_t GetDdgiEmissiveInventorySignature() const;
   [[nodiscard]] const EmissiveTriangleInventoryStats& GetDdgiEmissiveInventoryStats() const;
-  [[nodiscard]] const std::vector<DdgiEmissiveGuideInfoBlock>& GetDdgiEmissiveGuideInfoBlocks() const;
 
   /**
    * @brief Retrieves the list of instance information blocks.
@@ -1100,7 +1078,6 @@ class RenderInstanceStorage {
     bool operator==(const EmissiveTriangleInstanceSignature& other) const;
   };
   std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
-  std::vector<DdgiEmissiveGuideInfoBlock> ddgi_emissive_guide_info_blocks_{};
   std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
   uint64_t ddgi_emissive_inventory_signature_ = 0;
   EmissiveTriangleInventoryStats ddgi_emissive_inventory_stats_{};

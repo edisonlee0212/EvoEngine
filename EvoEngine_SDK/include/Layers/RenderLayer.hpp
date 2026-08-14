@@ -438,7 +438,6 @@ class RenderLayer final : public ILayer {
 
     std::shared_ptr<Buffer> probe_metadata_buffer{};
     std::shared_ptr<Buffer> probe_state_buffer{};
-    std::shared_ptr<Buffer> emissive_guide_buffer{};
     std::shared_ptr<Image> irradiance_atlas{};
     std::shared_ptr<Image> visibility_atlas{};
     std::shared_ptr<Image> variability_atlas{};
@@ -492,8 +491,7 @@ class RenderLayer final : public ILayer {
     glm::ivec3 probe_scroll_directions = glm::ivec3(1);
     glm::ivec3 last_probe_scroll_delta = glm::ivec3(0);
     uint32_t previous_ray_count = 0;
-    uint32_t previous_guided_ray_count = 0;
-    uint32_t previous_emissive_guide_count = 0;
+    uint32_t previous_emissive_ray_count = 0;
     bool previous_deterministic_ray_seed_enabled = false;
     uint32_t previous_deterministic_ray_seed = 0;
     uint32_t probe_ray_sequence_index = 0;
@@ -529,9 +527,8 @@ class RenderLayer final : public ILayer {
     uint32_t frame_selected_probe_ray_logical_index = 0;
     uint32_t frame_selected_probe_ray_physical_index = 0;
     uint32_t frame_uniform_ray_count = 0;
-    uint32_t frame_guided_ray_count = 0;
+    uint32_t frame_emissive_ray_count = 0;
     uint32_t frame_fixed_ray_count = 0;
-    uint32_t frame_emissive_guide_count = 0;
     DdgiFrameResourceLayout frame_resource_layout{};
     DdgiPerformanceStats last_performance_stats{};
     DdgiProbeRayTracingPushConstant frame_ray_push_constant{};

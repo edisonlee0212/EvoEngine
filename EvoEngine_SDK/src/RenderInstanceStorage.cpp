@@ -1208,45 +1208,6 @@ std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock> RenderInstanceStor
   return result;
 }
 
-std::vector<RenderInstanceStorage::DdgiEmissiveGuideInfoBlock> RenderInstanceStorage::BuildDdgiEmissiveGuideInfoBlocks(
-    std::vector<DdgiEmissiveGuideCandidate> candidates, const uint32_t max_guide_count) {
-  const auto finite_vector = [](const glm::vec3& value) {
-    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-  };
-  candidates.erase(std::remove_if(candidates.begin(), candidates.end(),
-                                  [&](const auto& candidate) {
-                                    return !finite_vector(candidate.bound_min) || !finite_vector(candidate.bound_max) ||
-                                           glm::any(glm::greaterThan(candidate.bound_min, candidate.bound_max)) ||
-                                           !std::isfinite(candidate.estimated_power) ||
-                                           candidate.estimated_power <= 0.0;
-                                  }),
-                   candidates.end());
-  std::sort(candidates.begin(), candidates.end(), [](const auto& lhs, const auto& rhs) {
-    if (lhs.estimated_power != rhs.estimated_power) {
-      return lhs.estimated_power > rhs.estimated_power;
-    }
-    if (lhs.stable_id != rhs.stable_id) {
-      return lhs.stable_id < rhs.stable_id;
-    }
-    if (lhs.source_revision != rhs.source_revision) {
-      return lhs.source_revision < rhs.source_revision;
-    }
-    return lhs.instance_index < rhs.instance_index;
-  });
-  candidates.resize(glm::min(static_cast<size_t>(max_guide_count), candidates.size()));
-
-  std::vector<DdgiEmissiveGuideInfoBlock> result;
-  result.reserve(candidates.size());
-  for (const auto& candidate : candidates) {
-    const auto center = 0.5f * (candidate.bound_min + candidate.bound_max);
-    const auto radius = 0.5f * glm::length(candidate.bound_max - candidate.bound_min);
-    const auto power = static_cast<float>(
-        glm::min(candidate.estimated_power, static_cast<double>((std::numeric_limits<float>::max)())));
-    result.push_back({glm::vec4(center, radius), glm::vec4(power, 0.0f, 0.0f, 0.0f)});
-  }
-  return result;
-}
-
 bool RenderInstanceStorage::EnvironmentInfoBlock::operator!=(const EnvironmentInfoBlock& other) const {
   if (background_color != other.background_color)
     return true;
@@ -1602,7 +1563,6 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
   if (!Platform::RayAccelerationStructureEnabled()) {
     emissive_triangle_info_dirty_ = !emissive_triangle_info_blocks_.empty();
     emissive_triangle_info_blocks_.clear();
-    ddgi_emissive_guide_info_blocks_.clear();
     emissive_triangle_instance_signatures_.clear();
     ddgi_emissive_inventory_stats_ = {};
     ddgi_emissive_inventory_signature_ = 0;
@@ -1766,19 +1726,13 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
     inventory_stats.estimated_emitted_power = ddgi_emissive_inventory_stats_.estimated_emitted_power;
     ddgi_emissive_inventory_stats_ = inventory_stats;
     render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
-    render_info_block.emissive_triangle_parameters.y = static_cast<uint32_t>(ddgi_emissive_guide_info_blocks_.size());
     return;
   }
 
   std::vector<EmissiveTriangleCandidate> candidates;
-  std::vector<DdgiEmissiveGuideCandidate> guide_candidates;
   for (const auto& emissive_instance : emissive_instances) {
     const auto& render_instance = emissive_instance.render_instance;
     const auto& material = shade_materials[render_instance->material_index];
-    glm::vec3 bound_min((std::numeric_limits<float>::max)());
-    glm::vec3 bound_max((std::numeric_limits<float>::lowest)());
-    double estimated_power = 0.0;
-    bool has_finite_bounds = false;
     for (uint32_t primitive_id = 0; primitive_id < emissive_instance.triangle_count; ++primitive_id) {
       const auto& triangle = GeometryStorage::PeekTriangle(emissive_instance.triangle_offset + primitive_id);
       const auto& v0 = GeometryStorage::PeekVertex(triangle.x);
@@ -1787,14 +1741,6 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
       const glm::vec3 p0 = glm::vec3(emissive_instance.model * glm::vec4(v0.position, 1.0f));
       const glm::vec3 p1 = glm::vec3(emissive_instance.model * glm::vec4(v1.position, 1.0f));
       const glm::vec3 p2 = glm::vec3(emissive_instance.model * glm::vec4(v2.position, 1.0f));
-      const auto finite_position = [](const glm::vec3& value) {
-        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
-      };
-      if (finite_position(p0) && finite_position(p1) && finite_position(p2)) {
-        bound_min = glm::min(bound_min, glm::min(p0, glm::min(p1, p2)));
-        bound_max = glm::max(bound_max, glm::max(p0, glm::max(p1, p2)));
-        has_finite_bounds = true;
-      }
       const glm::vec3 weighted_normal = glm::cross(p1 - p0, p2 - p0);
       const double area = 0.5 * static_cast<double>(glm::length(weighted_normal));
       const double importance = EstimateTriangleEmissiveImportance(*render_instance->material, material, v0, v1, v2) *
@@ -1803,17 +1749,11 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
       if (std::isfinite(area) && area > 0.0 && std::isfinite(importance) && importance > 0.0) {
         const auto triangle_power = glm::pi<double>() * area * importance;
         inventory_stats.estimated_emitted_power += triangle_power;
-        estimated_power += triangle_power;
       }
       candidates.push_back({emissive_instance.instance_index, primitive_id, area, importance});
     }
-    if (has_finite_bounds) {
-      guide_candidates.push_back({bound_min, bound_max, estimated_power, emissive_instance.stable_id,
-                                  emissive_instance.source_revision, emissive_instance.instance_index});
-    }
   }
   emissive_triangle_info_blocks_ = BuildEmissiveTriangleInfoBlocks(std::move(candidates));
-  ddgi_emissive_guide_info_blocks_ = BuildDdgiEmissiveGuideInfoBlocks(std::move(guide_candidates));
   inventory_stats.unrepresentable_probability_count = static_cast<uint32_t>(std::count_if(
       emissive_triangle_info_blocks_.begin(), emissive_triangle_info_blocks_.end(), [](const auto& record) {
         return record.area_pdf <= 0.0f;
@@ -1823,7 +1763,6 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
   ddgi_emissive_inventory_signature_ = HashDdgiEmissiveInventorySignature(emissive_triangle_instance_signatures_);
   emissive_triangle_info_dirty_ = true;
   render_info_block.emissive_triangle_parameters.x = static_cast<uint32_t>(emissive_triangle_info_blocks_.size());
-  render_info_block.emissive_triangle_parameters.y = static_cast<uint32_t>(ddgi_emissive_guide_info_blocks_.size());
 }
 
 void RenderInstanceStorage::CollectLights(const std::shared_ptr<Scene>& target_scene, const Bound& world_bound) {
@@ -2338,11 +2277,6 @@ uint64_t RenderInstanceStorage::GetDdgiEmissiveInventorySignature() const {
 const RenderInstanceStorage::EmissiveTriangleInventoryStats& RenderInstanceStorage::GetDdgiEmissiveInventoryStats()
     const {
   return ddgi_emissive_inventory_stats_;
-}
-
-const std::vector<RenderInstanceStorage::DdgiEmissiveGuideInfoBlock>&
-RenderInstanceStorage::GetDdgiEmissiveGuideInfoBlocks() const {
-  return ddgi_emissive_guide_info_blocks_;
 }
 
 const std::vector<RenderInstanceStorage::InstanceInfoBlock>& RenderInstanceStorage::GetInstanceInfoBlocks() const {

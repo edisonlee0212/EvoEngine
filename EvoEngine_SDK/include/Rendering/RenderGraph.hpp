@@ -118,7 +118,6 @@ inline constexpr const char* frame_visibility_buffer = "Frame.VisibilityBuffer";
 inline constexpr const char* frame_ddgi_probe_metadata = "Frame.DDGI.ProbeMetadata";
 inline constexpr const char* frame_ddgi_probe_state = "Frame.DDGI.ProbeState";
 inline constexpr const char* frame_ddgi_ray_output = "Frame.DDGI.RayOutput";
-inline constexpr const char* frame_ddgi_emissive_guides = "Frame.DDGI.EmissiveGuides";
 inline constexpr const char* frame_ddgi_ray_sample_info = "Frame.DDGI.RaySampleInfo";
 inline constexpr const char* frame_ddgi_selected_ray_diagnostics = "Frame.DDGI.SelectedRayDiagnostics";
 inline constexpr const char* frame_ddgi_emissive_sampling_stats = "Frame.DDGI.EmissiveSamplingStats";

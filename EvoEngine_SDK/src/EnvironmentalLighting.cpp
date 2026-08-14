@@ -171,6 +171,8 @@ void SerializeDdgiVolume(YAML::Emitter& out, const EnvironmentalLighting::DdgiVo
   out << YAML::Key << "enable_probe_classification" << YAML::Value << volume.enable_probe_classification;
   out << YAML::Key << "enable_probe_variability" << YAML::Value << volume.enable_probe_variability;
   out << YAML::Key << "enable_probe_variability_gating" << YAML::Value << volume.enable_probe_variability_gating;
+  out << YAML::Key << "pause_probe_updates_after_convergence" << YAML::Value
+      << volume.pause_probe_updates_after_convergence;
   out << YAML::Key << "relocation_distance" << YAML::Value << volume.relocation_distance;
   out << YAML::Key << "random_ray_backface_threshold" << YAML::Value << volume.random_ray_backface_threshold;
   out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
@@ -213,6 +215,8 @@ void DeserializeDdgiVolume(const YAML::Node& in, EnvironmentalLighting::DdgiVolu
     volume.enable_probe_variability = in["enable_probe_variability"].as<bool>();
   if (in["enable_probe_variability_gating"])
     volume.enable_probe_variability_gating = in["enable_probe_variability_gating"].as<bool>();
+  if (in["pause_probe_updates_after_convergence"])
+    volume.pause_probe_updates_after_convergence = in["pause_probe_updates_after_convergence"].as<bool>();
   if (in["relocation_distance"])
     volume.relocation_distance = in["relocation_distance"].as<float>();
   if (in["random_ray_backface_threshold"])

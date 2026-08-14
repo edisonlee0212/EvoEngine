@@ -67,76 +67,6 @@ size_t CountOccurrences(const std::string& source, const std::string& value) {
   return count;
 }
 
-struct SphericalCap {
-  bool valid = false;
-  glm::vec3 axis = glm::vec3(0.0f, 0.0f, 1.0f);
-  float cos_theta_max = 1.0f;
-  float solid_angle = 0.0f;
-};
-
-SphericalCap CalculateSphericalCap(const glm::vec3& origin, const glm::vec3& center, const float radius) {
-  SphericalCap cap;
-  const auto delta = center - origin;
-  const auto distance_squared = glm::dot(delta, delta);
-  if (!(radius > 0.0f) || !std::isfinite(distance_squared)) {
-    return cap;
-  }
-  if (distance_squared <= radius * radius) {
-    cap.valid = true;
-    cap.cos_theta_max = -1.0f;
-    cap.solid_angle = 4.0f * glm::pi<float>();
-    return cap;
-  }
-  const auto distance = std::sqrt(distance_squared);
-  const auto sin_theta_max = glm::clamp(radius / distance, 0.0f, 1.0f);
-  cap.axis = delta / distance;
-  cap.cos_theta_max = std::sqrt((std::max)(0.0f, 1.0f - sin_theta_max * sin_theta_max));
-  cap.solid_angle = 2.0f * glm::pi<float>() * (1.0f - cap.cos_theta_max);
-  cap.valid = cap.solid_angle > 0.0f;
-  return cap;
-}
-
-glm::vec3 SampleSphericalCap(const SphericalCap& cap, const glm::vec2& sample) {
-  const auto cos_theta = glm::mix(1.0f, cap.cos_theta_max, sample.x);
-  const auto sin_theta = std::sqrt((std::max)(0.0f, 1.0f - cos_theta * cos_theta));
-  const auto phi = 2.0f * glm::pi<float>() * sample.y;
-  const auto helper = std::abs(cap.axis.z) < 0.999f ? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-  const auto tangent = glm::normalize(glm::cross(helper, cap.axis));
-  const auto bitangent = glm::cross(cap.axis, tangent);
-  return glm::normalize(cap.axis * cos_theta + tangent * (std::cos(phi) * sin_theta) +
-                        bitangent * (std::sin(phi) * sin_theta));
-}
-
-float EvaluateSphericalCapPdf(const SphericalCap& cap, const glm::vec3& direction) {
-  return glm::dot(glm::normalize(direction), cap.axis) >= cap.cos_theta_max ? 1.0f / cap.solid_angle : 0.0f;
-}
-
-float EvaluateGuidedDirectionPdf(const std::vector<SphericalCap>& caps, const std::vector<float>& weights,
-                                 const glm::vec3& direction) {
-  const auto count = glm::min(caps.size(), weights.size());
-  const auto weight_sum = std::accumulate(weights.begin(), weights.begin() + count, 0.0f);
-  if (!(weight_sum > 0.0f)) {
-    return 0.0f;
-  }
-  float pdf = 0.0f;
-  for (size_t index = 0; index < count; ++index) {
-    pdf += weights[index] / weight_sum * EvaluateSphericalCapPdf(caps[index], direction);
-  }
-  return pdf;
-}
-
-float CalculateGuidedDirectionMixturePdf(const uint32_t uniform_ray_count, const uint32_t guided_ray_count,
-                                         const float guided_pdf) {
-  constexpr float kUniformSpherePdf = 1.0f / (4.0f * glm::pi<float>());
-  const auto total_ray_count = uniform_ray_count + guided_ray_count;
-  if (total_ray_count == 0u) {
-    return 0.0f;
-  }
-  return (static_cast<float>(uniform_ray_count) * kUniformSpherePdf +
-          static_cast<float>(guided_ray_count) * guided_pdf) /
-         static_cast<float>(total_ray_count);
-}
-
 uint32_t PackOctahedralDirection(const glm::vec3& input_direction) {
   const auto denominator = std::abs(input_direction.x) + std::abs(input_direction.y) + std::abs(input_direction.z);
   auto direction =
@@ -179,8 +109,9 @@ TEST(DdgiVolume, SessionDebugStateIsTransientAndPersistentYamlOmitsLegacyKeys) {
   EXPECT_EQ(yaml.find("reset_probe_history"), std::string::npos);
   EXPECT_EQ(yaml.find("debug:"), std::string::npos);
   EXPECT_NE(yaml.find("ray_count: 192"), std::string::npos);
-  EXPECT_NE(yaml.find("guided_ray_count: 64"), std::string::npos);
-  EXPECT_NE(yaml.find("guided_emitter_count: 4"), std::string::npos);
+  EXPECT_NE(yaml.find("emissive_ray_count: 64"), std::string::npos);
+  EXPECT_EQ(yaml.find("guided_ray_count"), std::string::npos);
+  EXPECT_EQ(yaml.find("guided_emitter_count"), std::string::npos);
 
   RenderLayer::DdgiSessionState session;
   EXPECT_FALSE(session.pause_updates);
@@ -238,16 +169,11 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
   EXPECT_EQ(sizeof(DdgiProbeRaySampleInfo), 8u);
   EXPECT_EQ(alignof(DdgiProbeRaySampleInfo), 8u);
   EXPECT_EQ(offsetof(DdgiProbeRaySampleInfo, packed_direction_and_inverse_pdf), 0u);
-  EXPECT_EQ(sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock), 32u);
-  EXPECT_EQ(alignof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock), 16u);
-  EXPECT_EQ(offsetof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock, center_and_radius), 0u);
-  EXPECT_EQ(offsetof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock, power_and_reserved), 16u);
   EXPECT_EQ(sizeof(DdgiEmissiveSamplingStats), 36u);
   EXPECT_EQ(alignof(DdgiEmissiveSamplingStats), alignof(uint32_t));
   EXPECT_EQ(offsetof(DdgiEmissiveSamplingStats, nonzero_contribution_count), 32u);
   EXPECT_EQ(DdgiSettings{}.runtime.ray_count, 192);
-  EXPECT_EQ(DdgiSettings{}.runtime.guided_ray_count, 64);
-  EXPECT_EQ(DdgiSettings{}.runtime.guided_emitter_count, 4);
+  EXPECT_EQ(DdgiSettings{}.runtime.emissive_ray_count, 64);
   EXPECT_EQ(sizeof(PointCloudSample), 128u);
   EXPECT_EQ(sizeof(DdgiProbeRayTracingPushConstant), 128u);
   EXPECT_EQ(offsetof(DdgiProbeRayTracingPushConstant, selected_probe_volume_flags_environment), 80u);
@@ -261,6 +187,10 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
   EXPECT_EQ(offsetof(DdgiProbeAtlasUpdatePushConstant, probe_step_x), 112u);
   EXPECT_EQ(offsetof(DdgiProbeAtlasUpdatePushConstant, probe_step_y), 128u);
   EXPECT_EQ(offsetof(DdgiProbeAtlasUpdatePushConstant, probe_step_z), 144u);
+  EXPECT_EQ(sizeof(DdgiProbeRelocationPushConstant), 128u);
+  EXPECT_EQ(offsetof(DdgiProbeRelocationPushConstant, probe_scroll_offset), 48u);
+  EXPECT_EQ(offsetof(DdgiProbeRelocationPushConstant, probe_scroll_delta), 64u);
+  EXPECT_EQ(offsetof(DdgiProbeRelocationPushConstant, probe_step_x), 80u);
   EXPECT_EQ(sizeof(DdgiProbeVisualizationPushConstant), 32u);
   EXPECT_EQ(offsetof(DdgiProbeVisualizationPushConstant, radius_intensity_alpha_selected_scale), 16u);
   EXPECT_EQ(sizeof(DdgiProbeRayVisualizationPushConstant), 16u);
@@ -342,129 +272,42 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
             RenderVariant::Serial);
 }
 
-TEST(DdgiVolume, EmissiveGuidesFilterSortAndTruncate) {
-  using Candidate = RenderInstanceStorage::DdgiEmissiveGuideCandidate;
-  const auto guides = RenderInstanceStorage::BuildDdgiEmissiveGuideInfoBlocks(
-      {{glm::vec3(-1.0f), glm::vec3(1.0f), 4.0, 0x123456789abcdef0ull, 7u, 11u},
-       {glm::vec3(4.0f, 0.0f, 0.0f), glm::vec3(6.0f, 2.0f, 2.0f), 8.0, 9u, 2u, 3u},
-       {glm::vec3(8.0f), glm::vec3(9.0f), 8.0, 3u, 5u, 1u},
-       {glm::vec3(0.0f), glm::vec3(1.0f), 0.0, 1u, 0u, 0u},
-       {glm::vec3(std::numeric_limits<float>::quiet_NaN()), glm::vec3(1.0f), 10.0, 2u, 0u, 0u}},
-      2u);
-  ASSERT_EQ(guides.size(), 2u);
-  EXPECT_EQ(glm::vec3(guides[0].center_and_radius), glm::vec3(8.5f));
-  EXPECT_EQ(glm::vec3(guides[1].center_and_radius), glm::vec3(5.0f, 1.0f, 1.0f));
-  EXPECT_FLOAT_EQ(guides[0].power_and_reserved.x, 8.0f);
-
-  const auto extreme = RenderInstanceStorage::BuildDdgiEmissiveGuideInfoBlocks(
-      {Candidate{glm::vec3(0.0f), glm::vec3(1.0f), 1.0e300, 1u, 0u, 0u}});
-  ASSERT_EQ(extreme.size(), 1u);
-  EXPECT_TRUE(std::isfinite(extreme[0].power_and_reserved.x));
-  EXPECT_FLOAT_EQ(extreme[0].power_and_reserved.x, (std::numeric_limits<float>::max)());
-}
-
-TEST(DdgiVolume, GuidedResourcesUseDefaultPresetAndRemainOptional) {
+TEST(DdgiVolume, ExactEmissiveResourcesUseDefaultPresetAndRemainOptional) {
   DdgiSettings settings;
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
   ASSERT_TRUE(layout.valid) << layout.error;
-  EXPECT_EQ(layout.emissive_guide_byte_size, 4ull * sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock));
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 256ull * sizeof(DdgiProbeRaySampleInfo));
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 64ull * sizeof(DdgiProbeRaySampleInfo));
   EXPECT_EQ(layout.ray_output_byte_size, 32ull * 256ull * sizeof(DdgiProbeRayData));
   EXPECT_EQ(layout.selected_ray_diagnostics_byte_size, 256ull * sizeof(PointCloudSample));
 
   settings.runtime.ray_count = 96;
-  settings.runtime.guided_ray_count = 32;
+  settings.runtime.emissive_ray_count = 32;
   layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 384u);
   ASSERT_TRUE(layout.valid) << layout.error;
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 384ull * 128ull * 8ull);
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 384ull * 128ull * sizeof(glm::uvec2));
-  EXPECT_EQ(layout.ray_sample_info_byte_size * 2ull, 384ull * 128ull * sizeof(glm::vec4));
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 384ull * 32ull * sizeof(DdgiProbeRaySampleInfo));
 
   settings.runtime.ray_count = 192;
   settings.runtime.enable_emissive_mesh_sampling = false;
   layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
   ASSERT_TRUE(layout.valid) << layout.error;
-  EXPECT_EQ(layout.emissive_guide_byte_size, 0u);
   EXPECT_EQ(layout.ray_sample_info_byte_size, 0u);
   EXPECT_EQ(layout.ray_output_byte_size, 32ull * 192ull * sizeof(DdgiProbeRayData));
 }
 
-TEST(DdgiVolume, GuidedDirectionReferenceMathPreservesPdfAndConstantRadiance) {
-  constexpr float kUniformSpherePdf = 1.0f / (4.0f * glm::pi<float>());
-  const auto full_sphere = CalculateSphericalCap(glm::vec3(0.0f), glm::vec3(0.0f), 1.0f);
-  ASSERT_TRUE(full_sphere.valid);
-  EXPECT_FLOAT_EQ(full_sphere.cos_theta_max, -1.0f);
-  EXPECT_FLOAT_EQ(full_sphere.solid_angle, 4.0f * glm::pi<float>());
-  EXPECT_FLOAT_EQ(EvaluateSphericalCapPdf(full_sphere, glm::vec3(1.0f, 0.0f, 0.0f)), kUniformSpherePdf);
-
-  const auto narrow_cap = CalculateSphericalCap(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 10.0f), 1.0f);
-  const auto overlapping_cap = CalculateSphericalCap(glm::vec3(0.0f), glm::vec3(0.5f, 0.0f, 10.0f), 1.5f);
-  ASSERT_TRUE(narrow_cap.valid);
-  ASSERT_TRUE(overlapping_cap.valid);
-  EXPECT_NEAR(narrow_cap.cos_theta_max, std::sqrt(0.99f), 1e-6f);
-  EXPECT_GT(EvaluateSphericalCapPdf(narrow_cap, narrow_cap.axis), 0.0f);
-  EXPECT_FLOAT_EQ(EvaluateSphericalCapPdf(narrow_cap, -narrow_cap.axis), 0.0f);
-  EXPECT_FALSE(CalculateSphericalCap(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, 1.0f), 0.0f).valid);
-
-  const std::vector<SphericalCap> caps{narrow_cap, overlapping_cap};
-  const std::vector<float> weights{0.65f, 0.35f};
-  EXPECT_GT(EvaluateGuidedDirectionPdf(caps, weights, narrow_cap.axis), 0.65f / narrow_cap.solid_angle);
-  EXPECT_FLOAT_EQ(EvaluateGuidedDirectionPdf({}, {}, narrow_cap.axis), 0.0f);
-  EXPECT_FLOAT_EQ(CalculateGuidedDirectionMixturePdf(128u, 0u, 1000.0f), kUniformSpherePdf);
-  EXPECT_FLOAT_EQ(CalculateGuidedDirectionMixturePdf(0u, 0u, 0.0f), 0.0f);
-
-  constexpr uint32_t kIntegrationSampleCount = 1u << 18u;
-  double guided_pdf_integral = 0.0;
-  for (uint32_t index = 0; index < kIntegrationSampleCount; ++index) {
-    const auto sample = glm::vec2((static_cast<float>(index) + 0.5f) / kIntegrationSampleCount,
-                                  glm::fract(static_cast<float>(index) * 0.61803398875f));
-    const auto direction = SampleSphericalCap(full_sphere, sample);
-    guided_pdf_integral += EvaluateGuidedDirectionPdf(caps, weights, direction) / kUniformSpherePdf;
+TEST(DdgiVolume, ExactEmissiveEstimatorUsesIndependentPdfAndPopulation) {
+  constexpr double kRadiance = 4.0;
+  constexpr double kCosine = 0.8;
+  constexpr double kSolidAnglePdf = 2.0;
+  constexpr uint32_t kEmissiveRayCount = 64u;
+  double accumulated = 0.0;
+  for (uint32_t index = 0; index < kEmissiveRayCount; ++index) {
+    accumulated += kRadiance * kCosine / kSolidAnglePdf;
   }
-  guided_pdf_integral /= kIntegrationSampleCount;
-  EXPECT_NEAR(guided_pdf_integral, 1.0, 0.015);
-
-  const auto estimate_constant_radiance = [&](const uint32_t guided_ray_count, const bool quantize_direction) {
-    constexpr uint32_t kTotalRayCount = 1u << 16u;
-    const auto uniform_ray_count = kTotalRayCount - guided_ray_count;
-    double result = 0.0;
-    for (uint32_t index = 0; index < uniform_ray_count; ++index) {
-      const auto sample = glm::vec2((static_cast<float>(index) + 0.5f) / uniform_ray_count,
-                                    glm::fract(static_cast<float>(index) * 0.61803398875f));
-      const auto direction = SampleSphericalCap(full_sphere, sample);
-      const auto guided_pdf = EvaluateGuidedDirectionPdf(caps, weights, direction);
-      const auto mixture_pdf = CalculateGuidedDirectionMixturePdf(uniform_ray_count, guided_ray_count, guided_pdf);
-      const auto update_direction =
-          quantize_direction ? UnpackOctahedralDirection(PackOctahedralDirection(direction)) : direction;
-      result += (std::max)(update_direction.z, 0.0f) / mixture_pdf;
-    }
-    for (uint32_t index = 0; index < guided_ray_count; ++index) {
-      const auto selector = (static_cast<float>(index) + 0.5f) / guided_ray_count;
-      const auto cap_index = selector < weights[0] ? 0u : 1u;
-      const auto lower = cap_index == 0u ? 0.0f : weights[0];
-      const auto cap_weight = weights[cap_index];
-      const auto cap_sample_x = (selector - lower) / cap_weight;
-      const auto sample = glm::vec2(glm::fract(cap_sample_x), glm::fract(static_cast<float>(index) * 0.61803398875f));
-      const auto direction = SampleSphericalCap(caps[cap_index], sample);
-      const auto guided_pdf = EvaluateGuidedDirectionPdf(caps, weights, direction);
-      const auto mixture_pdf = CalculateGuidedDirectionMixturePdf(uniform_ray_count, guided_ray_count, guided_pdf);
-      const auto update_direction =
-          quantize_direction ? UnpackOctahedralDirection(PackOctahedralDirection(direction)) : direction;
-      result += (std::max)(update_direction.z, 0.0f) / mixture_pdf;
-    }
-    return result / (2.0 * glm::pi<double>() * kTotalRayCount);
-  };
-  for (const auto guided_ray_count : {0u, (1u << 16u) / 4u, (1u << 16u) / 2u}) {
-    const auto reference = estimate_constant_radiance(guided_ray_count, false);
-    const auto compact = estimate_constant_radiance(guided_ray_count, true);
-    EXPECT_NEAR(compact, reference, 1e-5);
-  }
-  EXPECT_NEAR(estimate_constant_radiance(0u, false), 0.5, 0.002);
-  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 4u, false), 0.5, 0.01);
-  EXPECT_NEAR(estimate_constant_radiance((1u << 16u) / 2u, false), 0.5, 0.015);
+  const auto result = accumulated / (2.0 * glm::pi<double>() * kEmissiveRayCount);
+  EXPECT_NEAR(result, kRadiance * kCosine / (2.0 * glm::pi<double>() * kSolidAnglePdf), 1e-12);
 }
 
-TEST(DdgiVolume, CompactGuidedRayMetadataPreservesDirectionAndPdfAccuracy) {
+TEST(DdgiVolume, CompactEmissiveRayMetadataPreservesDirectionAndPdfAccuracy) {
   constexpr uint32_t kDirectionCount = 1u << 16u;
   float maximum_angular_error_degrees = 0.0f;
   for (uint32_t index = 0u; index < kDirectionCount; ++index) {
@@ -597,6 +440,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_TRUE(volume.enable_probe_relocation);
   EXPECT_TRUE(volume.enable_probe_variability);
   EXPECT_TRUE(volume.enable_probe_variability_gating);
+  EXPECT_TRUE(volume.pause_probe_updates_after_convergence);
   EXPECT_FLOAT_EQ(volume.relocation_distance, 0.25f);
   EXPECT_FLOAT_EQ(volume.random_ray_backface_threshold, 0.1f);
   EXPECT_FLOAT_EQ(volume.fixed_ray_backface_threshold, 0.25f);
@@ -629,6 +473,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_TRUE(defaults.enable_probe_relocation);
   EXPECT_TRUE(defaults.enable_probe_variability);
   EXPECT_TRUE(defaults.enable_probe_variability_gating);
+  EXPECT_TRUE(defaults.pause_probe_updates_after_convergence);
   EXPECT_FLOAT_EQ(defaults.relocation_distance, 0.25f);
   EXPECT_FLOAT_EQ(defaults.random_ray_backface_threshold, 0.1f);
   EXPECT_FLOAT_EQ(defaults.fixed_ray_backface_threshold, 0.25f);
@@ -765,7 +610,7 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(demo_app_source.find("FindEnvironmentalLightingDdgiVolume(scene, \"DDGI Probe Volume\")"),
             std::string::npos);
   EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.ray_count != 192"), std::string::npos);
-  EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.guided_ray_count != 64"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.emissive_ray_count != 64"), std::string::npos);
   EXPECT_NE(demo_app_source.find("GetDdgiSessionState().show_probes"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.probe_counts != glm::ivec3(10, 6, 16)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.probe_spacing != glm::vec3(1.5f)"), std::string::npos);
@@ -899,6 +744,9 @@ TEST(DdgiVolume, TemporalResponseValidationUsesFrameExactHdrContracts) {
   EXPECT_NE(validation_source.find("--uniform-rays"), std::string::npos);
   EXPECT_NE(validation_source.find("--preview-ddgi-uniform-rays"), std::string::npos);
   EXPECT_NE(validation_source.find("\"uniform_rays_per_probe\""), std::string::npos);
+  EXPECT_NE(editor_source.find("--preview-ddgi-continuous-updates"), std::string::npos);
+  EXPECT_NE(editor_source.find("\\\"pause_updates_after_convergence\\\""), std::string::npos);
+  EXPECT_NE(validation_source.find("--continuous-updates"), std::string::npos);
   EXPECT_NE(validation_source.find("RESPONSE_FRAMES = (1, 2, 4, 8, 16, 32)"), std::string::npos);
   EXPECT_NE(validation_source.find("confidence_response_reaches_90_percent_by_16_frames"), std::string::npos);
   EXPECT_NE(validation_source.find("darkening_reaches_90_percent_by_8_frames"), std::string::npos);
@@ -1000,7 +848,7 @@ TEST(DdgiVolume, ClampSettingsPreservesRejectedProbeGridForDiagnostics) {
   EXPECT_EQ(volume.emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
 }
 
-TEST(DdgiVolume, DeserializesCanonicalDdgiSettings) {
+TEST(DdgiVolume, DeserializesLegacyGuidedRaySettings) {
   DdgiSettings restored_settings;
   DeserializeDdgiSettings(YAML::Load(R"(
 runtime:
@@ -1022,6 +870,7 @@ volume_defaults:
   fixed_ray_backface_threshold: 0.4
   enable_probe_variability: false
   enable_probe_variability_gating: true
+  pause_probe_updates_after_convergence: false
   probe_variability_threshold: 0.75
   probe_variability_min_samples: 32
 storage:
@@ -1031,8 +880,7 @@ storage:
   EXPECT_TRUE(restored_settings.runtime.enabled);
   EXPECT_FALSE(restored_settings.runtime.enable_emissive_mesh_sampling);
   EXPECT_EQ(restored_settings.runtime.ray_count, 64);
-  EXPECT_EQ(restored_settings.runtime.guided_ray_count, 32);
-  EXPECT_EQ(restored_settings.runtime.guided_emitter_count, 6);
+  EXPECT_EQ(restored_settings.runtime.emissive_ray_count, 32);
   EXPECT_EQ(restored_settings.runtime.warmup_frames, 12);
   EXPECT_FLOAT_EQ(restored_settings.runtime.distance_exponent, 42.0f);
   EXPECT_FLOAT_EQ(restored_settings.runtime.irradiance_threshold, 0.4f);
@@ -1045,6 +893,7 @@ storage:
   EXPECT_FLOAT_EQ(restored_settings.volume_defaults.fixed_ray_backface_threshold, 0.4f);
   EXPECT_FALSE(restored_settings.volume_defaults.enable_probe_variability);
   EXPECT_TRUE(restored_settings.volume_defaults.enable_probe_variability_gating);
+  EXPECT_FALSE(restored_settings.volume_defaults.pause_probe_updates_after_convergence);
   EXPECT_FLOAT_EQ(restored_settings.volume_defaults.probe_variability_threshold, 0.75f);
   EXPECT_EQ(restored_settings.volume_defaults.probe_variability_min_samples, 32);
   EXPECT_EQ(restored_settings.storage.max_probe_count, 1024);
@@ -1085,7 +934,7 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutUsesActiveVolumeProbeCount) {
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 128;
-  settings.runtime.guided_ray_count = 0;
+  settings.runtime.emissive_ray_count = 0;
 
   const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 252);
 
@@ -1110,7 +959,7 @@ TEST(DdgiVolume, CompactRayMemoryAccountingCoversRepresentativeAndMaximumLayouts
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 256;
-  settings.runtime.guided_ray_count = 0;
+  settings.runtime.emissive_ray_count = 0;
 
   const auto representative = DdgiRuntime::CalculateFrameResourceLayout(settings, 8192);
   ASSERT_TRUE(representative.valid) << representative.error;
@@ -1152,7 +1001,7 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   EXPECT_NE(compact.find("unpackSnorm2x16ToFloat"), std::string::npos);
   EXPECT_NE(compact.find("asuint(inverse_mixture_pdf)"), std::string::npos);
   EXPECT_NE(compact.find("asfloat(sample_info.packed_direction_and_inverse_pdf.y)"), std::string::npos);
-  EXPECT_NE(compact.find("struct DdgiEmissiveGuideInfo"), std::string::npos);
+  EXPECT_EQ(compact.find("struct DdgiEmissiveGuideInfo"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_MISS_DISTANCE = 1e27f"), std::string::npos);
   EXPECT_NE(compact.find("EE_DDGI_PROBE_RAY_INACTIVE_DISTANCE = -1e27f"), std::string::npos);
   EXPECT_NE(compact.find("asuint(signed_distance) & 0x80000000u"), std::string::npos);
@@ -1179,12 +1028,15 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
   EXPECT_NE(relocation.find("if (EE_DDGI_PROBE_RAY_BACKFACE_HIT(ray_data))"), std::string::npos);
   EXPECT_NE(classification.find("uint fixed_ray_count = min(constants.probe_counts.w, uniform_ray_count);"),
             std::string::npos);
-  EXPECT_NE(raygen.find("[[vk::binding(20, 2)]] StructuredBuffer<DdgiEmissiveGuideInfo>"), std::string::npos);
+  EXPECT_EQ(raygen.find("[[vk::binding(20, 2)]]"), std::string::npos);
   EXPECT_NE(raygen.find("[[vk::binding(21, 2)]] RWStructuredBuffer<DdgiProbeRaySampleInfo>"), std::string::npos);
+  EXPECT_NE(raygen.find("import EvoEngine.EmissiveTriangleSampling;"), std::string::npos);
+  EXPECT_NE(raygen.find("EE_SAMPLE_EMISSIVE_TRIANGLE("), std::string::npos);
+  EXPECT_NE(raygen.find("selected_emitter_visible"), std::string::npos);
   EXPECT_NE(update.find("[[vk::binding(6, 1)]]"), std::string::npos);
   EXPECT_NE(update.find("EE_DDGI_PROBE_RAY_DIRECTION(sample_info)"), std::string::npos);
   EXPECT_NE(update.find("EE_DDGI_PROBE_RAY_INVERSE_PDF(sample_info)"), std::string::npos);
-  EXPECT_NE(update.find("1.0f / (2.0f * EE_DDGI_PI * max(float(blend_ray_count), 1.0f))"), std::string::npos);
+  EXPECT_NE(update.find("2.0f * EE_DDGI_PI * float(emissive_ray_count)"), std::string::npos);
   const auto visibility_call = ExtractBetween(update, "float2 directional_visibility =", "int2 atlas_texel");
   EXPECT_NE(visibility_call.find("EE_DDGI_DIRECTIONAL_VISIBILITY_MOMENTS"), std::string::npos);
   EXPECT_NE(visibility_call.find("uniform_ray_count"), std::string::npos);
@@ -1195,9 +1047,9 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
 
   EXPECT_NE(ddgi_runtime.find("sizeof(DdgiProbeRayData)"), std::string::npos);
   EXPECT_NE(render_layer.find("runtime_state.selected_ray_diagnostics_buffers"), std::string::npos);
-  EXPECT_NE(render_layer.find("hard_ddgi_refresh || ddgi_guide_population_changed || ddgi_variability_policy_changed"),
-            std::string::npos);
-  EXPECT_EQ(render_layer.find("clear_probe_atlas_this_frame || ddgi_guide_population_changed"), std::string::npos);
+  EXPECT_NE(render_layer.find("hard_ddgi_refresh || ddgi_emissive_population_changed ||"), std::string::npos);
+  EXPECT_NE(render_layer.find("ddgi_variability_policy_changed || scene_readiness_refresh"), std::string::npos);
+  EXPECT_EQ(render_layer.find("clear_probe_atlas_this_frame || ddgi_emissive_population_changed"), std::string::npos);
   EXPECT_NE(render_layer.find("CreateDdgiImportedBufferResourceDescriptor("
                               "RenderResourceNames::frame_ddgi_selected_ray_diagnostics"),
             std::string::npos);
@@ -1215,7 +1067,7 @@ TEST(DdgiVolume, RenderLayerAcceptsExactProbeCapAndRejectsCapPlusOne) {
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 16;
-  settings.runtime.guided_ray_count = 0;
+  settings.runtime.emissive_ray_count = 0;
 
   EXPECT_TRUE(DdgiRuntime::ValidateProbeGrid({4, 4, 2}, 32));
   EXPECT_FALSE(DdgiRuntime::ValidateProbeGrid({4, 4, 3}, 32));
@@ -1509,7 +1361,8 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   ASSERT_FALSE(atlas_prepare_source.empty());
   ASSERT_FALSE(render_layer_source.empty());
 
-  EXPECT_NE(probe_update_source.find("1.0f / (2.0f * max(accumulator.weight_sum, epsilon))"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("1.0f / (2.0f * max(uniform_accumulator.weight_sum, uniform_epsilon))"),
+            std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE()"), std::string::npos);
   EXPECT_NE(probe_update_source.find("float2(accumulator.first_moment, accumulator.second_moment) * "
                                      "(1.0f / (2.0f * accumulator.weight_sum))"),
@@ -1526,8 +1379,7 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(raygen_source.find("float4 EE_DDGI_PROBE_RAY_ROTATION()"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("EE_DDGI_ROTATE_BY_CONJUGATE_QUATERNION"), std::string::npos);
   EXPECT_NE(raygen_source.find("RayDesc ray = {origin, 0.0f, direction"), std::string::npos);
-  EXPECT_NE(raygen_source.find("hit_value.seed = fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG : primary_ray_seed;"),
-            std::string::npos);
+  EXPECT_NE(raygen_source.find("hit_value.seed = fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG"), std::string::npos);
   EXPECT_NE(raygen_source.find("if (inactive_probe && !fixed_ray)"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("float golden_ratio_fraction"), std::string::npos);
   EXPECT_NE(ddgi_helper_source.find("frac(float(sample_index) * golden_ratio_fraction)"), std::string::npos);
@@ -1620,7 +1472,8 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(closest_hit_source.find("import EvoEngine.RayTracingMaterial;"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_EVALUATE_GLTF_RASTER_SURFACE("), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_EVALUATE_GLTF_RASTER_NORMAL("), std::string::npos);
-  EXPECT_NE(closest_hit_source.find("const float3 emissive_radiance = EE_RT_COATED_EMISSION("), std::string::npos);
+  EXPECT_NE(closest_hit_source.find("const float3 emissive_radiance ="), std::string::npos);
+  EXPECT_NE(closest_hit_source.find("EE_DDGI_EMISSIVE_RAY_COUNT() == 0u || material.unlit != 0"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("emissive_radiance +"), std::string::npos);
   EXPECT_NE(closest_hit_source.find("EE_DDGI_DIRECT_IRRADIANCE(diffuse_albedo"), std::string::npos);
   EXPECT_NE(gather_single_source.find(
@@ -1929,8 +1782,14 @@ TEST(DdgiVolume, DdgiProbeRelocationUsesStandaloneRtxgiStylePass) {
   ASSERT_FALSE(relocation_pass_source.empty());
 
   EXPECT_NE(relocation_source.find("[numthreads(32, 1, 1)]"), std::string::npos);
-  EXPECT_NE(relocation_source.find("bool reset_offsets = constants.probe_count_ray_count_and_flags.w != 0u;"),
+  EXPECT_NE(relocation_source.find("bool reset_offsets = (constants.probe_count_ray_count_and_flags.w & 1u) != 0u;"),
             std::string::npos);
+  EXPECT_NE(
+      relocation_source.find("bool scrolled_probes_only = (constants.probe_count_ray_count_and_flags.w & 2u) != 0u;"),
+      std::string::npos);
+  EXPECT_NE(
+      relocation_source.find("EE_DDGI_PROBE_IS_NEWLY_EXPOSED(logical_probe_grid, constants.probe_scroll_delta.xyz"),
+      std::string::npos);
   EXPECT_NE(relocation_source.find("state.xyz = float3(0.0f);"), std::string::npos);
   EXPECT_NE(relocation_source.find("uint fixed_ray_count = min(constants.probe_counts.w, uniform_ray_count);"),
             std::string::npos);
@@ -1943,7 +1802,11 @@ TEST(DdgiVolume, DdgiProbeRelocationUsesStandaloneRtxgiStylePass) {
   EXPECT_NE(render_layer_source.find("DDGIProbeRelocation.slang"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.frame_probe_relocation_reset = reset_probe_state;"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find(
+  EXPECT_NE(render_layer_source.find("geometry_relocation_requested"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("relocate_scrolled_probes_only"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("runtime_state.frame_probe_relocation_enabled = relocation_requested;"),
+            std::string::npos);
+  EXPECT_EQ(render_layer_source.find(
                 "runtime_state.frame_probe_relocation_enabled = ddgi_ray_source.enable_probe_relocation;"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("DdgiProbeRelocationPass::CreateDescriptor()"), std::string::npos);
@@ -2040,6 +1903,9 @@ TEST(DdgiVolume, DdgiProbeVariabilityUsesSlangReductionWithoutHlslPath) {
   EXPECT_NE(render_layer_source.find("probe_variability_threshold = 0.03f"), std::string::npos);
   EXPECT_NE(render_layer_source.find("probe_variability_gating_enabled"), std::string::npos);
   EXPECT_NE(render_layer_source.find("ddgi_ray_source.enable_probe_variability_gating"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("convergence_pause_enabled"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("!convergence_pause_enabled"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("pause_probe_updates_after_convergence"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.probe_variability_sample_count = 0;"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.probe_variability_stable_sample_count = 0;"), std::string::npos);
   EXPECT_NE(render_layer_source.find("DdgiUpdateReasonConverged"), std::string::npos);
@@ -2049,6 +1915,18 @@ TEST(DdgiVolume, DdgiProbeVariabilityUsesSlangReductionWithoutHlslPath) {
   EXPECT_EQ(reduce_source.find(".hlsl"), std::string::npos);
   EXPECT_EQ(extra_reduce_source.find(".hlsl"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("DXC"), std::string::npos);
+}
+
+TEST(DdgiVolume, ContinuousUpdatesPreserveConvergenceGatingAndVariabilityObservations) {
+  const auto render_layer_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "RenderLayer.cpp");
+  const auto scheduling = ExtractBetween(render_layer_source, "const auto probe_variability_gating_enabled",
+                                         "runtime_state.frame_trace_probe_rays = true;");
+  ASSERT_FALSE(scheduling.empty());
+  EXPECT_NE(scheduling.find("forced_probe_trace || !convergence_pause_enabled"), std::string::npos);
+  EXPECT_NE(scheduling.find("!runtime_state.probe_variability_converged || !convergence_pause_enabled ||"),
+            std::string::npos);
+  EXPECT_NE(scheduling.find("probe_variability_gating_enabled"), std::string::npos);
 }
 
 TEST(DdgiVolume, ProbeConvergenceRequiresConsecutiveValidSamplesAndUsesExitHysteresis) {
@@ -2450,7 +2328,7 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
   EXPECT_NE(source_update_block.find(
                 "runtime_state.previous_emissive_mesh_sampling_enabled = runtime_state.emissive_mesh_sampling_enabled"),
             std::string::npos);
-  EXPECT_NE(full_refresh_block.find("if (ddgi_ray_source_changed || ddgi_guide_population_changed)"),
+  EXPECT_NE(full_refresh_block.find("if (ddgi_ray_source_changed || ddgi_emissive_population_changed)"),
             std::string::npos);
   EXPECT_NE(full_refresh_block.find("full_refresh_reasons |= DdgiUpdateReasonSource"), std::string::npos);
   EXPECT_NE(full_refresh_block.find("if (ddgi_variability_policy_changed)"), std::string::npos);
@@ -2464,7 +2342,7 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
   EXPECT_EQ(atlas_clear_block.find("ddgi_variability_policy_changed"), std::string::npos);
   EXPECT_EQ(atlas_clear_block.find("scene_change_response"), std::string::npos);
   EXPECT_EQ(hard_refresh_block.find("ddgi_variability_policy_changed"), std::string::npos);
-  EXPECT_EQ(hard_refresh_block.find("ddgi_guide_population_changed"), std::string::npos);
+  EXPECT_EQ(hard_refresh_block.find("ddgi_emissive_population_changed"), std::string::npos);
   EXPECT_EQ(hard_refresh_block.find("scene_change_response"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("const auto auto_invalidate_triggers ="), std::string::npos);
   EXPECT_NE(render_layer_source.find("DdgiVolumeTriggerConditionGeometryChanged"), std::string::npos);
@@ -2498,7 +2376,7 @@ TEST(DdgiVolume, SceneChangesUseHysteresisBoostRecoveryWithoutWarmupOrHistoryCle
   EXPECT_EQ(atlas_clear_block.find("scene_change_response"), std::string::npos);
   EXPECT_EQ(atlas_clear_block.find("hysteresis_boost_trigger_conditions"), std::string::npos);
   EXPECT_EQ(warmup_reset_block.find("scene_change_response"), std::string::npos);
-  EXPECT_EQ(warmup_reset_block.find("ddgi_guide_population_changed"), std::string::npos);
+  EXPECT_EQ(warmup_reset_block.find("ddgi_emissive_population_changed"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.probe_warmup_frame_index = 0"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("probe_warmup_preserves_history"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.last_probe_update_reasons |= DdgiUpdateReasonSceneChange"),
@@ -2832,14 +2710,15 @@ TEST(DdgiVolume, DdgiProbeHitsSampleSharedEmissiveTrianglesWithoutMis) {
   EXPECT_NE(shared_sampling.find("max(radiance, float3(0.0f)) / solid_angle_pdf"), std::string::npos);
   EXPECT_NE(raygen.find("uint(EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w), probe_index, ray_index"),
             std::string::npos);
-  EXPECT_NE(raygen.find("fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG : primary_ray_seed"), std::string::npos);
+  EXPECT_NE(raygen.find("fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG"), std::string::npos);
+  EXPECT_NE(raygen.find("primary_ray_seed | EE_DDGI_EMISSIVE_RAY_PAYLOAD_FLAG"), std::string::npos);
   EXPECT_NE(raygen.find("(EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.z & (1u << 0u)) != 0u"),
             std::string::npos);
   EXPECT_NE(closest_hit.find("0x68bc21ebu"), std::string::npos);
   EXPECT_NE(closest_hit.find("0x967a889bu"), std::string::npos);
   EXPECT_NE(closest_hit.find("0x1b56c4e9u"), std::string::npos);
   EXPECT_NE(closest_hit.find("EE_DDGI_EMISSIVE_MESH_IRRADIANCE("), std::string::npos);
-  const auto direct_hit = closest_hit.find("const float3 emissive_radiance = EE_RT_COATED_EMISSION(");
+  const auto direct_hit = closest_hit.find("const float3 emissive_radiance =");
   const auto sampling_gate = closest_hit.find(
       "if ((EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.z & (1u << 1u)) != 0u)");
   const auto explicit_sample =
@@ -2905,9 +2784,9 @@ TEST(DdgiVolume, EmissiveSamplingDiagnosticsReportActualGpuEventsAndInventoryFai
   EXPECT_NE(editor.find("\\\"hysteresis_boost_frames\\\""), std::string::npos);
   EXPECT_NE(editor.find("\\\"restoring_volumes\\\""), std::string::npos);
   EXPECT_NE(editor.find("\\\"nee_attempts\\\""), std::string::npos);
-  EXPECT_NE(editor.find("--preview-ddgi-guided-rays"), std::string::npos);
+  EXPECT_NE(editor.find("--preview-ddgi-emissive-rays"), std::string::npos);
   EXPECT_NE(editor.find("--preview-ddgi-uniform-rays"), std::string::npos);
-  EXPECT_NE(editor.find("\\\"guided_rays_per_probe\\\""), std::string::npos);
+  EXPECT_NE(editor.find("\\\"emissive_rays_per_probe\\\""), std::string::npos);
   EXPECT_NE(editor.find("\\\"ray_sample_info_bytes\\\""), std::string::npos);
 
   const auto blocks =
@@ -3141,7 +3020,7 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutRespondsToResourceSizingInputs) {
   settings.storage.irradiance_tile_resolution = 6;
   settings.storage.visibility_tile_resolution = 14;
   settings.runtime.ray_count = 11;
-  settings.runtime.guided_ray_count = 0;
+  settings.runtime.emissive_ray_count = 0;
 
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 37);
 

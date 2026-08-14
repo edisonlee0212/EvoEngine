@@ -298,6 +298,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Off);
   volume.enable_probe_relocation = false;
   volume.enable_probe_classification = true;
+  volume.pause_probe_updates_after_convergence = false;
   volume.relocation_distance = 0.5f;
   volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
   lighting->ddgi_volumes.push_back(volume);
@@ -331,6 +332,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_TRUE(node["local_reflection_probes"][0]["debug_draw_bounds"].as<bool>());
   EXPECT_EQ(node["ddgi_volumes"][0]["emissive_mesh_sampling_mode"].as<int>(),
             static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
+  EXPECT_FALSE(node["ddgi_volumes"][0]["pause_probe_updates_after_convergence"].as<bool>());
   EXPECT_FALSE(node["ddgi_volumes"][0]["auto_invalidate_trigger_conditions"]);
   EXPECT_FALSE(node["ddgi_volumes"][0]["warmup_trigger_conditions"]);
   EXPECT_FALSE(node["ddgi_volumes"][0]["scene_change_hysteresis_trigger_conditions"]);
@@ -373,6 +375,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   ExpectMatrixNear(restored.ddgi_volumes.front().transform, volume_transform);
   EXPECT_EQ(restored.ddgi_volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
   EXPECT_TRUE(restored.ddgi_volumes.front().enable_probe_classification);
+  EXPECT_FALSE(restored.ddgi_volumes.front().pause_probe_updates_after_convergence);
   EXPECT_EQ(restored.ddgi_volumes.front().hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
 }
 

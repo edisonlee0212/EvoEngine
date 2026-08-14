@@ -277,10 +277,9 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                                                   const uint32_t max_image_dimension_2d,
                                                                   const uint64_t max_storage_buffer_range) {
   DdgiFrameResourceLayout layout;
-  if (settings.runtime.ray_count < 1 || settings.runtime.ray_count > 4096 || settings.runtime.guided_ray_count < 0 ||
-      settings.runtime.guided_ray_count > 4096 || settings.runtime.guided_emitter_count < 1 ||
-      settings.runtime.guided_emitter_count > static_cast<int>(RenderInstanceStorage::kDdgiMaxEmissiveGuideCount)) {
-    layout.error = "DDGI ray-guidance settings are outside their supported ranges.";
+  if (settings.runtime.ray_count < 1 || settings.runtime.ray_count > 4096 || settings.runtime.emissive_ray_count < 0 ||
+      settings.runtime.emissive_ray_count > 4096) {
+    layout.error = "DDGI ray settings are outside their supported ranges.";
     return layout;
   }
   if (settings.storage.max_probe_count < 1 || settings.storage.max_probe_count > 16777216 ||
@@ -314,18 +313,14 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
   layout.probe_metadata_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4) * 3ull;
   layout.probe_state_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4);
   const auto uniform_ray_count = static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1));
-  const auto guided_ray_count = settings.runtime.enable_emissive_mesh_sampling
-                                    ? static_cast<uint64_t>(glm::max(settings.runtime.guided_ray_count, 0))
-                                    : 0ull;
-  const auto total_ray_count = uniform_ray_count + guided_ray_count;
+  const auto emissive_ray_count = settings.runtime.enable_emissive_mesh_sampling
+                                      ? static_cast<uint64_t>(glm::max(settings.runtime.emissive_ray_count, 0))
+                                      : 0ull;
+  const auto total_ray_count = uniform_ray_count + emissive_ray_count;
   layout.ray_output_byte_size = static_cast<uint64_t>(layout.probe_count) * total_ray_count * sizeof(DdgiProbeRayData);
-  if (guided_ray_count > 0u) {
-    const auto guide_count = glm::clamp(settings.runtime.guided_emitter_count, 1,
-                                        static_cast<int>(RenderInstanceStorage::kDdgiMaxEmissiveGuideCount));
-    layout.emissive_guide_byte_size =
-        static_cast<uint64_t>(guide_count) * sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock);
+  if (emissive_ray_count > 0u) {
     layout.ray_sample_info_byte_size =
-        static_cast<uint64_t>(layout.probe_count) * total_ray_count * sizeof(DdgiProbeRaySampleInfo);
+        static_cast<uint64_t>(layout.probe_count) * emissive_ray_count * sizeof(DdgiProbeRaySampleInfo);
   }
   layout.selected_ray_diagnostics_byte_size = total_ray_count * sizeof(PointCloudSample);
   layout.irradiance_atlas_byte_size = static_cast<uint64_t>(layout.irradiance_atlas.resolution.x) *
@@ -339,7 +334,7 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                            sizeof(glm::vec4);
   layout.persistent_byte_size = layout.probe_metadata_byte_size + layout.probe_state_byte_size +
                                 layout.irradiance_atlas_byte_size + layout.visibility_atlas_byte_size +
-                                layout.variability_atlas_byte_size + layout.emissive_guide_byte_size;
+                                layout.variability_atlas_byte_size;
   layout.per_frame_transient_byte_size = layout.ray_output_byte_size + layout.selected_ray_diagnostics_byte_size +
                                          layout.ray_sample_info_byte_size +
                                          2ull * layout.variability_reduction_byte_size + sizeof(glm::vec4);
@@ -348,7 +343,6 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
   if (max_storage_buffer_range == 0u || layout.probe_metadata_byte_size > max_storage_buffer_range ||
       layout.probe_state_byte_size > max_storage_buffer_range ||
       layout.ray_output_byte_size > max_storage_buffer_range ||
-      layout.emissive_guide_byte_size > max_storage_buffer_range ||
       layout.ray_sample_info_byte_size > max_storage_buffer_range ||
       layout.selected_ray_diagnostics_byte_size > max_storage_buffer_range) {
     layout.error = "DDGI storage-buffer allocation exceeds the Vulkan maxStorageBufferRange limit of " +

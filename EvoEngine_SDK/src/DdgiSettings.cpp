@@ -13,8 +13,7 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "enabled" << YAML::Value << settings.runtime.enabled;
   out << YAML::Key << "enable_emissive_mesh_sampling" << YAML::Value << settings.runtime.enable_emissive_mesh_sampling;
   out << YAML::Key << "ray_count" << YAML::Value << settings.runtime.ray_count;
-  out << YAML::Key << "guided_ray_count" << YAML::Value << settings.runtime.guided_ray_count;
-  out << YAML::Key << "guided_emitter_count" << YAML::Value << settings.runtime.guided_emitter_count;
+  out << YAML::Key << "emissive_ray_count" << YAML::Value << settings.runtime.emissive_ray_count;
   out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
   out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
   out << YAML::Key << "view_bias" << YAML::Value << settings.runtime.view_bias;
@@ -40,6 +39,8 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "enable_probe_variability" << YAML::Value << settings.volume_defaults.enable_probe_variability;
   out << YAML::Key << "enable_probe_variability_gating" << YAML::Value
       << settings.volume_defaults.enable_probe_variability_gating;
+  out << YAML::Key << "pause_probe_updates_after_convergence" << YAML::Value
+      << settings.volume_defaults.pause_probe_updates_after_convergence;
   out << YAML::Key << "relocation_distance" << YAML::Value << settings.volume_defaults.relocation_distance;
   out << YAML::Key << "random_ray_backface_threshold" << YAML::Value
       << settings.volume_defaults.random_ray_backface_threshold;
@@ -69,10 +70,10 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.enable_emissive_mesh_sampling = runtime["enable_emissive_mesh_sampling"].as<bool>();
     if (runtime["ray_count"])
       settings.runtime.ray_count = runtime["ray_count"].as<int>();
-    if (runtime["guided_ray_count"])
-      settings.runtime.guided_ray_count = runtime["guided_ray_count"].as<int>();
-    if (runtime["guided_emitter_count"])
-      settings.runtime.guided_emitter_count = runtime["guided_emitter_count"].as<int>();
+    if (runtime["emissive_ray_count"])
+      settings.runtime.emissive_ray_count = runtime["emissive_ray_count"].as<int>();
+    else if (runtime["guided_ray_count"])
+      settings.runtime.emissive_ray_count = runtime["guided_ray_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
     if (runtime["normal_bias"])
@@ -114,6 +115,9 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
     if (volume_defaults["enable_probe_variability_gating"])
       settings.volume_defaults.enable_probe_variability_gating =
           volume_defaults["enable_probe_variability_gating"].as<bool>();
+    if (volume_defaults["pause_probe_updates_after_convergence"])
+      settings.volume_defaults.pause_probe_updates_after_convergence =
+          volume_defaults["pause_probe_updates_after_convergence"].as<bool>();
     if (volume_defaults["relocation_distance"])
       settings.volume_defaults.relocation_distance = volume_defaults["relocation_distance"].as<float>();
     if (volume_defaults["random_ray_backface_threshold"])
@@ -143,8 +147,7 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
 
 void evo_engine::DdgiSettings::ClampSettings() {
   runtime.ray_count = glm::clamp(runtime.ray_count, 1, 4096);
-  runtime.guided_ray_count = glm::clamp(runtime.guided_ray_count, 0, 4096);
-  runtime.guided_emitter_count = glm::clamp(runtime.guided_emitter_count, 1, 8);
+  runtime.emissive_ray_count = glm::clamp(runtime.emissive_ray_count, 0, 4096);
   runtime.warmup_frames = glm::clamp(runtime.warmup_frames, 0, 4096);
   runtime.normal_bias = glm::clamp(runtime.normal_bias, 0.0f, 10.0f);
   runtime.view_bias = glm::clamp(runtime.view_bias, 0.0f, 10.0f);

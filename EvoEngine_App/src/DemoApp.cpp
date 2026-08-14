@@ -304,7 +304,7 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
   if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.guided_ray_count != 64 ||
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
       ddgi_settings.runtime.normal_bias != 0.02f || ddgi_settings.storage.max_probe_count < 960) {
     return FailSmokeTest(application, "DDGI runtime defaults are not configured for the Rendering demo");
   }
@@ -409,7 +409,7 @@ int ValidateCornellBoxDdgiState(Application& application, const DemoAppRuntimeCo
   if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "Cornell DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.guided_ray_count != 64 ||
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
       ddgi_settings.runtime.normal_bias != 0.02f || ddgi_settings.storage.max_probe_count < 512) {
     return FailSmokeTest(application, "Cornell DDGI runtime defaults are not configured");
   }
@@ -492,7 +492,7 @@ int ValidateThinWallDdgiState(Application& application, const DemoAppRuntimeConf
   if (!ddgi_settings.runtime.enabled || !render_layer->GetDdgiSessionState().show_probes) {
     return FailSmokeTest(application, "thin-wall DDGI probe visualization is not enabled");
   }
-  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.guided_ray_count != 64 ||
+  if (ddgi_settings.runtime.ray_count != 192 || ddgi_settings.runtime.emissive_ray_count != 64 ||
       ddgi_settings.runtime.normal_bias != 0.015f || ddgi_settings.storage.max_probe_count < 512) {
     return FailSmokeTest(application, "thin-wall DDGI runtime defaults are not configured");
   }

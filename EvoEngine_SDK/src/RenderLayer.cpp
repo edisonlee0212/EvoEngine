@@ -642,6 +642,7 @@ struct DdgiProbeRayDiagnosticSource {
   bool enable_probe_classification = false;
   bool enable_probe_variability = true;
   bool enable_probe_variability_gating = true;
+  bool pause_probe_updates_after_convergence = true;
   bool emissive_mesh_sampling_enabled = true;
 };
 
@@ -733,6 +734,7 @@ DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolum
   source.enable_probe_classification = volume.enable_probe_classification;
   source.enable_probe_variability = volume.enable_probe_variability;
   source.enable_probe_variability_gating = volume.enable_probe_variability_gating;
+  source.pause_probe_updates_after_convergence = volume.pause_probe_updates_after_convergence;
   source.emissive_mesh_sampling_enabled = DdgiRuntime::ResolveEmissiveMeshSampling(
       settings.runtime.enable_emissive_mesh_sampling, volume.emissive_mesh_sampling_mode);
   return source;
@@ -757,7 +759,7 @@ uint32_t GetDdgiEnvironmentCubemapIndex(const std::shared_ptr<Scene>& scene) {
 DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
     const DdgiSettings& settings, const DdgiProbeRayDiagnosticSource& source, const bool skip_inactive_probe_trace,
     const bool skip_recursive_ddgi, const uint32_t volume_index, const uint32_t environment_cubemap_index,
-    const uint32_t deterministic_sequence_index, const uint32_t emissive_guide_count) {
+    const uint32_t deterministic_sequence_index, const uint32_t emissive_triangle_count) {
   DdgiProbeRayTracingPushConstant push_constant;
   const auto frame_index = settings.runtime.deterministic_ray_seed_enabled
                                ? deterministic_sequence_index
@@ -768,10 +770,10 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
                                                                    (source.selected_volume_index * 0xc2b2ae35u));
   const auto ray_rotation = CreateDdgiProbeRayRotationQuaternion(frame_index, source.selected_volume_index, base_seed);
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
-  const auto guided_ray_count = source.emissive_mesh_sampling_enabled && emissive_guide_count > 0u
-                                    ? static_cast<uint32_t>(glm::max(settings.runtime.guided_ray_count, 0))
-                                    : 0u;
-  const auto total_ray_count = ray_count + guided_ray_count;
+  const auto emissive_ray_count = source.emissive_mesh_sampling_enabled && emissive_triangle_count > 0u
+                                      ? static_cast<uint32_t>(glm::max(settings.runtime.emissive_ray_count, 0))
+                                      : 0u;
+  const auto total_ray_count = ray_count + emissive_ray_count;
   const auto fixed_ray_count =
       DdgiRuntime::GetFixedRayCount(ray_count, source.enable_probe_relocation || source.enable_probe_classification);
   push_constant.first_probe = glm::vec4(source.first_probe, ray_rotation.x);
@@ -784,8 +786,7 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
       DdgiRuntime::GetProbeRayFlags(skip_inactive_probe_trace, source.emissive_mesh_sampling_enabled);
   push_constant.selected_probe_volume_flags_environment = {(std::numeric_limits<uint32_t>::max)(), volume_index,
                                                            ray_flags, environment_cubemap_index};
-  const auto packed_ray_population =
-      (fixed_ray_count & 0x3fu) | ((guided_ray_count & 0x1fffu) << 6u) | ((emissive_guide_count & 0xfu) << 19u);
+  const auto packed_ray_population = (fixed_ray_count & 0x3fu) | ((emissive_ray_count & 0x1fffu) << 6u);
   push_constant.trace_parameters = {CalculateDdgiEffectiveMaxRayDistance(settings),
                                     glm::max(settings.runtime.normal_bias, 0.001f),
                                     glm::uintBitsToFloat(packed_ray_population), skip_recursive_ddgi ? 1.0f : 0.0f};
@@ -796,15 +797,15 @@ DdgiProbeRayTracingPushConstant CreateDdgiProbeRayTracingPushConstant(
 
 DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(
     const DdgiSettings& settings, const DdgiFrameResourceLayout& layout, const DdgiProbeRayDiagnosticSource& source,
-    const float history_hysteresis, const float brightness_threshold, const uint32_t emissive_guide_count) {
+    const float history_hysteresis, const float brightness_threshold, const uint32_t emissive_triangle_count) {
   const auto total_probe_count = layout.probe_count;
   const auto history_weight = glm::clamp(history_hysteresis, 0.0f, 1.0f);
   DdgiProbeAtlasUpdatePushConstant push_constant;
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
-  const auto guided_ray_count = source.emissive_mesh_sampling_enabled && emissive_guide_count > 0u
-                                    ? static_cast<uint32_t>(glm::max(settings.runtime.guided_ray_count, 0))
-                                    : 0u;
-  const auto total_ray_count = ray_count + guided_ray_count;
+  const auto emissive_ray_count = source.emissive_mesh_sampling_enabled && emissive_triangle_count > 0u
+                                      ? static_cast<uint32_t>(glm::max(settings.runtime.emissive_ray_count, 0))
+                                      : 0u;
+  const auto total_ray_count = ray_count + emissive_ray_count;
   const auto fixed_ray_count =
       DdgiRuntime::GetFixedRayCount(ray_count, source.enable_probe_relocation || source.enable_probe_classification);
   push_constant.probe_count_ray_count_and_tile_sizes = {total_probe_count, total_ray_count,
@@ -842,21 +843,20 @@ DdgiProbeScrollPushConstant CreateDdgiProbeScrollClearPushConstant(const DdgiFra
   return push_constant;
 }
 
-DdgiProbeRelocationPushConstant CreateDdgiProbeRelocationPushConstant(const DdgiSettings& settings,
-                                                                      const uint32_t total_probe_count,
-                                                                      const DdgiProbeRayDiagnosticSource& source,
-                                                                      const bool reset_offsets,
-                                                                      const uint32_t guided_ray_count) {
+DdgiProbeRelocationPushConstant CreateDdgiProbeRelocationPushConstant(
+    const DdgiSettings& settings, const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source,
+    const bool reset_offsets, const bool scrolled_probes_only, const uint32_t emissive_ray_count) {
   DdgiProbeRelocationPushConstant push_constant;
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
   const auto fixed_ray_count =
       DdgiRuntime::GetFixedRayCount(ray_count, source.enable_probe_relocation || source.enable_probe_classification);
-  push_constant.probe_count_ray_count_and_flags = {total_probe_count, ray_count + guided_ray_count, ray_count,
-                                                   reset_offsets ? 1u : 0u};
+  push_constant.probe_count_ray_count_and_flags = {total_probe_count, ray_count + emissive_ray_count, ray_count,
+                                                   (reset_offsets ? 1u : 0u) | (scrolled_probes_only ? 2u : 0u)};
   push_constant.probe_counts = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), fixed_ray_count);
   push_constant.relocation_parameters = {glm::max(source.relocation_distance, 0.0f),
                                          glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f), 0.0f, 0.0f};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
+  push_constant.probe_scroll_delta = glm::ivec4(source.probe_scroll_delta, 0);
   push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
   push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
   push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
@@ -865,12 +865,12 @@ DdgiProbeRelocationPushConstant CreateDdgiProbeRelocationPushConstant(const Ddgi
 
 DdgiProbeClassificationPushConstant CreateDdgiProbeClassificationPushConstant(
     const DdgiSettings& settings, const uint32_t total_probe_count, const DdgiProbeRayDiagnosticSource& source,
-    const bool reset_classification, const uint32_t guided_ray_count) {
+    const bool reset_classification, const uint32_t emissive_ray_count) {
   DdgiProbeClassificationPushConstant push_constant;
   const auto ray_count = static_cast<uint32_t>(glm::max(settings.runtime.ray_count, 1));
   const auto fixed_ray_count =
       DdgiRuntime::GetFixedRayCount(ray_count, source.enable_probe_relocation || source.enable_probe_classification);
-  push_constant.probe_count_ray_count_and_flags = {total_probe_count, ray_count + guided_ray_count, ray_count,
+  push_constant.probe_count_ray_count_and_flags = {total_probe_count, ray_count + emissive_ray_count, ray_count,
                                                    reset_classification ? 1u : 0u};
   push_constant.probe_counts = glm::uvec4(glm::uvec3(ClampDdgiProbeCounts(source.probe_counts)), fixed_ray_count);
   push_constant.classification_parameters = {glm::clamp(source.fixed_ray_backface_threshold, 0.0f, 1.0f), 0.0f, 0.0f,
@@ -1452,9 +1452,7 @@ void AddDdgiFrameResources(RenderGraph& graph, const DdgiFrameResourceLayout& la
                                                                layout.probe_state_byte_size));
   graph.AddResource(
       CreateDdgiBufferResourceDescriptor(RenderResourceNames::frame_ddgi_ray_output, layout.ray_output_byte_size));
-  if (layout.emissive_guide_byte_size > 0u) {
-    graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_emissive_guides,
-                                                                 layout.emissive_guide_byte_size));
+  if (layout.ray_sample_info_byte_size > 0u) {
     graph.AddResource(CreateDdgiBufferResourceDescriptor(RenderResourceNames::frame_ddgi_ray_sample_info,
                                                          layout.ray_sample_info_byte_size));
   }
@@ -1731,8 +1729,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(20, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                                         VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->Initialize();
@@ -3159,9 +3155,8 @@ void RenderLayer::ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_sta
   runtime_state.frame_selected_probe_ray_logical_index = 0u;
   runtime_state.frame_selected_probe_ray_physical_index = 0u;
   runtime_state.frame_uniform_ray_count = 0u;
-  runtime_state.frame_guided_ray_count = 0u;
+  runtime_state.frame_emissive_ray_count = 0u;
   runtime_state.frame_fixed_ray_count = 0u;
-  runtime_state.frame_emissive_guide_count = 0u;
 }
 
 uint64_t RenderLayer::NextDdgiResourceId() {
@@ -3695,22 +3690,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       ddgi_variability_readback_ticket = {};
       ddgi_variability_readback_buffer = std::make_shared<Buffer>(sizeof(glm::vec4), true);
     }
-    if (layout.emissive_guide_byte_size > 0u) {
-      if (!runtime_state.emissive_guide_buffer ||
-          runtime_state.emissive_guide_buffer->GetSize() != layout.emissive_guide_byte_size) {
-        runtime_state.emissive_guide_buffer = CreateDdgiProbeStateBuffer(layout.emissive_guide_byte_size);
-      }
-      if (runtime_state.emissive_guide_buffer) {
-        const auto guide_capacity =
-            layout.emissive_guide_byte_size / sizeof(RenderInstanceStorage::DdgiEmissiveGuideInfoBlock);
-        std::vector<RenderInstanceStorage::DdgiEmissiveGuideInfoBlock> guides(guide_capacity);
-        const auto& source_guides = render_instances->GetDdgiEmissiveGuideInfoBlocks();
-        std::copy_n(source_guides.begin(), glm::min(guides.size(), source_guides.size()), guides.begin());
-        runtime_state.emissive_guide_buffer->UploadVector(guides);
-      }
-    } else {
-      runtime_state.emissive_guide_buffer.reset();
-    }
   }
   if (ddgi_session_state_.pause_updates) {
     if (compatible_history) {
@@ -3740,21 +3719,15 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   }
 
   const auto ray_count = static_cast<uint32_t>(glm::max(ddgi_settings.runtime.ray_count, 1));
-  const auto guide_capacity =
-      static_cast<uint32_t>(glm::clamp(ddgi_settings.runtime.guided_emitter_count, 1,
-                                       static_cast<int>(RenderInstanceStorage::kDdgiMaxEmissiveGuideCount)));
-  const auto emissive_guide_count =
-      ddgi_ray_source.emissive_mesh_sampling_enabled && ddgi_settings.runtime.guided_ray_count > 0
-          ? glm::min(guide_capacity, static_cast<uint32_t>(render_instances->GetDdgiEmissiveGuideInfoBlocks().size()))
-          : 0u;
-  const auto guided_ray_count =
-      emissive_guide_count > 0u ? static_cast<uint32_t>(glm::max(ddgi_settings.runtime.guided_ray_count, 0)) : 0u;
+  const auto emissive_triangle_count = render_instances->render_info_block.emissive_triangle_parameters.x;
+  const auto emissive_ray_count = ddgi_ray_source.emissive_mesh_sampling_enabled && emissive_triangle_count > 0u
+                                      ? static_cast<uint32_t>(glm::max(ddgi_settings.runtime.emissive_ray_count, 0))
+                                      : 0u;
   const auto fixed_ray_count = DdgiRuntime::GetFixedRayCount(
       ray_count, ddgi_ray_source.enable_probe_relocation || ddgi_ray_source.enable_probe_classification);
   runtime_state.frame_uniform_ray_count = ray_count;
-  runtime_state.frame_guided_ray_count = guided_ray_count;
+  runtime_state.frame_emissive_ray_count = emissive_ray_count;
   runtime_state.frame_fixed_ray_count = fixed_ray_count;
-  runtime_state.frame_emissive_guide_count = emissive_guide_count;
   const auto effective_max_ray_distance = CalculateDdgiEffectiveMaxRayDistance(ddgi_settings);
   const glm::vec4 trace_parameters{effective_max_ray_distance, glm::max(ddgi_settings.runtime.normal_bias, 0.001f),
                                    static_cast<float>(fixed_ray_count), 0.0f};
@@ -3778,11 +3751,9 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   const bool ddgi_variability_policy_changed =
       had_previous_ray_source && runtime_state.previous_probe_variability_parameters != probe_variability_parameters;
   runtime_state.previous_probe_variability_parameters = probe_variability_parameters;
-  const bool ddgi_guide_population_changed =
-      had_previous_ray_source && (runtime_state.previous_guided_ray_count != guided_ray_count ||
-                                  runtime_state.previous_emissive_guide_count != emissive_guide_count);
-  runtime_state.previous_guided_ray_count = guided_ray_count;
-  runtime_state.previous_emissive_guide_count = emissive_guide_count;
+  const bool ddgi_emissive_population_changed =
+      had_previous_ray_source && runtime_state.previous_emissive_ray_count != emissive_ray_count;
+  runtime_state.previous_emissive_ray_count = emissive_ray_count;
   const auto ddgi_ray_source_common_changed =
       !had_previous_ray_source || runtime_state.previous_probe_counts != ddgi_ray_source.probe_counts ||
       runtime_state.previous_probe_step_x != ddgi_ray_source.probe_step_x ||
@@ -3875,8 +3846,9 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   const bool hysteresis_boost_triggered = DdgiTriggerConditionEnabled(
       contributor_triggers, ddgi_ray_source.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll);
   const bool scene_change_triggers_pending = contributor_triggers != DdgiVolumeTriggerConditionNone;
+  const bool geometry_relocation_requested = (contributor_triggers & DdgiVolumeTriggerConditionGeometryChanged) != 0;
   uint32_t full_refresh_reasons = DdgiUpdateReasonNone;
-  if (ddgi_ray_source_changed || ddgi_guide_population_changed) {
+  if (ddgi_ray_source_changed || ddgi_emissive_population_changed) {
     full_refresh_reasons |= DdgiUpdateReasonSource;
   }
   if (ddgi_variability_policy_changed) {
@@ -3898,6 +3870,8 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   const auto probe_variability_enabled = ddgi_ray_source.enable_probe_variability;
   const auto probe_variability_gating_enabled =
       probe_variability_enabled && ddgi_ray_source.enable_probe_variability_gating;
+  const auto convergence_pause_enabled =
+      probe_variability_gating_enabled && ddgi_ray_source.pause_probe_updates_after_convergence;
   const auto probe_variability_min_samples =
       static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_min_samples, 0));
   runtime_state.frame_probe_variability_threshold = glm::max(ddgi_ray_source.probe_variability_threshold, 0.0f);
@@ -3938,15 +3912,15 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   runtime_state.hysteresis_boost_active = hysteresis_boost_update.active;
   runtime_state.frame_hysteresis_boost_active = hysteresis_boost_update.force_update;
   runtime_state.frame_hysteresis_boost_restoring = hysteresis_boost_update.restoring;
-  const bool transport_refresh =
-      hard_ddgi_refresh || ddgi_guide_population_changed || ddgi_variability_policy_changed || scene_readiness_refresh;
+  const bool transport_refresh = hard_ddgi_refresh || ddgi_emissive_population_changed ||
+                                 ddgi_variability_policy_changed || scene_readiness_refresh;
   if (transport_refresh) {
     runtime_state.probe_ray_sequence_index = 0u;
   }
   const bool reset_ddgi_warmup_state = hard_ddgi_refresh;
   const bool variability_trigger_refresh = DdgiTriggerConditionEnabled(
       contributor_triggers, ddgi_ray_source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll);
-  const bool reset_ddgi_variability_state = hard_ddgi_refresh || ddgi_guide_population_changed ||
+  const bool reset_ddgi_variability_state = hard_ddgi_refresh || ddgi_emissive_population_changed ||
                                             ddgi_variability_policy_changed || variability_trigger_refresh ||
                                             ddgi_scroll_clear_this_frame;
   if (!probe_variability_enabled || reset_ddgi_variability_state) {
@@ -4027,6 +4001,10 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     runtime_state.probe_variability_refresh_age = 0u;
     runtime_state.probe_variability_refresh_waiting = false;
     runtime_state.probe_variability_refresh_generation = 0u;
+  } else if (!convergence_pause_enabled) {
+    runtime_state.probe_variability_refresh_age = 0u;
+    runtime_state.probe_variability_refresh_waiting = false;
+    runtime_state.probe_variability_refresh_generation = 0u;
   } else if (runtime_state.probe_variability_converged && !runtime_state.probe_variability_refresh_waiting) {
     runtime_state.probe_variability_refresh_age =
         entered_convergence
@@ -4034,7 +4012,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
             : glm::min(runtime_state.probe_variability_refresh_age + 1u, DdgiRuntime::kProbeRefreshInterval);
   }
   const bool periodic_refresh_due = DdgiRuntime::IsPeriodicRefreshDue(
-      probe_variability_gating_enabled, runtime_state.probe_variability_converged,
+      convergence_pause_enabled, runtime_state.probe_variability_converged,
       runtime_state.probe_variability_refresh_waiting, runtime_state.probe_variability_refresh_age);
 
   bool reset_probe_state = hard_ddgi_refresh || !runtime_state.probe_state_buffer ||
@@ -4049,11 +4027,17 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   }
 
   const bool wait_for_periodic_observation = runtime_state.probe_variability_refresh_waiting;
+  const bool relocation_requested =
+      ddgi_ray_source.enable_probe_relocation && (hard_ddgi_refresh || runtime_state.frame_probe_warmup_active ||
+                                                  geometry_relocation_requested || ddgi_scroll_clear_this_frame);
+  const bool relocate_scrolled_probes_only = relocation_requested && ddgi_scroll_clear_this_frame &&
+                                             !hard_ddgi_refresh && !runtime_state.frame_probe_warmup_active &&
+                                             !geometry_relocation_requested;
   const bool forced_probe_trace = scene_readiness_refresh || hysteresis_boost_update.force_update ||
                                   runtime_state.frame_probe_warmup_active || ddgi_variability_policy_changed ||
-                                  ddgi_session_state_.emissive_capture_requested;
+                                  ddgi_session_state_.emissive_capture_requested || relocation_requested;
   const bool should_trace_probe_rays =
-      forced_probe_trace ||
+      forced_probe_trace || !convergence_pause_enabled ||
       (!wait_for_periodic_observation && (!runtime_state.probe_variability_converged || periodic_refresh_due));
   if (!should_trace_probe_rays) {
     runtime_state.last_probe_update_reasons = DdgiUpdateReasonConverged;
@@ -4077,10 +4061,10 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   runtime_state.frame_probe_update_hysteresis = ddgi_update_hysteresis;
   runtime_state.frame_ray_push_constant = CreateDdgiProbeRayTracingPushConstant(
       ddgi_settings, ddgi_ray_source, skip_inactive_probe_trace, ddgi_first_warmup_frame, sorted_index,
-      ddgi_environment_cubemap_index, runtime_state.probe_ray_sequence_index, emissive_guide_count);
+      ddgi_environment_cubemap_index, runtime_state.probe_ray_sequence_index, emissive_triangle_count);
   runtime_state.frame_probe_update_push_constant =
       CreateDdgiProbeAtlasUpdatePushConstant(ddgi_settings, layout, ddgi_ray_source, ddgi_update_hysteresis,
-                                             ddgi_update_brightness_threshold, emissive_guide_count);
+                                             ddgi_update_brightness_threshold, emissive_triangle_count);
   runtime_state.frame_probe_update_push_constant.probe_step_x.w = runtime_state.frame_ray_push_constant.first_probe.w;
   runtime_state.frame_probe_update_push_constant.probe_step_y.w = runtime_state.frame_ray_push_constant.probe_step_x.w;
   runtime_state.frame_probe_update_push_constant.probe_step_z.w = runtime_state.frame_ray_push_constant.probe_step_y.w;
@@ -4088,13 +4072,13 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       glm::floatBitsToUint(runtime_state.frame_ray_push_constant.probe_step_z.w);
   runtime_state.frame_probe_scroll_push_constant = CreateDdgiProbeScrollClearPushConstant(layout, ddgi_ray_source);
   runtime_state.frame_probe_relocation_reset_push_constant = CreateDdgiProbeRelocationPushConstant(
-      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, true, guided_ray_count);
+      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, true, false, emissive_ray_count);
   runtime_state.frame_probe_relocation_update_push_constant = CreateDdgiProbeRelocationPushConstant(
-      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, false, guided_ray_count);
+      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, false, relocate_scrolled_probes_only, emissive_ray_count);
   runtime_state.frame_probe_classification_reset_push_constant = CreateDdgiProbeClassificationPushConstant(
-      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, true, guided_ray_count);
+      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, true, emissive_ray_count);
   runtime_state.frame_probe_classification_update_push_constant = CreateDdgiProbeClassificationPushConstant(
-      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, false, guided_ray_count);
+      ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, false, emissive_ray_count);
   runtime_state.frame_capture_emissive_sampling_stats = ddgi_session_state_.emissive_capture_requested;
   if (runtime_state.frame_capture_emissive_sampling_stats) {
     if (!ddgi_emissive_sampling_stats_buffer ||
@@ -4143,14 +4127,15 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
         runtime_state.ray_readback_ticket = {};
         runtime_state.probe_debug_ray_samples.clear();
       }
-      runtime_state.frame_selected_probe_ray_sample_count = ray_count + guided_ray_count;
+      runtime_state.frame_selected_probe_ray_sample_count = ray_count + emissive_ray_count;
       runtime_state.frame_ray_push_constant.selected_probe_volume_flags_environment.x = selected_logical_probe;
       runtime_state.frame_selected_probe_ray_logical_index = selected_logical_probe;
       runtime_state.frame_selected_probe_ray_physical_index = selected_physical_probe;
     }
   }
 
-  if (probe_variability_enabled && (!runtime_state.probe_variability_converged || periodic_refresh_due)) {
+  if (probe_variability_enabled &&
+      (!runtime_state.probe_variability_converged || !convergence_pause_enabled || periodic_refresh_due)) {
     runtime_state.frame_probe_variability_enabled = true;
     const auto generation = ++runtime_state.next_variability_generation;
     runtime_state.frame_variability_readback_generation = generation;
@@ -4164,7 +4149,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
         glm::min(runtime_state.probe_warmup_frame_index + 1u, runtime_state.frame_probe_warmup_frame_count);
   }
   runtime_state.frame_probe_relocation_reset = reset_probe_state;
-  runtime_state.frame_probe_relocation_enabled = ddgi_ray_source.enable_probe_relocation;
+  runtime_state.frame_probe_relocation_enabled = relocation_requested;
   runtime_state.frame_probe_classification_reset = reset_probe_state;
   runtime_state.frame_probe_classification_enabled = ddgi_ray_source.enable_probe_classification;
   if (scene_change_triggers_pending) {
@@ -5631,7 +5616,6 @@ void RenderLayer::RenderAll() {
     ddgi_runtime.last_performance_stats.selected_ray_sample_count = ddgi_runtime.frame_selected_probe_ray_sample_count;
     ddgi_runtime.last_performance_stats.emissive_triangle_count =
         current_render_instances ? current_render_instances->render_info_block.emissive_triangle_parameters.x : 0u;
-    ddgi_runtime.last_performance_stats.emissive_guide_count = ddgi_runtime.frame_emissive_guide_count;
     if (current_render_instances) {
       const auto& inventory = current_render_instances->GetDdgiEmissiveInventoryStats();
       ddgi_runtime.last_performance_stats.emissive_eligible_instance_count = inventory.eligible_instance_count;
@@ -5650,8 +5634,6 @@ void RenderLayer::RenderAll() {
     ddgi_runtime.last_performance_stats.probe_state_byte_size =
         ddgi_runtime.frame_resource_layout.probe_state_byte_size;
     ddgi_runtime.last_performance_stats.ray_output_byte_size = ddgi_runtime.frame_resource_layout.ray_output_byte_size;
-    ddgi_runtime.last_performance_stats.emissive_guide_byte_size =
-        ddgi_runtime.frame_resource_layout.emissive_guide_byte_size;
     ddgi_runtime.last_performance_stats.ray_sample_info_byte_size =
         ddgi_runtime.frame_resource_layout.ray_sample_info_byte_size;
     ddgi_runtime.last_performance_stats.selected_ray_diagnostics_byte_size =
@@ -5702,24 +5684,22 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.contributes_lighting ? ddgi_runtime.frame_resource_layout.probe_count : 0u;
     if (ddgi_runtime.frame_trace_probe_rays) {
       ddgi_runtime.last_performance_stats.ray_count = ddgi_runtime.frame_uniform_ray_count;
-      ddgi_runtime.last_performance_stats.guided_ray_count = ddgi_runtime.frame_guided_ray_count;
+      ddgi_runtime.last_performance_stats.emissive_ray_count = ddgi_runtime.frame_emissive_ray_count;
       ddgi_runtime.last_performance_stats.ray_sample_count =
           ddgi_runtime.last_performance_stats.updated_probe_count *
-          (ddgi_runtime.frame_uniform_ray_count + ddgi_runtime.frame_guided_ray_count);
+          (ddgi_runtime.frame_uniform_ray_count + ddgi_runtime.frame_emissive_ray_count);
       const auto fixed_ray_count = ddgi_runtime.frame_fixed_ray_count;
       ddgi_runtime.last_performance_stats.emissive_sampling_candidate_ray_count =
           DdgiRuntime::CalculateEmissiveSamplingCandidateRayCount(
-              ddgi_runtime.last_performance_stats.updated_probe_count,
-              ddgi_runtime.frame_uniform_ray_count + ddgi_runtime.frame_guided_ray_count, fixed_ray_count,
-              ddgi_runtime.emissive_mesh_sampling_enabled, ddgi_runtime.frame_trace_probe_rays);
+              ddgi_runtime.last_performance_stats.updated_probe_count, ddgi_runtime.frame_uniform_ray_count,
+              fixed_ray_count, ddgi_runtime.emissive_mesh_sampling_enabled, ddgi_runtime.frame_trace_probe_rays);
     }
     RenderGraph frame_render_graph;
     RenderGraphTransientResourceStore* active_frame_transient_resources = nullptr;
     AddDefaultFrameResources(frame_render_graph);
     AddAdvancedFrameResources(frame_render_graph);
     const auto trace_ddgi_probe_rays = ddgi_runtime.frame_trace_probe_rays;
-    const auto use_guided_sampling = trace_ddgi_probe_rays && ddgi_runtime.frame_guided_ray_count > 0u &&
-                                     ddgi_runtime.frame_emissive_guide_count > 0u;
+    const auto use_emissive_sampling = trace_ddgi_probe_rays && ddgi_runtime.frame_emissive_ray_count > 0u;
     const auto use_ddgi_frame_resources = ddgi_settings.runtime.enabled && ddgi_runtime.frame_resource_layout.valid;
     if (use_ddgi_frame_resources) {
       const auto clear_ddgi_probe_atlas = ddgi_runtime.clear_probe_atlas_this_frame;
@@ -5800,7 +5780,7 @@ void RenderLayer::RenderAll() {
     if (trace_ddgi_probe_rays) {
       AddDdgiRayTracingFrameResources(frame_render_graph);
       frame_render_graph.AddPass(
-          DdgiRayDiagnosticsPass::CreateDescriptor(use_guided_sampling),
+          DdgiRayDiagnosticsPass::CreateDescriptor(use_emissive_sampling),
           [&, ddgi_ray_push_constant](const RenderGraphExecutionContext& context) {
             DdgiRayDiagnosticsPass::Execute(
                 context,
@@ -5810,12 +5790,12 @@ void RenderLayer::RenderAll() {
                  ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
                  ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
                  ddgi_emissive_sampling_stats_readback_buffer, ddgi_runtime.frame_capture_emissive_sampling_stats,
-                 &emissive_sampling_stats_readback_recorded, use_guided_sampling,
+                 &emissive_sampling_stats_readback_recorded, use_emissive_sampling,
                  &ddgi_runtime.last_performance_stats.recorded_ray_sample_count,
                  &ddgi_runtime.last_performance_stats.ray_diagnostics_record_ms});
           });
       frame_render_graph.AddPass(
-          DdgiProbeUpdatePass::CreateDescriptor(use_guided_sampling),
+          DdgiProbeUpdatePass::CreateDescriptor(use_emissive_sampling),
           [&, ddgi_probe_update_push_constant](const RenderGraphExecutionContext& context) {
             DdgiProbeUpdatePass::Execute(
                 context,
@@ -5825,7 +5805,7 @@ void RenderLayer::RenderAll() {
                  active_frame_transient_resources, ddgi_probe_update_push_constant, ddgi_probe_metadata_readback_buffer,
                  &metadata_readback_recorded, &ddgi_runtime.last_performance_stats.recorded_probe_update_count,
                  &ddgi_runtime.last_performance_stats.probe_update_record_ms, &ddgi_probe_update_path_reported_,
-                 use_guided_sampling});
+                 use_emissive_sampling});
           });
       if (reset_ddgi_probe_relocation || relocate_ddgi_probes) {
         frame_render_graph.AddPass(
@@ -5916,10 +5896,6 @@ void RenderLayer::RenderAll() {
                                              ddgi_runtime.visibility_atlas);
       frame_render_graph_resources.BindImage(RenderResourceNames::frame_ddgi_variability_atlas,
                                              ddgi_runtime.variability_atlas);
-      if (ddgi_runtime.frame_resource_layout.emissive_guide_byte_size > 0u) {
-        frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_emissive_guides,
-                                                ddgi_runtime.emissive_guide_buffer);
-      }
     }
     if (trace_ddgi_probe_rays) {
       frame_render_graph_resources.BindDescriptorSet(RenderResourceNames::frame_ray_tracing_descriptor_set,
