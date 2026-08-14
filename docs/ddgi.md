@@ -8,11 +8,13 @@ flow is documented in [rendering.md](rendering.md), and capture/validation comma
 
 ## Ownership
 
-Assigned `EnvironmentalLighting` assets are the runtime source for DDGI settings and volume authoring. Rendering, Bistro,
-Cornell, thin-wall, DDGI multi-volume, and generated DDGI validation fixtures author temporary `EnvironmentalLighting`
-assets directly. There is no scene-local DDGI private component or extractor fallback. `RenderLayer` selects the resolved
-active volumes, owns each volume's resources and convergence state, and exposes aggregate and per-volume runtime/debug
-state in the editor.
+Assigned `EnvironmentalLighting` assets are the runtime source for shared DDGI settings and reference one
+`DdgiVolumePack` (`.eveddgivolumepack`) for volume authoring. The pack is a normal YAML asset containing definitions and
+stable IDs only. Atlases, history, relocation/classification state, boost recovery, and convergence remain transient
+RenderLayer resources. The Environmental Lighting inspector edits the referenced pack inline and marks that shared pack
+dirty; a standalone pack inspector is also registered. Missing, unloaded, or wrong-type packs resolve no volumes while
+the rest of environmental lighting remains available. There is no scene-local DDGI private component or extractor
+fallback.
 
 DDGI volume transforms use the same Environmental Lighting authoring control as local reflection probes: Position,
 Euler Rotation in degrees, and Scale, composed as translation, rotation, then scale. Serialization remains matrix-based.
@@ -174,7 +176,7 @@ Light membership, lighting, emissive-inventory, geometry, and material-closure c
 history or reset relocation/classification state. Geometry changes do schedule one history-preserving relocation update.
 Enabled triggers otherwise snap the volume's current hysteresis to the
 Render Layer's boosted value, which defaults to `0.85`, and force a probe update. Continued changes hold that value.
-After the first quiet frame, hysteresis moves toward the separately configurable `0.97` normal value by the `0.01`
+After the first quiet frame, hysteresis moves toward the separately configurable `0.97` normal value by the `0.001`
 restore-speed default before each forced update. The final `0.97` update completes recovery, after which normal
 convergence gating resumes. This response neither starts warmup nor changes its frame counter. Manual reset,
 incompatible resources, volume-source changes, and full scrolling reset remain hard invalidations. Emissive factor and

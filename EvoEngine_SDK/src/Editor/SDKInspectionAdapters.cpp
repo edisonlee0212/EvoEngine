@@ -1945,34 +1945,37 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         }
         ImGui::PopID();
       }
-      if (const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr) {
-        for (const auto& authored : lighting->ddgi_volumes) {
-          if (!authored.enabled ||
-              std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [&](const auto& volume) {
-                return volume.stable_entity_id == authored.stable_id;
-              }))
-            continue;
-          std::string reason;
-          (void)DdgiRuntime::ValidateProbeGrid(
-              authored.probe_counts,
-              static_cast<uint32_t>(glm::max(lighting->ddgi_settings.storage.max_probe_count, 0)), &reason);
-          if (reason.empty())
-            reason = snapshot.validation_error.empty() ? "Rejected by runtime validation or volume limit."
-                                                       : snapshot.validation_error;
-          ImGui::TableNextRow();
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted(authored.name.c_str());
-          ImGui::TableNextColumn();
-          ImGui::Text("%d x %d x %d", authored.probe_counts.x, authored.probe_counts.y, authored.probe_counts.z);
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted("-");
-          ImGui::TableNextColumn();
-          ImGui::TextUnformatted("-");
-          ImGui::TableNextColumn();
-          ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", reason.c_str());
-          ImGui::TableNextColumn();
-          ImGui::TextDisabled("Unavailable");
-        }
+      if (const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+          lighting) {
+        const auto pack = lighting->ddgi_volume_pack.Get<DdgiVolumePack>();
+        if (pack)
+          for (const auto& authored : pack->volumes) {
+            if (!authored.enabled ||
+                std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [&](const auto& volume) {
+                  return volume.stable_entity_id == authored.stable_id;
+                }))
+              continue;
+            std::string reason;
+            (void)DdgiRuntime::ValidateProbeGrid(
+                authored.probe_counts,
+                static_cast<uint32_t>(glm::max(lighting->ddgi_settings.storage.max_probe_count, 0)), &reason);
+            if (reason.empty())
+              reason = snapshot.validation_error.empty() ? "Rejected by runtime validation or volume limit."
+                                                         : snapshot.validation_error;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(authored.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%d x %d x %d", authored.probe_counts.x, authored.probe_counts.y, authored.probe_counts.z);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", reason.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextDisabled("Unavailable");
+          }
       }
       ImGui::EndTable();
     }
@@ -2523,8 +2526,12 @@ void RenderEnvironmentalLightingProbeBounds(const std::shared_ptr<EditorLayer>& 
   if (!editor_layer) {
     return;
   }
-  for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
-    const auto& probe = lighting.local_reflection_probes[index];
+  auto pack_ref = lighting.reflection_probe_pack;
+  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  if (!pack)
+    return;
+  for (size_t index = 0; index < pack->probes.size(); ++index) {
+    const auto& probe = pack->probes[index];
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(
             lighting, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id)) {
       continue;
@@ -2538,8 +2545,12 @@ void RenderEnvironmentalLightingDebugProbeBounds(const std::shared_ptr<EditorLay
   if (!editor_layer) {
     return;
   }
-  for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
-    const auto& probe = lighting.local_reflection_probes[index];
+  auto pack_ref = lighting.reflection_probe_pack;
+  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  if (!pack)
+    return;
+  for (size_t index = 0; index < pack->probes.size(); ++index) {
+    const auto& probe = pack->probes[index];
     if (probe.debug_draw_bounds &&
         !editor_layer->IsEnvironmentalLightingGizmoTarget(
             lighting, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id)) {
@@ -2565,8 +2576,10 @@ void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLay
   if (!editor_layer) {
     return;
   }
-  for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
-    const auto& probe = lighting.local_reflection_probes[index];
+  auto reflection_pack_ref = lighting.reflection_probe_pack;
+  const auto reflection_pack = reflection_pack_ref.Get<ReflectionProbePack>();
+  for (size_t index = 0; reflection_pack && index < reflection_pack->probes.size(); ++index) {
+    const auto& probe = reflection_pack->probes[index];
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(
             lighting, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id)) {
       RenderEnvironmentalLightingProbeBound(editor_layer, probe, glm::vec4(0.1f, 0.8f, 1.0f, 0.55f), true);
@@ -2574,8 +2587,10 @@ void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLay
     }
   }
   const auto settings = MakeBoundingVolumeGizmoSettings();
-  for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
-    const auto& volume = lighting.ddgi_volumes[index];
+  auto ddgi_pack_ref = lighting.ddgi_volume_pack;
+  const auto ddgi_pack = ddgi_pack_ref.Get<DdgiVolumePack>();
+  for (size_t index = 0; ddgi_pack && index < ddgi_pack->volumes.size(); ++index) {
+    const auto& volume = ddgi_pack->volumes[index];
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(lighting, EnvironmentalLightingGizmoTargetType::DdgiVolume,
                                                          index, volume.stable_id)) {
       editor_layer->DrawGizmoCube(glm::vec4(1.0f, 0.45f, 0.05f, 0.35f), GetDdgiAuthoringBoundTransform(volume), 1.0f,
@@ -2620,6 +2635,16 @@ bool AuthoringTransformsEqual(const glm::mat4& lhs, const glm::mat4& rhs) {
   return true;
 }
 
+bool InspectEnvironmentalLightingEntryName(std::string& name) {
+  std::array<char, 256> buffer{};
+  const auto size = std::min(name.size(), buffer.size() - 1u);
+  std::copy_n(name.data(), size, buffer.data());
+  if (!ImGui::InputText("Name", buffer.data(), buffer.size()))
+    return false;
+  name = buffer.data();
+  return true;
+}
+
 bool InspectAuthoringTransform(const std::shared_ptr<EditorLayer>& editor_layer, const char* label,
                                glm::mat4& transform) {
   glm::vec3 position(0.0f);
@@ -2661,6 +2686,116 @@ bool InspectAuthoringTransform(const std::shared_ptr<EditorLayer>& editor_layer,
   return changed;
 }
 
+bool InspectReflectionProbePack(InspectorContext& context, ReflectionProbePack& pack) {
+  if (!context.editor_layer)
+    return false;
+  bool changed = pack.RepairStableIds();
+  ImGui::Text("Local probes: %zu", pack.probes.size());
+  if (ImGui::Button("Add Local Reflection Probe")) {
+    pack.probes.emplace_back();
+    (void)pack.RepairStableIds();
+    changed = true;
+  }
+  for (size_t index = 0; index < pack.probes.size(); ++index) {
+    auto& probe = pack.probes[index];
+    ImGui::PushID(static_cast<int>(index));
+    if (ImGui::TreeNode((probe.name + "##ReflectionProbePackEntry").c_str())) {
+      changed = InspectEnvironmentalLightingEntryName(probe.name) || changed;
+      changed = ImGui::Checkbox("Enabled", &probe.enabled) || changed;
+      changed = ImGui::Checkbox("Debug draw bounds", &probe.debug_draw_bounds) || changed;
+      changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &probe.stable_id) || changed;
+      changed = InspectAuthoringTransform(context.editor_layer, "Transform", probe.transform) || changed;
+      const char* shapes[]{"Box", "Sphere"};
+      changed = ImGui::Combo("Shape", &probe.shape, shapes, IM_ARRAYSIZE(shapes)) || changed;
+      changed = ImGui::DragInt("Artist priority", &probe.artist_priority) || changed;
+      changed = ImGui::DragFloat("Sphere radius", &probe.sphere_radius, 0.05f, 0.001f, 10000.0f) || changed;
+      changed = ImGui::DragFloat("Blend distance", &probe.blend_distance, 0.01f, 0.0f, 10000.0f) || changed;
+      changed = ImGui::DragFloat("Reflection intensity", &probe.reflection_intensity, 0.01f, 0.0f, 10000.0f) || changed;
+      changed = ImGui::Checkbox("Box projection", &probe.box_projection) || changed;
+      changed =
+          ImGui::DragFloat3("Projection half extents", &probe.box_projection_extents.x, 0.05f, 0.001f, 10000.0f) ||
+          changed;
+      ImGui::Text("Payload: %s", probe.HasValidPayload() ? "valid" : "unbaked");
+      if (ImGui::Button("Remove")) {
+        pack.probes.erase(pack.probes.begin() + static_cast<std::ptrdiff_t>(index));
+        changed = true;
+        ImGui::TreePop();
+        ImGui::PopID();
+        break;
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+  if (changed) {
+    (void)pack.RepairStableIds();
+    pack.SetUnsaved();
+  }
+  return changed;
+}
+
+bool InspectDdgiVolumePack(InspectorContext& context, DdgiVolumePack& pack) {
+  if (!context.editor_layer)
+    return false;
+  bool changed = pack.RepairStableIds();
+  ImGui::Text("DDGI volumes: %zu", pack.volumes.size());
+  if (ImGui::Button("Add DDGI Volume")) {
+    pack.volumes.emplace_back();
+    (void)pack.RepairStableIds();
+    changed = true;
+  }
+  for (size_t index = 0; index < pack.volumes.size(); ++index) {
+    auto& volume = pack.volumes[index];
+    ImGui::PushID(static_cast<int>(index));
+    if (ImGui::TreeNode((volume.name + "##DdgiVolumePackEntry").c_str())) {
+      changed = InspectEnvironmentalLightingEntryName(volume.name) || changed;
+      changed = ImGui::Checkbox("Enabled", &volume.enabled) || changed;
+      changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id) || changed;
+      changed = InspectAuthoringTransform(context.editor_layer, "Transform", volume.transform) || changed;
+      changed = ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256) || changed;
+      changed = ImGui::DragFloat3("Probe spacing", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f) || changed;
+      changed = ImGui::DragFloat3("Volume origin", &volume.volume_origin.x, 0.05f) || changed;
+      changed = ImGui::DragInt("Artist priority", &volume.artist_priority) || changed;
+      const char* movement_types[]{"Default", "Scrolling"};
+      changed =
+          ImGui::Combo("Movement type", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types)) || changed;
+      const char* emissive_modes[]{"Inherit", "On", "Off"};
+      changed = ImGui::Combo("Emissive mesh sampling", &volume.emissive_mesh_sampling_mode, emissive_modes,
+                             IM_ARRAYSIZE(emissive_modes)) ||
+                changed;
+      changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
+      changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
+      changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
+      changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
+      changed =
+          ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) || changed;
+      changed = ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
+      changed =
+          InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers", volume.hysteresis_boost_trigger_conditions) ||
+          changed;
+      changed = InspectDdgiVolumeTriggerConditions("Variability reset triggers",
+                                                   volume.variability_reset_trigger_conditions) ||
+                changed;
+      if (ImGui::Button("Remove")) {
+        pack.volumes.erase(pack.volumes.begin() + static_cast<std::ptrdiff_t>(index));
+        changed = true;
+        ImGui::TreePop();
+        ImGui::PopID();
+        break;
+      }
+      ImGui::TreePop();
+    }
+    ImGui::PopID();
+  }
+  if (changed) {
+    (void)pack.RepairStableIds();
+    for (auto& volume : pack.volumes)
+      volume.ClampSettings();
+    pack.SetUnsaved();
+  }
+  return changed;
+}
+
 const char* GetGlobalReflectionProbeSourceKindName(const GlobalReflectionProbe::SourceKind source_kind) {
   switch (source_kind) {
     case GlobalReflectionProbe::SourceKind::Imported:
@@ -2674,15 +2809,16 @@ const char* GetGlobalReflectionProbeSourceKindName(const GlobalReflectionProbe::
 }
 
 bool QueueEnvironmentalLightingLocalProbeBake(InspectorContext& context,
-                                              const EnvironmentalLighting::LocalReflectionProbe& probe) {
+                                              const std::shared_ptr<ReflectionProbePack>& pack,
+                                              EnvironmentalLighting::LocalReflectionProbe& probe) {
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (!render_layer) {
     EVOENGINE_ERROR("Environmental lighting reflection probe bake was not queued: the render layer is unavailable.")
     return false;
   }
-  auto payload_ref = probe.global_reflection_probe;
-  return render_layer->QueueGlobalReflectionProbeBake(ResolveInspectorScene(context), glm::vec3(probe.transform[3]),
-                                                      payload_ref.Get<GlobalReflectionProbe>());
+  const auto payload = probe.GetOrCreatePayload();
+  return render_layer->QueueGlobalReflectionProbeBakeBatch(
+             ResolveInspectorScene(context), {{glm::vec3(probe.transform[3]), payload, pack, probe.stable_id}}) == 1u;
 }
 
 uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, const EnvironmentalLighting& lighting) {
@@ -2692,38 +2828,36 @@ uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, co
     return 0;
   }
   std::vector<RenderLayer::ReflectionProbeBakeRequest> requests;
-  requests.reserve(lighting.local_reflection_probes.size());
-  for (const auto& probe : lighting.local_reflection_probes) {
-    auto payload_ref = probe.global_reflection_probe;
+  auto pack_ref = lighting.reflection_probe_pack;
+  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  if (!pack)
+    return 0u;
+  requests.reserve(pack->probes.size());
+  for (auto& probe : pack->probes) {
     requests.emplace_back(RenderLayer::ReflectionProbeBakeRequest{glm::vec3(probe.transform[3]),
-                                                                  payload_ref.Get<GlobalReflectionProbe>()});
+                                                                  probe.GetOrCreatePayload(), pack, probe.stable_id});
   }
   return render_layer->QueueGlobalReflectionProbeBakeBatch(ResolveInspectorScene(context), requests);
 }
 
 void InspectEnvironmentalLightingLocalProbePayload(InspectorContext& context,
-                                                   const EnvironmentalLighting::LocalReflectionProbe& probe,
+                                                   const std::shared_ptr<ReflectionProbePack>& pack,
+                                                   EnvironmentalLighting::LocalReflectionProbe& probe,
                                                    const bool bake_available) {
-  const auto payload = probe.global_reflection_probe.Peek<GlobalReflectionProbe>();
-  const auto payload_handle = probe.global_reflection_probe.GetAssetHandle();
-  if (!payload && payload_handle.GetValue() == 0) {
-    ImGui::TextColored({1.0f, 0.35f, 0.2f, 1.0f}, "Payload: missing GlobalReflectionProbe");
-  } else if (!payload) {
-    ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Payload: assigned, not loaded");
-    if (context.editor_layer && ImGui::Button("Load / Inspect Probe Payload")) {
-      context.editor_layer->OpenAssetInspector(payload_handle);
-    }
+  const auto& payload = probe.payload;
+  if (!payload || payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Empty) {
+    ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Payload: unbaked (global fallback active)");
   } else {
     ImGui::Text("Payload: %s (%s)", payload->IsRuntimeReady() ? "runtime ready" : "not ready",
                 GetGlobalReflectionProbeSourceKindName(payload->GetSourceKind()));
-    if (!payload->Saved() && payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked) {
-      ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Persistence: unsaved GPU bake");
+    if (pack && !pack->Saved() && payload->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked) {
+      ImGui::TextColored({1.0f, 0.78f, 0.1f, 1.0f}, "Persistence: unsaved pack payload");
     }
   }
 
   ImGui::BeginDisabled(!bake_available);
   if (ImGui::Button("Bake Local Probe Payload")) {
-    if (QueueEnvironmentalLightingLocalProbeBake(context, probe)) {
+    if (QueueEnvironmentalLightingLocalProbeBake(context, pack, probe)) {
       EVOENGINE_LOG("Queued environmental lighting reflection probe bake.")
     }
   }
@@ -2800,7 +2934,13 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                                             : std::shared_ptr<EnvironmentalLighting>{};
   const auto lighting_asset = active_lighting.get() == &lighting ? active_lighting : nullptr;
   const bool scene_gizmo_available = lighting_asset != nullptr;
-  bool changed = lighting.RepairStableIds();
+  auto reflection_pack = lighting.reflection_probe_pack.Get<ReflectionProbePack>();
+  auto ddgi_pack = lighting.ddgi_volume_pack.Get<DdgiVolumePack>();
+  bool changed = false;
+  if (reflection_pack && reflection_pack->RepairStableIds())
+    reflection_pack->SetUnsaved();
+  if (ddgi_pack && ddgi_pack->RepairStableIds())
+    ddgi_pack->SetUnsaved();
   if (ImGui::BeginTabBar("EnvironmentalLightingInspectionTabs")) {
     if (ImGui::BeginTabItem("General")) {
       changed = InspectEnvironmentalLightingSource(context, lighting.indirect_environment_source) || changed;
@@ -2817,6 +2957,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
     }
 
     if (ImGui::BeginTabItem("DDGI")) {
+      if (editor_layer->DragAndDropButton<DdgiVolumePack>(lighting.ddgi_volume_pack, "DDGI Volume Pack")) {
+        ddgi_pack = lighting.ddgi_volume_pack.Get<DdgiVolumePack>();
+        changed = true;
+      }
       if (ImGui::TreeNodeEx("Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
         auto& settings = lighting.ddgi_settings;
         auto& runtime = settings.runtime;
@@ -2887,9 +3031,12 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         ImGui::TreePop();
       }
 
+      const bool lighting_changed_before_volumes = changed;
+      changed = false;
       if (ImGui::TreeNodeEx("Volumes", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::BeginDisabled(!ddgi_pack);
         if (ImGui::Button("Add DDGI Volume")) {
-          auto& volume = lighting.ddgi_volumes.emplace_back();
+          auto& volume = ddgi_pack->volumes.emplace_back();
           const auto& defaults = lighting.ddgi_settings.volume_defaults;
           volume.probe_counts = defaults.probe_counts;
           volume.probe_spacing = defaults.probe_spacing;
@@ -2905,14 +3052,16 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           volume.fixed_ray_backface_threshold = defaults.fixed_ray_backface_threshold;
           volume.probe_variability_threshold = defaults.probe_variability_threshold;
           volume.probe_variability_min_samples = defaults.probe_variability_min_samples;
-          lighting.RepairStableIds();
+          (void)ddgi_pack->RepairStableIds();
           changed = true;
         }
-        for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
-          auto& volume = lighting.ddgi_volumes[index];
+        ImGui::EndDisabled();
+        for (size_t index = 0; ddgi_pack && index < ddgi_pack->volumes.size(); ++index) {
+          auto& volume = ddgi_pack->volumes[index];
           ImGui::PushID(static_cast<int>(index));
           const auto label = volume.name + "##EnvironmentalLightingDdgiVolume";
           if (ImGui::TreeNode(label.c_str())) {
+            changed = InspectEnvironmentalLightingEntryName(volume.name) || changed;
             changed = ImGui::Checkbox("Enabled", &volume.enabled) || changed;
             const bool editing_in_scene = InspectEnvironmentalLightingSceneGizmoToggle(
                 editor_layer, lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id,
@@ -2920,7 +3069,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             const bool stable_id_changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id);
             changed = stable_id_changed || changed;
             if (stable_id_changed) {
-              lighting.RepairStableIds();
+              (void)ddgi_pack->RepairStableIds();
               if (editing_in_scene) {
                 editor_layer->SetEnvironmentalLightingGizmoTarget(
                     lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id);
@@ -2968,7 +3117,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                       changed;
             if (ImGui::Button("Remove")) {
               editor_layer->ClearEnvironmentalLightingGizmoTarget(lighting.GetHandle());
-              lighting.ddgi_volumes.erase(lighting.ddgi_volumes.begin() + static_cast<std::ptrdiff_t>(index));
+              ddgi_pack->volumes.erase(ddgi_pack->volumes.begin() + static_cast<std::ptrdiff_t>(index));
               changed = true;
               ImGui::TreePop();
               ImGui::PopID();
@@ -2980,10 +3129,18 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         }
         ImGui::TreePop();
       }
+      if (changed && ddgi_pack)
+        ddgi_pack->SetUnsaved();
+      changed = lighting_changed_before_volumes || changed;
       ImGui::EndTabItem();
     }
 
     if (ImGui::BeginTabItem("Reflection Probes")) {
+      if (editor_layer->DragAndDropButton<ReflectionProbePack>(lighting.reflection_probe_pack,
+                                                               "Reflection Probe Pack")) {
+        reflection_pack = lighting.reflection_probe_pack.Get<ReflectionProbePack>();
+        changed = true;
+      }
       changed = ImGui::Checkbox("Enable local probe reflections", &lighting.local_reflection_probes_enabled) || changed;
       auto& dynamic_settings = lighting.dynamic_reflection_probe_settings;
       const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
@@ -3025,27 +3182,32 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       changed = InspectCameraBackground(editor_layer, background.source, nullptr, background.clear_color,
                                         background.cubemap, background.environmental_map) ||
                 changed;
+      const bool lighting_changed_before_probes = changed;
+      changed = false;
+      ImGui::BeginDisabled(!reflection_pack);
       if (ImGui::Button("Add Local Reflection Probe")) {
-        lighting.local_reflection_probes.emplace_back();
-        lighting.RepairStableIds();
+        reflection_pack->probes.emplace_back();
+        (void)reflection_pack->RepairStableIds();
         changed = true;
       }
+      ImGui::EndDisabled();
       ImGui::BeginDisabled(dynamic_settings.enabled);
       if (ImGui::Button("Bake All Local Probe Payloads")) {
         const auto queued_count = QueueEnvironmentalLightingLocalProbeBakes(context, lighting);
         EVOENGINE_LOG("Queued " + std::to_string(queued_count) + "/" +
-                      std::to_string(lighting.local_reflection_probes.size()) +
+                      std::to_string(reflection_pack ? reflection_pack->probes.size() : 0u) +
                       " environmental lighting reflection probe bakes.")
       }
       ImGui::EndDisabled();
       if (dynamic_settings.enabled && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
         ImGui::SetTooltip("Disable dynamic local probe updates before baking persistent payloads.");
       }
-      for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
-        auto& probe = lighting.local_reflection_probes[index];
+      for (size_t index = 0; reflection_pack && index < reflection_pack->probes.size(); ++index) {
+        auto& probe = reflection_pack->probes[index];
         ImGui::PushID(static_cast<int>(index));
         const auto label = probe.name + "##EnvironmentalLightingLocalProbe";
         if (ImGui::TreeNode(label.c_str())) {
+          changed = InspectEnvironmentalLightingEntryName(probe.name) || changed;
           changed = ImGui::Checkbox("Enabled", &probe.enabled) || changed;
           changed = ImGui::Checkbox("Debug draw bounds", &probe.debug_draw_bounds) || changed;
           const bool editing_in_scene = InspectEnvironmentalLightingSceneGizmoToggle(
@@ -3054,17 +3216,14 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           const bool stable_id_changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &probe.stable_id);
           changed = stable_id_changed || changed;
           if (stable_id_changed) {
-            lighting.RepairStableIds();
+            (void)reflection_pack->RepairStableIds();
             if (editing_in_scene) {
               editor_layer->SetEnvironmentalLightingGizmoTarget(
                   lighting_asset, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id);
             }
           }
-          changed = editor_layer->DragAndDropButton<GlobalReflectionProbe>(probe.global_reflection_probe,
-                                                                           "Global Reflection Probe") ||
-                    changed;
           if (ImGui::TreeNode("Payload status")) {
-            InspectEnvironmentalLightingLocalProbePayload(context, probe, !dynamic_settings.enabled);
+            InspectEnvironmentalLightingLocalProbePayload(context, reflection_pack, probe, !dynamic_settings.enabled);
             ImGui::TreePop();
           }
           changed = InspectAuthoringTransform(editor_layer, "Transform", probe.transform) || changed;
@@ -3081,8 +3240,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               changed;
           if (ImGui::Button("Remove")) {
             editor_layer->ClearEnvironmentalLightingGizmoTarget(lighting.GetHandle());
-            lighting.local_reflection_probes.erase(lighting.local_reflection_probes.begin() +
-                                                   static_cast<std::ptrdiff_t>(index));
+            reflection_pack->probes.erase(reflection_pack->probes.begin() + static_cast<std::ptrdiff_t>(index));
             changed = true;
             ImGui::TreePop();
             ImGui::PopID();
@@ -3092,6 +3250,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         }
         ImGui::PopID();
       }
+      if (changed && reflection_pack)
+        reflection_pack->SetUnsaved();
+      changed = lighting_changed_before_probes || changed;
       ImGui::EndTabItem();
     }
     ImGui::EndTabBar();
@@ -3100,9 +3261,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
   RenderActiveEnvironmentalLightingGizmoBound(editor_layer, lighting);
   if (changed) {
     ClampDdgiSettings(lighting.ddgi_settings);
-    for (auto& volume : lighting.ddgi_volumes) {
-      volume.ClampSettings();
-    }
+    if (ddgi_pack)
+      for (auto& volume : ddgi_pack->volumes)
+        volume.ClampSettings();
   }
   return changed;
 }
@@ -4187,6 +4348,9 @@ void evo_engine::RegisterSdkInspectionAdapters() {
   InspectorRegistry::GetInstance().RegisterInspector<DirectionalLight>(InspectDirectionalLight, {}, "DirectionalLight");
   InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalLighting>(InspectEnvironmentalLighting, {},
                                                                             "EnvironmentalLighting");
+  InspectorRegistry::GetInstance().RegisterInspector<ReflectionProbePack>(InspectReflectionProbePack, {},
+                                                                          "ReflectionProbePack");
+  InspectorRegistry::GetInstance().RegisterInspector<DdgiVolumePack>(InspectDdgiVolumePack, {}, "DdgiVolumePack");
   InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalMap>(InspectEnvironmentalMap, {}, "EnvironmentalMap");
   InspectorRegistry::GetInstance().RegisterInspector<EditorLayer>(InspectEditorLayer, {}, "EditorLayer");
   InspectorRegistry::GetInstance().RegisterInspector<LightProbe>(InspectLightProbe, {}, "LightProbe");

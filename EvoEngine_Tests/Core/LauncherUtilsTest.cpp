@@ -226,10 +226,7 @@ TEST(LauncherUtils, DemoResourceChecksIncludeRenderingLightingAssets) {
   std::filesystem::create_directories(resource_root);
 
   const std::vector<std::string> missing_sponza_lighting{
-      "SponzaEnvironment.eveenvironmentalmap", "SponzaGlobal.evereflectionprobe",
-      "SponzaLeftGallery.evereflectionprobe",  "SponzaRightGallery.evereflectionprobe",
-      "SponzaCentralFront.evereflectionprobe", "SponzaCentralMiddle.evereflectionprobe",
-      "SponzaCentralRear.evereflectionprobe"};
+      "SponzaEnvironment.eveenvironmentalmap", "SponzaGlobal.evereflectionprobe", "SponzaLocal.evereflectionprobepack"};
   EXPECT_EQ(MissingDemoProfileResourceRequirements(DemoProfileId::Rendering, resource_root), missing_sponza_lighting);
   EXPECT_EQ(MissingDemoProfileResourceRequirements(DemoProfileId::RenderingRegression, resource_root),
             missing_sponza_lighting);

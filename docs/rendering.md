@@ -23,7 +23,7 @@ reflection probes, and DDGI authoring. The target ownership is:
 - `Camera` owns visible background source selection and `background_intensity`;
 - `Scene` owns the explicit global `GlobalReflectionProbe` fallback and an optional `EnvironmentalLighting` asset
   reference;
-- `EnvironmentalLighting` owns local reflection-probe definitions, DDGI authoring/settings, the shared indirect
+- `EnvironmentalLighting` references a binary `ReflectionProbePack` and YAML `DdgiVolumePack`, and owns DDGI shared settings, the shared indirect
   environment source, `environment_lighting_intensity`, `diffuse_fallback_intensity`, and
   `specular_fallback_intensity`, plus the shared reflection-probe bake background.
 

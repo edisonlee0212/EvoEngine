@@ -11,6 +11,7 @@
 #include "AssetRef.hpp"
 #include "Camera.hpp"
 #include "Cubemap.hpp"
+#include "DdgiVolumePack.hpp"
 #include "EditorLayer.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
@@ -38,6 +39,7 @@
 #include "ProceduralNoise.hpp"
 #include "Profiler.hpp"
 #include "ProjectManager.hpp"
+#include "ReflectionProbePack.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "SDKInspectionAdapters.hpp"
@@ -158,7 +160,9 @@ void RegisterBuiltInAssetIoHandlers() {
   RegisterYamlStagedAssetIoHandler<LightProbe>("LightProbe");
   RegisterYamlStagedAssetIoHandler<EnvironmentalMap>("EnvironmentalMap");
   RegisterYamlStagedAssetIoHandler<EnvironmentalLighting>("EnvironmentalLighting");
+  RegisterYamlStagedAssetIoHandler<DdgiVolumePack>("DdgiVolumePack");
   GlobalReflectionProbe::RegisterAssetIoHandlers();
+  ReflectionProbePack::RegisterAssetIoHandlers();
   Shader::RegisterAssetIoHandlers();
   Mesh::RegisterAssetIoHandlers();
   Strands::RegisterAssetIoHandlers();
@@ -2013,6 +2017,10 @@ void RegisterBuiltInSerializationHandlers() {
   Serialization::RegisterSerializationHandler<Cubemap>(SerializeCubemap, DeserializeCubemap, {}, "Cubemap");
   Serialization::RegisterSerializationHandler<GlobalReflectionProbe>(
       SerializeGlobalReflectionProbe, DeserializeGlobalReflectionProbe, {}, "GlobalReflectionProbe");
+  Serialization::RegisterSerializationHandler<ReflectionProbePack>(
+      SerializeReflectionProbePack, DeserializeReflectionProbePack, {}, "ReflectionProbePack");
+  Serialization::RegisterSerializationHandler<DdgiVolumePack>(SerializeDdgiVolumePack, DeserializeDdgiVolumePack, {},
+                                                              "DdgiVolumePack");
   Serialization::RegisterSerializationHandler<EnvironmentalMap>(SerializeEnvironmentalMap, DeserializeEnvironmentalMap,
                                                                 {}, "EnvironmentalMap");
   Serialization::RegisterSerializationHandler<EnvironmentalLighting>(
@@ -2400,6 +2408,8 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
   RegisterAsset<Cubemap>("Cubemap", {".evecubemap"});
   RegisterAsset<LightProbe>("LightProbe", {".evelightprobe"});
   RegisterAsset<GlobalReflectionProbe>("GlobalReflectionProbe", {".evereflectionprobe"});
+  RegisterAsset<ReflectionProbePack>("ReflectionProbePack", {".evereflectionprobepack"});
+  RegisterAsset<DdgiVolumePack>("DdgiVolumePack", {".eveddgivolumepack"});
   RegisterAsset<EnvironmentalMap>("EnvironmentalMap", {".eveenvironmentalmap"});
   RegisterAsset<EnvironmentalLighting>("EnvironmentalLighting", {".eveenvironmentallighting"});
   RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});

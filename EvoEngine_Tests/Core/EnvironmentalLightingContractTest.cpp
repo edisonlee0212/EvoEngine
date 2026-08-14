@@ -164,7 +164,8 @@ TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTrans
   EXPECT_NE(editor.find("CreateAuthoringGizmoTransform(transform, pivot)"), std::string::npos);
   EXPECT_NE(editor.find("TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized)"), std::string::npos);
   EXPECT_NE(editor.find("active_lighting != lighting"), std::string::npos);
-  EXPECT_NE(editor.find("lighting->SetUnsaved()"), std::string::npos);
+  EXPECT_NE(editor.find("reflection_pack->SetUnsaved()"), std::string::npos);
+  EXPECT_NE(editor.find("ddgi_pack->SetUnsaved()"), std::string::npos);
   EXPECT_NE(editor.find("selected_entity_.GetIndex() != 0 && !scene->IsEntityValid(selected_entity_)"),
             std::string::npos);
   EXPECT_NE(editor.find("else if (selected_entity_.GetIndex() != 0)"), std::string::npos);
@@ -202,7 +203,7 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
   EXPECT_NE(inspector.find("bool InspectCameraBackground"), std::string::npos);
   const auto master = inspector.find("Enable local probe reflections");
   const auto background = inspector.find("InspectCameraBackground(editor_layer, background.source");
-  const auto add = inspector.find("Add Local Reflection Probe");
+  const auto add = inspector.find("Add Local Reflection Probe", background);
   ASSERT_NE(master, std::string::npos);
   ASSERT_NE(background, std::string::npos);
   ASSERT_NE(add, std::string::npos);
@@ -240,7 +241,8 @@ TEST(EnvironmentalLightingContract, InspectorSeparatesAuthoringIntoOwnershipTabs
   EXPECT_LT(general, ddgi);
   EXPECT_LT(ddgi, reflection_probes);
   EXPECT_LT(reflection_probes, tab_bar_end);
-  EXPECT_NE(inspector.find("lighting.RepairStableIds()"), std::string::npos);
+  EXPECT_NE(inspector.find("reflection_pack->RepairStableIds()"), std::string::npos);
+  EXPECT_NE(inspector.find("ddgi_pack->RepairStableIds()"), std::string::npos);
 
   const auto environment_source = inspector.find("InspectEnvironmentalLightingSource(");
   const auto environment_intensity = inspector.find("Environment lighting intensity");
@@ -325,8 +327,9 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(reflection_probe_docs.find("all-probe bounds toggle"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("per-probe debug bounds"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("Bake All Local Probe Payloads"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("bake action queues the same"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("reflection-probe capture path used by asset entries"), std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("request targets the owning pack plus the entry's stable ID"),
+            std::string::npos);
+  EXPECT_NE(reflection_probe_docs.find("marks the pack unsaved"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("specular_fallback_intensity` directly"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("forced to zero during capture"), std::string::npos);
   EXPECT_NE(reflection_probe_docs.find("composed from material AO, eligible GTAO visibility, and DDGI probe"),

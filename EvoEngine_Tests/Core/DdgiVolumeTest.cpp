@@ -461,7 +461,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_FLOAT_EQ(settings.runtime.view_bias, 0.1f);
   EXPECT_FLOAT_EQ(render_settings.ddgi_hysteresis, 0.97f);
   EXPECT_FLOAT_EQ(render_settings.ddgi_boosted_hysteresis, 0.85f);
-  EXPECT_FLOAT_EQ(render_settings.ddgi_hysteresis_restore_speed, 0.01f);
+  EXPECT_FLOAT_EQ(render_settings.ddgi_hysteresis_restore_speed, 0.001f);
   EXPECT_FLOAT_EQ(settings.runtime.max_ray_distance, 1e27f);
   EXPECT_FLOAT_EQ(settings.runtime.visibility_moment_bias, 0.02f);
   EXPECT_EQ(settings.runtime.warmup_frames, 16);
@@ -587,7 +587,7 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(demo_source.find("AddEnvironmentalLightingDdgiVolume("), std::string::npos);
   EXPECT_NE(rendering_scene_source.find("ResetEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
             std::string::npos);
-  EXPECT_NE(demo_source.find("lighting.ddgi_volumes.clear();"), std::string::npos);
+  EXPECT_NE(demo_source.find("GetOrCreateDdgiVolumePack(lighting)->volumes.clear();"), std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 1.0f, 1.0f)"),
             std::string::npos);
   EXPECT_NE(rendering_scene_source.find("environment, 1.0f, lighting->diffuse_fallback_intensity"), std::string::npos);
@@ -777,8 +777,8 @@ TEST(DdgiVolume, BistroDemoUsesEnvironmentalLightingVolume) {
             std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("auto& settings = lighting->ddgi_settings;"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("settings.runtime.enable_emissive_mesh_sampling = true;"), std::string::npos);
-  EXPECT_NE(bistro_ddgi_source.find("lighting->local_reflection_probes.clear();"), std::string::npos);
-  EXPECT_NE(bistro_ddgi_source.find("lighting->ddgi_volumes.clear();"), std::string::npos);
+  EXPECT_NE(bistro_ddgi_source.find("lighting->GetOrCreateReflectionProbePack()->probes.clear();"), std::string::npos);
+  EXPECT_NE(bistro_ddgi_source.find("lighting->GetOrCreateDdgiVolumePack()->volumes.clear();"), std::string::npos);
   EXPECT_NE(bistro_ddgi_source.find("AddEnvironmentalLightingDdgiVolume(*lighting, kBistroDdgiVolumeName"),
             std::string::npos);
   EXPECT_EQ(CountOccurrences(bistro_scene_source,
@@ -804,11 +804,11 @@ TEST(DdgiVolume, MultiVolumeValidationUsesEnvironmentalLightingVolumes) {
 
   EXPECT_NE(validation_source.find("const auto lighting = GetOrCreateTemporaryEnvironmentalLighting(scene);"),
             std::string::npos);
-  EXPECT_NE(validation_source.find("lighting->ddgi_volumes.clear();"), std::string::npos);
+  EXPECT_NE(validation_source.find("lighting->GetOrCreateDdgiVolumePack()->volumes.clear();"), std::string::npos);
   EXPECT_NE(validation_source.find("AddEnvironmentalLightingDdgiVolume(*lighting"), std::string::npos);
   EXPECT_EQ(validation_source.find("scene->environment.ddgi_settings"), std::string::npos);
   EXPECT_NE(validation_source.find("glm::translate(scrolling_volume->transform"), std::string::npos);
-  EXPECT_NE(validation_source.find("std::remove_if(lighting->ddgi_volumes.begin()"), std::string::npos);
+  EXPECT_NE(validation_source.find("std::remove_if(ddgi_pack->volumes.begin()"), std::string::npos);
   EXPECT_EQ(validation_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
   EXPECT_EQ(validation_source.find("UnsafeGetPrivateComponentOwnersList<DdgiVolume>"), std::string::npos);
   EXPECT_EQ(validation_source.find("SyncTemporaryEnvironmentalLightingFromLegacyScene(scene)"), std::string::npos);
@@ -2024,7 +2024,7 @@ TEST(DdgiVolume, DdgiHysteresisIsOwnedByRenderLayerAndTriggerPolicyIsPerVolume) 
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "include" / "Rendering" /
                    "RenderInstances" / "RenderInstanceStorage.hpp");
   const auto volume_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
-                                          "include" / "Rendering" / "PBR" / "EnvironmentalLighting.hpp");
+                                          "include" / "Rendering" / "PBR" / "DdgiVolumePack.hpp");
   const auto ddgi_settings_source =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "DdgiSettings.cpp");
   const auto inspector_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
@@ -2045,7 +2045,7 @@ TEST(DdgiVolume, DdgiHysteresisIsOwnedByRenderLayerAndTriggerPolicyIsPerVolume) 
   EXPECT_EQ(ddgi_settings_source.find("\"hysteresis\""), std::string::npos);
   EXPECT_NE(render_settings_source.find("float ddgi_hysteresis = 0.97f;"), std::string::npos);
   EXPECT_NE(render_settings_source.find("float ddgi_boosted_hysteresis = 0.85f;"), std::string::npos);
-  EXPECT_NE(render_settings_source.find("float ddgi_hysteresis_restore_speed = 0.01f;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("float ddgi_hysteresis_restore_speed = 0.001f;"), std::string::npos);
   EXPECT_NE(inspector_source.find("Normal hysteresis"), std::string::npos);
   EXPECT_NE(inspector_source.find("Boosted hysteresis"), std::string::npos);
   EXPECT_NE(inspector_source.find("Restore speed"), std::string::npos);
@@ -3131,17 +3131,18 @@ TEST(DdgiVolume, MultiVolumeCandidateAccountingIncludesPausedAndExcludesDisabled
   EnvironmentalLighting::DdgiVolume second;
   second.stable_id = 22u;
   second.probe_counts = {5, 5, 5};
-  lighting->ddgi_volumes = {first, second};
+  auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+  ddgi_pack->volumes = {first, second};
   auto infos = CollectDdgiVolumeRuntimeInfos(ResolveEnvironmentalLighting(scene));
   EXPECT_EQ(infos.size(), 2u);
 
-  lighting->ddgi_volumes[1].enabled = false;
+  ddgi_pack->volumes[1].enabled = false;
   infos = CollectDdgiVolumeRuntimeInfos(ResolveEnvironmentalLighting(scene));
   ASSERT_EQ(infos.size(), 1u);
   EXPECT_EQ(infos.front().stable_entity_id, first.stable_id);
 
-  lighting->ddgi_volumes[1].enabled = true;
-  lighting->ddgi_volumes[1].probe_counts = {0, 5, 5};
+  ddgi_pack->volumes[1].enabled = true;
+  ddgi_pack->volumes[1].probe_counts = {0, 5, 5};
   infos = CollectDdgiVolumeRuntimeInfos(ResolveEnvironmentalLighting(scene));
   EXPECT_EQ(infos.size(), 1u);
 }

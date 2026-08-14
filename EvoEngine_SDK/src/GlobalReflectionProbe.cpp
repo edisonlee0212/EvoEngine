@@ -146,6 +146,13 @@ const std::vector<uint16_t>& GlobalReflectionProbe::GetCanonicalPayload() const 
   return cubemap_ ? cubemap_->PeekRgba16fData() : empty;
 }
 
+bool GlobalReflectionProbe::ReadCanonicalPayload(std::vector<uint16_t>& payload) const {
+  if (!cubemap_)
+    return false;
+  cubemap_->GetRgba16fData(payload, true);
+  return payload.size() * sizeof(uint16_t) == kCanonicalPayloadByteSize;
+}
+
 size_t GlobalReflectionProbe::GetCanonicalPayloadByteSize() const {
   return GetCanonicalPayload().size() * sizeof(uint16_t);
 }

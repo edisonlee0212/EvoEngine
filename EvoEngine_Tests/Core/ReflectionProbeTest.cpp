@@ -219,7 +219,7 @@ TEST(ReflectionProbe, ExplicitBakeDefersReadbackAndPersistenceUntilAssetSave) {
   EXPECT_NE(serialize.find("cubemap_->GetRgba16fData(payload, true)"), std::string::npos);
   EXPECT_NE(serialize.find("payload_hash_ = CalculatePayloadHash(payload)"), std::string::npos);
   EXPECT_NE(save.find("Serialize(out)"), std::string::npos);
-  EXPECT_NE(inspector.find("Persistence: unsaved GPU bake"), std::string::npos);
+  EXPECT_NE(inspector.find("Persistence: unsaved pack payload"), std::string::npos);
   EXPECT_NE(inspector.find("Payload: GPU resident; downloaded on save"), std::string::npos);
 }
 

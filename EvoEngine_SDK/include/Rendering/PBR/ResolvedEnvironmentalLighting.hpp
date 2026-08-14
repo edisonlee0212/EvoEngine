@@ -2,6 +2,7 @@
 
 #include "AssetRef.hpp"
 #include "DdgiSettings.hpp"
+#include "GlobalReflectionProbe.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -46,7 +47,7 @@ struct ResolvedEnvironmentalLighting {
   };
 
   struct LocalReflectionProbe {
-    AssetRef global_reflection_probe;
+    std::shared_ptr<GlobalReflectionProbe> payload;
     glm::mat4 transform = glm::mat4(1.0f);
     glm::vec3 box_projection_extents = glm::vec3(0.5f);
     float sphere_radius = 5.0f;

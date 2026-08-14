@@ -3912,19 +3912,21 @@ void EditorLayer::SceneCameraWindow() {
           const auto target = *environmental_lighting_gizmo_target_;
           const auto lighting = target.lighting.lock();
           const auto active_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+          const auto reflection_pack = lighting ? lighting->reflection_probe_pack.Get<ReflectionProbePack>() : nullptr;
+          const auto ddgi_pack = lighting ? lighting->ddgi_volume_pack.Get<DdgiVolumePack>() : nullptr;
           const bool local_probe_valid = target.type == EnvironmentalLightingGizmoTargetType::LocalReflectionProbe &&
-                                         lighting && target.index < lighting->local_reflection_probes.size() &&
-                                         lighting->local_reflection_probes[target.index].stable_id == target.stable_id;
-          const bool ddgi_volume_valid = target.type == EnvironmentalLightingGizmoTargetType::DdgiVolume && lighting &&
-                                         target.index < lighting->ddgi_volumes.size() &&
-                                         lighting->ddgi_volumes[target.index].stable_id == target.stable_id;
+                                         reflection_pack && target.index < reflection_pack->probes.size() &&
+                                         reflection_pack->probes[target.index].stable_id == target.stable_id;
+          const bool ddgi_volume_valid = target.type == EnvironmentalLightingGizmoTargetType::DdgiVolume && ddgi_pack &&
+                                         target.index < ddgi_pack->volumes.size() &&
+                                         ddgi_pack->volumes[target.index].stable_id == target.stable_id;
           if (!lighting || active_lighting != lighting || (!local_probe_valid && !ddgi_volume_valid)) {
             ClearEnvironmentalLightingGizmoTarget();
           } else {
-            auto& transform = local_probe_valid ? lighting->local_reflection_probes[target.index].transform
-                                                : lighting->ddgi_volumes[target.index].transform;
+            auto& transform = local_probe_valid ? reflection_pack->probes[target.index].transform
+                                                : ddgi_pack->volumes[target.index].transform;
             const auto authored_pivot =
-                ddgi_volume_valid ? lighting->ddgi_volumes[target.index].volume_origin : glm::vec3(0.0f);
+                ddgi_volume_valid ? ddgi_pack->volumes[target.index].volume_origin : glm::vec3(0.0f);
             const auto pivot = IsFiniteVector(authored_pivot) ? authored_pivot : glm::vec3(0.0f);
             auto gizmo_transform = CreateAuthoringGizmoTransform(transform, pivot);
             ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
@@ -3935,7 +3937,10 @@ void EditorLayer::SceneCameraWindow() {
               if (TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized) &&
                   !MatricesNear(transform, normalized)) {
                 transform = normalized;
-                lighting->SetUnsaved();
+                if (local_probe_valid)
+                  reflection_pack->SetUnsaved();
+                else
+                  ddgi_pack->SetUnsaved();
               }
               gizmo_using_ = true;
             }

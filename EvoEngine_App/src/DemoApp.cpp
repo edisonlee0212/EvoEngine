@@ -570,7 +570,7 @@ EnvironmentalLighting::DdgiVolume* FindEnvironmentalLightingDdgiVolume(const std
   if (!lighting) {
     return nullptr;
   }
-  for (auto& volume : lighting->ddgi_volumes) {
+  for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
     if (volume.enabled && volume.name == name) {
       return &volume;
     }

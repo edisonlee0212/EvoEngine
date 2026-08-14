@@ -96,7 +96,7 @@ ResolvedEnvironmentalLighting::IndirectEnvironmentSource ToResolvedSource(
 ResolvedEnvironmentalLighting::LocalReflectionProbe ToResolvedLocalProbe(
     const EnvironmentalLighting::LocalReflectionProbe& source) {
   ResolvedEnvironmentalLighting::LocalReflectionProbe probe;
-  probe.global_reflection_probe = source.global_reflection_probe;
+  probe.payload = source.HasValidPayload() ? source.payload : nullptr;
   probe.transform = source.transform;
   probe.box_projection_extents =
       glm::max(FiniteOr(source.box_projection_extents, glm::vec3(0.5f)), glm::vec3(kMinimumExtent));
@@ -196,13 +196,18 @@ void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironme
   if (!lighting.local_reflection_probes_enabled) {
     return;
   }
+  auto pack_ref = lighting.reflection_probe_pack;
+  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  if (!pack) {
+    return;
+  }
   std::vector<LocalProbeCandidate> candidates;
-  candidates.reserve(lighting.local_reflection_probes.size());
-  for (size_t index = 0; index < lighting.local_reflection_probes.size(); ++index) {
-    if (!lighting.local_reflection_probes[index].enabled) {
+  candidates.reserve(pack->probes.size());
+  for (size_t index = 0; index < pack->probes.size(); ++index) {
+    if (!pack->probes[index].enabled) {
       continue;
     }
-    auto probe = ToResolvedLocalProbe(lighting.local_reflection_probes[index]);
+    auto probe = ToResolvedLocalProbe(pack->probes[index]);
     const float influence_volume = CalculateTransformedLocalProbeInfluenceVolume(probe);
     if (influence_volume <= 0.0f) {
       continue;
@@ -222,13 +227,18 @@ void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironme
 }
 
 void ResolveDdgiVolumes(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
+  auto pack_ref = lighting.ddgi_volume_pack;
+  const auto pack = pack_ref.Get<DdgiVolumePack>();
+  if (!pack) {
+    return;
+  }
   std::vector<DdgiVolumeCandidate> candidates;
-  candidates.reserve(lighting.ddgi_volumes.size());
+  candidates.reserve(pack->volumes.size());
   const auto max_probe_count = lighting.ddgi_settings.storage.max_probe_count > 0
                                    ? static_cast<uint32_t>(lighting.ddgi_settings.storage.max_probe_count)
                                    : 0u;
-  for (size_t index = 0; index < lighting.ddgi_volumes.size(); ++index) {
-    const auto& volume = lighting.ddgi_volumes[index];
+  for (size_t index = 0; index < pack->volumes.size(); ++index) {
+    const auto& volume = pack->volumes[index];
     if (!volume.enabled || !IsFinite(volume.transform) ||
         !DdgiRuntime::ValidateProbeGrid(volume.probe_counts, max_probe_count)) {
       continue;

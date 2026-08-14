@@ -106,14 +106,11 @@ constexpr const char* kBistroImportedSunLightName = "Sun directional light";
 constexpr const char* kSponzaLightingDirectory = "Lighting/Sponza";
 constexpr const char* kSponzaEnvironmentPath = "Lighting/Sponza/SponzaEnvironment.eveenvironmentalmap";
 constexpr const char* kSponzaGlobalProbePath = "Lighting/Sponza/SponzaGlobal.evereflectionprobe";
+constexpr const char* kSponzaLocalProbePackPath = "Lighting/Sponza/SponzaLocal.evereflectionprobepack";
 constexpr std::array<const char*, 5> kSponzaLocalProbeNames = {
     "Sponza Left Gallery Reflection Probe", "Sponza Right Gallery Reflection Probe",
     "Sponza Central Front Reflection Probe", "Sponza Central Middle Reflection Probe",
     "Sponza Central Rear Reflection Probe"};
-constexpr std::array<const char*, 5> kSponzaLocalProbePaths = {
-    "Lighting/Sponza/SponzaLeftGallery.evereflectionprobe", "Lighting/Sponza/SponzaRightGallery.evereflectionprobe",
-    "Lighting/Sponza/SponzaCentralFront.evereflectionprobe", "Lighting/Sponza/SponzaCentralMiddle.evereflectionprobe",
-    "Lighting/Sponza/SponzaCentralRear.evereflectionprobe"};
 
 void SyncTemporaryEnvironmentalLightingSettingsFromScene(const std::shared_ptr<Scene>& scene);
 
@@ -1321,11 +1318,19 @@ void ConfigureStandardDdgiRuntime(DdgiSettings& settings, const int max_probe_co
   }
 }
 
+std::shared_ptr<ReflectionProbePack> GetOrCreateReflectionProbePack(EnvironmentalLighting& lighting) {
+  return lighting.GetOrCreateReflectionProbePack();
+}
+
+std::shared_ptr<DdgiVolumePack> GetOrCreateDdgiVolumePack(EnvironmentalLighting& lighting) {
+  return lighting.GetOrCreateDdgiVolumePack();
+}
+
 EnvironmentalLighting::DdgiVolume& AddEnvironmentalLightingDdgiVolume(
     EnvironmentalLighting& lighting, const std::string& name, const glm::mat4& transform,
     const glm::ivec3& probe_counts, const glm::vec3& probe_spacing, const glm::vec3& volume_origin,
     const int artist_priority = 0) {
-  auto& volume = lighting.ddgi_volumes.emplace_back();
+  auto& volume = GetOrCreateDdgiVolumePack(lighting)->volumes.emplace_back();
   volume.name = name;
   volume.stable_id = StableEnvironmentalLightingId(name);
   volume.transform = transform;
@@ -1341,7 +1346,7 @@ EnvironmentalLighting::DdgiVolume& ResetEnvironmentalLightingDdgiVolume(
     const glm::vec3& probe_spacing, const glm::vec3& volume_origin, const int artist_priority = 0) {
   Transform transform;
   transform.SetPosition(position);
-  lighting.ddgi_volumes.clear();
+  GetOrCreateDdgiVolumePack(lighting)->volumes.clear();
   return AddEnvironmentalLightingDdgiVolume(lighting, name, transform.value, probe_counts, probe_spacing, volume_origin,
                                             artist_priority);
 }
@@ -1352,7 +1357,7 @@ EnvironmentalLighting::DdgiVolume* FindEnvironmentalLightingDdgiVolume(const std
   if (!lighting) {
     return nullptr;
   }
-  for (auto& volume : lighting->ddgi_volumes) {
+  for (auto& volume : GetOrCreateDdgiVolumePack(*lighting)->volumes) {
     if (volume.name == name) {
       return &volume;
     }
@@ -1385,11 +1390,11 @@ EnvironmentalLighting::LocalReflectionProbe& AddEnvironmentalLightingLocalReflec
     const std::shared_ptr<GlobalReflectionProbe>& asset, const int priority,
     const EnvironmentalLighting::LocalReflectionProbeShape shape, const float sphere_radius, const float blend_distance,
     const bool box_projection = false) {
-  auto& probe = lighting.local_reflection_probes.emplace_back();
+  auto& probe = GetOrCreateReflectionProbePack(lighting)->probes.emplace_back();
   probe.name = name;
   probe.stable_id = StableEnvironmentalLightingId(name);
   probe.transform = transform;
-  probe.global_reflection_probe = asset;
+  probe.payload = asset;
   probe.artist_priority = priority;
   probe.shape = static_cast<int>(shape);
   probe.box_projection_extents = glm::vec3(0.5f);
@@ -1419,7 +1424,7 @@ EnvironmentalLighting::LocalReflectionProbe* FindEnvironmentalLightingLocalRefle
   if (!lighting) {
     return nullptr;
   }
-  for (auto& probe : lighting->local_reflection_probes) {
+  for (auto& probe : GetOrCreateReflectionProbePack(*lighting)->probes) {
     if (probe.name == name) {
       return &probe;
     }
@@ -1429,7 +1434,7 @@ EnvironmentalLighting::LocalReflectionProbe* FindEnvironmentalLightingLocalRefle
 
 EnvironmentalLighting::LocalReflectionProbe& RequireEnvironmentalLightingLocalReflectionProbe(
     EnvironmentalLighting& lighting, const std::string& name) {
-  for (auto& probe : lighting.local_reflection_probes) {
+  for (auto& probe : GetOrCreateReflectionProbePack(lighting)->probes) {
     if (probe.name == name) {
       return probe;
     }
@@ -1439,7 +1444,10 @@ EnvironmentalLighting::LocalReflectionProbe& RequireEnvironmentalLightingLocalRe
 
 const EnvironmentalLighting::LocalReflectionProbe& RequireEnvironmentalLightingLocalReflectionProbe(
     const EnvironmentalLighting& lighting, const std::string& name) {
-  for (const auto& probe : lighting.local_reflection_probes) {
+  const auto pack = lighting.GetReflectionProbePack();
+  if (!pack)
+    throw std::runtime_error("Missing environmental lighting reflection probe pack.");
+  for (const auto& probe : pack->probes) {
     if (probe.name == name) {
       return probe;
     }
@@ -1472,8 +1480,7 @@ void ClampEnvironmentalLightingLocalReflectionProbe(EnvironmentalLighting::Local
 }
 
 std::string GetEnvironmentalLightingLocalProbeBakeStatus(const EnvironmentalLighting::LocalReflectionProbe& probe) {
-  auto payload_ref = probe.global_reflection_probe;
-  const auto payload = payload_ref.Get<GlobalReflectionProbe>();
+  const auto& payload = probe.payload;
   if (!payload) {
     return "Missing GlobalReflectionProbe";
   }
@@ -1486,9 +1493,12 @@ std::string GetEnvironmentalLightingLocalProbeBakeStatus(const EnvironmentalLigh
 void RunEnvironmentalLightingLocalProbeBake(const std::shared_ptr<Scene>& scene, RenderLayer& render_layer,
                                             const EnvironmentalLighting::LocalReflectionProbe& probe,
                                             const char* context) {
-  auto payload_ref = probe.global_reflection_probe;
-  const auto payload = payload_ref.Get<GlobalReflectionProbe>();
-  if (!payload || !render_layer.QueueGlobalReflectionProbeBake(scene, glm::vec3(probe.transform[3]), payload)) {
+  const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+  const auto pack = lighting ? GetOrCreateReflectionProbePack(*lighting) : nullptr;
+  const auto& payload = probe.payload;
+  if (!payload || !pack ||
+      render_layer.QueueGlobalReflectionProbeBakeBatch(
+          scene, {{glm::vec3(probe.transform[3]), payload, pack, probe.stable_id}}) != 1u) {
     throw std::runtime_error(std::string(context) + " could not queue its reflection probe bake.");
   }
   for (size_t frame = 0; frame < 600u; ++frame) {
@@ -1510,13 +1520,14 @@ uint32_t RunEnvironmentalLightingLocalProbeBakeBatch(
   std::vector<std::shared_ptr<GlobalReflectionProbe>> payloads;
   requests.reserve(probes.size());
   payloads.reserve(probes.size());
+  const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+  const auto pack = lighting ? GetOrCreateReflectionProbePack(*lighting) : nullptr;
   for (const auto* probe : probes) {
-    auto payload_ref = probe->global_reflection_probe;
-    const auto payload = payload_ref.Get<GlobalReflectionProbe>();
-    if (!payload) {
+    const auto& payload = probe->payload;
+    if (!payload || !pack) {
       throw std::runtime_error(std::string(context) + " has a missing reflection probe payload.");
     }
-    requests.push_back({glm::vec3(probe->transform[3]), payload});
+    requests.push_back({glm::vec3(probe->transform[3]), payload, pack, probe->stable_id});
     payloads.emplace_back(payload);
   }
   const auto queued_count = render_layer.QueueGlobalReflectionProbeBakeBatch(scene, requests);
@@ -1716,7 +1727,6 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
   if (!lighting) {
     return;
   }
-  lighting->local_reflection_probes.clear();
   struct ProbeDefinition {
     glm::vec3 position;
     glm::vec3 size;
@@ -1728,19 +1738,35 @@ void ConfigureSponzaReflectionProbes(const std::shared_ptr<Scene>& scene) {
                                       ProbeDefinition{{0.175f, 1.41f, 1.23f}, {3.4f, 5.0f, 5.8f}, 30},
                                       ProbeDefinition{{0.175f, 1.41f, -3.32f}, {3.4f, 5.0f, 5.8f}, 20},
                                       ProbeDefinition{{0.175f, 1.41f, -7.88f}, {3.4f, 5.0f, 5.8f}, 10}};
-  for (size_t index = 0; index < definitions.size(); ++index) {
-    const auto asset = std::dynamic_pointer_cast<GlobalReflectionProbe>(
-        ProjectManager::GetOrCreateAsset(kSponzaLocalProbePaths[index]));
-    if (!asset || (!asset->IsRuntimeReady() && !SponzaProbeAuthoringRequested())) {
-      throw std::runtime_error(std::string("Rendering/Sponza is missing local reflection asset: ") +
-                               kSponzaLocalProbePaths[index]);
+
+  if (!SponzaProbeAuthoringRequested()) {
+    const auto pack =
+        std::dynamic_pointer_cast<ReflectionProbePack>(ProjectManager::GetOrCreateAsset(kSponzaLocalProbePackPath));
+    if (!pack || pack->probes.size() != definitions.size()) {
+      throw std::runtime_error("Rendering/Sponza is missing its local reflection probe pack.");
     }
+    for (size_t index = 0; index < definitions.size(); ++index) {
+      const auto& probe = pack->probes[index];
+      if (probe.name != kSponzaLocalProbeNames[index] ||
+          probe.stable_id != StableEnvironmentalLightingId(kSponzaLocalProbeNames[index]) || !probe.payload ||
+          !probe.payload->IsRuntimeReady()) {
+        throw std::runtime_error("Rendering/Sponza local reflection probe pack is incomplete or invalid.");
+      }
+    }
+    lighting->reflection_probe_pack = pack;
+    return;
+  }
+
+  const auto pack = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  lighting->reflection_probe_pack = pack;
+  for (size_t index = 0; index < definitions.size(); ++index) {
     const auto& definition = definitions[index];
     Transform probe_transform;
     probe_transform.SetPosition(definition.position);
     probe_transform.SetScale(definition.size);
     AddEnvironmentalLightingLocalReflectionProbe(
-        *lighting, kSponzaLocalProbeNames[index], probe_transform.value, asset, definition.priority,
+        *lighting, kSponzaLocalProbeNames[index], probe_transform.value,
+        AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>(), definition.priority,
         EnvironmentalLighting::LocalReflectionProbeShape::Box, 1.0f, blend_distance, true);
   }
 }
@@ -2346,8 +2372,8 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
   settings.storage.max_probe_count = kBistroDdgiMaxProbeCount;
   DisableDdgiDebugVisualization();
 
-  lighting->local_reflection_probes.clear();
-  lighting->ddgi_volumes.clear();
+  lighting->GetOrCreateReflectionProbePack()->probes.clear();
+  lighting->GetOrCreateDdgiVolumePack()->volumes.clear();
   auto& ddgi_volume =
       AddEnvironmentalLightingDdgiVolume(*lighting, kBistroDdgiVolumeName, glm::mat4(1.0f), kBistroDdgiProbeCounts,
                                          kBistroDdgiProbeSpacing, kBistroDdgiVolumeOrigin);
@@ -2745,8 +2771,8 @@ void evo_engine::ConfigureReflectionProbeValidationScene(const std::shared_ptr<S
   lighting->ddgi_settings = {};
   lighting->ddgi_settings.runtime.enabled = false;
   DisableDdgiDebugVisualization();
-  lighting->local_reflection_probes.clear();
-  lighting->ddgi_volumes.clear();
+  lighting->GetOrCreateReflectionProbePack()->probes.clear();
+  lighting->GetOrCreateDdgiVolumePack()->volumes.clear();
 
   const glm::vec3 camera_position(0.0f, 1.0f, 7.0f);
   const glm::vec3 camera_target(0.0f, 0.85f, -2.4f);
@@ -2993,16 +3019,22 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
     }
   };
   export_probe(scene->GetGlobalReflectionProbeFallback(false), kSponzaGlobalProbePath);
-  for (size_t index = 0; index < probes.size(); ++index) {
-    auto asset_ref = probes[index]->global_reflection_probe;
-    const auto asset = asset_ref.Get<GlobalReflectionProbe>();
-    if (!asset || asset->GetSourceKind() != GlobalReflectionProbe::SourceKind::Baked) {
-      throw std::runtime_error(std::string("Sponza reflection probe bake is incomplete: ") +
-                               kSponzaLocalProbePaths[index]);
-    }
-    export_probe(asset, kSponzaLocalProbePaths[index]);
+  const auto pack = lighting->GetReflectionProbePack();
+  if (!pack || pack->probes.size() != probes.size()) {
+    throw std::runtime_error("Sponza reflection probe pack is incomplete.");
   }
-  std::cout << "EVOENGINE_SPONZA_PROBE_AUTHORING_COMPLETE assets=7" << std::endl;
+  for (const auto& probe : pack->probes) {
+    if (!probe.payload || probe.payload->GetSourceKind() != GlobalReflectionProbe::SourceKind::Baked ||
+        !probe.payload->IsRuntimeReady()) {
+      throw std::runtime_error("Sponza reflection probe pack contains an incomplete bake.");
+    }
+  }
+  const auto pack_path = output_directory / std::filesystem::path(kSponzaLocalProbePackPath).filename();
+  if (!pack->Export(pack_path) ||
+      std::filesystem::file_size(pack_path) <= probes.size() * GlobalReflectionProbe::kCanonicalPayloadByteSize) {
+    throw std::runtime_error("Sponza reflection probe pack export failed.");
+  }
+  std::cout << "EVOENGINE_SPONZA_PROBE_AUTHORING_COMPLETE assets=3" << std::endl;
   return true;
 }
 
@@ -3114,7 +3146,7 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   const auto configure_assigned_lighting_volumes = [&]() {
     if (const auto assigned_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       assigned_lighting->ddgi_settings = ddgi;
-      for (auto& volume : assigned_lighting->ddgi_volumes) {
+      for (auto& volume : assigned_lighting->GetOrCreateDdgiVolumePack()->volumes) {
         volume.enable_probe_relocation = true;
         volume.enable_probe_classification = true;
         volume.enable_probe_variability = true;
@@ -3131,7 +3163,7 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     configure_assigned_lighting_volumes();
     configure_validation_camera(glm::vec3(0.0f, 0.0f, 1.6f), glm::quat(glm::vec3(0.0f)), 120.0f, 0.1f, 200.0f);
     const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
-    if (!FindEntityNamed(scene, "Cornell Box") || !lighting || lighting->ddgi_volumes.empty()) {
+    if (!FindEntityNamed(scene, "Cornell Box") || !lighting || lighting->GetOrCreateDdgiVolumePack()->volumes.empty()) {
       throw std::runtime_error("DDGI Cornell fixture failed to construct its canonical scene and probe volume.");
     }
     return;
@@ -3147,7 +3179,8 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     configure_assigned_lighting_volumes();
     configure_validation_camera(glm::vec3(0.0f, 0.0f, 3.0f), glm::quat(glm::vec3(0.0f)), 120.0f, 0.1f, 200.0f);
     const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
-    if (!FindEntityNamed(scene, "Rendering Demo") || !lighting || lighting->ddgi_volumes.empty()) {
+    if (!FindEntityNamed(scene, "Rendering Demo") || !lighting ||
+        lighting->GetOrCreateDdgiVolumePack()->volumes.empty()) {
       throw std::runtime_error("DDGI Sponza fixture failed to construct its canonical scene and probe volume.");
     }
     return;
@@ -3156,8 +3189,8 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   const auto root = scene->CreateEntity("DDGI Validation Fixture");
   Transform volume_transform;
   volume_transform.SetPosition(glm::vec3(0.0f, 0.8f, -2.4f));
-  lighting->local_reflection_probes.clear();
-  lighting->ddgi_volumes.clear();
+  lighting->GetOrCreateReflectionProbePack()->probes.clear();
+  lighting->GetOrCreateDdgiVolumePack()->volumes.clear();
   auto& volume = AddEnvironmentalLightingDdgiVolume(*lighting, "DDGI Validation Volume", volume_transform.value,
                                                     {8, 6, 8}, glm::vec3(0.6f), glm::vec3(0.0f));
   ConfigureDdgiValidationVolume(volume, fixture_id, probe_variability_threshold);
@@ -3558,17 +3591,16 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
     }
     dynamic_returned_to_static = !render_layer->GetDynamicReflectionProbeStats().active;
   }
-  lighting->local_reflection_probes.reserve(lighting->local_reflection_probes.size() + 2u);
+  auto reflection_pack = lighting->GetOrCreateReflectionProbePack();
+  reflection_pack->probes.reserve(reflection_pack->probes.size() + 2u);
   auto& red_probe = RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Red Box");
   auto& blue_probe = RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Blue Box");
   auto& directional_probe =
       RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Directional Box");
   (void)RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Nested Sphere");
   (void)RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Fallback");
-  auto red_asset_ref = red_probe.global_reflection_probe;
-  auto blue_asset_ref = blue_probe.global_reflection_probe;
-  const auto red_asset = red_asset_ref.Get<GlobalReflectionProbe>();
-  const auto blue_asset = blue_asset_ref.Get<GlobalReflectionProbe>();
+  const auto red_asset = red_probe.payload;
+  const auto blue_asset = blue_probe.payload;
   if (!red_asset || !blue_asset) {
     throw std::runtime_error("Reflection probe validation synthetic assets are unavailable.");
   }
@@ -3618,10 +3650,10 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
     throw std::runtime_error("Could not initialize persistent reflection probe bake assets.");
   }
   const std::array bake_assets = {first_bake, second_bake};
-  const size_t bake_probe_base_index = lighting->local_reflection_probes.size();
+  const size_t bake_probe_base_index = reflection_pack->probes.size();
   std::array<size_t, 2> bake_probe_indices{};
   for (size_t index = 0; index < bake_probe_indices.size(); ++index) {
-    bake_probe_indices[index] = lighting->local_reflection_probes.size();
+    bake_probe_indices[index] = reflection_pack->probes.size();
     auto& bake_probe = AddEnvironmentalLightingLocalReflectionProbe(
         *lighting, "Reflection Probe Bake Origin " + std::to_string(index + 1u),
         MakeAuthoringTransform({0.0f, 1.0f, -0.6f}), bake_assets[index], -100,
@@ -3629,8 +3661,8 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
     ClampEnvironmentalLightingLocalReflectionProbe(bake_probe);
   }
   const auto get_bake_probe =
-      [&lighting, &bake_probe_indices](const size_t index) -> EnvironmentalLighting::LocalReflectionProbe& {
-    return lighting->local_reflection_probes[bake_probe_indices[index]];
+      [&reflection_pack, &bake_probe_indices](const size_t index) -> EnvironmentalLighting::LocalReflectionProbe& {
+    return reflection_pack->probes[bake_probe_indices[index]];
   };
   const bool unique_bake_entries =
       bake_probe_indices[0] != bake_probe_indices[1] && get_bake_probe(0).stable_id != get_bake_probe(1).stable_id;
@@ -3658,7 +3690,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   const bool persisted_payload_is_canonical =
       first_bake_document["pixels"] &&
       first_bake_document["pixels"].as<YAML::Binary>().size() == GlobalReflectionProbe::kCanonicalPayloadByteSize;
-  red_probe.global_reflection_probe = blue_asset;
+  red_probe.payload = blue_asset;
   const uint64_t second_persisted_hash_before =
       YAML::LoadFile(second_bake->GetAbsolutePath().string())["payload_hash"].as<uint64_t>();
   RunEnvironmentalLightingLocalProbeBake(scene, *render_layer, get_bake_probe(1), "Reflection probe validation");
@@ -3670,7 +3702,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   if (!second_bake->Save()) {
     throw std::runtime_error("Reflection probe validation could not explicitly save its second baked payload.");
   }
-  red_probe.global_reflection_probe = red_asset;
+  red_probe.payload = red_asset;
   const bool deferred_bake_persistence = first_bake_deferred && second_bake_deferred;
   const bool bake_contract =
       first_bake->GetSourceKind() == GlobalReflectionProbe::SourceKind::Baked &&
@@ -3717,10 +3749,9 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
       throw std::runtime_error("Application ended during reflection probe no-auto-rebake observation.");
     }
     refresh_bake_statuses();
-    explicit_payload_active_without_bake &=
-        first_bake->IsRuntimeReady() && second_bake->IsRuntimeReady() &&
-        get_bake_probe(0).global_reflection_probe.Get<GlobalReflectionProbe>() == first_bake &&
-        get_bake_probe(1).global_reflection_probe.Get<GlobalReflectionProbe>() == second_bake;
+    explicit_payload_active_without_bake &= first_bake->IsRuntimeReady() && second_bake->IsRuntimeReady() &&
+                                            get_bake_probe(0).payload == first_bake &&
+                                            get_bake_probe(1).payload == second_bake;
   }
   const std::array no_auto_payload_hashes_after = {first_bake->GetPayloadHash(), second_bake->GetPayloadHash()};
   const bool no_auto_payload_hashes_unchanged = no_auto_payload_hashes_before == no_auto_payload_hashes_after;
@@ -3860,9 +3891,8 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
       first_bake->IsRuntimeReady() && second_bake->IsRuntimeReady() &&
       first_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
       second_bake->GetCanonicalPayloadByteSize() == GlobalReflectionProbe::kCanonicalPayloadByteSize &&
-      get_bake_probe(0).global_reflection_probe.Get<GlobalReflectionProbe>() == first_bake &&
-      get_bake_probe(1).global_reflection_probe.Get<GlobalReflectionProbe>() == second_bake && batch_payloads_nonblack;
-  lighting->local_reflection_probes.resize(bake_probe_base_index);
+      get_bake_probe(0).payload == first_bake && get_bake_probe(1).payload == second_bake && batch_payloads_nonblack;
+  reflection_pack->probes.resize(bake_probe_base_index);
   SetEnvironmentalLightingFallbackIntensities(*lighting, 0.0f, 1.0f);
 
   struct RegionEvidence {
@@ -4095,15 +4125,15 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   directional_probe.box_projection = true;
 
   const auto red_settings = red_probe;
-  const auto red_iter = std::find_if(lighting->local_reflection_probes.begin(), lighting->local_reflection_probes.end(),
-                                     [](const auto& probe) {
-                                       return probe.name == "Reflection Probe Red Box";
-                                     });
-  if (red_iter == lighting->local_reflection_probes.end()) {
+  const auto red_iter =
+      std::find_if(reflection_pack->probes.begin(), reflection_pack->probes.end(), [](const auto& probe) {
+        return probe.name == "Reflection Probe Red Box";
+      });
+  if (red_iter == reflection_pack->probes.end()) {
     throw std::runtime_error("Reflection probe validation red asset entry is missing.");
   }
-  lighting->local_reflection_probes.erase(red_iter);
-  lighting->local_reflection_probes.push_back(red_settings);
+  reflection_pack->probes.erase(red_iter);
+  reflection_pack->probes.push_back(red_settings);
   captures[3] = capture("owner-order-reversed");
   auto& reordered_directional_probe =
       RequireEnvironmentalLightingLocalReflectionProbe(*lighting, "Reflection Probe Directional Box");
@@ -4123,16 +4153,16 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
       glm::quatLookAt(glm::normalize(original_target - original_position), glm::vec3(0.0f, 1.0f, 0.0f)));
 
   const auto empty_asset = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
-  reordered_fallback_probe.global_reflection_probe = empty_asset;
+  reordered_fallback_probe.payload = empty_asset;
   captures[5] = capture("missing-asset");
-  const auto fallback_iter = std::find_if(lighting->local_reflection_probes.begin(),
-                                          lighting->local_reflection_probes.end(), [](const auto& probe) {
-                                            return probe.name == "Reflection Probe Fallback";
-                                          });
-  if (fallback_iter == lighting->local_reflection_probes.end()) {
+  const auto fallback_iter =
+      std::find_if(reflection_pack->probes.begin(), reflection_pack->probes.end(), [](const auto& probe) {
+        return probe.name == "Reflection Probe Fallback";
+      });
+  if (fallback_iter == reflection_pack->probes.end()) {
     throw std::runtime_error("Reflection probe validation fallback asset entry is missing.");
   }
-  lighting->local_reflection_probes.erase(fallback_iter);
+  reflection_pack->probes.erase(fallback_iter);
   captures[6] = capture("removed");
 
   auto& debug_box_probe =
@@ -4256,8 +4286,7 @@ bool evo_engine::RunReflectionProbeValidationFromEnvironment(const int width, co
   float synthetic_packed_peak = 0.0f;
   float baked_packed_nrmse = 0.0f;
   float baked_packed_peak = 0.0f;
-  auto directional_asset_ref = reordered_directional_probe.global_reflection_probe;
-  const auto directional_asset = directional_asset_ref.Get<GlobalReflectionProbe>();
+  const auto directional_asset = reordered_directional_probe.payload;
   const bool packed_quality_valid =
       directional_asset &&
       GlobalReflectionProbe::EvaluatePackedRuntimeQuality(directional_asset->GetCanonicalPayload(),
@@ -4841,7 +4870,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   m15_sponza_ddgi.volume_defaults.enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = m15_sponza_ddgi;
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       volume.enable_probe_variability_gating = false;
     }
   }
@@ -4917,9 +4946,10 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
 
   std::vector<std::pair<size_t, glm::mat4>> sponza_volume_transforms;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
-    sponza_volume_transforms.reserve(lighting->ddgi_volumes.size());
-    for (size_t index = 0; index < lighting->ddgi_volumes.size(); ++index) {
-      auto& volume = lighting->ddgi_volumes[index];
+    auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+    sponza_volume_transforms.reserve(ddgi_pack->volumes.size());
+    for (size_t index = 0; index < ddgi_pack->volumes.size(); ++index) {
+      auto& volume = ddgi_pack->volumes[index];
       sponza_volume_transforms.emplace_back(index, volume.transform);
       Transform transform;
       transform.value = volume.transform;
@@ -4930,9 +4960,10 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   captures.emplace_back(capture("sponza-gtao-occluded-ddgi-outside", Camera::CameraRenderMode::Rasterization, 0.0f,
                                 1.0f, 1.0f, 1.0f, 4u));
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
+    const auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
     for (const auto& [index, transform] : sponza_volume_transforms) {
-      if (index < lighting->ddgi_volumes.size()) {
-        lighting->ddgi_volumes[index].transform = transform;
+      if (index < ddgi_pack->volumes.size()) {
+        ddgi_pack->volumes[index].transform = transform;
       }
     }
   }
@@ -5008,7 +5039,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   canonical_sponza_ddgi.volume_defaults.enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = canonical_sponza_ddgi;
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       volume.enable_probe_variability_gating = false;
     }
   }
@@ -5490,7 +5521,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
   DisableDdgiDebugVisualization();
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = settings;
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit);
     }
   }
@@ -5580,7 +5611,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     settings.volume_defaults.enable_probe_variability_gating = true;
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
-      for (auto& volume : lighting->ddgi_volumes) {
+      for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
         volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit);
         volume.enable_probe_variability = true;
         volume.enable_probe_variability_gating = true;
@@ -5611,7 +5642,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     settings.volume_defaults.enable_probe_variability_gating = false;
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
-      for (auto& volume : lighting->ddgi_volumes) {
+      for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
         volume.enable_probe_variability_gating = false;
       }
     }
@@ -5754,8 +5785,8 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   if (!lighting) {
     throw std::runtime_error("DDGI multi-volume validation requires an EnvironmentalLighting asset.");
   }
-  lighting->local_reflection_probes.clear();
-  lighting->ddgi_volumes.clear();
+  lighting->GetOrCreateReflectionProbePack()->probes.clear();
+  lighting->GetOrCreateDdgiVolumePack()->volumes.clear();
 
   constexpr std::array<const char*, 8> kMultiVolumeNames = {
       "M7 Overlap Volume",   "M7 Disjoint Scrolling Volume", "M7 Coarse Nested Volume", "M7 Dense Nested Volume",
@@ -5827,7 +5858,7 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   const std::vector<uint64_t> expected_order{dense_id,     coarse_id,    first_low_priority_id, second_low_priority_id,
                                              slot_four_id, slot_five_id, slot_six_id,           slot_seven_id};
   const auto find_volume = [&](const uint64_t stable_id) -> EnvironmentalLighting::DdgiVolume* {
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       if (volume.stable_id == stable_id) {
         return &volume;
       }
@@ -6037,13 +6068,14 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   const bool scrolling_resources_preserved = resources_preserved(initial_resources, scrolled_stats);
   const auto scrolled_luminance = save_capture(output_directory / "scrolled.png");
 
-  const auto previous_volume_count = lighting->ddgi_volumes.size();
-  lighting->ddgi_volumes.erase(std::remove_if(lighting->ddgi_volumes.begin(), lighting->ddgi_volumes.end(),
-                                              [&](const auto& volume) {
-                                                return volume.stable_id == dense_id;
-                                              }),
-                               lighting->ddgi_volumes.end());
-  if (lighting->ddgi_volumes.size() == previous_volume_count) {
+  auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+  const auto previous_volume_count = ddgi_pack->volumes.size();
+  ddgi_pack->volumes.erase(std::remove_if(ddgi_pack->volumes.begin(), ddgi_pack->volumes.end(),
+                                          [&](const auto& volume) {
+                                            return volume.stable_id == dense_id;
+                                          }),
+                           ddgi_pack->volumes.end());
+  if (ddgi_pack->volumes.size() == previous_volume_count) {
     throw std::runtime_error("DDGI multi-volume validation lost its removable dense volume.");
   }
   const auto removed_stats = wait_for_runtime(7u, dense_id);

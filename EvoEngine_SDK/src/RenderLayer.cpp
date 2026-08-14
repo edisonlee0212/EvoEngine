@@ -118,7 +118,8 @@ bool IsFiniteReflectionProbeBakePosition(const glm::vec3& position) {
 
 bool ValidateGlobalReflectionProbeBakeRequest(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
                                               const std::shared_ptr<GlobalReflectionProbe>& target,
-                                              std::string& error) {
+                                              const std::shared_ptr<ReflectionProbePack>& owner_pack,
+                                              const uint64_t stable_id, std::string& error) {
   if (!scene) {
     error = "Assign the EnvironmentalLighting asset to a scene before baking.";
     return false;
@@ -128,7 +129,8 @@ bool ValidateGlobalReflectionProbeBakeRequest(const std::shared_ptr<Scene>& scen
     return false;
   }
   if (!target) {
-    error = "Assign a persistent GlobalReflectionProbe asset before baking.";
+    error = owner_pack ? "The reflection probe pack entry could not allocate its embedded payload."
+                       : "Assign a persistent GlobalReflectionProbe asset before baking.";
     return false;
   }
   if (const auto global = GetAssignedGlobalReflectionProbe(scene);
@@ -136,7 +138,13 @@ bool ValidateGlobalReflectionProbeBakeRequest(const std::shared_ptr<Scene>& scen
     error = "The scene's global reflection probe cannot also be a local bake output.";
     return false;
   }
-  if (target->IsTemporary()) {
+  if (owner_pack) {
+    const auto entry = owner_pack->FindProbe(stable_id);
+    if (!entry || entry->payload != target) {
+      error = "The reflection probe pack target is unavailable or does not own the requested entry.";
+      return false;
+    }
+  } else if (target->IsTemporary()) {
     error = "Assign a persistent GlobalReflectionProbe asset before baking.";
     return false;
   }
@@ -4370,7 +4378,7 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
 
 bool RenderLayer::QueueGlobalReflectionProbeBake(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
                                                  const std::shared_ptr<GlobalReflectionProbe>& target) {
-  return QueueGlobalReflectionProbeBakeBatch(scene, {{position, target}}) == 1u;
+  return QueueGlobalReflectionProbeBakeBatch(scene, {{position, target, {}, 0u}}) == 1u;
 }
 
 uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<Scene>& scene,
@@ -4393,7 +4401,8 @@ uint32_t RenderLayer::QueueGlobalReflectionProbeBakeBatch(const std::shared_ptr<
   for (const auto& request : requests) {
     std::string error;
     const auto target_handle = request.target ? request.target->GetHandle().GetValue() : 0u;
-    if (ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error) &&
+    if (ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, request.owner_pack,
+                                                 request.stable_id, error) &&
         target_handles.emplace(target_handle).second &&
         pending_reflection_probe_bake_targets_.find(target_handle) == pending_reflection_probe_bake_targets_.end()) {
       valid_requests.emplace_back(request);
@@ -4637,7 +4646,8 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
     return;
   }
   for (const auto& request : batch.requests) {
-    if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, error)) {
+    if (!ValidateGlobalReflectionProbeBakeRequest(scene, request.position, request.target, request.owner_pack,
+                                                  request.stable_id, error)) {
       FailReflectionProbeBakeBatch(batch, error, false);
       reflection_probe_bake_queue_.pop_front();
       return;
@@ -4951,10 +4961,12 @@ void RenderLayer::PublishSubmittedReflectionProbeBake(const uint32_t frame_index
     target->payload_hash_ = 0u;
     target->source_kind_ = GlobalReflectionProbe::SourceKind::Baked;
     target->SetUnsaved();
+    if (submission.requests[index].owner_pack)
+      submission.requests[index].owner_pack->SetUnsaved();
     pending_reflection_probe_bake_targets_.erase(target->GetHandle().GetValue());
   }
   EVOENGINE_LOG("Baked " + std::to_string(submission.requests.size()) +
-                " environmental lighting reflection probe payload(s) in GPU memory; save the assets to persist them.")
+                " reflection probe payload(s) in GPU memory; save the owning pack or global asset to persist them.")
 }
 
 void RenderLayer::RebuildDynamicReflectionProbeQueue() {
@@ -5031,6 +5043,8 @@ void RenderLayer::RetireDynamicReflectionProbeRuntime() {
   dynamic_reflection_probe_texture_overrides_.clear();
   dynamic_reflection_probe_scene_.reset();
   dynamic_reflection_probe_lighting_handle_ = {};
+  dynamic_reflection_probe_pack_handle_ = {};
+  dynamic_reflection_probe_pack_version_ = 0u;
   dynamic_reflection_probe_scheduled_face_serial_ = 0u;
   dynamic_reflection_probe_contributing_ = false;
   ++dynamic_reflection_probe_epoch_;
@@ -5081,9 +5095,19 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     return;
   }
 
+  const auto reflection_pack = lighting->reflection_probe_pack.Get<ReflectionProbePack>();
+  if (!reflection_pack) {
+    if (has_dynamic_runtime())
+      RetireDynamicReflectionProbeRuntime();
+    return;
+  }
+
   const auto lighting_handle = scene->environmental_lighting.GetAssetHandle();
+  const auto pack_handle = lighting->reflection_probe_pack.GetAssetHandle();
   const bool runtime_identity_changed = dynamic_reflection_probe_scene_.lock().get() != scene.get() ||
-                                        dynamic_reflection_probe_lighting_handle_ != lighting_handle;
+                                        dynamic_reflection_probe_lighting_handle_ != lighting_handle ||
+                                        dynamic_reflection_probe_pack_handle_ != pack_handle ||
+                                        dynamic_reflection_probe_pack_version_ != reflection_pack->GetVersion();
   if (runtime_identity_changed && has_dynamic_runtime()) {
     RetireDynamicReflectionProbeRuntime();
   }
@@ -5096,6 +5120,8 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     dynamic_reflection_probe_contributing_ = true;
     dynamic_reflection_probe_scene_ = scene;
     dynamic_reflection_probe_lighting_handle_ = lighting_handle;
+    dynamic_reflection_probe_pack_handle_ = pack_handle;
+    dynamic_reflection_probe_pack_version_ = reflection_pack->GetVersion();
   }
 
   const auto previous_probe_count = dynamic_reflection_probe_runtime_states_.size();
@@ -5118,8 +5144,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
                                GlobalReflectionProbe::kCanonicalFormat, false);
       }
       VkDescriptorImageInfo descriptor_info{};
-      auto initial_source = probe.global_reflection_probe;
-      if (const auto asset = initial_source.Get<GlobalReflectionProbe>(); asset && asset->IsRuntimeReady()) {
+      if (const auto& asset = probe.payload; asset && asset->IsRuntimeReady()) {
         if (const auto cubemap = asset->GetCubemap();
             cubemap &&
             TextureStorage::TryGetCubemapDescriptorImageInfo(cubemap->GetTextureStorageIndex(), descriptor_info)) {

@@ -2760,8 +2760,7 @@ void RenderInstanceStorage::CollectReflectionProbes(
         }
       }
     }
-    auto probe_payload_ref = probe.global_reflection_probe;
-    if (const auto asset = probe_payload_ref.Get<GlobalReflectionProbe>(); asset && asset->IsRuntimeReady()) {
+    if (const auto& asset = probe.payload; asset && asset->IsRuntimeReady()) {
       if (const auto cubemap = asset->GetCubemap();
           cubemap &&
           TextureStorage::TryGetCubemapDescriptorImageInfo(cubemap->GetTextureStorageIndex(), descriptor_info)) {

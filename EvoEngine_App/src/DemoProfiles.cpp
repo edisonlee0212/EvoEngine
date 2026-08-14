@@ -200,7 +200,7 @@ bool PrepareDdgiShowcase(const std::shared_ptr<EditorLayer>& editor_layer, const
     return false;
   }
   auto* asset_volume = [&]() -> EnvironmentalLighting::DdgiVolume* {
-    for (auto& volume : lighting->ddgi_volumes) {
+    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
       if (volume.enabled && volume.name == "DDGI Probe Volume") {
         return &volume;
       }
@@ -528,12 +528,11 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
     return missing;
   }
   if (id == DemoProfileId::Rendering || id == DemoProfileId::RenderingRegression) {
-    constexpr std::array<const char*, 7> required_files = {
-        "SponzaEnvironment.eveenvironmentalmap", "SponzaGlobal.evereflectionprobe",
-        "SponzaLeftGallery.evereflectionprobe",  "SponzaRightGallery.evereflectionprobe",
-        "SponzaCentralFront.evereflectionprobe", "SponzaCentralMiddle.evereflectionprobe",
-        "SponzaCentralRear.evereflectionprobe"};
-    constexpr auto minimum_probe_file_size = 4u * ((GlobalReflectionProbe::kCanonicalPayloadByteSize + 2u) / 3u);
+    constexpr std::array<const char*, 3> required_files = {"SponzaEnvironment.eveenvironmentalmap",
+                                                           "SponzaGlobal.evereflectionprobe",
+                                                           "SponzaLocal.evereflectionprobepack"};
+    constexpr auto minimum_global_probe_file_size = 4u * ((GlobalReflectionProbe::kCanonicalPayloadByteSize + 2u) / 3u);
+    constexpr auto minimum_local_probe_pack_file_size = 5u * GlobalReflectionProbe::kCanonicalPayloadByteSize;
     const auto lighting_root =
         resource_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets" / "Lighting" / "Sponza";
     const auto* authoring_mode = std::getenv("EVOENGINE_SPONZA_PROBE_AUTHORING");
@@ -544,7 +543,10 @@ std::vector<std::string> MissingDemoProfileResourceRequirements(const DemoProfil
       std::error_code error;
       const auto size =
           std::filesystem::is_regular_file(path, error) && !error ? std::filesystem::file_size(path, error) : 0u;
-      const bool valid = !error && (index == 0u ? size > 0u : authoring_bootstrap || size > minimum_probe_file_size);
+      const auto minimum_size = index == 0u   ? 0u
+                                : index == 1u ? minimum_global_probe_file_size
+                                              : minimum_local_probe_pack_file_size;
+      const bool valid = (index != 0u && authoring_bootstrap) || (!error && size > minimum_size);
       if (!valid) {
         missing.emplace_back(required_files[index]);
       }
@@ -703,8 +705,9 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   }
 
   if (lighting) {
-    lighting->ddgi_volumes.clear();
-    auto& target_volume = lighting->ddgi_volumes.emplace_back();
+    auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+    ddgi_pack->volumes.clear();
+    auto& target_volume = ddgi_pack->volumes.emplace_back();
     target_volume.name = "DDGI Probe Volume";
     target_volume.stable_id = StableEnvironmentalLightingId(target_volume.name);
     target_volume.enabled = true;

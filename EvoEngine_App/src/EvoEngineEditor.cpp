@@ -1490,10 +1490,11 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
     throw std::runtime_error("DDGI validation report requires asset-owned EnvironmentalLighting.");
   }
   const auto& validation_volume_defaults = validation_lighting->ddgi_settings.volume_defaults;
+  const auto validation_ddgi_pack = validation_lighting->GetOrCreateDdgiVolumePack();
   const bool pause_updates_after_convergence =
-      validation_lighting->ddgi_volumes.empty()
+      validation_ddgi_pack->volumes.empty()
           ? validation_volume_defaults.pause_probe_updates_after_convergence
-          : validation_lighting->ddgi_volumes.front().pause_probe_updates_after_convergence;
+          : validation_ddgi_pack->volumes.front().pause_probe_updates_after_convergence;
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto memory = Platform::GetGpuMemorySnapshot();
   (void)render_layer->RefreshDdgiProbeDebugData();
@@ -2198,7 +2199,7 @@ void CaptureDemoPreview(
           render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
       ddgi_settings.volume_defaults.pause_probe_updates_after_convergence = false;
       if (const auto lighting = active_scene->environmental_lighting.Get<EnvironmentalLighting>()) {
-        for (auto& volume : lighting->ddgi_volumes) {
+        for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
           volume.pause_probe_updates_after_convergence = false;
         }
       } else {
@@ -2441,7 +2442,7 @@ int main(const int argc, char** argv) {
             }
             if (command_line.preview_ddgi_continuous_updates) {
               ddgi.volume_defaults.pause_probe_updates_after_convergence = false;
-              for (auto& volume : lighting->ddgi_volumes) {
+              for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
                 volume.pause_probe_updates_after_convergence = false;
               }
             }

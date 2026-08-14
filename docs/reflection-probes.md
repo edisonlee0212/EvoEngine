@@ -2,12 +2,13 @@
 
 [Back to rendering](rendering.md)
 
-EvoEngine has two reflection-probe data types with separate ownership:
+EvoEngine has two reflection-probe asset types with separate ownership:
 
 - `GlobalReflectionProbe` is a persistent `.evereflectionprobe` asset containing one prefiltered cubemap. A scene's
   `Scene::global_reflection_probe_fallback` supplies the global image-based specular fallback.
-- `EnvironmentalLighting::LocalReflectionProbe` entries define local box or sphere influence, artist priority, blend
-  distance, local intensity, optional box-projection bounds, and a reference to a `GlobalReflectionProbe` payload asset.
+- `ReflectionProbePack` is a persistent `.evereflectionprobepack` binary asset containing every local probe's metadata
+  and canonical cubemap bytes. `EnvironmentalLighting::reflection_probe_pack` references one pack; local entries do not
+  reference individual `GlobalReflectionProbe` assets.
 
 The final fallback after the scene reference is the engine default `GlobalReflectionProbe` resource. It is not stored in an
 `EnvironmentalMap`; environmental maps provide diffuse irradiance, unfiltered environment cubemaps, and ray-environment
@@ -19,30 +20,25 @@ source; there is no placed private component, migration extractor, or legacy com
 
 ## Authoring and storage
 
-Create a persistent `GlobalReflectionProbe` asset before assigning or baking a local probe entry. Its inspector accepts
-an existing `Cubemap` or an equirectangular `Texture2D`; both inputs are converted and GGX-prefiltered into the same
-canonical asset. The editor does not currently import six independent face files directly. DDS, HDR, or ordinary image
-formats may be used only through the existing texture/cubemap import path; their source encoding does not become the
-probe's storage encoding.
+Create and assign a persistent `ReflectionProbePack`, then add local entries through either the pack inspector or the
+assigned Environmental Lighting inspector. An entry may be unbaked; in that state its metadata remains in the pack and
+rendering uses the ordinary global fallback. `GlobalReflectionProbe` remains available as the scene-global fallback and
+its inspector still accepts a `Cubemap` or equirectangular `Texture2D`.
 
-Every accepted asset is linear HDR in Vulkan face order, at 256x256 with nine mips and
+Every packed payload is linear HDR in Vulkan face order, at 256x256 with nine mips and
 `VK_FORMAT_R16G16B16A16_SFLOAT`. The six faces and all mips contain exactly 524,286 texels, or 4,194,288 serialized bytes.
-Persisted and imported CPU payloads use packed half data; there is no steady-state FP32 mirror. A newly baked unsaved
-asset may remain GPU-only until save. An `Empty` asset keeps its canonical
-black placeholder for safe serialization and descriptors, but it is not a valid local-lighting source and therefore falls
-through to global IBL. Loading rejects a wrong schema, format,
-layout, resolution, mip count, byte count, payload hash, NaN, infinity, negative RGB radiance, or value that overflowed
-FP16. Rejected imports leave the previous runtime asset untouched. Saves download the current GPU cubemap and publish
-through a temporary file replacement; an editor bake exposes its completed GPU cubemap without persisting or reloading
-it. Empty
-maps, metadata-only wrappers, and old noncanonical documents are rejected instead of migrated.
+The pack uses an explicit little-endian header, fixed entry table, variable UTF-8 names, and contiguous RGBA16F payloads;
+it never serializes C++ object layouts or Base64. Loading stages and validates the complete file before publication,
+including version, canonical layout, counts, offsets, range overlap, stable-ID uniqueness, finite metadata, payload byte
+counts, radiance validity, and content hashes. A rejected load leaves the currently published pack untouched. Saving
+downloads any GPU-only baked payloads and atomically replaces the file through a temporary sibling.
 
 The scene inspector assigns `Scene::global_reflection_probe_fallback` and an optional `EnvironmentalLighting` asset. The
-`EnvironmentalLighting` asset inspector owns local-probe entries, per-probe debug bounds, one-entry bake buttons, and the
+`EnvironmentalLighting` asset references a `ReflectionProbePack`; its inspector edits that shared pack inline, marks the
+pack dirty, and provides per-probe debug bounds, one-entry bake buttons, and the
 batch **Bake All Local Probe Payloads** action. The RenderLayer inspector's all-probe bounds toggle draws asset-owned local
-probe bounds from the assigned `EnvironmentalLighting` asset. Each asset-owned local probe reports its payload readiness;
-its bake action queues the same global reflection-probe capture path used by asset entries at the authored transform
-position.
+probe bounds from the assigned pack. The standalone pack inspector supports the same metadata lifecycle. Multiple
+Environmental Lighting assets may intentionally reference and edit the same pack; there is no copy-on-write behavior.
 
 Local-probe transforms are authored as Position, Euler Rotation in degrees, and Scale. The editor composes those fields
 as translation, rotation, then scale while the asset continues to serialize the resulting matrix. Opening an entry
@@ -127,22 +123,22 @@ it does not replace valid local probes or become sharper on smooth materials. Th
 `Diffuse Indirect`, `Unoccluded Probe Specular`, `Specular Visibility`, `Occluded Probe Specular`, and
 `DDGI Probe Blend Loss` diagnostic views for isolating this composition and DDGI's nonlinear cross-probe interpolation.
 
-The Rendering/Sponza demo owns a tracked sky source, global probe, and five box-projected asset-owned local probe entries
-under `Resources/EvoEngine-DemoProjects/Rendering/Assets/Lighting/Sponza`. The local volumes cover the left gallery, right
-gallery, and three central-hall segments. These payloads are normal persistent demo inputs, not generated validation
-output or an engine-global outdoor fallback.
+The Rendering/Sponza demo owns a tracked sky source, a separate global fallback, and one tracked
+`SponzaLocal.evereflectionprobepack` containing five box-projected entries. The local volumes cover the left gallery,
+right gallery, and three central-hall segments.
 
 ## Explicit bake policy
 
 An asset-owned local probe's **Bake Local Probe Payload** action performs one explicit six-face raster capture at the
-entry transform position. It publishes the prefiltered cubemap to the assigned `GlobalReflectionProbe` in GPU memory and
-marks that asset unsaved, but it does not write or reload the asset file. The newly baked result is used immediately by
-rendering. The previous on-disk payload remains unchanged until the user explicitly saves the probe asset; saving performs
+entry transform position. The request targets the owning pack plus the entry's stable ID. Publication replaces that
+entry's embedded payload and marks the pack unsaved, but does not write or reload the file. The newly baked result is used
+immediately by rendering. The previous on-disk payload remains unchanged until the user explicitly saves the pack; saving performs
 the canonical GPU readback, validation, content hash, and atomic file replacement. Reloading or discarding the asset
 before saving restores the previous persisted payload. It does not update automatically. The fixed contract is 256x256 per face, 90-degree projection,
 near plane 0.1, far plane 1000, linear HDR with no tone mapping, and canonical Vulkan face orientation. The shared
 camera-style **Background** controls above **Add Local Reflection Probe** select Clear Color, Cubemap, Environmental Map,
-Inherit Environmental Lighting, or Engine Default Skybox plus an independent intensity. `diffuse_fallback_intensity` and
+Inherit Environmental Lighting, or Engine Default Skybox; inherited environmental radiance uses
+`environment_lighting_intensity`. `diffuse_fallback_intensity` and
 `specular_fallback_intensity` are forced to zero during capture and are not bake inputs. Debug visualization is forced off
 without reducing the authored directional-shadow PCF sample count.
 The inspector reports payload readiness, imported content, an unsaved GPU-resident bake, a shared-asset overwrite, or an actionable bake/load error.
@@ -192,7 +188,7 @@ paths share the same capture cameras, stripped render graph, bindings, raw cubem
 pipeline. Dynamic updates never read back, serialize, reload, mark unsaved, or write a probe asset.
 
 One shared raw six-face cubemap accumulates the current probe. Each dynamic probe owns filtered RGBA16F A and B storage.
-The first update writes B, then updates alternate B/A/B/A. When B first becomes ready, the assigned static payload is the
+The first update writes B, then updates alternate B/A/B/A. When B first becomes ready, the packed static payload is the
 transition source; a missing payload uses the existing per-camera global specular IBL fallback. Each later frame linearly
 blends the previous and newest prefiltered HDR samples over one complete scheduled update cycle. The blend reaches one
 before the next filtered write can replace its source, so a third cubemap is unnecessary.

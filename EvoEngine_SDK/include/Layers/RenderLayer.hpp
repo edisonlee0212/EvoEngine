@@ -28,6 +28,7 @@ namespace evo_engine {
 struct ApplicationInitializationSettings;
 class ComputePipeline;
 class GlobalReflectionProbe;
+class ReflectionProbePack;
 class OffscreenPreviewRenderer;
 class ReflectionProbe;
 class Sampler;
@@ -303,6 +304,8 @@ class RenderLayer final : public ILayer {
   struct ReflectionProbeBakeRequest {
     glm::vec3 position{};
     std::shared_ptr<GlobalReflectionProbe> target{};
+    std::shared_ptr<ReflectionProbePack> owner_pack{};
+    uint64_t stable_id = 0u;
   };
   [[nodiscard]] bool QueueGlobalReflectionProbeBake(const std::shared_ptr<Scene>& scene, const glm::vec3& position,
                                                     const std::shared_ptr<GlobalReflectionProbe>& target);
@@ -693,6 +696,8 @@ class RenderLayer final : public ILayer {
       dynamic_reflection_probe_texture_overrides_{};
   std::weak_ptr<Scene> dynamic_reflection_probe_scene_{};
   Handle dynamic_reflection_probe_lighting_handle_{};
+  Handle dynamic_reflection_probe_pack_handle_{};
+  uint32_t dynamic_reflection_probe_pack_version_ = 0u;
   uint64_t dynamic_reflection_probe_epoch_ = 1;
   uint64_t dynamic_reflection_probe_scheduled_face_serial_ = 0u;
   bool dynamic_reflection_probe_contributing_ = false;

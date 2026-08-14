@@ -62,6 +62,7 @@ class GlobalReflectionProbe final : public IAsset {
   void Deserialize(const YAML::Node& in);
   [[nodiscard]] std::shared_ptr<Cubemap> GetCubemap() const;
   [[nodiscard]] const std::vector<uint16_t>& GetCanonicalPayload() const;
+  [[nodiscard]] bool ReadCanonicalPayload(std::vector<uint16_t>& payload) const;
   [[nodiscard]] size_t GetCanonicalPayloadByteSize() const;
   [[nodiscard]] VkFormat GetRuntimeFormat() const;
   [[nodiscard]] SourceKind GetSourceKind() const;

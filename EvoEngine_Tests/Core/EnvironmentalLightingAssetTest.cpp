@@ -74,6 +74,39 @@ bool ContainsStableId(const std::vector<ResolvedEnvironmentalLighting::LocalRefl
   });
 }
 
+std::vector<uint8_t> ReadBinaryFile(const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  EXPECT_TRUE(file.good()) << path.string();
+  return {std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+}
+
+void WriteBinaryFile(const std::filesystem::path& path, const std::vector<uint8_t>& bytes) {
+  std::ofstream file(path, std::ios::binary | std::ios::trunc);
+  ASSERT_TRUE(file.good()) << path.string();
+  file.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+  ASSERT_TRUE(file.good()) << path.string();
+}
+
+void WriteU32(std::vector<uint8_t>& bytes, const size_t offset, const uint32_t value) {
+  ASSERT_LE(offset + sizeof(value), bytes.size());
+  for (uint32_t shift = 0u; shift < 32u; shift += 8u)
+    bytes[offset + shift / 8u] = static_cast<uint8_t>(value >> shift);
+}
+
+void WriteU64(std::vector<uint8_t>& bytes, const size_t offset, const uint64_t value) {
+  ASSERT_LE(offset + sizeof(value), bytes.size());
+  for (uint32_t shift = 0u; shift < 64u; shift += 8u)
+    bytes[offset + shift / 8u] = static_cast<uint8_t>(value >> shift);
+}
+
+uint64_t ReadU64(const std::vector<uint8_t>& bytes, const size_t offset) {
+  EXPECT_LE(offset + sizeof(uint64_t), bytes.size());
+  uint64_t value = 0u;
+  for (uint32_t shift = 0u; shift < 64u; shift += 8u)
+    value |= static_cast<uint64_t>(bytes[offset + shift / 8u]) << shift;
+  return value;
+}
+
 void ExpectMatrixNear(const glm::mat4& actual, const glm::mat4& expected) {
   for (glm::length_t column = 0; column < 4; ++column) {
     for (glm::length_t row = 0; row < 4; ++row) {
@@ -82,6 +115,172 @@ void ExpectMatrixNear(const glm::mat4& actual, const glm::mat4& expected) {
   }
 }
 }  // namespace
+
+TEST(EnvironmentalLightingAsset, ReflectionProbePackBinaryRoundTripsDeterministically) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto pack = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  ASSERT_TRUE(pack);
+  pack->probes.reserve(2u);
+  auto& valid = pack->probes.emplace_back();
+  valid.name = "Gallery \xE2\x98\x85";
+  valid.stable_id = 42u;
+  valid.transform = glm::translate(glm::vec3(1.0f, 2.0f, 3.0f));
+  valid.box_projection_extents = glm::vec3(7.0f, 2.5f, 4.0f);
+  valid.sphere_radius = 9.0f;
+  valid.blend_distance = 0.75f;
+  valid.reflection_intensity = 1.5f;
+  valid.artist_priority = -3;
+  valid.shape = static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere);
+  valid.box_projection = false;
+  valid.debug_draw_bounds = true;
+  valid.payload = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
+  ASSERT_TRUE(valid.payload);
+  std::vector<uint16_t> canonical(GlobalReflectionProbe::kCanonicalTexelCount * 4u, 0u);
+  for (size_t index = 0; index < canonical.size(); index += 4u) {
+    canonical[index] = 0x3c00u;
+    canonical[index + 1u] = 0x3800u;
+    canonical[index + 2u] = 0x3400u;
+    canonical[index + 3u] = 0x3c00u;
+  }
+  ASSERT_TRUE(valid.payload->SetCanonicalPayload(canonical));
+  auto& invalid = pack->probes.emplace_back();
+  invalid.name = "Unbaked";
+  invalid.stable_id = 7u;
+  invalid.enabled = false;
+
+  const auto directory = std::filesystem::temp_directory_path() / "evoengine-reflection-probe-pack-test";
+  std::filesystem::create_directories(directory);
+  const auto first_path = directory / "first.evereflectionprobepack";
+  const auto second_path = directory / "second.evereflectionprobepack";
+  ASSERT_TRUE(pack->Export(first_path));
+  ASSERT_TRUE(pack->Export(second_path));
+  EXPECT_EQ(ReadBinaryFile(first_path), ReadBinaryFile(second_path));
+
+  const auto restored = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  ASSERT_TRUE(restored);
+  ASSERT_TRUE(restored->Import(first_path));
+  ASSERT_EQ(restored->probes.size(), 2u);
+  const auto& restored_valid = restored->probes[0];
+  EXPECT_EQ(restored_valid.name, valid.name);
+  EXPECT_EQ(restored_valid.stable_id, valid.stable_id);
+  ExpectMatrixNear(restored_valid.transform, valid.transform);
+  EXPECT_EQ(restored_valid.box_projection_extents, valid.box_projection_extents);
+  EXPECT_FLOAT_EQ(restored_valid.sphere_radius, valid.sphere_radius);
+  EXPECT_FLOAT_EQ(restored_valid.blend_distance, valid.blend_distance);
+  EXPECT_FLOAT_EQ(restored_valid.reflection_intensity, valid.reflection_intensity);
+  EXPECT_EQ(restored_valid.artist_priority, valid.artist_priority);
+  EXPECT_EQ(restored_valid.shape, valid.shape);
+  EXPECT_FALSE(restored_valid.box_projection);
+  EXPECT_TRUE(restored_valid.debug_draw_bounds);
+  ASSERT_TRUE(restored_valid.payload);
+  EXPECT_EQ(restored_valid.payload->GetPayloadHash(), GlobalReflectionProbe::CalculatePayloadHash(canonical));
+  EXPECT_EQ(restored_valid.payload->GetCanonicalPayload(), canonical);
+  EXPECT_EQ(restored->probes[1].name, "Unbaked");
+  EXPECT_FALSE(restored->probes[1].payload);
+  std::filesystem::remove_all(directory);
+}
+
+TEST(EnvironmentalLightingAsset, ReflectionProbePackRejectsCorruptionWithoutReplacingLiveState) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto source = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  ASSERT_TRUE(source);
+  source->probes.reserve(2u);
+  auto& first = source->probes.emplace_back();
+  first.name = "First";
+  first.stable_id = 1u;
+  first.payload = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
+  ASSERT_TRUE(first.payload);
+  std::vector<uint16_t> canonical(GlobalReflectionProbe::kCanonicalTexelCount * 4u, 0x3c00u);
+  ASSERT_TRUE(first.payload->SetCanonicalPayload(canonical));
+  auto& second = source->probes.emplace_back();
+  second.name = "Second";
+  second.stable_id = 2u;
+
+  const auto directory = std::filesystem::temp_directory_path() / "evoengine-reflection-probe-pack-corruption-test";
+  std::filesystem::create_directories(directory);
+  const auto valid_path = directory / "valid.evereflectionprobepack";
+  const auto invalid_path = directory / "invalid.evereflectionprobepack";
+  ASSERT_TRUE(source->Export(valid_path));
+  const auto valid_bytes = ReadBinaryFile(valid_path);
+  const auto live = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  ASSERT_TRUE(live);
+  ASSERT_TRUE(live->Import(valid_path));
+
+  const auto reject = [&](std::vector<uint8_t> bytes) {
+    WriteBinaryFile(invalid_path, bytes);
+    EXPECT_FALSE(live->Import(invalid_path));
+    ASSERT_EQ(live->probes.size(), 2u);
+    EXPECT_EQ(live->probes[0].name, "First");
+    EXPECT_EQ(live->probes[0].stable_id, 1u);
+    EXPECT_EQ(live->probes[0].payload->GetPayloadHash(), first.payload->GetPayloadHash());
+  };
+
+  auto bytes = valid_bytes;
+  bytes.resize(bytes.size() - 1u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU32(bytes, 8u, ReflectionProbePack::kSchemaVersion + 1u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU32(bytes, 24u, (std::numeric_limits<uint32_t>::max)());
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 152u, 1u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 8u, (std::numeric_limits<uint64_t>::max)());
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 32u, 2u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 40u, ReadU64(valid_bytes, 28u + 40u) ^ 1u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU32(bytes, 28u + 56u, 0x7f800000u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 152u + 8u, ReadU64(valid_bytes, 28u + 8u));
+  reject(bytes);
+  bytes = valid_bytes;
+  bytes.push_back(0u);
+  reject(bytes);
+  std::filesystem::remove_all(directory);
+}
+
+TEST(EnvironmentalLightingAsset, DdgiVolumePackYamlRoundTripsClampsRepairsAndAllowsEmptyPacks) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  DdgiVolumePack source;
+  source.volumes.resize(2u);
+  source.volumes[0].name = "Primary";
+  source.volumes[0].stable_id = 9u;
+  source.volumes[0].probe_spacing = glm::vec3(-1.0f, 0.01f, 20000.0f);
+  source.volumes[0].random_ray_backface_threshold = -2.0f;
+  source.volumes[1].name = "Duplicate";
+  source.volumes[1].stable_id = 9u;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeDdgiVolumePack(out, source);
+  out << YAML::EndMap;
+
+  DdgiVolumePack restored;
+  DeserializeDdgiVolumePack(YAML::Load(out.c_str()), restored);
+  ASSERT_EQ(restored.volumes.size(), 2u);
+  EXPECT_EQ(restored.volumes[0].stable_id, 9u);
+  EXPECT_EQ(restored.volumes[1].stable_id, 1u);
+  EXPECT_EQ(restored.volumes[0].probe_spacing, glm::vec3(0.05f, 0.05f, 10000.0f));
+  EXPECT_FLOAT_EQ(restored.volumes[0].random_ray_backface_threshold, 0.0f);
+
+  DdgiVolumePack empty;
+  DeserializeDdgiVolumePack(YAML::Load("{}"), empty);
+  EXPECT_TRUE(empty.volumes.empty());
+}
 
 TEST(EnvironmentalLightingAsset, AuthoringTransformDecomposesAndRecomposesTrs) {
   const glm::vec3 position(3.0f, -2.0f, 7.0f);
@@ -155,8 +354,6 @@ TEST(EnvironmentalLightingAsset, EnvironmentalLightingGizmoTargetIsTransientAndE
   const auto lighting = std::make_shared<EnvironmentalLighting>();
   ASSERT_TRUE(editor_layer);
   ASSERT_TRUE(lighting);
-  lighting->local_reflection_probes.emplace_back().stable_id = 17u;
-  lighting->ddgi_volumes.emplace_back().stable_id = 23u;
 
   editor_layer->SetEnvironmentalLightingGizmoTarget(
       lighting, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, 0u, 17u);
@@ -181,21 +378,25 @@ TEST(EnvironmentalLightingAsset, RepairsMissingAndDuplicateStableIdsDeterministi
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
   EnvironmentalLighting lighting;
-  lighting.local_reflection_probes.resize(3u);
-  lighting.local_reflection_probes[1].stable_id = 7u;
-  lighting.local_reflection_probes[2].stable_id = 7u;
-  lighting.ddgi_volumes.resize(3u);
-  lighting.ddgi_volumes[1].stable_id = 9u;
-  lighting.ddgi_volumes[2].stable_id = 9u;
+  const auto reflection_pack = lighting.GetOrCreateReflectionProbePack();
+  const auto ddgi_pack = lighting.GetOrCreateDdgiVolumePack();
+  reflection_pack->probes.resize(3u);
+  reflection_pack->probes[1].stable_id = 7u;
+  reflection_pack->probes[2].stable_id = 7u;
+  ddgi_pack->volumes.resize(3u);
+  ddgi_pack->volumes[1].stable_id = 9u;
+  ddgi_pack->volumes[2].stable_id = 9u;
 
-  EXPECT_TRUE(lighting.RepairStableIds());
-  EXPECT_EQ(lighting.local_reflection_probes[0].stable_id, 1u);
-  EXPECT_EQ(lighting.local_reflection_probes[1].stable_id, 7u);
-  EXPECT_EQ(lighting.local_reflection_probes[2].stable_id, 2u);
-  EXPECT_EQ(lighting.ddgi_volumes[0].stable_id, 1u);
-  EXPECT_EQ(lighting.ddgi_volumes[1].stable_id, 9u);
-  EXPECT_EQ(lighting.ddgi_volumes[2].stable_id, 2u);
-  EXPECT_FALSE(lighting.RepairStableIds());
+  EXPECT_TRUE(reflection_pack->RepairStableIds());
+  EXPECT_TRUE(ddgi_pack->RepairStableIds());
+  EXPECT_EQ(reflection_pack->probes[0].stable_id, 1u);
+  EXPECT_EQ(reflection_pack->probes[1].stable_id, 7u);
+  EXPECT_EQ(reflection_pack->probes[2].stable_id, 2u);
+  EXPECT_EQ(ddgi_pack->volumes[0].stable_id, 1u);
+  EXPECT_EQ(ddgi_pack->volumes[1].stable_id, 9u);
+  EXPECT_EQ(ddgi_pack->volumes[2].stable_id, 2u);
+  EXPECT_FALSE(reflection_pack->RepairStableIds());
+  EXPECT_FALSE(ddgi_pack->RepairStableIds());
 
   const auto legacy_source = YAML::Load(R"(
 ddgi_volumes:
@@ -205,10 +406,7 @@ ddgi_volumes:
 )");
   EnvironmentalLighting legacy_lighting;
   DeserializeEnvironmentalLighting(legacy_source, legacy_lighting);
-  ASSERT_EQ(legacy_lighting.ddgi_volumes.size(), 3u);
-  EXPECT_EQ(legacy_lighting.ddgi_volumes[0].stable_id, 1u);
-  EXPECT_EQ(legacy_lighting.ddgi_volumes[1].stable_id, 9u);
-  EXPECT_EQ(legacy_lighting.ddgi_volumes[2].stable_id, 2u);
+  EXPECT_TRUE(legacy_lighting.GetOrCreateDdgiVolumePack()->volumes.empty());
 }
 
 TEST(EnvironmentalLightingAsset, LocalTransformGizmoOperationSelectionIsExclusive) {
@@ -268,7 +466,7 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EnvironmentalLighting::LocalReflectionProbe probe;
   probe.name = "Gallery Probe";
   probe.stable_id = 101;
-  probe.global_reflection_probe = local_probe_payload;
+  probe.payload = local_probe_payload;
   const auto probe_transform = glm::translate(glm::vec3(1.0f, 2.0f, 3.0f)) *
                                glm::mat4_cast(glm::quat(glm::radians(glm::vec3(15.0f, -25.0f, 40.0f)))) *
                                glm::scale(glm::vec3(1.5f, 0.75f, 2.0f));
@@ -281,7 +479,8 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   probe.shape = static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere);
   probe.box_projection = false;
   probe.debug_draw_bounds = true;
-  lighting->local_reflection_probes.push_back(probe);
+  const auto reflection_pack = lighting->GetOrCreateReflectionProbePack();
+  reflection_pack->probes.push_back(probe);
 
   EnvironmentalLighting::DdgiVolume volume;
   volume.name = "Gallery DDGI";
@@ -301,7 +500,8 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   volume.pause_probe_updates_after_convergence = false;
   volume.relocation_distance = 0.5f;
   volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
-  lighting->ddgi_volumes.push_back(volume);
+  const auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+  ddgi_pack->volumes.push_back(volume);
 
   YAML::Emitter out;
   out << YAML::BeginMap;
@@ -324,25 +524,18 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_FLOAT_EQ(node["specular_fallback_intensity"].as<float>(), 0.55f);
   EXPECT_EQ(node["ddgi_settings"]["runtime"]["ray_count"].as<int>(), 96);
   EXPECT_FALSE(node["local_reflection_probes_enabled"].as<bool>());
-  ASSERT_EQ(node["local_reflection_probes"].size(), 1u);
-  ASSERT_EQ(node["ddgi_volumes"].size(), 1u);
-  EXPECT_EQ(node["local_reflection_probes"][0]["global_reflection_probe"]["asset_handle_"].as<uint64_t>(),
-            local_probe_payload->GetHandle().GetValue());
-  EXPECT_FALSE(node["local_reflection_probes"][0]["box_extents"]);
-  EXPECT_TRUE(node["local_reflection_probes"][0]["debug_draw_bounds"].as<bool>());
-  EXPECT_EQ(node["ddgi_volumes"][0]["emissive_mesh_sampling_mode"].as<int>(),
-            static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
-  EXPECT_FALSE(node["ddgi_volumes"][0]["pause_probe_updates_after_convergence"].as<bool>());
-  EXPECT_FALSE(node["ddgi_volumes"][0]["auto_invalidate_trigger_conditions"]);
-  EXPECT_FALSE(node["ddgi_volumes"][0]["warmup_trigger_conditions"]);
-  EXPECT_FALSE(node["ddgi_volumes"][0]["scene_change_hysteresis_trigger_conditions"]);
-  EXPECT_EQ(node["ddgi_volumes"][0]["hysteresis_boost_trigger_conditions"].as<int>(), DdgiVolumeTriggerConditionAll);
+  EXPECT_FALSE(node["local_reflection_probes"]);
+  EXPECT_FALSE(node["ddgi_volumes"]);
+  EXPECT_EQ(node["reflection_probe_pack"]["asset_handle_"].as<uint64_t>(), reflection_pack->GetHandle().GetValue());
+  EXPECT_EQ(node["ddgi_volume_pack"]["asset_handle_"].as<uint64_t>(), ddgi_pack->GetHandle().GetValue());
 
   std::vector<AssetRef> refs;
   Serialization::CollectAssetRefs(static_cast<IAsset&>(*lighting), refs);
   EXPECT_TRUE(ContainsAssetHandle(refs, environment->GetHandle()));
   EXPECT_TRUE(ContainsAssetHandle(refs, bake_cubemap->GetHandle()));
-  EXPECT_TRUE(ContainsAssetHandle(refs, local_probe_payload->GetHandle()));
+  EXPECT_TRUE(ContainsAssetHandle(refs, reflection_pack->GetHandle()));
+  EXPECT_TRUE(ContainsAssetHandle(refs, ddgi_pack->GetHandle()));
+  EXPECT_FALSE(ContainsAssetHandle(refs, local_probe_payload->GetHandle()));
 
   EnvironmentalLighting restored;
   Serialization::DeserializeObject(node, static_cast<IAsset&>(restored));
@@ -362,24 +555,23 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   EXPECT_TRUE(restored.ddgi_settings.runtime.enabled);
   EXPECT_EQ(restored.ddgi_settings.runtime.ray_count, 96);
   EXPECT_FALSE(restored.local_reflection_probes_enabled);
-  ASSERT_EQ(restored.local_reflection_probes.size(), 1u);
-  ASSERT_EQ(restored.ddgi_volumes.size(), 1u);
-  EXPECT_EQ(restored.local_reflection_probes.front().global_reflection_probe.GetAssetHandle(),
-            local_probe_payload->GetHandle());
-  EXPECT_EQ(restored.local_reflection_probes.front().shape,
+  ASSERT_EQ(restored.GetReflectionProbePack(), reflection_pack);
+  ASSERT_EQ(restored.GetDdgiVolumePack(), ddgi_pack);
+  EXPECT_EQ(reflection_pack->probes.front().payload, local_probe_payload);
+  EXPECT_EQ(reflection_pack->probes.front().shape,
             static_cast<int>(EnvironmentalLighting::LocalReflectionProbeShape::Sphere));
-  EXPECT_FALSE(restored.local_reflection_probes.front().box_projection);
-  EXPECT_TRUE(restored.local_reflection_probes.front().debug_draw_bounds);
-  ExpectMatrixNear(restored.local_reflection_probes.front().transform, probe_transform);
-  EXPECT_EQ(restored.ddgi_volumes.front().probe_counts, glm::ivec3(3, 4, 5));
-  ExpectMatrixNear(restored.ddgi_volumes.front().transform, volume_transform);
-  EXPECT_EQ(restored.ddgi_volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
-  EXPECT_TRUE(restored.ddgi_volumes.front().enable_probe_classification);
-  EXPECT_FALSE(restored.ddgi_volumes.front().pause_probe_updates_after_convergence);
-  EXPECT_EQ(restored.ddgi_volumes.front().hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
+  EXPECT_FALSE(reflection_pack->probes.front().box_projection);
+  EXPECT_TRUE(reflection_pack->probes.front().debug_draw_bounds);
+  ExpectMatrixNear(reflection_pack->probes.front().transform, probe_transform);
+  EXPECT_EQ(ddgi_pack->volumes.front().probe_counts, glm::ivec3(3, 4, 5));
+  ExpectMatrixNear(ddgi_pack->volumes.front().transform, volume_transform);
+  EXPECT_EQ(ddgi_pack->volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
+  EXPECT_TRUE(ddgi_pack->volumes.front().enable_probe_classification);
+  EXPECT_FALSE(ddgi_pack->volumes.front().pause_probe_updates_after_convergence);
+  EXPECT_EQ(ddgi_pack->volumes.front().hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
 }
 
-TEST(EnvironmentalLightingAsset, LegacyDdgiSceneTriggersMigrateToHysteresisBoost) {
+TEST(EnvironmentalLightingAsset, LegacyInlineDdgiVolumesAreIgnored) {
   Application app;
   ApplicationContextScope scope(app);
   app.Initialize(EmptyProjectSettings());
@@ -399,15 +591,7 @@ ddgi_volumes:
 )");
   DeserializeEnvironmentalLighting(legacy, lighting);
 
-  ASSERT_EQ(lighting.ddgi_volumes.size(), 4u);
-  EXPECT_EQ(lighting.ddgi_volumes[0].hysteresis_boost_trigger_conditions,
-            DdgiVolumeTriggerConditionLightEnableChanged | DdgiVolumeTriggerConditionGeometryChanged);
-  EXPECT_EQ(lighting.ddgi_volumes[1].hysteresis_boost_trigger_conditions,
-            DdgiVolumeTriggerConditionLightEnableChanged | DdgiVolumeTriggerConditionLightingConditionChanged);
-  EXPECT_EQ(lighting.ddgi_volumes[2].hysteresis_boost_trigger_conditions,
-            DdgiVolumeTriggerConditionLightingConditionChanged);
-  EXPECT_EQ(lighting.ddgi_volumes[3].hysteresis_boost_trigger_conditions,
-            DdgiVolumeTriggerConditionLightEnableChanged | DdgiVolumeTriggerConditionGeometryChanged);
+  EXPECT_TRUE(lighting.GetOrCreateDdgiVolumePack()->volumes.empty());
 }
 
 TEST(EnvironmentalLightingAsset, DynamicReflectionProbeSettingsDefaultClampResolveAndIgnoreLegacyPolicy) {
@@ -594,8 +778,8 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
 
   EXPECT_NE(scene_header.find("AssetRef environmental_lighting"), std::string::npos);
   EXPECT_NE(asset_header.find("class EnvironmentalLighting final : public IAsset"), std::string::npos);
-  EXPECT_NE(asset_header.find("std::vector<LocalReflectionProbe> local_reflection_probes"), std::string::npos);
-  EXPECT_NE(asset_header.find("std::vector<DdgiVolume> ddgi_volumes"), std::string::npos);
+  EXPECT_NE(asset_header.find("AssetRef reflection_probe_pack"), std::string::npos);
+  EXPECT_NE(asset_header.find("AssetRef ddgi_volume_pack"), std::string::npos);
   EXPECT_NE(asset_header.find("environment_lighting_intensity"), std::string::npos);
   EXPECT_NE(asset_header.find("diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(asset_header.find("specular_fallback_intensity"), std::string::npos);
@@ -668,8 +852,9 @@ TEST(EnvironmentalLightingAsset, LocalProbeInspectorDoesNotSynchronouslyLoadProb
   ASSERT_NE(payload_readout_end, std::string::npos);
   const auto payload_readout =
       inspector_source.substr(payload_readout_start, payload_readout_end - payload_readout_start);
-  EXPECT_NE(payload_readout.find("probe.global_reflection_probe.Peek<GlobalReflectionProbe>()"), std::string::npos);
-  EXPECT_NE(payload_readout.find("Load / Inspect Probe Payload"), std::string::npos);
+  EXPECT_NE(payload_readout.find("const auto& payload = probe.payload"), std::string::npos);
+  EXPECT_NE(payload_readout.find("Bake Local Probe Payload"), std::string::npos);
+  EXPECT_EQ(payload_readout.find("Load / Inspect Probe Payload"), std::string::npos);
   EXPECT_EQ(payload_readout.find(".Get<GlobalReflectionProbe>()"), std::string::npos);
   EXPECT_EQ(payload_readout.find("Stale check:"), std::string::npos);
   EXPECT_EQ(payload_readout.find("GetGlobalReflectionProbeBakeFingerprint"), std::string::npos);
@@ -678,7 +863,8 @@ TEST(EnvironmentalLightingAsset, LocalProbeInspectorDoesNotSynchronouslyLoadProb
   const auto payload_status_tree = inspector_source.find("ImGui::TreeNode(\"Payload status\")", local_probe_tree);
   ASSERT_NE(payload_status_tree, std::string::npos);
   const auto payload_status_call = inspector_source.find(
-      "InspectEnvironmentalLightingLocalProbePayload(context, probe, !dynamic_settings.enabled)", payload_status_tree);
+      "InspectEnvironmentalLightingLocalProbePayload(context, reflection_pack, probe, !dynamic_settings.enabled)",
+      payload_status_tree);
   ASSERT_NE(payload_status_call, std::string::npos);
   const auto payload_status_pop = inspector_source.find("ImGui::TreePop();", payload_status_call);
   ASSERT_NE(payload_status_pop, std::string::npos);
@@ -714,23 +900,25 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   high_priority.stable_id = 30;
   high_priority.artist_priority = 4;
   high_priority.transform = glm::scale(glm::vec3(16.0f));
-  lighting->local_reflection_probes.push_back(high_priority);
+  const auto reflection_pack = lighting->GetOrCreateReflectionProbePack();
+  const auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
+  reflection_pack->probes.push_back(high_priority);
   EnvironmentalLighting::LocalReflectionProbe small_volume;
   small_volume.stable_id = 10;
   small_volume.artist_priority = 1;
   small_volume.transform = glm::scale(glm::vec3(2.0f));
   small_volume.blend_distance = 0.75f;
-  lighting->local_reflection_probes.push_back(small_volume);
+  reflection_pack->probes.push_back(small_volume);
   EnvironmentalLighting::LocalReflectionProbe missing_payload;
   missing_payload.stable_id = 20;
   missing_payload.artist_priority = 1;
   missing_payload.transform = glm::scale(glm::vec3(4.0f));
-  lighting->local_reflection_probes.push_back(missing_payload);
+  reflection_pack->probes.push_back(missing_payload);
   EnvironmentalLighting::LocalReflectionProbe disabled_probe;
   disabled_probe.stable_id = 99;
   disabled_probe.artist_priority = 99;
   disabled_probe.enabled = false;
-  lighting->local_reflection_probes.push_back(disabled_probe);
+  reflection_pack->probes.push_back(disabled_probe);
 
   EnvironmentalLighting::DdgiVolume high_priority_volume;
   high_priority_volume.stable_id = 200;
@@ -739,18 +927,18 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   high_priority_volume.probe_spacing = glm::vec3(8.0f);
   high_priority_volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Off);
   high_priority_volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionGeometryChanged;
-  lighting->ddgi_volumes.push_back(high_priority_volume);
+  ddgi_pack->volumes.push_back(high_priority_volume);
   EnvironmentalLighting::DdgiVolume dense_volume;
   dense_volume.stable_id = 100;
   dense_volume.artist_priority = 1;
   dense_volume.probe_counts = glm::ivec3(2);
   dense_volume.probe_spacing = glm::vec3(0.5f);
   dense_volume.enable_probe_classification = true;
-  lighting->ddgi_volumes.push_back(dense_volume);
+  ddgi_pack->volumes.push_back(dense_volume);
   EnvironmentalLighting::DdgiVolume disabled_volume;
   disabled_volume.stable_id = 999;
   disabled_volume.enabled = false;
-  lighting->ddgi_volumes.push_back(disabled_volume);
+  ddgi_pack->volumes.push_back(disabled_volume);
 
   const auto resolved = ResolveEnvironmentalLighting(scene);
   EXPECT_TRUE(resolved.environmental_lighting_asset_assigned);
@@ -773,7 +961,7 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_FLOAT_EQ(resolved.local_reflection_probes[0].blend_distance, 0.05f);
   EXPECT_FLOAT_EQ(resolved.local_reflection_probes[1].blend_distance, 0.5f);
   EXPECT_FALSE(ContainsStableId(resolved.local_reflection_probes, 99u));
-  EXPECT_EQ(resolved.local_reflection_probes[2].global_reflection_probe.GetAssetHandle().GetValue(), 0u);
+  EXPECT_FALSE(resolved.local_reflection_probes[2].payload);
 
   ASSERT_EQ(resolved.ddgi_volumes.size(), 2u);
   EXPECT_EQ(resolved.ddgi_volumes[0].stable_id, 200u);
@@ -815,6 +1003,40 @@ TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalL
   EXPECT_TRUE(resolved.ddgi_volumes.empty());
 }
 
+TEST(EnvironmentalLightingAsset, ResolverSafelyIgnoresWrongPackTypesAndSupportsSharedPacks) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  const auto second_lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  const auto reflection_pack = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  const auto ddgi_pack = AssetManager::CreateTemporaryAsset<DdgiVolumePack>();
+  const auto fallback = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
+  ASSERT_TRUE(scene && lighting && second_lighting && reflection_pack && ddgi_pack && fallback);
+  reflection_pack->probes.emplace_back().stable_id = 11u;
+  ddgi_pack->volumes.emplace_back().stable_id = 22u;
+  scene->environmental_lighting = lighting;
+  scene->global_reflection_probe_fallback = fallback;
+
+  lighting->reflection_probe_pack = ddgi_pack;
+  lighting->ddgi_volume_pack = reflection_pack;
+  auto resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_TRUE(resolved.local_reflection_probes.empty());
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());
+  EXPECT_EQ(resolved.scene_global_reflection_probe_fallback.GetAssetHandle(), fallback->GetHandle());
+
+  lighting->reflection_probe_pack = reflection_pack;
+  lighting->ddgi_volume_pack = ddgi_pack;
+  second_lighting->reflection_probe_pack = reflection_pack;
+  second_lighting->ddgi_volume_pack = ddgi_pack;
+  resolved = ResolveEnvironmentalLighting(scene);
+  ASSERT_EQ(resolved.local_reflection_probes.size(), 1u);
+  ASSERT_EQ(resolved.ddgi_volumes.size(), 1u);
+  EXPECT_EQ(second_lighting->GetReflectionProbePack(), reflection_pack);
+  EXPECT_EQ(second_lighting->GetDdgiVolumePack(), ddgi_pack);
+}
+
 TEST(EnvironmentalLightingAsset, ResolverUsesDefaultsForNonFiniteFallbackValues) {
   Application app;
   ApplicationContextScope scope(app);
@@ -828,7 +1050,8 @@ TEST(EnvironmentalLightingAsset, ResolverUsesDefaultsForNonFiniteFallbackValues)
   lighting->environment_lighting_intensity = std::numeric_limits<float>::quiet_NaN();
   lighting->diffuse_fallback_intensity = std::numeric_limits<float>::quiet_NaN();
   lighting->specular_fallback_intensity = std::numeric_limits<float>::infinity();
-  lighting->local_reflection_probes.emplace_back().blend_distance = std::numeric_limits<float>::quiet_NaN();
+  lighting->GetOrCreateReflectionProbePack()->probes.emplace_back().blend_distance =
+      std::numeric_limits<float>::quiet_NaN();
 
   const auto resolved = ResolveEnvironmentalLighting(scene);
   EXPECT_FLOAT_EQ(resolved.environment_lighting_intensity,
@@ -855,14 +1078,14 @@ TEST(EnvironmentalLightingAsset, ResolverCapsAssetOwnedEntriesDeterministically)
     EnvironmentalLighting::LocalReflectionProbe probe;
     probe.stable_id = index + 1u;
     probe.transform = glm::scale(glm::vec3(2.0f * (1.0f + static_cast<float>(index))));
-    lighting->local_reflection_probes.push_back(probe);
+    lighting->GetOrCreateReflectionProbePack()->probes.push_back(probe);
   }
   for (uint32_t index = 0; index < ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount + 1u; ++index) {
     EnvironmentalLighting::DdgiVolume volume;
     volume.stable_id = index + 1u;
     volume.probe_counts = glm::ivec3(1);
     volume.probe_spacing = glm::vec3(1.0f + static_cast<float>(index));
-    lighting->ddgi_volumes.push_back(volume);
+    lighting->GetOrCreateDdgiVolumePack()->volumes.push_back(volume);
   }
 
   const auto resolved = ResolveEnvironmentalLighting(scene);

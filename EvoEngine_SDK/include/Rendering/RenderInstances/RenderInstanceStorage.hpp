@@ -58,9 +58,9 @@ struct RenderSettings {
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
-  float ddgi_hysteresis = 0.97f;                ///< History weight used by normal DDGI probe updates.
-  float ddgi_boosted_hysteresis = 0.85f;        ///< History weight used while a DDGI hysteresis boost is active.
-  float ddgi_hysteresis_restore_speed = 0.01f;  ///< Hysteresis restored toward normal per unpaused frame.
+  float ddgi_hysteresis = 0.97f;                 ///< History weight used by normal DDGI probe updates.
+  float ddgi_boosted_hysteresis = 0.85f;         ///< History weight used while a DDGI hysteresis boost is active.
+  float ddgi_hysteresis_restore_speed = 0.001f;  ///< Hysteresis restored toward normal per unpaused frame.
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
