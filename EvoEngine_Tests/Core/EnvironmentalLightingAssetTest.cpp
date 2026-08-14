@@ -241,6 +241,12 @@ TEST(EnvironmentalLightingAsset, ReflectionProbePackRejectsCorruptionWithoutRepl
   WriteU64(bytes, 28u + 40u, ReadU64(valid_bytes, 28u + 40u) ^ 1u);
   reject(bytes);
   bytes = valid_bytes;
+  WriteU32(bytes, 28u + 52u, 0x80000007u);
+  reject(bytes);
+  bytes = valid_bytes;
+  WriteU64(bytes, 28u + 152u + 24u, 1u);
+  reject(bytes);
+  bytes = valid_bytes;
   WriteU32(bytes, 28u + 56u, 0x7f800000u);
   reject(bytes);
   bytes = valid_bytes;

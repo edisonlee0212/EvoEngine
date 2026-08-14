@@ -1947,7 +1947,7 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
       }
       if (const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
           lighting) {
-        const auto pack = lighting->ddgi_volume_pack.Get<DdgiVolumePack>();
+        const auto pack = lighting->GetDdgiVolumePack();
         if (pack)
           for (const auto& authored : pack->volumes) {
             if (!authored.enabled ||
@@ -2526,8 +2526,7 @@ void RenderEnvironmentalLightingProbeBounds(const std::shared_ptr<EditorLayer>& 
   if (!editor_layer) {
     return;
   }
-  auto pack_ref = lighting.reflection_probe_pack;
-  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  const auto pack = lighting.GetReflectionProbePack();
   if (!pack)
     return;
   for (size_t index = 0; index < pack->probes.size(); ++index) {
@@ -2545,8 +2544,7 @@ void RenderEnvironmentalLightingDebugProbeBounds(const std::shared_ptr<EditorLay
   if (!editor_layer) {
     return;
   }
-  auto pack_ref = lighting.reflection_probe_pack;
-  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  const auto pack = lighting.GetReflectionProbePack();
   if (!pack)
     return;
   for (size_t index = 0; index < pack->probes.size(); ++index) {
@@ -2576,8 +2574,7 @@ void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLay
   if (!editor_layer) {
     return;
   }
-  auto reflection_pack_ref = lighting.reflection_probe_pack;
-  const auto reflection_pack = reflection_pack_ref.Get<ReflectionProbePack>();
+  const auto reflection_pack = lighting.GetReflectionProbePack();
   for (size_t index = 0; reflection_pack && index < reflection_pack->probes.size(); ++index) {
     const auto& probe = reflection_pack->probes[index];
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(
@@ -2587,8 +2584,7 @@ void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLay
     }
   }
   const auto settings = MakeBoundingVolumeGizmoSettings();
-  auto ddgi_pack_ref = lighting.ddgi_volume_pack;
-  const auto ddgi_pack = ddgi_pack_ref.Get<DdgiVolumePack>();
+  const auto ddgi_pack = lighting.GetDdgiVolumePack();
   for (size_t index = 0; ddgi_pack && index < ddgi_pack->volumes.size(); ++index) {
     const auto& volume = ddgi_pack->volumes[index];
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(lighting, EnvironmentalLightingGizmoTargetType::DdgiVolume,
@@ -2828,8 +2824,7 @@ uint32_t QueueEnvironmentalLightingLocalProbeBakes(InspectorContext& context, co
     return 0;
   }
   std::vector<RenderLayer::ReflectionProbeBakeRequest> requests;
-  auto pack_ref = lighting.reflection_probe_pack;
-  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  const auto pack = lighting.GetReflectionProbePack();
   if (!pack)
     return 0u;
   requests.reserve(pack->probes.size());
@@ -2934,8 +2929,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                                             : std::shared_ptr<EnvironmentalLighting>{};
   const auto lighting_asset = active_lighting.get() == &lighting ? active_lighting : nullptr;
   const bool scene_gizmo_available = lighting_asset != nullptr;
-  auto reflection_pack = lighting.reflection_probe_pack.Get<ReflectionProbePack>();
-  auto ddgi_pack = lighting.ddgi_volume_pack.Get<DdgiVolumePack>();
+  auto reflection_pack = lighting.GetReflectionProbePack();
+  auto ddgi_pack = lighting.GetDdgiVolumePack();
   bool changed = false;
   if (reflection_pack && reflection_pack->RepairStableIds())
     reflection_pack->SetUnsaved();
@@ -2958,7 +2953,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("DDGI")) {
       if (editor_layer->DragAndDropButton<DdgiVolumePack>(lighting.ddgi_volume_pack, "DDGI Volume Pack")) {
-        ddgi_pack = lighting.ddgi_volume_pack.Get<DdgiVolumePack>();
+        ddgi_pack = lighting.GetDdgiVolumePack();
         changed = true;
       }
       if (ImGui::TreeNodeEx("Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -3138,7 +3133,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
     if (ImGui::BeginTabItem("Reflection Probes")) {
       if (editor_layer->DragAndDropButton<ReflectionProbePack>(lighting.reflection_probe_pack,
                                                                "Reflection Probe Pack")) {
-        reflection_pack = lighting.reflection_probe_pack.Get<ReflectionProbePack>();
+        reflection_pack = lighting.GetReflectionProbePack();
         changed = true;
       }
       changed = ImGui::Checkbox("Enable local probe reflections", &lighting.local_reflection_probes_enabled) || changed;

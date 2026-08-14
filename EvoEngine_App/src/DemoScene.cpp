@@ -1318,19 +1318,11 @@ void ConfigureStandardDdgiRuntime(DdgiSettings& settings, const int max_probe_co
   }
 }
 
-std::shared_ptr<ReflectionProbePack> GetOrCreateReflectionProbePack(EnvironmentalLighting& lighting) {
-  return lighting.GetOrCreateReflectionProbePack();
-}
-
-std::shared_ptr<DdgiVolumePack> GetOrCreateDdgiVolumePack(EnvironmentalLighting& lighting) {
-  return lighting.GetOrCreateDdgiVolumePack();
-}
-
 EnvironmentalLighting::DdgiVolume& AddEnvironmentalLightingDdgiVolume(
     EnvironmentalLighting& lighting, const std::string& name, const glm::mat4& transform,
     const glm::ivec3& probe_counts, const glm::vec3& probe_spacing, const glm::vec3& volume_origin,
     const int artist_priority = 0) {
-  auto& volume = GetOrCreateDdgiVolumePack(lighting)->volumes.emplace_back();
+  auto& volume = lighting.GetOrCreateDdgiVolumePack()->volumes.emplace_back();
   volume.name = name;
   volume.stable_id = StableEnvironmentalLightingId(name);
   volume.transform = transform;
@@ -1346,7 +1338,7 @@ EnvironmentalLighting::DdgiVolume& ResetEnvironmentalLightingDdgiVolume(
     const glm::vec3& probe_spacing, const glm::vec3& volume_origin, const int artist_priority = 0) {
   Transform transform;
   transform.SetPosition(position);
-  GetOrCreateDdgiVolumePack(lighting)->volumes.clear();
+  lighting.GetOrCreateDdgiVolumePack()->volumes.clear();
   return AddEnvironmentalLightingDdgiVolume(lighting, name, transform.value, probe_counts, probe_spacing, volume_origin,
                                             artist_priority);
 }
@@ -1357,7 +1349,10 @@ EnvironmentalLighting::DdgiVolume* FindEnvironmentalLightingDdgiVolume(const std
   if (!lighting) {
     return nullptr;
   }
-  for (auto& volume : GetOrCreateDdgiVolumePack(*lighting)->volumes) {
+  const auto pack = lighting->GetDdgiVolumePack();
+  if (!pack)
+    return nullptr;
+  for (auto& volume : pack->volumes) {
     if (volume.name == name) {
       return &volume;
     }
@@ -1390,7 +1385,7 @@ EnvironmentalLighting::LocalReflectionProbe& AddEnvironmentalLightingLocalReflec
     const std::shared_ptr<GlobalReflectionProbe>& asset, const int priority,
     const EnvironmentalLighting::LocalReflectionProbeShape shape, const float sphere_radius, const float blend_distance,
     const bool box_projection = false) {
-  auto& probe = GetOrCreateReflectionProbePack(lighting)->probes.emplace_back();
+  auto& probe = lighting.GetOrCreateReflectionProbePack()->probes.emplace_back();
   probe.name = name;
   probe.stable_id = StableEnvironmentalLightingId(name);
   probe.transform = transform;
@@ -1424,7 +1419,10 @@ EnvironmentalLighting::LocalReflectionProbe* FindEnvironmentalLightingLocalRefle
   if (!lighting) {
     return nullptr;
   }
-  for (auto& probe : GetOrCreateReflectionProbePack(*lighting)->probes) {
+  const auto pack = lighting->GetReflectionProbePack();
+  if (!pack)
+    return nullptr;
+  for (auto& probe : pack->probes) {
     if (probe.name == name) {
       return &probe;
     }
@@ -1434,7 +1432,10 @@ EnvironmentalLighting::LocalReflectionProbe* FindEnvironmentalLightingLocalRefle
 
 EnvironmentalLighting::LocalReflectionProbe& RequireEnvironmentalLightingLocalReflectionProbe(
     EnvironmentalLighting& lighting, const std::string& name) {
-  for (auto& probe : GetOrCreateReflectionProbePack(lighting)->probes) {
+  const auto pack = lighting.GetReflectionProbePack();
+  if (!pack)
+    throw std::runtime_error("Missing environmental lighting reflection probe pack.");
+  for (auto& probe : pack->probes) {
     if (probe.name == name) {
       return probe;
     }
@@ -1494,7 +1495,7 @@ void RunEnvironmentalLightingLocalProbeBake(const std::shared_ptr<Scene>& scene,
                                             const EnvironmentalLighting::LocalReflectionProbe& probe,
                                             const char* context) {
   const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-  const auto pack = lighting ? GetOrCreateReflectionProbePack(*lighting) : nullptr;
+  const auto pack = lighting ? lighting->GetReflectionProbePack() : nullptr;
   const auto& payload = probe.payload;
   if (!payload || !pack ||
       render_layer.QueueGlobalReflectionProbeBakeBatch(
@@ -1521,7 +1522,7 @@ uint32_t RunEnvironmentalLightingLocalProbeBakeBatch(
   requests.reserve(probes.size());
   payloads.reserve(probes.size());
   const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-  const auto pack = lighting ? GetOrCreateReflectionProbePack(*lighting) : nullptr;
+  const auto pack = lighting ? lighting->GetReflectionProbePack() : nullptr;
   for (const auto* probe : probes) {
     const auto& payload = probe->payload;
     if (!payload || !pack) {

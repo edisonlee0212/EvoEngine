@@ -196,8 +196,7 @@ void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironme
   if (!lighting.local_reflection_probes_enabled) {
     return;
   }
-  auto pack_ref = lighting.reflection_probe_pack;
-  const auto pack = pack_ref.Get<ReflectionProbePack>();
+  const auto pack = lighting.GetReflectionProbePack();
   if (!pack) {
     return;
   }
@@ -227,8 +226,7 @@ void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironme
 }
 
 void ResolveDdgiVolumes(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
-  auto pack_ref = lighting.ddgi_volume_pack;
-  const auto pack = pack_ref.Get<DdgiVolumePack>();
+  const auto pack = lighting.GetDdgiVolumePack();
   if (!pack) {
     return;
   }

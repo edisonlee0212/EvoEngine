@@ -5095,7 +5095,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     return;
   }
 
-  const auto reflection_pack = lighting->reflection_probe_pack.Get<ReflectionProbePack>();
+  const auto reflection_pack = lighting->GetReflectionProbePack();
   if (!reflection_pack) {
     if (has_dynamic_runtime())
       RetireDynamicReflectionProbeRuntime();

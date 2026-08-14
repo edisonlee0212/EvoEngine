@@ -28,6 +28,7 @@ constexpr uint32_t kValidPayloadFlag = 1u << 0u;
 constexpr uint32_t kBoxProjectionFlag = 1u << 1u;
 constexpr uint32_t kEnabledFlag = 1u << 2u;
 constexpr uint32_t kDebugDrawFlag = 1u << 3u;
+constexpr uint32_t kKnownFlags = kValidPayloadFlag | kBoxProjectionFlag | kEnabledFlag | kDebugDrawFlag;
 constexpr size_t kMaximumNameBytes = 1024u * 1024u;
 std::atomic<uint64_t> temporary_file_counter = 0u;
 
@@ -175,8 +176,8 @@ std::shared_ptr<ReflectionProbePackStagedLoadPayload> Decode(const std::filesyst
       probe.enabled = (flags & kEnabledFlag) != 0u;
       probe.debug_draw_bounds = (flags & kDebugDrawFlag) != 0u;
 
-      if (probe.stable_id == 0u || !stable_ids.emplace(probe.stable_id).second || !IsFinite(probe) ||
-          name_offset < data_start || name_size > kMaximumNameBytes ||
+      if ((flags & ~kKnownFlags) != 0u || probe.stable_id == 0u || !stable_ids.emplace(probe.stable_id).second ||
+          !IsFinite(probe) || name_offset < data_start || name_size > kMaximumNameBytes ||
           !RangeValid(name_offset, name_size, bytes.size()))
         throw std::invalid_argument("Reflection probe pack entry metadata is invalid.");
       probe.name.assign(reinterpret_cast<const char*>(bytes.data() + name_offset), static_cast<size_t>(name_size));
@@ -185,8 +186,8 @@ std::shared_ptr<ReflectionProbePackStagedLoadPayload> Decode(const std::filesyst
 
       const bool valid = (flags & kValidPayloadFlag) != 0u;
       if (!valid) {
-        if (source_kind != static_cast<uint32_t>(GlobalReflectionProbe::SourceKind::Empty) || payload_size != 0u ||
-            staged_probe.payload_hash != 0u)
+        if (source_kind != static_cast<uint32_t>(GlobalReflectionProbe::SourceKind::Empty) || payload_offset != 0u ||
+            payload_size != 0u || staged_probe.payload_hash != 0u)
           throw std::invalid_argument("Reflection probe pack invalid payload marker is inconsistent.");
         continue;
       }
@@ -269,6 +270,7 @@ const ReflectionProbePack::Probe* ReflectionProbePack::FindProbe(const uint64_t 
 }
 
 bool ReflectionProbePack::SaveInternal(const std::filesystem::path& path) const {
+  std::filesystem::path temporary_path;
   try {
     if (probes.size() > std::numeric_limits<uint32_t>::max())
       throw std::invalid_argument("Reflection probe pack has too many entries.");
@@ -298,6 +300,8 @@ bool ReflectionProbePack::SaveInternal(const std::filesystem::path& path) const 
     }
     if (data_offset > std::numeric_limits<size_t>::max())
       throw std::overflow_error("Reflection probe pack is too large.");
+    if (data_offset > static_cast<uint64_t>(std::numeric_limits<std::streamsize>::max()))
+      throw std::overflow_error("Reflection probe pack exceeds the supported stream size.");
 
     std::vector<uint8_t> bytes;
     bytes.reserve(static_cast<size_t>(data_offset));
@@ -343,7 +347,7 @@ bool ReflectionProbePack::SaveInternal(const std::filesystem::path& path) const 
     if (bytes.size() != static_cast<size_t>(data_offset))
       throw std::runtime_error("Reflection probe pack size calculation is inconsistent.");
 
-    auto temporary_path = path;
+    temporary_path = path;
     temporary_path += ".tmp." + std::to_string(temporary_file_counter.fetch_add(1u)) + "." +
                       std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     std::ofstream stream(temporary_path, std::ios::binary | std::ios::trunc);
@@ -351,16 +355,19 @@ bool ReflectionProbePack::SaveInternal(const std::filesystem::path& path) const 
     stream.flush();
     if (!stream) {
       stream.close();
-      std::filesystem::remove(temporary_path);
+      std::error_code error;
+      std::filesystem::remove(temporary_path, error);
       return false;
     }
     stream.close();
     if (ReplaceFile(temporary_path, path))
       return true;
-    std::filesystem::remove(temporary_path);
   } catch (const std::exception& exception) {
     EVOENGINE_ERROR("Failed to save reflection probe pack: " + std::string(exception.what()))
   }
+  std::error_code error;
+  if (!temporary_path.empty())
+    std::filesystem::remove(temporary_path, error);
   return false;
 }
 

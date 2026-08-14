@@ -3912,8 +3912,8 @@ void EditorLayer::SceneCameraWindow() {
           const auto target = *environmental_lighting_gizmo_target_;
           const auto lighting = target.lighting.lock();
           const auto active_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
-          const auto reflection_pack = lighting ? lighting->reflection_probe_pack.Get<ReflectionProbePack>() : nullptr;
-          const auto ddgi_pack = lighting ? lighting->ddgi_volume_pack.Get<DdgiVolumePack>() : nullptr;
+          const auto reflection_pack = lighting ? lighting->GetReflectionProbePack() : nullptr;
+          const auto ddgi_pack = lighting ? lighting->GetDdgiVolumePack() : nullptr;
           const bool local_probe_valid = target.type == EnvironmentalLightingGizmoTargetType::LocalReflectionProbe &&
                                          reflection_pack && target.index < reflection_pack->probes.size() &&
                                          reflection_pack->probes[target.index].stable_id == target.stable_id;

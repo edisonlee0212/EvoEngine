@@ -587,7 +587,7 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(demo_source.find("AddEnvironmentalLightingDdgiVolume("), std::string::npos);
   EXPECT_NE(rendering_scene_source.find("ResetEnvironmentalLightingDdgiVolume(*lighting, \"DDGI Probe Volume\""),
             std::string::npos);
-  EXPECT_NE(demo_source.find("GetOrCreateDdgiVolumePack(lighting)->volumes.clear();"), std::string::npos);
+  EXPECT_NE(demo_source.find("lighting.GetOrCreateDdgiVolumePack()->volumes.clear();"), std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("SetEnvironmentalLightingFallbackIntensities(*lighting, 1.0f, 1.0f)"),
             std::string::npos);
   EXPECT_NE(rendering_scene_source.find("environment, 1.0f, lighting->diffuse_fallback_intensity"), std::string::npos);
