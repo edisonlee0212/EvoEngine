@@ -300,7 +300,7 @@ void SkinnedMesh::SetVertices(const SkinnedVertexAttributes& skinned_vertex_attr
                               const std::vector<glm::uvec3>& triangles, const int tangent_tex_coord,
                               std::vector<uint32_t>* source_vertex_indices) {
   if (skinned_vertices.empty() || triangles.empty()) {
-    EVOENGINE_LOG("Skinned vertices or triangles empty!");
+    EVOENGINE_WARNING("Skinned vertices or triangles empty!")
     return;
   }
 

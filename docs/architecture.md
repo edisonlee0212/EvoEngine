@@ -32,6 +32,19 @@ An EvoEngine app is assembled by pushing layers before initialization. A typical
 
 The main loop runs in phases: input/platform update, project update, transform graph calculation, fixed update, scene update, render preparation, late update, render execution, and window presentation. Editor play mode clones the start scene for runtime simulation, then restores the project scene when playback stops.
 
+## Editor Console
+
+The `Console` panel presents Info, Warning, and Error messages in chronological order with local wall-clock timestamps.
+Its toolbar provides manual clearing, a persisted Clear-on-Play toggle, and independent severity filters. Selecting a row
+opens the complete message in a copyable details dialog; the table itself shows a normalized single-line preview.
+New editor layouts show Info only by default; Warning and Error history remains available through their filter buttons.
+Routine project loading emits one Info message after scanning assets and one after the scene is fully ready.
+
+The panel follows new messages while it remains at the bottom. Scrolling upward pauses automatic following until the user
+returns to the bottom. History retains the latest 10,000 messages. Starting a new runtime session clears history when
+Clear-on-Play is enabled, including autoplay and Step from the stopped state, but resuming from Pause does not. Switching
+projects always clears the old history before the new project begins loading so new load diagnostics remain visible.
+
 ## ECS And Scene Model
 
 EvoEngine uses two complementary component types:

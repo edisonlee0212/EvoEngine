@@ -49,8 +49,19 @@ TEST(PunctualLightImport, PrefabImporterConvertsAssimpPunctualLightsToNativeComp
   EXPECT_NE(source.find("SafeLookAt(-direction, up)"), std::string::npos);
   EXPECT_NE(source.find("SafeLookAt(direction, up)"), std::string::npos);
   EXPECT_NE(source.find("PushImportedLightPrefab"), std::string::npos);
-  EXPECT_NE(source.find("Imported punctual light count"), std::string::npos);
-  EXPECT_NE(source.find("Imported punctual light '"), std::string::npos);
+  EXPECT_EQ(source.find("Imported punctual light count"), std::string::npos);
+  EXPECT_EQ(source.find("Imported punctual light '"), std::string::npos);
+  EXPECT_EQ(source.find("ImportedPunctualLightStats"), std::string::npos);
+}
+
+TEST(PunctualLightImport, RenderingDemoDisablesImportedSponzaLights) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_App/src/DemoScene.cpp"));
+  ASSERT_FALSE(source.empty());
+
+  EXPECT_NE(source.find("DisableImportedLightsRecursive(scene, sponza_entity);"), std::string::npos);
+  EXPECT_NE(source.find("DisableLightIfPresent<DirectionalLight>(scene, entity);"), std::string::npos);
+  EXPECT_NE(source.find("DisableLightIfPresent<PointLight>(scene, entity);"), std::string::npos);
+  EXPECT_NE(source.find("DisableLightIfPresent<SpotLight>(scene, entity);"), std::string::npos);
 }
 
 TEST(PunctualLightImport, NativePointAndSpotRangeReachGpuLightBlocks) {

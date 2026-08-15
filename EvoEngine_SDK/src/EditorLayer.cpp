@@ -3,6 +3,7 @@
 #include "AssetManager.hpp"
 #include "Cubemap.hpp"
 #include "EditorTheme.hpp"
+#include "EntityBatchInspector.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "EnvironmentalMap.hpp"
 #include "FileManager.hpp"
@@ -26,6 +27,7 @@
 #include "Serialization.hpp"
 #include "StrandsRenderer.hpp"
 #include "Times.hpp"
+#include "UnknownPrivateComponent.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 
@@ -39,6 +41,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <functional>
+#include <limits>
 #include <unordered_map>
 
 using namespace evo_engine;
@@ -84,6 +87,154 @@ struct TitleBarSearchResult {
   Handle asset_handle = Handle(0);
   std::shared_ptr<ILayer> layer;
 };
+
+struct KeyBindingCaptureState {
+  ImGuiID id = 0;
+  int start_frame = -1;
+};
+
+std::string KeyboardKeyName(const int key) {
+  if (key >= GLFW_KEY_F1 && key <= GLFW_KEY_F25)
+    return "F" + std::to_string(key - GLFW_KEY_F1 + 1);
+  if (key >= GLFW_KEY_KP_0 && key <= GLFW_KEY_KP_9)
+    return "Keypad " + std::to_string(key - GLFW_KEY_KP_0);
+  switch (key) {
+    case GLFW_KEY_SPACE:
+      return "Space";
+    case GLFW_KEY_ESCAPE:
+      return "Escape";
+    case GLFW_KEY_ENTER:
+      return "Enter";
+    case GLFW_KEY_TAB:
+      return "Tab";
+    case GLFW_KEY_BACKSPACE:
+      return "Backspace";
+    case GLFW_KEY_INSERT:
+      return "Insert";
+    case GLFW_KEY_DELETE:
+      return "Delete";
+    case GLFW_KEY_RIGHT:
+      return "Right Arrow";
+    case GLFW_KEY_LEFT:
+      return "Left Arrow";
+    case GLFW_KEY_DOWN:
+      return "Down Arrow";
+    case GLFW_KEY_UP:
+      return "Up Arrow";
+    case GLFW_KEY_PAGE_UP:
+      return "Page Up";
+    case GLFW_KEY_PAGE_DOWN:
+      return "Page Down";
+    case GLFW_KEY_HOME:
+      return "Home";
+    case GLFW_KEY_END:
+      return "End";
+    case GLFW_KEY_CAPS_LOCK:
+      return "Caps Lock";
+    case GLFW_KEY_SCROLL_LOCK:
+      return "Scroll Lock";
+    case GLFW_KEY_NUM_LOCK:
+      return "Num Lock";
+    case GLFW_KEY_PRINT_SCREEN:
+      return "Print Screen";
+    case GLFW_KEY_PAUSE:
+      return "Pause";
+    case GLFW_KEY_KP_DECIMAL:
+      return "Keypad Decimal";
+    case GLFW_KEY_KP_DIVIDE:
+      return "Keypad Divide";
+    case GLFW_KEY_KP_MULTIPLY:
+      return "Keypad Multiply";
+    case GLFW_KEY_KP_SUBTRACT:
+      return "Keypad Subtract";
+    case GLFW_KEY_KP_ADD:
+      return "Keypad Add";
+    case GLFW_KEY_KP_ENTER:
+      return "Keypad Enter";
+    case GLFW_KEY_KP_EQUAL:
+      return "Keypad Equal";
+    case GLFW_KEY_LEFT_SHIFT:
+      return "Left Shift";
+    case GLFW_KEY_LEFT_CONTROL:
+      return "Left Control";
+    case GLFW_KEY_LEFT_ALT:
+      return "Left Alt";
+    case GLFW_KEY_LEFT_SUPER:
+      return "Left Super";
+    case GLFW_KEY_RIGHT_SHIFT:
+      return "Right Shift";
+    case GLFW_KEY_RIGHT_CONTROL:
+      return "Right Control";
+    case GLFW_KEY_RIGHT_ALT:
+      return "Right Alt";
+    case GLFW_KEY_RIGHT_SUPER:
+      return "Right Super";
+    case GLFW_KEY_MENU:
+      return "Menu";
+    default:
+      break;
+  }
+  if (key >= GLFW_KEY_SPACE && key <= GLFW_KEY_LAST) {
+    if (const char* name = glfwGetKeyName(key, 0)) {
+      std::string result = name;
+      if (result.size() == 1)
+        result[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(result[0])));
+      return result;
+    }
+  }
+  return "Unknown (" + std::to_string(key) + ")";
+}
+
+std::string MouseButtonName(const int button) {
+  switch (button) {
+    case GLFW_MOUSE_BUTTON_LEFT:
+      return "Mouse Left";
+    case GLFW_MOUSE_BUTTON_RIGHT:
+      return "Mouse Right";
+    case GLFW_MOUSE_BUTTON_MIDDLE:
+      return "Mouse Middle";
+    default:
+      return button >= 0 && button <= GLFW_MOUSE_BUTTON_LAST ? "Mouse " + std::to_string(button + 1)
+                                                             : "Unknown (" + std::to_string(button) + ")";
+  }
+}
+
+void DrawKeyBinding(const char* label, int& binding, const bool mouse,
+                    const std::unordered_map<int, Input::KeyActionType>& pressed_keys) {
+  static KeyBindingCaptureState capture;
+  ImGui::PushID(label);
+  ImGui::AlignTextToFramePadding();
+  ImGui::TextUnformatted(label);
+  ImGui::SameLine(150.0f);
+  const ImGuiID id = ImGui::GetID("Binding");
+  const bool capturing = capture.id == id;
+  const std::string button_text = (capturing ? "Press a key..."
+                                   : mouse   ? MouseButtonName(binding)
+                                             : KeyboardKeyName(binding)) +
+                                  "###Binding";
+  if (ImGui::Button(button_text.c_str(), ImVec2(150.0f, 0.0f))) {
+    capture.id = id;
+    capture.start_frame = ImGui::GetFrameCount();
+  }
+  if (capture.id == id && ImGui::GetFrameCount() > capture.start_frame) {
+    for (const auto& [key, action] : pressed_keys) {
+      if (action != Input::KeyActionType::Press)
+        continue;
+      if (key == GLFW_KEY_ESCAPE) {
+        capture.id = 0;
+        break;
+      }
+      const bool valid =
+          mouse ? key >= 0 && key <= GLFW_MOUSE_BUTTON_LAST : key >= GLFW_KEY_SPACE && key <= GLFW_KEY_LAST;
+      if (valid) {
+        binding = key;
+        capture.id = 0;
+        break;
+      }
+    }
+  }
+  ImGui::PopID();
+}
 
 float ClampFiniteNonnegative(const float value, const float fallback) {
   return std::isfinite(value) && value >= 0.0f ? value : fallback;
@@ -545,6 +696,186 @@ bool DrawToolbarImageButton(const char* id, const std::shared_ptr<Texture2D>& ic
     ImGui::SetTooltip("%s", tooltip);
   }
   return clicked;
+}
+
+bool DrawViewportImageButton(const char* id, const std::shared_ptr<Texture2D>& icon, const char* tooltip,
+                             const bool selected = false, const ImVec2 button_size = ImVec2(18.0f, 18.0f)) {
+  const ImVec2 button_min = ImGui::GetCursorScreenPos();
+  const ImRect button_rect(button_min, ImVec2(button_min.x + button_size.x, button_min.y + button_size.y));
+  const bool clicked = ImGui::InvisibleButton(id, button_size);
+  ImU32 tint =
+      selected ? ImGui::ColorConvertFloat4ToU32(ImGui::GetStyleColorVec4(ImGuiCol_CheckMark)) : TitleBarTextColor();
+  if (ImGui::IsItemActive())
+    tint = MultiplyColor(tint, 0.75f);
+  else if (ImGui::IsItemHovered())
+    tint = MultiplyColor(tint, 1.25f);
+  DrawFittedImage(ImGui::GetWindowDrawList(), icon, button_rect, tint);
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("%s", tooltip);
+  return clicked;
+}
+
+const char* ConsoleMessageTypeName(const ConsoleMessageType type) {
+  switch (type) {
+    case ConsoleMessageType::Log:
+      return "Info";
+    case ConsoleMessageType::Warning:
+      return "Warning";
+    case ConsoleMessageType::Error:
+      return "Error";
+  }
+  return "Unknown";
+}
+
+ImVec4 ConsoleMessageColor(const ConsoleMessageType type) {
+  switch (type) {
+    case ConsoleMessageType::Warning:
+      return WarningTextColor();
+    case ConsoleMessageType::Error:
+      return ErrorTextColor();
+    case ConsoleMessageType::Log:
+      return UsesLightBackground() ? ImVec4(0.0f, 0.32f, 0.72f, 1.0f) : ImVec4(0.0f, 0.58f, 1.0f, 1.0f);
+  }
+  return ImGui::GetStyleColorVec4(ImGuiCol_Text);
+}
+
+std::string ConsoleMessagePreview(const std::string& message) {
+  std::string preview;
+  preview.reserve(std::min<size_t>(message.size(), 128));
+  bool pending_space = false;
+  for (const unsigned char character : message) {
+    if (std::isspace(character)) {
+      pending_space = !preview.empty();
+      continue;
+    }
+    if (pending_space) {
+      preview.push_back(' ');
+      pending_space = false;
+    }
+    preview.push_back(static_cast<char>(character));
+  }
+  if (preview.size() <= 100)
+    return preview;
+  const size_t end = preview.find(' ', 100);
+  preview.resize(end == std::string::npos ? 100 : end);
+  preview += "...";
+  return preview;
+}
+
+std::string FormatConsoleTimestamp(const std::time_t timestamp) {
+  if (timestamp == 0)
+    return "--:--:--";
+  std::tm local_time{};
+#ifdef _WIN32
+  if (localtime_s(&local_time, &timestamp) != 0)
+    return "--:--:--";
+#else
+  if (!localtime_r(&timestamp, &local_time))
+    return "--:--:--";
+#endif
+  std::array<char, 9> text{};
+  if (std::strftime(text.data(), text.size(), "%H:%M:%S", &local_time) == 0)
+    return "--:--:--";
+  return text.data();
+}
+
+bool DrawConsoleFilterButton(const char* id, const std::shared_ptr<Texture2D>& icon, const char* tooltip,
+                             const bool selected, const ImVec4& severity_color) {
+  constexpr ImVec2 button_size(28.0f, 28.0f);
+  const ImVec2 min = ImGui::GetCursorScreenPos();
+  const ImRect rect(min, ImVec2(min.x + button_size.x, min.y + button_size.y));
+  const bool clicked = ImGui::InvisibleButton(id, button_size);
+  const auto& style = ImGui::GetStyle();
+  ImVec4 background = selected ? style.Colors[ImGuiCol_Header] : style.Colors[ImGuiCol_FrameBg];
+  if (ImGui::IsItemActive())
+    background = style.Colors[ImGuiCol_ButtonActive];
+  else if (ImGui::IsItemHovered())
+    background = style.Colors[ImGuiCol_ButtonHovered];
+  ImGui::GetWindowDrawList()->AddRectFilled(rect.Min, rect.Max, ImGui::ColorConvertFloat4ToU32(background), 3.0f);
+  const ImRect icon_rect(ImVec2(rect.Min.x + 5.0f, rect.Min.y + 5.0f), ImVec2(rect.Max.x - 5.0f, rect.Max.y - 5.0f));
+  DrawFittedImage(icon, icon_rect,
+                  ImGui::ColorConvertFloat4ToU32(selected ? severity_color : style.Colors[ImGuiCol_TextDisabled]));
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip("%s", tooltip);
+  return clicked;
+}
+
+bool BeginConsoleTableRow(const void* id, const float row_height) {
+  ImGuiWindow* window = ImGui::GetCurrentWindow();
+  window->DC.CurrLineSize.y = row_height;
+  ImGui::TableNextRow(0, row_height);
+  ImGui::TableSetColumnIndex(0);
+  const ImVec2 min = ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), 0).Min;
+  const ImVec2 max = {ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), ImGui::TableGetColumnCount() - 1).Max.x,
+                      min.y + row_height};
+  bool hovered = false;
+  bool held = false;
+  const bool clicked = ImGui::ButtonBehavior(ImRect(min, max), ImGui::GetID(id), &hovered, &held);
+  if (hovered)
+    ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
+  return clicked;
+}
+
+struct ComponentHeaderState {
+  bool open = false;
+  bool enabled_changed = false;
+};
+
+ComponentHeaderState DrawComponentHeader(const std::string& name, const std::shared_ptr<Texture2D>& icon,
+                                         const std::shared_ptr<Texture2D>& gear_icon, bool* enabled = nullptr,
+                                         const bool enabled_mixed = false,
+                                         const std::optional<ImU32>& background_color = std::nullopt) {
+  constexpr float icon_size = 14.0f;
+  constexpr float edge_padding = 6.0f;
+  constexpr float gear_size = 18.0f;
+  const auto flags = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_DefaultOpen;
+  ComponentHeaderState result;
+  if (background_color) {
+    const bool light_theme = UsesLightTheme();
+    ImGui::PushStyleColor(ImGuiCol_Header, ImGui::ColorConvertU32ToFloat4(*background_color));
+    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::ColorConvertU32ToFloat4(
+                                                      MultiplyColor(*background_color, light_theme ? 0.95f : 1.12f)));
+    ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::ColorConvertU32ToFloat4(
+                                                     MultiplyColor(*background_color, light_theme ? 0.90f : 1.20f)));
+  }
+  result.open = ImGui::CollapsingHeader("##ComponentHeader", flags);
+  if (background_color)
+    ImGui::PopStyleColor(3);
+  const bool right_clicked = ImGui::IsItemClicked(ImGuiMouseButton_Right);
+  const ImRect header(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
+
+  const float icon_left = header.Min.x + 28.0f;
+  const ImRect icon_rect(ImVec2(icon_left, header.Min.y + (header.GetHeight() - icon_size) * 0.5f),
+                         ImVec2(icon_left + icon_size, header.Min.y + (header.GetHeight() + icon_size) * 0.5f));
+  DrawFittedImage(icon, icon_rect, ImGui::ColorConvertFloat4ToU32(ImGui::GetStyleColorVec4(ImGuiCol_Text)));
+
+  const float gear_left = header.Max.x - edge_padding - gear_size;
+  float text_right = gear_left - edge_padding;
+  if (enabled) {
+    const float checkbox_size = ImGui::GetFrameHeight();
+    const float checkbox_left = gear_left - edge_padding - checkbox_size;
+    ImGui::SetCursorScreenPos(ImVec2(checkbox_left, header.Min.y + (header.GetHeight() - checkbox_size) * 0.5f));
+    if (enabled_mixed)
+      ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+    result.enabled_changed = ImGui::Checkbox("##Enabled", enabled);
+    if (enabled_mixed)
+      ImGui::PopItemFlag();
+    if (ImGui::IsItemHovered())
+      ImGui::SetTooltip("Enabled");
+    text_right = checkbox_left - edge_padding;
+  }
+
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->PushClipRect(ImVec2(icon_rect.Max.x + edge_padding, header.Min.y), ImVec2(text_right, header.Max.y), true);
+  draw_list->AddText(
+      ImVec2(icon_rect.Max.x + edge_padding, header.Min.y + (header.GetHeight() - ImGui::GetFontSize()) * 0.5f),
+      ImGui::ColorConvertFloat4ToU32(ImGui::GetStyleColorVec4(ImGuiCol_Text)), name.c_str());
+  draw_list->PopClipRect();
+
+  ImGui::SetCursorScreenPos(ImVec2(gear_left, header.Min.y + (header.GetHeight() - gear_size) * 0.5f));
+  if (DrawViewportImageButton("##ComponentSettings", gear_icon, "Component Settings") || right_clicked)
+    ImGui::OpenPopup("ComponentSettings");
+  return result;
 }
 
 int PlaybackControlCount(const Application::ExecutionStatus status) {
@@ -1014,6 +1345,7 @@ void ReadYamlValue(const YAML::Node& in, const char* key, T& value) {
 
 void SerializeEditorCameraControlKeyBindings(YAML::Emitter& out, const EditorCameraControlKeyBindings& key_bindings) {
   out << YAML::Key << "rotate_mouse_button" << YAML::Value << key_bindings.rotate_mouse_button;
+  out << YAML::Key << "focus_selection_key" << YAML::Value << key_bindings.focus_selection_key;
   out << YAML::Key << "move_forward_key" << YAML::Value << key_bindings.move_forward_key;
   out << YAML::Key << "move_backward_key" << YAML::Value << key_bindings.move_backward_key;
   out << YAML::Key << "move_left_key" << YAML::Value << key_bindings.move_left_key;
@@ -1024,6 +1356,7 @@ void SerializeEditorCameraControlKeyBindings(YAML::Emitter& out, const EditorCam
 
 void DeserializeEditorCameraControlKeyBindings(const YAML::Node& in, EditorCameraControlKeyBindings& key_bindings) {
   ReadYamlValue(in, "rotate_mouse_button", key_bindings.rotate_mouse_button);
+  ReadYamlValue(in, "focus_selection_key", key_bindings.focus_selection_key);
   ReadYamlValue(in, "move_forward_key", key_bindings.move_forward_key);
   ReadYamlValue(in, "move_backward_key", key_bindings.move_backward_key);
   ReadYamlValue(in, "move_left_key", key_bindings.move_left_key);
@@ -1092,110 +1425,68 @@ bool IsValid(const Bound& bound) {
          bound.min.z <= bound.max.z;
 }
 
-void AccumulateOrbitBound(const Bound& bound, const glm::mat4& transform, glm::vec3& weighted_sum, float& total_weight,
-                          Bound* combined_bound = nullptr) {
-  if (!IsValid(bound)) {
-    return;
-  }
-  auto world_bound = bound;
-  world_bound.ApplyTransform(transform);
-  if (!IsValid(world_bound)) {
-    return;
-  }
-  const auto size = glm::max(world_bound.Size(), glm::vec3(0.0f));
-  float weight = size.x * size.y * size.z;
-  if (!std::isfinite(weight) || weight <= glm::epsilon<float>()) {
-    weight = 1.0f;
-  }
-  weighted_sum += world_bound.Center() * weight;
-  total_weight += weight;
-  if (combined_bound) {
-    combined_bound->min = glm::min(combined_bound->min, world_bound.min);
-    combined_bound->max = glm::max(combined_bound->max, world_bound.max);
-  }
-}
-
-bool TryResolveVisibleOrbitCenter(const std::shared_ptr<Scene>& scene, const Entity& entity, glm::vec3& center,
-                                  Bound* combined_bound = nullptr) {
-  if (!scene || !scene->IsEntityValid(entity)) {
+bool WorldUpCameraRotation(const glm::vec3& front, const glm::quat& fallback_rotation, glm::quat& camera_rotation) {
+  if (!IsFinite(front) || glm::length(front) <= glm::epsilon<float>())
     return false;
-  }
-
-  auto descendants = scene->GetDescendants(entity);
-  descendants.emplace_back(entity);
-
-  glm::vec3 weighted_sum(0.0f);
-  float total_weight = 0.0f;
-  Bound visible_bound;
-  for (const auto& walker : descendants) {
-    if (!scene->IsEntityValid(walker) || !scene->IsEntityEnabled(walker)) {
-      continue;
-    }
-
-    const auto transform = scene->GetDataComponent<GlobalTransform>(walker).value;
-    if (scene->HasPrivateComponent<MeshRenderer>(walker)) {
-      if (const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(walker).lock();
-          renderer && renderer->IsEnabled()) {
-        if (const auto mesh = renderer->mesh.Get<Mesh>()) {
-          AccumulateOrbitBound(mesh->GetBound(), transform, weighted_sum, total_weight, &visible_bound);
-        }
-      }
-    }
-    if (scene->HasPrivateComponent<SkinnedMeshRenderer>(walker)) {
-      if (const auto renderer = scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(walker).lock();
-          renderer && renderer->IsEnabled()) {
-        if (const auto mesh = renderer->skinned_mesh.Get<SkinnedMesh>()) {
-          AccumulateOrbitBound(mesh->GetBound(), transform, weighted_sum, total_weight, &visible_bound);
-        }
-      }
-    }
-    if (scene->HasPrivateComponent<Particles>(walker)) {
-      if (const auto particles = scene->GetOrSetPrivateComponent<Particles>(walker).lock();
-          particles && particles->IsEnabled()) {
-        AccumulateOrbitBound(particles->bounding_box, transform, weighted_sum, total_weight, &visible_bound);
-      }
-    }
-    if (scene->HasPrivateComponent<StrandsRenderer>(walker)) {
-      if (const auto renderer = scene->GetOrSetPrivateComponent<StrandsRenderer>(walker).lock();
-          renderer && renderer->IsEnabled()) {
-        if (const auto strands = renderer->strands.Get<Strands>()) {
-          AccumulateOrbitBound(strands->GetBound(), transform, weighted_sum, total_weight, &visible_bound);
-        }
-      }
-    }
-  }
-
-  if (total_weight > 0.0f) {
-    center = weighted_sum / total_weight;
-    if (combined_bound) {
-      *combined_bound = visible_bound;
-    }
-    return IsFinite(center);
-  }
-
-  const auto bound = scene->GetEntityBoundingBox(entity);
-  center = bound.Center();
-  if (combined_bound && IsValid(bound)) {
-    *combined_bound = bound;
-  }
-  if (!IsFinite(center)) {
-    center = scene->GetDataComponent<GlobalTransform>(entity).GetPosition();
-  }
-  return IsFinite(center);
-}
-
-void LookAtOrbitCenter(const glm::vec3& center, const glm::vec3& camera_position, glm::quat& camera_rotation) {
-  const auto front = center - camera_position;
-  if (glm::length(front) <= glm::epsilon<float>()) {
-    return;
-  }
   const auto front_direction = glm::normalize(front);
   auto right = glm::cross(front_direction, glm::vec3(0.0f, 1.0f, 0.0f));
-  if (glm::length(right) <= glm::epsilon<float>()) {
-    return;
+  if (!IsFinite(right) || glm::length(right) <= glm::epsilon<float>()) {
+    right = fallback_rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+    right.y = 0.0f;
   }
+  if (!IsFinite(right) || glm::length(right) <= glm::epsilon<float>())
+    right = glm::vec3(1.0f, 0.0f, 0.0f);
   right = glm::normalize(right);
-  camera_rotation = glm::quatLookAt(front_direction, glm::normalize(glm::cross(right, front_direction)));
+  const auto up = glm::normalize(glm::cross(right, front_direction));
+  camera_rotation = glm::normalize(glm::quatLookAt(front_direction, up));
+  return std::isfinite(camera_rotation.x) && std::isfinite(camera_rotation.y) && std::isfinite(camera_rotation.z) &&
+         std::isfinite(camera_rotation.w);
+}
+
+bool LookAtCenter(const glm::vec3& center, const glm::vec3& camera_position, const glm::quat& current_rotation,
+                  glm::quat& camera_rotation) {
+  return WorldUpCameraRotation(center - camera_position, current_rotation, camera_rotation);
+}
+
+bool CalculateFocusCameraTransform(const Camera& camera, const Bound& bound, const glm::quat& current_rotation,
+                                   const glm::vec3& current_position, glm::quat& target_rotation,
+                                   glm::vec3& target_position) {
+  if (!IsValid(bound))
+    return false;
+  const auto center = bound.Center();
+  const auto extents = glm::max(bound.Size() * 0.5f, glm::vec3(0.5f));
+  auto view_side = current_position - center;
+  if (!IsFinite(view_side) || glm::length(view_side) <= glm::epsilon<float>())
+    view_side = -(current_rotation * glm::vec3(0.0f, 0.0f, -1.0f));
+  if (!IsFinite(view_side) || glm::length(view_side) <= glm::epsilon<float>())
+    view_side = glm::vec3(0.0f, 0.0f, 1.0f);
+  view_side = glm::normalize(view_side);
+
+  if (!LookAtCenter(center, center + view_side, current_rotation, target_rotation))
+    return false;
+  const auto projection = camera.GetProjection();
+  const float tan_half_horizontal = 1.0f / std::abs(projection[0][0]);
+  const float tan_half_vertical = 1.0f / std::abs(projection[1][1]);
+  if (!std::isfinite(tan_half_horizontal) || !std::isfinite(tan_half_vertical) ||
+      tan_half_horizontal <= glm::epsilon<float>() || tan_half_vertical <= glm::epsilon<float>())
+    return false;
+
+  const auto front = target_rotation * glm::vec3(0.0f, 0.0f, -1.0f);
+  const auto right = target_rotation * glm::vec3(1.0f, 0.0f, 0.0f);
+  const auto up = target_rotation * glm::vec3(0.0f, 1.0f, 0.0f);
+  float distance = 0.0f;
+  for (int x = -1; x <= 1; x += 2)
+    for (int y = -1; y <= 1; y += 2)
+      for (int z = -1; z <= 1; z += 2) {
+        const glm::vec3 offset = extents * glm::vec3(x, y, z);
+        const float forward_offset = glm::dot(offset, front);
+        distance = std::max(distance, std::abs(glm::dot(offset, right)) / tan_half_horizontal - forward_offset);
+        distance = std::max(distance, std::abs(glm::dot(offset, up)) / tan_half_vertical - forward_offset);
+        distance = std::max(distance, camera.camera_settings.near_distance - forward_offset);
+      }
+  distance = std::max(distance * 1.15f, camera.camera_settings.near_distance + 0.01f);
+  target_position = center - front * distance;
+  return IsFinite(target_position);
 }
 }  // namespace
 
@@ -1212,66 +1503,10 @@ void EditorLayer::OnCreate() {
   editor_theme::ApplyDefault();
 
   basic_entity_archetype_ = Entities::CreateEntityArchetype("General", GlobalTransform(), Transform());
-  RegisterComponentDataInspector<GlobalTransform>([](Entity, IDataComponent* data, bool) {
-    const auto* ltw = reinterpret_cast<GlobalTransform*>(data);
-    glm::vec3 er;
-    glm::vec3 t;
-    glm::vec3 s;
-    ltw->Decompose(t, er, s);
-    er = glm::degrees(er);
-    ImGui::DragFloat3("Position##Global", &t.x, 0.1f, 0, 0, "%.3f", ImGuiSliderFlags_ReadOnly);
-    ImGui::DragFloat3("Rotation##Global", &er.x, 0.1f, 0, 0, "%.3f", ImGuiSliderFlags_ReadOnly);
-    ImGui::DragFloat3("Scale##Global", &s.x, 0.1f, 0, 0, "%.3f", ImGuiSliderFlags_ReadOnly);
-    return false;
-  });
-  RegisterComponentDataInspector<Transform>([&](const Entity entity, IDataComponent* data, bool) {
-    auto* ltp = static_cast<Transform*>(static_cast<void*>(data));
-    bool edited = false;
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto status = scene->GetDataComponent<TransformUpdateFlag>(entity);
-    const bool reload = previous_transform_inspection_entity_ != entity ||
-                        previously_stored_transform_.value != ltp->value || status.transform_modified ||
-                        status.global_transform_modified;
-    if (reload) {
-      previous_transform_inspection_entity_ = entity;
-      ltp->Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
-      previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
-      // local_position_selected_ = true;
-      // local_rotation_selected_ = false;
-      // local_scale_selected_ = false;
-
-      previously_stored_transform_ = *ltp;
-    }
-    if (ImGui::DragFloat3("##LocalPosition", &previously_stored_position_.x, 0.01f, 0, 0, "%.3f",
-                          reload ? ImGuiSliderFlags_ReadOnly : 0))
-      edited = true;
-    ImGui::SameLine();
-    if (ImGui::Selectable("Position##Local", local_position_selected_)) {
-      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Translate);
-    }
-    if (ImGui::DragFloat3("##LocalRotation", &previously_stored_rotation_.x, 1.0f, 0, 0, "%.3f",
-                          reload ? ImGuiSliderFlags_ReadOnly : 0))
-      edited = true;
-    ImGui::SameLine();
-    if (ImGui::Selectable("Rotation##Local", local_rotation_selected_)) {
-      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Rotate);
-    }
-    if (ImGui::DragFloat3("##LocalScale", &previously_stored_scale_.x, 0.01f, 0, 0, "%.3f",
-                          reload ? ImGuiSliderFlags_ReadOnly : 0))
-      edited = true;
-    ImGui::SameLine();
-    if (ImGui::Selectable("Scale##Local", local_scale_selected_)) {
-      SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Scale);
-    }
-    if (edited) {
-      ltp->value = glm::translate(previously_stored_position_) *
-                   glm::mat4_cast(glm::quat(glm::radians(previously_stored_rotation_))) *
-                   glm::scale(previously_stored_scale_);
-      previously_stored_transform_ = *ltp;
-    }
-    transform_read_only = false;
-    return edited;
-  });
+  RegisterComponentDataBatchInspector<Transform>(
+      [this](const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets) {
+        return DrawBatchTransformInspector(scene, targets);
+      });
 
   RegisterComponentDataInspector<Ray>([&](Entity, IDataComponent* data, bool) {
     auto* ray = static_cast<Ray*>(static_cast<void*>(data));
@@ -1346,14 +1581,13 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "apply_transform_to_main_camera" << YAML::Value << apply_transform_to_main_camera;
   out << YAML::Key << "default_scene_camera_rotation" << YAML::Value << default_scene_camera_rotation;
   out << YAML::Key << "default_scene_camera_position" << YAML::Value << default_scene_camera_position;
-  out << YAML::Key << "lock_entity_selection" << YAML::Value << lock_entity_selection_;
-  out << YAML::Key << "highlight_selection" << YAML::Value << highlight_selection_;
+  out << YAML::Key << "highlight_selection" << YAML::Value << entity_selection_highlight_.IsEnabled();
   out << YAML::Key << "enable_gizmos" << YAML::Value << enable_gizmos;
-  out << YAML::Key << "enable_view_gizmos" << YAML::Value << enable_view_gizmos;
   out << YAML::Key << "transform_read_only" << YAML::Value << transform_read_only;
   out << YAML::Key << "enable_console_logs" << YAML::Value << enable_console_logs_;
   out << YAML::Key << "enable_console_errors" << YAML::Value << enable_console_errors_;
   out << YAML::Key << "enable_console_warnings" << YAML::Value << enable_console_warnings_;
+  out << YAML::Key << "console_clear_on_play" << YAML::Value << console_clear_on_play_;
   out << YAML::Key << "main_camera_resolution_x" << YAML::Value << main_camera_resolution_x;
   out << YAML::Key << "main_camera_resolution_y" << YAML::Value << main_camera_resolution_y;
   out << YAML::Key << "main_camera_allow_auto_resize" << YAML::Value << main_camera_allow_auto_resize;
@@ -1362,6 +1596,9 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "local_position_selected" << YAML::Value << local_position_selected_;
   out << YAML::Key << "local_rotation_selected" << YAML::Value << local_rotation_selected_;
   out << YAML::Key << "local_scale_selected" << YAML::Value << local_scale_selected_;
+  out << YAML::Key << "entity_gizmo_pivot_mode" << YAML::Value << static_cast<int>(entity_gizmo_pivot_mode_);
+  out << YAML::Key << "entity_gizmo_orientation_mode" << YAML::Value
+      << static_cast<int>(entity_gizmo_orientation_mode_);
 
   if (const auto search = editor_cameras_.find(scene_camera_handle_); search != editor_cameras_.end()) {
     const auto& cam = search->second;
@@ -1375,12 +1612,6 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
       out << YAML::EndMap;
     }
   }
-
-  uint64_t entity_handle = 0;
-  if (const auto scene = ApplicationContext::Get().GetActiveScene(); scene && scene->IsEntityValid(selected_entity_)) {
-    entity_handle = scene->GetEntityHandle(selected_entity_).GetValue();
-  }
-  out << YAML::Key << "selected_entity" << YAML::Value << entity_handle;
 
   uint64_t first_asset_handle = 0;
   out << YAML::Key << "inspecting_assets" << YAML::Value << YAML::BeginSeq;
@@ -1441,14 +1672,15 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
     DeserializeEditorCameraControlKeyBindings(node, editor_camera_control_key_bindings);
   }
   ReadYamlValue(in, "apply_transform_to_main_camera", apply_transform_to_main_camera);
-  ReadYamlValue(in, "lock_entity_selection", lock_entity_selection_);
-  ReadYamlValue(in, "highlight_selection", highlight_selection_);
+  bool highlight_selection = entity_selection_highlight_.IsEnabled();
+  ReadYamlValue(in, "highlight_selection", highlight_selection);
+  entity_selection_highlight_.SetEnabled(highlight_selection, !entity_selection_.Empty());
   ReadYamlValue(in, "enable_gizmos", enable_gizmos);
-  ReadYamlValue(in, "enable_view_gizmos", enable_view_gizmos);
   ReadYamlValue(in, "transform_read_only", transform_read_only);
   ReadYamlValue(in, "enable_console_logs", enable_console_logs_);
   ReadYamlValue(in, "enable_console_errors", enable_console_errors_);
   ReadYamlValue(in, "enable_console_warnings", enable_console_warnings_);
+  ReadYamlValue(in, "console_clear_on_play", console_clear_on_play_);
   ReadYamlValue(in, "main_camera_resolution_x", main_camera_resolution_x);
   ReadYamlValue(in, "main_camera_resolution_y", main_camera_resolution_y);
   ReadYamlValue(in, "main_camera_allow_auto_resize", main_camera_allow_auto_resize);
@@ -1457,6 +1689,21 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
   ReadYamlValue(in, "local_position_selected", local_position_selected_);
   ReadYamlValue(in, "local_rotation_selected", local_rotation_selected_);
   ReadYamlValue(in, "local_scale_selected", local_scale_selected_);
+  if (local_position_selected_)
+    SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Translate);
+  else if (local_rotation_selected_)
+    SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Rotate);
+  else if (local_scale_selected_)
+    SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Scale);
+  else
+    SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Select);
+  int entity_gizmo_pivot_mode = static_cast<int>(entity_gizmo_pivot_mode_);
+  int entity_gizmo_orientation_mode = static_cast<int>(entity_gizmo_orientation_mode_);
+  ReadYamlValue(in, "entity_gizmo_pivot_mode", entity_gizmo_pivot_mode);
+  ReadYamlValue(in, "entity_gizmo_orientation_mode", entity_gizmo_orientation_mode);
+  entity_gizmo_pivot_mode_ = entity_gizmo_pivot_mode == 1 ? EntityGizmoPivotMode::Center : EntityGizmoPivotMode::Pivot;
+  entity_gizmo_orientation_mode_ =
+      entity_gizmo_orientation_mode == 1 ? EntityGizmoOrientationMode::Global : EntityGizmoOrientationMode::Local;
 
   glm::quat scene_camera_rotation = default_scene_camera_rotation;
   ReadYamlValue(in, "default_scene_camera_rotation", scene_camera_rotation);
@@ -1507,20 +1754,9 @@ void EditorLayer::Deserialize(const YAML::Node& in) {
 }
 
 void EditorLayer::DeserializeSceneState(const YAML::Node& in) {
+  ClearEntitySelectionState();
   if (!in || !in.IsMap()) {
     return;
-  }
-
-  if (const auto node = in["selected_entity"]) {
-    uint64_t handle = 0;
-    ReadYamlValue(in, "selected_entity", handle);
-    if (handle != 0) {
-      if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
-        if (const auto entity = scene->GetEntity(Handle(handle)); scene->IsEntityValid(entity)) {
-          SetSelectedEntity(entity);
-        }
-      }
-    }
   }
 
   ClearAssetInspectors();
@@ -1548,6 +1784,17 @@ void EditorLayer::DeserializeSceneState(const YAML::Node& in) {
   }
 }
 
+void EditorLayer::ClearEntitySelectionState() {
+  CancelEntityGizmoSession();
+  entity_selection_.Clear(EntitySelection::RequestSource::Lifecycle);
+  entity_selection_highlight_.Reset();
+  selected_entity_hierarchy_list_.clear();
+  entity_explorer_visible_entities_.clear();
+  entity_explorer_current_entities_.clear();
+  pending_viewport_selection_.reset();
+  ClearEnvironmentalLightingGizmoTarget();
+}
+
 bool EditorLayer::DefaultEditorLayoutPending() const {
   return dock_layout_reset_pending_;
 }
@@ -1558,6 +1805,7 @@ bool EditorLayer::IsPlantVisualSplitLayoutReady() const {
 }
 
 void EditorLayer::OnDestroy() {
+  CancelEntityGizmoSession();
   TitleBarSearchBuffers().erase(this);
   if (ImGui::GetCurrentContext() && ImGui::GetFrameCount() > 0) {
     const auto* ini_filename = ImGui::GetIO().IniFilename;
@@ -1898,12 +2146,17 @@ void EditorLayer::UpdateCameraTransition() {
   float a = 1.0f - glm::pow(1.0 - elapsed_time / transition_time_, 4.0f);
   if (elapsed_time >= transition_time_)
     a = 1.0f;
-  sceneCameraRotation = glm::mix(previous_rotation_, target_rotation_, a);
+  const auto interpolated_rotation = glm::mix(previous_rotation_, target_rotation_, a);
+  sceneCameraRotation = interpolated_rotation;
+  if (transition_preserves_world_up_)
+    WorldUpCameraRotation(interpolated_rotation * glm::vec3(0.0f, 0.0f, -1.0f), previous_rotation_,
+                          sceneCameraRotation);
   sceneCameraPosition = glm::mix(previous_position_, target_position_, a);
   if (a >= 1.0f) {
     lock_camera = false;
     sceneCameraRotation = target_rotation_;
     sceneCameraPosition = target_position_;
+    transition_preserves_world_up_ = false;
     // Camera::ReverseAngle(target_rotation_, m_sceneCameraPitchAngle, m_sceneCameraYawAngle);
   }
 }
@@ -1981,6 +2234,17 @@ void EditorLayer::CaptureMainCameraWindowMousePosition() {
 }
 
 void EditorLayer::UpdateSceneState(const std::shared_ptr<Scene>& scene) {
+  if (entity_selection_.BindScene(scene) == EntitySelection::Result::Changed) {
+    CancelEntityGizmoSession();
+    selected_entity_hierarchy_list_.clear();
+    pending_viewport_selection_.reset();
+  }
+  const auto selection_revision = entity_selection_.GetRevision();
+  entity_selection_.PruneInvalid();
+  if (selection_revision != entity_selection_.GetRevision())
+    CancelEntityGizmoSession();
+  entity_selection_highlight_.Update(!entity_selection_.Empty(),
+                                     static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()));
   if (scene && show_scene_window)
     ResizeCameras();
 
@@ -1992,29 +2256,31 @@ void EditorLayer::UpdateSceneState(const std::shared_ptr<Scene>& scene) {
   if (scene && apply_transform_to_main_camera && !ApplicationContext::Get().IsPlaying()) {
     if (const auto camera = scene->main_camera.Get<Camera>(); camera && scene->IsEntityValid(camera->GetOwner())) {
       auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-      GlobalTransform global_transform;
-      global_transform.SetPosition(sceneCameraPosition);
-      global_transform.SetRotation(sceneCameraRotation);
-      scene->SetDataComponent(camera->GetOwner(), global_transform);
+      const auto rotation_length_squared = glm::dot(sceneCameraRotation, sceneCameraRotation);
+      if (IsFiniteVector(sceneCameraPosition) && std::isfinite(rotation_length_squared) &&
+          rotation_length_squared > glm::epsilon<float>()) {
+        GlobalTransform global_transform;
+        global_transform.SetValue(sceneCameraPosition, glm::normalize(sceneCameraRotation), glm::vec3(1.0f));
+        if (!MatricesNear(scene->GetDataComponent<GlobalTransform>(camera->GetOwner()).value, global_transform.value))
+          scene->SetDataComponent(camera->GetOwner(), global_transform);
+      }
     }
   }
-
-  if (scene && selected_entity_.GetIndex() != 0 && !scene->IsEntityValid(selected_entity_)) {
-    SetSelectedEntity(Entity());
-  }
-  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-      render_layer && render_layer->need_fade_ != 0 && selection_alpha_ < 256) {
-    selection_alpha_ += static_cast<int>(static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()) * 1280);
-  }
-
-  selection_alpha_ = glm::clamp(selection_alpha_, 0, 256);
 }
 
 void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) {
   if (!show_entity_explorer_window) {
+    entity_explorer_window_focused_ = false;
+    entity_explorer_visible_entities_.clear();
     return;
   }
   ImGui::Begin("Entity Explorer");
+  entity_explorer_window_focused_ = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+  if (entity_explorer_window_focused_ && !GetLockEntitySelection() &&
+      Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+    SetSelectedEntity({});
+  }
+  entity_explorer_current_entities_.clear();
   if (scene) {
     if (ImGui::BeginPopupContextWindow("NewEntityPopup")) {
       if (ImGui::Button("Create new entity")) {
@@ -2024,8 +2290,11 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
     }
     const char* hierarchy_display_mode[]{"Archetype", "Hierarchy"};
 
-    ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
-                 IM_ARRAYSIZE(hierarchy_display_mode));
+    if (ImGui::Combo("Display mode", &selected_hierarchy_display_mode, hierarchy_display_mode,
+                     IM_ARRAYSIZE(hierarchy_display_mode))) {
+      entity_selection_.ClearAnchor(EntitySelection::RequestSource::Lifecycle);
+      entity_explorer_visible_entities_.clear();
+    }
     if (selected_hierarchy_display_mode == 0) {
       scene->UnsafeForEachEntityStorage([&](size_t i, const std::string& name, const DataComponentStorage& storage) {
         if (i == 0)
@@ -2035,22 +2304,27 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
         if (ImGui::TreeNode(title1.c_str())) {
           for (size_t j = 0; j < storage.entity_alive_count; j++) {
             Entity entity = storage.chunk_array.entity_array.at(j);
+            entity_explorer_current_entities_.push_back(entity);
             std::string title2 = std::to_string(entity.GetIndex()) + ": ";
             title2 += scene->GetEntityName(entity);
             const bool enabled = scene->IsEntityEnabled(entity);
-            if (enabled) {
-              ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+            const bool inherited_highlight = IsInheritedSelectionHighlight(entity);
+            if (enabled || inherited_highlight) {
+              ImGui::PushStyleColor(ImGuiCol_Text, inherited_highlight ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f)
+                                                                       : ImGui::GetStyleColorVec4(ImGuiCol_Text));
             }
+            const bool selected = entity_selection_.Contains(entity);
             ImGui::TreeNodeEx(
                 title2.c_str(),
                 ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                    (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
-            if (enabled) {
+                    (selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None) |
+                    (GetSelectedEntity() == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+            if (enabled || inherited_highlight) {
               ImGui::PopStyleColor();
             }
             DrawEntityMenu(enabled, entity);
-            if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
-              SetSelectedEntity(entity, false);
+            if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0)) {
+              HandleEntityExplorerSelection(entity);
             }
           }
           ImGui::TreePop();
@@ -2067,6 +2341,7 @@ void EditorLayer::DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene) 
   } else {
     ImGui::Text("No Scene!");
   }
+  entity_explorer_visible_entities_ = entity_explorer_current_entities_;
   ImGui::End();
 }
 
@@ -2077,132 +2352,40 @@ void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
   }
   ImGui::Begin("Entity Inspector");
   if (scene) {
-    ImGui::Text("Selection:");
-    ImGui::SameLine();
-    ImGui::Checkbox("Lock", &lock_entity_selection_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Focus", &highlight_selection_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Gizmos", &enable_gizmos);
-    ImGui::SameLine();
-    if (ImGui::Button("Clear")) {
-      SetSelectedEntity({});
-    }
-    ImGui::Separator();
-    if (scene->IsEntityValid(selected_entity_)) {
-      std::string title = std::to_string(selected_entity_.GetIndex()) + ": ";
-      title += scene->GetEntityName(selected_entity_);
-      bool enabled = scene->IsEntityEnabled(selected_entity_);
+    const auto selected_entity = GetSelectedEntity();
+    if (entity_selection_.GetCount() > 1) {
+      DrawBatchEntityInspector(scene, editor_layer);
+    } else if (scene->IsEntityValid(selected_entity)) {
+      std::string title = std::to_string(selected_entity.GetIndex()) + ": ";
+      title += scene->GetEntityName(selected_entity);
+      bool enabled = scene->IsEntityEnabled(selected_entity);
       if (ImGui::Checkbox((title + "##EnabledCheckbox").c_str(), &enabled)) {
-        if (scene->IsEntityEnabled(selected_entity_) != enabled) {
-          scene->SetEnable(selected_entity_, enabled);
+        if (scene->IsEntityEnabled(selected_entity) != enabled) {
+          scene->SetEnable(selected_entity, enabled);
         }
       }
       ImGui::SameLine();
-      bool is_static = scene->IsEntityStatic(selected_entity_);
+      bool is_static = scene->IsEntityStatic(selected_entity);
       if (ImGui::Checkbox("Static##StaticCheckbox", &is_static)) {
-        if (scene->IsEntityStatic(selected_entity_) != is_static) {
-          scene->SetEntityStatic(selected_entity_, enabled);
+        if (scene->IsEntityStatic(selected_entity) != is_static) {
+          scene->SetEntityStatic(selected_entity, is_static);
         }
       }
+      const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity), selected_entity);
+      ImGui::SameLine();
+      bool selection_locked = GetLockEntitySelection();
+      if (ImGui::Checkbox("Lock", &selection_locked))
+        SetLockEntitySelection(selection_locked);
+      ImGui::SameLine();
+      if (ImGui::Button("Clear"))
+        SetSelectedEntity({});
 
-      if (const bool deleted = DrawEntityMenu(scene->IsEntityEnabled(selected_entity_), selected_entity_); !deleted) {
-        if (ImGui::CollapsingHeader("Data components", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::BeginPopupContextItem("DataComponentInspectorPopup")) {
-            ImGui::Text("Add data component: ");
-            ImGui::Separator();
-
-            for (const auto& i : Serialization::GetInstance().data_component_ids_) {
-              const auto id = i.second;
-              const auto name = i.first;
-              if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
-                  id == typeid(TransformUpdateFlag).hash_code())
-                continue;
-
-              if (!scene->HasDataComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                scene->AddDataComponent(selected_entity_, id);
-              }
-            }
-            ImGui::Separator();
-            ImGui::EndPopup();
-          }
-          bool skip = false;
-          int i = 0;
-          scene->UnsafeForEachDataComponent(selected_entity_, [&](const DataComponentType& type, void* data) {
-            if (skip)
-              return;
-            std::string info = type.type_name;
-            if (info == "TransformUpdateFlag" || info == "GlobalTransform")
-              return;
-            info += " Size: " + std::to_string(type.type_size);
-            ImGui::Text(info.c_str());
-            ImGui::PushID(i);
-            if (ImGui::BeginPopupContextItem(("DataComponentDeletePopup" + std::to_string(i)).c_str())) {
-              if (ImGui::Button("Remove")) {
-                skip = true;
-                scene->RemoveDataComponent(selected_entity_, type.type_index);
-              }
-              ImGui::EndPopup();
-            }
-            ImGui::PopID();
-            InspectComponentData(selected_entity_, static_cast<IDataComponent*>(data), type,
-                                 scene->GetParent(selected_entity_).GetIndex() != 0);
-            ImGui::Separator();
-            i++;
-          });
-        }
-
-        if (ImGui::CollapsingHeader("Private components", ImGuiTreeNodeFlags_DefaultOpen)) {
-          if (ImGui::BeginPopupContextItem("PrivateComponentInspectorPopup")) {
-            ImGui::Text("Add private component: ");
-            ImGui::Separator();
-            for (const auto& i : Serialization::GetInstance().private_component_ids_) {
-              const auto id = i.second;
-              const auto name = i.first;
-              if (!scene->HasPrivateComponent(selected_entity_, id) && ImGui::Button(name.c_str())) {
-                scene->AddPrivateComponent(selected_entity_, id);
-              }
-            }
-            ImGui::Separator();
-            ImGui::EndPopup();
-          }
-
-          int i = 0;
-          bool skip = false;
-          scene->ForEachPrivateComponent(selected_entity_, [&](const PrivateComponentElement& data) {
-            if (skip)
-              return;
-            bool component_enabled = data.private_component_data->IsEnabled();
-            if (ImGui::Checkbox(data.private_component_data->GetTypeName().c_str(), &component_enabled)) {
-              data.private_component_data->SetEnabled(component_enabled);
-            }
-            DraggablePrivateComponent(data.private_component_data);
-            const std::string tag = "##" + data.private_component_data->GetTypeName() +
-                                    std::to_string(data.private_component_data->GetHandle());
-            if (ImGui::BeginPopupContextItem(tag.c_str())) {
-              if (ImGui::Button(("Remove" + tag).c_str())) {
-                skip = true;
-                scene->RemovePrivateComponent(selected_entity_, data.type_index);
-              }
-              ImGui::EndPopup();
-            }
-            if (!skip) {
-              if (ImGui::TreeNodeEx(("Component Settings##" + std::to_string(i)).c_str(),
-                                    ImGuiTreeNodeFlags_DefaultOpen)) {
-                InspectorContext context;
-                context.editor_layer = editor_layer;
-                context.scene = scene;
-                if (InspectorRegistry::GetInstance().Inspect(context, *data.private_component_data))
-                  scene->SetUnsaved();
-                ImGui::TreePop();
-              }
-            }
-            ImGui::Separator();
-            i++;
-          });
-        }
+      if (!deleted) {
+        const auto snapshot = entity_selection_.GetSnapshot();
+        const auto context = EntityBatchInspector::BuildContext(scene, snapshot.entities, snapshot.primary);
+        DrawEntityComponentInspectors(scene, editor_layer, context);
       }
-    } else if (selected_entity_.GetIndex() != 0) {
+    } else if (selected_entity.GetIndex() != 0) {
       SetSelectedEntity(Entity());
     }
   } else {
@@ -2211,60 +2394,597 @@ void EditorLayer::DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene,
   ImGui::End();
 }
 
-void EditorLayer::DrawConsoleWindow() {
-  if (!show_console_window) {
-    return;
+bool EditorLayer::DrawBatchTransformInspector(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets) {
+  transform_read_only = false;
+  bool edited = false;
+  auto draw_field = [&](const char* label, const int field, EntityBatchValue<glm::vec3> value, const float reset_value,
+                        const float speed) {
+    ImGui::PushID(field);
+    ImGui::TableNextRow();
+    ImGui::TableSetColumnIndex(0);
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(label);
+    ImGui::TableSetColumnIndex(1);
+
+    static constexpr const char* axis_labels[] = {"X", "Y", "Z"};
+    static constexpr ImVec4 axis_colors[] = {ImVec4(0.8f, 0.1f, 0.15f, 1.0f), ImVec4(0.2f, 0.7f, 0.2f, 1.0f),
+                                             ImVec4(0.1f, 0.25f, 0.8f, 1.0f)};
+    static constexpr ImVec4 axis_hovered_colors[] = {ImVec4(0.9f, 0.2f, 0.2f, 1.0f), ImVec4(0.3f, 0.8f, 0.3f, 1.0f),
+                                                     ImVec4(0.2f, 0.35f, 0.9f, 1.0f)};
+    const float spacing = 1.0f;
+    const float button_width = ImGui::GetFrameHeight();
+    const float input_width =
+        std::max(24.0f, (ImGui::GetContentRegionAvail().x - button_width * 3.0f - spacing * 5.0f) / 3.0f);
+    for (int axis = 0; axis < 3; ++axis) {
+      ImGui::PushID(axis);
+      ImGui::PushStyleColor(ImGuiCol_Button, axis_colors[axis]);
+      ImGui::PushStyleColor(ImGuiCol_ButtonHovered, axis_hovered_colors[axis]);
+      ImGui::PushStyleColor(ImGuiCol_ButtonActive, axis_colors[axis]);
+      if (ImGui::Button(axis_labels[axis], ImVec2(button_width, 0.0f))) {
+        value.value[axis] = reset_value;
+        edited |= EntityBatchInspector::WriteLocalTransformField(scene, targets, field, value.value, axis);
+      }
+      ImGui::PopStyleColor(3);
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Reset %s %s to %.0f", label, axis_labels[axis], reset_value);
+      ImGui::SameLine(0.0f, spacing);
+      ImGui::SetNextItemWidth(input_width);
+      if (value.mixed_axes[axis])
+        ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+      if (ImGui::DragFloat("##Value", &value.value[axis], speed, 0.0f, 0.0f, "%.2f"))
+        edited |= EntityBatchInspector::WriteLocalTransformField(scene, targets, field, value.value, axis);
+      if (value.mixed_axes[axis] && ImGui::IsItemHovered())
+        ImGui::SetTooltip("Mixed value");
+      if (value.mixed_axes[axis])
+        ImGui::PopItemFlag();
+      ImGui::PopID();
+      if (axis != 2)
+        ImGui::SameLine(0.0f, spacing);
+    }
+    ImGui::PopID();
+  };
+
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 8.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4.0f, 4.0f));
+  if (ImGui::BeginTable("TransformComponent", 2,
+                        ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_NoClip)) {
+    ImGui::TableSetupColumn("Labels", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+    ImGui::TableSetupColumn("Values", ImGuiTableColumnFlags_WidthStretch);
+    draw_field("Translation", 0, EntityBatchInspector::ReadLocalPosition(scene, targets), 0.0f, 0.01f);
+    draw_field("Rotation", 1, EntityBatchInspector::ReadLocalRotationDegrees(scene, targets), 0.0f, 1.0f);
+    draw_field("Scale", 2, EntityBatchInspector::ReadLocalScale(scene, targets), 1.0f, 0.01f);
+    ImGui::EndTable();
   }
+  ImGui::PopStyleVar(2);
+  return edited;
+}
+
+void EditorLayer::DrawBatchEntityInspector(const std::shared_ptr<Scene>& scene,
+                                           const std::shared_ptr<EditorLayer>& editor_layer) {
+  const auto snapshot = entity_selection_.GetSnapshot();
+  const auto context = EntityBatchInspector::BuildContext(scene, snapshot.entities, snapshot.primary);
+  if (context.targets.size() < 2)
+    return;
+
+  auto draw_mixed_checkbox = [&](const char* label, const auto read, const auto write) {
+    bool value = read(context.targets.front());
+    const bool mixed = std::any_of(context.targets.begin() + 1, context.targets.end(), [&](const Entity entity) {
+      return read(entity) != value;
+    });
+    if (mixed)
+      ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
+    const bool changed = ImGui::Checkbox(label, &value);
+    if (changed)
+      for (const auto entity : context.targets)
+        write(entity, value);
+    if (mixed)
+      ImGui::PopItemFlag();
+    return changed;
+  };
+  if (draw_mixed_checkbox(
+          "##EnabledCheckbox",
+          [&](const Entity entity) {
+            return scene->IsEntityEnabled(entity);
+          },
+          [&](const Entity entity, const bool value) {
+            scene->SetEnableSingle(entity, value);
+          }))
+    scene->SetUnsaved();
+  ImGui::SameLine();
+  ImGui::Text("Editing %zu entities", context.targets.size());
+  ImGui::SameLine();
+  draw_mixed_checkbox(
+      "Static##StaticCheckbox",
+      [&](const Entity entity) {
+        return scene->IsEntityStatic(entity);
+      },
+      [&](const Entity entity, const bool value) {
+        scene->SetEntityStatic(entity, value);
+      });
+  ImGui::SameLine();
+  bool selection_locked = GetLockEntitySelection();
+  if (ImGui::Checkbox("Lock", &selection_locked))
+    SetLockEntitySelection(selection_locked);
+  ImGui::SameLine();
+  const bool selection_cleared = ImGui::Button("Clear");
+  if (selection_cleared)
+    SetSelectedEntity({});
+
+  if (!selection_cleared)
+    DrawEntityComponentInspectors(scene, editor_layer, context);
+}
+
+void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& scene,
+                                                const std::shared_ptr<EditorLayer>& editor_layer,
+                                                const EntityBatchInspectionContext& context) {
+  if (context.targets.empty())
+    return;
+  const bool multiple = context.targets.size() > 1;
+  const auto generic_component_icon = FindIconInMap(editor_icons_, "ComponentGeneric");
+  const auto component_settings_icon = FindIconInMap(editor_icons_, "SceneSettings");
+  const auto data_components_icon = FindIconInMap(editor_icons_, "DataComponents");
+  const bool light_theme = UsesLightTheme();
+  const ImU32 data_section_color = light_theme ? IM_COL32(216, 233, 247, 255) : IM_COL32(58, 110, 154, 255);
+  const ImU32 data_component_color = light_theme ? IM_COL32(190, 219, 242, 255) : IM_COL32(38, 82, 120, 255);
+  const ImU32 private_section_color = light_theme ? IM_COL32(236, 218, 198, 255) : IM_COL32(138, 103, 72, 255);
+  const ImU32 private_component_color = light_theme ? IM_COL32(222, 198, 174, 255) : IM_COL32(112, 83, 58, 255);
+  const auto find_component_icon = [&](const size_t type_index, const std::shared_ptr<Texture2D>& fallback) {
+    if (const auto search = component_icon_map_.find(type_index); search != component_icon_map_.end())
+      return search->second;
+    return fallback;
+  };
+
+  ImGui::PushID("DataComponentsSection");
+  const auto data_components_header = DrawComponentHeader("Data Components", data_components_icon,
+                                                          component_settings_icon, nullptr, false, data_section_color);
+  if (ImGui::BeginPopup("ComponentSettings")) {
+    if (ImGui::BeginMenu("Add Component")) {
+      bool has_available_component = false;
+      for (const auto& [name, id] : Serialization::GetInstance().data_component_ids_) {
+        if (id == typeid(Transform).hash_code() || id == typeid(GlobalTransform).hash_code() ||
+            id == typeid(TransformUpdateFlag).hash_code() || id == typeid(UnknownDataComponent).hash_code())
+          continue;
+        const auto missing = std::count_if(context.targets.begin(), context.targets.end(), [&](const Entity entity) {
+          return !scene->HasDataComponent(entity, id);
+        });
+        if (missing == 0)
+          continue;
+        has_available_component = true;
+        const auto label =
+            multiple ? name + " - Add to " + std::to_string(missing) + "/" + std::to_string(context.targets.size())
+                     : name;
+        if (ImGui::MenuItem(label.c_str())) {
+          for (const auto entity : context.targets)
+            if (!scene->HasDataComponent(entity, id))
+              scene->AddDataComponent(entity, id);
+        }
+      }
+      if (!has_available_component)
+        ImGui::MenuItem("No data components available", nullptr, false, false);
+      ImGui::EndMenu();
+    }
+    ImGui::EndPopup();
+  }
+  if (data_components_header.open) {
+    if (context.hidden_data_component_types > 0)
+      ImGui::TextDisabled("%zu non-common data component type(s) hidden", context.hidden_data_component_types);
+    for (const auto& component : context.common_data_components) {
+      ImGui::PushID("DataComponent");
+      ImGui::PushID(static_cast<int>(component.type_index));
+      const auto header =
+          DrawComponentHeader(component.type_name, find_component_icon(component.type_index, data_components_icon),
+                              component_settings_icon, nullptr, false, data_component_color);
+      bool removed = false;
+      if (ImGui::BeginPopup("ComponentSettings")) {
+        const bool protected_component = component.type_index == typeid(Transform).hash_code();
+        ImGui::BeginDisabled(protected_component);
+        const auto remove_label =
+            multiple ? "Remove from " + std::to_string(context.targets.size()) + " entities" : "Remove component";
+        if (ImGui::MenuItem(remove_label.c_str())) {
+          for (const auto entity : context.targets)
+            scene->RemoveDataComponent(entity, component.type_index);
+          removed = true;
+        }
+        ImGui::EndDisabled();
+        if (protected_component && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+          ImGui::SetTooltip("Transform cannot be removed");
+        ImGui::EndPopup();
+      }
+      if (header.open) {
+        ImGui::Indent(8.0f);
+        ImGui::Spacing();
+        const auto single_adapter = component_data_inspector_map_.find(component.type_index);
+        const auto batch_adapter = component_data_batch_inspector_map_.find(component.type_index);
+        const auto dispatch = EntityBatchInspector::ResolveInspectorDispatch(
+            context.targets.size(), single_adapter != component_data_inspector_map_.end(),
+            batch_adapter != component_data_batch_inspector_map_.end(),
+            component.type_index == typeid(Transform).hash_code());
+        if (!removed && dispatch == EntityInspectorDispatch::Single) {
+          const DataComponentType type(component.type_name, component.type_index, component.type_size);
+          InspectComponentData(context.targets.front(),
+                               static_cast<IDataComponent*>(
+                                   scene->GetDataComponentPointer(context.targets.front(), component.type_index)),
+                               type, scene->GetParent(context.targets.front()).GetIndex() != 0);
+        } else if (!removed && dispatch == EntityInspectorDispatch::Batch) {
+          if (batch_adapter->second(scene, context.targets))
+            scene->SetUnsaved();
+        } else if (!removed) {
+          ImGui::TextDisabled(multiple ? "Multi-object editing not supported" : "Component inspection not supported");
+        }
+        ImGui::Spacing();
+        ImGui::Unindent(8.0f);
+      }
+      ImGui::PopID();
+      ImGui::PopID();
+    }
+  }
+  ImGui::PopID();
+
+  ImGui::PushID("PrivateComponentsSection");
+  const auto private_components_header = DrawComponentHeader(
+      "Private Components", generic_component_icon, component_settings_icon, nullptr, false, private_section_color);
+  if (ImGui::BeginPopup("ComponentSettings")) {
+    if (ImGui::BeginMenu("Add Component")) {
+      bool has_available_component = false;
+      for (const auto& [name, id] : Serialization::GetInstance().private_component_ids_) {
+        if (id == typeid(UnknownPrivateComponent).hash_code())
+          continue;
+        const auto missing = std::count_if(context.targets.begin(), context.targets.end(), [&](const Entity entity) {
+          return !scene->HasPrivateComponent(entity, id);
+        });
+        if (missing == 0)
+          continue;
+        has_available_component = true;
+        const auto label =
+            multiple ? name + " - Add to " + std::to_string(missing) + "/" + std::to_string(context.targets.size())
+                     : name;
+        if (ImGui::MenuItem(label.c_str())) {
+          for (const auto entity : context.targets)
+            if (!scene->HasPrivateComponent(entity, id))
+              scene->AddPrivateComponent(entity, id);
+        }
+      }
+      if (!has_available_component)
+        ImGui::MenuItem("No private components available", nullptr, false, false);
+      ImGui::EndMenu();
+    }
+    ImGui::EndPopup();
+  }
+  if (private_components_header.open) {
+    if (context.hidden_private_component_types > 0)
+      ImGui::TextDisabled("%zu non-common private component type(s) hidden", context.hidden_private_component_types);
+    for (const auto& component : context.common_private_components) {
+      std::vector<std::shared_ptr<IPrivateComponent>> instances;
+      for (const auto entity : context.targets)
+        scene->ForEachPrivateComponent(entity, [&](PrivateComponentElement& element) {
+          if (element.type_index == component.type_index)
+            instances.emplace_back(element.private_component_data);
+        });
+      if (instances.size() != context.targets.size())
+        continue;
+      ImGui::PushID("PrivateComponent");
+      ImGui::PushID(static_cast<int>(component.type_index));
+      bool enabled = instances.front()->IsEnabled();
+      const bool mixed = std::any_of(instances.begin() + 1, instances.end(), [&](const auto& instance) {
+        return instance->IsEnabled() != enabled;
+      });
+      const auto header =
+          DrawComponentHeader(component.type_name, find_component_icon(component.type_index, generic_component_icon),
+                              component_settings_icon, &enabled, mixed, private_component_color);
+      if (header.enabled_changed) {
+        for (const auto& instance : instances)
+          instance->SetEnabled(enabled);
+        scene->SetUnsaved();
+      }
+      bool removed = false;
+      if (ImGui::BeginPopup("ComponentSettings")) {
+        const auto remove_label =
+            multiple ? "Remove from " + std::to_string(context.targets.size()) + " entities" : "Remove component";
+        if (ImGui::MenuItem(remove_label.c_str())) {
+          for (const auto entity : context.targets)
+            scene->RemovePrivateComponent(entity, component.type_index);
+          removed = true;
+        }
+        ImGui::EndPopup();
+      }
+      if (header.open) {
+        ImGui::Indent(8.0f);
+        ImGui::Spacing();
+        if (!removed && !multiple)
+          DraggablePrivateComponent(instances.front());
+        const auto& registry = InspectorRegistry::GetInstance();
+        const bool single_available = registry.FindInspector(typeid(*instances.front())) != nullptr;
+        const bool batch_available = registry.FindBatchInspector(typeid(*instances.front())) != nullptr;
+        const auto dispatch =
+            EntityBatchInspector::ResolveInspectorDispatch(context.targets.size(), single_available, batch_available);
+        if (!removed && dispatch == EntityInspectorDispatch::Single) {
+          InspectorContext inspector_context{editor_layer, scene};
+          if (registry.Inspect(inspector_context, *instances.front()))
+            scene->SetUnsaved();
+        } else if (!removed && dispatch == EntityInspectorDispatch::Batch) {
+          InspectorContext inspector_context{editor_layer, scene};
+          if (registry.InspectBatch(inspector_context, instances))
+            scene->SetUnsaved();
+        } else if (!removed) {
+          ImGui::TextDisabled(multiple ? "Multi-object editing not supported" : "Component inspection not supported");
+        }
+        ImGui::Spacing();
+        ImGui::Unindent(8.0f);
+      }
+      ImGui::PopID();
+      ImGui::PopID();
+    }
+  }
+  ImGui::PopID();
+}
+
+bool EditorLayer::BeginEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& handle,
+                                          const std::vector<Entity>& participants, const Entity reference,
+                                          const int operation) {
+  if (!scene || participants.empty() || !scene->IsEntityValid(reference))
+    return false;
+  EntityGizmoSession session;
+  session.scene = scene;
+  session.selection_revision = entity_selection_.GetRevision();
+  session.application_status = static_cast<int>(ApplicationContext::Get().GetApplicationStatus());
+  session.operation = operation;
+  session.pivot_mode = entity_gizmo_pivot_mode_;
+  session.orientation_mode = entity_gizmo_orientation_mode_;
+  session.handle = handle;
+  session.manipulated_handle = handle;
+  Transform handle_transform;
+  handle_transform.value = handle;
+  glm::vec3 handle_scale;
+  if (!handle_transform.Decompose(session.pivot, session.handle_rotation, handle_scale))
+    return false;
+  for (const auto entity : participants) {
+    if (!scene->IsEntityValid(entity) || !scene->HasDataComponent<Transform>(entity) ||
+        !scene->HasDataComponent<GlobalTransform>(entity))
+      return false;
+    EntityGizmoParticipantState state;
+    state.entity = entity;
+    state.parent = scene->GetParent(entity);
+    state.local = scene->GetDataComponent<Transform>(entity).value;
+    state.world = scene->GetDataComponent<GlobalTransform>(entity).value;
+    if (scene->IsEntityValid(state.parent))
+      state.parent_world = scene->GetDataComponent<GlobalTransform>(state.parent).value;
+    session.participants.emplace_back(state);
+  }
+  entity_gizmo_session_ = std::move(session);
+  entity_gizmo_message_.clear();
+  return true;
+}
+
+bool EditorLayer::ApplyEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& manipulated_handle) {
+  if (!entity_gizmo_session_)
+    return false;
+  auto& session = *entity_gizmo_session_;
+  if (session.scene.lock() != scene || session.selection_revision != entity_selection_.GetRevision() ||
+      session.application_status != static_cast<int>(ApplicationContext::Get().GetApplicationStatus())) {
+    CancelEntityGizmoSession("Entity gizmo drag cancelled because editor state changed.");
+    return false;
+  }
+  session.manipulated_handle = manipulated_handle;
+
+  std::vector<Transform> local_results;
+  local_results.reserve(session.participants.size());
+
+  for (const auto& state : session.participants) {
+    if (!scene->IsEntityValid(state.entity) || scene->GetParent(state.entity) != state.parent ||
+        (scene->IsEntityValid(state.parent) &&
+         !MatricesNear(scene->GetDataComponent<GlobalTransform>(state.parent).value, state.parent_world))) {
+      CancelEntityGizmoSession("Entity gizmo drag cancelled because the hierarchy changed.");
+      return false;
+    }
+    const auto operation =
+        session.operation == static_cast<int>(ImGuizmo::OPERATION::TRANSLATE) ? EntityBatchGizmoOperation::Translate
+        : session.operation == static_cast<int>(ImGuizmo::OPERATION::ROTATE)  ? EntityBatchGizmoOperation::Rotate
+                                                                              : EntityBatchGizmoOperation::Scale;
+    glm::mat4 candidate_world(1.0f);
+    if (!EntityBatchInspector::TryApplyGizmoTransform(
+            session.handle, manipulated_handle, state.world, operation,
+            session.pivot_mode == EntityGizmoPivotMode::Pivot ? EntityBatchGizmoPivot::Pivot
+                                                              : EntityBatchGizmoPivot::Center,
+            session.orientation_mode == EntityGizmoOrientationMode::Local ? EntityBatchGizmoOrientation::Local
+                                                                          : EntityBatchGizmoOrientation::Global,
+            candidate_world)) {
+      entity_gizmo_message_ = "Transform cannot be represented.";
+      return false;
+    }
+
+    const auto candidate_local = glm::inverse(state.parent_world) * candidate_world;
+    glm::mat4 normalized(1.0f);
+    glm::vec3 local_position, local_rotation, local_scale;
+    if (!TryNormalizeAuthoringTransform(candidate_local, normalized, local_position, local_rotation, local_scale) ||
+        !MatricesNear(candidate_local, normalized)) {
+      entity_gizmo_message_ = "Group transform would create shear or a singular transform.";
+      return false;
+    }
+    Transform result;
+    result.value = normalized;
+    local_results.emplace_back(result);
+  }
+  for (size_t i = 0; i < session.participants.size(); ++i)
+    scene->SetDataComponent(session.participants[i].entity, local_results[i]);
+  entity_gizmo_message_.clear();
+  return true;
+}
+
+void EditorLayer::CancelEntityGizmoSession(const char* reason) {
+  if (reason && entity_gizmo_session_)
+    EVOENGINE_LOG(reason);
+  entity_gizmo_session_.reset();
+  entity_gizmo_message_.clear();
+}
+
+void EditorLayer::ClearConsoleMessages() {
+  uint64_t revision = 0;
+  {
+    std::lock_guard lock(console_message_mutex_);
+    console_messages_.clear();
+    revision = ++console_message_revision_;
+  }
+  console_rendered_revision_ = revision;
+  console_detailed_message_.reset();
+  console_previous_scroll_y_ = 0.0f;
+  console_auto_scroll_ = true;
+}
+
+void EditorLayer::ClearConsoleOnRuntimeStart() {
+  if (console_clear_on_play_)
+    ClearConsoleMessages();
+}
+
+void EditorLayer::DrawConsoleWindow() {
+  if (!show_console_window)
+    return;
+
+  bool open_details = false;
   if (ImGui::Begin("Console")) {
-    ImGui::Checkbox("Log", &enable_console_logs_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Warning", &enable_console_warnings_);
-    ImGui::SameLine();
-    ImGui::Checkbox("Error", &enable_console_errors_);
-    ImGui::SameLine();
-    std::vector<ConsoleMessage> console_messages;
-    if (ImGui::Button("Clear all")) {
-      std::lock_guard lock(console_message_mutex_);
-      console_messages_.clear();
-    }
-    {
-      std::lock_guard lock(console_message_mutex_);
-      console_messages = console_messages_;
-    }
-    int i = 0;
-    for (auto msg = console_messages.rbegin(); msg != console_messages.rend(); ++msg) {
-      if (i > 999)
-        break;
-      i++;
-      switch (msg->m_type) {
-        case ConsoleMessageType::Log:
-          if (enable_console_logs_) {
-            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
-            ImGui::SameLine();
-            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_Text), msg->m_value.c_str());
-            ImGui::Separator();
-          }
-          break;
-        case ConsoleMessageType::Warning:
-          if (enable_console_warnings_) {
-            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
-            ImGui::SameLine();
-            ImGui::TextColored(WarningTextColor(), msg->m_value.c_str());
-            ImGui::Separator();
-          }
-          break;
-        case ConsoleMessageType::Error:
-          if (enable_console_errors_) {
-            ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%.2f: ", msg->m_time);
-            ImGui::SameLine();
-            ImGui::TextColored(ErrorTextColor(), msg->m_value.c_str());
-            ImGui::Separator();
-          }
-          break;
+    constexpr float toolbar_height = 28.0f;
+    constexpr float filter_width = toolbar_height * 3.0f + 16.0f;
+    bool filter_changed = false;
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+    if (ImGui::BeginChild("ConsoleToolbar", ImVec2(ImGui::GetContentRegionAvail().x, toolbar_height), false,
+                          ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+      if (ImGui::Button("Clear", ImVec2(75.0f, toolbar_height)))
+        ClearConsoleMessages();
+      ImGui::SameLine();
+      const auto& style = ImGui::GetStyle();
+      ImGui::PushStyleColor(ImGuiCol_Button,
+                            console_clear_on_play_ ? style.Colors[ImGuiCol_Header] : style.Colors[ImGuiCol_FrameBg]);
+      if (ImGui::Button("Clear on Play", ImVec2(110.0f, toolbar_height)))
+        console_clear_on_play_ = !console_clear_on_play_;
+      ImGui::PopStyleColor();
+
+      ImGui::SameLine(std::max(ImGui::GetCursorPosX(), ImGui::GetWindowContentRegionMax().x - filter_width));
+      if (DrawConsoleFilterButton("InfoFilter", FindIconInMap(editor_icons_, "InfoButton"), "Info",
+                                  enable_console_logs_, ConsoleMessageColor(ConsoleMessageType::Log))) {
+        enable_console_logs_ = !enable_console_logs_;
+        filter_changed = true;
+      }
+      ImGui::SameLine();
+      if (DrawConsoleFilterButton("WarningFilter", FindIconInMap(editor_icons_, "WarningButton"), "Warning",
+                                  enable_console_warnings_, ConsoleMessageColor(ConsoleMessageType::Warning))) {
+        enable_console_warnings_ = !enable_console_warnings_;
+        filter_changed = true;
+      }
+      ImGui::SameLine();
+      if (DrawConsoleFilterButton("ErrorFilter", FindIconInMap(editor_icons_, "ErrorButton"), "Error",
+                                  enable_console_errors_, ConsoleMessageColor(ConsoleMessageType::Error))) {
+        enable_console_errors_ = !enable_console_errors_;
+        filter_changed = true;
       }
     }
+    ImGui::EndChild();
+    ImGui::PopStyleVar(2);
+
+    std::vector<ConsoleMessage> messages;
+    uint64_t revision = 0;
+    {
+      std::lock_guard lock(console_message_mutex_);
+      messages = console_messages_;
+      revision = console_message_revision_;
+    }
+
+    constexpr ImGuiTableFlags table_flags = ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_Resizable |
+                                            ImGuiTableFlags_Reorderable | ImGuiTableFlags_ScrollY |
+                                            ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV;
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 0.0f));
+    if (ImGui::BeginTable("ConsoleMessages", 3, table_flags, ImGui::GetContentRegionAvail())) {
+      ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_WidthFixed, 100.0f);
+      ImGui::TableSetupColumn("Timestamp", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+      ImGui::TableSetupColumn("Message", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupScrollFreeze(0, 1);
+      ImGui::TableHeadersRow();
+
+      const float scroll_y = ImGui::GetScrollY();
+      const float max_scroll_y = ImGui::GetScrollMaxY();
+      if (scroll_y < console_previous_scroll_y_ - 0.5f)
+        console_auto_scroll_ = false;
+      if (scroll_y >= max_scroll_y - 1.0f)
+        console_auto_scroll_ = true;
+      const bool scroll_to_latest = console_auto_scroll_ && (revision != console_rendered_revision_ || filter_changed);
+      console_rendered_revision_ = revision;
+
+      constexpr float row_height = 24.0f;
+      for (const auto& message : messages) {
+        const bool visible = (message.m_type == ConsoleMessageType::Log && enable_console_logs_) ||
+                             (message.m_type == ConsoleMessageType::Warning && enable_console_warnings_) ||
+                             (message.m_type == ConsoleMessageType::Error && enable_console_errors_);
+        if (!visible)
+          continue;
+
+        ImGui::PushID(&message);
+        const bool clicked = BeginConsoleTableRow(&message, row_height);
+        const ImVec4 severity_color = ConsoleMessageColor(message.m_type);
+        const ImRect type_cell = ImGui::TableGetCellBgRect(ImGui::GetCurrentTable(), 0);
+        ImGui::GetWindowDrawList()->AddRectFilled(ImVec2(type_cell.Min.x + 4.0f, type_cell.Min.y + 4.0f),
+                                                  ImVec2(type_cell.Min.x + 8.0f, type_cell.Max.y - 4.0f),
+                                                  ImGui::ColorConvertFloat4ToU32(severity_color), 2.0f);
+        ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 12.0f);
+        ImGui::TextUnformatted(ConsoleMessageTypeName(message.m_type));
+
+        ImGui::TableSetColumnIndex(1);
+        const std::string timestamp = FormatConsoleTimestamp(message.m_timestamp);
+        ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", timestamp.c_str());
+
+        ImGui::TableSetColumnIndex(2);
+        const std::string preview = ConsoleMessagePreview(message.m_value);
+        ImGui::TextUnformatted(preview.c_str());
+        if (clicked) {
+          console_detailed_message_ = message;
+          open_details = true;
+        }
+        ImGui::PopID();
+      }
+      if (scroll_to_latest)
+        ImGui::SetScrollY(ImGui::GetScrollMaxY());
+      console_previous_scroll_y_ = ImGui::GetScrollY();
+      ImGui::EndTable();
+    }
+    ImGui::PopStyleVar();
   }
   ImGui::End();
+
+  if (open_details)
+    ImGui::OpenPopup("Console Message Details");
+  if (console_detailed_message_) {
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.5f, viewport->WorkSize.y * 0.5f), ImGuiCond_Appearing);
+  }
+  bool details_open = true;
+  if (ImGui::BeginPopupModal("Console Message Details", &details_open,
+                             ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize)) {
+    if (!console_detailed_message_) {
+      ImGui::CloseCurrentPopup();
+    } else {
+      const auto& message = *console_detailed_message_;
+      ImGui::TextColored(ConsoleMessageColor(message.m_type), "%s", ConsoleMessageTypeName(message.m_type));
+      ImGui::SameLine();
+      const std::string timestamp = FormatConsoleTimestamp(message.m_timestamp);
+      ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "%s", timestamp.c_str());
+      ImGui::Separator();
+      if (ImGui::BeginChild("ConsoleMessageText", ImVec2(0.0f, -36.0f), true)) {
+        ImGui::PushTextWrapPos(0.0f);
+        ImGui::TextUnformatted(message.m_value.c_str());
+        ImGui::PopTextWrapPos();
+      }
+      ImGui::EndChild();
+      if (ImGui::Button("Copy to Clipboard", ImVec2(130.0f, 28.0f)))
+        ImGui::SetClipboardText(message.m_value.c_str());
+      ImGui::SameLine();
+      if (ImGui::Button("Close", ImVec2(75.0f, 28.0f))) {
+        ImGui::CloseCurrentPopup();
+        details_open = false;
+      }
+    }
+    ImGui::EndPopup();
+  }
+  if (!details_open)
+    console_detailed_message_.reset();
 }
 
 void EditorLayer::DrawRuntimePackageManagerWindow() {
@@ -2971,11 +3691,140 @@ bool EditorLayer::HasActiveRuntimePackageBuild() const {
 }
 
 void EditorLayer::HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene) {
-  if (scene && scene_camera_window_focused_ && Input::GetKey(GLFW_KEY_DELETE) == Input::KeyActionType::Press) {
-    if (scene->IsEntityValid(selected_entity_)) {
-      scene->DeleteEntity(selected_entity_);
+  if (!scene || (!scene_camera_window_focused_ && !entity_explorer_window_focused_) || ImGui::GetIO().WantTextInput ||
+      Input::GetKey(GLFW_KEY_DELETE) != Input::KeyActionType::Press) {
+    return;
+  }
+  const auto snapshot = entity_selection_.GetSnapshot();
+  std::vector<Entity> roots;
+  for (const auto& selected : snapshot.entities) {
+    if (!scene->IsEntityValid(selected))
+      continue;
+    bool selected_ancestor = false;
+    for (auto parent = scene->GetParent(selected); parent.GetIndex() != 0; parent = scene->GetParent(parent)) {
+      if (snapshot.Contains(parent)) {
+        selected_ancestor = true;
+        break;
+      }
+    }
+    if (!selected_ancestor)
+      roots.push_back(selected);
+  }
+  for (const auto& root : roots) {
+    if (scene->IsEntityValid(root))
+      scene->DeleteEntity(root);
+  }
+  entity_selection_.Clear(EntitySelection::RequestSource::Lifecycle);
+  selected_entity_hierarchy_list_.clear();
+}
+
+bool EditorLayer::IsControlModifierDown() {
+  const auto down = [](const int key) {
+    const auto state = Input::GetKey(key);
+    return state == Input::KeyActionType::Press || state == Input::KeyActionType::Hold;
+  };
+  return down(GLFW_KEY_LEFT_CONTROL) || down(GLFW_KEY_RIGHT_CONTROL);
+}
+
+bool EditorLayer::IsShiftModifierDown() {
+  const auto down = [](const int key) {
+    const auto state = Input::GetKey(key);
+    return state == Input::KeyActionType::Press || state == Input::KeyActionType::Hold;
+  };
+  return down(GLFW_KEY_LEFT_SHIFT) || down(GLFW_KEY_RIGHT_SHIFT);
+}
+
+void EditorLayer::HandleEntityExplorerSelection(const Entity& entity) {
+  if (GetLockEntitySelection())
+    return;
+  ClearEnvironmentalLightingGizmoTarget();
+  const bool control = IsControlModifierDown();
+  const bool shift = IsShiftModifierDown();
+  bool range_handled = false;
+  EntitySelection::Result result = EntitySelection::Result::Unchanged;
+  if (shift && entity_selection_.GetAnchor().GetIndex() != 0) {
+    const auto build_range = [&](const std::vector<Entity>& visible) {
+      std::vector<Entity> range;
+      const auto anchor = std::find(visible.begin(), visible.end(), entity_selection_.GetAnchor());
+      const auto clicked = std::find(visible.begin(), visible.end(), entity);
+      if (anchor == visible.end() || clicked == visible.end())
+        return range;
+      const auto first = std::min(anchor, clicked);
+      const auto last = std::max(anchor, clicked);
+      range.assign(first, last + 1);
+      return range;
+    };
+    auto range = build_range(entity_explorer_visible_entities_);
+    if (range.empty())
+      range = build_range(entity_explorer_current_entities_);
+    if (!range.empty()) {
+      range_handled = true;
+      const EntitySelection::RequestOptions options{
+          EntitySelection::RequestSource::User, EntitySelection::AnchorPolicy::Preserve, {}};
+      result = control ? entity_selection_.AddMany(range, entity, options)
+                       : entity_selection_.ReplaceMany(range, entity, options);
     }
   }
+  if (!range_handled && !shift) {
+    const EntitySelection::RequestOptions options{EntitySelection::RequestSource::User,
+                                                  EntitySelection::AnchorPolicy::Set, entity};
+    result = control ? entity_selection_.Toggle(entity, options) : entity_selection_.Replace(entity, options);
+  } else if (!range_handled && shift) {
+    const EntitySelection::RequestOptions options{EntitySelection::RequestSource::User,
+                                                  EntitySelection::AnchorPolicy::Set, entity};
+    result = entity_selection_.Replace(entity, options);
+  }
+  if (result == EntitySelection::Result::Changed)
+    selected_entity_hierarchy_list_.clear();
+}
+
+void EditorLayer::HandleViewportSelection(const Entity& entity, const bool control) {
+  if (GetLockEntitySelection())
+    return;
+  ClearEnvironmentalLightingGizmoTarget();
+  EntitySelection::Result result = EntitySelection::Result::Unchanged;
+  if (control) {
+    if (entity.GetIndex() != 0) {
+      result = entity_selection_.Add(entity,
+                                     {EntitySelection::RequestSource::User, EntitySelection::AnchorPolicy::Clear, {}});
+    }
+  } else if (entity.GetIndex() == 0) {
+    result = entity_selection_.Clear(EntitySelection::RequestSource::User);
+  } else {
+    auto target = entity;
+    for (auto walker = entity; walker.GetIndex() != 0; walker = GetScene()->GetParent(walker)) {
+      if (walker != entity_selection_.GetPrimary())
+        continue;
+      const auto parent = GetScene()->GetParent(walker);
+      target = parent.GetIndex() == 0 ? entity : parent;
+      break;
+    }
+    result = entity_selection_.Replace(
+        target, {EntitySelection::RequestSource::User, EntitySelection::AnchorPolicy::Clear, {}});
+  }
+  if (result == EntitySelection::Result::Changed)
+    selected_entity_hierarchy_list_.clear();
+}
+
+void EditorLayer::ProcessPendingViewportSelection() {
+  if (!pending_viewport_selection_)
+    return;
+  const auto request = *pending_viewport_selection_;
+  pending_viewport_selection_.reset();
+  if (const auto camera = request.camera.lock()) {
+    HandleViewportSelection(MouseEntitySelection(camera, request.mouse_position), request.control);
+  }
+}
+
+bool EditorLayer::IsInheritedSelectionHighlight(const Entity& entity) const {
+  const auto scene = GetScene();
+  if (!scene || entity_selection_.Contains(entity))
+    return false;
+  for (auto parent = scene->GetParent(entity); parent.GetIndex() != 0; parent = scene->GetParent(parent)) {
+    if (entity_selection_.Contains(parent))
+      return true;
+  }
+  return false;
 }
 
 void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
@@ -2995,6 +3844,44 @@ void EditorLayer::DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene
   }
 }
 
+void EditorLayer::DrawSceneCameraSettingsContents(const std::shared_ptr<EditorLayer>& editor_layer) {
+  auto& [scene_camera_rotation, scene_camera_position, scene_camera] = editor_cameras_.at(scene_camera_handle_);
+
+  ImGui::SeparatorText("Display");
+  ImGui::Checkbox("Scene Camera Info", &show_scene_info);
+
+  ImGui::SeparatorText("Camera");
+  if (ImGui::Button("Reset camera"))
+    MoveCamera(default_scene_camera_rotation, default_scene_camera_position);
+  ImGui::SameLine();
+  if (ImGui::Button("Set default camera position")) {
+    default_scene_camera_position = scene_camera_position;
+    default_scene_camera_rotation = scene_camera_rotation;
+  }
+  ImGui::DragFloat("Max move speed", &velocity, 0.1f, 0.0f, 0.0f, "%.1f");
+  ImGui::DragFloat("Max mouse sensitivity", &sensitivity, 0.1f, 0.0f, 0.0f, "%.1f");
+  ImGui::DragFloat("Acceleration time", &camera_control_acceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
+  ImGui::DragFloat("Deceleration time", &camera_control_deceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
+  ImGui::DragFloat3("Position", &scene_camera_position.x, 0.1f);
+  if (ImGui::DragFloat4("Rotation", &scene_camera_rotation.x, 0.01f)) {
+    const float length_squared = glm::dot(scene_camera_rotation, scene_camera_rotation);
+    if (std::isfinite(length_squared) && length_squared > glm::epsilon<float>())
+      scene_camera_rotation = glm::normalize(scene_camera_rotation);
+  }
+  ImGui::Checkbox("Copy Transform", &apply_transform_to_main_camera);
+  ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
+
+  ImGui::SeparatorText("Camera Settings");
+  if (scene_camera) {
+    InspectorContext context;
+    context.editor_layer = editor_layer;
+    context.scene = ApplicationContext::Get().GetActiveScene();
+    InspectorRegistry::GetInstance().Inspect(context, *scene_camera);
+  } else {
+    ImGui::Text("No active scene camera!");
+  }
+}
+
 void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto window_title = GetLayerName();
   bool open = enable_inspection;
@@ -3006,50 +3893,29 @@ void EditorLayer::DrawLayerSettingsWindow(const std::shared_ptr<EditorLayer>& ed
 
   if (ImGui::BeginTabBar("EditorLayerInspectionTabs")) {
     auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-    if (ImGui::BeginTabItem("Camera")) {
-      ImGui::Checkbox("View Gizmos", &enable_view_gizmos);
-      if (ImGui::Button("Reset camera")) {
-        MoveCamera(default_scene_camera_rotation, default_scene_camera_position);
-      }
-      if (ImGui::Button("Set default camera position")) {
-        default_scene_camera_position = sceneCameraPosition;
-        default_scene_camera_rotation = sceneCameraRotation;
-      }
-      ImGui::DragFloat("Max move speed", &velocity, 0.1f, 0.0f, 0.0f, "%.1f");
-      ImGui::DragFloat("Max mouse sensitivity", &sensitivity, 0.1f, 0.0f, 0.0f, "%.1f");
-      ImGui::DragFloat("Acceleration time", &camera_control_acceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
-      ImGui::DragFloat("Deceleration time", &camera_control_deceleration_time, 0.01f, 0.0f, 5.0f, "%.2f s");
-      ImGui::DragFloat3("Position", &sceneCameraPosition.x, 0.1f);
-      if (ImGui::DragFloat4("Rotation", &sceneCameraRotation.x, 0.01f)) {
-        const float length_squared = glm::dot(sceneCameraRotation, sceneCameraRotation);
-        if (std::isfinite(length_squared) && length_squared > glm::epsilon<float>()) {
-          sceneCameraRotation = glm::normalize(sceneCameraRotation);
-        }
-      }
-      if (ImGui::TreeNode("Key bindings")) {
-        ImGui::InputInt("Rotate mouse button", &editor_camera_control_key_bindings.rotate_mouse_button);
-        ImGui::InputInt("Move forward", &editor_camera_control_key_bindings.move_forward_key);
-        ImGui::InputInt("Move backward", &editor_camera_control_key_bindings.move_backward_key);
-        ImGui::InputInt("Move left", &editor_camera_control_key_bindings.move_left_key);
-        ImGui::InputInt("Move right", &editor_camera_control_key_bindings.move_right_key);
-        ImGui::InputInt("Move up", &editor_camera_control_key_bindings.move_up_key);
-        ImGui::InputInt("Move down", &editor_camera_control_key_bindings.move_down_key);
-        ImGui::TreePop();
-      }
-      ImGui::Checkbox("Copy Transform", &apply_transform_to_main_camera);
-      ImGui::DragFloat("Resolution", &scene_camera_resolution_multiplier, 0.1f, 0.1f, 4.0f);
-
-      if (ImGui::TreeNode("Camera settings")) {
-        if (sceneCamera) {
-          InspectorContext context;
-          context.editor_layer = editor_layer;
-          context.scene = ApplicationContext::Get().GetActiveScene();
-          InspectorRegistry::GetInstance().Inspect(context, *sceneCamera);
-        } else {
-          ImGui::Text("No active scene camera!");
-        }
-        ImGui::TreePop();
-      }
+    if (ImGui::BeginTabItem("Entity Inspector")) {
+      bool highlight_selection = entity_selection_highlight_.IsEnabled();
+      if (ImGui::Checkbox("Focus", &highlight_selection))
+        entity_selection_highlight_.SetEnabled(highlight_selection, !entity_selection_.Empty());
+      ImGui::Checkbox("Gizmos", &enable_gizmos);
+      int pivot_mode = static_cast<int>(entity_gizmo_pivot_mode_);
+      if (ImGui::Combo("Pivot mode", &pivot_mode, "Pivot\0Center\0"))
+        entity_gizmo_pivot_mode_ = static_cast<EntityGizmoPivotMode>(pivot_mode);
+      int orientation_mode = static_cast<int>(entity_gizmo_orientation_mode_);
+      if (ImGui::Combo("Orientation", &orientation_mode, "Local\0Global\0"))
+        entity_gizmo_orientation_mode_ = static_cast<EntityGizmoOrientationMode>(orientation_mode);
+      ImGui::EndTabItem();
+    }
+    if (ImGui::BeginTabItem("Key Bindings")) {
+      const auto& pressed_keys = Input::GetInstance().pressed_keys_;
+      DrawKeyBinding("Rotate mouse button", editor_camera_control_key_bindings.rotate_mouse_button, true, pressed_keys);
+      DrawKeyBinding("Focus Selection", editor_camera_control_key_bindings.focus_selection_key, false, pressed_keys);
+      DrawKeyBinding("Move forward", editor_camera_control_key_bindings.move_forward_key, false, pressed_keys);
+      DrawKeyBinding("Move backward", editor_camera_control_key_bindings.move_backward_key, false, pressed_keys);
+      DrawKeyBinding("Move left", editor_camera_control_key_bindings.move_left_key, false, pressed_keys);
+      DrawKeyBinding("Move right", editor_camera_control_key_bindings.move_right_key, false, pressed_keys);
+      DrawKeyBinding("Move up", editor_camera_control_key_bindings.move_up_key, false, pressed_keys);
+      DrawKeyBinding("Move down", editor_camera_control_key_bindings.move_down_key, false, pressed_keys);
       ImGui::EndTabItem();
     }
     if (ImGui::BeginTabItem("Debug")) {
@@ -3497,9 +4363,6 @@ void EditorLayer::DrawMainMenuItems(const bool title_bar_style) {
   if (begin_menu("Window")) {
     if (ImGui::BeginMenu("Scene")) {
       panel_menu_item("Scene Window", show_scene_window);
-      ImGui::BeginDisabled(!show_scene_window);
-      panel_menu_item("Scene Window Info", show_scene_info);
-      ImGui::EndDisabled();
       panel_menu_item("Main Camera Window", show_camera_window);
       ImGui::BeginDisabled(!show_camera_window);
       panel_menu_item("Main Camera Window Info", show_camera_info);
@@ -3610,9 +4473,12 @@ void EditorLayer::DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVe
   constexpr float background_height = 31.0f;
   const float background_width = horizontal_padding * 2.0f + button_size * static_cast<float>(button_count) +
                                  item_spacing * static_cast<float>(button_count - 1);
-  const ImVec2 background_min(overlay_pos.x + (view_port_size.x - background_width) * 0.5f, overlay_pos.y + 4.0f);
+  const float primary_button_left = overlay_pos.x + view_port_size.x * 0.5f - button_size * 0.5f;
+  const ImVec2 background_min(primary_button_left - horizontal_padding, overlay_pos.y + 4.0f);
   const ImVec2 background_max(background_min.x + background_width, background_min.y + background_height);
   ImGui::GetWindowDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
+  if (ImGui::IsMouseHoveringRect(background_min, background_max))
+    scene_camera_window_focused_ = false;
 
   ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(item_spacing, 0.0f));
   ImGui::SetCursorScreenPos(
@@ -3621,6 +4487,78 @@ void EditorLayer::DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVe
     scene_camera_window_focused_ = false;
   }
   ImGui::PopStyleVar();
+}
+
+bool EditorLayer::DrawSceneToolsToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size) {
+  constexpr float button_size = 23.0f;
+  constexpr float horizontal_padding = 12.0f;
+  constexpr float item_spacing = 8.0f;
+  constexpr float background_height = 31.0f;
+  constexpr float toolbar_gap = 8.0f;
+  constexpr float background_width = horizontal_padding * 2.0f + button_size * 4.0f + item_spacing * 3.0f;
+  const float playback_left = overlay_pos.x + view_port_size.x * 0.5f - button_size * 0.5f - horizontal_padding;
+  const ImVec2 background_min(playback_left - toolbar_gap - background_width, overlay_pos.y + 4.0f);
+  const ImVec2 background_max(background_min.x + background_width, background_min.y + background_height);
+  ImGui::GetWindowDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
+
+  bool interacted = ImGui::IsMouseHoveringRect(background_min, background_max);
+  auto draw_button = [&](const char* id, const char* icon, const char* tooltip,
+                         const LocalTransformGizmoOperation operation, const bool selected) {
+    const bool clicked = DrawViewportImageButton(id, FindIconInMap(editor_icons_, icon), tooltip, selected,
+                                                 ImVec2(button_size, button_size));
+    interacted |= clicked || ImGui::IsItemHovered() || ImGui::IsItemActive();
+    if (clicked) {
+      CancelEntityGizmoSession();
+      SelectLocalTransformGizmoOperation(operation);
+    }
+  };
+
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(item_spacing, 0.0f));
+  ImGui::SetCursorScreenPos(
+      ImVec2(background_min.x + horizontal_padding, background_min.y + (background_height - button_size) * 0.5f));
+  const bool select_selected = !local_position_selected_ && !local_rotation_selected_ && !local_scale_selected_;
+  draw_button("SelectTool", "SelectTool", "Select", LocalTransformGizmoOperation::Select, select_selected);
+  ImGui::SameLine();
+  draw_button("TranslateTool", "TranslateTool", "Translate", LocalTransformGizmoOperation::Translate,
+              local_position_selected_);
+  ImGui::SameLine();
+  draw_button("RotateTool", "RotateTool", "Rotate", LocalTransformGizmoOperation::Rotate, local_rotation_selected_);
+  ImGui::SameLine();
+  draw_button("ScaleTool", "ScaleTool", "Scale", LocalTransformGizmoOperation::Scale, local_scale_selected_);
+  ImGui::PopStyleVar();
+  return interacted;
+}
+
+bool EditorLayer::DrawSceneSettingsToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size) {
+  constexpr float button_size = 18.0f;
+  constexpr float padding = 4.0f;
+  constexpr float background_size = 26.0f;
+  const ImVec2 background_min(overlay_pos.x + view_port_size.x - 14.0f - background_size, overlay_pos.y + 4.0f);
+  const ImVec2 background_max(background_min.x + background_size, background_min.y + background_size);
+  ImGui::GetWindowDrawList()->AddRectFilled(background_min, background_max, IM_COL32(15, 15, 15, 127), 4.0f);
+  ImGui::SetCursorScreenPos(ImVec2(background_min.x + padding, background_min.y + padding));
+  const bool clicked =
+      DrawViewportImageButton("SceneSettings", FindIconInMap(editor_icons_, "SceneSettings"), "Viewport Settings");
+  bool interacted = clicked || ImGui::IsMouseHoveringRect(background_min, background_max);
+  interacted |= ImGui::IsItemHovered() || ImGui::IsItemActive();
+  if (clicked)
+    ImGui::OpenPopup("SceneViewportSettings");
+
+  const float popup_width = std::max(1.0f, std::min(360.0f, view_port_size.x - 16.0f));
+  const float popup_height = std::max(1.0f, view_port_size.y - background_size - 12.0f);
+  ImGui::SetNextWindowPos(ImVec2(std::max(overlay_pos.x + 8.0f, overlay_pos.x + view_port_size.x - 14.0f - popup_width),
+                                 background_max.y + 4.0f),
+                          ImGuiCond_Appearing);
+  ImGui::SetNextWindowSizeConstraints(ImVec2(popup_width, 0.0f), ImVec2(popup_width, popup_height));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 10.0f));
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
+  if (ImGui::BeginPopup("SceneViewportSettings")) {
+    DrawSceneCameraSettingsContents(ApplicationContext::Get().GetLayer<EditorLayer>());
+    interacted = true;
+    ImGui::EndPopup();
+  }
+  ImGui::PopStyleVar(2);
+  return interacted;
 }
 
 void EditorLayer::RequestDefaultEditorLayout() {
@@ -3775,11 +4713,14 @@ bool EditorLayer::DrawEntityMenu(const bool& enabled, const Entity& entity) cons
 
 void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy_level) {
   const auto scene = GetScene();
+  entity_explorer_current_entities_.push_back(entity);
   std::string title = std::to_string(entity.GetIndex()) + ": ";
   title += scene->GetEntityName(entity);
   const bool enabled = scene->IsEntityEnabled(entity);
-  if (enabled) {
-    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_Text));
+  const bool inherited_highlight = IsInheritedSelectionHighlight(entity);
+  if (enabled || inherited_highlight) {
+    ImGui::PushStyleColor(
+        ImGuiCol_Text, inherited_highlight ? ImVec4(1.0f, 0.75f, 0.0f, 1.0f) : ImGui::GetStyleColorVec4(ImGuiCol_Text));
   }
   if (const int index = selected_entity_hierarchy_list_.size() - hierarchy_level - 1;
       !selected_entity_hierarchy_list_.empty() && index >= 0 && index < selected_entity_hierarchy_list_.size() &&
@@ -3789,7 +4730,8 @@ void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy
   const bool opened = ImGui::TreeNodeEx(
       title.c_str(), ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_OpenOnArrow |
                          ImGuiTreeNodeFlags_NoAutoOpenOnLog |
-                         (selected_entity_ == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
+                         (entity_selection_.Contains(entity) ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None) |
+                         (GetSelectedEntity() == entity ? ImGuiTreeNodeFlags_Framed : ImGuiTreeNodeFlags_FramePadding));
   if (ImGui::BeginDragDropSource()) {
     const auto handle = scene->GetEntityHandle(entity);
     ImGui::SetDragDropPayload("Entity", &handle, sizeof(Handle));
@@ -3803,11 +4745,13 @@ void EditorLayer::DrawEntityNode(const Entity& entity, const unsigned& hierarchy
     }
     ImGui::EndDragDropTarget();
   }
-  if (enabled) {
+  if (enabled || inherited_highlight) {
     ImGui::PopStyleColor();
   }
-  if (!lock_entity_selection_ && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-    SetSelectedEntity(entity, false);
+  if (ImGui::IsItemHovered() && ImGui::IsMouseClicked(0) && (IsControlModifierDown() || IsShiftModifierDown())) {
+    HandleEntityExplorerSelection(entity);
+  } else if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+    HandleEntityExplorerSelection(entity);
   }
   if (const bool deleted = DrawEntityMenu(enabled, entity); opened && !deleted) {
     ImGui::TreePush(title.c_str());
@@ -3866,8 +4810,12 @@ void EditorLayer::SceneCameraWindow() {
           ImGui::Text("No active scene camera!");
         }
         DrawScenePlaybackToolbar(overlay_pos, view_port_size);
-        const auto window_pos = ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : (overlay_pos.x),
-                                       (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y));
+        suppress_scene_camera_selection_ |= DrawSceneToolsToolbar(overlay_pos, view_port_size);
+        suppress_scene_camera_selection_ |= DrawSceneSettingsToolbar(overlay_pos, view_port_size);
+        constexpr float scene_info_top_offset = 34.0f;
+        const auto window_pos =
+            ImVec2((corner & 1) ? (overlay_pos.x + view_port_size.x) : overlay_pos.x,
+                   (corner & 2) ? (overlay_pos.y + view_port_size.y) : (overlay_pos.y + scene_info_top_offset));
 
         if (show_scene_info) {
           const auto window_pos_pivot = ImVec2((corner & 1) ? 1.0f : 0.0f, (corner & 2) ? 1.0f : 0.0f);
@@ -3876,8 +4824,9 @@ void EditorLayer::SceneCameraWindow() {
           constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
                                                     ImGuiWindowFlags_NoSavedSettings |
                                                     ImGuiWindowFlags_NoFocusOnAppearing;
-          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-              ImGui::BeginChild("Info", ImVec2(150, 150), child_flags, window_flags)) {
+          ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_AutoResizeY;
+              ImGui::BeginChild("Info", ImVec2(240.0f, 0.0f), child_flags, window_flags)) {
             ImGui::Text("Info:");
             ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
             const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -3899,6 +4848,7 @@ void EditorLayer::SceneCameraWindow() {
             suppress_scene_camera_selection_ |= ImGui::IsItemHovered() || ImGui::IsItemActive();
           }
           ImGui::EndChild();
+          ImGui::PopStyleVar();
         }
         ApplyEditorCameraFreeFlyControl(scene_camera_handle_, scene_camera_free_fly_state_,
                                         mouse_scene_window_position_, {view_port_size.x, view_port_size.y},
@@ -3907,83 +4857,121 @@ void EditorLayer::SceneCameraWindow() {
 #pragma region Gizmos and Entity Selection
       gizmo_using_ = false;
       gizmo_displaying_ = false;
-      if (enable_gizmos) {
+      {
         ImGuizmo::SetOrthographic(false);
         ImGuizmo::SetDrawlist();
-        float view_manipulate_left = ImGui::GetWindowPos().x;
-        float view_manipulate_top = ImGui::GetWindowPos().y;
         ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, view_port_size.x, view_port_size.y);
         glm::mat4 camera_view = glm::inverse(glm::translate(sceneCameraPosition) * glm::mat4_cast(sceneCameraRotation));
         glm::mat4 camera_projection = scene_camera->GetProjection();
         const auto op = local_position_selected_   ? ImGuizmo::OPERATION::TRANSLATE
                         : local_rotation_selected_ ? ImGuizmo::OPERATION::ROTATE
                                                    : ImGuizmo::OPERATION::SCALE;
-        if (environmental_lighting_gizmo_target_) {
-          const auto target = *environmental_lighting_gizmo_target_;
-          const auto lighting = target.lighting.lock();
-          const auto active_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
-          const auto reflection_pack = lighting ? lighting->GetReflectionProbePack() : nullptr;
-          const auto ddgi_pack = lighting ? lighting->GetDdgiVolumePack() : nullptr;
-          const bool local_probe_valid = target.type == EnvironmentalLightingGizmoTargetType::LocalReflectionProbe &&
-                                         reflection_pack && target.index < reflection_pack->probes.size() &&
-                                         reflection_pack->probes[target.index].stable_id == target.stable_id;
-          const bool ddgi_volume_valid = target.type == EnvironmentalLightingGizmoTargetType::DdgiVolume && ddgi_pack &&
-                                         target.index < ddgi_pack->volumes.size() &&
-                                         ddgi_pack->volumes[target.index].stable_id == target.stable_id;
-          if (!lighting || active_lighting != lighting || (!local_probe_valid && !ddgi_volume_valid)) {
-            ClearEnvironmentalLightingGizmoTarget();
-          } else {
-            auto& transform = local_probe_valid ? reflection_pack->probes[target.index].transform
-                                                : ddgi_pack->volumes[target.index].transform;
-            const auto authored_pivot =
-                ddgi_volume_valid ? ddgi_pack->volumes[target.index].volume_origin : glm::vec3(0.0f);
-            const auto pivot = IsFiniteVector(authored_pivot) ? authored_pivot : glm::vec3(0.0f);
-            auto gizmo_transform = CreateAuthoringGizmoTransform(transform, pivot);
-            ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
-                                 glm::value_ptr(gizmo_transform));
-            gizmo_displaying_ = true;
-            if (ImGuizmo::IsUsing()) {
-              glm::mat4 normalized(1.0f);
-              if (TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized) &&
-                  !MatricesNear(transform, normalized)) {
-                transform = normalized;
-                if (local_probe_valid)
-                  reflection_pack->SetUnsaved();
-                else
-                  ddgi_pack->SetUnsaved();
+        const bool transform_gizmo_selected =
+            local_position_selected_ || local_rotation_selected_ || local_scale_selected_;
+        if ((!enable_gizmos || !transform_gizmo_selected) && entity_gizmo_session_)
+          CancelEntityGizmoSession();
+        if (enable_gizmos && transform_gizmo_selected) {
+          if (environmental_lighting_gizmo_target_) {
+            const auto target = *environmental_lighting_gizmo_target_;
+            const auto lighting = target.lighting.lock();
+            const auto active_lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+            const auto reflection_pack = lighting ? lighting->GetReflectionProbePack() : nullptr;
+            const auto ddgi_pack = lighting ? lighting->GetDdgiVolumePack() : nullptr;
+            const bool local_probe_valid = target.type == EnvironmentalLightingGizmoTargetType::LocalReflectionProbe &&
+                                           reflection_pack && target.index < reflection_pack->probes.size() &&
+                                           reflection_pack->probes[target.index].stable_id == target.stable_id;
+            const bool ddgi_volume_valid = target.type == EnvironmentalLightingGizmoTargetType::DdgiVolume &&
+                                           ddgi_pack && target.index < ddgi_pack->volumes.size() &&
+                                           ddgi_pack->volumes[target.index].stable_id == target.stable_id;
+            if (!lighting || active_lighting != lighting || (!local_probe_valid && !ddgi_volume_valid)) {
+              ClearEnvironmentalLightingGizmoTarget();
+            } else {
+              auto& transform = local_probe_valid ? reflection_pack->probes[target.index].transform
+                                                  : ddgi_pack->volumes[target.index].transform;
+              const auto authored_pivot =
+                  ddgi_volume_valid ? ddgi_pack->volumes[target.index].volume_origin : glm::vec3(0.0f);
+              const auto pivot = IsFiniteVector(authored_pivot) ? authored_pivot : glm::vec3(0.0f);
+              auto gizmo_transform = CreateAuthoringGizmoTransform(transform, pivot);
+              ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
+                                   glm::value_ptr(gizmo_transform));
+              gizmo_displaying_ = true;
+              if (ImGuizmo::IsUsing()) {
+                glm::mat4 normalized(1.0f);
+                if (TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized) &&
+                    !MatricesNear(transform, normalized)) {
+                  transform = normalized;
+                  if (local_probe_valid)
+                    reflection_pack->SetUnsaved();
+                  else
+                    ddgi_pack->SetUnsaved();
+                }
+                gizmo_using_ = true;
               }
-              gizmo_using_ = true;
             }
           }
-        }
-        if (!environmental_lighting_gizmo_target_ && scene->IsEntityValid(selected_entity_)) {
-          auto transform = scene->GetDataComponent<Transform>(selected_entity_);
-          GlobalTransform parent_global_transform;
-          if (Entity parent_entity = scene->GetParent(selected_entity_); parent_entity.GetIndex() != 0) {
-            parent_global_transform = scene->GetDataComponent<GlobalTransform>(scene->GetParent(selected_entity_));
+          const auto selection = entity_selection_.GetSnapshot();
+          const auto participants = EntityBatchInspector::BuildGizmoParticipants(scene, selection.entities);
+          const auto reference = EntityBatchInspector::FindGizmoReference(scene, participants, selection.primary);
+          if (entity_gizmo_session_ && (environmental_lighting_gizmo_target_ || !scene->IsEntityValid(reference)))
+            CancelEntityGizmoSession("Entity gizmo drag cancelled because its target changed.");
+          if (!environmental_lighting_gizmo_target_ && scene->IsEntityValid(reference)) {
+            const auto reference_world = scene->GetDataComponent<GlobalTransform>(reference).value;
+            Transform reference_transform;
+            reference_transform.value = reference_world;
+            glm::vec3 reference_position(0.0f), reference_scale(1.0f);
+            glm::quat reference_rotation(1.0f, 0.0f, 0.0f, 0.0f);
+            reference_transform.Decompose(reference_position, reference_rotation, reference_scale);
+            const auto pivot_bound = EntityBatchInspector::BuildSelectionWorldBound(
+                scene, entity_gizmo_pivot_mode_ == EntityGizmoPivotMode::Center ? participants
+                                                                                : std::vector<Entity>{reference});
+            const glm::vec3 pivot = pivot_bound.valid ? pivot_bound.world_bound.Center() : reference_position;
+            const auto basis = entity_gizmo_orientation_mode_ == EntityGizmoOrientationMode::Local
+                                   ? glm::mat4_cast(reference_rotation)
+                                   : glm::mat4(1.0f);
+            const glm::mat4 initial_handle = glm::translate(pivot) * basis;
+            auto manipulated_handle =
+                entity_gizmo_session_ ? entity_gizmo_session_->manipulated_handle : initial_handle;
+            ImGuizmo::Manipulate(
+                glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op,
+                entity_gizmo_orientation_mode_ == EntityGizmoOrientationMode::Local ? ImGuizmo::LOCAL : ImGuizmo::WORLD,
+                glm::value_ptr(manipulated_handle));
+            gizmo_displaying_ = true;
+            if (ImGuizmo::IsUsing()) {
+              if (!entity_gizmo_session_)
+                BeginEntityGizmoSession(scene, initial_handle, participants, reference, static_cast<int>(op));
+              ApplyEntityGizmoSession(scene, manipulated_handle);
+              gizmo_using_ = true;
+            } else if (entity_gizmo_session_) {
+              CancelEntityGizmoSession();
+            }
           }
-          auto global_transform = scene->GetDataComponent<GlobalTransform>(selected_entity_);
-
-          ImGuizmo::Manipulate(glm::value_ptr(camera_view), glm::value_ptr(camera_projection), op, ImGuizmo::LOCAL,
-                               glm::value_ptr(global_transform.value));
-          gizmo_displaying_ = true;
-          if (ImGuizmo::IsUsing()) {
-            transform.value = glm::inverse(parent_global_transform.value) * global_transform.value;
-            scene->SetDataComponent(selected_entity_, transform);
-            transform.Decompose(previously_stored_position_, previously_stored_rotation_, previously_stored_scale_);
-            previously_stored_rotation_ = glm::degrees(previously_stored_rotation_);
-            gizmo_using_ = true;
-          }
+          if (!entity_gizmo_message_.empty())
+            ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f), "%s", entity_gizmo_message_.c_str());
         }
-        if (enable_view_gizmos) {
-          ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, ImVec2(view_manipulate_left, view_manipulate_top),
-                                   ImVec2(96, 96), 0);
-          GlobalTransform gl;
-          gl.value = glm::inverse(camera_view);
-          sceneCameraRotation = gl.GetRotation();
-        }
+        const ImVec2 view_gizmo_position = ImGui::GetWindowPos();
+        ImGuizmo::ViewManipulate(glm::value_ptr(camera_view), 1.0f, view_gizmo_position, ImVec2(96, 96), 0);
+        suppress_scene_camera_selection_ |= ImGuizmo::IsOver() || ImGuizmo::IsUsing();
+        GlobalTransform gl;
+        gl.value = glm::inverse(camera_view);
+        sceneCameraRotation = gl.GetRotation();
       }
 #pragma endregion
+
+      if (scene_camera_window_focused_ && !ImGui::GetIO().WantTextInput && !gizmo_using_ &&
+          Input::GetKey(editor_camera_control_key_bindings.focus_selection_key) == Input::KeyActionType::Press)
+        FocusSceneCameraOnSelection(scene, scene_camera);
+
+      if (scene_camera_window_focused_ && !GetLockEntitySelection() &&
+          Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
+        SetSelectedEntity({});
+      }
+      if (scene_camera_window_focused_ && !GetLockEntitySelection() && !gizmo_using_ &&
+          !suppress_scene_camera_selection_ && Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
+          !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
+            mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {
+        pending_viewport_selection_ =
+            PendingViewportSelection{scene_camera, mouse_scene_window_position_, IsControlModifierDown()};
+      }
 
       ImGui::EndChild();
       scene_camera->SetRequireRendering(
@@ -4050,8 +5038,9 @@ void EditorLayer::MainCameraWindow() {
           constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoDocking |
                                                     ImGuiWindowFlags_NoSavedSettings |
                                                     ImGuiWindowFlags_NoFocusOnAppearing;
-          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_None;
-              ImGui::BeginChild("Render Info", ImVec2(300, 150), child_flags, window_flags)) {
+          ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8.0f, 8.0f));
+          if (constexpr ImGuiChildFlags child_flags = ImGuiChildFlags_AutoResizeY;
+              ImGui::BeginChild("Render Info", ImVec2(340.0f, 0.0f), child_flags, window_flags)) {
             ImGui::Text("Info & Settings");
             ImGui::Text("%.1f FPS", ImGui::GetIO().Framerate);
             ImGui::PushItemWidth(100);
@@ -4076,41 +5065,20 @@ void EditorLayer::MainCameraWindow() {
             }
           }
           ImGui::EndChild();
+          ImGui::PopStyleVar();
         }
 
-        if (main_camera_window_focused_ && !lock_entity_selection_ &&
+        if (main_camera_window_focused_ && !GetLockEntitySelection() &&
             Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
           SetSelectedEntity(Entity());
         }
-        if (!ApplicationContext::Get().IsPlaying() && main_camera_window_focused_ && !lock_entity_selection_ &&
+        if (!ApplicationContext::Get().IsPlaying() && main_camera_window_focused_ && !GetLockEntitySelection() &&
             Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press && main_camera) {
           glm::vec2 texture_mouse_position;
           if (TryMapAspectFitMouseToTexture(main_camera_fit_rect, main_camera->GetSize(), mouse_camera_window_position_,
                                             texture_mouse_position)) {
-            if (const auto focused_entity = MouseEntitySelection(main_camera, texture_mouse_position);
-                focused_entity == Entity()) {
-              SetSelectedEntity(Entity());
-            } else {
-              Entity walker = focused_entity;
-              bool found = false;
-              while (walker.GetIndex() != 0) {
-                if (walker == selected_entity_) {
-                  found = true;
-                  break;
-                }
-                walker = scene->GetParent(walker);
-              }
-              if (found) {
-                walker = scene->GetParent(walker);
-                if (walker.GetIndex() == 0) {
-                  SetSelectedEntity(focused_entity);
-                } else {
-                  SetSelectedEntity(walker);
-                }
-              } else {
-                SetSelectedEntity(focused_entity);
-              }
-            }
+            pending_viewport_selection_ =
+                PendingViewportSelection{main_camera, texture_mouse_position, IsControlModifierDown()};
           }
         }
       }
@@ -4178,6 +5146,12 @@ std::shared_ptr<Texture2D> EditorLayer::FindIcon(const std::string& name) {
 
 std::vector<ConsoleMessage>& EditorLayer::GetConsoleMessages() {
   return console_messages_;
+}
+
+void EditorLayer::SetConsoleMessageFilters(const bool info, const bool warning, const bool error) {
+  enable_console_logs_ = info;
+  enable_console_warnings_ = warning;
+  enable_console_errors_ = error;
 }
 
 bool EditorLayer::SceneCameraWindowFocused() const {
@@ -4361,7 +5335,19 @@ void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sam
 }
 
 Entity EditorLayer::GetSelectedEntity() const {
-  return selected_entity_;
+  return entity_selection_.GetPrimary();
+}
+
+const EntitySelection& EditorLayer::GetEntitySelection() const {
+  return entity_selection_;
+}
+
+EntitySelection::Snapshot EditorLayer::GetEntitySelectionSnapshot() const {
+  return entity_selection_.GetSnapshot();
+}
+
+EntitySelectionHighlight::Snapshot EditorLayer::GetEntitySelectionHighlightSnapshot() const {
+  return entity_selection_highlight_.GetSnapshot();
 }
 
 glm::mat4 EditorLayer::ComposeAuthoringTransform(const glm::vec3& position, const glm::vec3& rotation_degrees,
@@ -4449,35 +5435,24 @@ void EditorLayer::ClearEnvironmentalLightingGizmoTarget(const Handle& asset_hand
 
 void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) {
   ClearEnvironmentalLightingGizmoTarget();
-  if (entity == selected_entity_)
+  const auto scene = GetScene();
+  entity_selection_.BindScene(scene);
+  const EntitySelection::RequestOptions options{
+      EntitySelection::RequestSource::Programmatic, EntitySelection::AnchorPolicy::Clear, {}};
+  const auto result = entity.GetIndex() == 0 ? entity_selection_.Clear(EntitySelection::RequestSource::Programmatic)
+                                             : entity_selection_.Replace(entity, options);
+  if (result != EntitySelection::Result::Changed)
     return;
   selected_entity_hierarchy_list_.clear();
-  const auto scene = GetScene();
-  const auto previous_descendants = scene->GetDescendants(selected_entity_);
-  for (const auto& i : previous_descendants) {
-    scene->GetEntityMetadata(i).ancestor_selected = false;
-  }
-  if (scene->IsEntityValid(selected_entity_))
-    scene->GetEntityMetadata(selected_entity_).ancestor_selected = false;
-  if (entity.GetIndex() == 0) {
-    selected_entity_ = Entity();
-    lock_entity_selection_ = false;
-    selection_alpha_ = 0;
+  if (!scene) {
     return;
   }
-
-  if (!scene->IsEntityValid(entity))
+  if (entity_selection_.Empty()) {
     return;
-  selected_entity_ = entity;
-  const auto descendants = scene->GetDescendants(selected_entity_);
-
-  for (const auto& i : descendants) {
-    scene->GetEntityMetadata(i).ancestor_selected = true;
   }
-  scene->GetEntityMetadata(selected_entity_).ancestor_selected = true;
   if (!open_menu)
     return;
-  auto walker = entity;
+  auto walker = entity_selection_.GetPrimary();
   while (walker.GetIndex() != 0) {
     selected_entity_hierarchy_list_.push_back(walker);
     walker = scene->GetParent(walker);
@@ -4485,16 +5460,11 @@ void EditorLayer::SetSelectedEntity(const Entity& entity, const bool open_menu) 
 }
 
 bool EditorLayer::GetLockEntitySelection() const {
-  return lock_entity_selection_;
+  return entity_selection_.IsLocked();
 }
 
 void EditorLayer::SetLockEntitySelection(const bool value) {
-  const auto scene = GetScene();
-  if (!value)
-    lock_entity_selection_ = false;
-  else if (scene->IsEntityValid(selected_entity_)) {
-    lock_entity_selection_ = true;
-  }
+  entity_selection_.SetLocked(value, EntitySelection::RequestSource::Programmatic);
 }
 
 bool EditorLayer::UnsafeDroppableAsset(AssetRef& target, const std::vector<std::string>& type_names) {
@@ -4572,7 +5542,7 @@ bool EditorLayer::DragAndDropButton(EntityRef& entity_ref, const std::string& na
       status_changed = Remove(entity_ref) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      selected_entity_ = entity;
+      SetSelectedEntity(entity);
     }
   } else {
     const std::string none_title = "None##" + name;
@@ -4631,61 +5601,6 @@ bool EditorLayer::Remove(EntityRef& entity_ref) {
     }
   }
   return status_changed;
-}
-
-void EditorLayer::MouseEntitySelection() {
-  const auto scene = GetScene();
-  auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>();
-  auto& [sceneCameraRotation, sceneCameraPosition, sceneCamera] = editor_cameras_.at(scene_camera_handle_);
-#pragma region Scene Window
-  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
-  if (ImGui::Begin("Scene")) {
-    ImVec2 view_port_size;
-    // Using a Child allow to fill all the space of the window.
-    // It also allows customization
-    if (ImGui::BeginChild("SceneCameraRenderer", ImVec2(0, 0), false)) {
-      view_port_size = ImGui::GetWindowSize();
-    }
-#pragma region Gizmos and Entity Selection
-    if (scene_camera_window_focused_ && !lock_entity_selection_ &&
-        Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
-      SetSelectedEntity(Entity());
-    }
-    if (scene_camera_window_focused_ && !lock_entity_selection_ && !gizmo_using_ && !suppress_scene_camera_selection_ &&
-        Input::GetKey(GLFW_MOUSE_BUTTON_LEFT) == Input::KeyActionType::Press &&
-        !(mouse_scene_window_position_.x < 0 || mouse_scene_window_position_.y < 0 ||
-          mouse_scene_window_position_.x > view_port_size.x || mouse_scene_window_position_.y > view_port_size.y)) {
-      if (const auto focused_entity = MouseEntitySelection(sceneCamera, mouse_scene_window_position_);
-          focused_entity == Entity()) {
-        SetSelectedEntity(Entity());
-      } else {
-        Entity walker = focused_entity;
-        bool found = false;
-        while (walker.GetIndex() != 0) {
-          if (walker == selected_entity_) {
-            found = true;
-            break;
-          }
-          walker = scene->GetParent(walker);
-        }
-        if (found) {
-          walker = scene->GetParent(walker);
-          if (walker.GetIndex() == 0) {
-            SetSelectedEntity(focused_entity);
-          } else {
-            SetSelectedEntity(walker);
-          }
-        } else {
-          SetSelectedEntity(focused_entity);
-        }
-      }
-    }
-#pragma endregion
-    ImGui::EndChild();
-  }
-  ImGui::End();
-  ImGui::PopStyleVar();
-#pragma endregion
 }
 
 Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
@@ -4796,9 +5711,13 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   ImGui::SameLine();
   bool status_changed = false;
   const auto ptr = target.Get<IPrivateComponent>();
-  ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_Button));
-  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_HeaderHovered));
-  ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_HeaderActive));
+  const bool light_theme = UsesLightTheme();
+  const ImU32 slot_color = light_theme ? IM_COL32(236, 218, 198, 255) : IM_COL32(138, 103, 72, 255);
+  ImGui::PushStyleColor(ImGuiCol_Button, ImGui::ColorConvertU32ToFloat4(slot_color));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                        ImGui::ColorConvertU32ToFloat4(MultiplyColor(slot_color, light_theme ? 0.95f : 1.12f)));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                        ImGui::ColorConvertU32ToFloat4(MultiplyColor(slot_color, light_theme ? 0.90f : 1.20f)));
   if (ptr) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     ImGui::Button(scene->GetEntityName(ptr->GetOwner()).c_str());
@@ -4841,6 +5760,15 @@ void EditorLayer::LoadIcons() {
   load_icon("PauseButton", default_resources / "Editor/Viewport/Pause.png");
   load_icon("StopButton", default_resources / "Editor/Viewport/Stop.png");
   load_icon("StepButton", default_resources / "Editor/Viewport/Simulate.png");
+  load_icon("SelectTool", default_resources / "Editor/Generic/Pointer.png");
+  load_icon("TranslateTool", default_resources / "Editor/Viewport/MoveTool.png");
+  load_icon("RotateTool", default_resources / "Editor/Viewport/RotateTool.png");
+  load_icon("ScaleTool", default_resources / "Editor/Viewport/ScaleTool.png");
+  load_icon("SceneSettings", default_resources / "Editor/Generic/Gear.png");
+  load_icon("ComponentGeneric", default_resources / "Editor/Components/Generic.png");
+  load_icon("ComponentTransform", default_resources / "Editor/Components/Transform.png");
+  load_icon("DataComponents", default_resources / "Editor/Components/DataComponents.png");
+  RegisterComponentIcon<Transform>(FindIconInMap(editor_icons_, "ComponentTransform"));
   load_icon("BackButton", default_resources / "Editor/Navigation/back.png");
   load_icon("LeftButton", default_resources / "Editor/Navigation/left.png");
   load_icon("RightButton", default_resources / "Editor/Navigation/right.png");
@@ -4905,7 +5833,29 @@ void EditorLayer::MoveCamera(const glm::quat& target_rotation, const glm::vec3& 
   transition_timer_ = static_cast<float>(ApplicationContext::Get().GetTimes().Now());
   target_rotation_ = target_rotation;
   target_position_ = target_position;
+  transition_preserves_world_up_ = false;
   lock_camera = true;
+}
+
+bool EditorLayer::FocusSceneCameraOnSelection(const std::shared_ptr<Scene>& scene,
+                                              const std::shared_ptr<Camera>& scene_camera) {
+  if (!scene || !scene_camera)
+    return false;
+  const auto selection = entity_selection_.GetSnapshot();
+  const auto participants = EntityBatchInspector::BuildGizmoParticipants(scene, selection.entities);
+  const auto selection_bound = EntityBatchInspector::BuildSelectionWorldBound(scene, participants);
+  if (!selection_bound.valid)
+    return false;
+
+  const auto& editor_camera = editor_cameras_.at(scene_camera_handle_);
+  glm::quat target_rotation;
+  glm::vec3 target_position;
+  if (!CalculateFocusCameraTransform(*scene_camera, selection_bound.world_bound, editor_camera.rotation,
+                                     editor_camera.position, target_rotation, target_position))
+    return false;
+  MoveCamera(target_rotation, target_position);
+  transition_preserves_world_up_ = true;
+  return true;
 }
 
 bool EditorLayer::LocalPositionSelected() const {
@@ -4924,16 +5874,4 @@ void EditorLayer::SelectLocalTransformGizmoOperation(const LocalTransformGizmoOp
   local_position_selected_ = operation == LocalTransformGizmoOperation::Translate;
   local_rotation_selected_ = operation == LocalTransformGizmoOperation::Rotate;
   local_scale_selected_ = operation == LocalTransformGizmoOperation::Scale;
-}
-
-glm::vec3& EditorLayer::UnsafeGetPreviouslyStoredPosition() {
-  return previously_stored_position_;
-}
-
-glm::vec3& EditorLayer::UnsafeGetPreviouslyStoredRotation() {
-  return previously_stored_rotation_;
-}
-
-glm::vec3& EditorLayer::UnsafeGetPreviouslyStoredScale() {
-  return previously_stored_scale_;
 }

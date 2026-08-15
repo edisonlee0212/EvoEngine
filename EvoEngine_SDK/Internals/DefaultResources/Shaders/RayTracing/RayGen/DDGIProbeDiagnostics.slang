@@ -74,7 +74,7 @@ float3 EE_DDGI_RAY_DIRECTION(const uint ray_index, const uint ray_count, const u
     uint selection_seed = primary_ray_seed ^ 0x68bc21ebu;
     uint barycentric_seed = primary_ray_seed ^ 0x967a889bu;
     emissive_sample_valid = EE_SAMPLE_EMISSIVE_TRIANGLE(
-        origin, EE_PCG_RANDOM(selection_seed), EE_PCG_RANDOM_2(barycentric_seed), emissive_sample);
+        origin, EE_PCG_RANDOM_2(selection_seed), EE_PCG_RANDOM_2(barycentric_seed), emissive_sample);
     direction = emissive_sample_valid ? emissive_sample.direction : float3(0.0f, 1.0f, 0.0f);
   } else {
     direction = EE_DDGI_RAY_DIRECTION(ray_index, uniform_ray_count, fixed_ray_count);

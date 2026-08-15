@@ -2072,15 +2072,25 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
       DrawDdgiSelectedRayReadoutCompact(debug_data);
     }
     ImGui::SeparatorText("Emissive inventory");
-    ImGui::Text("Triangles / eligible / excluded: %u / %u / %u", snapshot.aggregate.emissive_triangle_count,
-                snapshot.aggregate.emissive_eligible_instance_count,
-                snapshot.aggregate.emissive_excluded_instance_count);
+    ImGui::Text("Instances / groups / fallback: %u / %u / %u", snapshot.aggregate.emissive_eligible_instance_count,
+                snapshot.aggregate.emissive_distribution_count,
+                snapshot.aggregate.emissive_fallback_distribution_count);
+    ImGui::Text("Logical / stored triangles: %llu / %llu",
+                static_cast<unsigned long long>(snapshot.aggregate.emissive_logical_triangle_count),
+                static_cast<unsigned long long>(snapshot.aggregate.emissive_stored_triangle_count));
+    ImGui::Text("Build / upload: %.3f / %.3f ms", snapshot.aggregate.emissive_distribution_build_ms,
+                snapshot.aggregate.emissive_distribution_upload_ms);
     ImGui::Text("Estimated power: %.3f", snapshot.aggregate.emissive_estimated_power);
     ImGui::Text("Sampling enabled volumes / candidate rays: %u / %llu",
                 snapshot.aggregate.emissive_sampling_enabled_volume_count,
                 static_cast<unsigned long long>(snapshot.aggregate.emissive_sampling_candidate_ray_count));
     if (snapshot.aggregate.emissive_excluded_instance_count != 0u) {
       ImGui::TextColored({1.0f, 0.65f, 0.2f, 1.0f}, "Some positive-emission instances are excluded from sampling.");
+    }
+    if (snapshot.aggregate.emissive_fallback_distribution_count != 0u) {
+      ImGui::TextColored({1.0f, 0.65f, 0.2f, 1.0f},
+                         "%u non-uniform or deforming emitters use exact per-instance distributions.",
+                         snapshot.aggregate.emissive_fallback_distribution_count);
     }
     if (snapshot.aggregate.emissive_unrepresentable_probability_count != 0u) {
       ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f},

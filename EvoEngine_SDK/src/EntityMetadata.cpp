@@ -14,7 +14,6 @@ void EntityMetadata::Deserialize(const YAML::Node &in, const std::shared_ptr<Sce
   entity_enabled = in["e"].as<bool>();
   entity_static = in["s"].as<bool>();
   entity_handle.value_ = in["h"].as<uint64_t>();
-  ancestor_selected = false;
 }
 
 void EntityMetadata::Serialize(YAML::Emitter &out, const std::shared_ptr<Scene> &scene) const {
@@ -75,5 +74,4 @@ void EntityMetadata::Clone(const std::unordered_map<Handle, Handle> &entity_map,
     private_component_elements[i].private_component_data->scene_ = scene;
     Serialization::RelinkObject(*private_component_elements[i].private_component_data, entity_map, scene);
   }
-  ancestor_selected = false;
 }

@@ -167,9 +167,8 @@ TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTrans
   EXPECT_NE(editor.find("active_lighting != lighting"), std::string::npos);
   EXPECT_NE(editor.find("reflection_pack->SetUnsaved()"), std::string::npos);
   EXPECT_NE(editor.find("ddgi_pack->SetUnsaved()"), std::string::npos);
-  EXPECT_NE(editor.find("selected_entity_.GetIndex() != 0 && !scene->IsEntityValid(selected_entity_)"),
-            std::string::npos);
-  EXPECT_NE(editor.find("else if (selected_entity_.GetIndex() != 0)"), std::string::npos);
+  EXPECT_NE(editor.find("entity_selection_.PruneInvalid()"), std::string::npos);
+  EXPECT_NE(editor.find("else if (selected_entity.GetIndex() != 0)"), std::string::npos);
   EXPECT_NE(editor.find("suppress_scene_camera_selection_ = true"), std::string::npos);
   EXPECT_NE(editor.find("ImGui::IsItemHovered() || ImGui::IsItemActive()"), std::string::npos);
   EXPECT_NE(editor.find("!suppress_scene_camera_selection_"), std::string::npos);

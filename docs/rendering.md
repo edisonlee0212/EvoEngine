@@ -82,6 +82,19 @@ features. Ray cameras retain bindless texture access for material evaluation dur
 Direct lighting comes from directional, point, and spot lights. Environment and probe inputs are resolved from the scene
 and its `EnvironmentalLighting` asset before rendering.
 
+Ray cameras and DDGI sample emissive meshes through a two-level distribution. The first alias table selects a physical
+render instance; the second selects an eligible triangle from a distribution shared by instances with the same geometry
+range and emissive material. Rigid and uniformly scaled copies therefore store the mesh triangles once instead of
+expanding every instance into a flat triangle table. Power sampling combines the instance and triangle probabilities and
+divides by the current world-space triangle area. Uniform sampling remains uniform over the logically expanded eligible
+triangle set by weighting its instance table by each distribution's triangle count.
+
+Translation and rotation reuse both sampling tables, while uniform scale updates only instance-level power. Non-uniform
+and deforming emitters retain exact per-instance triangle distributions. The DDGI inspector reports physical instances,
+shared and fallback distributions, logical and stored triangle counts, and distribution build/upload timings; a large
+fallback count identifies scenes with limited compression. Full emitter transforms remain part of DDGI invalidation even
+when the sampling distribution itself is reusable.
+
 | Use | Source and control |
 | --- | --- |
 | Visible primary background | The camera background source multiplied by `background_intensity`. |

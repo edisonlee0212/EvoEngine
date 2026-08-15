@@ -342,8 +342,8 @@ bool VulkanPipelineCache::Initialize(const VkDevice device, const VkPhysicalDevi
     EVOENGINE_ERROR("Failed to create Vulkan pipeline cache: " + std::to_string(result))
     return false;
   }
-  EVOENGINE_LOG("Vulkan pipeline cache initialized: " + load_source + " (" + std::to_string(initial_bytes) +
-                " bytes) at " + path_.string())
+  EVOENGINE_WARNING("Vulkan pipeline cache initialized: " + load_source + " (" + std::to_string(initial_bytes) +
+                    " bytes) at " + path_.string())
   return true;
 }
 
@@ -475,6 +475,6 @@ bool VulkanPipelineCache::SaveLocked() {
   if (result != VK_SUCCESS || !PublishFile(path_, identity_, payload)) {
     return false;
   }
-  EVOENGINE_LOG("Vulkan pipeline cache saved (" + std::to_string(payload.size()) + " bytes) at " + path_.string())
+  EVOENGINE_WARNING("Vulkan pipeline cache saved (" + std::to_string(payload.size()) + " bytes) at " + path_.string())
   return true;
 }

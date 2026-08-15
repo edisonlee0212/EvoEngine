@@ -13,24 +13,6 @@ struct DeferredLightingInput {
 [[vk::binding(24, 1)]] Sampler2D inUtility;
 [[vk::binding(4, 3)]] Sampler2D inAmbientOcclusion;
 
-float4 ApplySelectionOutline(float4 color, float3 sky_color, float2 tex_coord, int info_index) {
-  if ((info_index & 1) == 0 && EE_BASIC_CONSTANTS.instance_index == 1) {
-    uint width;
-    uint height;
-    inUtility.GetDimensions(width, height);
-    float2 texel = 1.0f / float2(width, height);
-    for (int y = -3; y <= 3; ++y) {
-      for (int x = -3; x <= 3; ++x) {
-        int neighbor_info = int(round(inUtility.Sample(tex_coord + float2(float(x), float(y)) * texel).y));
-        if ((neighbor_info & 1) == 1) return lerp(float4(1.0f, 0.75f, 0.0f, 1.0f), color, 0.1f);
-      }
-    }
-    return lerp(float4(0.5f, 0.5f, 0.5f, 1.0f), color,
-                float(EE_BASIC_CONSTANTS.light_split_index) / 256.0f);
-  }
-  return color;
-}
-
 [shader("fragment")]
 float4 main(DeferredLightingInput input) : SV_Target {
   int camera_index = EE_BASIC_CONSTANTS.camera_index;
@@ -51,7 +33,7 @@ float4 main(DeferredLightingInput input) : SV_Target {
 
   if (ndc_depth == 1.0f) {
     if (indirect_debug_view != 0) return float4(0.0f, 0.0f, 0.0f, 1.0f);
-    return ApplySelectionOutline(float4(sky_color, 1.0f), sky_color, input.tex_coord, info_index);
+    return float4(sky_color, 1.0f);
   }
 
   float depth = EE_LINEARIZE_DEPTH(camera_index, ndc_depth);
@@ -87,7 +69,7 @@ float4 main(DeferredLightingInput input) : SV_Target {
   }
   if (indirect_debug_view != 0) return float4(0.0f, 0.0f, 0.0f, 1.0f);
 
-  float4 output_color = ApplySelectionOutline(float4(color, 1.0f), sky_color, input.tex_coord, info_index);
+  float4 output_color = float4(color, 1.0f);
   float fade_ratio = EE_CAMERA_FADE_RATIO(camera_index);
   float far_distance = EE_CAMERA_FAR(camera_index);
   float fade_start = far_distance * fade_ratio;

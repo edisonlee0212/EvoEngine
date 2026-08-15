@@ -20,11 +20,6 @@ struct EntityMetadata {
   bool entity_static = false;
 
   /**
-   * @brief Indicates if one of the ancestors of this entity is selected.
-   */
-  bool ancestor_selected = false;
-
-  /**
    * @brief The version of the entity.
    */
   unsigned entity_version = 1;

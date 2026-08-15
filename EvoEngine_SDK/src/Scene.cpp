@@ -381,9 +381,6 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
       Serialization::DeserializeObject(in_local_assets[i.first], *i.second);
     }
   }
-#ifdef _DEBUG
-  EVOENGINE_LOG(std::string("Scene Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
-#endif
 #pragma endregion
   if (in["global_reflection_probe_fallback"]) {
     global_reflection_probe_fallback.Load("global_reflection_probe_fallback", in);
@@ -918,7 +915,6 @@ void Scene::DeleteEntityInternal(const unsigned entity_index) {
   entity_info.entity_version = actual_entity.version_ + 1;
   entity_info.entity_enabled = true;
   entity_info.entity_static = false;
-  entity_info.ancestor_selected = false;
   scene_data_storage_.entity_map.erase(entity_info.entity_handle);
   entity_info.entity_handle = Handle(0);
 
@@ -1286,13 +1282,6 @@ void Scene::SetParent(const Entity& child, const Entity& parent, const bool& rec
   child_entity_info.root = parent_entity_info.root;
   child_entity_info.entity_static = false;
   parent_entity_info.children.push_back(child);
-  if (parent_entity_info.ancestor_selected) {
-    const auto descendants = GetDescendants(child);
-    for (const auto& i : descendants) {
-      GetEntityMetadata(i).ancestor_selected = true;
-    }
-    child_entity_info.ancestor_selected = true;
-  }
   SetUnsaved();
 }
 
@@ -1342,13 +1331,6 @@ void Scene::RemoveChild(const Entity& child, const Entity& parent) {
   }
   child_entity_metadata.parent = Entity();
   child_entity_metadata.root = child;
-  if (parent_entity_metadata.ancestor_selected) {
-    const auto descendants = GetDescendants(child);
-    for (const auto& i : descendants) {
-      GetEntityMetadata(i).ancestor_selected = false;
-    }
-    child_entity_metadata.ancestor_selected = false;
-  }
   const size_t children_count = parent_entity_metadata.children.size();
 
   for (size_t i = 0; i < children_count; i++) {
@@ -1574,7 +1556,7 @@ void Scene::SetDataComponent(const unsigned& entity_index, const size_t id, cons
         return;
       }
     }
-    EVOENGINE_LOG("ComponentData doesn't exist")
+    EVOENGINE_WARNING("ComponentData doesn't exist")
   }
   SetUnsaved();
 }
@@ -1601,7 +1583,7 @@ void* Scene::GetDataComponentPointer(unsigned entity_index, const size_t& id) {
       return chunk.RefData(type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * type.type_size);
     }
   }
-  EVOENGINE_LOG("ComponentData doesn't exist")
+  EVOENGINE_WARNING("ComponentData doesn't exist")
   return nullptr;
 }
 void* Scene::GetDataComponentPointer(const Entity& entity, const size_t& id) {
@@ -1628,7 +1610,7 @@ void* Scene::GetDataComponentPointer(const Entity& entity, const size_t& id) {
       return chunk.RefData(type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * type.type_size);
     }
   }
-  EVOENGINE_LOG("ComponentData doesn't exist")
+  EVOENGINE_WARNING("ComponentData doesn't exist")
   return nullptr;
 }
 Handle Scene::GetEntityHandle(const Entity& entity) {
@@ -1965,11 +1947,6 @@ bool Scene::IsEntityRoot(const Entity& entity) const {
 bool Scene::IsEntityStatic(const Entity& entity) const {
   assert(IsEntityValid(entity));
   return scene_data_storage_.entity_metadata_list.at(GetRoot(entity).index_).entity_static;
-}
-
-bool Scene::IsEntityAncestorSelected(const Entity& entity) const {
-  assert(IsEntityValid(entity));
-  return scene_data_storage_.entity_metadata_list.at(entity.index_).ancestor_selected;
 }
 
 #pragma endregion

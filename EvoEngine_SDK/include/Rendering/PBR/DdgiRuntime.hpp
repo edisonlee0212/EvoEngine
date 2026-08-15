@@ -53,6 +53,12 @@ struct DdgiPerformanceStats {
   uint32_t ray_sample_count = 0;
   uint32_t emissive_triangle_count = 0;
   uint32_t emissive_eligible_instance_count = 0;
+  uint32_t emissive_distribution_count = 0;
+  uint32_t emissive_fallback_distribution_count = 0;
+  uint64_t emissive_logical_triangle_count = 0;
+  uint64_t emissive_stored_triangle_count = 0;
+  double emissive_distribution_build_ms = 0.0;
+  double emissive_distribution_upload_ms = 0.0;
   uint32_t emissive_excluded_instance_count = 0;
   uint32_t emissive_unrepresentable_probability_count = 0;
   double emissive_estimated_power = 0.0;

@@ -2287,8 +2287,9 @@ TEST(DdgiVolume, DdgiEmissiveFingerprintUsesStableSemanticKeys) {
   EXPECT_NE(cache_equality.find("material_index == other.material_index"), std::string::npos);
   EXPECT_NE(cache_equality.find("instance_index == other.instance_index"), std::string::npos);
   EXPECT_NE(cache_equality.find("triangle_offset == other.triangle_offset"), std::string::npos);
-  EXPECT_NE(inventory_builder.find("renderer_handle.GetValue()"), std::string::npos);
-  EXPECT_NE(inventory_builder.find("static_cast<uint64_t>(instance_index)"), std::string::npos);
+  EXPECT_NE(inventory_builder.find("struct DistributionKey"), std::string::npos);
+  EXPECT_NE(inventory_builder.find("emissive_instance.unique_distribution ? emissive_instance.instance_index"),
+            std::string::npos);
 }
 
 TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
@@ -2705,8 +2706,11 @@ TEST(DdgiVolume, DdgiProbeHitsSampleSharedEmissiveTrianglesWithoutMis) {
   ASSERT_FALSE(raygen.empty());
   ASSERT_FALSE(closest_hit.empty());
 
-  EXPECT_NE(shared_sampling.find("EE_SAMPLE_EMISSIVE_TRIANGLE_RECORD(record_sample, uniform_sampling)"),
+  EXPECT_NE(shared_sampling.find("EE_SAMPLE_EMISSIVE_INSTANCE_RECORD(record_sample.x, uniform_sampling)"),
             std::string::npos);
+  EXPECT_NE(
+      shared_sampling.find("EE_SAMPLE_EMISSIVE_DISTRIBUTION_RECORD(distribution, record_sample.y, uniform_sampling)"),
+      std::string::npos);
   EXPECT_NE(shared_sampling.find("EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0"), std::string::npos);
   EXPECT_NE(shared_sampling.find("max(radiance, float3(0.0f)) / solid_angle_pdf"), std::string::npos);
   EXPECT_NE(raygen.find("uint(EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w), probe_index, ray_index"),
@@ -2790,11 +2794,10 @@ TEST(DdgiVolume, EmissiveSamplingDiagnosticsReportActualGpuEventsAndInventoryFai
   EXPECT_NE(editor.find("\\\"emissive_rays_per_probe\\\""), std::string::npos);
   EXPECT_NE(editor.find("\\\"ray_sample_info_bytes\\\""), std::string::npos);
 
-  const auto blocks =
-      RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks({{0u, 0u, 1.0, 1.0e20}, {0u, 1u, 1.0, 1.0}});
+  const auto blocks = RenderInstanceStorage::BuildEmissiveTriangleDistribution({{0u, 1.0, 1.0e20}, {1u, 1.0, 1.0}});
   ASSERT_EQ(blocks.size(), 2u);
   EXPECT_GT(blocks.back().alias_probability, 0.0f);
-  EXPECT_GT(blocks.back().area_pdf, 0.0f);
+  EXPECT_GT(blocks.back().selection_probability, 0.0f);
   EXPECT_EQ(blocks.back().alias_index, 0u);
 }
 

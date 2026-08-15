@@ -82,11 +82,9 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
                                                parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
         RenderInstancePushConstant push_constant;
         push_constant.camera_index = parameters.camera_index;
-        push_constant.light_split_index = parameters.directional_shadow_camera_index >= 0
-                                              ? -parameters.directional_shadow_camera_index - 1
-                                          : parameters.fade_selection ? glm::max(128, 256 - parameters.selection_alpha)
-                                                                      : 256;
-        push_constant.instance_index = parameters.reflection_probe_capture ? 2 : parameters.fade_selection ? 1 : 0;
+        push_constant.light_split_index =
+            parameters.directional_shadow_camera_index >= 0 ? -parameters.directional_shadow_camera_index - 1 : 256;
+        push_constant.instance_index = parameters.reflection_probe_capture ? 2 : 0;
         parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         const auto mesh = Resources::GetInstance().GetTexturePassThroughQuad();
         mesh->DrawIndexed(vk_command_buffer, parameters.pipeline->states, 1);

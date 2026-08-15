@@ -109,6 +109,35 @@ TEST(InspectorRegistry, MissingInspectorsDoNotCallConcreteInspectors) {
   EXPECT_EQ(layer.inspect_count, 0);
 }
 
+TEST(InspectorRegistry, BatchInspectorsRequireExplicitRegistrationAndReceiveEveryTarget) {
+  Application app;
+  ApplicationContextScope scope(app);
+  auto& registry = InspectorRegistry::GetInstance();
+  registry.Clear();
+  InspectorContext context;
+  std::vector<std::shared_ptr<IPrivateComponent>> components = {std::make_shared<TestPrivateComponent>(),
+                                                                std::make_shared<TestPrivateComponent>()};
+
+  EXPECT_FALSE(registry.InspectBatch(context, components));
+  int calls = 0;
+  ASSERT_TRUE(registry.RegisterBatchInspector<TestPrivateComponent>(
+      [&](InspectorContext&, const std::vector<std::reference_wrapper<TestPrivateComponent>>& targets) {
+        calls++;
+        EXPECT_EQ(targets.size(), 2u);
+        for (auto& target : targets)
+          target.get().inspect_count++;
+        return true;
+      },
+      "test-owner", "TestPrivateComponent"));
+  EXPECT_TRUE(registry.HasBatchInspector<TestPrivateComponent>());
+  EXPECT_TRUE(registry.InspectBatch(context, components));
+  EXPECT_EQ(calls, 1);
+  EXPECT_EQ(static_cast<TestPrivateComponent&>(*components[0]).inspect_count, 1);
+  EXPECT_EQ(static_cast<TestPrivateComponent&>(*components[1]).inspect_count, 1);
+  EXPECT_EQ(registry.UnregisterOwner("test-owner"), 1u);
+  EXPECT_FALSE(registry.HasBatchInspector<TestPrivateComponent>());
+}
+
 TEST(InspectorRegistry, DefaultInspectorsDoNotInstallImplicitHandlers) {
   Application app;
   ApplicationContextScope scope(app);

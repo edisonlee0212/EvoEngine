@@ -1612,9 +1612,6 @@ void DeserializePrefab(const YAML::Node& in, Prefab& prefab) {
       Serialization::DeserializeObject(in_local_assets[i.first], *i.second);
     }
   }
-#ifdef _DEBUG
-  EVOENGINE_LOG(std::string("Prefab Deserialization: Loaded " + std::to_string(local_assets.size()) + " assets."))
-#endif
   if (in["pc"]) {
     for (const auto& i : in["pc"]) {
       PrivateComponentHolder holder;
@@ -2547,7 +2544,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
               << " shader_native_slang_frontend=" << shader_stats_delta.native_slang_frontend_invocations
               << " shader_compatibility_slang_frontend=" << shader_stats_delta.compatibility_slang_frontend_invocations
               << " shader_glslang_frontend=" << shader_stats_delta.glslang_frontend_invocations;
-  EVOENGINE_LOG(startup_log.str())
+  EVOENGINE_WARNING(startup_log.str())
 
   if (!this->initialization_settings.project_path.empty()) {
     ProjectManager::GetOrCreateProject(this->initialization_settings.project_path);
@@ -2713,6 +2710,8 @@ void Application::Play() {
   if (this->execution_status_ != ExecutionStatus::Pause && this->execution_status_ != ExecutionStatus::NotPlaying)
     return;
   if (this->execution_status_ == ExecutionStatus::NotPlaying) {
+    if (const auto editor_layer = GetLayer<EditorLayer>())
+      editor_layer->ClearConsoleOnRuntimeStart();
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);
@@ -2742,6 +2741,8 @@ void Application::Step() {
   if (this->execution_status_ != ExecutionStatus::Pause && this->execution_status_ != ExecutionStatus::NotPlaying)
     return;
   if (this->execution_status_ == ExecutionStatus::NotPlaying) {
+    if (const auto editor_layer = GetLayer<EditorLayer>())
+      editor_layer->ClearConsoleOnRuntimeStart();
     const auto copied_scene = AssetManager::CreateTemporaryAsset<Scene>();
     Scene::Clone(ProjectManager::GetStartScene().lock(), copied_scene);
     Attach(copied_scene);

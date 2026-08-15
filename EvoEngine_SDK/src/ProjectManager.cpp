@@ -35,7 +35,7 @@ void LogLoadingDuration(const std::string& stage, const LoadingClock::time_point
   if (!detail.empty()) {
     message += " (" + detail + ")";
   }
-  EVOENGINE_LOG(message)
+  EVOENGINE_WARNING(message)
 }
 
 void AddUnique(std::vector<std::string>& values, const std::string& value) {
@@ -679,7 +679,6 @@ void ProjectManager::SetupDefaultScene() {
         found_scene = true;
       }
     }
-    EVOENGINE_LOG("Found and loaded project")
     if (found_scene && project_manager.scene_post_load_function_.has_value()) {
       project_manager.loading_status_ = "Running scene post-load actions...";
       const auto post_load_start = LoadingClock::now();
@@ -698,10 +697,8 @@ void ProjectManager::SetupDefaultScene() {
     project_manager.loading_status_ = "Creating start scene...";
     const auto create_scene_start = LoadingClock::now();
     scene = AssetManager::CreateTemporaryAsset<Scene>();
-    if (std::filesystem::path new_scene_relative_path = GenerateNewAssetsRelativePath("New Scene", ".evescene");
-        scene->SetPathAndSave(new_scene_relative_path)) {
-      EVOENGINE_LOG("Created new start scene!")
-    }
+    const auto new_scene_relative_path = GenerateNewAssetsRelativePath("New Scene", ".evescene");
+    scene->SetPathAndSave(new_scene_relative_path);
     SetStartScene(scene);
     SaveProject();
     LogLoadingDuration("Default scene creation", create_scene_start);
@@ -726,6 +723,7 @@ void ProjectManager::SetupDefaultScene() {
 
   project_manager.loading_status_ = "Scene ready.";
   LogLoadingDuration("Start scene setup", setup_start);
+  EVOENGINE_LOG("Scene is ready.")
   project_manager.new_project_path_ = "";
   project_manager.scene_loading_popup_visible_ = false;
 }
@@ -982,6 +980,9 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
     EVOENGINE_ERROR("Wrong extension!")
     return;
   }
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->ClearConsoleMessages();
+  }
   project_manager.new_project_path_ = project_absolute_path;
   project_manager.project_path_ = project_absolute_path;
   project_manager.assets_folder_path = project_absolute_path.parent_path() / "Assets";
@@ -992,6 +993,9 @@ void ProjectManager::GetOrCreateProject(const std::filesystem::path& path) {
   MergeApplicationLaunchMetadata(project_manager.project_launch_metadata_);
   AssetManager::Clear();
   FileManager::Clear();
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->ClearEntitySelectionState();
+  }
   ApplicationContext::Get().Reset();
   ApplyProjectEditorState(project_absolute_path, ProjectEditorStateApplyMode::LayoutOnly);
 
@@ -1071,6 +1075,7 @@ void ProjectManager::ScanAssets() {
     project_manager.pending_assets.emplace(i);
   }
   LogLoadingDuration("Asset metadata scan", scan_start, std::to_string(missing_asset_handles.size()) + " assets");
+  EVOENGINE_LOG("Scanned all assets.")
   project_manager.loading_status_ =
       missing_asset_handles.empty() ? "Asset scan complete." : "Asset scan complete. Loading start scene...";
 }
