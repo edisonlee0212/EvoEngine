@@ -327,6 +327,14 @@ EditorLayoutSettings CreateRenderingDemoEditorLayout() {
   return settings;
 }
 
+EditorLayoutSettings CreateEcoSysLabDemoEditorLayout() {
+  EditorLayoutSettings settings;
+  EditorDockLayoutSettings dock_layout;
+  dock_layout.plant_visual_fraction = 0.50f;
+  settings.dock_layout = dock_layout;
+  return settings;
+}
+
 void DisablePostProcessing(const std::shared_ptr<Scene>& scene) {
   if (const auto main_camera = scene->main_camera.Get<Camera>()) {
     main_camera->post_processing_stack_ref.Clear();
@@ -652,6 +660,12 @@ void ApplyRenderingDemoEditorSetup() {
     editor_layer->RequestEditorLayout(CreateRenderingDemoEditorLayout());
   }
   PrepareRenderingDemoShowcase(editor_layer);
+}
+
+void ApplyEcoSysLabDemoEditorSetup() {
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    editor_layer->RequestEditorLayout(CreateEcoSysLabDemoEditorLayout());
+  }
 }
 
 void ConfigureDdgiCornellBoxApplication(ApplicationInitializationSettings& application_info,

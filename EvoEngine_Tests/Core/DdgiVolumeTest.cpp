@@ -594,7 +594,8 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(rendering_scene_source.find("lighting->specular_fallback_intensity"), std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("GetOrSetPrivateComponent<DdgiVolume>"), std::string::npos);
   EXPECT_EQ(rendering_scene_source.find("CreateReflectionProbeComponent(scene"), std::string::npos);
-  EXPECT_NE(demo_source.find("{10, 6, 16}"), std::string::npos);
+  EXPECT_NE(rendering_scene_source.find("{10, 8, 16}"), std::string::npos);
+  EXPECT_NE(rendering_scene_source.find("scene->SetEnable(capoeira_entity, true);"), std::string::npos);
   EXPECT_NE(demo_source.find("ddgi_volume.relocation_distance = 0.25f;"), std::string::npos);
   EXPECT_NE(demo_source.find("session.show_probes = true;"), std::string::npos);
   EXPECT_NE(demo_source.find("ddgi_volume.enable_probe_relocation = true;"), std::string::npos);
@@ -612,7 +613,7 @@ TEST(DdgiVolume, RenderingDemoOffsetsWallAdjacentProbes) {
   EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.ray_count != 192"), std::string::npos);
   EXPECT_NE(demo_app_source.find("ddgi_settings.runtime.emissive_ray_count != 64"), std::string::npos);
   EXPECT_NE(demo_app_source.find("GetDdgiSessionState().show_probes"), std::string::npos);
-  EXPECT_NE(demo_app_source.find("volume.probe_counts != glm::ivec3(10, 6, 16)"), std::string::npos);
+  EXPECT_NE(demo_app_source.find("volume.probe_counts != glm::ivec3(10, 8, 16)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.probe_spacing != glm::vec3(1.5f)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.volume_origin != glm::vec3(0.0f, 3.0f, 3.0f)"), std::string::npos);
   EXPECT_NE(demo_app_source.find("volume.relocation_distance != 0.25f"), std::string::npos);

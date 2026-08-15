@@ -467,6 +467,8 @@ void EE_CAMERA_RESET_PAYLOAD(const uint seed) {
   hit_value.type = EE_CAMERA_RAY_PAYLOAD_MISS;
   hit_value.shadow_is_inside = 0u;
   hit_value.camera_index = EE_CAMERA_CONSTANTS.camera_index;
+  hit_value.object_geometric_normal = float3(0.0f);
+  hit_value.geometry_type = EE_CAMERA_GEOMETRY_TRIANGLE;
 }
 struct EE_CAMERA_RADIANCE_SPLIT {
   float3 color;
@@ -1122,10 +1124,69 @@ bool EE_CAMERA_PROCESS_VOLUME_SEGMENT<T : ICameraRayTraversal, let feature_mask 
   throughput *= exp(-hit_distance * extinction);
   return false;
 }
+#if EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED
+EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_LSS_SURFACE_HIT<let feature_mask : uint>(
+    const bool is_inside, const float3 ray_origin, const float3 ray_direction) {
+  EE_CAMERA_SURFACE_HIT hit;
+  const Instance instance = EE_INSTANCES[hit_value.instance_index];
+  RayTracingStrandPoint point_0;
+  RayTracingStrandPoint point_1;
+  EE_CAMERA_LSS_LOAD_POINTS(instance, hit_value.primitive_id, point_0, point_1);
+  const float parameter = clamp(hit_value.barycentrics.x, 0.0f, 1.0f);
+  const float3 object_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      lerp(point_0.normal, point_1.normal, parameter), float3(0.0f, 1.0f, 0.0f));
+  const float3 object_tangent = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
+      point_1.position - point_0.position, float3(1.0f, 0.0f, 0.0f));
+  hit.material_index = uint(instance.material_index);
+  hit.position = ray_origin + ray_direction * hit_value.hit_t;
+  const float3x3 world_normal_matrix = EE_RT_WORLD_NORMAL_MATRIX(instance.model);
+  const float3 unflipped_shading_normal =
+      EE_RT_WORLD_NORMAL(world_normal_matrix, object_shading_normal, float3(0.0f, 1.0f, 0.0f));
+  const float3 unflipped_geometric_normal =
+      EE_RT_WORLD_NORMAL(world_normal_matrix, hit_value.object_geometric_normal, unflipped_shading_normal);
+  hit.front_facing = dot(unflipped_geometric_normal, ray_direction) < 0.0f;
+  const float side_flip = hit.front_facing ? 1.0f : -1.0f;
+  hit.geometric_normal = unflipped_geometric_normal * side_flip;
+  hit.shadow_position = EE_CAMERA_SAFE_OFFSET_RAY(hit.position, hit.geometric_normal);
+  hit.tex_gradients = float4(0.0f);
+  const float2 tex_coord = float2(lerp(point_0.tex_coord, point_1.tex_coord, parameter), 0.0f);
+  const float4 vertex_color = lerp(point_0.color, point_1.color, parameter);
+  hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<feature_mask>(
+      hit.material_index, tex_coord, tex_coord, tex_coord, tex_coord, vertex_color, hit.tex_gradients);
+  hit.normal = unflipped_shading_normal;
+  hit.tangent = EE_RT_WORLD_TANGENT(instance.model, object_tangent, hit.normal);
+  const float tangent_handedness = EE_TRANSFORM_HANDEDNESS(instance.model);
+  hit.bitangent =
+      EE_CAMERA_SAFE_NORMALIZE(cross(hit.normal, hit.tangent) * tangent_handedness, float3(0.0f, 0.0f, 1.0f));
+  if (dot(hit.normal, hit.geometric_normal) < 0.0f) {
+    hit.normal = -hit.normal;
+    hit.tangent = -hit.tangent;
+    hit.bitangent = -hit.bitangent;
+  }
+  hit.shading_normal = hit.normal;
+  hit.tex_coord_0 = tex_coord;
+  hit.tex_coord_1 = tex_coord;
+  hit.tex_coord_2 = tex_coord;
+  hit.tex_coord_3 = tex_coord;
+  hit.vertex_color = vertex_color;
+  hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<feature_mask>(
+      hit.material_index, tex_coord, tex_coord, tex_coord, tex_coord, vertex_color, hit.surface, hit.normal,
+      hit.tangent, hit.bitangent, hit.geometric_normal, is_inside, hit.tex_gradients);
+  hit.normal = hit.pbr.normal;
+  return hit;
+}
+#endif
+
 EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT<let feature_mask : uint>(const bool is_inside,
+                                                                                 const float3 ray_origin,
                                                                                  const float3 ray_direction,
                                                                                  const float ray_cone_width,
                                                                                  const float ray_spread_angle) {
+#if EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED
+  if (hit_value.geometry_type == EE_CAMERA_GEOMETRY_LINEAR_SWEPT_SPHERE) {
+    return EE_CAMERA_RECONSTRUCT_LSS_SURFACE_HIT<feature_mask>(is_inside, ray_origin, ray_direction);
+  }
+#endif
   EE_CAMERA_SURFACE_HIT hit;
   const Instance instance = EE_INSTANCES[hit_value.instance_index];
   const int triangle_offset = instance.triangle_offset + int(hit_value.primitive_id);
@@ -1265,7 +1326,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>(
       primary_hit_distance = hit_value.hit_t;
     }
     EE_CAMERA_SURFACE_HIT surface_hit = EE_CAMERA_RECONSTRUCT_SURFACE_HIT<feature_mask>(
-        is_inside, ray_direction, ray_cone_width, ray_spread_angle);
+        is_inside, ray_origin, ray_direction, ray_cone_width, ray_spread_angle);
     ray_outputs.path_length = max(ray_outputs.path_length, surface_depth + 1u);
     path_surface_count = max(path_surface_count, surface_depth + 1u);
     if (surface_depth == 0u) {
@@ -1345,7 +1406,8 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>(
     emissive_record.area_pdf = 0.0f;
     const bool surface_emissive_visible = true;
     const bool emissive_triangle_hit =
-        surface_emissive_visible && EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() != 0u &&
+        surface_emissive_visible && hit_value.geometry_type == EE_CAMERA_GEOMETRY_TRIANGLE &&
+        EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() != 0u &&
         max(surface_material.emissive_factor.x,
             max(surface_material.emissive_factor.y, surface_material.emissive_factor.z)) > 0.0f &&
         EE_CAMERA_FIND_EMISSIVE_TRIANGLE(hit_value.instance_index, hit_value.primitive_id, emissive_record);

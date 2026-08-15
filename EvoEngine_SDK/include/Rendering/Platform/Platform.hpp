@@ -278,6 +278,12 @@ class Platform final {
     /// Ray query features.
     VkPhysicalDeviceRayQueryFeaturesKHR ray_query_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR};
 
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+    /// Linear swept sphere features.
+    VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV ray_tracing_linear_swept_spheres_features_nv{
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_LINEAR_SWEPT_SPHERES_FEATURES_NV};
+#endif
+
     /**
      * @brief Struct representing queue family indices needed by the application.
      */
@@ -515,6 +521,7 @@ class Platform final {
     bool support_acceleration_structure = true;
     bool support_ray_tracing = true;
     bool support_ray_query = true;
+    bool support_ray_tracing_linear_swept_spheres = false;
     bool support_shader_execution_reordering = false;
     bool support_shader_float16 = false;
     bool support_ray_tracing_validation = false;
@@ -541,6 +548,7 @@ class Platform final {
 
   static bool RayTracingEnabled();
   static bool RayQueryEnabled();
+  static bool RayTracingLinearSweptSpheresEnabled();
   static bool RayAccelerationStructureEnabled();
   static bool ShaderExecutionReorderingEnabled();
   static bool MeshShaderEnabled();

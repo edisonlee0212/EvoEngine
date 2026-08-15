@@ -757,11 +757,18 @@ void RenderInstanceStorage::StrandsRenderInstance::Apply(InstanceInfoBlock& inst
   instance_info_block.model = model;
   instance_info_block.material_index = material_index;
   instance_info_block.info_index = entity_selected ? 1 : 0;
-  instance_info_block.triangle_offset = strands->segment_range_->prev_frame_offset;
-  instance_info_block.meshlet_index_offset = strands->strand_meshlet_range_->prev_frame_offset;
-  instance_info_block.meshlet_size = strands->strand_meshlet_range_->prev_frame_range;
+  instance_info_block.triangle_offset = strands->segment_range_ ? strands->segment_range_->prev_frame_offset : 0;
+  instance_info_block.meshlet_index_offset =
+      strands->strand_meshlet_range_ ? strands->strand_meshlet_range_->prev_frame_offset : 0;
+  instance_info_block.meshlet_size =
+      strands->strand_meshlet_range_ ? strands->strand_meshlet_range_->prev_frame_range : 0;
   instance_info_block.entity_index = owner.GetIndex();
   instance_info_block.renderer_handle = renderer_handle;
+  instance_info_block.ray_tracing_geometry = strands->ray_tracing_index_range_ && strands->ray_tracing_point_range_
+                                                 ? glm::ivec4(1, strands->ray_tracing_index_range_->prev_frame_offset,
+                                                              strands->ray_tracing_point_range_->prev_frame_offset,
+                                                              strands->ray_tracing_index_range_->prev_frame_range)
+                                                 : glm::ivec4(0);
 }
 
 uint32_t RenderInstanceStorage::StrandsRenderInstance::Render(
@@ -1249,6 +1256,8 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
   if (entity_index != other.entity_index)
     return true;
   if (renderer_handle != other.renderer_handle)
+    return true;
+  if (ray_tracing_geometry != other.ray_tracing_geometry)
     return true;
   return false;
 }
@@ -2807,8 +2816,11 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
 
-  if (!Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_ || !strands->segment_range_ ||
-      strands->segment_range_->prev_frame_index_count == 0 || strands->strand_meshlet_range_->prev_frame_range == 0) {
+  const bool raster_ready = Platform::MeshShaderEnabled() && strands->strand_meshlet_range_ &&
+                            strands->segment_range_ && strands->segment_range_->prev_frame_index_count != 0 &&
+                            strands->strand_meshlet_range_->prev_frame_range != 0;
+  const bool ray_ready = Platform::RayTracingLinearSweptSpheresEnabled() && strands->blas_ && strands->blas_->IsReady();
+  if (!raster_ready && !ray_ready) {
     return false;
   }
 
@@ -2838,8 +2850,10 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     deferred_strands_render_instances->Register(render_instance);
   }
 
-  total_strands_segments += strands->segment_range_->prev_frame_index_count;
-  total_strand_meshlets += strands->strand_meshlet_range_->prev_frame_range;
+  if (raster_ready) {
+    total_strands_segments += strands->segment_range_->prev_frame_index_count;
+    total_strand_meshlets += strands->strand_meshlet_range_->prev_frame_range;
+  }
   return true;
 }
 

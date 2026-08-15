@@ -9,6 +9,7 @@ public struct Instance {
   public int info_index;
   public uint entity_index;
   public uint64_t renderer_handle;
+  public int4 ray_tracing_geometry;
 };
 
 [[vk::binding(4, 0)]]

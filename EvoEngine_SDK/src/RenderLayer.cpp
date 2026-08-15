@@ -1501,6 +1501,7 @@ std::shared_ptr<RayTracingPipeline> CreateRayTracingCameraPipeline(
     const std::shared_ptr<Shader>& shared_closest_hit_shader = {}) {
   auto pipeline = std::make_shared<RayTracingPipeline>();
   pipeline->SetMaxRecursionDepth(1);
+  pipeline->SetLinearSweptSpheresEnabled(Platform::RayTracingLinearSweptSpheresEnabled());
   pipeline->raygen_shader =
       Shader::CreateTemporary(ShaderType::RayGen, shader_header,
                               Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/Camera.slang");
@@ -1535,6 +1536,7 @@ std::shared_ptr<ComputePipeline> CreateRayQueryCameraPipeline(
   pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, shader_header,
                               Resources::GetDefaultResourcesPath() / "Shaders/Compute/RayQueryCamera.slang");
+  pipeline->linear_swept_spheres_enabled = Platform::RayTracingLinearSweptSpheresEnabled();
   pipeline->descriptor_set_layouts = {per_frame_layout, ray_tracing_layout, camera_output_layout};
   auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
   push_constant_range.size = sizeof(RayTracingCameraPushConstant);
@@ -1691,6 +1693,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     ray_tracing_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR,
                                                ray_camera_geometry_stages, 0);
     ray_tracing_layout_->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+    if (Platform::RayTracingLinearSweptSpheresEnabled()) {
+      ray_tracing_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+      ray_tracing_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+    }
     ray_tracing_layout_->Initialize();
   }
   if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_camera_output_layout_) {
@@ -3399,6 +3405,12 @@ void RenderLayer::PrepareSceneForRendering(
           1, GeometryStorage::GetTriangleBuffer());
       ray_tracing_descriptor_sets_[current_frame_index]->UpdateAccelerationStructureDescriptorBinding(
           2, current_render_instances->mesh_top_level_acceleration_structure);
+      if (Platform::RayTracingLinearSweptSpheresEnabled()) {
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            4, GeometryStorage::GetRayTracingStrandPointBuffer());
+        ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+            5, GeometryStorage::GetRayTracingStrandIndexBuffer());
+      }
     }
   }
   if (track_ddgi_scene_inputs) {

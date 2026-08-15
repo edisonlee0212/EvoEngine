@@ -65,6 +65,44 @@ TEST(LauncherUtils, PackageAvailabilityTracksManifestAndLibraryState) {
   EXPECT_FALSE(launcher::IsPackageAvailable(availability, "MissingPackage"));
 }
 
+TEST(LauncherUtils, EcoSysLabDemoAnimatesEightYearAcaciaGrowth) {
+  const auto source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                   "EvoEngine_Packages/EcoSysLab/src/EcoSysLabLayer.cpp");
+  const auto growth_start = source.find("void EcoSysLabLayer::UpdateDemoTreeGrowth()");
+  const auto growth_end = source.find("void EcoSysLabLayer::Update()", growth_start);
+  ASSERT_NE(growth_start, std::string::npos);
+  ASSERT_NE(growth_end, std::string::npos);
+  const auto growth_source = source.substr(growth_start, growth_end - growth_start);
+
+  EXPECT_NE(source.find("project_path.parent_path().filename() != \"EcoSysLabProject\""), std::string::npos);
+  EXPECT_NE(source.find("TreeDescriptors/Basic/Acacia.tree"), std::string::npos);
+  EXPECT_NE(growth_source.find("IsPlantVisualSplitLayoutReady()"), std::string::npos);
+  EXPECT_NE(growth_source.find("8.0f * 365.0f"), std::string::npos);
+  const auto simulate_call = growth_source.find("Simulate(growth_settings, simulation_stats)");
+  ASSERT_NE(simulate_call, std::string::npos);
+  EXPECT_EQ(growth_source.find("Simulate(growth_settings, simulation_stats)", simulate_call + 1), std::string::npos);
+  EXPECT_EQ(growth_source.find("for (float elapsed_time"), std::string::npos);
+  EXPECT_NE(growth_source.find("demo_mesh_generator_settings.foliage_instancing = false"), std::string::npos);
+  EXPECT_NE(growth_source.find("GenerateGeometryEntities(demo_mesh_generator_settings)"), std::string::npos);
+  EXPECT_NE(source.find("UpdateDemoTreeGrowth();"), std::string::npos);
+}
+
+TEST(LauncherUtils, EcoSysLabDemoSplitsSceneAndPlantVisual) {
+  const auto app_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App/src/DemoProfiles.cpp");
+  const auto editor_header =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/include/Layers/EditorLayer.hpp");
+  const auto editor_source =
+      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/src/EditorLayer.cpp");
+
+  EXPECT_NE(editor_header.find("std::optional<float> plant_visual_fraction"), std::string::npos);
+  EXPECT_NE(editor_header.find("bool IsPlantVisualSplitLayoutReady() const"), std::string::npos);
+  EXPECT_NE(app_source.find("dock_layout.plant_visual_fraction = 0.50f"), std::string::npos);
+  EXPECT_NE(app_source.find("RequestEditorLayout(CreateEcoSysLabDemoEditorLayout())"), std::string::npos);
+  EXPECT_NE(editor_source.find("DockBuilderDockWindow(\"Plant Visual\", plant_visual_node)"), std::string::npos);
+  EXPECT_NE(editor_source.find("plant_visual_fraction.has_value()"), std::string::npos);
+}
+
 TEST(LauncherUtils, SelectedRuntimePackagesRequireAllPackages) {
   const std::vector<std::string> selected_packages{"LSystem", "DigitalAgriculture"};
   const auto full_availability =

@@ -1091,6 +1091,7 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   void ResolvePendingUpdate();
 
   BottomLevelAccelerationStructure(uint32_t vertex_count, uint32_t primitive_count);
+  BottomLevelAccelerationStructure(const std::vector<StrandPoint>& points, const std::vector<uint32_t>& indices);
 
  public:
   /**
@@ -1104,6 +1105,8 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
   [[nodiscard]] static std::shared_ptr<BottomLevelAccelerationStructure> CreateStatic(
       const std::shared_ptr<RangeDescriptor>& meshlet_range, const std::shared_ptr<RangeDescriptor>& triangle_range,
       const std::vector<Vertex>& vertices);
+  [[nodiscard]] static std::shared_ptr<BottomLevelAccelerationStructure> CreateLinearSweptSpheres(
+      const std::vector<StrandPoint>& points, const std::vector<uint32_t>& indices);
   static void ProcessStaticBuilds();
   static void WaitForActiveStaticBuild();
   static void WaitForStaticBuilds();

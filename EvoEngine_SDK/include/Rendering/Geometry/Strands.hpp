@@ -8,6 +8,11 @@
 
 namespace evo_engine {
 
+struct StrandRayTracingGeometry {
+  std::vector<StrandPoint> points;
+  std::vector<uint32_t> indices;
+};
+
 /**
  * @brief Struct representing the attributes of a strand point.
  */
@@ -42,6 +47,9 @@ class Strands final : public IAsset {
   [[nodiscard]] std::vector<glm::uint>& UnsafeGetSegments();
 
   [[nodiscard]] const std::vector<glm::uint>& PeekSegments() const;
+
+  [[nodiscard]] static StrandRayTracingGeometry BuildRayTracingGeometry(const std::vector<StrandPoint>& strand_points,
+                                                                        const std::vector<glm::uvec4>& segments);
 
   /**
    * @brief Provides unsafe access to the strand points vector.
@@ -102,6 +110,8 @@ class Strands final : public IAsset {
    * @return Number of strand points.
    */
   [[nodiscard]] size_t GetStrandPointAmount() const;
+
+  [[nodiscard]] const std::shared_ptr<BottomLevelAccelerationStructure>& GetBlas() const;
 
   /**
    * @brief Performs cubic interpolation with tangent calculation.
@@ -191,12 +201,16 @@ class Strands final : public IAsset {
  private:
   std::shared_ptr<RangeDescriptor> segment_range_;         ///< Descriptor for segment range.
   std::shared_ptr<RangeDescriptor> strand_meshlet_range_;  ///< Descriptor for strand meshlet range.
+  std::shared_ptr<RangeDescriptor> ray_tracing_point_range_;
+  std::shared_ptr<RangeDescriptor> ray_tracing_index_range_;
+  std::shared_ptr<BottomLevelAccelerationStructure> blas_;
 
   StrandPointAttributes strand_point_attributes_ = {};  ///< Attributes of the strand points.
 
   friend class StrandsRenderer;
   friend class RenderLayer;
   friend class RenderInstanceStorage;
+  friend class TopLevelAccelerationStructure;
   Bound bound_;  ///< Bounding information of the strands.
 
   /**

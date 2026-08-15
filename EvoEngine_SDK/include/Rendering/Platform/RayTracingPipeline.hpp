@@ -44,6 +44,7 @@ class RayTracingPipeline final : public IGraphicsResource {
   uint32_t handle_size_aligned_ = 0;
 
   uint32_t max_recursion_depth_ = 8;
+  bool linear_swept_spheres_enabled_ = false;
 
   void ReleaseResources();
 
@@ -78,6 +79,8 @@ class RayTracingPipeline final : public IGraphicsResource {
    * @param depth A non-zero depth supported by the selected physical device.
    */
   void SetMaxRecursionDepth(uint32_t depth);
+
+  void SetLinearSweptSpheresEnabled(bool enabled);
 
   /**
    * @brief Checks a requested recursion depth against a physical-device limit.

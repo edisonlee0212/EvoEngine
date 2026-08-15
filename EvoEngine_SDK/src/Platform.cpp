@@ -492,6 +492,9 @@ void Platform::Initialize(const ApplicationInitializationSettings& application_i
       std::to_string(capabilities.task_work_group_invocations) + "\n#define EE_SHADER_EXECUTION_REORDERING_SUPPORTED " +
       std::to_string(capabilities.support_shader_execution_reordering &&
                      application_initialization_settings.graphics_settings.use_ray_tracing) +
+      "\n#define EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED " +
+      std::to_string(capabilities.support_ray_tracing_linear_swept_spheres &&
+                     application_initialization_settings.graphics_settings.use_ray_tracing) +
       "\n#define EE_SHADER_FLOAT16_SUPPORTED " + std::to_string(capabilities.support_shader_float16) + "\n";
 }
 
@@ -1707,6 +1710,21 @@ void Platform::SelectPhysicalDevice() {
   }
   capabilities_.support_acceleration_structure =
       ray_acceleration_structure_supported && (capabilities_.support_ray_tracing || capabilities_.support_ray_query);
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  if (capabilities_.support_ray_tracing &&
+      selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME) &&
+      selected_physical_device->ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres == VK_TRUE) {
+    require_device_extension(VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME);
+    capabilities_.support_ray_tracing_linear_swept_spheres = true;
+    EVOENGINE_LOG("Target device supports ray tracing linear swept spheres!");
+  } else {
+    capabilities_.support_ray_tracing_linear_swept_spheres = false;
+    EVOENGINE_LOG("Target device doesn't support ray tracing linear swept spheres; ray cameras ignore strands.");
+  }
+#else
+  capabilities_.support_ray_tracing_linear_swept_spheres = false;
+  EVOENGINE_LOG("Linear swept sphere Vulkan headers are unavailable; ray cameras ignore strands.");
+#endif
 #ifdef VK_EXT_ray_tracing_invocation_reorder
   if (capabilities_.support_ray_tracing &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
@@ -1793,6 +1811,12 @@ void Platform::PhysicalDevice::QueryInformation() {
     ray_query_features.pNext = feature_chain_tail;
     feature_chain_tail = &ray_query_features;
   }
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  if (CheckExtensionSupport(VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME)) {
+    ray_tracing_linear_swept_spheres_features_nv.pNext = feature_chain_tail;
+    feature_chain_tail = &ray_tracing_linear_swept_spheres_features_nv;
+  }
+#endif
   if (CheckExtensionSupport(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME)) {
     acceleration_structure_features.pNext = feature_chain_tail;
     feature_chain_tail = &acceleration_structure_features;
@@ -1957,6 +1981,17 @@ void Platform::CreateLogicalDevice() {
     vk_physical_device_ray_query_features_khr.pNext = ray_feature_chain_tail;
     ray_feature_chain_tail = &vk_physical_device_ray_query_features_khr;
   }
+
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  VkPhysicalDeviceRayTracingLinearSweptSpheresFeaturesNV
+      vk_physical_device_ray_tracing_linear_swept_spheres_features_nv{
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_LINEAR_SWEPT_SPHERES_FEATURES_NV};
+  vk_physical_device_ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres = VK_TRUE;
+  if (capabilities_.support_ray_tracing_linear_swept_spheres) {
+    vk_physical_device_ray_tracing_linear_swept_spheres_features_nv.pNext = ray_feature_chain_tail;
+    ray_feature_chain_tail = &vk_physical_device_ray_tracing_linear_swept_spheres_features_nv;
+  }
+#endif
 
   VkPhysicalDeviceAccelerationStructureFeaturesKHR vk_physical_device_acceleration_structure_features_khr{};
   vk_physical_device_acceleration_structure_features_khr.sType =
@@ -2875,6 +2910,11 @@ bool Platform::RayTracingEnabled() {
 bool Platform::RayQueryEnabled() {
   const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
   return GetInstance().capabilities_.support_ray_query && graphics_settings.use_ray_tracing;
+}
+
+bool Platform::RayTracingLinearSweptSpheresEnabled() {
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  return GetInstance().capabilities_.support_ray_tracing_linear_swept_spheres && graphics_settings.use_ray_tracing;
 }
 
 bool Platform::RayAccelerationStructureEnabled() {

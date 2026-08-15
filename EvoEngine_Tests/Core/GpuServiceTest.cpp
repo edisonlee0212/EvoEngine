@@ -15,6 +15,7 @@
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
 #include "Shader.hpp"
+#include "Strands.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 
@@ -149,7 +150,9 @@ class ScopedGpuPlatform {
     Jobs::Initialize(2);
     jobs_initialized_ = true;
     try {
-      PlatformLifecycleTestAccess::Initialize(TestApplicationSettings(*project_, use_ray_tracing));
+      const auto settings = TestApplicationSettings(*project_, use_ray_tracing);
+      const_cast<ApplicationInitializationSettings&>(application_->GetApplicationInfo()) = settings;
+      PlatformLifecycleTestAccess::Initialize(settings);
       platform_initialized_ = true;
     } catch (...) {
       if (jobs_initialized_) {
@@ -676,6 +679,46 @@ TEST(GpuService, CameraRayTransportShadersCompile) {
   EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
 }
 
+TEST(GpuService, LinearSweptSphereCapabilityMatchesShaderDefine) {
+  ScopedGpuPlatform platform(true);
+  const bool enabled = Platform::RayTracingLinearSweptSpheresEnabled();
+  const auto expected_define =
+      std::string("#define EE_RAY_TRACING_LINEAR_SWEPT_SPHERES_SUPPORTED ") + (enabled ? "1" : "0");
+  EXPECT_NE(Platform::GetShaderGlobalDefines().find(expected_define), std::string::npos);
+
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  const auto& physical_device = Platform::GetSelectedPhysicalDevice();
+  const bool supported =
+      Platform::GetInstance().GetCapabilities().support_ray_tracing &&
+      physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME) &&
+      physical_device->ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres == VK_TRUE;
+  EXPECT_EQ(enabled, supported);
+#else
+  EXPECT_FALSE(enabled);
+#endif
+}
+
+TEST(GpuService, LinearSweptSphereCameraShadersCompile) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayTracingLinearSweptSpheresEnabled()) {
+    GTEST_SKIP() << "Linear swept spheres are unavailable on the selected test device.";
+  }
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Includes");
+  const auto header = Platform::GetShaderGlobalDefines() + "\n#define EE_GLTF_COMPILED_FEATURE_MASK 32767u\n";
+
+  Shader raygen;
+  Shader any_hit;
+  Shader closest_hit;
+  Shader ray_query;
+  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/Camera.slang"));
+  EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/Camera.slang"));
+  EXPECT_TRUE(
+      closest_hit.TryCompile(ShaderType::ClosestHit, header, shader_root / "RayTracing/ClosestHit/Camera.slang"));
+  EXPECT_TRUE(ray_query.TryCompile(ShaderType::Compute, header, shader_root / "Compute/RayQueryCamera.slang"));
+}
+
 TEST(GpuService, EnvironmentLightingShadersCompile) {
   ScopedGpuPlatform platform;
   const auto shader_root =
@@ -1051,6 +1094,92 @@ TEST(GpuService, GeometryStorageUploadsCompactedMeshTail) {
   EXPECT_FLOAT_EQ(output.vertex_data[0].position.x, second_vertices[0].position.x);
   EXPECT_FLOAT_EQ(output.vertex_data[0].position.y, second_vertices[0].position.y);
   EXPECT_FLOAT_EQ(output.vertex_data[0].position.z, second_vertices[0].position.z);
+}
+
+TEST(GpuService, RayTracingStrandStorageIsAbsentWhenFeatureIsDisabled) {
+  ScopedGpuPlatform platform;
+  ASSERT_FALSE(Platform::RayTracingLinearSweptSpheresEnabled());
+  EXPECT_FALSE(GeometryStorage::GetRayTracingStrandPointBuffer());
+  EXPECT_FALSE(GeometryStorage::GetRayTracingStrandIndexBuffer());
+
+  Strands strands;
+  strands.OnCreate();
+  StrandPointAttributes attributes{};
+  attributes.normal = true;
+  std::vector<StrandPoint> points(4);
+  for (size_t index = 0; index < points.size(); ++index) {
+    points[index].position = glm::vec3(static_cast<float>(index), 0.0f, 0.0f);
+    points[index].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+    points[index].thickness = 0.1f;
+  }
+  strands.SetSegments(attributes, {0}, points);
+  EXPECT_FALSE(GeometryStorage::HasPendingUploads());
+}
+
+TEST(GpuService, RayTracingStrandStorageCompactionAdjustsAbsoluteIndices) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayTracingLinearSweptSpheresEnabled()) {
+    GTEST_SKIP() << "Linear swept spheres are unavailable on the selected test device.";
+  }
+
+  StrandPointAttributes attributes{};
+  attributes.normal = true;
+  const auto create_strands = [&](const float offset) {
+    auto strands = std::make_unique<Strands>();
+    strands->OnCreate();
+    std::vector<StrandPoint> points(4);
+    for (size_t index = 0; index < points.size(); ++index) {
+      points[index].position = glm::vec3(offset + static_cast<float>(index), 0.0f, 0.0f);
+      points[index].normal = glm::vec3(0.0f, 1.0f, 0.0f);
+      points[index].thickness = 0.1f;
+    }
+    strands->SetSegments(attributes, {0}, points);
+    return strands;
+  };
+
+  auto first = create_strands(0.0f);
+  auto second = create_strands(10.0f);
+  GeometryStorage::WaitForPendingUploads();
+  EXPECT_EQ(GeometryStorage::PeekRayTracingStrandIndex(8), 9u);
+
+  first.reset();
+  GeometryStorage::WaitForPendingUploads();
+  for (uint32_t index = 0; index < 8; ++index) {
+    EXPECT_EQ(GeometryStorage::PeekRayTracingStrandIndex(index), index);
+  }
+  EXPECT_FLOAT_EQ(GeometryStorage::PeekRayTracingStrandPoint(0).position.x, 11.0f);
+
+  const auto downloaded =
+      GeometryStorage::GetRayTracingStrandIndexBuffer()->DownloadDataAsync(8 * sizeof(uint32_t)).get();
+  ASSERT_EQ(downloaded.size(), 8 * sizeof(uint32_t));
+  std::array<uint32_t, 8> indices{};
+  memcpy(indices.data(), downloaded.data(), downloaded.size());
+  for (uint32_t index = 0; index < indices.size(); ++index) {
+    EXPECT_EQ(indices[index], index);
+  }
+}
+
+TEST(GpuService, LinearSweptSphereBlasBuildsFromAssetOwnedInput) {
+  ScopedGpuPlatform platform(true);
+  if (!Platform::RayTracingLinearSweptSpheresEnabled()) {
+    GTEST_SKIP() << "Linear swept spheres are unavailable on the selected test device.";
+  }
+
+  Strands strands;
+  strands.OnCreate();
+  StrandPointAttributes attributes{};
+  attributes.normal = true;
+  std::vector<StrandPoint> points(4);
+  for (size_t index = 0; index < points.size(); ++index) {
+    points[index].position = glm::vec3(static_cast<float>(index), 0.25f * static_cast<float>(index % 2), 0.0f);
+    points[index].normal = glm::vec3(0.0f, 0.0f, 1.0f);
+    points[index].thickness = 0.05f + 0.01f * static_cast<float>(index);
+  }
+  strands.SetSegments(attributes, {0}, points);
+
+  ASSERT_TRUE(strands.GetBlas());
+  EXPECT_TRUE(strands.GetBlas()->IsReady());
+  EXPECT_NE(strands.GetBlas()->GetDeviceAddress(), 0u);
 }
 
 TEST(GpuService, ConcurrentBufferUploadsRoundTrip) {

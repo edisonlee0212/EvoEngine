@@ -30,6 +30,7 @@
 #include "ForestDescriptor.hpp"
 #include "HeightField.hpp"
 #include "Prefab.hpp"
+#include "ProjectManager.hpp"
 #include "RadialBoundingVolume.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
@@ -39,6 +40,9 @@
 #include "Tree.hpp"
 #include "TreeDescriptor.hpp"
 #include "TreeStructor.hpp"
+
+#include <algorithm>
+
 using namespace eco_sys_lab_package;
 
 void EcoSysLabLayer::OnDestroy() {
@@ -908,9 +912,58 @@ glm::vec2 EcoSysLabLayer::GetMouseSceneCameraPosition() const {
   return visualization_camera_mouse_position;
 }
 
+void EcoSysLabLayer::UpdateDemoTreeGrowth() {
+  if (demo_tree_growth_finished_ || !ProjectManager::IsProjectIdle()) {
+    return;
+  }
+  const auto project_path = ProjectManager::GetProjectPath();
+  if (project_path.filename() != "test.eveproj" || project_path.parent_path().filename() != "EcoSysLabProject") {
+    demo_tree_growth_finished_ = true;
+    return;
+  }
+  const auto scene = GetScene();
+  if (!scene) {
+    return;
+  }
+  if (!demo_tree_initialized_) {
+    const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+    if (!editor_layer || !editor_layer->IsPlantVisualSplitLayoutReady()) {
+      return;
+    }
+    const auto descriptor = std::dynamic_pointer_cast<TreeDescriptor>(
+        ProjectManager::GetOrCreateAsset("TreeDescriptors/Basic/Acacia.tree"));
+    demo_tree_entity_ = descriptor ? descriptor->Instantiate() : Entity{};
+    if (!scene->IsEntityValid(demo_tree_entity_)) {
+      EVOENGINE_ERROR("Failed to instantiate the EcoSysLab demo Acacia tree.")
+      demo_tree_growth_finished_ = true;
+      return;
+    }
+    demo_tree_initialized_ = true;
+    EVOENGINE_LOG("Started the EcoSysLab demo Acacia eight-year growth animation.")
+  }
+
+  constexpr float target_growth_time = 8.0f * 365.0f;
+  if (simulated_time_ < target_growth_time) {
+    auto growth_settings = simulation_settings;
+    growth_settings.delta_time = std::min(simulation_settings.delta_time, target_growth_time - simulated_time_);
+    Simulate(growth_settings, simulation_stats);
+  }
+  if (simulated_time_ < target_growth_time) {
+    return;
+  }
+  auto demo_mesh_generator_settings = mesh_generator_settings;
+  demo_mesh_generator_settings.foliage_instancing = false;
+  scene->GetOrSetPrivateComponent<Tree>(demo_tree_entity_)
+      .lock()
+      ->GenerateGeometryEntities(demo_mesh_generator_settings);
+  demo_tree_growth_finished_ = true;
+  EVOENGINE_LOG("Finished the EcoSysLab demo Acacia eight-year growth animation and generated its mesh.")
+}
+
 void EcoSysLabLayer::Update() {
   if (const auto scene = GetScene(); !scene)
     return;
+  UpdateDemoTreeGrowth();
   RegisterStrandRenderingProcedure();
   DynamicSkeletonPhysics();
   DynamicStrandSimulation();

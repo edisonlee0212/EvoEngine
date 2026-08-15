@@ -22,6 +22,8 @@ using namespace evo_engine;
 namespace {
 constexpr uint32_t kDdgiRayMaskGeometry = 0x01u;
 constexpr uint32_t kDdgiRayMaskShadow = 0x02u;
+constexpr uint32_t kCameraLssRayMaskGeometry = 0x04u;
+constexpr uint32_t kCameraLssRayMaskShadow = 0x08u;
 constexpr VkBuildAccelerationStructureFlagsKHR kTlasBuildFlags =
     VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
 constexpr VkBuildAccelerationStructureFlagsKHR kBlasBuildFlags =
@@ -107,6 +109,18 @@ bool HasFiniteBlasPositions(const std::vector<Vertex>& vertices) {
   return std::all_of(vertices.begin(), vertices.end(), [](const Vertex& vertex) {
     return std::isfinite(vertex.position.x) && std::isfinite(vertex.position.y) && std::isfinite(vertex.position.z);
   });
+}
+
+bool HasValidLinearSweptSphereInput(const std::vector<StrandPoint>& points, const std::vector<uint32_t>& indices) {
+  return std::all_of(points.begin(), points.end(),
+                     [](const StrandPoint& point) {
+                       return std::isfinite(point.position.x) && std::isfinite(point.position.y) &&
+                              std::isfinite(point.position.z) && std::isfinite(point.thickness) &&
+                              point.thickness >= 0.0f;
+                     }) &&
+         std::all_of(indices.begin(), indices.end(), [&](const uint32_t index) {
+           return index < points.size() - 1u;
+         });
 }
 
 VkDeviceSize SaturatingAdd(const VkDeviceSize left, const VkDeviceSize right) {
@@ -2099,6 +2113,109 @@ std::shared_ptr<BottomLevelAccelerationStructure> BottomLevelAccelerationStructu
   return result;
 }
 
+std::shared_ptr<BottomLevelAccelerationStructure> BottomLevelAccelerationStructure::CreateLinearSweptSpheres(
+    const std::vector<StrandPoint>& points, const std::vector<uint32_t>& indices) {
+  return std::shared_ptr<BottomLevelAccelerationStructure>(new BottomLevelAccelerationStructure(points, indices));
+}
+
+BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::vector<StrandPoint>& points,
+                                                                   const std::vector<uint32_t>& indices)
+    : vertex_count_(static_cast<uint32_t>(points.size())), primitive_count_(static_cast<uint32_t>(indices.size())) {
+#ifdef VK_NV_ray_tracing_linear_swept_spheres
+  if (!Platform::Initialized() || !Platform::RayTracingLinearSweptSpheresEnabled() || points.empty() ||
+      indices.empty()) {
+    return;
+  }
+  if (points.size() > (std::numeric_limits<uint32_t>::max)() ||
+      indices.size() > (std::numeric_limits<uint32_t>::max)() || !HasValidLinearSweptSphereInput(points, indices)) {
+    throw std::runtime_error("Linear swept sphere BLAS input is invalid.");
+  }
+
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+                             VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+  buffer_create_info.size = points.size() * sizeof(StrandPoint);
+  auto point_buffer = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+  point_buffer->UploadVector(points);
+  point_buffer->SetDebugName("LSS BLAS Point Input");
+  buffer_create_info.size = indices.size() * sizeof(uint32_t);
+  auto lss_index_buffer = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+  lss_index_buffer->UploadVector(indices);
+  lss_index_buffer->SetDebugName("LSS BLAS Index Input");
+
+  VkAccelerationStructureGeometryLinearSweptSpheresDataNV lss_data{};
+  lss_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_LINEAR_SWEPT_SPHERES_DATA_NV;
+  lss_data.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+  lss_data.vertexData.deviceAddress = point_buffer->GetDeviceAddress() + offsetof(StrandPoint, position);
+  lss_data.vertexStride = sizeof(StrandPoint);
+  lss_data.radiusFormat = VK_FORMAT_R32_SFLOAT;
+  lss_data.radiusData.deviceAddress = point_buffer->GetDeviceAddress() + offsetof(StrandPoint, thickness);
+  lss_data.radiusStride = sizeof(StrandPoint);
+  lss_data.indexType = VK_INDEX_TYPE_UINT32;
+  lss_data.indexData.deviceAddress = lss_index_buffer->GetDeviceAddress();
+  lss_data.indexStride = sizeof(uint32_t);
+  lss_data.indexingMode = VK_RAY_TRACING_LSS_INDEXING_MODE_SUCCESSIVE_NV;
+  lss_data.endCapsMode = VK_RAY_TRACING_LSS_PRIMITIVE_END_CAPS_MODE_CHAINED_NV;
+
+  VkAccelerationStructureGeometryKHR geometry{};
+  geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+  geometry.pNext = &lss_data;
+  geometry.geometryType = VK_GEOMETRY_TYPE_LINEAR_SWEPT_SPHERES_NV;
+  geometry.flags = VK_GEOMETRY_NO_DUPLICATE_ANY_HIT_INVOCATION_BIT_KHR;
+
+  VkAccelerationStructureBuildGeometryInfoKHR size_info{};
+  size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+  size_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  size_info.flags = kBlasBuildFlags;
+  size_info.geometryCount = 1;
+  size_info.pGeometries = &geometry;
+  VkAccelerationStructureBuildSizesInfoKHR build_sizes{};
+  build_sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+  vkGetAccelerationStructureBuildSizesKHR(Platform::GetVkDevice(), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+                                          &size_info, &primitive_count_, &build_sizes);
+
+  acceleration_structure_buffer_ = CreateAccelerationStructureBuffer(build_sizes.accelerationStructureSize);
+  vk_acceleration_structure_khr_ =
+      CreateBottomLevelAccelerationStructure(acceleration_structure_buffer_, build_sizes.accelerationStructureSize);
+  const auto scratch_alignment =
+      std::max(1u, Platform::GetSelectedPhysicalDevice()
+                       ->acceleration_structure_properties_khr.minAccelerationStructureScratchOffsetAlignment);
+  buffer_create_info.size = build_sizes.buildScratchSize + static_cast<VkDeviceSize>(scratch_alignment) - 1;
+  buffer_create_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+  auto scratch_buffer = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+
+  VkAccelerationStructureBuildGeometryInfoKHR build_info = size_info;
+  build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  build_info.dstAccelerationStructure = vk_acceleration_structure_khr_;
+  build_info.scratchData.deviceAddress = AlignUp(scratch_buffer->GetDeviceAddress(), scratch_alignment);
+  VkAccelerationStructureBuildRangeInfoKHR range_info{};
+  range_info.primitiveCount = primitive_count_;
+  const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
+  Platform::ImmediateSubmitWithGpuTimestamp("LSS BLAS Build", [&](const VkCommandBuffer command_buffer) {
+    vkCmdBuildAccelerationStructuresKHR(command_buffer, 1, &build_info, range_infos);
+  });
+
+  VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+  address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+  address_info.accelerationStructure = vk_acceleration_structure_khr_;
+  device_address_ = vkGetAccelerationStructureDeviceAddressKHR(Platform::GetVkDevice(), &address_info);
+  if (device_address_ == 0) {
+    throw std::runtime_error("Linear swept sphere BLAS returned a zero device address.");
+  }
+  acceleration_structure_buffer_->SetDebugName("LSS BLAS Storage");
+  content_version_ = 1;
+  auto& builder_state = GetStaticBlasBuilderState();
+  std::lock_guard lock(builder_state.mutex);
+  ++builder_state.telemetry.total_blas_count;
+  telemetry_registered_ = true;
+#endif
+}
+
 void BottomLevelAccelerationStructure::ProcessStaticBuilds() {
   if (!Platform::Initialized()) {
     return;
@@ -2793,7 +2910,8 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   const auto& gltf_shade_materials = render_instance_storage.GetGltfShadeMaterials();
   const auto register_instance = [&](const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
                                      const std::shared_ptr<BottomLevelAccelerationStructure>& blas,
-                                     const glm::mat4& model, const uint32_t custom_index) {
+                                     const glm::mat4& model, const uint32_t custom_index,
+                                     const bool linear_swept_spheres = false) {
     if (!render_instance || !blas || !blas->IsReady()) {
       return;
     }
@@ -2803,7 +2921,7 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     auto& instance = instances.emplace_back();
     blas_content_versions.emplace_back(blas->GetContentVersion());
     instance.instanceCustomIndex = custom_index;
-    instance.instanceShaderBindingTableRecordOffset = 0;
+    instance.instanceShaderBindingTableRecordOffset = linear_swept_spheres ? 1u : 0u;
     if (!IsValidAccelerationStructureTransform(model)) {
       SetAccelerationStructureTransform(instance, glm::mat4(1.0f));
       instance.mask = 0;
@@ -2811,8 +2929,13 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
       return;
     }
     SetAccelerationStructureTransform(instance, model);
-    instance.mask = kDdgiRayMaskGeometry | (render_instance->cast_shadow ? kDdgiRayMaskShadow : 0u);
+    instance.mask = linear_swept_spheres
+                        ? kCameraLssRayMaskGeometry | (render_instance->cast_shadow ? kCameraLssRayMaskShadow : 0u)
+                        : kDdgiRayMaskGeometry | (render_instance->cast_shadow ? kDdgiRayMaskShadow : 0u);
     instance.flags = BuildGltfRayTracingInstanceFlags(*render_instance, gltf_shade_materials);
+    if (linear_swept_spheres) {
+      instance.flags |= VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
+    }
     instance.accelerationStructureReference = blas->GetDeviceAddress();
     append_blas_reference(blas);
   };
@@ -2856,15 +2979,25 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
                             render_instance->model.value, static_cast<uint32_t>(render_instance->instance_index));
         }
       };
+  const auto register_strands =
+      [&](const std::shared_ptr<RenderInstanceStorage::StrandsRenderInstance>& render_instance) {
+        if (Platform::RayTracingLinearSweptSpheresEnabled() && render_instance && render_instance->strands) {
+          register_instance(render_instance, render_instance->strands->blas_, render_instance->model.value,
+                            static_cast<uint32_t>(render_instance->instance_index), true);
+        }
+      };
   render_instance_storage.deferred_render_instances->ForEachMeshRenderInstance(register_mesh);
   render_instance_storage.deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
   render_instance_storage.deferred_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
+  render_instance_storage.deferred_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
   render_instance_storage.forward_render_instances->ForEachMeshRenderInstance(register_mesh);
   render_instance_storage.forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
   render_instance_storage.forward_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
+  render_instance_storage.forward_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
   render_instance_storage.transparent_render_instances->ForEachMeshRenderInstance(register_mesh);
   render_instance_storage.transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
   render_instance_storage.transparent_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
+  render_instance_storage.transparent_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
   render_instance_storage.external_render_instances->ForEachExternalRenderInstance(register_external);
 
   if (instances.empty()) {

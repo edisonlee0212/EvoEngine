@@ -33,7 +33,8 @@ bool EE_CAMERA_RT_TRACE_SURFACE_SER(const RayDesc ray, const bool shader_executi
   __target_switch {
     case spvShaderInvocationReorderEXT:
       if (shader_execution_reordering) {
-        HitObject hit_object = HitObject::TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xff, 0, 0, 0, ray,
+        HitObject hit_object = HitObject::TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES,
+                                                   EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray,
                                                    hit_value);
         ReorderThread(hit_object);
         HitObject::Invoke(EE_TLAS, hit_object, hit_value);
@@ -54,6 +55,6 @@ public void EE_CAMERA_RT_TRACE_SURFACE(const float3 origin, const float3 directi
   if (EE_CAMERA_RT_TRACE_SURFACE_SER(ray, shader_execution_reordering, seed, hit_value)) {
     return;
   }
-  TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, 0xff, 0, 0, 0, ray, hit_value);
+  TraceRay(EE_TLAS, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, EE_CAMERA_RAY_MASK_GEOMETRY, 0, 0, 0, ray, hit_value);
   seed = hit_value.seed;
 }

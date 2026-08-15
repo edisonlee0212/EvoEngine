@@ -48,6 +48,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/ReflectionProbeTest.cpp
 	Core/EnvironmentalLightingContractTest.cpp
 	Core/EnvironmentalLightingAssetTest.cpp
+	Core/RenderingDocumentationTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
 	Core/InspectorRegistryTest.cpp
@@ -250,6 +251,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER EnvironmentalLightingContract.*
 	PROPERTIES LABELS "core,render,environmental-lighting"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER RenderingDocumentation.*
+	PROPERTIES LABELS "core,render,documentation"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

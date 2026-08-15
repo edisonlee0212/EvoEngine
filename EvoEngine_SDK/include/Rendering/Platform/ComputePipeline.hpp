@@ -42,6 +42,9 @@ class ComputePipeline final : public IGraphicsResource {
   /// Compute shader associated with this pipeline.
   std::shared_ptr<Shader> compute_shader;
 
+  /// Enables traversal of sphere and linear swept sphere acceleration-structure geometry.
+  bool linear_swept_spheres_enabled = false;
+
   /**
    * @brief Initializes the compute pipeline.
    */
