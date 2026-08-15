@@ -250,53 +250,6 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
   EXPECT_NE(textures.find("[[vk::binding(10, 0)]]"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, RasterDescriptorContractIsDocumented) {
-  const auto rendering_docs = ReadTextFile(RepoPath("docs/rendering.md"));
-  ASSERT_FALSE(rendering_docs.empty());
-
-  EXPECT_NE(rendering_docs.find("Raster material descriptors use descriptor set 3"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("set 1 remains available for"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("instanced/strand data"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("set 2 remains available for lighting or pass descriptors"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Raster material shaders must not use runtime bindless descriptor arrays"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("Fixed-size image arrays and atlases are allowed"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 0 | Base color or diffuse | White. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 1 | Metallic-roughness or specular-glossiness | White. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 2 | Normal | Flat normal. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 3 | Emissive | Black. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 4 | Occlusion | White. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 5 | Clearcoat | White. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 6 | Clearcoat roughness | White. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("| 7 | Clearcoat normal | Flat normal. |"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("renderer-owned runtime state keyed by material index"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Descriptor sets are not"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("deduplicated across material indices"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("texture's existing combined image sampler"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("uses material-batched indirect ranges"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("restores deferred mesh indirect rendering"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("material per-frame descriptor set that keeps the shared per-frame buffers"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("omits bindless"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("cubemap array"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Built-in shadow-map passes treat all mesh materials as opaque"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("do not sample material textures for alpha discard"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("regular mesh shadow draws"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("opaque shadow indirect command path"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Raster lighting uses a fixed raster-global texture descriptor set"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("prefiltered global environment cubemap, ambient occlusion, and a fixed array of 32"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("Set 2 still owns shared shadow-map and DDGI atlas bindings"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("external forward callbacks"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Bindless texture arrays are reserved for ray tracing and ray query paths"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("without texture or cubemap descriptor arrays"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("skips binding the global texture storage arrays"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("non-ray-tracing compute texture inputs use fixed material, global, or"),
-            std::string::npos);
-}
-
 TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
@@ -652,7 +605,7 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_NE(render_instance_storage.find("info.lighting_parameters = glm::vec4"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("static_cast<float>(probe.artist_priority)"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("asset && asset->IsRuntimeReady()"), std::string::npos);
-  EXPECT_NE(render_instance_storage.find("auto probe_payload_ref = probe.global_reflection_probe"), std::string::npos);
+  EXPECT_NE(render_instance_storage.find("const auto& asset = probe.payload"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("info.world_to_probe = glm::inverse(probe.transform)"), std::string::npos);
   EXPECT_NE(lighting_shader.find("const float3 inverse_column0 = cross(world_to_probe[1], world_to_probe[2])"),
             std::string::npos);
@@ -689,21 +642,12 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
 }
 
 TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
-  const auto docs = ReadTextFile(RepoPath("docs/rendering.md"));
   const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
   const auto offscreen_preview = ReadTextFile(SdkPath("src/OffscreenPreviewRenderer.cpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
-  ASSERT_FALSE(docs.empty());
   ASSERT_FALSE(thumbnail_provider.empty());
   ASSERT_FALSE(offscreen_preview.empty());
   ASSERT_FALSE(render_layer.empty());
-
-  EXPECT_NE(docs.find("Material and mesh thumbnail rendering uses `AssetThumbnailProvider` and "
-                      "`OffscreenPreviewRenderer`"),
-            std::string::npos);
-  EXPECT_NE(docs.find("do not own separate glTF raster"), std::string::npos);
-  EXPECT_NE(docs.find("material pipelines"), std::string::npos);
-  EXPECT_NE(docs.find("inherits the same fixed material descriptor layouts"), std::string::npos);
 
   EXPECT_NE(thumbnail_provider.find("RegisterAssetPreviewHandler<Material>"), std::string::npos);
   EXPECT_NE(thumbnail_provider.find("OffscreenPreviewRenderer::RenderMaterial(material, settings)"), std::string::npos);

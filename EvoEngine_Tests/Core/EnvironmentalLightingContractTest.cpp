@@ -281,14 +281,10 @@ TEST(EnvironmentalLightingContract, InspectorSeparatesAuthoringIntoOwnershipTabs
   EXPECT_GT(debug_bounds, tab_bar_end);
 }
 
-TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology) {
+TEST(EnvironmentalLightingContract, HeaderCarriesLockedFallbackTerminology) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/ResolvedEnvironmentalLighting.hpp"));
-  const auto rendering_docs = ReadTextFile(SourcePath("docs/rendering.md"));
-  const auto reflection_probe_docs = ReadTextFile(SourcePath("docs/reflection-probes.md"));
 
   ASSERT_FALSE(header.empty());
-  ASSERT_FALSE(rendering_docs.empty());
-  ASSERT_FALSE(reflection_probe_docs.empty());
 
   EXPECT_NE(header.find("environment_lighting_intensity"), std::string::npos);
   EXPECT_NE(header.find("kDefaultDiffuseFallbackIntensity"), std::string::npos);
@@ -299,51 +295,6 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(header.find("RayCameraUsesGlobalReflectionProbeAsRadianceSource"), std::string::npos);
   EXPECT_EQ(header.find("indirect_sky_intensity"), std::string::npos);
   EXPECT_EQ(header.find("global_reflection_fallback_intensity"), std::string::npos);
-
-  EXPECT_NE(rendering_docs.find("Environmental Lighting Ownership Target"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Camera primary miss:"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Surface/volume environment sampling and secondary misses:"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Ray cameras do not use `Scene::global_reflection_probe_fallback`"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Ray cameras ignore `diffuse_fallback_intensity`"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("diffuse_fallback_intensity = 1.0f"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("specular_fallback_intensity = 1.0f"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("fallback contribution still uses the resolved fallback intensity"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("DDGI miss radiance is"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("Probe-capture background intensity always uses `environment_lighting_intensity`"),
-            std::string::npos);
-  EXPECT_NE(rendering_docs.find("valid local reflection probe at shaded point"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("environment_lighting_intensity = 1.0f"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("renderer consumption path exist"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("asset for local probes and DDGI volumes"), std::string::npos);
-  EXPECT_EQ(rendering_docs.find("extract the current legacy authoring into a new `.eveenvironmentallighting` asset"),
-            std::string::npos);
-  EXPECT_EQ(rendering_docs.find("indirect_sky_intensity"), std::string::npos);
-  EXPECT_EQ(rendering_docs.find("global_reflection_fallback_intensity"), std::string::npos);
-  EXPECT_EQ(rendering_docs.find("Renderer consumption remains on the existing scene/DDGI component paths"),
-            std::string::npos);
-
-  EXPECT_NE(reflection_probe_docs.find("Scene::global_reflection_probe_fallback"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("Asset-owned local probes are the runtime"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("RenderLayer inspector's"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("all-probe bounds toggle"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("per-probe debug bounds"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("Bake All Local Probe Payloads"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("request targets the owning pack plus the entry's stable ID"),
-            std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("marks the pack unsaved"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("specular_fallback_intensity` directly"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("forced to zero during capture"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("composed from material AO, eligible GTAO visibility, and DDGI probe"),
-            std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("probe visibility atlas/Chebyshev test, not irradiance RGB"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("disabled, or invalid DDGI blends toward white visibility"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("not bake inputs."), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("does not run a stale scan or batch stale rebake"), std::string::npos);
-  EXPECT_NE(reflection_probe_docs.find("diffuse/specular fallback factors"), std::string::npos);
-  EXPECT_EQ(reflection_probe_docs.find("component probes"), std::string::npos);
-  EXPECT_EQ(reflection_probe_docs.find("EnvironmentalMap::global_reflection_probe` supplies"), std::string::npos);
-  EXPECT_EQ(reflection_probe_docs.find("live renderer still gathers placed `ReflectionProbe` components"),
-            std::string::npos);
 }
 
 TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {

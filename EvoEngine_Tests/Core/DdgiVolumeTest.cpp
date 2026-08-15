@@ -85,9 +85,9 @@ uint32_t PackOctahedralDirection(const glm::vec3& input_direction) {
 
 glm::vec3 UnpackOctahedralDirection(const uint32_t packed_direction) {
   const auto unpack_snorm = [](const uint16_t value) {
-    return (std::max)(static_cast<float>(static_cast<int16_t>(value)) /
-                          static_cast<float>((std::numeric_limits<int16_t>::max)()),
-                      -1.0f);
+    return (std::max)(
+        static_cast<float>(static_cast<int16_t>(value)) / static_cast<float>((std::numeric_limits<int16_t>::max)()),
+        -1.0f);
   };
   const auto encoded =
       glm::vec2(unpack_snorm(static_cast<uint16_t>(packed_direction)), unpack_snorm(packed_direction >> 16u));
