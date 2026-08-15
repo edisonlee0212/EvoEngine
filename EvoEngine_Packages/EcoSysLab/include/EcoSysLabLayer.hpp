@@ -381,7 +381,10 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;    ///< Stores data for shadow grid rendering.
   std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;  ///< Stores data for lighting grid rendering.
 
-  float simulated_time_;         ///< The current simulated time.
+  float simulated_time_ = 0.0f;  ///< The current simulated time.
+  Entity demo_tree_entity_{};
+  bool demo_tree_initialized_ = false;
+  bool demo_tree_growth_finished_ = false;
   std::vector<Fruit> fruits_;    ///< Stores fruit entities.
   std::vector<Leaf> leaves_;     ///< Stores leaf entities.
   std::vector<Flower> flowers_;  ///< Stores leaf entities.
@@ -395,6 +398,7 @@ class EcoSysLabLayer : public ILayer {
    * @brief Updates the EcoSysLab layer.
    */
   void RegisterTypes(Application& application) override;
+  void UpdateDemoTreeGrowth();
   void Update() override;
 
   /**

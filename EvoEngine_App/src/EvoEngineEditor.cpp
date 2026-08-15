@@ -1401,6 +1401,10 @@ void ApplyDemoProfilePostLoadSetup(const DemoProfileId profile_id, const Applica
       }
       break;
     case DemoProfileId::EcoSysLab:
+      if (application_mode == ApplicationMode::Editor) {
+        ApplyEcoSysLabDemoEditorSetup();
+      }
+      break;
     case DemoProfileId::DigitalAgriculture:
     case DemoProfileId::LSystem:
     case DemoProfileId::ProceduralGalaxy:

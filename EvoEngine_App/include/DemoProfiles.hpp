@@ -56,6 +56,7 @@ struct DdgiCornellBoxDemoSettings {
     DemoProfileId id, const std::filesystem::path& preferred_resource_root = {});
 void NormalizeLegacyResourceExtensions(const std::filesystem::path& resource_root);
 void ApplyRenderingDemoEditorSetup();
+void ApplyEcoSysLabDemoEditorSetup();
 void ConfigureDdgiCornellBoxApplication(ApplicationInitializationSettings& application_info,
                                         ApplicationMode application_mode);
 void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const DdgiCornellBoxDemoSettings& settings = {});

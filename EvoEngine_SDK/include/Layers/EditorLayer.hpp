@@ -45,6 +45,7 @@ struct EditorDockLayoutSettings {
   float right_fraction = 0.28f;
   float bottom_fraction = 0.30f;
   std::optional<float> camera_fraction;
+  std::optional<float> plant_visual_fraction;
 };
 
 struct EditorPanelVisibilitySettings {
@@ -896,6 +897,7 @@ class EditorLayer : public ILayer {
   void DeserializeSceneState(const YAML::Node& in);
   [[nodiscard]] static bool HasUsableImGuiDockLayout(const std::string& ini_settings);
   [[nodiscard]] bool DefaultEditorLayoutPending() const;
+  [[nodiscard]] bool IsPlantVisualSplitLayoutReady() const;
   void RequestDefaultEditorLayout();
 
  private:

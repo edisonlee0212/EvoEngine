@@ -1666,7 +1666,7 @@ Entity LoadRenderingScene(const std::shared_ptr<Scene>& scene, const std::string
           ->material.Get<Material>();
   ConfigureMaterial(capoeira_joints_material, glm::vec3(0.3f, 1.0f, 0.5f), 0.0f, 1.0f, 6.0f);
   scene->SetParent(capoeira_entity, base_entity);
-  scene->SetEnable(capoeira_entity, false);
+  scene->SetEnable(capoeira_entity, true);
 
   return base_entity;
 }
@@ -1679,7 +1679,7 @@ void ConfigureRenderingDemoDdgi(const std::shared_ptr<Scene>& scene) {
   auto& settings = lighting->ddgi_settings;
   ConfigureStandardDdgiRuntime(settings, 8192, 0.02f);
   auto& ddgi_volume = ResetEnvironmentalLightingDdgiVolume(*lighting, "DDGI Probe Volume", glm::vec3(0.0f, 0.0f, -6.0f),
-                                                           {10, 6, 16}, glm::vec3(1.5f), glm::vec3(0.0f, 3.0f, 3.0f));
+                                                           {10, 8, 16}, glm::vec3(1.5f), glm::vec3(0.0f, 3.0f, 3.0f));
   ddgi_volume.relocation_distance = 0.25f;
   ddgi_volume.enable_probe_relocation = true;
   ddgi_volume.enable_probe_classification = false;

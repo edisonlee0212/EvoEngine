@@ -292,7 +292,7 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
     return FailSmokeTest(application, "Rendering demo environmental lighting asset is missing for DDGI validation");
   }
   if (resolved_lighting.environment_lighting_intensity != 1.0f ||
-      resolved_lighting.diffuse_fallback_intensity != 0.0f || resolved_lighting.specular_fallback_intensity != 1.0f) {
+      resolved_lighting.diffuse_fallback_intensity != 1.0f || resolved_lighting.specular_fallback_intensity != 1.0f) {
     return FailSmokeTest(application, "Rendering environmental lighting asset overrides fallback defaults");
   }
   const auto main_camera = scene->main_camera.Get<Camera>();
@@ -315,7 +315,7 @@ int ValidateRenderingDemoDdgiState(Application& application, const DemoAppRuntim
   bool found_ddgi_volume = false;
   for (const auto& volume : resolved_lighting.ddgi_volumes) {
     if (volume.stable_id == source_volume->stable_id) {
-      if (volume.probe_counts != glm::ivec3(10, 6, 16) || volume.probe_spacing != glm::vec3(1.5f) ||
+      if (volume.probe_counts != glm::ivec3(10, 8, 16) || volume.probe_spacing != glm::vec3(1.5f) ||
           volume.volume_origin != glm::vec3(0.0f, 3.0f, 3.0f) || volume.relocation_distance != 0.25f ||
           !volume.enable_probe_relocation || volume.enable_probe_classification) {
         return FailSmokeTest(application, "DDGI probe volume defaults are not configured for the Rendering demo");

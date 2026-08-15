@@ -890,10 +890,15 @@ void BuildCustomEditorDockLayout(const ImGuiID dock_space_id, const ImVec2& dock
       settings.camera_fraction
           ? ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, *settings.camera_fraction, nullptr, &center_node)
           : center_node;
+  const ImGuiID plant_visual_node =
+      settings.plant_visual_fraction
+          ? ImGui::DockBuilderSplitNode(center_node, ImGuiDir_Right, *settings.plant_visual_fraction, nullptr,
+                                        &center_node)
+          : center_node;
 
   ImGui::DockBuilderDockWindow("Scene", center_node);
   ImGui::DockBuilderDockWindow("Camera", camera_node);
-  ImGui::DockBuilderDockWindow("Plant Visual", center_node);
+  ImGui::DockBuilderDockWindow("Plant Visual", plant_visual_node);
   ImGui::DockBuilderDockWindow("Entity Explorer", left_node);
   ImGui::DockBuilderDockWindow("Entity Inspector", right_node);
   DockLayerInspectionWindows(left_node, right_node);
@@ -1545,6 +1550,11 @@ void EditorLayer::DeserializeSceneState(const YAML::Node& in) {
 
 bool EditorLayer::DefaultEditorLayoutPending() const {
   return dock_layout_reset_pending_;
+}
+
+bool EditorLayer::IsPlantVisualSplitLayoutReady() const {
+  return !dock_layout_reset_pending_ && custom_layout_settings_ && custom_layout_settings_->dock_layout &&
+         custom_layout_settings_->dock_layout->plant_visual_fraction.has_value();
 }
 
 void EditorLayer::OnDestroy() {

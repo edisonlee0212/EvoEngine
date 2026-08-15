@@ -35,7 +35,8 @@ TEST(EnvironmentalLightingContract, DefaultRuntimeViewEncodesNoAssetFallback) {
   EXPECT_FLOAT_EQ(resolved.specular_fallback_intensity,
                   ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
   EXPECT_FLOAT_EQ(ResolvedEnvironmentalLighting::kDefaultEnvironmentLightingIntensity, 1.0f);
-  EXPECT_FLOAT_EQ(ResolvedEnvironmentalLighting::kDefaultDiffuseFallbackIntensity, 0.0f);
+  EXPECT_FLOAT_EQ(EnvironmentalLighting::kDefaultDiffuseFallbackIntensity, 1.0f);
+  EXPECT_FLOAT_EQ(ResolvedEnvironmentalLighting::kDefaultDiffuseFallbackIntensity, 1.0f);
   EXPECT_FLOAT_EQ(ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity, 1.0f);
   EXPECT_FALSE(resolved.environmental_lighting_asset_assigned);
   EXPECT_TRUE(resolved.uses_engine_default_indirect_environment_source);
@@ -304,7 +305,7 @@ TEST(EnvironmentalLightingContract, DocsAndHeaderCarryLockedFallbackTerminology)
   EXPECT_NE(rendering_docs.find("Surface/volume environment sampling and secondary misses:"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Ray cameras do not use `Scene::global_reflection_probe_fallback`"), std::string::npos);
   EXPECT_NE(rendering_docs.find("Ray cameras ignore `diffuse_fallback_intensity`"), std::string::npos);
-  EXPECT_NE(rendering_docs.find("diffuse_fallback_intensity = 0.0f"), std::string::npos);
+  EXPECT_NE(rendering_docs.find("diffuse_fallback_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(rendering_docs.find("specular_fallback_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(rendering_docs.find("fallback contribution still uses the resolved fallback intensity"), std::string::npos);
   EXPECT_NE(rendering_docs.find("DDGI miss radiance is"), std::string::npos);

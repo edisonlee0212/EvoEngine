@@ -314,7 +314,7 @@ class RenderInstanceStorage {
     alignas(4) float environment_pdf_texture_index = -1.0f;          ///< Texture index for the environment CDF/PDF map.
     alignas(4) float environment_cubemap_index = -1.0f;   ///< Cubemap index for ray-traced environment light.
     alignas(4) float environment_rotation = 0.0f;         ///< Y-axis rotation in radians.
-    alignas(4) float diffuse_fallback_intensity = 0.0f;   ///< Raster diffuse IBL fallback scale.
+    alignas(4) float diffuse_fallback_intensity = 1.0f;   ///< Raster diffuse IBL fallback scale.
     alignas(4) float specular_fallback_intensity = 1.0f;  ///< Effective raster specular fallback scale.
 
     /**
