@@ -1,5 +1,6 @@
 
 #pragma once
+#include <ctime>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -18,7 +19,7 @@ class Console final {
 
   static void PushMessage(ConsoleMessageType type, const std::string& msg);
   static void AppendMessageToEditor(const std::shared_ptr<EditorLayer>& editor_layer, ConsoleMessageType type,
-                                    const std::string& msg, double time);
+                                    const std::string& msg, double time, std::time_t timestamp);
 
  public:
   Console();

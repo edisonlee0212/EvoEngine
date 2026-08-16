@@ -12,8 +12,11 @@
 #include <array>
 #include <cstddef>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace evo_engine {
+
+using EntitySelectionHighlightCoverage = std::unordered_set<Entity, Entity>;
 
 class BottomLevelAccelerationStructure;
 class DescriptorSet;
@@ -277,16 +280,36 @@ class RenderInstanceStorage {
   static_assert(offsetof(RenderInfoBlock, reflection_probes) == 1424);
   static_assert(sizeof(RenderInfoBlock) == 6032);
 
-  struct EmissiveTriangleInfoBlock {
+  struct EmissiveAliasEntry {
+    float alias_probability = 1.0f;
+    uint32_t alias_index = 0;
+    float selection_probability = 0.0f;
+  };
+
+  struct EmissiveInstanceInfoBlock {
     uint32_t instance_index = 0;
+    uint32_t distribution_index = 0;
+    float power_alias_probability = 1.0f;
+    uint32_t power_alias_index = 0;
+    float uniform_alias_probability = 1.0f;
+    uint32_t uniform_alias_index = 0;
+    float power_selection_probability = 0.0f;
+    float uniform_selection_probability = 0.0f;
+  };
+
+  struct EmissiveTriangleDistributionInfoBlock {
+    uint32_t triangle_offset = 0;
+    uint32_t triangle_count = 0;
+  };
+
+  struct EmissiveTriangleInfoBlock {
     uint32_t primitive_id = 0;
     float alias_probability = 1.0f;
     uint32_t alias_index = 0;
-    float area_pdf = 0.0f;
+    float selection_probability = 0.0f;
   };
 
   struct EmissiveTriangleCandidate {
-    uint32_t instance_index = 0;
     uint32_t primitive_id = 0;
     double area = 0.0;
     double importance = 0.0;
@@ -296,10 +319,17 @@ class RenderInstanceStorage {
     uint32_t eligible_instance_count = 0;
     uint32_t excluded_emissive_instance_count = 0;
     uint32_t unrepresentable_probability_count = 0;
+    uint32_t distribution_count = 0;
+    uint32_t fallback_distribution_count = 0;
+    uint64_t logical_triangle_count = 0;
+    uint64_t stored_triangle_count = 0;
     double estimated_emitted_power = 0.0;
+    double build_ms = 0.0;
+    double upload_ms = 0.0;
   };
 
-  [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleInfoBlocks(
+  [[nodiscard]] static std::vector<EmissiveAliasEntry> BuildEmissiveAliasTable(const std::vector<double>& weights);
+  [[nodiscard]] static std::vector<EmissiveTriangleInfoBlock> BuildEmissiveTriangleDistribution(
       std::vector<EmissiveTriangleCandidate> candidates);
 
   /**
@@ -864,6 +894,8 @@ class RenderInstanceStorage {
   std::shared_ptr<Buffer> spot_light_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> render_info_descriptor_buffer = {};
   std::shared_ptr<Buffer> camera_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> emissive_instance_info_descriptor_buffer = {};
+  std::shared_ptr<Buffer> emissive_triangle_distribution_descriptor_buffer = {};
   std::shared_ptr<Buffer> emissive_triangle_info_descriptor_buffer = {};
 
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
@@ -942,7 +974,8 @@ class RenderInstanceStorage {
       bool include_editor_cameras = true,
       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
       bool include_reflection_probes = true,
-      const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides = nullptr);
+      const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides = nullptr,
+      const EntitySelectionHighlightCoverage* entity_selection_highlight_coverage = nullptr);
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
@@ -1003,6 +1036,8 @@ class RenderInstanceStorage {
    * @return Handle of the renderer associated with the instance.
    */
   [[nodiscard]] Handle GetInstanceRendererHandle(int render_instance_index);
+
+  [[nodiscard]] bool HasSelectionHighlightRenderInstances() const;
 
   /**
    * @brief Uploads all data and render instance information to the GPU.
@@ -1078,10 +1113,15 @@ class RenderInstanceStorage {
 
     bool operator==(const EmissiveTriangleInstanceSignature& other) const;
   };
+  std::vector<EmissiveInstanceInfoBlock> emissive_instance_info_blocks_{};
+  std::vector<EmissiveTriangleDistributionInfoBlock> emissive_triangle_distribution_info_blocks_{};
   std::vector<EmissiveTriangleInfoBlock> emissive_triangle_info_blocks_{};
   std::vector<EmissiveTriangleInstanceSignature> emissive_triangle_instance_signatures_{};
+  uint64_t emissive_sampling_signature_ = 0;
   uint64_t ddgi_emissive_inventory_signature_ = 0;
   EmissiveTriangleInventoryStats ddgi_emissive_inventory_stats_{};
+  bool emissive_instance_info_dirty_ = false;
+  bool emissive_triangle_distribution_info_dirty_ = false;
   bool emissive_triangle_info_dirty_ = false;
 
   /**
@@ -1129,6 +1169,9 @@ class RenderInstanceStorage {
   friend class MotionCoveragePass;
   friend class TransparentGeometryPass;
   friend class CpuRayTracer;
+  EntitySelectionHighlightCoverage entity_selection_highlight_coverage_;
+
+  [[nodiscard]] bool IsEntitySelectionHighlighted(const Entity& entity) const;
   /**
    * @brief Collects entity renderers and calculates the world bounding box.
    * @param target_scene The scene containing entities.

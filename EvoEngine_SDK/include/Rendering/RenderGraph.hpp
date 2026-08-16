@@ -154,6 +154,7 @@ inline constexpr const char* gaussian_splat_cull = "GaussianSplatCull";
 inline constexpr const char* gaussian_splat_sort = "GaussianSplatSort";
 inline constexpr const char* gaussian_splat = "GaussianSplat";
 inline constexpr const char* post_processing = "PostProcessing";
+inline constexpr const char* entity_selection_highlight = "EntitySelectionHighlight";
 inline constexpr const char* ray_tracing_camera = "RayTracingCamera";
 inline constexpr const char* ray_query_camera = "RayQueryCamera";
 }  // namespace RenderPassNames

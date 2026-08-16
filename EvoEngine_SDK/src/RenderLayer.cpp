@@ -39,6 +39,7 @@
 #include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
+#include "RenderPasses/EntitySelectionHighlightPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
 #include "RenderPasses/MotionCoveragePass.hpp"
 #include "RenderPasses/MotionVectorPass.hpp"
@@ -1697,6 +1698,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
       ray_tracing_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
       ray_tracing_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     }
+    ray_tracing_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
+    ray_tracing_layout_->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, ray_camera_geometry_stages, 0);
     ray_tracing_layout_->Initialize();
   }
   if (Platform::RayAccelerationStructureEnabled() && !ray_tracing_camera_output_layout_) {
@@ -2005,7 +2008,7 @@ void RenderLayer::OnCreate() {
                shader_stats_begin.compatibility_slang_frontend_invocations)
            << " shader_glslang_frontend="
            << (shader_stats.glslang_frontend_invocations - shader_stats_begin.glslang_frontend_invocations);
-    EVOENGINE_LOG(stream.str())
+    EVOENGINE_WARNING(stream.str())
   };
   post_processing_renderer_resources_ = std::make_shared<PostProcessingRendererResources>();
   render_graph_transient_resource_stores_.clear();
@@ -2200,9 +2203,9 @@ void RenderLayer::OnCreate() {
           return "parallel-direct";
       }
     };
-    EVOENGINE_LOG("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT requested=" + requested_name +
-                  " selected=" + variant_name(ddgi_probe_update_variant_) +
-                  " required_shared_bytes=" + std::to_string(DdgiRuntime::kProbeUpdateSharedMemoryBytes))
+    EVOENGINE_WARNING("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT requested=" + requested_name +
+                      " selected=" + variant_name(ddgi_probe_update_variant_) +
+                      " required_shared_bytes=" + std::to_string(DdgiRuntime::kProbeUpdateSharedMemoryBytes))
   }
   if (!ddgi_probe_relocation_pipeline_) {
     ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
@@ -2613,6 +2616,26 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     deferred_lighting_pass_pipeline_scene_camera->Initialize();
+  }
+  if (!entity_selection_highlight_pipeline_) {
+    entity_selection_highlight_pipeline_ = std::make_shared<GraphicsPipeline>();
+    entity_selection_highlight_pipeline_->vertex_shader = Shader::CreateTemporary(
+        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
+    entity_selection_highlight_pipeline_->fragment_shader = Shader::CreateTemporary(
+        ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
+                                  "Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang");
+    entity_selection_highlight_pipeline_->geometry_type = GeometryType::Mesh;
+    entity_selection_highlight_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
+    entity_selection_highlight_pipeline_->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    entity_selection_highlight_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    entity_selection_highlight_pipeline_->depth_attachment_format = VK_FORMAT_UNDEFINED;
+    entity_selection_highlight_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    entity_selection_highlight_pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color};
+    auto& push_constant_range = entity_selection_highlight_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(EntitySelectionHighlightPushConstant);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+    entity_selection_highlight_pipeline_->Initialize();
   }
   if (!transparent_geometry_pipeline_normal) {
     transparent_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
@@ -4217,7 +4240,11 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
   }
   if (Platform::RayAccelerationStructureEnabled() && current_frame_index < ray_tracing_descriptor_sets_.size()) {
     ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
-        3, render_instances->emissive_triangle_info_descriptor_buffer);
+        3, render_instances->emissive_instance_info_descriptor_buffer);
+    ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        6, render_instances->emissive_triangle_distribution_descriptor_buffer);
+    ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
+        7, render_instances->emissive_triangle_info_descriptor_buffer);
   }
 }
 
@@ -4339,10 +4366,8 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
 
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto previous_render_instances = render_instances_list_[current_frame_index];
-  const bool previous_need_fade = need_fade_;
   const auto restore = [&] {
     render_instances_list_[current_frame_index] = previous_render_instances;
-    need_fade_ = previous_need_fade;
     if (previous_render_instances) {
       BindRenderInstanceStorage(current_frame_index, previous_render_instances);
     }
@@ -4804,9 +4829,7 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                                                 capture.directional_shadow_camera_index,
                                                 capture.current_frame_index,
                                                 false,
-                                                false,
                                                 true,
-                                                0,
                                                 {},
                                                 capture.record_commands});
       });
@@ -5588,6 +5611,18 @@ void RenderLayer::RenderAll() {
         glm::max(aggregate.emissive_triangle_count, volume_stats.emissive_triangle_count);
     aggregate.emissive_eligible_instance_count =
         glm::max(aggregate.emissive_eligible_instance_count, volume_stats.emissive_eligible_instance_count);
+    aggregate.emissive_distribution_count =
+        glm::max(aggregate.emissive_distribution_count, volume_stats.emissive_distribution_count);
+    aggregate.emissive_fallback_distribution_count =
+        glm::max(aggregate.emissive_fallback_distribution_count, volume_stats.emissive_fallback_distribution_count);
+    aggregate.emissive_logical_triangle_count =
+        glm::max(aggregate.emissive_logical_triangle_count, volume_stats.emissive_logical_triangle_count);
+    aggregate.emissive_stored_triangle_count =
+        glm::max(aggregate.emissive_stored_triangle_count, volume_stats.emissive_stored_triangle_count);
+    aggregate.emissive_distribution_build_ms =
+        glm::max(aggregate.emissive_distribution_build_ms, volume_stats.emissive_distribution_build_ms);
+    aggregate.emissive_distribution_upload_ms =
+        glm::max(aggregate.emissive_distribution_upload_ms, volume_stats.emissive_distribution_upload_ms);
     aggregate.emissive_excluded_instance_count =
         glm::max(aggregate.emissive_excluded_instance_count, volume_stats.emissive_excluded_instance_count);
     aggregate.emissive_unrepresentable_probability_count = glm::max(
@@ -5652,10 +5687,16 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.frame_trace_probe_rays ? ddgi_runtime.frame_resource_layout.probe_count : 0u;
     ddgi_runtime.last_performance_stats.selected_ray_sample_count = ddgi_runtime.frame_selected_probe_ray_sample_count;
     ddgi_runtime.last_performance_stats.emissive_triangle_count =
-        current_render_instances ? current_render_instances->render_info_block.emissive_triangle_parameters.x : 0u;
+        current_render_instances ? current_render_instances->render_info_block.emissive_triangle_parameters.w : 0u;
     if (current_render_instances) {
       const auto& inventory = current_render_instances->GetDdgiEmissiveInventoryStats();
       ddgi_runtime.last_performance_stats.emissive_eligible_instance_count = inventory.eligible_instance_count;
+      ddgi_runtime.last_performance_stats.emissive_distribution_count = inventory.distribution_count;
+      ddgi_runtime.last_performance_stats.emissive_fallback_distribution_count = inventory.fallback_distribution_count;
+      ddgi_runtime.last_performance_stats.emissive_logical_triangle_count = inventory.logical_triangle_count;
+      ddgi_runtime.last_performance_stats.emissive_stored_triangle_count = inventory.stored_triangle_count;
+      ddgi_runtime.last_performance_stats.emissive_distribution_build_ms = inventory.build_ms;
+      ddgi_runtime.last_performance_stats.emissive_distribution_upload_ms = inventory.upload_ms;
       ddgi_runtime.last_performance_stats.emissive_excluded_instance_count = inventory.excluded_emissive_instance_count;
       ddgi_runtime.last_performance_stats.emissive_unrepresentable_probability_count =
           inventory.unrepresentable_probability_count;
@@ -6718,11 +6759,29 @@ bool RenderLayer::UpdateRenderInstanceStorage(
   }
   RenderInstanceStorage::CalculateLodFactor(scene, lod_center, lod_max_distance);
   auto world_bound = scene->GetBound();
-  need_fade_ = false;
   const auto current_render_instances = render_instances_list_[current_frame_index];
+  EntitySelectionHighlightCoverage selection_highlight_coverage;
+  if (update_editor_selection) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      for (const auto& selected : editor_layer->GetEntitySelectionSnapshot().entities) {
+        if (!scene->IsEntityValid(selected))
+          continue;
+        selection_highlight_coverage.emplace(selected);
+        for (const auto& descendant : scene->GetDescendants(selected)) {
+          selection_highlight_coverage.emplace(descendant);
+        }
+      }
+    }
+  }
   current_render_instances->BuildFromScene(
       render_settings, scene, world_bound, include_editor_cameras, injected_cameras, include_reflection_probes,
-      dynamic_reflection_probe_contributing_ ? &dynamic_reflection_probe_texture_overrides_ : nullptr);
+      dynamic_reflection_probe_contributing_ ? &dynamic_reflection_probe_texture_overrides_ : nullptr,
+      &selection_highlight_coverage);
+  if (update_editor_selection) {
+    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      editor_layer->ProcessPendingViewportSelection();
+    }
+  }
   const auto previous_render_instances =
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
@@ -6826,18 +6885,6 @@ bool RenderLayer::UpdateRenderInstanceStorage(
     return current_render_instances->camera_info_blocks_[current_index] !=
            previous_render_instances->camera_info_blocks_[previous_index];
   };
-  if (update_editor_selection) {
-    if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      if (scene->IsEntityValid(editor_layer->GetSelectedEntity())) {
-        for (const auto& i : current_render_instances->instance_info_blocks_) {
-          if (i.info_index) {
-            need_fade_ = true;
-          }
-        }
-      }
-      editor_layer->MouseEntitySelection();
-    }
-  }
   if (render_instance_updated) {
     world_bound.min -= glm::vec3(0.1f);
     world_bound.max += glm::vec3(0.1f);
@@ -7230,17 +7277,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     camera_render_graph.AddPass(
         DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
         [&](const RenderGraphExecutionContext& context) {
-          const bool fade_selection =
-              !reflection_probe_capture && need_fade_ && editor_layer && editor_layer->highlight_selection_;
-          const int selection_alpha = editor_layer ? editor_layer->selection_alpha_ : 0;
           const auto& deferred_lighting_pipeline =
               is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
           DeferredLightingPass::Execute(
               context,
               {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
                lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
-               directional_shadow_camera_index, current_frame_index, count_draw_calls, fade_selection,
-               reflection_probe_capture, selection_alpha,
+               directional_shadow_camera_index, current_frame_index, count_draw_calls, reflection_probe_capture,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
                  if (!reflection_probe_capture) {
                    for (const auto& func : forward_rendering_external_functions) {
@@ -7391,6 +7434,16 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                   [&](const RenderGraphExecutionContext& context) {
                                     PostProcessingPass::Execute(context,
                                                                 {camera, active_camera_transient_resources, immediate});
+                                  });
+    }
+    if (is_scene_camera && !reflection_probe_capture) {
+      auto presentation = editor_layer->GetEntitySelectionHighlightSnapshot();
+      presentation.active = presentation.active && current_render_instances->HasSelectionHighlightRenderInstances();
+      camera_render_graph.AddPass(EntitySelectionHighlightPass::CreateDescriptor(),
+                                  [&, presentation](const RenderGraphExecutionContext& context) {
+                                    EntitySelectionHighlightPass::Execute(
+                                        context,
+                                        {camera, entity_selection_highlight_pipeline_, presentation, record_commands});
                                   });
     }
     if (!camera_render_graph.Validate()) {

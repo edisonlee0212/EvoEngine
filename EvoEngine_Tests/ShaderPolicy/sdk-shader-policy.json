@@ -1,8 +1,8 @@
 {
   "counts": {
-    "files": 176,
-    "imports": 287,
-    "macro_control_files": 8
+    "files": 177,
+    "imports": 290,
+    "macro_control_files": 13
   },
   "macro_adapters": [
     {
@@ -30,8 +30,28 @@
       "path": "Graphics/Vertex/PostProcessing/SMAABlendWeight.slang"
     },
     {
-      "macro_controls": 3,
+      "macro_controls": 2,
+      "path": "Modules/EvoEngine/CameraRayGeometry.slang"
+    },
+    {
+      "macro_controls": 4,
+      "path": "Modules/EvoEngine/CameraRayIntegrator.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Modules/EvoEngine/CameraRayQueryTraversal.slang"
+    },
+    {
+      "macro_controls": 2,
+      "path": "Modules/EvoEngine/RayTracingBasic.slang"
+    },
+    {
+      "macro_controls": 5,
       "path": "RayTracing/AnyHit/Camera.slang"
+    },
+    {
+      "macro_controls": 2,
+      "path": "RayTracing/ClosestHit/Camera.slang"
     },
     {
       "macro_controls": 3,
@@ -226,6 +246,10 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.Blur",
       "path": "Graphics/Fragment/PostProcessing/Blur.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.EntitySelectionHighlight",
+      "path": "Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SMAABlendWeight",

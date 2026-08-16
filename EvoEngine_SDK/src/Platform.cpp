@@ -536,10 +536,9 @@ VkBool32 DebugCallback(const VkDebugUtilsMessageSeverityFlagBitsEXT message_seve
   msg += std::string(p_callback_data->pMessage);
   switch (message_severity) {
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT: {
-      EVOENGINE_LOG(msg);
     } break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT: {
-      EVOENGINE_LOG(msg);
+      EVOENGINE_WARNING(msg);
     } break;
     case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT: {
       EVOENGINE_WARNING(msg);
@@ -1532,8 +1531,8 @@ void Platform::CreateDebugMessenger() {
       VK_SUCCESS) {
     throw std::runtime_error("Failed to set up debug messenger!");
   }
-  EVOENGINE_LOG("EVOENGINE_VULKAN_VALIDATION enabled")
-  EVOENGINE_LOG("EVOENGINE_VULKAN_SYNCHRONIZATION_VALIDATION enabled")
+  EVOENGINE_WARNING("EVOENGINE_VULKAN_VALIDATION enabled")
+  EVOENGINE_WARNING("EVOENGINE_VULKAN_SYNCHRONIZATION_VALIDATION enabled")
 #endif
 
 #pragma endregion
@@ -1592,9 +1591,6 @@ void Platform::SelectPhysicalDevice() {
   if (device_count == 0) {
     throw std::runtime_error("Failed to find GPUs with Vulkan support!");
   }
-#ifndef NDEBUG
-  EVOENGINE_LOG("Found " + std::to_string(device_count) + " device(s).");
-#endif
   std::vector<VkPhysicalDevice> vk_physical_devices(device_count);
   CheckVk(vkEnumeratePhysicalDevices(vk_instance_, &device_count, vk_physical_devices.data()));
 
@@ -1603,14 +1599,6 @@ void Platform::SelectPhysicalDevice() {
     const auto& physical_device = physical_devices_.back();
     physical_device->vk_physical_device = vk_physical_device;
     physical_device->QueryInformation();
-
-#ifndef NDEBUG
-    EVOENGINE_LOG("Found device: " + std::string(physical_device->properties.deviceName) + ".");
-#endif
-
-#ifndef NDEBUG
-    EVOENGINE_LOG("Device listed as candidate with score " + std::to_string(physical_device->score) + ".");
-#endif
   }
 
   std::map<uint32_t, std::shared_ptr<PhysicalDevice>> candidates;
@@ -1622,21 +1610,11 @@ void Platform::SelectPhysicalDevice() {
   // Check if the best candidate is suitable at all
   if (!candidates.empty() && candidates.rbegin()->first > 0) {
     selected_physical_device = candidates.rbegin()->second;
-#ifndef NDEBUG
-    EVOENGINE_LOG("Chose \"" + std::string(selected_physical_device->properties.deviceName) + "\" as physical device.");
-#endif
   } else {
     throw std::runtime_error("Failed to find a suitable GPU!");
   }
 #pragma endregion
   capabilities_.support_async_compute = selected_physical_device->queue_family_indices.HasDedicatedComputeFamily();
-#ifndef NDEBUG
-  if (capabilities_.support_async_compute) {
-    EVOENGINE_LOG("Target device supports a dedicated compute queue family!");
-  } else {
-    EVOENGINE_LOG("Target device uses the graphics queue family for compute work.");
-  }
-#endif
 
   if (capabilities_.support_mesh_shader &&
       selected_physical_device->CheckExtensionSupport(VK_EXT_MESH_SHADER_EXTENSION_NAME) &&
@@ -1644,10 +1622,10 @@ void Platform::SelectPhysicalDevice() {
     required_device_extension_names_.emplace_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
     required_device_extension_names_.emplace_back(VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME);
     capabilities_.support_mesh_shader = true;
-    EVOENGINE_LOG("Target device supports mesh shader!");
+    EVOENGINE_WARNING("Target device supports mesh shader!")
   } else {
     capabilities_.support_mesh_shader = false;
-    EVOENGINE_LOG("Target device doesn't support mesh shader!");
+    EVOENGINE_WARNING("Target device doesn't support mesh shader!")
   }
 
   const auto require_device_extension = [&](const char* extension_name) {
@@ -1692,10 +1670,10 @@ void Platform::SelectPhysicalDevice() {
     require_ray_acceleration_structure_extensions();
     require_device_extension(VK_KHR_RAY_TRACING_PIPELINE_EXTENSION_NAME);
     capabilities_.support_ray_tracing = true;
-    EVOENGINE_LOG("Target device supports ray tracing!");
+    EVOENGINE_WARNING("Target device supports ray tracing!")
   } else {
     capabilities_.support_ray_tracing = false;
-    EVOENGINE_LOG("Target device doesn't support ray tracing!");
+    EVOENGINE_WARNING("Target device doesn't support ray tracing!")
   }
   if (capabilities_.support_ray_query && ray_acceleration_structure_supported &&
       selected_physical_device->CheckExtensionSupport(VK_KHR_RAY_QUERY_EXTENSION_NAME) &&
@@ -1703,10 +1681,10 @@ void Platform::SelectPhysicalDevice() {
     require_ray_acceleration_structure_extensions();
     require_device_extension(VK_KHR_RAY_QUERY_EXTENSION_NAME);
     capabilities_.support_ray_query = true;
-    EVOENGINE_LOG("Target device supports ray query!");
+    EVOENGINE_WARNING("Target device supports ray query!")
   } else {
     capabilities_.support_ray_query = false;
-    EVOENGINE_LOG("Target device doesn't support ray query!");
+    EVOENGINE_WARNING("Target device doesn't support ray query!")
   }
   capabilities_.support_acceleration_structure =
       ray_acceleration_structure_supported && (capabilities_.support_ray_tracing || capabilities_.support_ray_query);
@@ -1716,14 +1694,14 @@ void Platform::SelectPhysicalDevice() {
       selected_physical_device->ray_tracing_linear_swept_spheres_features_nv.linearSweptSpheres == VK_TRUE) {
     require_device_extension(VK_NV_RAY_TRACING_LINEAR_SWEPT_SPHERES_EXTENSION_NAME);
     capabilities_.support_ray_tracing_linear_swept_spheres = true;
-    EVOENGINE_LOG("Target device supports ray tracing linear swept spheres!");
+    EVOENGINE_WARNING("Target device supports ray tracing linear swept spheres!")
   } else {
     capabilities_.support_ray_tracing_linear_swept_spheres = false;
-    EVOENGINE_LOG("Target device doesn't support ray tracing linear swept spheres; ray cameras ignore strands.");
+    EVOENGINE_WARNING("Target device doesn't support ray tracing linear swept spheres; ray cameras ignore strands.")
   }
 #else
   capabilities_.support_ray_tracing_linear_swept_spheres = false;
-  EVOENGINE_LOG("Linear swept sphere Vulkan headers are unavailable; ray cameras ignore strands.");
+  EVOENGINE_WARNING("Linear swept sphere Vulkan headers are unavailable; ray cameras ignore strands.")
 #endif
 #ifdef VK_EXT_ray_tracing_invocation_reorder
   if (capabilities_.support_ray_tracing &&
@@ -1731,25 +1709,25 @@ void Platform::SelectPhysicalDevice() {
       selected_physical_device->ray_tracing_invocation_reorder_features_ext.rayTracingInvocationReorder == VK_TRUE) {
     require_device_extension(VK_EXT_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME);
     capabilities_.support_shader_execution_reordering = true;
-    EVOENGINE_LOG("Target device supports EXT shader execution reordering!");
+    EVOENGINE_WARNING("Target device supports EXT shader execution reordering!")
   } else {
     capabilities_.support_shader_execution_reordering = false;
 #  ifdef VK_NV_ray_tracing_invocation_reorder
     if (capabilities_.support_ray_tracing &&
         selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_INVOCATION_REORDER_EXTENSION_NAME) &&
         selected_physical_device->ray_tracing_invocation_reorder_features_nv.rayTracingInvocationReorder == VK_TRUE) {
-      EVOENGINE_LOG(
+      EVOENGINE_WARNING(
           "Target device supports legacy NV shader execution reordering, but Slang SER requires the EXT "
           "path; SER settings use fallback.");
     } else
 #  endif
     {
-      EVOENGINE_LOG("Target device doesn't support EXT shader execution reordering; SER settings use fallback.");
+      EVOENGINE_WARNING("Target device doesn't support EXT shader execution reordering; SER settings use fallback.")
     }
   }
 #else
   capabilities_.support_shader_execution_reordering = false;
-  EVOENGINE_LOG("EXT shader execution reordering headers are unavailable; SER settings use fallback.");
+  EVOENGINE_WARNING("EXT shader execution reordering headers are unavailable; SER settings use fallback.")
 #endif
 #if ENABLE_NV_RAY_TRACING_VALIDATION
   if (selected_physical_device->CheckExtensionSupport(VK_NV_RAY_TRACING_VALIDATION_EXTENSION_NAME)) {

@@ -150,7 +150,7 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
   uint barycentric_seed = EE_XXHASH32(uint3(primary_ray_seed, 0x967a889bu, 0x368cc8b7u));
   const uint shadow_seed = EE_XXHASH32(uint3(primary_ray_seed, 0x1b56c4e9u, 0xa54ff53au));
   EeEmissiveTriangleSample emissive_sample;
-  const bool sample_valid = EE_SAMPLE_EMISSIVE_TRIANGLE(position, EE_PCG_RANDOM(selection_seed),
+  const bool sample_valid = EE_SAMPLE_EMISSIVE_TRIANGLE(position, EE_PCG_RANDOM_2(selection_seed),
                                                         EE_PCG_RANDOM_2(barycentric_seed), emissive_sample);
   if (!sample_valid) {
     if (emissive_sample.rejection_reason == EE_DDGI_EMISSIVE_SAMPLE_REJECT_ZERO_PDF) {

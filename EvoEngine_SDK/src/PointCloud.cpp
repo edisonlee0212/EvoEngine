@@ -335,10 +335,10 @@ void PointCloud::Compress(std::vector<glm::dvec3>& points) {
   const double y_max = max_.y - std::fmod(max_.y, compress_factor) + (max_.y > 0 ? compress_factor : 0);
   const double z_max = max_.z - std::fmod(max_.z, compress_factor) + (max_.z > 0 ? compress_factor : 0);
 
-  EVOENGINE_LOG("X, Y, Z MIN: [" + std::to_string(x_min) + ", " + std::to_string(y_min) + ", " + std::to_string(z_min) +
-                "]");
-  EVOENGINE_LOG("X, Y, Z MAX: [" + std::to_string(x_max) + ", " + std::to_string(y_max) + ", " + std::to_string(z_max) +
-                "]");
+  EVOENGINE_WARNING("X, Y, Z MIN: [" + std::to_string(x_min) + ", " + std::to_string(y_min) + ", " +
+                    std::to_string(z_min) + "]")
+  EVOENGINE_WARNING("X, Y, Z MAX: [" + std::to_string(x_max) + ", " + std::to_string(y_max) + ", " +
+                    std::to_string(z_max) + "]")
 
   std::vector<int> voxels;
   const int range_x = static_cast<int>(((x_max - x_min) / static_cast<double>(compress_factor)));
@@ -350,7 +350,7 @@ void PointCloud::Compress(std::vector<glm::dvec3>& points) {
     EVOENGINE_ERROR("Resolution too small: " + std::to_string(voxel_size));
     return;
   } else {
-    EVOENGINE_LOG("Voxel size: " + std::to_string(voxel_size));
+    EVOENGINE_WARNING("Voxel size: " + std::to_string(voxel_size))
   }
 
   voxels.resize(voxel_size);

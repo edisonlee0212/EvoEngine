@@ -532,7 +532,7 @@ void EE_CAMERA_SAMPLE_EMISSIVE_TRIANGLE<let feature_mask : uint>(const float3 sh
   if (EE_CAMERA_EMISSIVE_TRIANGLE_COUNT() == 0u) {
     return;
   }
-  const float record_sample = EE_PCG_RANDOM(seed);
+  const float2 record_sample = EE_PCG_RANDOM_2(seed);
   const float2 barycentric_sample = EE_PCG_RANDOM_2(seed);
   EeEmissiveTriangleSample emissive_sample;
   if (!EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED<feature_mask>(shading_position, record_sample, barycentric_sample,
@@ -1401,9 +1401,8 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>(
     EmissiveTriangleInfo emissive_record;
     emissive_record.instance_index = 0u;
     emissive_record.primitive_id = 0u;
-    emissive_record.alias_probability = 1.0f;
-    emissive_record.alias_index = 0u;
-    emissive_record.area_pdf = 0.0f;
+    emissive_record.power_selection_probability = 0.0f;
+    emissive_record.uniform_selection_probability = 0.0f;
     const bool surface_emissive_visible = true;
     const bool emissive_triangle_hit =
         surface_emissive_visible && hit_value.geometry_type == EE_CAMERA_GEOMETRY_TRIANGLE &&

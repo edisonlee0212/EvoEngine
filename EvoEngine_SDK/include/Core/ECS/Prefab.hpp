@@ -54,6 +54,10 @@ struct PrivateComponentHolder {
   void Deserialize(const YAML::Node& in);
 };
 
+struct PrefabModelImportOptions {
+  bool center_mesh_renderer_origins = true;
+};
+
 /**
  * @brief Represents a Prefab asset, including capabilities to manage
  * components, children, and other asset operations like loading, saving,
@@ -157,8 +161,10 @@ class Prefab : public IAsset {
    */
   bool LoadModelInternal(const std::filesystem::path& path, bool optimize = false,
                          unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace |
-                                          aiProcess_GenSmoothNormals);
-  bool LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene);
+                                          aiProcess_GenSmoothNormals,
+                         const PrefabModelImportOptions& options = {});
+  bool LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene,
+                              const PrefabModelImportOptions& options = {});
 
   /**
    * @brief Saves the model to a specified file path.
@@ -247,6 +253,8 @@ class Prefab : public IAsset {
    * @param[in] flags Optional flags for controlling the import process.
    */
   void LoadModel(const std::filesystem::path& path, bool optimize = false,
+                 unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals);
+  void LoadModel(const std::filesystem::path& path, const PrefabModelImportOptions& options, bool optimize = false,
                  unsigned flags = aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals);
 
   /**

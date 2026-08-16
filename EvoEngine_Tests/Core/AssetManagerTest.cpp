@@ -825,6 +825,7 @@ TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresen
   editor_layer->SetSceneCameraPosition({1.0f, 2.0f, 3.0f});
   editor_layer->SetSceneCameraRotation(glm::quat(1.0f, 0.0f, 0.0f, 0.0f));
   editor_layer->editor_camera_control_key_bindings.rotate_mouse_button = GLFW_MOUSE_BUTTON_LEFT;
+  editor_layer->editor_camera_control_key_bindings.focus_selection_key = GLFW_KEY_HOME;
   editor_layer->editor_camera_control_key_bindings.move_forward_key = GLFW_KEY_UP;
   editor_layer->editor_camera_control_key_bindings.move_backward_key = GLFW_KEY_DOWN;
   editor_layer->editor_camera_control_key_bindings.move_left_key = GLFW_KEY_LEFT;
@@ -850,6 +851,7 @@ TEST(ProjectManager, SaveProjectLaunchMetadataPersistsEditorLayerStateWhenPresen
   const auto key_bindings = editor_yaml["editor_camera_control_key_bindings"];
   ASSERT_TRUE(key_bindings);
   EXPECT_EQ(key_bindings["rotate_mouse_button"].as<int>(), GLFW_MOUSE_BUTTON_LEFT);
+  EXPECT_EQ(key_bindings["focus_selection_key"].as<int>(), GLFW_KEY_HOME);
   EXPECT_EQ(key_bindings["move_forward_key"].as<int>(), GLFW_KEY_UP);
   EXPECT_EQ(key_bindings["move_backward_key"].as<int>(), GLFW_KEY_DOWN);
   EXPECT_EQ(key_bindings["move_left_key"].as<int>(), GLFW_KEY_LEFT);
@@ -900,6 +902,7 @@ TEST(EditorLayer, MissingEditorStateKeepsDefaultsAndRequestsDefaultLayout) {
   EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
   EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.25f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.focus_selection_key, GLFW_KEY_F);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_backward_key, GLFW_KEY_S);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_left_key, GLFW_KEY_A);
@@ -924,8 +927,35 @@ velocity: 3.5
   EXPECT_FLOAT_EQ(editor_layer.camera_control_acceleration_time, 0.25f);
   EXPECT_FLOAT_EQ(editor_layer.camera_control_deceleration_time, 0.25f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_RIGHT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.focus_selection_key, GLFW_KEY_F);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_W);
   EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
+}
+
+TEST(EditorLayer, CenterPivotDefaultMigratesOnceAndPreservesExplicitPivot) {
+  const auto serialize = [](const EditorLayer& editor_layer) {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    editor_layer.Serialize(out);
+    out << YAML::EndMap;
+    return YAML::Load(out.c_str());
+  };
+
+  EditorLayer default_layout;
+  auto serialized = serialize(default_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 1);
+  EXPECT_TRUE(serialized["entity_gizmo_center_default_migrated"].as<bool>());
+
+  EditorLayer legacy_pivot_layout;
+  legacy_pivot_layout.DeserializeLayout(YAML::Load("{entity_gizmo_pivot_mode: 0}"));
+  serialized = serialize(legacy_pivot_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 1);
+
+  EditorLayer migrated_pivot_layout;
+  migrated_pivot_layout.DeserializeLayout(
+      YAML::Load("{entity_gizmo_pivot_mode: 0, entity_gizmo_center_default_migrated: true}"));
+  serialized = serialize(migrated_pivot_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 0);
 }
 
 TEST(EditorLayer, DeserializesEditorCameraControlsAndSceneCameraPose) {
@@ -941,6 +971,7 @@ scene_camera_position: [4.0, 5.0, 6.0]
 scene_camera_rotation: [0.0, 0.0, 0.0, 1.0]
 editor_camera_control_key_bindings:
   rotate_mouse_button: 0
+  focus_selection_key: 268
   move_forward_key: 265
   move_backward_key: 264
   move_left_key: 263
@@ -963,6 +994,7 @@ editor_camera_control_key_bindings:
   EXPECT_FLOAT_EQ(rotation.z, 0.0f);
   EXPECT_FLOAT_EQ(rotation.w, 1.0f);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.rotate_mouse_button, GLFW_MOUSE_BUTTON_LEFT);
+  EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.focus_selection_key, GLFW_KEY_HOME);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_forward_key, GLFW_KEY_UP);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_backward_key, GLFW_KEY_DOWN);
   EXPECT_EQ(editor_layer.editor_camera_control_key_bindings.move_left_key, GLFW_KEY_LEFT);

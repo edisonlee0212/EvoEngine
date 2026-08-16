@@ -344,7 +344,7 @@ void PackageManager::RestoreUnknownRuntimeTypes() {
     restored_count += scene->RestoreUnknownRuntimeTypes();
   }
   if (restored_count > 0) {
-    EVOENGINE_LOG("Restored " + std::to_string(restored_count) + " runtime objects after package load.")
+    EVOENGINE_WARNING("Restored " + std::to_string(restored_count) + " runtime objects after package load.")
   }
 }
 
@@ -500,7 +500,7 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
     manager.loaded_packages_[package_name] = std::move(package);
   }
   RestoreUnknownRuntimeTypes();
-  EVOENGINE_LOG("Runtime package loaded: " + package_name)
+  EVOENGINE_WARNING("Runtime package loaded: " + package_name)
   return true;
 }
 
@@ -643,7 +643,7 @@ bool PackageManager::Unload(const std::string& package_name) {
     manager.loaded_packages_.erase(package_name);
     manager.live_object_counts_.erase(package_name);
   }
-  EVOENGINE_LOG("Runtime package unloaded: " + package_name)
+  EVOENGINE_WARNING("Runtime package unloaded: " + package_name)
   return true;
 }
 

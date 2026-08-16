@@ -4,6 +4,8 @@
 #include "Camera.hpp"
 #include "EditorPanelManager.hpp"
 #include "Entity.hpp"
+#include "EntitySelection.hpp"
+#include "EntitySelectionHighlight.hpp"
 #include "GraphicsResources.hpp"
 #include "ILayer.hpp"
 #include "ISystem.hpp"
@@ -17,6 +19,7 @@
 #include "Strands.hpp"
 #include "Texture2D.hpp"
 
+#include <ctime>
 #include <filesystem>
 #include <future>
 #include <optional>
@@ -29,9 +32,10 @@ namespace evo_engine {
 
 class EnvironmentalLighting;
 class ProjectContentBrowserPanel;
+struct EntityBatchInspectionContext;
 
 enum class EnvironmentalLightingGizmoTargetType : uint8_t { LocalReflectionProbe, DdgiVolume };
-enum class LocalTransformGizmoOperation : uint8_t { Translate, Rotate, Scale };
+enum class LocalTransformGizmoOperation : uint8_t { Translate, Rotate, Scale, Select };
 
 struct EditorFloatingWindowLayout {
   enum class Anchor { UpperLeft, UpperRight, LowerLeft, LowerRight };
@@ -98,7 +102,8 @@ enum class ConsoleMessageType {
 struct ConsoleMessage {
   ConsoleMessageType m_type = ConsoleMessageType::Log; /**< The type of the console message. */
   std::string m_value;                                 /**< The value/content of the console message. */
-  double m_time = 0;                                   /**< The timestamp of the console message. */
+  double m_time = 0;                                   /**< Elapsed application time when the message was recorded. */
+  std::time_t m_timestamp = 0;                         /**< Wall-clock time when the message was recorded. */
 };
 
 /**
@@ -150,6 +155,7 @@ struct EditorCamera {
 
 struct EditorCameraControlKeyBindings {
   int rotate_mouse_button = GLFW_MOUSE_BUTTON_RIGHT;
+  int focus_selection_key = GLFW_KEY_F;
   int move_forward_key = GLFW_KEY_W;
   int move_backward_key = GLFW_KEY_S;
   int move_left_key = GLFW_KEY_A;
@@ -207,6 +213,8 @@ struct GizmoStrandsTask {
  */
 class EditorLayer : public ILayer {
  public:
+  enum class EntityGizmoPivotMode : uint8_t { Pivot, Center };
+  enum class EntityGizmoOrientationMode : uint8_t { Local, Global };
   /**
    * @brief Finds and retrieves an icon texture by its name.
    *
@@ -227,11 +235,11 @@ class EditorLayer : public ILayer {
    * @return A reference to the vector of console messages.
    */
   std::vector<ConsoleMessage>& GetConsoleMessages();
+  void SetConsoleMessageFilters(bool info, bool warning, bool error);
 
   [[nodiscard]] bool SceneCameraWindowFocused() const; /**< Checks if the Scene Camera window is focused. */
   [[nodiscard]] bool MainCameraWindowFocused() const;  /**< Checks if the Main Camera window is focused. */
 
-  bool enable_view_gizmos = false;  /**< Indicates if view gizmos are enabled. */
   bool enable_gizmos = true;        /**< Indicates if gizmos are enabled. */
   bool transform_read_only = false; /**< Indicates if transformations are read-only. */
 
@@ -318,6 +326,9 @@ class EditorLayer : public ILayer {
    * @return The selected entity.
    */
   [[nodiscard]] Entity GetSelectedEntity() const;
+  [[nodiscard]] const EntitySelection& GetEntitySelection() const;
+  [[nodiscard]] EntitySelection::Snapshot GetEntitySelectionSnapshot() const;
+  [[nodiscard]] EntitySelectionHighlight::Snapshot GetEntitySelectionHighlightSnapshot() const;
 
   /**
    * @brief Sets the selected entity and optionally opens the context menu.
@@ -391,27 +402,6 @@ class EditorLayer : public ILayer {
   bool main_camera_allow_auto_resize = true; /**< Indicates if the main camera allows automatic resizing. */
 
   /**
-   * @brief Retrieves a previously stored position (unsafe).
-   *
-   * @return Reference to the previously stored position vector.
-   */
-  glm::vec3& UnsafeGetPreviouslyStoredPosition();
-
-  /**
-   * @brief Retrieves a previously stored rotation (unsafe).
-   *
-   * @return Reference to the previously stored rotation vector.
-   */
-  glm::vec3& UnsafeGetPreviouslyStoredRotation();
-
-  /**
-   * @brief Retrieves a previously stored scale (unsafe).
-   *
-   * @return Reference to the previously stored scale vector.
-   */
-  glm::vec3& UnsafeGetPreviouslyStoredScale();
-
-  /**
    * @brief Checks if the local position is selected.
    *
    * @return True if the local position is selected, false otherwise.
@@ -476,6 +466,13 @@ class EditorLayer : public ILayer {
   template <typename T1 = IDataComponent>
   void RegisterComponentDataInspector(
       const std::function<bool(Entity entity, IDataComponent* data, bool is_root)>& func);
+  template <typename T1 = IDataComponent>
+  void RegisterComponentDataBatchInspector(
+      const std::function<bool(const std::shared_ptr<Scene>&, const std::vector<Entity>&)>& func);
+  template <typename T>
+  void RegisterComponentIcon(const std::shared_ptr<Texture2D>& icon);
+  template <typename T>
+  void UnregisterComponentIcon();
 
   /**
    * @brief Draws a drag-and-drop button for an asset reference.
@@ -964,20 +961,42 @@ class EditorLayer : public ILayer {
   void DrawMainMenuItems(bool title_bar_style = false);
   bool DrawPlayControls();
   void DrawScenePlaybackToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
+  bool DrawSceneToolsToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
+  bool DrawSceneSettingsToolbar(const ImVec2& overlay_pos, const ImVec2& view_port_size);
+  void DrawSceneCameraSettingsContents(const std::shared_ptr<EditorLayer>& editor_layer);
   void DrawProjectLoadingPopup();
 
   void UpdateCameraTransition();
+  bool FocusSceneCameraOnSelection(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& scene_camera);
   void PrepareFrameState();
   void CaptureSceneWindowMousePosition();
   void CaptureMainCameraWindowMousePosition();
   void UpdateSceneState(const std::shared_ptr<Scene>& scene);
+  void ClearEntitySelectionState();
   void DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene);
   void DrawEntityInspectorWindow(const std::shared_ptr<Scene>& scene, const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawBatchEntityInspector(const std::shared_ptr<Scene>& scene, const std::shared_ptr<EditorLayer>& editor_layer);
+  void DrawEntityComponentInspectors(const std::shared_ptr<Scene>& scene,
+                                     const std::shared_ptr<EditorLayer>& editor_layer,
+                                     const EntityBatchInspectionContext& context);
+  bool DrawBatchTransformInspector(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets);
+  bool BeginEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& handle,
+                               const std::vector<Entity>& participants, Entity reference, int operation);
+  bool ApplyEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& manipulated_handle);
+  void CancelEntityGizmoSession(const char* reason = nullptr);
+  void ClearConsoleMessages();
+  void ClearConsoleOnRuntimeStart();
   void DrawConsoleWindow();
   void DrawAssetInspectorWindows();
   void DrawRuntimePackageManagerWindow();
   void DrawProfilerWindow();
   void HandleSceneDeleteShortcut(const std::shared_ptr<Scene>& scene);
+  void HandleEntityExplorerSelection(const Entity& entity);
+  void HandleViewportSelection(const Entity& entity, bool control);
+  void ProcessPendingViewportSelection();
+  [[nodiscard]] bool IsInheritedSelectionHighlight(const Entity& entity) const;
+  [[nodiscard]] static bool IsControlModifierDown();
+  [[nodiscard]] static bool IsShiftModifierDown();
   void DrawLayerInspectionWindows(const std::shared_ptr<Scene>& scene,
                                   const std::shared_ptr<EditorLayer>& editor_layer);
   void ApplySceneCameraPreviewWindowLayout();
@@ -1021,6 +1040,12 @@ class EditorLayer : public ILayer {
 
   std::vector<ConsoleMessage> console_messages_; /**< List of console messages. */
   std::mutex console_message_mutex_;             /**< Mutex for accessing console messages. */
+  uint64_t console_message_revision_ = 0;
+  uint64_t console_rendered_revision_ = 0;
+  std::optional<ConsoleMessage> console_detailed_message_;
+  float console_previous_scroll_y_ = 0.0f;
+  bool console_auto_scroll_ = true;
+  bool console_clear_on_play_ = true;
   EditorPanelManager editor_panel_manager_;
   std::shared_ptr<ProjectContentBrowserPanel> project_content_browser_panel_;
   bool dock_layout_reset_pending_ = false;
@@ -1056,15 +1081,14 @@ class EditorLayer : public ILayer {
 
   std::unordered_map<std::string, RuntimePackageBuildJob> runtime_package_build_jobs_;
 
-  bool enable_console_logs_ = true;     /**< Indicates if console logs are enabled. */
-  bool enable_console_errors_ = true;   /**< Indicates if console errors are enabled. */
-  bool enable_console_warnings_ = true; /**< Indicates if console warnings are enabled. */
+  bool enable_console_logs_ = true;      /**< Indicates if console logs are enabled. */
+  bool enable_console_errors_ = false;   /**< Indicates if console errors are enabled. */
+  bool enable_console_warnings_ = false; /**< Indicates if console warnings are enabled. */
 
   friend class Console;
   friend class ProjectManager;
   friend class RenderInstanceStorage;
 
-  int selection_alpha_ = 0;       /**< Alpha value for the selected entity. */
   bool gizmo_displaying_ = false; /**< Indicates if any gizmo is being displayed. */
   bool gizmo_using_ = false;      /**< Indicates if any gizmo is being used. */
   struct EnvironmentalLightingGizmoTarget {
@@ -1079,11 +1103,6 @@ class EditorLayer : public ILayer {
   std::unique_ptr<Buffer> entity_index_read_buffer_; /**< Buffer for reading entity index. */
 
   /**
-   * @brief Handles mouse-based entity selection.
-   */
-  void MouseEntitySelection();
-
-  /**
    * @brief Performs entity selection based on mouse position and a given camera.
    *
    * @param target_camera Shared pointer to the target camera.
@@ -1093,18 +1112,56 @@ class EditorLayer : public ILayer {
   [[nodiscard]] Entity MouseEntitySelection(const std::shared_ptr<Camera>& target_camera,
                                             const glm::vec2& mouse_position) const;
 
-  EntityArchetype basic_entity_archetype_;        /**< Archetype for basic entities. */
-  Entity previous_transform_inspection_entity_{}; /**< Previously inspected transform entity. */
-  Transform previously_stored_transform_;         /**< Previously stored transform. */
-  glm::vec3 previously_stored_position_;          /**< Previously stored position. */
-  glm::vec3 previously_stored_rotation_;          /**< Previously stored rotation. */
-  glm::vec3 previously_stored_scale_;             /**< Previously stored scale. */
-  bool local_position_selected_ = true;           /**< Indicates if the local position is selected. */
-  bool local_rotation_selected_ = false;          /**< Indicates if the local rotation is selected. */
-  bool local_scale_selected_ = false;             /**< Indicates if the local scale is selected. */
+  struct PendingViewportSelection {
+    std::weak_ptr<Camera> camera;
+    glm::vec2 mouse_position{};
+    bool control = false;
+  };
+
+  EntityArchetype basic_entity_archetype_; /**< Archetype for basic entities. */
+  bool local_position_selected_ = true;    /**< Indicates if the local position is selected. */
+  bool local_rotation_selected_ = false;   /**< Indicates if the local rotation is selected. */
+  bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */
+  EntityGizmoPivotMode entity_gizmo_pivot_mode_ = EntityGizmoPivotMode::Center;
+  EntityGizmoOrientationMode entity_gizmo_orientation_mode_ = EntityGizmoOrientationMode::Local;
+
+  struct EntityGizmoParticipantState {
+    Entity entity{};
+    Entity parent{};
+    glm::mat4 local{1.0f};
+    glm::mat4 world{1.0f};
+    glm::mat4 parent_world{1.0f};
+  };
+  struct EntityGizmoSession {
+    std::weak_ptr<Scene> scene;
+    uint64_t selection_revision = 0;
+    int application_status = 0;
+    int operation = 0;
+    EntityGizmoPivotMode pivot_mode = EntityGizmoPivotMode::Center;
+    EntityGizmoOrientationMode orientation_mode = EntityGizmoOrientationMode::Local;
+    glm::mat4 handle{1.0f};
+    glm::mat4 manipulated_handle{1.0f};
+    glm::vec3 pivot{0.0f};
+    glm::quat handle_rotation{1.0f, 0.0f, 0.0f, 0.0f};
+    std::vector<EntityGizmoParticipantState> participants;
+  };
+  std::optional<EntityGizmoSession> entity_gizmo_session_;
+  std::string entity_gizmo_message_;
+
+  struct TransformInspectorDragSession {
+    std::weak_ptr<Scene> scene;
+    uint64_t selection_revision = 0;
+    int field = 0;
+    int axis = 0;
+    float start_value = 0.0f;
+    std::vector<Entity> targets;
+    std::vector<Transform> original_transforms;
+  };
+  std::optional<TransformInspectorDragSession> transform_inspector_drag_session_;
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */
+  bool entity_explorer_window_focused_ = false;
   bool suppress_scene_camera_selection_ = false;
 
 #pragma region Registrations
@@ -1116,8 +1173,11 @@ class EditorLayer : public ILayer {
   friend class Scene;
 
   std::unordered_map<std::string, std::shared_ptr<Texture2D>> editor_icons_; /**< Map of editor icons by name. */
+  std::unordered_map<size_t, std::shared_ptr<Texture2D>> component_icon_map_;
   std::map<size_t, std::function<bool(Entity entity, IDataComponent* data, bool is_root)>>
       component_data_inspector_map_; /**< Map of component data inspectors by type hash. */
+  std::map<size_t, std::function<bool(const std::shared_ptr<Scene>&, const std::vector<Entity>&)>>
+      component_data_batch_inspector_map_;
 
   std::vector<std::weak_ptr<File>> asset_record_bus_;          /**< Weak pointer to asset records bus. */
   std::map<std::string, std::vector<AssetRef>> asset_ref_bus_; /**< Map of asset references by type name. */
@@ -1135,20 +1195,21 @@ class EditorLayer : public ILayer {
   glm::vec3 target_position_;   /**< Target camera position. */
   float transition_time_;       /**< Transition time for camera movement. */
   float transition_timer_;      /**< Timer for camera movement transition. */
+  bool transition_preserves_world_up_ = false;
 
 #pragma endregion
 
   std::vector<Entity> selected_entity_hierarchy_list_; /**< List of selected entity hierarchies. */
+  std::vector<Entity> entity_explorer_visible_entities_;
+  std::vector<Entity> entity_explorer_current_entities_;
 
   int scene_camera_resolution_x_ = 1; /**< Scene camera resolution width. */
   int scene_camera_resolution_y_ = 1; /**< Scene camera resolution height. */
   std::optional<glm::uvec2> scene_camera_resolution_override_;
 
-  bool lock_entity_selection_ = false; /**< Indicates if entity selection is locked. */
-
-  bool highlight_selection_ = true; /**< Indicates if selection highlighting is enabled. */
-
-  Entity selected_entity_; /**< Currently selected entity. */
+  EntitySelection entity_selection_;
+  EntitySelectionHighlight entity_selection_highlight_;
+  std::optional<PendingViewportSelection> pending_viewport_selection_;
 
   glm::vec2 mouse_scene_window_position_;  /**< Mouse position in the scene window. */
   glm::vec2 mouse_camera_window_position_; /**< Mouse position in the camera window. */
@@ -1163,6 +1224,25 @@ template <typename T1>
 void EditorLayer::RegisterComponentDataInspector(
     const std::function<bool(Entity entity, IDataComponent* data, bool is_root)>& func) {
   component_data_inspector_map_.insert_or_assign(typeid(T1).hash_code(), func);
+}
+
+template <typename T1>
+void EditorLayer::RegisterComponentDataBatchInspector(
+    const std::function<bool(const std::shared_ptr<Scene>&, const std::vector<Entity>&)>& func) {
+  component_data_batch_inspector_map_.insert_or_assign(typeid(T1).hash_code(), func);
+}
+
+template <typename T>
+void EditorLayer::RegisterComponentIcon(const std::shared_ptr<Texture2D>& icon) {
+  if (icon)
+    component_icon_map_.insert_or_assign(typeid(T).hash_code(), icon);
+  else
+    component_icon_map_.erase(typeid(T).hash_code());
+}
+
+template <typename T>
+void EditorLayer::UnregisterComponentIcon() {
+  component_icon_map_.erase(typeid(T).hash_code());
 }
 
 template <typename T>
@@ -1202,13 +1282,20 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
   ImGui::Text(name.c_str());
   ImGui::SameLine();
   bool status_changed = false;
-  ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.7f, 0.3f, 0, 1));
+  const auto window_color = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+  const bool light_theme = window_color.x * 0.299f + window_color.y * 0.587f + window_color.z * 0.114f > 0.5f;
+  ImGui::PushStyleColor(ImGuiCol_Button,
+                        light_theme ? ImVec4(0.925f, 0.855f, 0.776f, 1.0f) : ImVec4(0.541f, 0.404f, 0.282f, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                        light_theme ? ImVec4(0.879f, 0.812f, 0.737f, 1.0f) : ImVec4(0.606f, 0.452f, 0.316f, 1.0f));
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                        light_theme ? ImVec4(0.833f, 0.769f, 0.698f, 1.0f) : ImVec4(0.649f, 0.485f, 0.338f, 1.0f));
   if (const auto ptr = target.Get<IPrivateComponent>()) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     if (!scene->IsEntityValid(ptr->GetOwner())) {
       target.Clear();
       ImGui::Button((std::string("none##") + name).c_str());
-      ImGui::PopStyleColor(1);
+      ImGui::PopStyleColor(3);
       return true;
     }
     ImGui::Button(scene->GetEntityName(ptr->GetOwner()).c_str());
@@ -1217,12 +1304,12 @@ bool EditorLayer::DragAndDropButton(PrivateComponentRef& target, const std::stri
       status_changed = Remove(target) || status_changed;
     }
     if (!status_changed && ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
-      selected_entity_ = ptr->GetOwner();
+      SetSelectedEntity(ptr->GetOwner());
     }
   } else {
     ImGui::Button((std::string("none##") + name).c_str());
   }
-  ImGui::PopStyleColor(1);
+  ImGui::PopStyleColor(3);
   status_changed = Droppable<T>(target) || status_changed;
   return status_changed;
 }

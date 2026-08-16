@@ -132,7 +132,7 @@ void Mesh::SetVertices(const VertexAttributes& vertex_attributes, const std::vec
                        std::vector<uint32_t>* source_vertex_indices) {
   if (vertices.empty() || triangles.empty()) {
 #ifndef NDEBUG
-    EVOENGINE_LOG("Vertices or triangles empty!");
+    EVOENGINE_WARNING("Vertices or triangles empty!")
 #endif
     return;
   }

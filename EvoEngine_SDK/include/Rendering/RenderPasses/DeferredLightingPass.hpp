@@ -24,9 +24,7 @@ class DeferredLightingPass final {
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
     bool count_draw_calls = false;
-    bool fade_selection = false;
     bool reflection_probe_capture = false;
-    int selection_alpha = 0;
     ExternalForwardRendering external_forward_rendering;
     RecordCommands record_commands;
   };

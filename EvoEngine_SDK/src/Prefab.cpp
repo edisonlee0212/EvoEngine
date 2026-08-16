@@ -931,8 +931,8 @@ glm::vec2 ReadImportedTexCoord(const aiMesh* mesh, const int channel, const int 
   return tex_coord;
 }
 
-std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_coordinates,
-                               const int tangent_tex_coord) {
+std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_coordinates, const int tangent_tex_coord,
+                               const bool center_origin, glm::vec3& origin_offset) {
   VertexAttributes attributes;
   std::vector<Vertex> vertices;
   std::vector<unsigned> indices;
@@ -1005,9 +1005,23 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
   auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
                                                     ? ReadImportedMorphTargets(importer_mesh)
                                                     : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
-  const auto morph_base_vertices = vertices;
+  auto morph_base_vertices = vertices;
   if (!morph_targets.empty()) {
     vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
+  }
+  origin_offset = glm::vec3(0.0f);
+  if (center_origin) {
+    glm::vec3 minimum(std::numeric_limits<float>::max());
+    glm::vec3 maximum(std::numeric_limits<float>::lowest());
+    for (const auto& vertex : vertices) {
+      minimum = glm::min(minimum, vertex.position);
+      maximum = glm::max(maximum, vertex.position);
+    }
+    origin_offset = (minimum + maximum) * 0.5f;
+    for (auto& vertex : vertices)
+      vertex.position -= origin_offset;
+    for (auto& vertex : morph_base_vertices)
+      vertex.position -= origin_offset;
   }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
@@ -1189,16 +1203,6 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
   return skinned_mesh;
 }
 
-struct ImportedPunctualLightStats {
-  uint32_t directional = 0;
-  uint32_t point = 0;
-  uint32_t spot = 0;
-
-  [[nodiscard]] uint32_t Total() const {
-    return directional + point + spot;
-  }
-};
-
 std::unordered_map<std::string, const aiLight*> BuildImportedLightMap(const aiScene& scene) {
   std::unordered_map<std::string, const aiLight*> lights;
   for (unsigned int light_index = 0; light_index < scene.mNumLights; ++light_index) {
@@ -1226,10 +1230,6 @@ float ImportedTangentHandedness(const aiMesh* mesh, const int vertex_index) {
   const auto bitangent = Vec3Cast(mesh->mBitangents[vertex_index]);
   const auto normal = Vec3Cast(mesh->mNormals[vertex_index]);
   return glm::dot(glm::cross(tangent, bitangent), normal) < 0.0f ? -1.0f : 1.0f;
-}
-
-std::string FormatVec3(const glm::vec3& value) {
-  return "(" + std::to_string(value.x) + ", " + std::to_string(value.y) + ", " + std::to_string(value.z) + ")";
 }
 
 std::string ImportedLightTypeName(const aiLightSourceType type) {
@@ -1327,8 +1327,7 @@ void ApplyImportedLightRange(SpotLight& light, const std::optional<float>& range
 }
 
 bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node,
-                                 const std::unordered_map<std::string, const aiLight*>& imported_lights,
-                                 ImportedPunctualLightStats& stats) {
+                                 const std::unordered_map<std::string, const aiLight*>& imported_lights) {
   const auto search = imported_lights.find(importer_node->mName.C_Str());
   if (search == imported_lights.end()) {
     return false;
@@ -1342,7 +1341,6 @@ bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node
       auto light = Serialization::ProduceSerializable<DirectionalLight>();
       ApplyImportedLightColor(imported_light, light->diffuse, light->diffuse_brightness);
       component = std::static_pointer_cast<IPrivateComponent>(light);
-      stats.directional++;
     } break;
     case aiLightSource_POINT: {
       auto light = Serialization::ProduceSerializable<PointLight>();
@@ -1352,7 +1350,6 @@ bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node
       light->quadratic = imported_light.mAttenuationQuadratic;
       ApplyImportedLightRange(*light, range);
       component = std::static_pointer_cast<IPrivateComponent>(light);
-      stats.point++;
     } break;
     case aiLightSource_SPOT: {
       auto light = Serialization::ProduceSerializable<SpotLight>();
@@ -1364,7 +1361,6 @@ bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node
       light->outer_degrees = glm::degrees(imported_light.mAngleOuterCone);
       ApplyImportedLightRange(*light, range);
       component = std::static_pointer_cast<IPrivateComponent>(light);
-      stats.spot++;
     } break;
     default:
       EVOENGINE_WARNING("Skipped unsupported imported punctual light '" + std::string(importer_node->mName.C_Str()) +
@@ -1372,14 +1368,8 @@ bool AttachImportedPunctualLight(Prefab* model_node, const aiNode* importer_node
       return false;
   }
 
-  const auto color_with_intensity = glm::max(ColorCast(imported_light.mColorDiffuse), glm::vec3(0.0f));
   PushImportedLightPrefab(model_node, importer_node, component, CreateImportedLightLocalTransform(imported_light),
                           type_name);
-  EVOENGINE_LOG("Imported punctual light '" + std::string(importer_node->mName.C_Str()) + "': type=" + type_name +
-                ", color_intensity=" + FormatVec3(color_with_intensity) +
-                ", range=" + (range ? std::to_string(*range) : std::string("derived")) +
-                ", inner_degrees=" + std::to_string(glm::degrees(imported_light.mAngleInnerCone)) +
-                ", outer_degrees=" + std::to_string(glm::degrees(imported_light.mAngleOuterCone)))
   return true;
 }
 
@@ -1389,15 +1379,14 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
                  std::vector<std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>& opacity_maps,
                  const std::vector<ImportedGltfMaterialData>& gltf_material_data, const bool restore_gltf_coordinates,
                  const std::unordered_map<std::string, const aiLight*>& imported_lights,
-                 ImportedPunctualLightStats& imported_light_stats,
                  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
                  std::unordered_map<std::string, std::shared_ptr<Bone>>& bones_map, const aiNode* importer_node,
                  const std::shared_ptr<AssimpImportNode>& assimp_node, const aiScene* importer_scene,
-                 const std::shared_ptr<Animation>& animation) -> bool {
+                 const std::shared_ptr<Animation>& animation, const PrefabModelImportOptions& options) -> bool {
   bool added_mesh_renderer = false;
   SetPrefabLocalTransform(model_node,
                           importer_node->mParent ? Mat4Cast(importer_node->mTransformation) : Transform().value);
-  added_mesh_renderer = AttachImportedPunctualLight(model_node, importer_node, imported_lights, imported_light_stats);
+  added_mesh_renderer = AttachImportedPunctualLight(model_node, importer_node, imported_lights);
   for (unsigned i = 0; i < importer_node->mNumMeshes; i++) {
     // the modelNode object only contains indices to index the actual objects in the scene.
     // the scene contains all the data, modelNode is just to keep stuff organized (like relations between nodes).
@@ -1444,7 +1433,9 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     } else {
       auto mesh_renderer = Serialization::ProduceSerializable<MeshRenderer>();
       mesh_renderer->material.Set<Material>(material);
-      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh, restore_gltf_coordinates, tangent_tex_coord));
+      glm::vec3 origin_offset(0.0f);
+      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh, restore_gltf_coordinates, tangent_tex_coord,
+                                             options.center_mesh_renderer_origins, origin_offset));
       if (!mesh_renderer->mesh.Get())
         continue;
       added_mesh_renderer = true;
@@ -1452,14 +1443,19 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
       holder.enabled = true;
       holder.private_component = std::static_pointer_cast<IPrivateComponent>(mesh_renderer);
       child_node->private_components.push_back(holder);
+      auto transform = std::make_shared<Transform>();
+      transform->SetPosition(origin_offset);
+      DataComponentHolder transform_holder;
+      transform_holder.data_component_type = Typeof<Transform>();
+      transform_holder.data_component = transform;
+      child_node->data_components.push_back(transform_holder);
     }
-    auto transform = std::make_shared<Transform>();
-    transform->value = Transform().value;
-
-    DataComponentHolder holder;
-    holder.data_component_type = Typeof<Transform>();
-    holder.data_component = transform;
-    child_node->data_components.push_back(holder);
+    if (is_skinned_mesh) {
+      DataComponentHolder transform_holder;
+      transform_holder.data_component_type = Typeof<Transform>();
+      transform_holder.data_component = std::make_shared<Transform>();
+      child_node->data_components.push_back(transform_holder);
+    }
 
     model_node->child_prefabs.push_back(std::move(child_node));
   }
@@ -1471,8 +1467,8 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     child_assimp_node->parent_node = assimp_node;
     const bool child_add =
         ProcessNode(directory, child_node.get(), loaded_materials, texture_2ds_loaded, opacity_maps, gltf_material_data,
-                    restore_gltf_coordinates, imported_lights, imported_light_stats, bones_lists, bones_map,
-                    importer_node->mChildren[i], child_assimp_node, importer_scene, animation);
+                    restore_gltf_coordinates, imported_lights, bones_lists, bones_map, importer_node->mChildren[i],
+                    child_assimp_node, importer_scene, animation, options);
     if (child_add) {
       model_node->child_prefabs.push_back(std::move(child_node));
     }
@@ -1512,7 +1508,8 @@ void LogPrefabImportPhaseDuration(const std::filesystem::path& path, const std::
                     path.filename().string())
 }
 
-bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene) {
+bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene,
+                                    const PrefabModelImportOptions& options) {
   auto temp = path;
   const std::string directory = temp.remove_filename().string();
   instance_name = path.filename().string();
@@ -1530,17 +1527,11 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   const auto extension = LowercaseExtension(path);
   const bool restore_gltf_coordinates = (extension == ".gltf" || extension == ".glb") && parsed_gltf;
   const auto imported_lights = BuildImportedLightMap(scene);
-  ImportedPunctualLightStats imported_light_stats;
   if (!ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, gltf_material_data,
-                   restore_gltf_coordinates, imported_lights, imported_light_stats, bones_lists, bones_map,
-                   scene.mRootNode, root_assimp_node, &scene, animation)) {
+                   restore_gltf_coordinates, imported_lights, bones_lists, bones_map, scene.mRootNode, root_assimp_node,
+                   &scene, animation, options)) {
     EVOENGINE_ERROR("Model is empty!")
     return false;
-  }
-  if (imported_light_stats.Total() != 0) {
-    EVOENGINE_LOG("Imported punctual light count for " + path.filename().string() +
-                  ": directional=" + std::to_string(imported_light_stats.directional) + ", point=" +
-                  std::to_string(imported_light_stats.point) + ", spot=" + std::to_string(imported_light_stats.spot))
   }
   LogPrefabImportPhaseDuration(path, "Process nodes", process_nodes_start);
 
@@ -1775,7 +1766,7 @@ std::shared_ptr<StagedAssetLoadPayload> Prefab::LoadStagedPayloadInternal(const 
     }
     payload->scene = payload->importer->ReadFile(path.string(), flags);
     if (!payload->scene || payload->scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !payload->scene->mRootNode) {
-      EVOENGINE_LOG("Assimp: " + std::string(payload->importer->GetErrorString()))
+      EVOENGINE_ERROR("Assimp: " + std::string(payload->importer->GetErrorString()))
       return {};
     }
     return payload;
@@ -1855,7 +1846,8 @@ void Prefab::SetPrefabEnabled(const bool value) {
   enabled_ = value;
 }
 
-bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags) {
+bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags,
+                               const PrefabModelImportOptions& options) {
   flags = flags | aiProcess_Triangulate;
   const auto extension = LowercaseExtension(path);
   if (extension == ".gltf" || extension == ".glb") {
@@ -1870,10 +1862,10 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
   // check for errors
   if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode)  // if is Not Zero
   {
-    EVOENGINE_LOG("Assimp: " + std::string(importer.GetErrorString()));
+    EVOENGINE_ERROR("Assimp: " + std::string(importer.GetErrorString()))
     return false;
   }
-  return LoadModelSceneInternal(path, *scene);
+  return LoadModelSceneInternal(path, *scene, options);
 }
 
 #pragma endregion
@@ -2312,6 +2304,11 @@ void Prefab::RelinkChildren(const std::shared_ptr<Scene>& scene, const Entity& p
 
 void Prefab::LoadModel(const std::filesystem::path& path, const bool optimize, const unsigned flags) {
   LoadModelInternal(ProjectManager::GetAssetsFolderPath() / path, optimize, flags);
+}
+
+void Prefab::LoadModel(const std::filesystem::path& path, const PrefabModelImportOptions& options, const bool optimize,
+                       const unsigned flags) {
+  LoadModelInternal(ProjectManager::GetAssetsFolderPath() / path, optimize, flags, options);
 }
 
 void Prefab::GatherAssets() {

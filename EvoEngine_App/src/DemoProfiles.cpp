@@ -658,6 +658,7 @@ void ApplyRenderingDemoEditorSetup() {
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   if (editor_layer) {
     editor_layer->RequestEditorLayout(CreateRenderingDemoEditorLayout());
+    editor_layer->SetConsoleMessageFilters(true, false, false);
   }
   PrepareRenderingDemoShowcase(editor_layer);
 }

@@ -2717,32 +2717,37 @@ TEST(GltfRayTracingMaterial, MaterialAbiKeepsAdvancedExtensionTextureSlots) {
 }
 
 TEST(GltfRayTracingMaterial, EmissiveTriangleSamplingContracts) {
+  using InstanceRecord = evo_engine::RenderInstanceStorage::EmissiveInstanceInfoBlock;
+  using DistributionRecord = evo_engine::RenderInstanceStorage::EmissiveTriangleDistributionInfoBlock;
   using Record = evo_engine::RenderInstanceStorage::EmissiveTriangleInfoBlock;
-  static_assert(sizeof(Record) == 20);
-  static_assert(offsetof(Record, instance_index) == 0);
-  static_assert(offsetof(Record, primitive_id) == 4);
-  static_assert(offsetof(Record, alias_probability) == 8);
-  static_assert(offsetof(Record, alias_index) == 12);
-  static_assert(offsetof(Record, area_pdf) == 16);
+  static_assert(sizeof(InstanceRecord) == 32);
+  static_assert(offsetof(InstanceRecord, instance_index) == 0);
+  static_assert(offsetof(InstanceRecord, distribution_index) == 4);
+  static_assert(offsetof(InstanceRecord, power_selection_probability) == 24);
+  static_assert(offsetof(InstanceRecord, uniform_selection_probability) == 28);
+  static_assert(sizeof(DistributionRecord) == 8);
+  static_assert(sizeof(Record) == 16);
+  static_assert(offsetof(Record, primitive_id) == 0);
+  static_assert(offsetof(Record, alias_probability) == 4);
+  static_assert(offsetof(Record, alias_index) == 8);
+  static_assert(offsetof(Record, selection_probability) == 12);
 
-  const auto records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
-      {{2u, 5u, 2.0, 1.0}, {1u, 3u, 1.0, 2.0}, {0u, 0u, 0.0, 1.0}});
+  const auto records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleDistribution(
+      {{5u, 2.0, 1.0}, {3u, 1.0, 2.0}, {0u, 0.0, 1.0}});
   ASSERT_EQ(records.size(), 2u);
-  EXPECT_EQ(records[0].instance_index, 1u);
   EXPECT_EQ(records[0].primitive_id, 3u);
   EXPECT_FLOAT_EQ(records[0].alias_probability, 1.0f);
   EXPECT_EQ(records[0].alias_index, 0u);
-  EXPECT_FLOAT_EQ(records[0].area_pdf, 0.5f);
-  EXPECT_EQ(records[1].instance_index, 2u);
+  EXPECT_FLOAT_EQ(records[0].selection_probability, 0.5f);
   EXPECT_EQ(records[1].primitive_id, 5u);
   EXPECT_FLOAT_EQ(records[1].alias_probability, 1.0f);
   EXPECT_EQ(records[1].alias_index, 1u);
-  EXPECT_FLOAT_EQ(records[1].area_pdf, 0.25f);
-  EXPECT_TRUE(evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks({}).empty());
+  EXPECT_FLOAT_EQ(records[1].selection_probability, 0.5f);
+  EXPECT_TRUE(evo_engine::RenderInstanceStorage::BuildEmissiveTriangleDistribution({}).empty());
 
   const std::array<double, 3> expected_probabilities{0.1, 0.2, 0.7};
-  const auto weighted_records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks(
-      {{0u, 0u, 1.0, 1.0}, {0u, 1u, 1.0, 2.0}, {0u, 2u, 1.0, 7.0}});
+  const auto weighted_records = evo_engine::RenderInstanceStorage::BuildEmissiveTriangleDistribution(
+      {{0u, 1.0, 1.0}, {1u, 1.0, 2.0}, {2u, 1.0, 7.0}});
   ASSERT_EQ(weighted_records.size(), expected_probabilities.size());
   std::array<double, 3> reconstructed_probabilities{};
   for (size_t column = 0; column < weighted_records.size(); ++column) {
@@ -2752,7 +2757,24 @@ TEST(GltfRayTracingMaterial, EmissiveTriangleSamplingContracts) {
   }
   for (size_t index = 0; index < weighted_records.size(); ++index) {
     EXPECT_NEAR(reconstructed_probabilities[index], expected_probabilities[index], 1.0e-6);
-    EXPECT_NEAR(weighted_records[index].area_pdf, expected_probabilities[index], 1.0e-6);
+    EXPECT_NEAR(weighted_records[index].selection_probability, expected_probabilities[index], 1.0e-6);
+  }
+
+  const auto power_instances = evo_engine::RenderInstanceStorage::BuildEmissiveAliasTable({3.0, 12.0});
+  const auto uniform_instances = evo_engine::RenderInstanceStorage::BuildEmissiveAliasTable({2.0, 2.0});
+  ASSERT_EQ(power_instances.size(), 2u);
+  ASSERT_EQ(uniform_instances.size(), 2u);
+  const auto shared_distribution =
+      evo_engine::RenderInstanceStorage::BuildEmissiveTriangleDistribution({{0u, 1.0, 1.0}, {1u, 1.0, 2.0}});
+  ASSERT_EQ(shared_distribution.size(), 2u);
+  const std::array<double, 4> flat_power_reference{1.0 / 15.0, 2.0 / 15.0, 4.0 / 15.0, 8.0 / 15.0};
+  for (size_t instance = 0; instance < 2u; ++instance) {
+    for (size_t triangle = 0; triangle < 2u; ++triangle) {
+      const size_t flat_index = instance * 2u + triangle;
+      EXPECT_NEAR(power_instances[instance].selection_probability * shared_distribution[triangle].selection_probability,
+                  flat_power_reference[flat_index], 1.0e-6);
+      EXPECT_NEAR(uniform_instances[instance].selection_probability / 2.0, 0.25, 1.0e-6);
+    }
   }
 
   constexpr float selection_pdf = 0.25f;

@@ -435,6 +435,38 @@ TEST(EnvironmentalLightingAsset, LocalTransformGizmoOperationSelectionIsExclusiv
   EXPECT_TRUE(editor_layer->LocalPositionSelected());
   EXPECT_FALSE(editor_layer->LocalRotationSelected());
   EXPECT_FALSE(editor_layer->LocalScaleSelected());
+
+  editor_layer->SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Select);
+  EXPECT_FALSE(editor_layer->LocalPositionSelected());
+  EXPECT_FALSE(editor_layer->LocalRotationSelected());
+  EXPECT_FALSE(editor_layer->LocalScaleSelected());
+
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  editor_layer->Serialize(out);
+  out << YAML::EndMap;
+  const auto serialized_select = YAML::Load(out.c_str());
+  EXPECT_FALSE(serialized_select["local_position_selected"].as<bool>());
+  EXPECT_FALSE(serialized_select["local_rotation_selected"].as<bool>());
+  EXPECT_FALSE(serialized_select["local_scale_selected"].as<bool>());
+
+  editor_layer->DeserializeLayout(YAML::Load(R"(
+local_position_selected: false
+local_rotation_selected: false
+local_scale_selected: false
+)"));
+  EXPECT_FALSE(editor_layer->LocalPositionSelected());
+  EXPECT_FALSE(editor_layer->LocalRotationSelected());
+  EXPECT_FALSE(editor_layer->LocalScaleSelected());
+
+  editor_layer->DeserializeLayout(YAML::Load(R"(
+local_position_selected: false
+local_rotation_selected: true
+local_scale_selected: false
+)"));
+  EXPECT_FALSE(editor_layer->LocalPositionSelected());
+  EXPECT_TRUE(editor_layer->LocalRotationSelected());
+  EXPECT_FALSE(editor_layer->LocalScaleSelected());
 }
 
 TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {

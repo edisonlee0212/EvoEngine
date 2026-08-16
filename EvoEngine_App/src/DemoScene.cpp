@@ -1149,7 +1149,7 @@ void LogBistroRasterAlphaPolicy(const BistroParityStats& stats) {
          << ", mask_policy=deferred_gbuffer_alpha_cutoff"
          << ", blend_policy=sorted_back_to_front_transparent_pass"
          << ", reference_policy=sorted_back_to_front_blend_pass";
-  EVOENGINE_LOG(stream.str())
+  EVOENGINE_WARNING(stream.str())
 }
 
 void ApplyBistroParityRendererState(const std::shared_ptr<Scene>& scene) {
@@ -1910,22 +1910,19 @@ Entity CreateCornellBox(const std::shared_ptr<Scene>& scene, const Entity parent
 template <typename LightComponent>
 void DisableLightIfPresent(const std::shared_ptr<Scene>& scene, const Entity entity) {
   if (scene->HasPrivateComponent<LightComponent>(entity)) {
-    if (const auto light = scene->GetOrSetPrivateComponent<LightComponent>(entity).lock()) {
+    if (const auto light = scene->GetOrSetPrivateComponent<LightComponent>(entity).lock())
       light->SetEnabled(false);
-    }
   }
 }
 
 void DisableImportedLightsRecursive(const std::shared_ptr<Scene>& scene, const Entity entity) {
-  if (!scene->IsEntityValid(entity)) {
+  if (!scene->IsEntityValid(entity))
     return;
-  }
   DisableLightIfPresent<DirectionalLight>(scene, entity);
   DisableLightIfPresent<PointLight>(scene, entity);
   DisableLightIfPresent<SpotLight>(scene, entity);
-  for (const auto child : scene->GetChildren(entity)) {
+  for (const auto child : scene->GetChildren(entity))
     DisableImportedLightsRecursive(scene, child);
-  }
 }
 
 void ConfigureCornellBoxDdgi(const std::shared_ptr<Scene>& scene) {
@@ -2397,7 +2394,7 @@ void ConfigureBistroDemoDdgi(const std::shared_ptr<Scene>& scene, const Bound& b
          << bistro_world_bound.min.x << "," << bistro_world_bound.min.y << "," << bistro_world_bound.min.z
          << "), world_bound_max=(" << bistro_world_bound.max.x << "," << bistro_world_bound.max.y << ","
          << bistro_world_bound.max.z << ")";
-  EVOENGINE_LOG(stream.str())
+  EVOENGINE_WARNING(stream.str())
 }
 
 void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
@@ -2434,7 +2431,7 @@ void ApplyBistroDirectionalLightIntensity(const std::shared_ptr<Scene>& scene) {
            << ", effective_light_size=" << light->light_size << ", previous_color=(" << previous_color.x << ","
            << previous_color.y << "," << previous_color.z << "), effective_color=(" << effective_color.x << ","
            << effective_color.y << "," << effective_color.z << ")";
-    EVOENGINE_LOG(stream.str())
+    EVOENGINE_WARNING(stream.str())
     return;
   }
   EVOENGINE_WARNING("Bistro directional light policy: imported Sun directional light was not found.")
@@ -6570,7 +6567,7 @@ void evo_engine::LogBistroParityCaptureState(const std::shared_ptr<Scene>& scene
              << ", tone_mapping_average_mode=" << tone_mapping.average_mode;
     }
   }
-  EVOENGINE_LOG(stream.str())
+  EVOENGINE_WARNING(stream.str())
 }
 
 void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
@@ -6626,7 +6623,6 @@ void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
     scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
   }
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    editor_layer->enable_gizmos = false;
     editor_layer->show_scene_info = true;
     editor_layer->SetSelectedEntity({});
     editor_layer->SetSceneCameraPosition(camera_frame.position);

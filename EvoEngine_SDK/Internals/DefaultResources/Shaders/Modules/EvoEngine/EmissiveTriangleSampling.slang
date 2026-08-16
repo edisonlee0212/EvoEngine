@@ -45,14 +45,9 @@ uint EE_EMISSIVE_TRIANGLE_COUNT() {
   return EE_RENDER_INFO.emissive_triangle_parameters.x;
 }
 public
-bool EE_FIND_EMISSIVE_TRIANGLE_INDEX(const uint instance_index, const uint primitive_id, out uint record_index,
-                                     out EmissiveTriangleInfo result) {
+bool EE_FIND_EMISSIVE_INSTANCE_INDEX(const uint instance_index, out uint record_index,
+                                     out EmissiveInstanceInfo result) {
   record_index = 0u;
-  result.instance_index = 0u;
-  result.primitive_id = 0u;
-  result.alias_probability = 1.0f;
-  result.alias_index = 0u;
-  result.area_pdf = 0.0f;
   const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
   if (count == 0u) {
     return false;
@@ -61,9 +56,8 @@ bool EE_FIND_EMISSIVE_TRIANGLE_INDEX(const uint instance_index, const uint primi
   uint high = count;
   for (int iteration = 0; iteration < 32 && low < high; ++iteration) {
     const uint mid = low + (high - low) / 2u;
-    const EmissiveTriangleInfo candidate = EE_EMISSIVE_TRIANGLES[mid];
-    if (candidate.instance_index < instance_index ||
-        (candidate.instance_index == instance_index && candidate.primitive_id < primitive_id)) {
+    const EmissiveInstanceInfo candidate = EE_EMISSIVE_INSTANCES[mid];
+    if (candidate.instance_index < instance_index) {
       low = mid + 1u;
     } else {
       high = mid;
@@ -73,29 +67,75 @@ bool EE_FIND_EMISSIVE_TRIANGLE_INDEX(const uint instance_index, const uint primi
     return false;
   }
   record_index = low;
-  result = EE_EMISSIVE_TRIANGLES[low];
-  return result.instance_index == instance_index && result.primitive_id == primitive_id;
+  result = EE_EMISSIVE_INSTANCES[low];
+  return result.instance_index == instance_index;
 }
 public
-bool EE_FIND_EMISSIVE_TRIANGLE(const uint instance_index, const uint primitive_id, out EmissiveTriangleInfo result) {
-  uint record_index;
-  return EE_FIND_EMISSIVE_TRIANGLE_INDEX(instance_index, primitive_id, record_index, result);
-}
-public
-EmissiveTriangleInfo EE_SAMPLE_EMISSIVE_TRIANGLE_RECORD(const float sample_value, const bool uniform_sampling) {
+EmissiveInstanceInfo EE_SAMPLE_EMISSIVE_INSTANCE_RECORD(const float sample_value, const bool uniform_sampling) {
   const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
   const float table_sample = clamp(sample_value, 0.0f, 0.99999994f) * float(count);
   const uint record_index = min(uint(table_sample), count - 1u);
-  const EmissiveTriangleInfo record = EE_EMISSIVE_TRIANGLES[record_index];
-  if (!uniform_sampling && frac(table_sample) >= record.alias_probability) {
-    return EE_EMISSIVE_TRIANGLES[min(record.alias_index, count - 1u)];
+  const EmissiveInstanceInfo record = EE_EMISSIVE_INSTANCES[record_index];
+  const float alias_probability =
+      uniform_sampling ? record.uniform_alias_probability : record.power_alias_probability;
+  const uint alias_index = uniform_sampling ? record.uniform_alias_index : record.power_alias_index;
+  if (frac(table_sample) >= alias_probability) {
+    return EE_EMISSIVE_INSTANCES[min(alias_index, count - 1u)];
   }
   return record;
 }
 public
-float EE_EMISSIVE_TRIANGLE_AREA(const EmissiveTriangleInfo record) {
-  const Instance instance = EE_INSTANCES[record.instance_index];
-  const int triangle_offset = instance.triangle_offset + int(record.primitive_id);
+EmissiveTriangleDistributionEntry EE_SAMPLE_EMISSIVE_DISTRIBUTION_RECORD(
+    const EmissiveTriangleDistributionInfo distribution, const float sample_value, const bool uniform_sampling) {
+  const float table_sample = clamp(sample_value, 0.0f, 0.99999994f) * float(distribution.triangle_count);
+  const uint local_index = min(uint(table_sample), distribution.triangle_count - 1u);
+  const EmissiveTriangleDistributionEntry record = EE_EMISSIVE_TRIANGLES[distribution.triangle_offset + local_index];
+  if (!uniform_sampling && frac(table_sample) >= record.alias_probability) {
+    return EE_EMISSIVE_TRIANGLES[distribution.triangle_offset + min(record.alias_index,
+                                                                     distribution.triangle_count - 1u)];
+  }
+  return record;
+}
+public
+bool EE_FIND_EMISSIVE_TRIANGLE(const uint instance_index, const uint primitive_id, out EmissiveTriangleInfo result) {
+  result.instance_index = instance_index;
+  result.primitive_id = primitive_id;
+  result.power_selection_probability = 0.0f;
+  result.uniform_selection_probability = 0.0f;
+  uint instance_record_index;
+  EmissiveInstanceInfo instance_record;
+  if (!EE_FIND_EMISSIVE_INSTANCE_INDEX(instance_index, instance_record_index, instance_record)) {
+    return false;
+  }
+  const EmissiveTriangleDistributionInfo distribution = EE_EMISSIVE_DISTRIBUTIONS[instance_record.distribution_index];
+  uint low = 0u;
+  uint high = distribution.triangle_count;
+  for (int iteration = 0; iteration < 32 && low < high; ++iteration) {
+    const uint mid = low + (high - low) / 2u;
+    const EmissiveTriangleDistributionEntry candidate = EE_EMISSIVE_TRIANGLES[distribution.triangle_offset + mid];
+    if (candidate.primitive_id < primitive_id) {
+      low = mid + 1u;
+    } else {
+      high = mid;
+    }
+  }
+  if (low >= distribution.triangle_count) {
+    return false;
+  }
+  const EmissiveTriangleDistributionEntry triangle_record = EE_EMISSIVE_TRIANGLES[distribution.triangle_offset + low];
+  if (triangle_record.primitive_id != primitive_id) {
+    return false;
+  }
+  result.power_selection_probability =
+      instance_record.power_selection_probability * triangle_record.selection_probability;
+  result.uniform_selection_probability =
+      instance_record.uniform_selection_probability / float(distribution.triangle_count);
+  return true;
+}
+public
+float EE_EMISSIVE_TRIANGLE_AREA(const uint instance_index, const uint primitive_id) {
+  const Instance instance = EE_INSTANCES[instance_index];
+  const int triangle_offset = instance.triangle_offset + int(primitive_id);
   const float3 p0 = mul(float4(EE_VERTICES[EE_INDICES[triangle_offset * 3]].position, 1.0f), instance.model).xyz;
   const float3 p1 = mul(float4(EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]].position, 1.0f), instance.model).xyz;
   const float3 p2 = mul(float4(EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]].position, 1.0f), instance.model).xyz;
@@ -103,14 +143,8 @@ float EE_EMISSIVE_TRIANGLE_AREA(const EmissiveTriangleInfo record) {
   return 0.5f * twice_area;
 }
 public
-float EE_EMISSIVE_TRIANGLE_UNIFORM_AREA_PDF(const EmissiveTriangleInfo record) {
-  const float area = EE_EMISSIVE_TRIANGLE_AREA(record);
-  const uint count = EE_EMISSIVE_TRIANGLE_COUNT();
-  return count != 0u && area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON ? 1.0f / (float(count) * area) : 0.0f;
-}
-public
 bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
-    const float3 shading_position, const float3 shading_normal, const bool upper_hemisphere, const float record_sample,
+    const float3 shading_position, const float3 shading_normal, const bool upper_hemisphere, const float2 record_sample,
     const float2 barycentric_sample, const uint sampling_mode, out EeEmissiveTriangleSample result) {
   result.position = shading_position;
   result.distance = 0.0f;
@@ -125,16 +159,22 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
     result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
     return false;
   }
-  uint record_index = 0u;
-  float selection_pdf = 0.0f;
-  EmissiveTriangleInfo record;
   const bool uniform_sampling = sampling_mode == EE_EMISSIVE_SAMPLER_UNIFORM;
-  record = EE_SAMPLE_EMISSIVE_TRIANGLE_RECORD(record_sample, uniform_sampling);
-  const float record_area = EE_EMISSIVE_TRIANGLE_AREA(record);
-  const float record_area_pdf = uniform_sampling ? EE_EMISSIVE_TRIANGLE_UNIFORM_AREA_PDF(record) : record.area_pdf;
-  selection_pdf = record_area_pdf * record_area;
-  const Instance instance = EE_INSTANCES[record.instance_index];
-  const int triangle_offset = instance.triangle_offset + int(record.primitive_id);
+  const EmissiveInstanceInfo instance_record = EE_SAMPLE_EMISSIVE_INSTANCE_RECORD(record_sample.x, uniform_sampling);
+  const EmissiveTriangleDistributionInfo distribution = EE_EMISSIVE_DISTRIBUTIONS[instance_record.distribution_index];
+  if (distribution.triangle_count == 0u) {
+    result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_INVALID;
+    return false;
+  }
+  const EmissiveTriangleDistributionEntry triangle_record =
+      EE_SAMPLE_EMISSIVE_DISTRIBUTION_RECORD(distribution, record_sample.y, uniform_sampling);
+  const float instance_probability = uniform_sampling ? instance_record.uniform_selection_probability
+                                                       : instance_record.power_selection_probability;
+  const float triangle_probability =
+      uniform_sampling ? rcp(float(distribution.triangle_count)) : triangle_record.selection_probability;
+  const float selection_pdf = instance_probability * triangle_probability;
+  const Instance instance = EE_INSTANCES[instance_record.instance_index];
+  const int triangle_offset = instance.triangle_offset + int(triangle_record.primitive_id);
   const Vertex v0 = EE_VERTICES[EE_INDICES[triangle_offset * 3]];
   const Vertex v1 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 1]];
   const Vertex v2 = EE_VERTICES[EE_INDICES[triangle_offset * 3 + 2]];
@@ -169,7 +209,7 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
     result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_EMITTER_BACKFACE;
     return false;
   }
-  const float area = EE_EMISSIVE_TRIANGLE_AREA(record);
+  const float area = EE_EMISSIVE_TRIANGLE_AREA(instance_record.instance_index, triangle_record.primitive_id);
   const float area_pdf = area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON ? selection_pdf / area : 0.0f;
   const float solid_angle_pdf = area_pdf * distance_squared / light_cosine;
   if (solid_angle_pdf <= 0.0f || isnan(solid_angle_pdf) || isinf(solid_angle_pdf)) {
@@ -222,14 +262,14 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
   result.direction = direction;
   result.solid_angle_pdf = solid_angle_pdf;
   result.radiance_over_pdf = radiance_over_pdf;
-  result.instance_index = record.instance_index;
-  result.primitive_id = record.primitive_id;
+  result.instance_index = instance_record.instance_index;
+  result.primitive_id = triangle_record.primitive_id;
   result.material_index = material_index;
   return true;
 }
 public
 bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED<let feature_mask : uint>(const float3 shading_position,
-                                                                      const float record_sample,
+                                                                      const float2 record_sample,
                                                                       const float2 barycentric_sample,
                                                                       const bool uniform_sampling,
                                                                       out EeEmissiveTriangleSample result) {
@@ -238,7 +278,7 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED<let feature_mask : uint>(const floa
       uniform_sampling ? EE_EMISSIVE_SAMPLER_UNIFORM : EE_EMISSIVE_SAMPLER_POWER, result);
 }
 public
-bool EE_SAMPLE_EMISSIVE_TRIANGLE(const float3 shading_position, const float record_sample,
+bool EE_SAMPLE_EMISSIVE_TRIANGLE(const float3 shading_position, const float2 record_sample,
                                  const float2 barycentric_sample, out EeEmissiveTriangleSample result) {
   return EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED<EE_GLTF_ALL_FEATURES>(shading_position, record_sample,
                                                                        barycentric_sample, false, result);
@@ -248,15 +288,14 @@ float EE_EMISSIVE_TRIANGLE_HIT_PDF_SAMPLER(const EmissiveTriangleInfo record, co
                                            const float3 previous_normal, const bool upper_hemisphere,
                                            const float3 hit_position, const float3 hit_geometric_normal,
                                            const uint sampling_mode) {
-  uint record_index;
   EmissiveTriangleInfo found_record;
-  if (!EE_FIND_EMISSIVE_TRIANGLE_INDEX(record.instance_index, record.primitive_id, record_index, found_record)) {
+  if (!EE_FIND_EMISSIVE_TRIANGLE(record.instance_index, record.primitive_id, found_record)) {
     return 0.0f;
   }
-  float selection_pdf = 0.0f;
   const bool uniform_sampling = sampling_mode == EE_EMISSIVE_SAMPLER_UNIFORM;
-  const float area = EE_EMISSIVE_TRIANGLE_AREA(record);
-  selection_pdf = (uniform_sampling ? EE_EMISSIVE_TRIANGLE_UNIFORM_AREA_PDF(record) : record.area_pdf) * area;
+  const float area = EE_EMISSIVE_TRIANGLE_AREA(record.instance_index, record.primitive_id);
+  const float selection_pdf = uniform_sampling ? found_record.uniform_selection_probability
+                                                : found_record.power_selection_probability;
   const float area_pdf = area > EE_EMISSIVE_TRIANGLE_PDF_EPSILON ? selection_pdf / area : 0.0f;
   const float3 to_hit = hit_position - previous_position;
   const float distance_squared = dot(to_hit, to_hit);

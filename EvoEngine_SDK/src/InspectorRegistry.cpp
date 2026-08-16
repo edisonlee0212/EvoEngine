@@ -14,6 +14,20 @@ InspectorRegistry& InspectorRegistry::GetInstance() {
 
 void InspectorRegistry::Clear() {
   handlers_.clear();
+  batch_handlers_.clear();
+}
+
+bool InspectorRegistry::RegisterBatchInspector(const std::type_info& type, BatchHandler handler, std::string owner_name,
+                                               std::string type_name) {
+  if (!handler)
+    return false;
+  if (type_name.empty())
+    type_name = type.name();
+  const std::type_index type_index(type);
+  batch_handlers_.insert_or_assign(
+      type_index,
+      BatchHandlerRecord{std::move(handler), HandlerInfo{type_index, std::move(type_name), std::move(owner_name)}});
+  return true;
 }
 
 bool InspectorRegistry::RegisterInspector(const std::type_info& type, Handler handler, std::string owner_name,
@@ -35,6 +49,10 @@ bool InspectorRegistry::UnregisterInspector(const std::type_info& type) {
   return handlers_.erase(std::type_index(type)) != 0;
 }
 
+bool InspectorRegistry::UnregisterBatchInspector(const std::type_info& type) {
+  return batch_handlers_.erase(std::type_index(type)) != 0;
+}
+
 size_t InspectorRegistry::UnregisterOwner(const std::string& owner_name) {
   if (owner_name.empty()) {
     return 0;
@@ -44,6 +62,14 @@ size_t InspectorRegistry::UnregisterOwner(const std::string& owner_name) {
   for (auto it = handlers_.begin(); it != handlers_.end();) {
     if (it->second.info.owner_name == owner_name) {
       it = handlers_.erase(it);
+      ++removed;
+    } else {
+      ++it;
+    }
+  }
+  for (auto it = batch_handlers_.begin(); it != batch_handlers_.end();) {
+    if (it->second.info.owner_name == owner_name) {
+      it = batch_handlers_.erase(it);
       ++removed;
     } else {
       ++it;
@@ -61,6 +87,11 @@ const InspectorRegistry::HandlerInfo* InspectorRegistry::FindInspector(const std
     return &record->info;
   }
   return nullptr;
+}
+
+const InspectorRegistry::HandlerInfo* InspectorRegistry::FindBatchInspector(const std::type_info& type) const {
+  const auto search = batch_handlers_.find(std::type_index(type));
+  return search == batch_handlers_.end() ? nullptr : &search->second.info;
 }
 
 bool InspectorRegistry::Inspect(InspectorContext& context, IAsset& asset) const {
@@ -89,6 +120,22 @@ bool InspectorRegistry::Inspect(InspectorContext& context, ILayer& layer) const 
     return record->handler(context, dynamic_cast<void*>(&layer));
   }
   return false;
+}
+
+bool InspectorRegistry::InspectBatch(InspectorContext& context,
+                                     const std::vector<std::shared_ptr<IPrivateComponent>>& components) const {
+  if (components.empty())
+    return false;
+  const std::type_index type(typeid(*components.front()));
+  std::vector<void*> targets;
+  targets.reserve(components.size());
+  for (const auto& component : components) {
+    if (!component || std::type_index(typeid(*component)) != type)
+      return false;
+    targets.emplace_back(dynamic_cast<void*>(component.get()));
+  }
+  const auto search = batch_handlers_.find(type);
+  return search != batch_handlers_.end() && search->second.handler(context, targets);
 }
 
 const InspectorRegistry::HandlerRecord* InspectorRegistry::FindRecord(const std::type_info& type) const {

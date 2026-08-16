@@ -653,7 +653,6 @@ class RenderLayer final : public ILayer {
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
-  bool need_fade_ = false;
   bool ddgi_has_previous_scene_inputs_ = false;
   bool ddgi_referenced_scene_inputs_pending_ = false;
   std::vector<uint64_t> ddgi_previous_material_keys_;
@@ -915,6 +914,7 @@ class RenderLayer final : public ILayer {
 
   /// Graphics pipeline for performing the deferred shading lighting pass with scene cameras.
   std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline_scene_camera;
+  std::shared_ptr<GraphicsPipeline> entity_selection_highlight_pipeline_;
 
   std::shared_ptr<GraphicsPipeline> ddgi_gather_timing_pipeline_;
 

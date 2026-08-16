@@ -357,8 +357,6 @@ class Scene final : public IAsset {
    * @param entity The entity to check.
    * @return True if an ancestor is selected, false otherwise.
    */
-  [[nodiscard]] bool IsEntityAncestorSelected(const Entity& entity) const;
-
   /**
    * @brief Retrieves the root entity of a given entity.
    * @param entity The entity whose root is needed.
@@ -1432,7 +1430,7 @@ T Scene::GetDataComponent(const Entity& entity) {
       return chunk.GetData<T>(type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * sizeof(T));
     }
   }
-  EVOENGINE_LOG("ComponentData doesn't exist")
+  EVOENGINE_WARNING("ComponentData doesn't exist")
   return T();
 }
 template <typename T>
@@ -1486,7 +1484,7 @@ T Scene::GetDataComponent(const size_t& index) {
       return chunk.GetData<T>(type.type_offset * data_component_storage.chunk_capacity + chunk_pointer * sizeof(T));
     }
   }
-  EVOENGINE_LOG("ComponentData doesn't exist");
+  EVOENGINE_WARNING("ComponentData doesn't exist")
   return T();
 }
 template <typename T>
