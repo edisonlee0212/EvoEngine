@@ -1786,6 +1786,7 @@ void EditorLayer::DeserializeSceneState(const YAML::Node& in) {
 
 void EditorLayer::ClearEntitySelectionState() {
   CancelEntityGizmoSession();
+  transform_inspector_drag_session_.reset();
   entity_selection_.Clear(EntitySelection::RequestSource::Lifecycle);
   entity_selection_highlight_.Reset();
   selected_entity_hierarchy_list_.clear();
@@ -1806,6 +1807,7 @@ bool EditorLayer::IsPlantVisualSplitLayoutReady() const {
 
 void EditorLayer::OnDestroy() {
   CancelEntityGizmoSession();
+  transform_inspector_drag_session_.reset();
   TitleBarSearchBuffers().erase(this);
   if (ImGui::GetCurrentContext() && ImGui::GetFrameCount() > 0) {
     const auto* ini_filename = ImGui::GetIO().IniFilename;
@@ -2236,13 +2238,16 @@ void EditorLayer::CaptureMainCameraWindowMousePosition() {
 void EditorLayer::UpdateSceneState(const std::shared_ptr<Scene>& scene) {
   if (entity_selection_.BindScene(scene) == EntitySelection::Result::Changed) {
     CancelEntityGizmoSession();
+    transform_inspector_drag_session_.reset();
     selected_entity_hierarchy_list_.clear();
     pending_viewport_selection_.reset();
   }
   const auto selection_revision = entity_selection_.GetRevision();
   entity_selection_.PruneInvalid();
-  if (selection_revision != entity_selection_.GetRevision())
+  if (selection_revision != entity_selection_.GetRevision()) {
     CancelEntityGizmoSession();
+    transform_inspector_drag_session_.reset();
+  }
   entity_selection_highlight_.Update(!entity_selection_.Empty(),
                                      static_cast<float>(ApplicationContext::Get().GetTimes().DeltaTime()));
   if (scene && show_scene_window)
@@ -2431,8 +2436,44 @@ bool EditorLayer::DrawBatchTransformInspector(const std::shared_ptr<Scene>& scen
       ImGui::SetNextItemWidth(input_width);
       if (value.mixed_axes[axis])
         ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
-      if (ImGui::DragFloat("##Value", &value.value[axis], speed, 0.0f, 0.0f, "%.2f"))
-        edited |= EntityBatchInspector::WriteLocalTransformField(scene, targets, field, value.value, axis);
+      const float start_value = value.value[axis];
+      const bool changed = ImGui::DragFloat("##Value", &value.value[axis], speed, 0.0f, 0.0f, "%.2f");
+      if (ImGui::IsItemActivated() && targets.size() > 1) {
+        TransformInspectorDragSession session;
+        session.scene = scene;
+        session.selection_revision = entity_selection_.GetRevision();
+        session.field = field;
+        session.axis = axis;
+        session.start_value = start_value;
+        session.targets = targets;
+        session.original_transforms.reserve(targets.size());
+        for (const auto target : targets) {
+          if (!scene->IsEntityValid(target) || !scene->HasDataComponent<Transform>(target)) {
+            session.original_transforms.clear();
+            break;
+          }
+          session.original_transforms.emplace_back(scene->GetDataComponent<Transform>(target));
+        }
+        transform_inspector_drag_session_ =
+            session.original_transforms.size() == targets.size() ? std::optional(std::move(session)) : std::nullopt;
+      }
+      const bool relative_drag =
+          targets.size() > 1 && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 0.0f) &&
+          transform_inspector_drag_session_ && transform_inspector_drag_session_->scene.lock() == scene &&
+          transform_inspector_drag_session_->selection_revision == entity_selection_.GetRevision() &&
+          transform_inspector_drag_session_->field == field && transform_inspector_drag_session_->axis == axis &&
+          transform_inspector_drag_session_->targets == targets;
+      if (changed) {
+        if (relative_drag) {
+          const auto& session = *transform_inspector_drag_session_;
+          edited |= EntityBatchInspector::WriteRelativeLocalTransformField(
+              scene, targets, session.original_transforms, field, axis, session.start_value, value.value[axis]);
+        } else {
+          edited |= EntityBatchInspector::WriteLocalTransformField(scene, targets, field, value.value, axis);
+        }
+      }
+      if (ImGui::IsItemDeactivated())
+        transform_inspector_drag_session_.reset();
       if (value.mixed_axes[axis] && ImGui::IsItemHovered())
         ImGui::SetTooltip("Mixed value");
       if (value.mixed_axes[axis])

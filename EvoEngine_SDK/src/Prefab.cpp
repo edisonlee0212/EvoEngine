@@ -931,8 +931,8 @@ glm::vec2 ReadImportedTexCoord(const aiMesh* mesh, const int channel, const int 
   return tex_coord;
 }
 
-std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_coordinates,
-                               const int tangent_tex_coord) {
+std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_coordinates, const int tangent_tex_coord,
+                               const bool center_origin, glm::vec3& origin_offset) {
   VertexAttributes attributes;
   std::vector<Vertex> vertices;
   std::vector<unsigned> indices;
@@ -1005,9 +1005,23 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
   auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
                                                     ? ReadImportedMorphTargets(importer_mesh)
                                                     : std::pair<std::vector<MorphTarget>, std::vector<float>>{};
-  const auto morph_base_vertices = vertices;
+  auto morph_base_vertices = vertices;
   if (!morph_targets.empty()) {
     vertices = BuildMorphedVertices(vertices, morph_targets, {}, default_morph_weights);
+  }
+  origin_offset = glm::vec3(0.0f);
+  if (center_origin) {
+    glm::vec3 minimum(std::numeric_limits<float>::max());
+    glm::vec3 maximum(std::numeric_limits<float>::lowest());
+    for (const auto& vertex : vertices) {
+      minimum = glm::min(minimum, vertex.position);
+      maximum = glm::max(maximum, vertex.position);
+    }
+    origin_offset = (minimum + maximum) * 0.5f;
+    for (auto& vertex : vertices)
+      vertex.position -= origin_offset;
+    for (auto& vertex : morph_base_vertices)
+      vertex.position -= origin_offset;
   }
   // now walk through each of the mesh's _Faces (a face is a mesh its triangle) and retrieve the corresponding vertex
   // indices.
@@ -1368,7 +1382,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
                  std::unordered_map<Handle, std::vector<std::shared_ptr<Bone>>>& bones_lists,
                  std::unordered_map<std::string, std::shared_ptr<Bone>>& bones_map, const aiNode* importer_node,
                  const std::shared_ptr<AssimpImportNode>& assimp_node, const aiScene* importer_scene,
-                 const std::shared_ptr<Animation>& animation) -> bool {
+                 const std::shared_ptr<Animation>& animation, const PrefabModelImportOptions& options) -> bool {
   bool added_mesh_renderer = false;
   SetPrefabLocalTransform(model_node,
                           importer_node->mParent ? Mat4Cast(importer_node->mTransformation) : Transform().value);
@@ -1419,7 +1433,9 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     } else {
       auto mesh_renderer = Serialization::ProduceSerializable<MeshRenderer>();
       mesh_renderer->material.Set<Material>(material);
-      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh, restore_gltf_coordinates, tangent_tex_coord));
+      glm::vec3 origin_offset(0.0f);
+      mesh_renderer->mesh.Set<Mesh>(ReadMesh(importer_mesh, restore_gltf_coordinates, tangent_tex_coord,
+                                             options.center_mesh_renderer_origins, origin_offset));
       if (!mesh_renderer->mesh.Get())
         continue;
       added_mesh_renderer = true;
@@ -1427,14 +1443,19 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
       holder.enabled = true;
       holder.private_component = std::static_pointer_cast<IPrivateComponent>(mesh_renderer);
       child_node->private_components.push_back(holder);
+      auto transform = std::make_shared<Transform>();
+      transform->SetPosition(origin_offset);
+      DataComponentHolder transform_holder;
+      transform_holder.data_component_type = Typeof<Transform>();
+      transform_holder.data_component = transform;
+      child_node->data_components.push_back(transform_holder);
     }
-    auto transform = std::make_shared<Transform>();
-    transform->value = Transform().value;
-
-    DataComponentHolder holder;
-    holder.data_component_type = Typeof<Transform>();
-    holder.data_component = transform;
-    child_node->data_components.push_back(holder);
+    if (is_skinned_mesh) {
+      DataComponentHolder transform_holder;
+      transform_holder.data_component_type = Typeof<Transform>();
+      transform_holder.data_component = std::make_shared<Transform>();
+      child_node->data_components.push_back(transform_holder);
+    }
 
     model_node->child_prefabs.push_back(std::move(child_node));
   }
@@ -1447,7 +1468,7 @@ auto ProcessNode(const std::string& directory, Prefab* model_node,
     const bool child_add =
         ProcessNode(directory, child_node.get(), loaded_materials, texture_2ds_loaded, opacity_maps, gltf_material_data,
                     restore_gltf_coordinates, imported_lights, bones_lists, bones_map, importer_node->mChildren[i],
-                    child_assimp_node, importer_scene, animation);
+                    child_assimp_node, importer_scene, animation, options);
     if (child_add) {
       model_node->child_prefabs.push_back(std::move(child_node));
     }
@@ -1487,7 +1508,8 @@ void LogPrefabImportPhaseDuration(const std::filesystem::path& path, const std::
                     path.filename().string())
 }
 
-bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene) {
+bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiScene& scene,
+                                    const PrefabModelImportOptions& options) {
   auto temp = path;
   const std::string directory = temp.remove_filename().string();
   instance_name = path.filename().string();
@@ -1507,7 +1529,7 @@ bool Prefab::LoadModelSceneInternal(const std::filesystem::path& path, const aiS
   const auto imported_lights = BuildImportedLightMap(scene);
   if (!ProcessNode(directory, this, loaded_materials, loaded_textures, opacity_maps, gltf_material_data,
                    restore_gltf_coordinates, imported_lights, bones_lists, bones_map, scene.mRootNode, root_assimp_node,
-                   &scene, animation)) {
+                   &scene, animation, options)) {
     EVOENGINE_ERROR("Model is empty!")
     return false;
   }
@@ -1824,7 +1846,8 @@ void Prefab::SetPrefabEnabled(const bool value) {
   enabled_ = value;
 }
 
-bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags) {
+bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize, unsigned int flags,
+                               const PrefabModelImportOptions& options) {
   flags = flags | aiProcess_Triangulate;
   const auto extension = LowercaseExtension(path);
   if (extension == ".gltf" || extension == ".glb") {
@@ -1842,7 +1865,7 @@ bool Prefab::LoadModelInternal(const std::filesystem::path& path, bool optimize,
     EVOENGINE_ERROR("Assimp: " + std::string(importer.GetErrorString()))
     return false;
   }
-  return LoadModelSceneInternal(path, *scene);
+  return LoadModelSceneInternal(path, *scene, options);
 }
 
 #pragma endregion
@@ -2281,6 +2304,11 @@ void Prefab::RelinkChildren(const std::shared_ptr<Scene>& scene, const Entity& p
 
 void Prefab::LoadModel(const std::filesystem::path& path, const bool optimize, const unsigned flags) {
   LoadModelInternal(ProjectManager::GetAssetsFolderPath() / path, optimize, flags);
+}
+
+void Prefab::LoadModel(const std::filesystem::path& path, const PrefabModelImportOptions& options, const bool optimize,
+                       const unsigned flags) {
+  LoadModelInternal(ProjectManager::GetAssetsFolderPath() / path, optimize, flags, options);
 }
 
 void Prefab::GatherAssets() {

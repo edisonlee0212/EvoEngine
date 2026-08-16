@@ -289,6 +289,42 @@ bool EntityBatchInspector::WriteLocalTransformField(const std::shared_ptr<Scene>
   return true;
 }
 
+bool EntityBatchInspector::WriteRelativeLocalTransformField(const std::shared_ptr<Scene>& scene,
+                                                            const std::vector<Entity>& targets,
+                                                            const std::vector<Transform>& original_transforms,
+                                                            const int field, const int axis, const float start_value,
+                                                            const float current_value) {
+  if (!scene || targets.empty() || targets.size() != original_transforms.size() || axis < 0 || axis >= 3 || field < 0 ||
+      field > 2 || !std::isfinite(start_value) || !std::isfinite(current_value))
+    return false;
+  std::vector<Transform> values;
+  values.reserve(targets.size());
+  const float delta = current_value - start_value;
+  const float scale_ratio = std::abs(start_value) > 1.0e-6f ? current_value / start_value : 0.0f;
+  for (size_t i = 0; i < targets.size(); ++i) {
+    if (!scene->IsEntityValid(targets[i]) || !scene->HasDataComponent<Transform>(targets[i]))
+      return false;
+    auto transform = original_transforms[i];
+    glm::vec3 position, rotation, scale;
+    if (!transform.Decompose(position, rotation, scale))
+      return false;
+    rotation = glm::degrees(rotation);
+    if (field == 0)
+      position[axis] += delta;
+    else if (field == 1)
+      rotation[axis] += delta;
+    else if (std::abs(start_value) > 1.0e-6f)
+      scale[axis] *= scale_ratio;
+    else
+      scale[axis] += delta;
+    transform.SetValue(position, glm::radians(rotation), scale);
+    values.emplace_back(transform);
+  }
+  for (size_t i = 0; i < targets.size(); ++i)
+    scene->SetDataComponent(targets[i], values[i]);
+  return true;
+}
+
 bool EntityBatchInspector::TryApplyGizmoTransform(const glm::mat4& initial_handle, const glm::mat4& manipulated_handle,
                                                   const glm::mat4& participant_world,
                                                   const EntityBatchGizmoOperation operation,

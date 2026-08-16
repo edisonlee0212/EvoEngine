@@ -68,6 +68,9 @@ class EntityBatchInspector final {
                                                                   const std::vector<Entity>& targets);
   static bool WriteLocalTransformField(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets,
                                        int field, const glm::vec3& value, int axis = -1);
+  static bool WriteRelativeLocalTransformField(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets,
+                                               const std::vector<Transform>& original_transforms, int field, int axis,
+                                               float start_value, float current_value);
   [[nodiscard]] static bool TryApplyGizmoTransform(const glm::mat4& initial_handle, const glm::mat4& manipulated_handle,
                                                    const glm::mat4& participant_world,
                                                    EntityBatchGizmoOperation operation,

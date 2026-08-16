@@ -458,10 +458,8 @@ TEST(GltfMaterialConversion, PrefabImportsAndPreservesDefaultMorphTargets) {
   ASSERT_EQ(mesh->GetDefaultMorphWeights().size(), 2);
   EXPECT_FLOAT_EQ(mesh->GetDefaultMorphWeights()[0], 0.5f);
   EXPECT_FLOAT_EQ(mesh->GetDefaultMorphWeights()[1], 0.5f);
-  EXPECT_TRUE(std::any_of(mesh->PeekVertices().begin(), mesh->PeekVertices().end(), [](const Vertex& vertex) {
-    return glm::distance(vertex.position, glm::vec3(0.5f, 1.5f, 0.0f)) < kEpsilon;
-  }));
-  EXPECT_NEAR(mesh->GetBound().max.y, 1.5f, kEpsilon);
+  EXPECT_NEAR(mesh->GetBound().min.y, -0.75f, kEpsilon);
+  EXPECT_NEAR(mesh->GetBound().max.y, 0.75f, kEpsilon);
 
   const auto asymmetric = mesh->BuildMorphedVertices({1.0f, 0.0f});
   ASSERT_EQ(asymmetric.size(), mesh->PeekVertices().size());

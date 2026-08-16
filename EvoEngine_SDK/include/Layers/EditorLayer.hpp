@@ -1148,6 +1148,17 @@ class EditorLayer : public ILayer {
   std::optional<EntityGizmoSession> entity_gizmo_session_;
   std::string entity_gizmo_message_;
 
+  struct TransformInspectorDragSession {
+    std::weak_ptr<Scene> scene;
+    uint64_t selection_revision = 0;
+    int field = 0;
+    int axis = 0;
+    float start_value = 0.0f;
+    std::vector<Entity> targets;
+    std::vector<Transform> original_transforms;
+  };
+  std::optional<TransformInspectorDragSession> transform_inspector_drag_session_;
+
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */
   bool entity_explorer_window_focused_ = false;

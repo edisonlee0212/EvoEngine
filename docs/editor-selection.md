@@ -51,8 +51,10 @@ utility G-buffer. Supporting those cases requires a separate selected-geometry m
 
 The Inspector edits the exact selected entities; descendants covered only by highlighting are not Inspector targets.
 Enabled/static state and local Transform fields support mixed values. Entity renaming remains available from the entity
-context menu rather than the Inspector. Transform fields are absolute local values, and editing one axis preserves the
-other axes of each entity.
+context menu rather than the Inspector. With multiple targets, dragging a Transform axis applies a relative change from
+the drag-start values: Translation and Rotation use additive deltas, while Scale uses a ratio (or an additive fallback
+when the representative scale starts at zero). Directly typing a value remains absolute. Every edit preserves untouched
+axes.
 
 Single and multiple selection use the same component layout. The Data Components and Private Components sections and every
 common component use the same full-width, default-open collapsing-header style. Their bodies do not add nested tree
@@ -69,9 +71,9 @@ the header is expanded. With one target, the normal component inspector is prefe
 then a batch inspector may accept the one-element target set as a fallback. With multiple targets, only explicit batch
 inspectors are used; unsupported common components remain visible with `Multi-object editing not supported`. Transform has
 one batch inspector for every selection count. Its Hazel-style Translation, Rotation, and Scale rows use colored X/Y/Z
-reset buttons and compact numeric fields. Axis resets write zero for Translation/Rotation and one for Scale. Numeric edits
-and resets remain absolute local per-axis writes for every exact target. `GlobalTransform` and `TransformUpdateFlag` are
-internal and hidden.
+reset buttons and compact numeric fields. Axis resets write zero for Translation/Rotation and one for Scale. Resets and
+typed numeric values remain absolute local per-axis writes for every exact target; mouse drags use the relative behavior
+described above. `GlobalTransform` and `TransformUpdateFlag` are internal and hidden.
 
 Only component types common to every exact target are expanded for multiple selection. A notice reports non-common types
 that are hidden. Common private-component enabled state can be changed for all targets.
@@ -118,6 +120,14 @@ the editor camera's smooth transition. The framing distance accounts for the cur
 shortcut is ignored while typing or dragging an entity gizmo, does not depend on Selection Lock, and has no effect on the
 Main Camera viewport. Its target and interpolated rotations are rebuilt against world Y, matching regular Scene-camera
 controls and preventing roll throughout the focus transition.
+
+## Imported model origins
+
+`PrefabModelImportOptions::center_mesh_renderer_origins` is enabled by default for model imports. For each static
+`MeshRenderer`, import moves the generated renderer entity to the mesh AABB center and offsets its vertex positions by the
+inverse amount. The composed world-space geometry therefore remains unchanged while object rotation and scaling use a
+geometry-centered authored origin. Skinned meshes retain their imported vertices and bind poses. API callers can disable
+the option to reproduce the legacy origin layout; existing saved prefabs change only when reimported.
 
 A drag snapshots selection, hierarchy, parents, transforms, modes, and play state once, then evaluates each frame from that
 snapshot while preserving ImGuizmo's live manipulated handle between frames. Translation applies one common world delta.

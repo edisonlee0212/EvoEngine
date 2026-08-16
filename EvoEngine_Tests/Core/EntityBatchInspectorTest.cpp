@@ -8,6 +8,7 @@
 #include "EntityBatchInspector.hpp"
 #include "MeshRenderer.hpp"
 #include "Particles.hpp"
+#include "Prefab.hpp"
 #include "Scene.hpp"
 #include "TransformGraph.hpp"
 #include "gtest/gtest.h"
@@ -89,6 +90,123 @@ TEST(EntityBatchInspector, IntersectsComponentsAndPatchesOnlyEditedTransformAxis
   EXPECT_TRUE(EntityBatchInspector::WriteLocalTransformField(context.scene, batch.targets, 2, {1.0f, 1.0f, 1.0f}, 1));
   EXPECT_EQ(context.scene->GetDataComponent<Transform>(first).GetScale(), glm::vec3(1.0f, 1.0f, 3.0f));
   EXPECT_EQ(context.scene->GetDataComponent<Transform>(second).GetScale(), glm::vec3(4.0f, 1.0f, 6.0f));
+}
+
+TEST(EntityBatchInspector, AppliesRelativeTransformDragFromCapturedValues) {
+  BatchInspectorTestContext context;
+  const auto first = context.scene->CreateEntity("First");
+  const auto second = context.scene->CreateEntity("Second");
+  Transform first_transform;
+  first_transform.SetValue({1.0f, 2.0f, 3.0f}, glm::radians(glm::vec3(10.0f, 0.0f, 0.0f)), {2.0f, 1.0f, 1.0f});
+  Transform second_transform;
+  second_transform.SetValue({4.0f, 5.0f, 6.0f}, glm::radians(glm::vec3(30.0f, 0.0f, 0.0f)), {4.0f, 1.0f, 1.0f});
+  context.scene->SetDataComponent(first, first_transform);
+  context.scene->SetDataComponent(second, second_transform);
+  const std::vector<Entity> targets{first, second};
+  const std::vector<Transform> originals{first_transform, second_transform};
+
+  ASSERT_TRUE(
+      EntityBatchInspector::WriteRelativeLocalTransformField(context.scene, targets, originals, 0, 0, 1.0f, 3.5f));
+  EXPECT_EQ(context.scene->GetDataComponent<Transform>(first).GetPosition(), glm::vec3(3.5f, 2.0f, 3.0f));
+  EXPECT_EQ(context.scene->GetDataComponent<Transform>(second).GetPosition(), glm::vec3(6.5f, 5.0f, 6.0f));
+
+  ASSERT_TRUE(
+      EntityBatchInspector::WriteRelativeLocalTransformField(context.scene, targets, originals, 1, 0, 10.0f, 25.0f));
+  EXPECT_NEAR(glm::degrees(context.scene->GetDataComponent<Transform>(first).GetEulerRotation()).x, 25.0f, 1.0e-4f);
+  EXPECT_NEAR(glm::degrees(context.scene->GetDataComponent<Transform>(second).GetEulerRotation()).x, 45.0f, 1.0e-4f);
+
+  ASSERT_TRUE(
+      EntityBatchInspector::WriteRelativeLocalTransformField(context.scene, targets, originals, 2, 0, 2.0f, 3.0f));
+  const auto first_scale = context.scene->GetDataComponent<Transform>(first).GetScale();
+  const auto second_scale = context.scene->GetDataComponent<Transform>(second).GetScale();
+  EXPECT_NEAR(glm::distance(first_scale, glm::vec3(3.0f, 1.0f, 1.0f)), 0.0f, 1.0e-5f);
+  EXPECT_NEAR(glm::distance(second_scale, glm::vec3(6.0f, 1.0f, 1.0f)), 0.0f, 1.0e-5f);
+}
+
+TEST(EntityBatchInspector, UsesAdditiveScaleDragWhenRepresentativeStartsAtZero) {
+  BatchInspectorTestContext context;
+  const auto first = context.scene->CreateEntity("First");
+  const auto second = context.scene->CreateEntity("Second");
+  Transform first_transform;
+  first_transform.SetScale({1.0e-7f, 1.0f, 1.0f});
+  Transform second_transform;
+  second_transform.SetScale({2.0f, 1.0f, 1.0f});
+  context.scene->SetDataComponent(first, first_transform);
+  context.scene->SetDataComponent(second, second_transform);
+
+  ASSERT_TRUE(EntityBatchInspector::WriteRelativeLocalTransformField(
+      context.scene, {first, second}, {first_transform, second_transform}, 2, 0, 1.0e-7f, 0.5f));
+  EXPECT_NEAR(context.scene->GetDataComponent<Transform>(first).GetScale().x, 0.5000001f, 1.0e-5f);
+  EXPECT_EQ(context.scene->GetDataComponent<Transform>(second).GetScale(), glm::vec3(2.5f, 1.0f, 1.0f));
+}
+
+namespace {
+struct ModelImportTestPrefab : Prefab {
+  using Prefab::LoadModelInternal;
+};
+
+std::shared_ptr<Prefab> FindStaticMeshRendererPrefab(const std::shared_ptr<Prefab>& prefab) {
+  if (prefab->GetPrivateComponent<MeshRenderer>())
+    return prefab;
+  for (const auto& child : prefab->child_prefabs) {
+    if (const auto result = FindStaticMeshRendererPrefab(child))
+      return result;
+  }
+  return {};
+}
+}  // namespace
+
+TEST(PrefabModelImport, CentersStaticMeshRendererOriginsByDefaultAndCanPreserveLegacyOrigin) {
+  BatchInspectorTestContext context;
+  const auto path = std::filesystem::temp_directory_path() / "evoengine_offset_mesh_origin_test.obj";
+  {
+    std::ofstream file(path);
+    file << "o Offset\n"
+            "v 10 0 0\n"
+            "v 12 0 0\n"
+            "v 10 2 0\n"
+            "f 1 2 3\n";
+  }
+
+  ModelImportTestPrefab centered;
+  ASSERT_TRUE(centered.LoadModelInternal(path));
+  const auto centered_child = FindStaticMeshRendererPrefab(std::shared_ptr<Prefab>(&centered, [](Prefab*) {
+  }));
+  ASSERT_TRUE(centered_child);
+  const auto centered_renderer = centered_child->GetPrivateComponent<MeshRenderer>();
+  ASSERT_TRUE(centered_renderer);
+  const auto centered_mesh = centered_renderer->mesh.Get<Mesh>();
+  ASSERT_TRUE(centered_mesh);
+  ASSERT_FALSE(centered_child->data_components.empty());
+  const auto centered_transform =
+      std::static_pointer_cast<Transform>(centered_child->data_components.front().data_component);
+  ASSERT_TRUE(centered_transform);
+  EXPECT_EQ(centered_transform->GetPosition(), glm::vec3(11.0f, 1.0f, 0.0f));
+  EXPECT_EQ((centered_mesh->GetBound().min + centered_mesh->GetBound().max) * 0.5f, glm::vec3(0.0f));
+
+  ModelImportTestPrefab legacy;
+  PrefabModelImportOptions options;
+  options.center_mesh_renderer_origins = false;
+  ASSERT_TRUE(legacy.LoadModelInternal(
+      path, false, aiProcess_Triangulate | aiProcess_CalcTangentSpace | aiProcess_GenSmoothNormals, options));
+  const auto legacy_child = FindStaticMeshRendererPrefab(std::shared_ptr<Prefab>(&legacy, [](Prefab*) {
+  }));
+  ASSERT_TRUE(legacy_child);
+  const auto legacy_renderer = legacy_child->GetPrivateComponent<MeshRenderer>();
+  ASSERT_TRUE(legacy_renderer);
+  const auto legacy_mesh = legacy_renderer->mesh.Get<Mesh>();
+  ASSERT_TRUE(legacy_mesh);
+  const auto legacy_transform =
+      std::static_pointer_cast<Transform>(legacy_child->data_components.front().data_component);
+  ASSERT_TRUE(legacy_transform);
+  EXPECT_EQ(legacy_transform->GetPosition(), glm::vec3(0.0f));
+  EXPECT_EQ((legacy_mesh->GetBound().min + legacy_mesh->GetBound().max) * 0.5f, glm::vec3(11.0f, 1.0f, 0.0f));
+  ASSERT_EQ(centered_mesh->PeekVertices().size(), legacy_mesh->PeekVertices().size());
+  for (size_t i = 0; i < centered_mesh->PeekVertices().size(); ++i) {
+    EXPECT_EQ(centered_mesh->PeekVertices()[i].position + centered_transform->GetPosition(),
+              legacy_mesh->PeekVertices()[i].position);
+  }
+  std::filesystem::remove(path);
 }
 
 TEST(EntityBatchInspector, ResolvesSingleAndBatchInspectorDispatchWithoutRepeatingSingleInspectors) {
