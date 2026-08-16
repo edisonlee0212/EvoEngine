@@ -373,6 +373,12 @@ TEST(EntityBatchInspector, EditorUiUsesCanonicalTransformInspectorAndGizmoSettin
   EXPECT_EQ(attribution.find("Editor/Generic/Gear.png"), std::string::npos);
 }
 
+TEST(EntityBatchInspector, GizmoHandleUsesSharedSelectionBoundForBothPivotModes) {
+  const auto source = ReadBatchInspectorSource("EvoEngine_SDK/src/EditorLayer.cpp");
+  EXPECT_NE(source.find("BuildSelectionWorldBound(scene, participants)"), std::string::npos);
+  EXPECT_EQ(source.find("std::vector<Entity>{reference}"), std::string::npos);
+}
+
 TEST(EntityBatchInspector, GizmoParticipantsExcludeSelectedDescendantsAndResolveReferenceAncestor) {
   BatchInspectorTestContext context;
   const auto parent = context.scene->CreateEntity("Parent");
@@ -462,9 +468,21 @@ TEST(EntityBatchInspector, GizmoMathUsesTheImmutableHandleAndHonorsPivotModes) {
   EXPECT_NEAR(candidate[3].y, 2.0f, 0.0001f);
 
   ASSERT_TRUE(EntityBatchInspector::TryApplyGizmoTransform(
+      initial_handle, rotated_handle, participant, EntityBatchGizmoOperation::Rotate, EntityBatchGizmoPivot::Pivot,
+      EntityBatchGizmoOrientation::Global, candidate));
+  EXPECT_NEAR(candidate[3].x, 3.0f, 0.0001f);
+  EXPECT_NEAR(candidate[3].y, 0.0f, 0.0001f);
+
+  ASSERT_TRUE(EntityBatchInspector::TryApplyGizmoTransform(
       initial_handle, glm::scale(initial_handle, glm::vec3(2.0f)), participant, EntityBatchGizmoOperation::Scale,
       EntityBatchGizmoPivot::Pivot, EntityBatchGizmoOrientation::Local, candidate));
   EXPECT_NEAR(candidate[3].x, 3.0f, 0.0001f);
+  EXPECT_NEAR(candidate[0][0], 2.0f, 0.0001f);
+
+  ASSERT_TRUE(EntityBatchInspector::TryApplyGizmoTransform(
+      initial_handle, glm::scale(initial_handle, glm::vec3(2.0f)), participant, EntityBatchGizmoOperation::Scale,
+      EntityBatchGizmoPivot::Center, EntityBatchGizmoOrientation::Local, candidate));
+  EXPECT_NEAR(candidate[3].x, 5.0f, 0.0001f);
   EXPECT_NEAR(candidate[0][0], 2.0f, 0.0001f);
 }
 

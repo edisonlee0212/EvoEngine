@@ -1597,6 +1597,7 @@ void EditorLayer::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "local_rotation_selected" << YAML::Value << local_rotation_selected_;
   out << YAML::Key << "local_scale_selected" << YAML::Value << local_scale_selected_;
   out << YAML::Key << "entity_gizmo_pivot_mode" << YAML::Value << static_cast<int>(entity_gizmo_pivot_mode_);
+  out << YAML::Key << "entity_gizmo_center_default_migrated" << YAML::Value << true;
   out << YAML::Key << "entity_gizmo_orientation_mode" << YAML::Value
       << static_cast<int>(entity_gizmo_orientation_mode_);
 
@@ -1699,7 +1700,12 @@ void EditorLayer::DeserializeLayout(const YAML::Node& in) {
     SelectLocalTransformGizmoOperation(LocalTransformGizmoOperation::Select);
   int entity_gizmo_pivot_mode = static_cast<int>(entity_gizmo_pivot_mode_);
   int entity_gizmo_orientation_mode = static_cast<int>(entity_gizmo_orientation_mode_);
-  ReadYamlValue(in, "entity_gizmo_pivot_mode", entity_gizmo_pivot_mode);
+  bool entity_gizmo_center_default_migrated = false;
+  ReadYamlValue(in, "entity_gizmo_center_default_migrated", entity_gizmo_center_default_migrated);
+  if (entity_gizmo_center_default_migrated)
+    ReadYamlValue(in, "entity_gizmo_pivot_mode", entity_gizmo_pivot_mode);
+  else
+    entity_gizmo_pivot_mode = static_cast<int>(EntityGizmoPivotMode::Center);
   ReadYamlValue(in, "entity_gizmo_orientation_mode", entity_gizmo_orientation_mode);
   entity_gizmo_pivot_mode_ = entity_gizmo_pivot_mode == 1 ? EntityGizmoPivotMode::Center : EntityGizmoPivotMode::Pivot;
   entity_gizmo_orientation_mode_ =
@@ -4962,9 +4968,7 @@ void EditorLayer::SceneCameraWindow() {
             glm::vec3 reference_position(0.0f), reference_scale(1.0f);
             glm::quat reference_rotation(1.0f, 0.0f, 0.0f, 0.0f);
             reference_transform.Decompose(reference_position, reference_rotation, reference_scale);
-            const auto pivot_bound = EntityBatchInspector::BuildSelectionWorldBound(
-                scene, entity_gizmo_pivot_mode_ == EntityGizmoPivotMode::Center ? participants
-                                                                                : std::vector<Entity>{reference});
+            const auto pivot_bound = EntityBatchInspector::BuildSelectionWorldBound(scene, participants);
             const glm::vec3 pivot = pivot_bound.valid ? pivot_bound.world_bound.Center() : reference_position;
             const auto basis = entity_gizmo_orientation_mode_ == EntityGizmoOrientationMode::Local
                                    ? glm::mat4_cast(reference_rotation)

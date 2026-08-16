@@ -932,6 +932,32 @@ velocity: 3.5
   EXPECT_TRUE(editor_layer.DefaultEditorLayoutPending());
 }
 
+TEST(EditorLayer, CenterPivotDefaultMigratesOnceAndPreservesExplicitPivot) {
+  const auto serialize = [](const EditorLayer& editor_layer) {
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    editor_layer.Serialize(out);
+    out << YAML::EndMap;
+    return YAML::Load(out.c_str());
+  };
+
+  EditorLayer default_layout;
+  auto serialized = serialize(default_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 1);
+  EXPECT_TRUE(serialized["entity_gizmo_center_default_migrated"].as<bool>());
+
+  EditorLayer legacy_pivot_layout;
+  legacy_pivot_layout.DeserializeLayout(YAML::Load("{entity_gizmo_pivot_mode: 0}"));
+  serialized = serialize(legacy_pivot_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 1);
+
+  EditorLayer migrated_pivot_layout;
+  migrated_pivot_layout.DeserializeLayout(
+      YAML::Load("{entity_gizmo_pivot_mode: 0, entity_gizmo_center_default_migrated: true}"));
+  serialized = serialize(migrated_pivot_layout);
+  EXPECT_EQ(serialized["entity_gizmo_pivot_mode"].as<int>(), 0);
+}
+
 TEST(EditorLayer, DeserializesEditorCameraControlsAndSceneCameraPose) {
   EditorLayer editor_layer;
   RegisterDefaultEditorSceneCamera(editor_layer);

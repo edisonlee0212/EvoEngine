@@ -105,10 +105,11 @@ selected ancestor supplies the handle; the exact primary used by APIs does not c
 enabled mesh, skinned-mesh, particle, and strand renderer bounds in each participant subtree. Meshless selections fall back
 to participant world positions.
 
-Pivot mode places the handle at the reference participant's renderable-bounds center while preserving individual authored
-origins for rotation and scale. Center mode uses the shared renderable-bounds center and rotates/scales the selection around
-that point. Local uses the reference orientation for the displayed handle; Global uses world axes. Pivot+Local remains the
-default, and both mode preferences are stored in editor layout rather than scene data.
+For multiple selections, Pivot and Center modes both place the handle at the shared renderable-bounds center. Pivot mode
+preserves individual authored origins for rotation and scale, while Center mode rotates and scales the selection around that
+point. A single selection uses its renderable-bounds center. Local uses the reference orientation for the displayed handle;
+Global uses world axes. Center+Local is the default, and both mode preferences are stored in editor layout rather than scene
+data. Existing layouts migrate to Center once, after which an explicit Pivot choice is preserved.
 Focus, gizmo visibility, Pivot/Center, and Local/Global preferences are edited on the `Entity Inspector` tab of the
 EditorLayer inspection window. Editor-camera input mappings are edited on its dedicated `Key Bindings` tab. Bindings display
 readable keyboard and mouse-button names; click a binding and press the replacement input, or press Escape to cancel capture.

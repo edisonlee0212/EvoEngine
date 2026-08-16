@@ -1122,7 +1122,7 @@ class EditorLayer : public ILayer {
   bool local_position_selected_ = true;    /**< Indicates if the local position is selected. */
   bool local_rotation_selected_ = false;   /**< Indicates if the local rotation is selected. */
   bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */
-  EntityGizmoPivotMode entity_gizmo_pivot_mode_ = EntityGizmoPivotMode::Pivot;
+  EntityGizmoPivotMode entity_gizmo_pivot_mode_ = EntityGizmoPivotMode::Center;
   EntityGizmoOrientationMode entity_gizmo_orientation_mode_ = EntityGizmoOrientationMode::Local;
 
   struct EntityGizmoParticipantState {
@@ -1137,7 +1137,7 @@ class EditorLayer : public ILayer {
     uint64_t selection_revision = 0;
     int application_status = 0;
     int operation = 0;
-    EntityGizmoPivotMode pivot_mode = EntityGizmoPivotMode::Pivot;
+    EntityGizmoPivotMode pivot_mode = EntityGizmoPivotMode::Center;
     EntityGizmoOrientationMode orientation_mode = EntityGizmoOrientationMode::Local;
     glm::mat4 handle{1.0f};
     glm::mat4 manipulated_handle{1.0f};

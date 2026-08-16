@@ -259,6 +259,7 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(bistro_source.find("scene_camera->camera_settings.background_intensity = 1.0f"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("ConfigureBistroReferenceToneMapping(scene_camera)"), std::string::npos);
   EXPECT_EQ(bistro_source.find("camera_settings.sample_size"), std::string::npos);
+  EXPECT_EQ(bistro_source.find("enable_gizmos = false"), std::string::npos);
 
   const auto scene_source =
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "Scene.cpp");

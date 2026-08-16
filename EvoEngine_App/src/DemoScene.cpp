@@ -6623,7 +6623,6 @@ void evo_engine::ConfigureBistroDemoScene(const std::shared_ptr<Scene>& scene) {
     scene->GetOrSetPrivateComponent<PlayerController>(main_camera_entity);
   }
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-    editor_layer->enable_gizmos = false;
     editor_layer->show_scene_info = true;
     editor_layer->SetSelectedEntity({});
     editor_layer->SetSceneCameraPosition(camera_frame.position);
