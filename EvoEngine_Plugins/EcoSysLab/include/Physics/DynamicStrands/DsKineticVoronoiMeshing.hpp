@@ -69,6 +69,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool debug_svg = false;
     /// When true, export meshlets/combined OBJ after meshing for debugging.
     bool debug_export_meshes = false;
+    /// When true, debug/failed OBJ dumps emit one object per interior/boundary contributor.
+    bool export_separate_contributor_objects = true;
     /// When true, store JSON vertex/face metadata on meshlets (@ref TreeMesher::Settings::store_mesh_metadata).
     bool store_mesh_metadata = false;
     /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through knots).
@@ -200,6 +202,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
   bool HasValidIntersectionBoundaryChildEntity() const;
+  void SyncIntersectionBoundaryChildLifetime();
   bool EnsureIntersectionBoundaryChildEntity();
   void UpdateIntersectionBoundaryChildPreview();
   void RemoveIntersectionBoundaryChildEntity();

@@ -883,11 +883,27 @@ bool DsKineticVoronoiMeshing::HasValidIntersectionBoundaryChildEntity() const {
   return scene && scene->IsEntityValid(intersection_boundary_entity_);
 }
 
+void DsKineticVoronoiMeshing::SyncIntersectionBoundaryChildLifetime() {
+  const auto scene = intersection_boundary_scene_.lock();
+  if (!scene) {
+    return;
+  }
+  // Hierarchy delete invalidates the stored handle. Unload the boundary like the initial state.
+  if (intersection_boundary_entity_.GetIndex() != 0 && !scene->IsEntityValid(intersection_boundary_entity_)) {
+    intersection_boundary_entity_ = Entity{};
+    intersection_boundary_preview_mesh_.reset();
+    intersection_boundary_preview_material_.reset();
+    intersection_boundary_mesh_ = kinDS::VoronoiMesh();
+    intersection_boundary_mesh_path_.clear();
+  }
+}
+
 bool DsKineticVoronoiMeshing::EnsureIntersectionBoundaryChildEntity() {
   const auto scene = intersection_boundary_scene_.lock();
   if (!scene || !scene->IsEntityValid(intersection_boundary_owner_)) {
     return false;
   }
+  SyncIntersectionBoundaryChildLifetime();
   if (HasValidIntersectionBoundaryChildEntity()) {
     return true;
   }
@@ -1011,6 +1027,8 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
   tree_mesher_->getSettings().fix_missing_meshes = meshing_settings.intersection_boundary_fix_missing_meshes;
   tree_mesher_->getSettings().keep_original_on_intersection_failure =
       meshing_settings.intersection_keep_original_on_failure;
+  tree_mesher_->getSettings().export_separate_contributor_objects =
+      meshing_settings.export_separate_contributor_objects;
   EVOENGINE_LOG("Intersecting meshlets with boundary (" << boundary_mesh.getTriangleCount() << " triangles)...");
   tree_mesher_->truncateToBoundary(boundary_mesh);
   tree_mesher_->getSettings().fix_missing_meshes = previous_fix_missing_meshes;
@@ -1166,6 +1184,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   tree_mesher_->getSettings().transform_mesh_at_construction = true;
   tree_mesher_->getSettings().mesh_cap_at_start = true;
   tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
+  tree_mesher_->getSettings().export_separate_contributor_objects =
+      meshing_settings.export_separate_contributor_objects;
 
   auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
 
@@ -1811,6 +1831,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  SyncIntersectionBoundaryChildLifetime();
   ImGui::Checkbox("Dry run (strand tree only)", &meshing_settings.dry_run_strand_tree_only);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Prepare the strand tree during initialization but skip the meshing algorithm.");
@@ -1822,6 +1843,12 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   ImGui::Checkbox("Debug export meshes", &meshing_settings.debug_export_meshes);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("After meshing, export per-segment meshlets and a combined OBJ for debugging.");
+  }
+  ImGui::Checkbox("Separate interior/boundary OBJ objects", &meshing_settings.export_separate_contributor_objects);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, debug and failed-meshlet OBJs contain one object (o) per interior/boundary contributor "
+        "(iN / bN). Disable to write a single object per file.");
   }
   ImGui::Checkbox("Store mesh metadata", &meshing_settings.store_mesh_metadata);
   if (ImGui::IsItemHovered()) {
@@ -1843,6 +1870,12 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           intersection_boundary_mesh_ = kinDS::ObjExporter::readMesh(path);
           intersection_boundary_mesh_path_ = path;
           UpdateIntersectionBoundaryChildPreview();
+          if (const auto scene = intersection_boundary_scene_.lock()) {
+            if (scene->IsEntityValid(intersection_boundary_entity_) &&
+                !scene->IsEntityEnabled(intersection_boundary_entity_)) {
+              scene->SetEnable(intersection_boundary_entity_, true);
+            }
+          }
           EVOENGINE_LOG("Loaded intersection boundary mesh from " << path.string() << " ("
                                                                    << intersection_boundary_mesh_.getVertexCount()
                                                                    << " vertices, "
@@ -2000,6 +2033,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle
                                                                           std::shared_ptr<Scene> scene, Entity& owner) {
   intersection_boundary_scene_ = scene;
   intersection_boundary_owner_ = owner;
+  SyncIntersectionBoundaryChildLifetime();
   if (intersection_boundary_mesh_.getTriangleCount() > 0) {
     UpdateIntersectionBoundaryChildPreview();
   } else if (HasValidIntersectionBoundaryChildEntity()) {
