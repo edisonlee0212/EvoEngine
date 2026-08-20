@@ -266,7 +266,8 @@ class DynamicStrands {
     float dmin_external = 1e30;
     float user_bound = 1e30;
     float root_distance = 0.f;
-    int padding2 = 0;
+    /// Non-zero: owning segment is ignored by the solver (layout-preserving; was padding).
+    int disabled = 0;
   };
 
   struct GpuSegment {

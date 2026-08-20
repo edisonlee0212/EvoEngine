@@ -28,11 +28,21 @@ class PlyExporter {
 
 class ObjExporter {
  public:
+  struct MeshGroup {
+    std::string name;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> vertices;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> triangles;
+  };
+
   static void ExportObj(const std::filesystem::path& path,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
                         const std::vector<DynamicStrands::GpuSegment>& segments, double uv_height_factor = 1.0,
                         double uv_circum_factor = 1.0, float fracture_distance = 0.0);
+
+  static void ExportObjCombined(const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
+                                double uv_height_factor = 1.0, double uv_circum_factor = 1.0,
+                                float fracture_distance = 0.0);
 
  private:
   static void WriteMtl(const std::filesystem::path& mtl_path);
@@ -41,6 +51,10 @@ class ObjExporter {
                        const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                        const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
                        double uv_height_factor, double uv_circum_factor, float fracture_distance);
+
+  static void WriteObjCombined(const std::filesystem::path& obj_path, const std::filesystem::path& mtl_path,
+                               const std::vector<MeshGroup>& groups, double uv_height_factor, double uv_circum_factor,
+                               float fracture_distance);
   static void WriteJson(const std::filesystem::path& json_path,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                         const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,

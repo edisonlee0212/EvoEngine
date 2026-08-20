@@ -4,14 +4,8 @@
 #include "Transform.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
-#include <filesystem>
-
 namespace kinDS {
 class StrandTree;
-}
-namespace evo_engine {
-class Mesh;
-class Material;
 }
 namespace eco_sys_lab_plugin {
 using namespace evo_engine;
@@ -81,6 +75,10 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool intersection_boundary_fix_missing_meshes = false;
     /// When true, failed intersections keep the uncut meshlet; when false, replace with an empty mesh.
     bool intersection_keep_original_on_failure = true;
+    /// Seam vertices on clip-boundary faces receive segment-meshlet UVs (editor intersection).
+    bool intersection_prefer_meshlet_uv_on_seam = true;
+    /// Clip-boundary-origin faces use interior (a,b,h) UVs; bark polar distance is treated as r=1.
+    bool intersection_boundary_faces_interior_uv = true;
   };
 
   static RenderSettings render_settings;
@@ -147,14 +145,6 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::shared_ptr<Buffer> device_segment_meshlet_vertices_buffer;
   std::shared_ptr<Buffer> device_segment_meshlet_triangles_buffer;
 
-  // kinDS::VoronoiMesh transformed_boundary_mesh;
-  kinDS::VoronoiMesh intersection_boundary_mesh_;
-  std::filesystem::path intersection_boundary_mesh_path_;
-  std::weak_ptr<Scene> intersection_boundary_scene_;
-  Entity intersection_boundary_owner_{};
-  Entity intersection_boundary_entity_{};
-  std::shared_ptr<Mesh> intersection_boundary_preview_mesh_;
-  std::shared_ptr<Material> intersection_boundary_preview_material_;
   std::vector<float> boundary_distances_by_vertex;
   std::shared_ptr<kinDS::StrandTree> strand_tree;
   std::shared_ptr<kinDS::TreeMesher> tree_mesher_;
@@ -164,6 +154,14 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::vector<std::vector<int>> meshing_neighbor_indices_;
   /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
   GlobalTransform meshlets_root_transform_{};
+
+  struct DeactivatedPairIntegrity {
+    int pair_handle = -1;
+    float connectivity_integrity = 1.f;
+    float bend_twist_bundle_integrity = 1.f;
+  };
+  std::vector<int> deactivated_physics_segment_indices_;
+  std::vector<DeactivatedPairIntegrity> deactivated_pair_integrities_;
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
@@ -201,16 +199,19 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   //     const std::vector<size_t>& boundary_vertex_to_strand_id);
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
-  bool HasValidIntersectionBoundaryChildEntity() const;
-  void SyncIntersectionBoundaryChildLifetime();
-  bool EnsureIntersectionBoundaryChildEntity();
-  void UpdateIntersectionBoundaryChildPreview();
-  void RemoveIntersectionBoundaryChildEntity();
   bool HasMeshedSegmentMeshlets() const;
-  kinDS::VoronoiMesh BuildIntersectionBoundaryMeshForClipping() const;
-  bool IntersectMeshletsWithBoundary();
+  /// Clip meshlets against @p raw_mesh placed at @p boundary_world_transform and rebuild GPU buffers.
+  /// @p tree_world_transform is the current world transform of the DynamicTreeStrands entity; used to
+  /// convert the boundary from world space into tree-local space (where the raw meshlets live).
+  bool IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
+                                     const GlobalTransform& boundary_world_transform,
+                                     const GlobalTransform& tree_world_transform);
   /// Reload pristine (pre-intersection) meshlets into GPU buffers.
   bool ResetMeshletsToGpu();
+  void DownloadPhysicsSegmentsAndPairs();
+  void UploadPhysicsSegmentsAndPairs();
+  void RestoreDeactivatedPhysicsSegments();
+  void DeactivateOutsidePhysicsSegments(const std::vector<size_t>& outside_meshing_indices);
   void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,

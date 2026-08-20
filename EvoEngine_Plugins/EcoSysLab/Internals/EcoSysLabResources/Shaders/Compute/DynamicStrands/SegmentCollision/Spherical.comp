@@ -37,6 +37,8 @@ void main() {
     SegmentData segment_data = segment_data_list[segment_handle];
 
     Segment segment = segments[segment_handle];
+    if (segment.particle0.disabled != 0)
+      continue;
     float ground_damping = segment.ground_damping;
     float quasi_damping = segment.quasi_damping;
     if (segment.reach_ground == 1) {
@@ -89,6 +91,10 @@ void main() {
           while (begin < end) {
             uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
             Segment neighbor_segment = segments[neighbor_segment_handle];
+            if (neighbor_segment.particle0.disabled != 0) {
+              begin++;
+              continue;
+            }
             if (neighbor_segment.group_index != group_index) {
               Particle neighbor_particle0 = neighbor_segment.particle0;
               Particle neighbor_particle1 = neighbor_segment.particle1;

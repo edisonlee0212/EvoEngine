@@ -99,6 +99,19 @@ void ObjExporter::ExportObj(const std::filesystem::path& obj_path,
   WriteJson(json_path, vertices, triangles, segments, uv_height_factor);
 }
 
+void ObjExporter::ExportObjCombined(const std::filesystem::path& obj_path, const std::vector<MeshGroup>& groups,
+                                    double uv_height_factor, double uv_circum_factor, float fracture_distance) {
+  if (groups.empty()) {
+    throw std::runtime_error("ExportObjCombined: no mesh groups to export");
+  }
+
+  std::filesystem::path mtl_path = obj_path;
+  mtl_path.replace_extension(".mtl");
+
+  WriteMtl(mtl_path);
+  WriteObjCombined(obj_path, mtl_path, groups, uv_height_factor, uv_circum_factor, fracture_distance);
+}
+
 void ObjExporter::WriteMtl(const std::filesystem::path& mtl_path) {
   std::ofstream file(mtl_path);
   if (!file.is_open()) {
@@ -204,6 +217,100 @@ void ObjExporter::WriteObj(const std::filesystem::path& obj_path, const std::fil
            << (3 * i + j + index_offset);
     }
     file << "\n";
+  }
+
+  file.close();
+}
+
+void ObjExporter::WriteObjCombined(const std::filesystem::path& obj_path, const std::filesystem::path& mtl_path,
+                                   const std::vector<MeshGroup>& groups, double uv_height_factor,
+                                   double uv_circum_factor, float fracture_distance) {
+  std::ofstream file(obj_path);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open OBJ file");
+  }
+
+  file << "# Exported from EcoSysLab\n";
+  file << "mtllib " << mtl_path.filename() << "\n\n";
+
+  const int index_offset = 1;
+
+  file << "# Vertices\n";
+  for (const auto& group : groups) {
+    for (const auto& v : group.vertices) {
+      const glm::vec3& p = v.x - fracture_distance * v.shift;
+      file << "v  " << p.x << " " << p.y << " " << p.z << "\n";
+    }
+  }
+
+  file << "# Texture coordinates and normals\n";
+  size_t global_triangle_index = 0;
+  for (const auto& group : groups) {
+    for (const auto& t : group.triangles) {
+      std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+      for (int i = 0; i < 3; ++i) {
+        const glm::vec3& n = t.normal[i];
+        glm::vec4 uv = t.uv[i];
+
+        if (t.neighbor_segment_index == -2) {
+          uv.x *= uv_circum_factor;
+          uv.y *= uv_height_factor;
+        } else {
+          uv.z *= uv_height_factor;
+        }
+
+        file << "vt " << uv.x << " " << uv.y << " " << uv.z << "\n";
+        file << "vn " << (-n.x) << " " << n.y << " " << n.z << "\n";
+      }
+      ++global_triangle_index;
+    }
+  }
+  (void)global_triangle_index;
+
+  file << "# Faces grouped by object and material\n";
+  size_t vertex_offset = 0;
+  size_t triangle_offset = 0;
+  for (const auto& group : groups) {
+    file << "o " << group.name << "\n";
+
+    std::vector<size_t> bark_triangle_indices;
+    std::vector<size_t> interior_triangle_indices;
+    for (size_t i = 0; i < group.triangles.size(); ++i) {
+      if (group.triangles[i].neighbor_segment_index == -2) {
+        bark_triangle_indices.push_back(i);
+      } else {
+        interior_triangle_indices.push_back(i);
+      }
+    }
+
+    file << "usemtl bark\n";
+    for (size_t i : bark_triangle_indices) {
+      const auto& t = group.triangles[i];
+      std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+      const size_t global_tri = triangle_offset + i;
+      file << "f";
+      for (size_t j = 0; j < 3; ++j) {
+        file << " " << (v_idx[j] + vertex_offset + index_offset) << "/"
+             << (3 * global_tri + j + index_offset) << "/" << (3 * global_tri + j + index_offset);
+      }
+      file << "\n";
+    }
+
+    file << "usemtl interior\n";
+    for (size_t i : interior_triangle_indices) {
+      const auto& t = group.triangles[i];
+      std::array<unsigned int, 3> v_idx = {t.vertex_index0, t.vertex_index1, t.vertex_index2};
+      const size_t global_tri = triangle_offset + i;
+      file << "f";
+      for (size_t j = 0; j < 3; ++j) {
+        file << " " << (v_idx[j] + vertex_offset + index_offset) << "/"
+             << (3 * global_tri + j + index_offset) << "/" << (3 * global_tri + j + index_offset);
+      }
+      file << "\n";
+    }
+
+    vertex_offset += group.vertices.size();
+    triangle_offset += group.triangles.size();
   }
 
   file.close();

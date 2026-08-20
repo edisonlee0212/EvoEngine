@@ -36,6 +36,11 @@ void main() {
     if (segment_index >= segment_size)
       break;
 
+    if (segments[segment_index].particle0.disabled != 0) {
+      segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);
+      continue;
+    }
+
     segments[segment_index].q = normalize(segment_data_list[segment_index].q_correction + segments[segment_index].q);
 
     segment_data_list[segment_index].q_correction = vec4(0, 0, 0, 0);

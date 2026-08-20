@@ -531,6 +531,13 @@ void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_step, in f
 }
 
 void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_step) {
+  if (segments[segment_handle].particle0.disabled != 0) {
+    segment_data_list[segment_handle].particle0_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
+    segment_data_list[segment_handle].particle1_position_correction.xyz = vec3(0.0f, 0.0f, 0.0f);
+    segment_data_list[segment_handle].q_correction = vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    return;
+  }
+
   vec3 x0_correction, x1_correction;
   vec4 q_correction;
 

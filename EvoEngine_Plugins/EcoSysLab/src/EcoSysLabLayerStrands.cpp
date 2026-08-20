@@ -7,6 +7,8 @@
 #include "BasicBarkDescriptor.hpp"
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DsOperators.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -21,6 +23,8 @@ PrivateComponentRegistration<DsBoxCollider> ds_box_collider_registry("DsBoxColli
 PrivateComponentRegistration<DsSphereCollider> ds_sphere_collider_registry("DsSphereCollider");
 PrivateComponentRegistration<DsCylinderCollider> ds_cylinder_collider_registry("DsCylinderCollider");
 PrivateComponentRegistration<DynamicTreeStrands> dynamic_tree_strands_registry("DynamicTreeStrands");
+PrivateComponentRegistration<DsIntersectionBoundaryMesh> ds_intersection_boundary_mesh_registry("DsIntersectionBoundaryMesh");
+PrivateComponentRegistration<DsIntersectionBoundaryMeshGroup> ds_intersection_boundary_mesh_group_registry("DsIntersectionBoundaryMeshGroup");
 
 void EcoSysLabLayer::GenerateStrandModelProfiles() const {
   const auto scene = GetScene();

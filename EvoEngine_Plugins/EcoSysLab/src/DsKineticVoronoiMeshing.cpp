@@ -1,4 +1,7 @@
 #include "DsKineticVoronoiMeshing.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
+#include "DynamicTreeStrands.hpp"
 #include <algorithm>
 #include <cmath>
 #include <glm/glm.hpp>
@@ -6,6 +9,7 @@
 #include <glm/gtx/norm.hpp>            // for length2()
 #include <optional>
 #include <queue>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 #include "BufferExporter.hpp"
@@ -878,137 +882,20 @@ glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group
 //   return {};
 // }
 
-bool DsKineticVoronoiMeshing::HasValidIntersectionBoundaryChildEntity() const {
-  const auto scene = intersection_boundary_scene_.lock();
-  return scene && scene->IsEntityValid(intersection_boundary_entity_);
-}
-
-void DsKineticVoronoiMeshing::SyncIntersectionBoundaryChildLifetime() {
-  const auto scene = intersection_boundary_scene_.lock();
-  if (!scene) {
-    return;
-  }
-  // Hierarchy delete invalidates the stored handle. Unload the boundary like the initial state.
-  if (intersection_boundary_entity_.GetIndex() != 0 && !scene->IsEntityValid(intersection_boundary_entity_)) {
-    intersection_boundary_entity_ = Entity{};
-    intersection_boundary_preview_mesh_.reset();
-    intersection_boundary_preview_material_.reset();
-    intersection_boundary_mesh_ = kinDS::VoronoiMesh();
-    intersection_boundary_mesh_path_.clear();
-  }
-}
-
-bool DsKineticVoronoiMeshing::EnsureIntersectionBoundaryChildEntity() {
-  const auto scene = intersection_boundary_scene_.lock();
-  if (!scene || !scene->IsEntityValid(intersection_boundary_owner_)) {
-    return false;
-  }
-  SyncIntersectionBoundaryChildLifetime();
-  if (HasValidIntersectionBoundaryChildEntity()) {
-    return true;
-  }
-
-  intersection_boundary_entity_ = scene->CreateEntity("Intersection Boundary Mesh");
-  scene->SetParent(intersection_boundary_entity_, intersection_boundary_owner_);
-
-  const auto owner_global = scene->GetDataComponent<GlobalTransform>(intersection_boundary_owner_);
-  GlobalTransform child_global{};
-  child_global.value =
-      meshing_settings.intersection_boundary_apply_inverse_root_transform ? glm::mat4(1.0f) : owner_global.value;
-  scene->SetDataComponent(intersection_boundary_entity_, child_global);
-  return true;
-}
-
-void DsKineticVoronoiMeshing::UpdateIntersectionBoundaryChildPreview() {
-  const auto scene = intersection_boundary_scene_.lock();
-  if (!EnsureIntersectionBoundaryChildEntity()) {
-    return;
-  }
-  if (!scene) {
-    return;
-  }
-
-  std::vector<Vertex> vertices;
-  std::vector<unsigned> indices;
-  vertices.reserve(intersection_boundary_mesh_.getTriangleCount() * 3);
-  indices.reserve(intersection_boundary_mesh_.getTriangleCount() * 3);
-
-  // Expand to unique corners with non-degenerate UVs so Mesh can recalculate
-  // normals/tangents. Zero UVs make RecalculateTangent produce NaNs, which
-  // breaks StandardDeferred shading (same MeshRenderer path as colliders).
-  static constexpr glm::vec2 kCornerUvs[3] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
-  const auto& mesh_vertices = intersection_boundary_mesh_.getVertices();
-  const auto& triangles = intersection_boundary_mesh_.getTriangles();
-  for (size_t triangle_index = 0; triangle_index < intersection_boundary_mesh_.getTriangleCount(); ++triangle_index) {
-    for (size_t corner = 0; corner < 3; ++corner) {
-      const size_t source_vertex_index = triangles[triangle_index * 3 + corner];
-      Vertex vertex{};
-      vertex.position = ToVec3(mesh_vertices[source_vertex_index]);
-      vertex.tex_coord = kCornerUvs[corner];
-      vertices.push_back(vertex);
-      indices.push_back(static_cast<unsigned>(indices.size()));
-    }
-  }
-
-  if (!intersection_boundary_preview_mesh_) {
-    intersection_boundary_preview_mesh_ = AssetManager::CreateTemporaryAsset<Mesh>();
-  }
-  VertexAttributes attributes{};
-  attributes.tex_coord = true;
-  intersection_boundary_preview_mesh_->SetVertices(attributes, vertices, indices);
-
-  if (!intersection_boundary_preview_material_) {
-    intersection_boundary_preview_material_ = AssetManager::CreateTemporaryAsset<Material>();
-    intersection_boundary_preview_material_->material_properties.albedo_color = glm::vec3(0.25f, 0.7f, 1.0f);
-    intersection_boundary_preview_material_->material_properties.roughness = 0.5f;
-    intersection_boundary_preview_material_->material_properties.metallic = 0.0f;
-  }
-
-  const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(intersection_boundary_entity_).lock();
-  mesh_renderer->mesh = intersection_boundary_preview_mesh_;
-  mesh_renderer->material = intersection_boundary_preview_material_;
-}
-
-void DsKineticVoronoiMeshing::RemoveIntersectionBoundaryChildEntity() {
-  const auto scene = intersection_boundary_scene_.lock();
-  if (scene && scene->IsEntityValid(intersection_boundary_entity_)) {
-    scene->DeleteEntity(intersection_boundary_entity_);
-  }
-  intersection_boundary_entity_ = Entity{};
-  intersection_boundary_preview_mesh_.reset();
-  intersection_boundary_preview_material_.reset();
-}
-
-kinDS::VoronoiMesh DsKineticVoronoiMeshing::BuildIntersectionBoundaryMeshForClipping() const {
-  kinDS::VoronoiMesh boundary_mesh = intersection_boundary_mesh_;
-  const auto scene = intersection_boundary_scene_.lock();
-  if (!HasValidIntersectionBoundaryChildEntity() || !scene) {
-    // Fall back to mapping the OBJ by the inverse of the meshlet GPU root transform only.
-    boundary_mesh.applyTransform(glm::inverse(glm::dmat4(meshlets_root_transform_.value)));
-    return boundary_mesh;
-  }
-
-  // Meshlets live in tree-local space; GPU upload applies meshlets_root_transform_.
-  // Map the intersection entity from world into that same tree-local frame:
-  //   inverse(root) * child_global * obj_local
-  const auto child_global = scene->GetDataComponent<GlobalTransform>(intersection_boundary_entity_);
-  const glm::dmat4 clip_transform =
-      glm::inverse(glm::dmat4(meshlets_root_transform_.value)) * glm::dmat4(child_global.value);
-  boundary_mesh.applyTransform(clip_transform);
-  return boundary_mesh;
-}
 
 bool DsKineticVoronoiMeshing::HasMeshedSegmentMeshlets() const {
   return tree_mesher_ && !segment_meshlets_.empty();
 }
 
-bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
+bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
+                                                             const GlobalTransform& boundary_world_transform,
+                                                             const GlobalTransform& tree_world_transform) {
   if (!HasMeshedSegmentMeshlets()) {
     EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
     return false;
   }
-  if (intersection_boundary_mesh_.getTriangleCount() == 0) {
-    EVOENGINE_ERROR("Intersect: no intersection boundary mesh loaded.");
+  if (raw_mesh.getTriangleCount() == 0) {
+    EVOENGINE_ERROR("Intersect: intersection boundary mesh is empty.");
     return false;
   }
   if (!strand_tree) {
@@ -1016,7 +903,13 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
     return false;
   }
 
-  kinDS::VoronoiMesh boundary_mesh = BuildIntersectionBoundaryMeshForClipping();
+  // Meshlets live in tree-local space (the kinDS algorithm produces geometry relative to the tree
+  // origin, before any world transform is applied). The boundary entity's GlobalTransform is in world
+  // space. Convert the boundary into tree-local space using the tree entity's *current* world transform.
+  kinDS::VoronoiMesh boundary_mesh = raw_mesh;
+  const glm::dmat4 clip_transform =
+      glm::inverse(glm::dmat4(tree_world_transform.value)) * glm::dmat4(boundary_world_transform.value);
+  boundary_mesh.applyTransform(clip_transform);
 
   // Restore pristine meshlets so Intersect can be re-run after moving the boundary.
   tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
@@ -1024,15 +917,23 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
 
   const bool previous_fix_missing_meshes = tree_mesher_->getSettings().fix_missing_meshes;
   const bool previous_keep_original_on_failure = tree_mesher_->getSettings().keep_original_on_intersection_failure;
+  const bool previous_prefer_meshlet_uv_on_seam = tree_mesher_->getSettings().intersection_prefer_meshlet_uv_on_seam;
+  const bool previous_boundary_faces_interior_uv = tree_mesher_->getSettings().intersection_boundary_faces_interior_uv;
   tree_mesher_->getSettings().fix_missing_meshes = meshing_settings.intersection_boundary_fix_missing_meshes;
   tree_mesher_->getSettings().keep_original_on_intersection_failure =
       meshing_settings.intersection_keep_original_on_failure;
+  tree_mesher_->getSettings().intersection_prefer_meshlet_uv_on_seam =
+      meshing_settings.intersection_prefer_meshlet_uv_on_seam;
+  tree_mesher_->getSettings().intersection_boundary_faces_interior_uv =
+      meshing_settings.intersection_boundary_faces_interior_uv;
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
   EVOENGINE_LOG("Intersecting meshlets with boundary (" << boundary_mesh.getTriangleCount() << " triangles)...");
-  tree_mesher_->truncateToBoundary(boundary_mesh);
+  const std::vector<size_t> outside_meshing_indices = tree_mesher_->truncateToBoundary(boundary_mesh);
   tree_mesher_->getSettings().fix_missing_meshes = previous_fix_missing_meshes;
   tree_mesher_->getSettings().keep_original_on_intersection_failure = previous_keep_original_on_failure;
+  tree_mesher_->getSettings().intersection_prefer_meshlet_uv_on_seam = previous_prefer_meshlet_uv_on_seam;
+  tree_mesher_->getSettings().intersection_boundary_faces_interior_uv = previous_boundary_faces_interior_uv;
 
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
@@ -1040,18 +941,17 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary() {
                             tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
                             tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
+  DownloadPhysicsSegmentsAndPairs();
+  RestoreDeactivatedPhysicsSegments();
+  DeactivateOutsidePhysicsSegments(outside_meshing_indices);
+  UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
   EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated (" << segment_meshlet_vertices.size()
                                                                        << " vertices, "
                                                                        << segment_meshlet_triangles.size()
-                                                                       << " triangles).");
-
-  // Hide the boundary preview in the scene (same as Hierarchy → Disable).
-  if (const auto scene = intersection_boundary_scene_.lock()) {
-    if (scene->IsEntityValid(intersection_boundary_entity_)) {
-      scene->SetEnable(intersection_boundary_entity_, false);
-    }
-  }
+                                                                       << " triangles). Deactivated "
+                                                                       << deactivated_physics_segment_indices_.size()
+                                                                       << " OUTSIDE physics segment(s).");
   return true;
 }
 
@@ -1074,10 +974,115 @@ bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
                             tree_mesher_->getMeshingStrandToSegmentIndices(), meshing_neighbor_indices_,
                             tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
+  DownloadPhysicsSegmentsAndPairs();
+  RestoreDeactivatedPhysicsSegments();
+  UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
   EVOENGINE_LOG("Reset meshlets to GPU (no intersection). " << segment_meshlet_vertices.size() << " vertices, "
                                                             << segment_meshlet_triangles.size() << " triangles.");
   return true;
+}
+
+void DsKineticVoronoiMeshing::DownloadPhysicsSegmentsAndPairs() {
+  if (!dynamic_strands) {
+    return;
+  }
+  if (!dynamic_strands->segments.empty()) {
+    dynamic_strands->device_segments_buffer->DownloadVector(dynamic_strands->segments,
+                                                            dynamic_strands->segments.size());
+  }
+  if (!dynamic_strands->segment_pairs.empty()) {
+    dynamic_strands->device_segment_pairs_buffer->DownloadVector(dynamic_strands->segment_pairs,
+                                                                dynamic_strands->segment_pairs.size());
+  }
+}
+
+void DsKineticVoronoiMeshing::UploadPhysicsSegmentsAndPairs() {
+  if (!dynamic_strands) {
+    return;
+  }
+  dynamic_strands->device_segments_buffer->UploadVector(dynamic_strands->segments);
+  dynamic_strands->device_segments_buffer->SetDebugName("Segments Buffer");
+  dynamic_strands->device_segment_pairs_buffer->UploadVector(dynamic_strands->segment_pairs);
+  dynamic_strands->device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
+}
+
+void DsKineticVoronoiMeshing::RestoreDeactivatedPhysicsSegments() {
+  if (!dynamic_strands) {
+    deactivated_physics_segment_indices_.clear();
+    deactivated_pair_integrities_.clear();
+    return;
+  }
+  auto& segments = dynamic_strands->segments;
+  for (const int segment_index : deactivated_physics_segment_indices_) {
+    if (segment_index < 0 || static_cast<size_t>(segment_index) >= segments.size()) {
+      continue;
+    }
+    segments[segment_index].particle0.disabled = 0;
+    segments[segment_index].particle1.disabled = 0;
+  }
+  auto& segment_pairs = dynamic_strands->segment_pairs;
+  for (const auto& saved : deactivated_pair_integrities_) {
+    if (saved.pair_handle < 0 || static_cast<size_t>(saved.pair_handle) >= segment_pairs.size()) {
+      continue;
+    }
+    auto& pair = segment_pairs[saved.pair_handle];
+    pair.connectivity_integrity = saved.connectivity_integrity;
+    pair.bend_twist_bundle_integrity = saved.bend_twist_bundle_integrity;
+  }
+  deactivated_physics_segment_indices_.clear();
+  deactivated_pair_integrities_.clear();
+}
+
+void DsKineticVoronoiMeshing::DeactivateOutsidePhysicsSegments(
+    const std::vector<size_t>& outside_meshing_indices) {
+  deactivated_physics_segment_indices_.clear();
+  deactivated_pair_integrities_.clear();
+  if (!dynamic_strands || !tree_mesher_ || outside_meshing_indices.empty()) {
+    return;
+  }
+
+  const auto& meshing_to_physics = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+  auto& segments = dynamic_strands->segments;
+  auto& segment_pairs = dynamic_strands->segment_pairs;
+  const auto& segment_data_list = dynamic_strands->segment_data_list;
+
+  std::unordered_set<int> seen_pairs;
+  seen_pairs.reserve(outside_meshing_indices.size() * 4);
+
+  for (const size_t meshing_index : outside_meshing_indices) {
+    if (meshing_index >= meshing_to_physics.size()) {
+      continue;
+    }
+    const size_t physics_id = meshing_to_physics[meshing_index];
+    if (physics_id == static_cast<size_t>(-1) || physics_id >= segments.size()) {
+      continue;
+    }
+    const int physics_segment_id = static_cast<int>(physics_id);
+    segments[physics_id].particle0.disabled = 1;
+    segments[physics_id].particle1.disabled = 1;
+    deactivated_physics_segment_indices_.push_back(physics_segment_id);
+
+    if (physics_id >= segment_data_list.size()) {
+      continue;
+    }
+    for (const int pair_handle : segment_data_list[physics_id].pair_handles) {
+      if (pair_handle < 0 || static_cast<size_t>(pair_handle) >= segment_pairs.size()) {
+        continue;
+      }
+      if (!seen_pairs.insert(pair_handle).second) {
+        continue;
+      }
+      auto& pair = segment_pairs[pair_handle];
+      DeactivatedPairIntegrity saved;
+      saved.pair_handle = pair_handle;
+      saved.connectivity_integrity = pair.connectivity_integrity;
+      saved.bend_twist_bundle_integrity = pair.bend_twist_bundle_integrity;
+      deactivated_pair_integrities_.push_back(saved);
+      pair.connectivity_integrity = 0.f;
+      pair.bend_twist_bundle_integrity = 0.f;
+    }
+  }
 }
 
 void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
@@ -1343,7 +1348,6 @@ DsKineticVoronoiMeshing::DsKineticVoronoiMeshing() {
 }
 
 DsKineticVoronoiMeshing::~DsKineticVoronoiMeshing() {
-  RemoveIntersectionBoundaryChildEntity();
   tree_mesher_.reset();
 }
 
@@ -1820,6 +1824,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   meshing_neighbor_indices_.clear();
   tree_mesher_.reset();
   meshlets_root_transform_ = {};
+  deactivated_physics_segment_indices_.clear();
+  deactivated_pair_integrities_.clear();
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
@@ -1831,7 +1837,6 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
 }
 
 bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
-  SyncIntersectionBoundaryChildLifetime();
   ImGui::Checkbox("Dry run (strand tree only)", &meshing_settings.dry_run_strand_tree_only);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Prepare the strand tree during initialization but skip the meshing algorithm.");
@@ -1863,59 +1868,193 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "knots).");
   }
 
+  // --- Helpers used by Add / Save / Load / Export all ---
+  // Returns the DynamicTreeStrands owner entity for this meshing instance.
+  const auto find_owner_entity = [&]() -> Entity {
+    const auto scene = Application::GetActiveScene();
+    if (!scene || !dynamic_strands) {
+      return Entity{};
+    }
+    const auto dts_owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+    if (!dts_owners) {
+      return Entity{};
+    }
+    for (const auto& e : *dts_owners) {
+      const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(e).lock();
+      if (dts && dts->dynamic_strands && dts->dynamic_strands->meshing.get() == this) {
+        return e;
+      }
+    }
+    return Entity{};
+  };
+
+  // Finds the group entity (has DsIntersectionBoundaryMeshGroup) under owner, or returns invalid Entity.
+  const auto find_group_entity = [](const std::shared_ptr<Scene>& scene, const Entity& owner) -> Entity {
+    if (!scene || !scene->IsEntityValid(owner)) {
+      return Entity{};
+    }
+    for (const auto& child : scene->GetChildren(owner)) {
+      if (scene->HasPrivateComponent<DsIntersectionBoundaryMeshGroup>(child)) {
+        return child;
+      }
+    }
+    return Entity{};
+  };
+
+  // Finds or creates the group entity under owner.
+  const auto ensure_group_entity = [&](const std::shared_ptr<Scene>& scene, const Entity& owner) -> Entity {
+    Entity group = find_group_entity(scene, owner);
+    if (scene->IsEntityValid(group)) {
+      return group;
+    }
+    group = scene->CreateEntity("Intersection Meshes");
+    scene->SetParent(group, owner);
+    GlobalTransform group_gt{};
+    group_gt.value = glm::mat4(1.0f);
+    scene->SetDataComponent(group, group_gt);
+    scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMeshGroup>(group);
+    return group;
+  };
+
+  // Open a file dialog; only create the child entity and load the mesh if the user picks a file.
   FileUtils::OpenFile(
-      "Load intersection boundary OBJ", "OBJ", {".obj"},
+      "Add Intersection Boundary Mesh", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
+        if (!dynamic_strands) {
+          return;
+        }
+        const auto scene = Application::GetActiveScene();
+        if (!scene) {
+          return;
+        }
+        const Entity owner = find_owner_entity();
+        if (!scene->IsEntityValid(owner)) {
+          return;
+        }
         try {
-          intersection_boundary_mesh_ = kinDS::ObjExporter::readMesh(path);
-          intersection_boundary_mesh_path_ = path;
-          UpdateIntersectionBoundaryChildPreview();
-          if (const auto scene = intersection_boundary_scene_.lock()) {
-            if (scene->IsEntityValid(intersection_boundary_entity_) &&
-                !scene->IsEntityEnabled(intersection_boundary_entity_)) {
-              scene->SetEnable(intersection_boundary_entity_, true);
-            }
+          kinDS::VoronoiMesh loaded_mesh = kinDS::ObjExporter::readMesh(path);
+          const Entity group = ensure_group_entity(scene, owner);
+          const auto child = scene->CreateEntity("Intersection Mesh (" + path.stem().string() + ")");
+          scene->SetParent(child, group);
+          GlobalTransform child_gt{};
+          child_gt.value = glm::mat4(1.0f);
+          scene->SetDataComponent(child, child_gt);
+          const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+          if (ibm) {
+            ibm->LoadMesh(std::move(loaded_mesh), path);
           }
-          EVOENGINE_LOG("Loaded intersection boundary mesh from " << path.string() << " ("
-                                                                   << intersection_boundary_mesh_.getVertexCount()
-                                                                   << " vertices, "
-                                                                   << intersection_boundary_mesh_.getTriangleCount()
-                                                                   << " triangles).");
-        } catch (const std::exception& exception) {
-          RemoveIntersectionBoundaryChildEntity();
-          intersection_boundary_mesh_ = kinDS::VoronoiMesh();
-          intersection_boundary_mesh_path_.clear();
-          EVOENGINE_ERROR("Failed to load intersection boundary OBJ: " << exception.what());
+          EVOENGINE_LOG("Added intersection boundary mesh from " << path.string() << ".");
+        } catch (const std::exception& ex) {
+          EVOENGINE_ERROR("Failed to load intersection boundary OBJ: " << ex.what());
         }
       },
       false);
-  if (intersection_boundary_mesh_.getTriangleCount() > 0) {
-    ImGui::SameLine();
-    if (ImGui::Button("Clear intersection boundary")) {
-      RemoveIntersectionBoundaryChildEntity();
-      intersection_boundary_mesh_ = kinDS::VoronoiMesh();
-      intersection_boundary_mesh_path_.clear();
-    }
-    ImGui::TextWrapped("Intersection boundary: %s", intersection_boundary_mesh_path_.string().c_str());
-    ImGui::Text("Triangles: %zu", intersection_boundary_mesh_.getTriangleCount());
-  }
-  const bool can_intersect =
-      intersection_boundary_mesh_.getTriangleCount() > 0 && HasMeshedSegmentMeshlets();
-  if (!can_intersect) {
-    ImGui::BeginDisabled();
-  }
-  if (ImGui::Button("Intersect")) {
-    IntersectMeshletsWithBoundary();
-  }
-  if (!can_intersect) {
-    ImGui::EndDisabled();
-  }
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+  if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Clip stored meshlets against the loaded/moved intersection boundary and rebuild GPU buffers. "
-        "Requires a loaded intersection mesh and a completed meshing run.");
+        "Open a file dialog to pick an OBJ, then create a child entity under the Intersection Meshes group. "
+        "Move/rotate the child and click Intersect in its inspector.");
   }
+
   ImGui::SameLine();
+  FileUtils::SaveFile(
+      "Save intersection setup", "YAML", {".yml"},
+      [&](const std::filesystem::path& save_path) {
+        const auto scene = Application::GetActiveScene();
+        const Entity owner = find_owner_entity();
+        if (!scene || !scene->IsEntityValid(owner)) {
+          EVOENGINE_ERROR("Save intersection setup: could not find owner entity.");
+          return;
+        }
+        const Entity group = find_group_entity(scene, owner);
+        YAML::Emitter out;
+        out << YAML::BeginMap;
+        if (scene->IsEntityValid(group)) {
+          const auto group_gt = scene->GetDataComponent<GlobalTransform>(group);
+          out << YAML::Key << "group_transform" << YAML::Value << group_gt.value;
+          out << YAML::Key << "intersection_meshes" << YAML::Value << YAML::BeginSeq;
+          for (const auto& child : scene->GetChildren(group)) {
+            if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
+              continue;
+            }
+            const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+            if (!ibm || ibm->GetMesh().getTriangleCount() == 0) {
+              continue;
+            }
+            const auto gt = scene->GetDataComponent<GlobalTransform>(child);
+            out << YAML::BeginMap;
+            out << YAML::Key << "obj_path" << YAML::Value << ibm->GetPath().string();
+            out << YAML::Key << "transform" << YAML::Value << gt.value;
+            out << YAML::EndMap;
+          }
+          out << YAML::EndSeq;
+        } else {
+          out << YAML::Key << "intersection_meshes" << YAML::Value << YAML::BeginSeq << YAML::EndSeq;
+        }
+        out << YAML::EndMap;
+        std::ofstream ofs(save_path.string(), std::ofstream::out | std::ofstream::trunc);
+        ofs << out.c_str();
+        EVOENGINE_LOG("Saved intersection setup to " << save_path.string() << ".");
+      },
+      false);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Save the group transform and all boundary meshes to a YAML file.");
+  }
+
+  ImGui::SameLine();
+  FileUtils::OpenFile(
+      "Load intersection setup", "YAML", {".yml"},
+      [&](const std::filesystem::path& load_path) {
+        const auto scene = Application::GetActiveScene();
+        const Entity owner = find_owner_entity();
+        if (!scene || !scene->IsEntityValid(owner)) {
+          EVOENGINE_ERROR("Load intersection setup: could not find owner entity.");
+          return;
+        }
+        try {
+          const YAML::Node root = YAML::Load(FileUtils::LoadFileAsString(load_path));
+          if (!root["intersection_meshes"]) {
+            EVOENGINE_ERROR("Load intersection setup: no 'intersection_meshes' key in file.");
+            return;
+          }
+          const Entity group = ensure_group_entity(scene, owner);
+          // Restore group transform if present (optional for backward compatibility).
+          if (root["group_transform"]) {
+            GlobalTransform group_gt{};
+            group_gt.value = root["group_transform"].as<glm::mat4>();
+            scene->SetDataComponent(group, group_gt);
+          }
+          for (const auto& entry : root["intersection_meshes"]) {
+            if (!entry["obj_path"] || !entry["transform"]) {
+              continue;
+            }
+            const std::filesystem::path obj_path = entry["obj_path"].as<std::string>();
+            const glm::mat4 transform_value = entry["transform"].as<glm::mat4>();
+            try {
+              kinDS::VoronoiMesh loaded_mesh = kinDS::ObjExporter::readMesh(obj_path);
+              const auto child = scene->CreateEntity("Intersection Mesh (" + obj_path.stem().string() + ")");
+              scene->SetParent(child, group);
+              GlobalTransform child_gt{};
+              child_gt.value = transform_value;
+              scene->SetDataComponent(child, child_gt);
+              const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+              if (ibm) {
+                ibm->LoadMesh(std::move(loaded_mesh), obj_path);
+              }
+              EVOENGINE_LOG("Loaded intersection mesh: " << obj_path.string());
+            } catch (const std::exception& ex) {
+              EVOENGINE_ERROR("Failed to load OBJ '" << obj_path.string() << "': " << ex.what());
+            }
+          }
+          EVOENGINE_LOG("Loaded intersection setup from " << load_path.string() << ".");
+        } catch (const std::exception& ex) {
+          EVOENGINE_ERROR("Failed to parse intersection setup YAML: " << ex.what());
+        }
+      },
+      false);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("Load an intersection setup YAML, recreating all boundary mesh entities under the group.");
+  }
+
   const bool can_reset_meshlets = HasMeshedSegmentMeshlets();
   if (!can_reset_meshlets) {
     ImGui::BeginDisabled();
@@ -1931,6 +2070,74 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "Reload pristine meshlets (from the last meshing run) into GPU buffers without intersection. "
         "Requires a completed meshing run.");
   }
+
+  const bool can_intersect_all = HasMeshedSegmentMeshlets();
+  if (!can_intersect_all) {
+    ImGui::BeginDisabled();
+  }
+  FileUtils::OpenFolder(
+      "Intersect and export all",
+      [&](const std::filesystem::path& output_dir) {
+        const auto scene = Application::GetActiveScene();
+        const Entity owner = find_owner_entity();
+        if (!scene || !scene->IsEntityValid(owner)) {
+          EVOENGINE_ERROR("Intersect and export all: could not find owner entity.");
+          return;
+        }
+        const auto tree_gt = scene->GetDataComponent<GlobalTransform>(owner);
+        const Entity group = find_group_entity(scene, owner);
+        if (!scene->IsEntityValid(group)) {
+          EVOENGINE_ERROR("Intersect and export all: no intersection mesh group found.");
+          return;
+        }
+        std::vector<ObjExporter::MeshGroup> export_groups;
+        for (const auto& child : scene->GetChildren(group)) {
+          if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
+            continue;
+          }
+          const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+          if (!ibm || ibm->GetMesh().getTriangleCount() == 0) {
+            continue;
+          }
+          const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(child);
+          if (!IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt)) {
+            EVOENGINE_ERROR("Intersect and export all: intersection failed for entity "
+                            << child.GetIndex() << ".");
+            continue;
+          }
+          ObjExporter::MeshGroup mesh_group;
+          mesh_group.name = ibm->GetPath().stem().string();
+          if (mesh_group.name.empty()) {
+            mesh_group.name = "entity_" + std::to_string(child.GetIndex());
+          }
+          mesh_group.vertices = segment_meshlet_vertices;
+          mesh_group.triangles = segment_meshlet_triangles;
+          export_groups.push_back(std::move(mesh_group));
+        }
+        ResetMeshletsToGpu();
+        if (export_groups.empty()) {
+          EVOENGINE_ERROR("Intersect and export all: no intersection meshes exported.");
+          return;
+        }
+        const std::filesystem::path out_path = output_dir / "intersections.obj";
+        ObjExporter::ExportObjCombined(
+            out_path, export_groups, render_settings.segment_meshlet_render_parameters.uv_height_factor,
+            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+            render_settings.segment_meshlet_render_parameters.fracture_distance);
+        EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
+                                                            << out_path.string() << ".");
+      },
+      false);
+  if (!can_intersect_all) {
+    ImGui::EndDisabled();
+  }
+  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+    ImGui::SetTooltip(
+        "For each loaded intersection mesh, compute the intersection and export all results as a single OBJ "
+        "(one object per boundary mesh) to the chosen folder as intersections.obj. Uses shared bark and interior "
+        "materials. Restores pristine meshlets afterward. Requires a completed meshing run.");
+  }
+
   ImGui::Checkbox("Fix missing meshlets after intersection", &meshing_settings.intersection_boundary_fix_missing_meshes);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Attempt to repair empty meshlets after boundary intersection using neighbor triangles.");
@@ -1940,6 +2147,20 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "If intersection fails (e.g. non-manifold), keep the uncut meshlet. Disable to replace it with an empty mesh.");
+  }
+  ImGui::Checkbox("Prefer meshlet UVs on intersection seam",
+                  &meshing_settings.intersection_prefer_meshlet_uv_on_seam);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Vertices lying on the original meshlet surface receive segment-meshlet UVs at the clip seam, even on "
+        "boundary-origin faces.");
+  }
+  ImGui::Checkbox("Interior UVs on clip-boundary faces",
+                  &meshing_settings.intersection_boundary_faces_interior_uv);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Faces originating from the clip boundary use interior-style (a,b,h) UVs. Bark polar distance is treated as "
+        "r=1 when converting.");
   }
 
   FileUtils::SaveFile(
@@ -2031,14 +2252,6 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::RegisterRenderInstances(Handle& rendering_instance_handle,
                                                                           std::shared_ptr<Scene> scene, Entity& owner) {
-  intersection_boundary_scene_ = scene;
-  intersection_boundary_owner_ = owner;
-  SyncIntersectionBoundaryChildLifetime();
-  if (intersection_boundary_mesh_.getTriangleCount() > 0) {
-    UpdateIntersectionBoundaryChildPreview();
-  } else if (HasValidIntersectionBoundaryChildEntity()) {
-    RemoveIntersectionBoundaryChildEntity();
-  }
   RegisterSegmentMeshletsRenderInstance(rendering_instance_handle, scene, owner);
 }
 
