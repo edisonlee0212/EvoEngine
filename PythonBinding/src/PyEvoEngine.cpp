@@ -1,8 +1,11 @@
 #include "PyEvoEngine.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
+#include "Lights.hpp"
 #include "TextureStorage.hpp"
+#include "TransformGraph.hpp"
 #ifdef CUDA_MODULE_SERVICE
 #  include "RayTracerLayer.hpp"
 #endif
@@ -43,10 +46,15 @@ void EnsureRenderLayer() {
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
   }
 }
+
+bool IsCurrentSceneCaptureReady() {
+  return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
+         !TextureStorage::HasPendingUploads();
+}
 }  // namespace
 
 bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, const int samples_per_frame,
-                                                        const int bounces) {
+                                                         const int bounces) {
   if (samples_per_frame <= 0 || bounces < 0) {
     EVOENGINE_ERROR("Invalid capture camera sample or bounce settings.")
     return false;
@@ -81,6 +89,136 @@ bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& rende
   return true;
 }
 
+bool PyEvoEngine::ConfigureCurrentSceneOutdoorLightingForCapture(
+    const glm::vec3& sun_euler_degrees, const float sun_angular_diameter_radians, const float sun_intensity,
+    const glm::vec3& sun_color, const float sky_light_intensity, const float ambient_light_intensity,
+    const glm::vec3& background_color_linear, const float gamma) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!scene || !main_camera || !scene->IsEntityValid(main_camera->GetOwner())) {
+    EVOENGINE_ERROR("No valid active scene camera for outdoor capture lighting.")
+    return false;
+  }
+  if (sun_angular_diameter_radians < 0.0f || sun_intensity < 0.0f || sky_light_intensity < 0.0f ||
+      ambient_light_intensity < 0.0f || gamma <= 0.0f || glm::any(glm::lessThan(sun_color, glm::vec3(0.0f)))) {
+    EVOENGINE_ERROR("Invalid outdoor capture lighting parameter.")
+    return false;
+  }
+
+  auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting || !lighting->IsTemporary()) {
+    lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+    scene->environmental_lighting = lighting;
+  }
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault;
+  lighting->environment_lighting_intensity = sky_light_intensity;
+  lighting->diffuse_fallback_intensity = ambient_light_intensity;
+  lighting->specular_fallback_intensity = sky_light_intensity;
+
+  auto directional_light_entities = scene->GetPrivateComponentOwnersList<DirectionalLight>();
+  if (directional_light_entities.empty()) {
+    const auto light_entity = scene->CreateEntity("Capture Directional Light");
+    scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity);
+    directional_light_entities.emplace_back(light_entity);
+  }
+  const auto sun_rotation = glm::quat(glm::radians(sun_euler_degrees));
+  for (const auto& light_entity : directional_light_entities) {
+    const auto directional_light = scene->GetOrSetPrivateComponent<DirectionalLight>(light_entity).lock();
+    if (!directional_light) {
+      continue;
+    }
+    directional_light->cast_shadow = true;
+    directional_light->diffuse = sun_color;
+    directional_light->diffuse_brightness = sun_intensity;
+    directional_light->light_size = sun_angular_diameter_radians;
+    auto transform = scene->GetDataComponent<GlobalTransform>(light_entity);
+    transform.SetValue(transform.GetPosition(), sun_rotation, transform.GetScale());
+    scene->SetDataComponent(light_entity, transform);
+  }
+
+  main_camera->camera_settings.background_source = CameraSettings::BackgroundSource::ClearColor;
+  main_camera->camera_settings.clear_color = glm::vec4(glm::max(background_color_linear, glm::vec3(0.0f)), 1.0f);
+  main_camera->camera_settings.background_intensity = 1.0f;
+  main_camera->camera_settings.gamma = gamma;
+  main_camera->ResetFrameCount();
+  TransformGraph::CalculateTransformGraphs(scene, false);
+  return !directional_light_entities.empty();
+}
+
+bool PyEvoEngine::SetMainCameraLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up,
+                                      const float fov_degrees) {
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!main_camera || !scene->IsEntityValid(main_camera->GetOwner())) {
+    EVOENGINE_ERROR("No valid main camera in scene!")
+    return false;
+  }
+
+  const auto target_direction = target - position;
+  if (glm::length(target_direction) <= 1e-6f || glm::length(up) <= 1e-6f) {
+    EVOENGINE_ERROR("Invalid look-at camera direction or up vector.")
+    return false;
+  }
+
+  const auto front = glm::normalize(target_direction);
+  const auto normalized_up = glm::normalize(up);
+  const auto right = glm::cross(front, normalized_up);
+  if (glm::length(right) <= 1e-6f) {
+    EVOENGINE_ERROR("Look-at camera direction and up vector are parallel.")
+    return false;
+  }
+
+  auto transform = scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner());
+  const auto camera_up = glm::normalize(glm::cross(glm::normalize(right), front));
+  transform.SetValue(position, glm::quatLookAt(front, camera_up), glm::vec3(1.0f));
+  scene->SetDataComponent(main_camera->GetOwner(), transform);
+  main_camera->camera_settings.fov = glm::clamp(fov_degrees, 1.0f, 179.0f) * 2.0f;
+  main_camera->ResetFrameCount();
+  TransformGraph::CalculateTransformGraphs(scene, false);
+  return true;
+}
+
+bool PyEvoEngine::WaitForCurrentSceneReady(const int maximum_frames) {
+  if (maximum_frames <= 0) {
+    EVOENGINE_ERROR("Scene readiness maximum frame count must be positive.")
+    return false;
+  }
+  auto& application = ApplicationContext::Get();
+  int frame_count = 0;
+  while (!IsCurrentSceneCaptureReady() && frame_count < maximum_frames) {
+    if (!application.Loop()) {
+      EVOENGINE_ERROR("Application ended before the scene became ready for capture.")
+      return false;
+    }
+    ++frame_count;
+    if (frame_count % 25 == 0) {
+      const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+      EVOENGINE_LOG("Scene readiness progress: frames=" + std::to_string(frame_count) +
+                    ", project idle=" + std::to_string(ProjectManager::IsProjectIdle()) +
+                    ", geometry pending=" + std::to_string(GeometryStorage::HasPendingUploads()) +
+                    ", texture pending=" + std::to_string(TextureStorage::HasPendingUploads()) +
+                    ", asset queued=" + std::to_string(snapshot.queued) +
+                    ", asset loading CPU=" + std::to_string(snapshot.loading_cpu) +
+                    ", asset waiting finalize=" + std::to_string(snapshot.waiting_for_finalize) +
+                    ", asset GPU pending=" + std::to_string(snapshot.gpu_pending))
+    }
+  }
+  if (IsCurrentSceneCaptureReady()) {
+    EVOENGINE_LOG("Scene ready for capture after " + std::to_string(frame_count) + " frame(s).")
+    return true;
+  }
+  const auto snapshot = AssetManager::GetAssetLoadSnapshot();
+  EVOENGINE_ERROR("Scene did not become ready for capture. Frames: " + std::to_string(frame_count) +
+                  ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
+                  ", geometry pending: " + std::to_string(GeometryStorage::HasPendingUploads()) +
+                  ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) +
+                  ", asset queued: " + std::to_string(snapshot.queued) +
+                  ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
+                  ", asset waiting finalize: " + std::to_string(snapshot.waiting_for_finalize) +
+                  ", asset GPU pending: " + std::to_string(snapshot.gpu_pending))
+  return false;
+}
+
 bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resolution_y,
                                       const std::filesystem::path& output_path, const int warmup_frames,
                                       const bool require_accumulated_frames) {
@@ -92,15 +230,11 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   constexpr int max_readiness_frames = 300;
   int readiness_frames = 0;
   auto& application = ApplicationContext::Get();
-  const auto is_scene_ready = []() {
-    return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
-           !TextureStorage::HasPendingUploads();
-  };
-  while (!is_scene_ready() && readiness_frames < max_readiness_frames) {
+  while (!IsCurrentSceneCaptureReady() && readiness_frames < max_readiness_frames) {
     application.Loop();
     readiness_frames++;
   }
-  if (!is_scene_ready()) {
+  if (!IsCurrentSceneCaptureReady()) {
     const auto snapshot = AssetManager::GetAssetLoadSnapshot();
     EVOENGINE_ERROR("Scene is not ready for capture! Frames: " + std::to_string(readiness_frames) +
                     ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
@@ -290,6 +424,13 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("clear_generated_project_files") = true);
   m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
         py::arg("samples_per_frame"), py::arg("bounces"));
+  m.def("ConfigureCurrentSceneOutdoorLightingForCapture", &ConfigureCurrentSceneOutdoorLightingForCapture,
+        py::arg("sun_euler_degrees"), py::arg("sun_angular_diameter_radians"), py::arg("sun_intensity"),
+        py::arg("sun_color"), py::arg("sky_light_intensity"), py::arg("ambient_light_intensity"),
+        py::arg("background_color_linear"), py::arg("gamma"));
+  m.def("SetMainCameraLookAt", &SetMainCameraLookAt, py::arg("position"), py::arg("target"), py::arg("up"),
+        py::arg("fov_degrees"));
+  m.def("WaitForCurrentSceneReady", &WaitForCurrentSceneReady, py::arg("maximum_frames") = 3000);
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
         py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false);
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
@@ -399,6 +540,11 @@ bool PyEvoEngine::RunWindowless(const std::filesystem::path& project_path) {
   EnsureRenderLayer();
   ApplicationInitializationSettings application_info{};
   application_info.project_path = project_path;
+  // Windowless batch jobs only need the start scene and its dependency graph.
+  // Loading every asset discovered in a research project makes capture startup
+  // scale with unrelated historical data; the native non-editor app uses the
+  // same lazy project-asset policy.
+  application_info.load_project_assets = false;
   ApplicationContext::Get().Initialize(application_info);
   ApplicationContext::Get().Start();
   return true;

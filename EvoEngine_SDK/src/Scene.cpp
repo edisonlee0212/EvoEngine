@@ -26,6 +26,36 @@ void EnsureTemporaryEnvironmentalLighting(Scene& scene) {
   }
   scene.environmental_lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
 }
+
+void LoadLegacyEnvironment(Scene& scene, const YAML::Node& legacy_environment) {
+  EnsureTemporaryEnvironmentalLighting(scene);
+  const auto lighting = scene.environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting || !legacy_environment) {
+    return;
+  }
+
+  auto& source = lighting->indirect_environment_source;
+  source = {};
+  const int environment_type =
+      legacy_environment["environment_type"] ? legacy_environment["environment_type"].as<int>() : 0;
+  AssetRef legacy_map;
+  legacy_map.Load("environmental_map", legacy_environment);
+  if (environment_type == 1) {
+    source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+    if (legacy_environment["background_color"])
+      source.color = legacy_environment["background_color"].as<glm::vec3>();
+  } else if (legacy_map.GetAssetHandle().GetValue() != 0u) {
+    source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap;
+    source.environmental_map = legacy_map;
+  } else {
+    source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault;
+  }
+  if (legacy_environment["environment_gamma"])
+    source.gamma = legacy_environment["environment_gamma"].as<float>();
+  if (legacy_environment["ambient_light_intensity"]) {
+    lighting->environment_lighting_intensity = legacy_environment["ambient_light_intensity"].as<float>();
+  }
+}
 }  // namespace
 
 Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version) {
@@ -385,8 +415,14 @@ void evo_engine::DeserializeScene(const YAML::Node& in, Scene& scene) {
   if (in["global_reflection_probe_fallback"]) {
     global_reflection_probe_fallback.Load("global_reflection_probe_fallback", in);
   }
-  environmental_lighting.Load("environmental_lighting", in);
-  EnsureTemporaryEnvironmentalLighting(scene);
+  if (in["environmental_lighting"]) {
+    environmental_lighting.Load("environmental_lighting", in);
+    EnsureTemporaryEnvironmentalLighting(scene);
+  } else if (const auto legacy_environment = in["environment"]) {
+    LoadLegacyEnvironment(scene, legacy_environment);
+  } else {
+    EnsureTemporaryEnvironmentalLighting(scene);
+  }
   int entity_index = 1;
   for (const auto& in_entity_info : in_entity_metadata_list) {
     auto& entity_metadata = scene_data_storage_.entity_metadata_list.at(entity_index);

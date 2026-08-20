@@ -321,7 +321,7 @@ bool DerivationEngine<GraphData, FlowData, ModuleData>::ApplyTopologyRules(Graph
       // Remaining successors: extend from this node.
       for (size_t s = 1; s < result.successors.size(); s++) {
         const auto& succ = result.successors[s];
-        auto new_handle = graph.Extend(handle, succ.is_branch);
+        auto new_handle = graph.Extend(succ.parent_override >= 0 ? succ.parent_override : handle, succ.is_branch);
         auto& new_node = graph.RefNode(new_handle);
         new_node.symbol_id = succ.symbol_id;
         new_node.data = succ.data;

@@ -8,6 +8,8 @@
 #include "ScotsPine.hpp"
 #include "ScotsPineDescriptor.hpp"
 #include "Serialization.hpp"
+#include "SorghumLS.hpp"
+#include "SorghumLSDescriptor.hpp"
 
 using namespace evo_engine;
 using namespace l_system_package;
@@ -22,6 +24,9 @@ void RegisterLSystemInspectors(const std::string& owner_name) {
   InspectorRegistry::GetInstance().RegisterInspector<ScotsPineDescriptor>(InspectScotsPineDescriptor, owner_name,
                                                                           "ScotsPineDescriptor");
   InspectorRegistry::GetInstance().RegisterInspector<ScotsPine>(InspectScotsPine, owner_name, "ScotsPine");
+  InspectorRegistry::GetInstance().RegisterInspector<SorghumLSDescriptor>(InspectSorghumLSDescriptor, owner_name,
+                                                                          "SorghumLSDescriptor");
+  InspectorRegistry::GetInstance().RegisterInspector<SorghumLS>(InspectSorghumLS, owner_name, "SorghumLS");
   InspectorRegistry::GetInstance().RegisterInspector<LSystemLayer>(InspectLSystemLayer, owner_name, "LSystem Layer");
 }
 
@@ -32,6 +37,10 @@ void RegisterLSystemSerializationHandlers(const std::string& owner_name) {
       SerializeScotsPineDescriptor, DeserializeScotsPineDescriptor, owner_name, "ScotsPineDescriptor");
   Serialization::RegisterSerializationHandler<ScotsPine>(SerializeScotsPine, DeserializeScotsPine, owner_name,
                                                          "ScotsPine");
+  Serialization::RegisterSerializationHandler<SorghumLSDescriptor>(
+      SerializeSorghumLSDescriptor, DeserializeSorghumLSDescriptor, owner_name, "SorghumLSDescriptor");
+  Serialization::RegisterSerializationHandler<SorghumLS>(SerializeSorghumLS, DeserializeSorghumLS, owner_name,
+                                                         "SorghumLS");
   Serialization::RegisterSerializationHandler<LSystemLayer>(SerializeLSystemLayer, DeserializeLSystemLayer, owner_name,
                                                             "LSystem Layer");
 }
@@ -48,7 +57,9 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
 
   const bool registered = registrar->RegisterAsset<LSystemDescriptor>("LSystemDescriptor", {".lsys"}) &&
                           registrar->RegisterAsset<ScotsPineDescriptor>("ScotsPineDescriptor", {".spine"}) &&
+                          registrar->RegisterAsset<SorghumLSDescriptor>("SorghumLSDescriptor", {".sorghumls"}) &&
                           registrar->RegisterPrivateComponent<ScotsPine>("ScotsPine") &&
+                          registrar->RegisterPrivateComponent<SorghumLS>("SorghumLS") &&
                           registrar->RegisterLayer<LSystemLayer>("LSystem Layer");
   if (registered) {
     RegisterLSystemSerializationHandlers(descriptor.name);

@@ -68,10 +68,13 @@ int main(const int argc, char** argv) {
   application_configs.application_mode = application_mode;
   application_configs.application_name = "DigitalAgriculture";
   application_configs.project_path =
-      std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test.eveproj");
+      std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test_lsystem_sorghum.eveproj");
   application_configs.enable_runtime_packages = true;
   application_configs.use_custom_title_bar = true;
-  application_configs.startup_runtime_packages = {"DigitalAgriculture"};
+  application_configs.startup_runtime_packages = {"DigitalAgriculture", "LSystem"};
+  // The experiment scene already references every asset needed by the editor.
+  // Avoid decoding the rest of the research archive on startup.
+  application_configs.load_project_assets = false;
   ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
 

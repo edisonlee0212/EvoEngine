@@ -71,6 +71,8 @@ struct PlanarElasticaInput {
   std::function<float(float)> mass_per_length_kg_m;
   /// Concentrated tip force (N) applied at s = L, in (x, z) plane.
   glm::vec2 tip_force_N_xz = glm::vec2(0.0f, 0.0f);
+  /// Optional equilibrium seed for load continuation.
+  std::vector<float> initial_theta_rad;
   /// Damping factor for fixed-point iteration in (0, 1].
   float relaxation = 0.6f;
   /// Convergence tolerance on max |delta_theta| (radians).
@@ -119,19 +121,25 @@ inline PlanarElasticaOutput SolvePlanarElastica(const PlanarElasticaInput& in) {
       mu[i] = std::max(0.0f, in.mass_per_length_kg_m(s_norm));
   }
 
-  // Initial guess: integrate intrinsic curvature only (unloaded shape).
-  out.theta_rad.assign(n, 0.0f);
-  for (int i = 1; i < n; ++i) {
-    const float kappa_avg = 0.5f * (kappa_intr[i - 1] + kappa_intr[i]);
-    out.theta_rad[i] = out.theta_rad[i - 1] + kappa_avg * ds;
+  out.theta_rad = in.initial_theta_rad;
+  if (out.theta_rad.size() != static_cast<size_t>(n) ||
+      !std::all_of(out.theta_rad.begin(), out.theta_rad.end(), [](const float value) {
+        return std::isfinite(value);
+      })) {
+    out.theta_rad.assign(n, 0.0f);
+    for (int i = 1; i < n; ++i) {
+      const float kappa_avg = 0.5f * (kappa_intr[i - 1] + kappa_intr[i]);
+      out.theta_rad[i] = out.theta_rad[i - 1] + kappa_avg * ds;
+    }
   }
+  out.theta_rad.front() = 0.0f;
 
   out.positions_xz.assign(n, glm::vec2(0.0f));
   out.bending_moment_Nm.assign(n, 0.0f);
 
   std::vector<float> theta_new(n, 0.0f);
   std::vector<glm::vec2> distal_load(n, glm::vec2(0.0f));
-  std::vector<glm::vec2> distal_moment_arm(n, glm::vec2(0.0f));
+  std::vector<float> distal_origin_moment(n, 0.0f);
 
   const glm::vec2 g_xz = in.gravity_acceleration_xz_m_s2;
   const glm::vec2 F_tip = in.tip_force_N_xz;
@@ -158,6 +166,15 @@ inline PlanarElasticaOutput SolvePlanarElastica(const PlanarElasticaInput& in) {
       // M_y = rz * Fx - rx * Fz.
       return a.y * b.x - a.x * b.y;
     };
+    std::fill(distal_load.begin(), distal_load.end(), glm::vec2(0.0f));
+    std::fill(distal_origin_moment.begin(), distal_origin_moment.end(), 0.0f);
+    for (int j = n - 1; j >= 0; --j) {
+      const float w_seg = (j == n - 1) ? 0.5f * ds : ds;
+      const glm::vec2 force = g_xz * (mu[j] * w_seg);
+      distal_load[j] = force + (j + 1 < n ? distal_load[j + 1] : glm::vec2(0.0f));
+      distal_origin_moment[j] =
+          planar_cross(out.positions_xz[j], force) + (j + 1 < n ? distal_origin_moment[j + 1] : 0.0f);
+    }
     for (int i = 0; i < n; ++i) {
       float M = 0.0f;
       const glm::vec2 r_i = out.positions_xz[i];
@@ -166,14 +183,8 @@ inline PlanarElasticaOutput SolvePlanarElastica(const PlanarElasticaInput& in) {
         const glm::vec2 r_tip = out.positions_xz[n - 1];
         M += planar_cross(r_tip - r_i, F_tip);
       }
-      // Distributed weight contribution. Trapezoidal: each station carries
-      // mu * g_xz * ds_segment as a point force at its position.
-      for (int j = i + 1; j < n; ++j) {
-        const float w_seg = (j == n - 1) ? 0.5f * ds : ds;  // tip half-segment
-        const glm::vec2 force = g_xz * (mu[j] * w_seg);
-        if (force.x == 0.0f && force.y == 0.0f)
-          continue;
-        M += planar_cross(out.positions_xz[j] - r_i, force);
+      if (i + 1 < n) {
+        M += distal_origin_moment[i + 1] - planar_cross(r_i, distal_load[i + 1]);
       }
       out.bending_moment_Nm[i] = M;
     }
@@ -188,13 +199,20 @@ inline PlanarElasticaOutput SolvePlanarElastica(const PlanarElasticaInput& in) {
 
     // (4) Damped update + convergence check.
     float max_delta = 0.0f;
+    bool finite = true;
     for (int i = 0; i < n; ++i) {
       const float blended = (1.0f - alpha) * out.theta_rad[i] + alpha * theta_new[i];
+      if (!std::isfinite(blended)) {
+        finite = false;
+        break;
+      }
       max_delta = std::max(max_delta, std::abs(blended - out.theta_rad[i]));
       out.theta_rad[i] = blended;
     }
     out.iterations_performed = iter + 1;
     out.final_max_delta_rad = max_delta;
+    if (!finite)
+      break;
     if (max_delta < in.tolerance_rad) {
       out.converged = true;
       break;

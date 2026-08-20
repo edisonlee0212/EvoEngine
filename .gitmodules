@@ -60,7 +60,8 @@
 	url = https://github.com/edisonlee0212/EcoSysLabProject.git
 [submodule "Resources/DigitalAgricultureProject"]
 	path = Resources/DigitalAgricultureProject
-	url = https://github.com/edisonlee0212/DigitalAgricultureProject.git
+	url = https://github.com/Penanito/EvoEngine_SorghumProject.git
+	branch = codex/sorghum-gpu-field-geometry
 [submodule "Resources/EvoEngine-DemoProjects"]
 	path = Resources/EvoEngine-DemoProjects
 	url = https://github.com/edisonlee0212/EvoEngine-DemoProjects.git

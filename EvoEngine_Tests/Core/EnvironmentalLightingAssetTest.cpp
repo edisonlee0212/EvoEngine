@@ -797,6 +797,35 @@ data_component_storage_list: []
   EXPECT_TRUE(restored_lighting->IsTemporary());
 }
 
+TEST(EnvironmentalLightingAsset, LegacySceneEnvironmentMapsToTemporaryEnvironmentalLighting) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  ASSERT_TRUE(scene);
+
+  Serialization::DeserializeObject(YAML::Load(R"(
+environment:
+  background_color: [0.2, 0.3, 0.4]
+  environment_gamma: 2.4
+  ambient_light_intensity: 0.8
+  environment_type: 0
+  environmental_map: {asset_handle_: 0, type_name_: ""}
+entity_metadata_list: []
+systems_: []
+data_component_storage_list: []
+)"),
+                                   static_cast<IAsset&>(*scene));
+
+  const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(lighting);
+  EXPECT_TRUE(lighting->IsTemporary());
+  EXPECT_EQ(lighting->indirect_environment_source.kind,
+            EnvironmentalLighting::IndirectEnvironmentSourceKind::EngineDefault);
+  EXPECT_FLOAT_EQ(lighting->indirect_environment_source.gamma, 2.4f);
+  EXPECT_FLOAT_EQ(lighting->environment_lighting_intensity, 0.8f);
+}
+
 TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE6) {
   const auto scene_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Core/ECS/Scene.hpp"));
   const auto asset_header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));

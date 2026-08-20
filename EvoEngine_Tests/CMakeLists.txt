@@ -56,6 +56,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/VolumetricCloudShaderTest.cpp
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
+	Core/LSystemLeafAtlasUvTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoProfiles.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
@@ -68,6 +69,7 @@ target_link_libraries(EvoEngine_Tests
 	PRIVATE
 	EvoEngine_SDK
 	EvoEngine_DemoScene
+	LSystemPackage
 	GTest::gtest_main
 	)
 target_include_directories(EvoEngine_Tests
@@ -86,6 +88,10 @@ target_compile_definitions(EvoEngine_Tests
 	)
 add_dependencies(EvoEngine_Tests PyEvoEngine)
 evoengine_copy_resources(EvoEngine_Tests "$<TARGET_FILE_DIR:EvoEngine_Tests>")
+add_custom_command(TARGET EvoEngine_Tests POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_if_different
+		$<TARGET_FILE:LSystemPackage> $<TARGET_FILE_DIR:EvoEngine_Tests>
+	VERBATIM)
 set_property(TARGET EvoEngine_Tests PROPERTY FOLDER Tests)
 
 add_custom_target(EvoEngine_RenderTests)
@@ -257,6 +263,11 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER EnvironmentalLightingAsset.*
+	PROPERTIES LABELS "core,render,environmental-lighting"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER EntitySelection.*
 	PROPERTIES LABELS "core,editor,selection"
 	)
@@ -294,6 +305,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER SerializationRegistry.*
 	PROPERTIES LABELS "core,serialization,registry"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER LSystemLeafAtlasUv.*:LSystemLeafMorphology.*:LSystemSorghumTillers.*:LSystemSorghumPanicle.*
+	PROPERTIES LABELS "core,lsystem,geometry,sorghum"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

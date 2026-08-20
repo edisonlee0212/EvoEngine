@@ -940,6 +940,90 @@ void SerializeMaterial(YAML::Emitter& out, const Material& material) {
   out << YAML::Key << "vertex_color_only" << YAML::Value << material.vertex_color_only;
 }
 
+void DeserializeLegacyMaterial(const YAML::Node& in, Material& material) {
+  GltfMaterialData data{};
+  data.shade_material.pbr_metallic_factor = 0.0f;
+  material.SetGltfMaterialData(data);
+  material.draw_settings.Load("draw_settings", in);
+
+  auto& shade = material.material_data.shade_material;
+  shade.alpha_mode =
+      static_cast<int32_t>(material.draw_settings.blending ? GltfAlphaMode::Blend : GltfAlphaMode::Opaque);
+  shade.double_sided = material.draw_settings.cull_mode == VK_CULL_MODE_NONE ? 1 : 0;
+
+  if (const auto properties = in["material_properties"]) {
+    const auto albedo = properties["albedo_color"] ? properties["albedo_color"].as<glm::vec3>() : glm::vec3(1.0f);
+    shade.pbr_base_color_factor = glm::vec4(albedo, 1.0f);
+    if (properties["metallic"])
+      shade.pbr_metallic_factor = properties["metallic"].as<float>();
+    if (properties["roughness"])
+      shade.pbr_roughness_factor = properties["roughness"].as<float>();
+#if MAT_EXT_SPECULAR
+    if (properties["specular"])
+      shade.specular_factor = properties["specular"].as<float>();
+#endif
+#if MAT_EXT_IOR
+    if (properties["ior"])
+      shade.ior = properties["ior"].as<float>();
+#endif
+#if MAT_EXT_TRANSMISSION
+    if (properties["transmission"])
+      shade.transmission_factor = properties["transmission"].as<float>();
+#endif
+#if MAT_EXT_CLEARCOAT
+    if (properties["clear_coat"])
+      shade.clearcoat_factor = properties["clear_coat"].as<float>();
+    if (properties["clear_coat_roughness"])
+      shade.clearcoat_roughness = properties["clear_coat_roughness"].as<float>();
+#endif
+#if MAT_EXT_SHEEN
+    if (properties["sheen"]) {
+      const float sheen = properties["sheen"].as<float>();
+      shade.sheen_color_factor = glm::vec3(sheen);
+      shade.sheen_roughness_factor = 0.5f;
+    }
+#endif
+#if MAT_EXT_DIFFUSE_TRANSMISSION
+    if (properties["subsurface_factor"]) {
+      shade.diffuse_transmission_factor = properties["subsurface_factor"].as<float>();
+    }
+    if (properties["subsurface_color"]) {
+      shade.diffuse_transmission_color = properties["subsurface_color"].as<glm::vec3>();
+    }
+#endif
+#if MAT_EXT_VOLUME_SCATTER && MAT_EXT_DIFFUSE_TRANSMISSION
+    shade.multiscatter_color_factor = shade.diffuse_transmission_color * shade.diffuse_transmission_factor;
+#endif
+    if (properties["emission"])
+      shade.emissive_factor = albedo * properties["emission"].as<float>();
+  }
+
+  const auto bind_legacy_texture = [&in, &material](const char* name, uint16_t GltfShadeMaterial::* slot,
+                                                    const GltfTextureColorSpace color_space) {
+    AssetRef texture_ref;
+    texture_ref.Load(name, in);
+    if (texture_ref.GetAssetHandle().GetValue() == 0u) {
+      return;
+    }
+    const auto texture_info_slot = material.SetTextureRef(slot, texture_ref);
+    if (texture_info_slot < material.material_data.texture_infos.size()) {
+      material.material_data.texture_infos[texture_info_slot].color_space = static_cast<int32_t>(color_space);
+    }
+  };
+  // Base color is authored as display-space color data; normal and occlusion
+  // remain linear. This keeps legacy .evematerial assets on the same PBR
+  // color-space contract as native glTF materials in every renderer.
+  bind_legacy_texture("albedo_texture_", &GltfShadeMaterial::pbr_base_color_texture, GltfTextureColorSpace::Srgb);
+  bind_legacy_texture("normal_texture_", &GltfShadeMaterial::normal_texture, GltfTextureColorSpace::Linear);
+  bind_legacy_texture("ao_texture_", &GltfShadeMaterial::occlusion_texture, GltfTextureColorSpace::Linear);
+
+  // Legacy metallic and roughness images are separate grayscale assets. The
+  // glTF slot expects roughness in G and metallic in B, so binding either one
+  // directly would corrupt the other channel. Scalar factors remain exact;
+  // a future offline packer can opt into the two image maps without changing
+  // this compatibility path.
+}
+
 void DeserializeMaterial(const YAML::Node& in, Material& material) {
   if (in["gltf_material"]) {
     auto data = GltfMaterialData{};
@@ -951,6 +1035,8 @@ void DeserializeMaterial(const YAML::Node& in, Material& material) {
     material.RefTextureRefs() = std::move(texture_refs);
     material.draw_settings.Load("draw_settings", in);
     material.SyncRenderStateFromGltfMaterial();
+  } else if (in["material_properties"] || in["albedo_texture_"] || in["normal_texture_"] || in["ao_texture_"]) {
+    DeserializeLegacyMaterial(in, material);
   }
   if (in["vertex_color_only"])
     material.vertex_color_only = in["vertex_color_only"].as<bool>();

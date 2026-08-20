@@ -14,6 +14,7 @@
 #include "Prefab.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
+#include "Serialization.hpp"
 #include "SkinnedMesh.hpp"
 
 #include <array>
@@ -1302,6 +1303,71 @@ TEST(GltfMaterialConversion, NativeMaterialAssetDefaultsToDielectric) {
   EXPECT_NEAR(material_data.shade_material.pbr_metallic_factor, 0.0f, kEpsilon);
   EXPECT_NEAR(material_data.shade_material.pbr_roughness_factor, 1.0f, kEpsilon);
   EXPECT_EQ(material.draw_settings.cull_mode, VK_CULL_MODE_BACK_BIT);
+}
+
+TEST(GltfMaterialConversion, LegacyMaterialAssetMapsSafeGltfFieldsWithoutMisusingSeparateMetalRoughMaps) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(material);
+
+  const auto legacy = YAML::Load(R"(
+albedo_texture_: {asset_handle_: 101, type_name_: Texture2D}
+normal_texture_: {asset_handle_: 102, type_name_: Texture2D}
+metallic_texture_: {asset_handle_: 103, type_name_: Texture2D}
+roughness_texture_: {asset_handle_: 104, type_name_: Texture2D}
+ao_texture_: {asset_handle_: 105, type_name_: Texture2D}
+draw_settings:
+  cull_mode: 0
+  blending: false
+material_properties:
+  albedo_color: [0.2, 0.4, 0.6]
+  subsurface_color: [0.3, 0.5, 0.2]
+  subsurface_factor: 0.25
+  metallic: 0.7
+  roughness: 0.8
+  specular: 0.35
+  clear_coat: 0.15
+  clear_coat_roughness: 0.45
+  ior: 1.45
+  transmission: 0.1
+  emission: 0.5
+vertex_color_only: false
+)");
+  Serialization::DeserializeObject(legacy, static_cast<IAsset&>(*material));
+
+  const auto& shade = material->material_data.shade_material;
+  ExpectVec4Near(shade.pbr_base_color_factor, glm::vec4(0.2f, 0.4f, 0.6f, 1.0f));
+  EXPECT_FLOAT_EQ(shade.pbr_metallic_factor, 0.7f);
+  EXPECT_FLOAT_EQ(shade.pbr_roughness_factor, 0.8f);
+  EXPECT_FLOAT_EQ(shade.specular_factor, 0.35f);
+  EXPECT_FLOAT_EQ(shade.clearcoat_factor, 0.15f);
+  EXPECT_FLOAT_EQ(shade.clearcoat_roughness, 0.45f);
+  EXPECT_FLOAT_EQ(shade.ior, 1.45f);
+  EXPECT_FLOAT_EQ(shade.transmission_factor, 0.1f);
+  EXPECT_FLOAT_EQ(shade.diffuse_transmission_factor, 0.25f);
+  ExpectVec3Near(shade.diffuse_transmission_color, glm::vec3(0.3f, 0.5f, 0.2f));
+  ExpectVec3Near(shade.emissive_factor, glm::vec3(0.1f, 0.2f, 0.3f));
+  EXPECT_EQ(shade.double_sided, 1);
+  EXPECT_EQ(shade.pbr_metallic_roughness_texture, 0u);
+
+  const auto base_slot = shade.pbr_base_color_texture;
+  const auto normal_slot = shade.normal_texture;
+  const auto ao_slot = shade.occlusion_texture;
+  ASSERT_GT(base_slot, 0u);
+  ASSERT_GT(normal_slot, 0u);
+  ASSERT_GT(ao_slot, 0u);
+  ASSERT_LT(base_slot, material->PeekTextureRefs().size());
+  ASSERT_LT(normal_slot, material->PeekTextureRefs().size());
+  ASSERT_LT(ao_slot, material->PeekTextureRefs().size());
+  EXPECT_EQ(material->PeekTextureRefs()[base_slot].GetAssetHandle().GetValue(), 101u);
+  EXPECT_EQ(material->PeekTextureRefs()[normal_slot].GetAssetHandle().GetValue(), 102u);
+  EXPECT_EQ(material->PeekTextureRefs()[ao_slot].GetAssetHandle().GetValue(), 105u);
+  EXPECT_EQ(material->material_data.texture_infos[base_slot].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+  EXPECT_EQ(material->material_data.texture_infos[normal_slot].color_space,
+            static_cast<int32_t>(GltfTextureColorSpace::Linear));
 }
 
 TEST(GltfMaterialConversion, CanonicalMaterialAssetBuildsGltfMaterialDataDirectly) {

@@ -35,9 +35,10 @@ struct RuleContext {
  */
 template <typename ModuleData>
 struct Successor {
-  int symbol_id = -1;      ///< Symbol ID of the new module.
-  ModuleData data = {};    ///< Data for the new module.
-  bool is_branch = false;  ///< false = prolong (Extend(false)), true = branch (Extend(true)).
+  int symbol_id = -1;                ///< Symbol ID of the new module.
+  ModuleData data = {};              ///< Data for the new module.
+  bool is_branch = false;            ///< false = prolong (Extend(false)), true = branch (Extend(true)).
+  LNodeHandle parent_override = -1;  ///< Optional explicit attachment node.
 };
 
 /**

@@ -134,6 +134,40 @@ class PyEvoEngine {
    */
   static bool ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, int samples_per_frame, int bounces);
   /**
+   * @brief Apply a renderer-neutral outdoor lighting profile to the active scene.
+   * @param sun_euler_degrees Directional-light Euler rotation in degrees.
+   * @param sun_angular_diameter_radians Apparent sun size used for soft ray-traced shadows.
+   * @param sun_intensity Direct sun brightness.
+   * @param sun_color Linear RGB sun color.
+   * @param sky_light_intensity Environment-map lighting intensity.
+   * @param ambient_light_intensity Diffuse environment fallback intensity.
+   * @param background_color_linear Linear RGB visible-sky approximation.
+   * @param gamma Camera output gamma.
+   * @return True when the scene, camera, and at least one directional light were configured.
+   */
+  static bool ConfigureCurrentSceneOutdoorLightingForCapture(const glm::vec3& sun_euler_degrees,
+                                                              float sun_angular_diameter_radians,
+                                                              float sun_intensity, const glm::vec3& sun_color,
+                                                              float sky_light_intensity,
+                                                              float ambient_light_intensity,
+                                                              const glm::vec3& background_color_linear, float gamma);
+  /**
+   * @brief Position the active scene's main camera using a world-space look-at transform.
+   * @param position Camera position in world space.
+   * @param target Camera target in world space.
+   * @param up Preferred world-space up direction.
+   * @param fov_degrees Vertical field of view in degrees.
+   * @return True when the active scene has a valid main camera and the transform was applied.
+   */
+  static bool SetMainCameraLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up,
+                                  float fov_degrees);
+  /**
+   * @brief Run application frames until project, geometry, and texture loading are complete.
+   * @param maximum_frames Maximum number of application frames to wait.
+   * @return True when the active project is ready for deterministic camera setup and capture.
+   */
+  static bool WaitForCurrentSceneReady(int maximum_frames = 3000);
+  /**
    * @brief Render and save the active scene's main camera.
    * @param resolution_x Capture width.
    * @param resolution_y Capture height.

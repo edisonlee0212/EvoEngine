@@ -81,6 +81,9 @@ class PineGrowthModel : public LSystemGrowthModelBase<PineGrowthModel, PineGraph
   [[nodiscard]] glm::quat ComputeChildLocalRotationImpl(const LGraphNode<PineModuleData>& node,
                                                         const LGraphNode<PineModuleData>& parent) const;
 
+  [[nodiscard]] glm::vec3 ComputeChildGlobalPositionImpl(const LGraphNode<PineModuleData>& node,
+                                                         const LGraphNode<PineModuleData>& parent) const;
+
   [[nodiscard]] float ChronologicalGddPerYearImpl() const;
 
   bool UpdateNodeAgingOnlyImpl(LGraphNode<PineModuleData>& node);
