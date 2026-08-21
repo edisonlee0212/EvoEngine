@@ -1172,6 +1172,26 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   }
 
   EVOENGINE_LOG("Starting Kinetic Delaunay Voronoi Meshing...");
+
+  for (size_t strand_id = 0; strand_id < subdivisions_by_strand.size(); ++strand_id) {
+    size_t non_positive_count = 0;
+    double example_t = 0.0;
+    for (const double t : subdivisions_by_strand[strand_id]) {
+      if (t <= 0.0) {
+        if (non_positive_count == 0) {
+          example_t = t;
+        }
+        ++non_positive_count;
+      }
+    }
+    if (non_positive_count > 0) {
+      EVOENGINE_WARNING("Subdivision parameter list for strand "
+                        << strand_id << " contains " << non_positive_count
+                        << " value(s) with t<=0 (e.g. t=" << example_t
+                        << ") before meshing; these schedule a subdiv at bootstrap and yield zero-length meshlets.");
+    }
+  }
+
   strand_tree =
       std::make_shared<kinDS::StrandTree>(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
                                           transforms_by_height_and_branch, branch_indices, strands_by_branch_id);
@@ -1500,7 +1520,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
       if (!isnan(segment.end_t)) {
         random_subdivisions_by_strand[strand_index].push_back(
-            initialize_parameters.uniform_subdivision * (segment.end_t + random_segment_data.original_segment_index));
+            initialize_parameters.uniform_subdivision *
+            (segment.end_t + random_segment_data.original_segment_index));
       }
     }
   });
@@ -2040,7 +2061,6 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
               if (ibm) {
                 ibm->LoadMesh(std::move(loaded_mesh), obj_path);
               }
-              EVOENGINE_LOG("Loaded intersection mesh: " << obj_path.string());
             } catch (const std::exception& ex) {
               EVOENGINE_ERROR("Failed to load OBJ '" << obj_path.string() << "': " << ex.what());
             }
@@ -2090,7 +2110,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           EVOENGINE_ERROR("Intersect and export all: no intersection mesh group found.");
           return;
         }
-        std::vector<ObjExporter::MeshGroup> export_groups;
+        std::vector<MeshletObjExport::MeshGroup> export_groups;
         for (const auto& child : scene->GetChildren(group)) {
           if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
             continue;
@@ -2105,7 +2125,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                             << child.GetIndex() << ".");
             continue;
           }
-          ObjExporter::MeshGroup mesh_group;
+          MeshletObjExport::MeshGroup mesh_group;
           mesh_group.name = ibm->GetPath().stem().string();
           if (mesh_group.name.empty()) {
             mesh_group.name = "entity_" + std::to_string(child.GetIndex());
@@ -2120,8 +2140,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           return;
         }
         const std::filesystem::path out_path = output_dir / "intersections.obj";
-        ObjExporter::ExportObjCombined(
-            out_path, export_groups, render_settings.segment_meshlet_render_parameters.uv_height_factor,
+        MeshletObjExport::ExportObjCombined(
+            out_path, export_groups, dynamic_strands->segments,
+            render_settings.segment_meshlet_render_parameters.uv_height_factor,
             render_settings.segment_meshlet_render_parameters.uv_circum_factor,
             render_settings.segment_meshlet_render_parameters.fracture_distance);
         EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
@@ -2134,8 +2155,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
     ImGui::SetTooltip(
         "For each loaded intersection mesh, compute the intersection and export all results as a single OBJ "
-        "(one object per boundary mesh) to the chosen folder as intersections.obj. Uses shared bark and interior "
-        "materials. Restores pristine meshlets afterward. Requires a completed meshing run.");
+        "(one object per boundary mesh) plus shared bark/interior materials and GPU metadata JSON to the chosen "
+        "folder as intersections.obj. Restores pristine meshlets afterward. Requires a completed meshing run.");
   }
 
   ImGui::Checkbox("Fix missing meshlets after intersection", &meshing_settings.intersection_boundary_fix_missing_meshes);
@@ -2188,20 +2209,22 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       [&](const std::filesystem::path& path) {
         dynamic_strands->Download();
         EVOENGINE_LOG("Downloaded data from GPU");
-        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
-                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                               render_settings.segment_meshlet_render_parameters.fracture_distance);
+        MeshletObjExport::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles,
+                                    dynamic_strands->segments,
+                                    render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                    render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                                    render_settings.segment_meshlet_render_parameters.fracture_distance);
       },
       false);
   ImGui::SameLine();
   FileUtils::SaveFile(
       "Export OBJ", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
-        ObjExporter::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles, dynamic_strands->segments,
-                               render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                               render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                               render_settings.segment_meshlet_render_parameters.fracture_distance);
+        MeshletObjExport::ExportObj(path, segment_meshlet_vertices, segment_meshlet_triangles,
+                                    dynamic_strands->segments,
+                                    render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                    render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                                    render_settings.segment_meshlet_render_parameters.fracture_distance);
       },
       false);
   // FileUtils::SaveFile(

@@ -451,11 +451,14 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
   auto& root_node = strand_model_skeleton.RefNode(0);
   root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.length = settings.segment_length;
   root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   for (int z = 1; z < settings.rod_dimension.z; z++) {
     const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
     auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
-    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    // Proximal end of this internode (distal end is global_position + length along front).
+    new_node.info.global_position = glm::vec3(settings.segment_length * static_cast<float>(z), 0.0f, 0.0f);
+    new_node.info.length = settings.segment_length;
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
   strand_model_skeleton.SortLists();
@@ -750,11 +753,14 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   const float log_length = static_cast<float>(settings.rod_segment_count) * settings.segment_length;
   auto& root_node = strand_model_skeleton.RefNode(0);
   root_node.info.global_position = glm::vec3(0.0f);
+  root_node.info.length = settings.segment_length;
   root_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   for (int z = 1; z < settings.rod_segment_count; z++) {
     const auto new_node_handle = strand_model_skeleton.Extend(z - 1, false);
     auto& new_node = strand_model_skeleton.RefNode(new_node_handle);
-    new_node.info.global_position = glm::vec3(settings.segment_length * (static_cast<float>(z) + 1.f), 0.0f, 0.0f);
+    // Proximal end of this internode (distal end is global_position + length along front).
+    new_node.info.global_position = glm::vec3(settings.segment_length * static_cast<float>(z), 0.0f, 0.0f);
+    new_node.info.length = settings.segment_length;
     new_node.info.global_rotation = glm::quatLookAt(glm::vec3(1, 0, 0), glm::vec3(0, 1, 0));
   }
   strand_model_skeleton.SortLists();
