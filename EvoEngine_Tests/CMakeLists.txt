@@ -57,6 +57,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/InspectorRegistryTest.cpp
 	Core/SerializationRegistryTest.cpp
 	Core/LSystemLeafAtlasUvTest.cpp
+	Core/LSystemInteractivePublishTest.cpp
 	Rendering/RenderDemoPythonApiTest.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/DemoProfiles.cpp
 	${CMAKE_SOURCE_DIR}/EvoEngine_App/src/LauncherUtils.cpp
@@ -308,7 +309,7 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
-	TEST_FILTER LSystemLeafAtlasUv.*:LSystemLeafMorphology.*:LSystemSorghumTillers.*:LSystemSorghumPanicle.*
+	TEST_FILTER LSystemLeafAtlasUv.*:LSystemLeafMorphology.*:LSystemSorghumTillers.*:LSystemSorghumPanicle.*:LSystemInteractivePublish.*
 	PROPERTIES LABELS "core,lsystem,geometry,sorghum"
 	)
 gtest_discover_tests(EvoEngine_Tests

@@ -49,8 +49,9 @@ After an editor install exists, colleagues can double-click `Open-Sorghum-Editor
 launcher finds the standard Sorghum install layouts. The scene opens with the **Sorghum Genotype Lab** window
 visible. Use its A/B/C descriptor buttons,
 leave **Live preview** enabled, and choose either representative-only or whole-genotype updates while dragging.
-Dragging uses a coarse mesh; releasing the control rebuilds all 20 plants for that genotype at full quality in
-parallel. All 60 plants remain visible.
+Dragging uses a coarse mesh; releasing the control queues all 20 plants for that genotype at full quality, two per
+frame. Each current mesh remains visible until its replacement is GPU-ready, so the editor stays responsive and all
+60 plants remain visible throughout the update.
 
 Use **Rasterization (interactive)** while tuning. **Vulkan Ray Tracing** and **Vulkan Ray Query** consume the exact
 same generated meshes and can be selected from the lab for quality review. Unsupported modes fall back through the
@@ -69,8 +70,9 @@ data submodule merely by pruning old metadata.
 They live inside the `Resources/DigitalAgricultureProject` submodule. The field scene references them directly.
 Use the descriptor inspector's Live Preview while editing and save the descriptor asset when the result is accepted.
 Dragging previews one representative plant by default for smooth feedback; releasing the control rebuilds all 20
-plants in that genotype at full quality. Enable `Update whole genotype while dragging` only when seeing every plant
-change during the drag is worth the additional latency of the roughly 69-million-triangle final field.
+plants in that genotype progressively at full quality. Enable `Update whole genotype while dragging` only when
+seeing every plant change during the drag is worth the additional latency of the roughly 69-million-triangle final
+field.
 
 ## Parameters that control measured endpoint agreement
 

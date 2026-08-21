@@ -77,13 +77,28 @@ class LSystemLayer : public evo_engine::ILayer {
   size_t RestoreSorghumScene(bool update_render_geometry = true) const;
   size_t RegenerateSorghumDescriptor(const SorghumLSDescriptor& descriptor, bool representative_only, bool preview,
                                      float preview_target_gdd = 1000.0f, uint32_t preview_max_growth_steps = 64) const;
+  size_t QueueSorghumDescriptorRegeneration(const SorghumLSDescriptor& descriptor, bool representative_only,
+                                            bool preview, float preview_target_gdd = 1000.0f,
+                                            uint32_t preview_max_growth_steps = 64);
 
  private:
   static constexpr float kAutoGrowFailsafeMinFps = 1.0f;
   bool fps_failsafe_tripped_ = false;
   float last_failsafe_fps_ = 0.0f;
 
+  struct PendingSorghumRegeneration {
+    uint64_t descriptor_handle = 0;
+    bool representative_only = false;
+    bool preview = false;
+    float preview_target_gdd = 1000.0f;
+    uint32_t preview_max_growth_steps = 64;
+    size_t next_plant_index = 0;
+  };
+  std::vector<PendingSorghumRegeneration> pending_sorghum_regenerations_;
+
   void PushProfileFrame(const ProfileFrame& frame);
+  void FlushSorghumGeometryUpdates() const;
+  void ProcessPendingSorghumRegeneration();
 };
 
 }  // namespace l_system_package

@@ -230,7 +230,8 @@ size_t PublishSorghumGeometry(const std::shared_ptr<Scene>& scene,
     }
   });
   for (size_t index = 0; index < plants.size(); ++index) {
-    plants[index]->PublishGeometrySnapshot(snapshots[index], update_render_geometry);
+    plants[index]->PublishGeometrySnapshot(snapshots[index], update_render_geometry,
+                                           pass == SorghumGeometryPass::Preview);
   }
   TransformGraph::CalculateTransformGraphs(scene);
   return plants.size();
@@ -249,6 +250,25 @@ void LSystemLayer::OnDestroy() {
 
 void LSystemLayer::PreUpdate() {
   RestoreSorghumScene();
+  FlushSorghumGeometryUpdates();
+  ProcessPendingSorghumRegeneration();
+}
+
+void LSystemLayer::FlushSorghumGeometryUpdates() const {
+  const auto scene = GetScene();
+  if (!scene) {
+    return;
+  }
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    for (const auto& entity : *owners) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      if (const auto plant = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock()) {
+        plant->FlushGeometryUpdates();
+      }
+    }
+  }
 }
 
 size_t LSystemLayer::RegenerateSorghumScene(const float evaluation_gdd, const int seed_base,
@@ -356,6 +376,102 @@ size_t LSystemLayer::RegenerateSorghumDescriptor(const SorghumLSDescriptor& desc
 
   return PublishSorghumGeometry(scene, plants, true, preview ? SorghumGeometryPass::Preview : SorghumGeometryPass::Full,
                                 preview_target_gdd, preview_max_growth_steps);
+}
+
+size_t LSystemLayer::QueueSorghumDescriptorRegeneration(const SorghumLSDescriptor& descriptor,
+                                                        const bool representative_only, const bool preview,
+                                                        const float preview_target_gdd,
+                                                        const uint32_t preview_max_growth_steps) {
+  const auto scene = GetScene();
+  if (!scene) {
+    return 0;
+  }
+
+  const uint64_t descriptor_handle = descriptor.GetHandle().GetValue();
+  size_t matching_plant_count = 0;
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    for (const auto& entity : *owners) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      const auto plant = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (plant && plant->descriptor_ref.GetAssetHandle().GetValue() == descriptor_handle) {
+        ++matching_plant_count;
+        if (representative_only) {
+          break;
+        }
+      }
+    }
+  }
+  if (matching_plant_count == 0) {
+    return 0;
+  }
+
+  PendingSorghumRegeneration request{descriptor_handle,  representative_only,      preview,
+                                     preview_target_gdd, preview_max_growth_steps, 0};
+  const auto existing = std::find_if(pending_sorghum_regenerations_.begin(), pending_sorghum_regenerations_.end(),
+                                     [descriptor_handle](const PendingSorghumRegeneration& pending) {
+                                       return pending.descriptor_handle == descriptor_handle;
+                                     });
+  if (existing != pending_sorghum_regenerations_.end()) {
+    if (preview && existing->preview && !representative_only && !existing->representative_only) {
+      request.next_plant_index = existing->next_plant_index;
+    }
+    pending_sorghum_regenerations_.erase(existing);
+  }
+  pending_sorghum_regenerations_.insert(pending_sorghum_regenerations_.begin(), request);
+  return matching_plant_count;
+}
+
+void LSystemLayer::ProcessPendingSorghumRegeneration() {
+  if (pending_sorghum_regenerations_.empty()) {
+    return;
+  }
+  const auto scene = GetScene();
+  if (!scene) {
+    pending_sorghum_regenerations_.clear();
+    return;
+  }
+
+  auto& request = pending_sorghum_regenerations_.front();
+  std::vector<std::shared_ptr<SorghumLS>> matching_plants;
+  if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>()) {
+    for (const auto& entity : *owners) {
+      if (!scene->IsEntityValid(entity)) {
+        continue;
+      }
+      const auto plant = scene->GetOrSetPrivateComponent<SorghumLS>(entity).lock();
+      if (plant && plant->descriptor_ref.GetAssetHandle().GetValue() == request.descriptor_handle) {
+        matching_plants.emplace_back(plant);
+        if (request.representative_only) {
+          break;
+        }
+      }
+    }
+  }
+
+  if (request.next_plant_index >= matching_plants.size()) {
+    pending_sorghum_regenerations_.erase(pending_sorghum_regenerations_.begin());
+    return;
+  }
+
+  constexpr size_t kPlantsPerFrame = 2;
+  const size_t batch_count =
+      request.representative_only ? 1 : std::min(kPlantsPerFrame, matching_plants.size() - request.next_plant_index);
+  std::vector<std::shared_ptr<SorghumLS>> batch;
+  batch.reserve(batch_count);
+  for (size_t index = 0; index < batch_count; ++index) {
+    auto& plant = matching_plants[request.next_plant_index + index];
+    plant->target_gdd = SampleDescriptorTargetGddForSorghum(*plant);
+    batch.emplace_back(plant);
+  }
+
+  PublishSorghumGeometry(scene, batch, true, request.preview ? SorghumGeometryPass::Preview : SorghumGeometryPass::Full,
+                         request.preview_target_gdd, request.preview_max_growth_steps);
+  request.next_plant_index += batch_count;
+  if (request.representative_only || request.next_plant_index >= matching_plants.size()) {
+    pending_sorghum_regenerations_.erase(pending_sorghum_regenerations_.begin());
+  }
 }
 
 void LSystemLayer::PushProfileFrame(const ProfileFrame& frame) {
@@ -774,14 +890,14 @@ bool l_system_package::InspectLSystemLayer(InspectorContext& context, LSystemLay
       }
       ImGui::SameLine();
       if (ImGui::Button("Rebuild genotype")) {
-        layer.RegenerateSorghumDescriptor(descriptor, false, false);
+        layer.QueueSorghumDescriptorRegeneration(descriptor, false, false);
       }
       ImGui::PopID();
     }
 
     if (ImGui::Button("Rebuild all genotypes")) {
-      for (const auto& group : descriptor_groups) {
-        layer.RegenerateSorghumDescriptor(*group.descriptor, false, false);
+      for (auto group = descriptor_groups.rbegin(); group != descriptor_groups.rend(); ++group) {
+        layer.QueueSorghumDescriptorRegeneration(*group->descriptor, false, false);
       }
     }
     ImGui::Separator();

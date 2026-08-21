@@ -1081,7 +1081,7 @@ bool SorghumLSDescriptor::DrawEditorControls(const std::shared_ptr<EditorLayer>&
   const auto regenerate_matching_plants = [&](const bool representative_only, const bool preview) {
     const float preview_target = live_preview_cap_target_gdd ? 1000.0f : std::numeric_limits<float>::max();
     if (const auto layer = GetApplication().GetLayer<LSystemLayer>()) {
-      return layer->RegenerateSorghumDescriptor(*this, representative_only, preview, preview_target) > 0;
+      return layer->QueueSorghumDescriptorRegeneration(*this, representative_only, preview, preview_target) > 0;
     }
 
     const auto scene = GetApplication().GetActiveScene();

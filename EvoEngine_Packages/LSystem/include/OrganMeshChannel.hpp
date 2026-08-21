@@ -41,6 +41,9 @@ using namespace evo_engine;
  *    skip detail levels) when individual organs blow past expectations.
  *  - Identical successive payloads are coalesced via a 64-bit hash, which
  *    avoids the most common source of redundant GeometryStorage churn.
+ *  - A replacement Mesh is uploaded off-screen and becomes visible only after
+ *    its geometry (and BLAS, when enabled) is ready. The previous Mesh remains
+ *    attached to the renderer until that atomic swap.
  */
 class OrganMeshChannel {
  public:
@@ -70,6 +73,7 @@ class OrganMeshChannel {
     const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity_).lock();
     renderer->mesh = mesh_;
     renderer->material = material_;
+    renderer_ = renderer;
   }
 
   OrganMeshChannel(const OrganMeshChannel&) = delete;
@@ -125,15 +129,38 @@ class OrganMeshChannel {
   }
 
   /**
-   * @brief Drains the staged payload to the SDK. Must run on the main thread.
-   *        Returns true if Mesh::SetVertices was invoked.
+   * @brief Advances staged publication. Must run on the main thread.
+   *
+   * Starts at most one off-screen upload and atomically swaps a ready Mesh
+   * into the renderer. Returns true when either operation made progress.
    */
   bool Flush() {
+    AdvanceRetiredMeshes();
+    bool progressed = false;
+    if (replacement_mesh_) {
+      if (!ReplacementReady()) {
+        return false;
+      }
+      const auto renderer = renderer_.lock();
+      if (!renderer) {
+        replacement_mesh_.reset();
+        return false;
+      }
+      RetireDisplayedMesh();
+      mesh_ = std::move(replacement_mesh_);
+      renderer->mesh = mesh_;
+      last_published_hash_ = replacement_hash_;
+      last_published_vertex_count_ = replacement_vertex_count_;
+      last_published_triangle_count_ = replacement_triangle_count_;
+      ++stats_.flush_count;
+      progressed = true;
+    }
+
     PendingPayload payload;
     {
       std::lock_guard<std::mutex> guard(pending_mutex_);
       if (!pending_.present) {
-        return false;
+        return progressed;
       }
       payload = std::move(pending_);
       pending_ = PendingPayload{};
@@ -143,7 +170,7 @@ class OrganMeshChannel {
         payload.vertices.size() == last_published_vertex_count_ &&
         payload.triangles.size() == last_published_triangle_count_) {
       ++stats_.skipped_by_dedup;
-      return false;
+      return progressed;
     }
 
     if (policy.min_republish_interval_seconds > 0.0f) {
@@ -155,29 +182,41 @@ class OrganMeshChannel {
           pending_ = std::move(payload);
         }
         ++stats_.skipped_by_rate_limit;
-        return false;
+        return progressed;
       }
       last_publish_time_seconds_ = now;
     }
 
-    if (!mesh_) {
-      return false;
+    const auto renderer = renderer_.lock();
+    if (!renderer) {
+      return progressed;
     }
-    mesh_->SetVertices(payload.attributes, payload.vertices, payload.triangles);
 
-    last_published_hash_ = payload.hash;
-    last_published_vertex_count_ = payload.vertices.size();
-    last_published_triangle_count_ = payload.triangles.size();
+    if (payload.vertices.empty() || payload.triangles.empty()) {
+      RetireDisplayedMesh();
+      mesh_ = AssetManager::CreateTemporaryAsset<Mesh>();
+      renderer->mesh = mesh_;
+      last_published_hash_ = payload.hash;
+      last_published_vertex_count_ = 0;
+      last_published_triangle_count_ = 0;
+      ++stats_.flush_count;
+      return true;
+    }
+
+    replacement_mesh_ = AssetManager::CreateTemporaryAsset<Mesh>();
+    replacement_mesh_->SetVertices(payload.attributes, payload.vertices, payload.triangles);
+    replacement_hash_ = payload.hash;
+    replacement_vertex_count_ = payload.vertices.size();
+    replacement_triangle_count_ = payload.triangles.size();
     stats_.high_water_vertex_count = std::max(stats_.high_water_vertex_count, payload.vertices.size());
     stats_.high_water_index_count = std::max(stats_.high_water_index_count, payload.triangles.size() * std::size_t{3});
-    ++stats_.flush_count;
     return true;
   }
 
-  /// True iff a payload is waiting to be drained.
+  /// True iff a CPU payload or off-screen replacement is pending.
   [[nodiscard]] bool HasPending() const {
     std::lock_guard<std::mutex> guard(pending_mutex_);
-    return pending_.present;
+    return pending_.present || replacement_mesh_ != nullptr;
   }
 
   [[nodiscard]] Entity GetEntity() const noexcept {
@@ -208,6 +247,11 @@ class OrganMeshChannel {
     bool present = false;
   };
 
+  struct RetiredMesh {
+    std::shared_ptr<Mesh> mesh;
+    uint32_t frames_remaining = 0;
+  };
+
   static std::uint64_t ComputePayloadHash(const std::vector<Vertex>& vertices,
                                           const std::vector<glm::uvec3>& triangles) {
     std::uint64_t hash = HashBytes(vertices.data(), vertices.size() * sizeof(Vertex));
@@ -222,10 +266,47 @@ class OrganMeshChannel {
     return std::chrono::duration<double>(now).count();
   }
 
+  [[nodiscard]] bool ReplacementReady() const {
+    if (!replacement_mesh_ || !Platform::Initialized()) {
+      return replacement_mesh_ != nullptr;
+    }
+    const auto& triangle_range = replacement_mesh_->GetTriangleRange();
+    if (!triangle_range || triangle_range->prev_frame_index_count != replacement_mesh_->GetTriangleAmount()) {
+      return false;
+    }
+    if (!Platform::RayAccelerationStructureEnabled()) {
+      return true;
+    }
+    const auto blas = replacement_mesh_->GetBlas();
+    return blas && blas->IsReady();
+  }
+
+  void RetireDisplayedMesh() {
+    if (!mesh_) {
+      return;
+    }
+    const uint32_t frames = Platform::Initialized() ? static_cast<uint32_t>(Platform::GetMaxFramesInFlight() + 1) : 0u;
+    retired_meshes_.push_back({std::move(mesh_), frames});
+  }
+
+  void AdvanceRetiredMeshes() {
+    for (auto retired = retired_meshes_.begin(); retired != retired_meshes_.end();) {
+      if (retired->frames_remaining == 0) {
+        retired = retired_meshes_.erase(retired);
+      } else {
+        --retired->frames_remaining;
+        ++retired;
+      }
+    }
+  }
+
   std::weak_ptr<Scene> scene_;
   std::string name_;
   Entity entity_{};
+  std::weak_ptr<MeshRenderer> renderer_;
   std::shared_ptr<Mesh> mesh_;
+  std::shared_ptr<Mesh> replacement_mesh_;
+  std::vector<RetiredMesh> retired_meshes_;
   std::shared_ptr<Material> material_;
 
   mutable std::mutex pending_mutex_;
@@ -234,6 +315,9 @@ class OrganMeshChannel {
   std::uint64_t last_published_hash_ = 0;
   std::size_t last_published_vertex_count_ = 0;
   std::size_t last_published_triangle_count_ = 0;
+  std::uint64_t replacement_hash_ = 0;
+  std::size_t replacement_vertex_count_ = 0;
+  std::size_t replacement_triangle_count_ = 0;
   double last_publish_time_seconds_ = -1.0e18;
 
   Stats stats_{};

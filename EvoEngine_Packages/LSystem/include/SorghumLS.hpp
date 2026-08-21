@@ -123,7 +123,8 @@ class SorghumLS final : public LSystemComponentBase<SorghumLS> {
   bool AdvanceChronologicalAging(float delta_years);
   [[nodiscard]] std::shared_ptr<const SorghumGeometrySnapshot> BuildGeometrySnapshot();
   void PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeometrySnapshot>& snapshot,
-                               bool update_render_geometry = true);
+                               bool update_render_geometry = true, bool preserve_existing_geometry = false);
+  std::size_t FlushGeometryUpdates() const;
   void RebuildGeometry();
   void ClearGeometryEntities() const;
   [[nodiscard]] const std::shared_ptr<const SorghumGeometrySnapshot>& GetGeometrySnapshot() const;

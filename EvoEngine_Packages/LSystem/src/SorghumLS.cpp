@@ -917,7 +917,7 @@ std::shared_ptr<const SorghumGeometrySnapshot> SorghumLS::BuildGeometrySnapshot(
 }
 
 void SorghumLS::PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeometrySnapshot>& snapshot,
-                                        const bool update_render_geometry) {
+                                        const bool update_render_geometry, const bool preserve_existing_geometry) {
   if (!snapshot) {
     return;
   }
@@ -948,7 +948,9 @@ void SorghumLS::PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeome
   attributes.color = true;
 
   if (snapshot->culm_triangles.empty()) {
-    render_target_->RemoveMeshChannel(kChannelCulm);
+    if (!preserve_existing_geometry) {
+      render_target_->RemoveMeshChannel(kChannelCulm);
+    }
   } else if (auto* culm_channel = render_target_->GetOrCreateMeshChannel(kChannelCulm, "Sorghum Internodes")) {
     if (const auto material = culm_channel->GetMaterial()) {
       const auto albedo = descriptor ? descriptor->stem_albedo_texture.Get<Texture2D>() : nullptr;
@@ -972,7 +974,9 @@ void SorghumLS::PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeome
   }
 
   if (snapshot->leaf_triangles.empty()) {
-    render_target_->RemoveMeshChannel(kChannelLeaves);
+    if (!preserve_existing_geometry) {
+      render_target_->RemoveMeshChannel(kChannelLeaves);
+    }
   } else if (auto* leaf_channel = render_target_->GetOrCreateMeshChannel(kChannelLeaves, "Sorghum Leaves")) {
     if (const auto material = leaf_channel->GetMaterial()) {
       const auto albedo = descriptor ? descriptor->leaf_atlas_albedo_texture.Get<Texture2D>() : nullptr;
@@ -1009,7 +1013,9 @@ void SorghumLS::PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeome
   }
 
   if (snapshot->panicle_triangles.empty()) {
-    render_target_->RemoveMeshChannel(kChannelPanicle);
+    if (!preserve_existing_geometry) {
+      render_target_->RemoveMeshChannel(kChannelPanicle);
+    }
   } else if (auto* panicle_channel = render_target_->GetOrCreateMeshChannel(kChannelPanicle, "Sorghum Panicle")) {
     if (const auto material = panicle_channel->GetMaterial()) {
       material->vertex_color_only = true;
@@ -1032,6 +1038,10 @@ void SorghumLS::PublishGeometrySnapshot(const std::shared_ptr<const SorghumGeome
   render_target_->FlushPending();
   last_mesh_upload_seconds = times.Now() - upload_start;
   last_rebuild_seconds += times.Now() - publish_start;
+}
+
+std::size_t SorghumLS::FlushGeometryUpdates() const {
+  return render_target_ ? render_target_->FlushPending() : 0;
 }
 
 void SorghumLS::RebuildGeometry() {
