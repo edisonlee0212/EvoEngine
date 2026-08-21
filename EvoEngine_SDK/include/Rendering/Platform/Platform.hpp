@@ -10,9 +10,11 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <set>
+#include <vector>
 
 #define ENABLE_EXTERNAL_MEMORY true
 
@@ -166,6 +168,14 @@ class Platform final {
 
     [[nodiscard]] bool HasDedicatedComputeFamily() const;
     [[nodiscard]] bool IsComplete(bool require_present) const;
+  };
+
+  struct QueuePlan {
+    std::map<uint32_t, std::vector<float>> family_priorities{};
+    uint32_t immediate_queue_index = 0;
+    uint32_t main_queue_index = 0;
+    uint32_t compute_queue_index = 0;
+    uint32_t present_queue_index = 0;
   };
 
   static Platform& GetInstance();
@@ -545,6 +555,9 @@ class Platform final {
   void RegisterShaderIncludePath(const std::filesystem::path& path);
   [[nodiscard]] std::set<std::filesystem::path> GetRegisteredShaderIncludePaths() const;
   [[nodiscard]] static QueueFamilySelection SelectQueueFamilies(const std::vector<QueueFamilySupport>& queue_families);
+  [[nodiscard]] static QueuePlan BuildQueuePlan(const std::vector<uint32_t>& queue_family_counts,
+                                                const QueueFamilySelection& selection,
+                                                bool prefer_distinct_graphics_queues);
 
   static bool RayTracingEnabled();
   static bool RayQueryEnabled();

@@ -44,6 +44,8 @@ field review path. Both modes load only the start scene and its referenced asset
 descriptors without scanning the rest of the research archive.
 Use `RelWithDebInfo` for field review: the verified no-CUDA Player reached its first complete field frame in about
 one minute on the integration machine, while the unoptimized Debug build took several minutes.
+The Vulkan device setup also supports GPUs that expose only one graphics/compute/present queue by safely sharing that
+queue between engine roles.
 
 After an editor install exists, colleagues can double-click `Open-Sorghum-Editor.cmd` in the repository root. The
 launcher finds the standard Sorghum install layouts. The scene opens with the **Sorghum Genotype Lab** window

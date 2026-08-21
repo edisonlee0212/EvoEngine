@@ -273,6 +273,45 @@ Platform::QueueFamilySelection Platform::SelectQueueFamilies(const std::vector<Q
   return selection;
 }
 
+Platform::QueuePlan Platform::BuildQueuePlan(const std::vector<uint32_t>& queue_family_counts,
+                                             const QueueFamilySelection& selection,
+                                             const bool prefer_distinct_graphics_queues) {
+  QueuePlan plan;
+  const auto assign_queue = [&](const uint32_t family, const uint32_t index, const float priority) {
+    if (family >= queue_family_counts.size() || index >= queue_family_counts[family]) {
+      throw std::invalid_argument("Queue role exceeds the selected Vulkan queue family's capacity.");
+    }
+    auto& priorities = plan.family_priorities[family];
+    priorities.resize(std::max(priorities.size(), static_cast<size_t>(index + 1)), kBackgroundQueuePriority);
+    priorities[index] = std::max(priorities[index], priority);
+  };
+
+  if (selection.graphics_and_compute_family) {
+    const uint32_t family = selection.graphics_and_compute_family.value();
+    if (family >= queue_family_counts.size() || queue_family_counts[family] == 0) {
+      throw std::invalid_argument("The selected Vulkan graphics queue family is unavailable.");
+    }
+    const uint32_t last_index = queue_family_counts[family] - 1;
+    plan.main_queue_index = prefer_distinct_graphics_queues ? std::min(1u, last_index) : 0u;
+    assign_queue(family, plan.immediate_queue_index, kBackgroundQueuePriority);
+    assign_queue(family, plan.main_queue_index, kInteractiveQueuePriority);
+  }
+
+  if (selection.HasDedicatedComputeFamily()) {
+    assign_queue(selection.compute_family.value(), plan.compute_queue_index, kBackgroundQueuePriority);
+  }
+
+  if (selection.present_family) {
+    const uint32_t family = selection.present_family.value();
+    if (selection.graphics_and_compute_family == selection.present_family) {
+      const uint32_t last_index = queue_family_counts[family] - 1;
+      plan.present_queue_index = prefer_distinct_graphics_queues ? std::min(2u, last_index) : 0u;
+    }
+    assign_queue(family, plan.present_queue_index, kInteractiveQueuePriority);
+  }
+  return plan;
+}
+
 void Platform::Initialize(const ApplicationInitializationSettings& application_initialization_settings) {
   auto& graphics = GetInstance();
 #pragma region volk
@@ -1900,10 +1939,6 @@ void Platform::CreateLogicalDevice() {
   c_required_device_extensions.reserve(required_device_extension_names_.size());
   for (const auto& i : required_device_extension_names_)
     c_required_device_extensions.emplace_back(i.c_str());
-  std::vector<const char*> c_required_layers;
-  c_required_layers.reserve(required_layers_.size());
-  for (const auto& i : required_layers_)
-    c_required_layers.emplace_back(i.c_str());
 
 #pragma region Logical Device
 
@@ -2084,47 +2119,34 @@ void Platform::CreateLogicalDevice() {
   VkDeviceCreateInfo device_create_info{};
   device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
 #pragma region Queues requirement
+  uint32_t queue_family_count = 0;
+  vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device->vk_physical_device, &queue_family_count, nullptr);
+  std::vector<VkQueueFamilyProperties> queue_family_properties(queue_family_count);
+  vkGetPhysicalDeviceQueueFamilyProperties(selected_physical_device->vk_physical_device, &queue_family_count,
+                                           queue_family_properties.data());
+  std::vector<uint32_t> queue_family_counts;
+  queue_family_counts.reserve(queue_family_properties.size());
+  for (const auto& properties : queue_family_properties) {
+    queue_family_counts.emplace_back(properties.queueCount);
+  }
+#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
+  constexpr bool prefer_distinct_graphics_queues = true;
+#else
+  constexpr bool prefer_distinct_graphics_queues = false;
+#endif
+  const auto queue_plan = BuildQueuePlan(queue_family_counts,
+                                         {selected_physical_device->queue_family_indices.graphics_and_compute_family,
+                                          selected_physical_device->queue_family_indices.compute_family,
+                                          selected_physical_device->queue_family_indices.present_family},
+                                         prefer_distinct_graphics_queues);
   std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
-  std::map<uint32_t, std::vector<float>> unique_queue_families;
-  const auto add_queue_request = [&](const uint32_t queue_family_index, const float priority) {
-    unique_queue_families[queue_family_index].emplace_back(priority);
-  };
-  if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
-    const auto graphics_family = selected_physical_device->queue_family_indices.graphics_and_compute_family.value();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-    add_queue_request(graphics_family, kBackgroundQueuePriority);
-    add_queue_request(graphics_family, kInteractiveQueuePriority);
-#else
-    add_queue_request(graphics_family, kInteractiveQueuePriority);
-#endif
-  }
-  if (selected_physical_device->queue_family_indices.compute_family.has_value() &&
-      selected_physical_device->queue_family_indices.compute_family !=
-          selected_physical_device->queue_family_indices.graphics_and_compute_family) {
-    add_queue_request(selected_physical_device->queue_family_indices.compute_family.value(), kBackgroundQueuePriority);
-  }
-  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
-    const auto present_family = selected_physical_device->queue_family_indices.present_family.value();
-#if defined(WIN32) || defined(_WIN32) || defined(__WIN32__) || defined(__NT__)
-    if (present_family == selected_physical_device->queue_family_indices.graphics_and_compute_family.value()) {
-      add_queue_request(present_family, kInteractiveQueuePriority);
-    } else if (present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, kInteractiveQueuePriority);
-    }
-#else
-    if (present_family != selected_physical_device->queue_family_indices.graphics_and_compute_family.value() &&
-        present_family != selected_physical_device->queue_family_indices.compute_family.value()) {
-      add_queue_request(present_family, kInteractiveQueuePriority);
-    }
-#endif
-  }
-
-  for (auto& queue_family : unique_queue_families) {
+  queue_create_infos.reserve(queue_plan.family_priorities.size());
+  for (const auto& [family, priorities] : queue_plan.family_priorities) {
     VkDeviceQueueCreateInfo queue_create_info{};
     queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-    queue_create_info.queueFamilyIndex = queue_family.first;
-    queue_create_info.queueCount = static_cast<uint32_t>(queue_family.second.size());
-    queue_create_info.pQueuePriorities = queue_family.second.data();
+    queue_create_info.queueFamilyIndex = family;
+    queue_create_info.queueCount = static_cast<uint32_t>(priorities.size());
+    queue_create_info.pQueuePriorities = priorities.data();
     queue_create_infos.push_back(queue_create_info);
   }
 
@@ -2138,69 +2160,34 @@ void Platform::CreateLogicalDevice() {
   device_create_info.enabledExtensionCount = static_cast<uint32_t>(required_device_extension_names_.size());
   device_create_info.ppEnabledExtensionNames = c_required_device_extensions.data();
 
-  device_create_info.enabledLayerCount = static_cast<uint32_t>(required_layers_.size());
-  device_create_info.ppEnabledLayerNames = c_required_layers.data();
+  device_create_info.enabledLayerCount = 0;
+  device_create_info.ppEnabledLayerNames = nullptr;
 
   if (CheckVk(vkCreateDevice(selected_physical_device->vk_physical_device, &device_create_info, nullptr,
                              &vk_device_)) != VK_SUCCESS) {
     throw std::runtime_error("Failed to create logical device!");
   }
 
-#ifdef EVOENGINE_WINDOWS
   if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
     main_queue_ = std::make_unique<CommandQueue>();
     immediate_submit_queue_ = std::make_unique<CommandQueue>();
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
-                     &immediate_submit_queue_->vk_queue_);
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 1,
-                     &main_queue_->vk_queue_);
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(),
+                     queue_plan.immediate_queue_index, &immediate_submit_queue_->vk_queue_);
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(),
+                     queue_plan.main_queue_index, &main_queue_->vk_queue_);
   }
   if (selected_physical_device->queue_family_indices.HasDedicatedComputeFamily()) {
     compute_queue_ = std::make_unique<CommandQueue>();
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.compute_family.value(), 0,
-                     &compute_queue_->vk_queue_);
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.compute_family.value(),
+                     queue_plan.compute_queue_index, &compute_queue_->vk_queue_);
   } else {
     compute_queue_.reset();
   }
   if (selected_physical_device->queue_family_indices.present_family.has_value()) {
     present_queue_ = std::make_unique<CommandQueue>();
-    if (selected_physical_device->queue_family_indices.graphics_and_compute_family.value() !=
-        selected_physical_device->queue_family_indices.present_family.value()) {
-      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 0,
-                       &present_queue_->vk_queue_);
-    } else {
-      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 2,
-                       &present_queue_->vk_queue_);
-    }
+    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(),
+                     queue_plan.present_queue_index, &present_queue_->vk_queue_);
   }
-#else
-  if (selected_physical_device->queue_family_indices.graphics_and_compute_family.has_value()) {
-    main_queue_ = std::make_unique<CommandQueue>();
-    immediate_submit_queue_ = std::make_unique<CommandQueue>();
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
-                     &immediate_submit_queue_->vk_queue_);
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.graphics_and_compute_family.value(), 0,
-                     &main_queue_->vk_queue_);
-  }
-  if (selected_physical_device->queue_family_indices.HasDedicatedComputeFamily()) {
-    compute_queue_ = std::make_unique<CommandQueue>();
-    vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.compute_family.value(), 0,
-                     &compute_queue_->vk_queue_);
-  } else {
-    compute_queue_.reset();
-  }
-  if (selected_physical_device->queue_family_indices.present_family.has_value()) {
-    present_queue_ = std::make_unique<CommandQueue>();
-    if (selected_physical_device->queue_family_indices.graphics_and_compute_family.value() !=
-        selected_physical_device->queue_family_indices.present_family.value()) {
-      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 0,
-                       &present_queue_->vk_queue_);
-    } else {
-      vkGetDeviceQueue(vk_device_, selected_physical_device->queue_family_indices.present_family.value(), 0,
-                       &present_queue_->vk_queue_);
-    }
-  }
-#endif
 #pragma endregion
 }
 

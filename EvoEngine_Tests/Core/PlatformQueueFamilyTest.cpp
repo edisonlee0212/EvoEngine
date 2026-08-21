@@ -50,6 +50,51 @@ TEST(PlatformQueueFamilies, IgnoresFamiliesWithoutQueues) {
   EXPECT_FALSE(selection.IsComplete(true));
 }
 
+TEST(PlatformQueueFamilies, AliasesAllGraphicsRolesOnSingleQueueFamily) {
+  const auto selection = Platform::SelectQueueFamilies({{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, true, 1}});
+  const auto plan = Platform::BuildQueuePlan({1}, selection, true);
+
+  EXPECT_EQ(plan.immediate_queue_index, 0u);
+  EXPECT_EQ(plan.main_queue_index, 0u);
+  EXPECT_EQ(plan.present_queue_index, 0u);
+  ASSERT_EQ(plan.family_priorities.size(), 1u);
+  EXPECT_EQ(plan.family_priorities.at(0), (std::vector<float>{1.0f}));
+}
+
+TEST(PlatformQueueFamilies, UsesOnlyAvailableGraphicsQueues) {
+  const auto selection = Platform::SelectQueueFamilies({{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, true, 2}});
+  const auto plan = Platform::BuildQueuePlan({2}, selection, true);
+
+  EXPECT_EQ(plan.immediate_queue_index, 0u);
+  EXPECT_EQ(plan.main_queue_index, 1u);
+  EXPECT_EQ(plan.present_queue_index, 1u);
+  ASSERT_EQ(plan.family_priorities.size(), 1u);
+  EXPECT_EQ(plan.family_priorities.at(0), (std::vector<float>{0.0f, 1.0f}));
+}
+
+TEST(PlatformQueueFamilies, SeparatesGraphicsRolesWhenThreeQueuesAreAvailable) {
+  const auto selection = Platform::SelectQueueFamilies({{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, true, 3}});
+  const auto plan = Platform::BuildQueuePlan({3}, selection, true);
+
+  EXPECT_EQ(plan.immediate_queue_index, 0u);
+  EXPECT_EQ(plan.main_queue_index, 1u);
+  EXPECT_EQ(plan.present_queue_index, 2u);
+  ASSERT_EQ(plan.family_priorities.size(), 1u);
+  EXPECT_EQ(plan.family_priorities.at(0), (std::vector<float>{0.0f, 1.0f, 1.0f}));
+}
+
+TEST(PlatformQueueFamilies, RequestsOneValidQueueFromEachSelectedFamily) {
+  const auto selection = Platform::SelectQueueFamilies({{VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_COMPUTE_BIT, false, 1},
+                                                        {VK_QUEUE_COMPUTE_BIT, false, 1},
+                                                        {VK_QUEUE_TRANSFER_BIT, true, 1}});
+  const auto plan = Platform::BuildQueuePlan({1, 1, 1}, selection, true);
+
+  ASSERT_EQ(plan.family_priorities.size(), 3u);
+  EXPECT_EQ(plan.family_priorities.at(0), (std::vector<float>{1.0f}));
+  EXPECT_EQ(plan.family_priorities.at(1), (std::vector<float>{0.0f}));
+  EXPECT_EQ(plan.family_priorities.at(2), (std::vector<float>{1.0f}));
+}
+
 TEST(GpuTimestampStats, AggregatesValidSamples) {
   GpuTimestampStats stats;
   stats.name = "Path Trace (RTX)";
