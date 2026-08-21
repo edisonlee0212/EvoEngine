@@ -2095,9 +2095,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (!can_intersect_all) {
     ImGui::BeginDisabled();
   }
-  FileUtils::OpenFolder(
-      "Intersect and export all",
-      [&](const std::filesystem::path& output_dir) {
+  FileUtils::SaveFile(
+      "Intersect and export all", "OBJ", {".obj"},
+      [&](const std::filesystem::path& out_path) {
         const auto scene = Application::GetActiveScene();
         const Entity owner = find_owner_entity();
         if (!scene || !scene->IsEntityValid(owner)) {
@@ -2139,7 +2139,6 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           EVOENGINE_ERROR("Intersect and export all: no intersection meshes exported.");
           return;
         }
-        const std::filesystem::path out_path = output_dir / "intersections.obj";
         MeshletObjExport::ExportObjCombined(
             out_path, export_groups, dynamic_strands->segments,
             render_settings.segment_meshlet_render_parameters.uv_height_factor,
@@ -2155,8 +2154,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
     ImGui::SetTooltip(
         "For each loaded intersection mesh, compute the intersection and export all results as a single OBJ "
-        "(one object per boundary mesh) plus shared bark/interior materials and GPU metadata JSON to the chosen "
-        "folder as intersections.obj. Restores pristine meshlets afterward. Requires a completed meshing run.");
+        "(one object per boundary mesh) plus shared bark/interior materials and GPU metadata JSON. "
+        "Restores pristine meshlets afterward. Requires a completed meshing run.");
   }
 
   ImGui::Checkbox("Fix missing meshlets after intersection", &meshing_settings.intersection_boundary_fix_missing_meshes);
