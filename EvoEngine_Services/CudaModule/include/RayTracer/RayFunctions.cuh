@@ -58,9 +58,7 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
     if (environment.environmental_lighting_type == EnvironmentalLightingType::SingleLightSource) {
       glm::vec3 newRayDirection =
           RandomSampleHemisphere(perRayData.random, environment.sun_direction, 1.0f - environment.light_size);
-      energy += glm::vec3(environment.color) * 0.1f *
-                glm::max(environment.sky_light_intensity_scale, 0.0f) *
-                glm::max(environment.indirect_lighting_intensity, 0.0f) *
+      energy += glm::vec3(environment.color) * environment.ambient_light_intensity *
                 (1.0f - glm::clamp(metallic, 0.0f, 1.0f)) * albedoColor;
       const float NdotL = glm::dot(hit_info.normal, newRayDirection);
       if (NdotL > 0.0f) {
@@ -84,6 +82,28 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
         energy += perRayData.energy * NdotL * albedoColor;
       }
     } else if (perRayData.hit_count <= rayTracerProperties.ray_properties.bounces) {
+      if (environment.environmental_lighting_type == EnvironmentalLightingType::Skydome &&
+          environment.sun_intensity > 0.0f) {
+        const float sun_radius = 0.5f * environment.sun_angular_diameter_radians;
+        const float sample_alpha = 1.0f - glm::sqrt(glm::max(1.0f - glm::cos(sun_radius), 0.0f));
+        const glm::vec3 sun_direction =
+            RandomSampleHemisphere(perRayData.random, environment.sun_direction, sample_alpha);
+        const float n_dot_l = glm::dot(hit_info.normal, sun_direction);
+        if (n_dot_l > 0.0f) {
+          perRayData.energy = glm::vec3(0.0f);
+          optixTrace(
+              optixTraversableHandle,
+              make_float3(hit_info.position.x + hit_info.normal.x * 1e-3f,
+                          hit_info.position.y + hit_info.normal.y * 1e-3f,
+                          hit_info.position.z + hit_info.normal.z * 1e-3f),
+              make_float3(sun_direction.x, sun_direction.y, sun_direction.z), 0.0f, 1e20f, 0.0f,
+              static_cast<OptixVisibilityMask>(255),
+              OPTIX_RAY_FLAG_DISABLE_ANYHIT | OPTIX_RAY_FLAG_TERMINATE_ON_FIRST_HIT | OPTIX_RAY_FLAG_DISABLE_CLOSESTHIT,
+              static_cast<int>(RayType::Radiance), static_cast<int>(RayType::RayTypeCount),
+              static_cast<int>(RayType::Radiance), u0, u1);
+          energy += perRayData.energy * environment.sun_color * environment.sun_intensity * n_dot_l * albedoColor;
+        }
+      }
       bool needSample = false;
       if (hitCount <= 1 && material->material_properties.subsurface_factor > 0.0f &&
           material->material_properties.subsurface_radius.x > 0.0f) {
@@ -118,6 +138,7 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
       float3 newRayDirectionInternal;
       // The legacy CUDA BRDF is one reflection-centered lobe, not a diffuse/glossy mixture.
       BRDF(metallic, perRayData.random, rayDirection, hit_info.normal, newRayDirectionInternal);
+      perRayData.energy = glm::vec3(0.0f);
       perRayData.diffuse_indirect_path = incomingDiffuseIndirectPath;
       optixTrace(optixTraversableHandle, make_float3(hit_info.position.x, hit_info.position.y, hit_info.position.z),
                  newRayDirectionInternal,
@@ -144,11 +165,10 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
       perRayData.albedo = albedoColor;
       perRayData.position = hit_info.position;
     }
-    const float emissionIndirectScale = incomingDiffuseIndirectPath
-                                            ? glm::max(environment.indirect_lighting_intensity, 0.0f)
-                                            : 1.0f;
+    const float emissionIndirectScale =
+        incomingDiffuseIndirectPath ? glm::max(environment.ambient_light_intensity, 0.0f) : 1.0f;
     perRayData.energy = energy + static_cast<SurfaceMaterial *>(sbtData.material)->material_properties.emission *
-                                    albedoColor * emissionIndirectScale;
+                                     albedoColor * emissionIndirectScale;
 
   } else {
     glm::vec3 btfColor;
@@ -161,9 +181,7 @@ static __forceinline__ __device__ void ClosestHitFunc(const RayTracerProperties 
             RandomSampleHemisphere(perRayData.random, environment.sun_direction, 1.0f - environment.light_size);
         static_cast<SurfaceCompressedBtf *>(sbtData.material)
             ->GetValue(hit_info.tex_coord, rayDirection, newRayDirection, hit_info.normal, hit_info.tangent, btfColor);
-        energy += glm::vec3(environment.color) * 0.1f *
-                  glm::max(environment.sky_light_intensity_scale, 0.0f) *
-                  glm::max(environment.indirect_lighting_intensity, 0.0f) * btfColor;
+        energy += glm::vec3(environment.color) * environment.ambient_light_intensity * btfColor;
         const float NdotL = glm::dot(hit_info.normal, newRayDirection);
         if (NdotL > 0.0f) {
           auto origin = hit_info.position;
@@ -226,9 +244,9 @@ static __forceinline__ __device__ void MissFunc(const RayTracerProperties &rayTr
   auto &environment = rayTracerProperties.environment;
   const bool primaryBackground = perRayData.primary_background_visible && perRayData.hit_count == 0u;
   glm::vec3 environmentalLightColor =
-      primaryBackground ? CalculateEnvironmentSourceRadiance(rayOrig, rayDirection, environment)
-                        : CalculateEnvironmentalLight(rayOrig, rayDirection, environment,
-                                                      perRayData.diffuse_indirect_path);
+      primaryBackground
+          ? CalculateEnvironmentSourceRadiance(rayOrig, rayDirection, environment)
+          : CalculateEnvironmentalLight(rayOrig, rayDirection, environment, perRayData.diffuse_indirect_path);
   perRayData.albedo = perRayData.energy = environmentalLightColor;
 }
 }  // namespace evo_engine

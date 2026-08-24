@@ -11,6 +11,6 @@ class BtfMeshRenderer : public IPrivateComponent {
 
   bool DrawGui(const std::shared_ptr<EditorLayer> &editor_layer);
 
-  void CollectAssetRef(std::vector<AssetRef> &list) override;
+  void CollectAssetRef(std::vector<AssetRef> &list);
 };
 }  // namespace evo_engine

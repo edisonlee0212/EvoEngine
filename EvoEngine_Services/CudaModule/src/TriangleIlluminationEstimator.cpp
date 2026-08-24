@@ -1,7 +1,6 @@
 
 #include "CudaSerializationAdapters.hpp"
 
-#include "BtfMeshRenderer.hpp"
 #include "EditorLayer.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
@@ -190,33 +189,6 @@ void TriangleIlluminationEstimator::PrepareLightProbeGroup() {
             light_probe.front_face = light_probe.back_face = false;
           } break;
         }
-        light_probe_group_.light_probes.push_back(light_probe);
-      }
-    } else if (scene->HasPrivateComponent<BtfMeshRenderer>(entity)) {
-      auto global_transform = scene->GetDataComponent<GlobalTransform>(entity);
-      const auto mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock();
-      const auto mesh = mesh_renderer->mesh.Get<Mesh>();
-      const auto material = mesh_renderer->btf.Get<BtfMaterial>();
-      if (!mesh || !material)
-        continue;
-      for (const auto& triangle : mesh->UnsafeGetTriangles()) {
-        auto& vertices = mesh->UnsafeGetVertices();
-        IlluminationSampler<glm::vec3> light_probe;
-        light_probe.v_0 = vertices[triangle.x];
-        light_probe.v_1 = vertices[triangle.y];
-        light_probe.v_2 = vertices[triangle.z];
-        light_probe.v_0.position = global_transform.value * glm::vec4(light_probe.v_0.position, 1.0f);
-        light_probe.v_1.position = global_transform.value * glm::vec4(light_probe.v_1.position, 1.0f);
-        light_probe.v_2.position = global_transform.value * glm::vec4(light_probe.v_2.position, 1.0f);
-        light_probe.v_0.normal = global_transform.value * glm::vec4(light_probe.v_0.normal, 0.0f);
-        light_probe.v_1.normal = global_transform.value * glm::vec4(light_probe.v_1.normal, 0.0f);
-        light_probe.v_2.normal = global_transform.value * glm::vec4(light_probe.v_2.normal, 0.0f);
-        const auto area = light_probe.GetArea();
-        light_probe.direction = glm::vec3(0.0f);
-        light_probe.energy = glm::vec3(0.0f);
-        light_probe.front_face = light_probe.back_face = true;
-        total_area += 2.0f * area;
-
         light_probe_group_.light_probes.push_back(light_probe);
       }
     }

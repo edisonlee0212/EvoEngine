@@ -128,7 +128,11 @@ function(register_evoengine_service service_name)
 					target_compile_options(${service_name}Service PRIVATE -Werror)
 				elseif (MSVC)
 					message(STATUS "Setting MSVC flags")
-					target_compile_options(${service_name}Service PRIVATE /EHsc /W2 /FS /c)
+					target_compile_options(${service_name}Service PRIVATE
+						$<$<COMPILE_LANGUAGE:CXX>:/EHsc>
+						$<$<COMPILE_LANGUAGE:CXX>:/W2>
+						$<$<COMPILE_LANGUAGE:CXX>:/FS>
+						$<$<COMPILE_LANGUAGE:CXX>:/c>)
 				elseif (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
 					message(STATUS "Setting Clang flags")
 					target_compile_options(${service_name}Service PRIVATE -fPIC --no-warnings -Wno-c++98-compat -Wno-c++98-compat-pedantic -Wno-newline-eof -Wno-padded -Wno-exit-time-destructors -Wno-global-constructors -Wno-constant-conversion)

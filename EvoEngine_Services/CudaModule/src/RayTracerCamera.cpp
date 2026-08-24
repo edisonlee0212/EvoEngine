@@ -70,6 +70,7 @@ void RayTracerCamera::OnCreate() {
 }
 
 void RayTracerCamera::OnDestroy() {
+  camera_properties_.target_image.reset();
   camera_properties_.frame_buffer_color.Free();
   camera_properties_.frame_buffer_normal.Free();
   camera_properties_.frame_buffer_albedo.Free();

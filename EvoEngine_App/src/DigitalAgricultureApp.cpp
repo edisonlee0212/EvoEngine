@@ -17,6 +17,54 @@
 using namespace evo_engine;
 void EngineSetup();
 
+namespace {
+EditorLayoutSettings CreateSorghumEditorLayout() {
+  EditorLayoutSettings settings;
+  settings.panels.scene = true;
+  settings.panels.camera = false;
+  settings.panels.scene_info = false;
+  settings.panels.camera_info = false;
+  settings.panels.entity_explorer = true;
+  settings.panels.entity_inspector = false;
+  settings.panels.console = false;
+  settings.panels.project = false;
+  settings.panels.resources = false;
+  settings.panels.profiler = false;
+  settings.panels.runtime_package_manager = false;
+  settings.panels.render_layer_inspection = false;
+
+  EditorDockLayoutSettings dock_layout;
+  dock_layout.left_fraction = 0.18f;
+  dock_layout.right_fraction = 0.30f;
+  dock_layout.bottom_fraction = 0.05f;
+  settings.dock_layout = dock_layout;
+  return settings;
+}
+
+void UseRayTracing(const std::shared_ptr<Scene>& scene) {
+  if (scene) {
+    if (const auto camera = scene->main_camera.Get<Camera>()) {
+      camera->camera_render_mode = Camera::CameraRenderMode::RayTracing;
+    }
+  }
+}
+
+void ConfigureSorghumEditor() {
+  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (!editor_layer) {
+    return;
+  }
+  editor_layer->velocity = 2.f;
+  editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
+  editor_layer->GetSceneCamera()->camera_render_mode = Camera::CameraRenderMode::RayTracing;
+  UseRayTracing(ApplicationContext::Get().GetActiveScene());
+  for (const auto& layer : ApplicationContext::Get().GetLayers()) {
+    layer->enable_inspection = layer->GetLayerName() == "LSystem Layer";
+  }
+  editor_layer->RequestEditorLayout(CreateSorghumEditorLayout());
+}
+}  // namespace
+
 int main(const int argc, char** argv) {
   Application application;
   const auto application_mode = ParseApplicationModeArguments(argc, argv);
@@ -55,6 +103,7 @@ int main(const int argc, char** argv) {
   }
 
   EngineSetup();
+  ApplicationContext::Get().RegisterPostAttachSceneFunction(UseRayTracing);
 
   if (application_mode != ApplicationMode::Headless) {
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
@@ -67,8 +116,8 @@ int main(const int argc, char** argv) {
   ApplicationInitializationSettings application_configs;
   application_configs.application_mode = application_mode;
   application_configs.application_name = "DigitalAgriculture";
-  application_configs.project_path =
-      std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" / "test_lsystem_sorghum.eveproj");
+  application_configs.project_path = std::filesystem::absolute(resource_folder_path / "DigitalAgricultureProject" /
+                                                               "test_lsystem_sorghum_genotype_c_aug11_2x10.eveproj");
   application_configs.enable_runtime_packages = true;
   application_configs.use_custom_title_bar = true;
   application_configs.startup_runtime_packages = {"DigitalAgriculture", "LSystem"};
@@ -77,15 +126,18 @@ int main(const int argc, char** argv) {
   application_configs.load_project_assets = false;
   ApplyApplicationModeDefaults(application_configs);
   ApplicationContext::Get().Initialize(application_configs);
+  ApplicationContext::Get().RemoveLayersOwnedByPackage("DigitalAgriculture");
+  ConfigureSorghumEditor();
 
-  // adjust default camera speed
-  const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
-  if (editor_layer) {
-    editor_layer->velocity = 2.f;
-    editor_layer->default_scene_camera_position = glm::vec3(1.124, 0.218, 14.089);
-  }
 #pragma region Engine Loop
   ApplicationContext::Get().Start();
+  while (!ProjectManager::IsProjectIdle()) {
+    if (!ApplicationContext::Get().Loop()) {
+      ApplicationContext::Get().Terminate();
+      return 0;
+    }
+  }
+  ConfigureSorghumEditor();
   ApplicationContext::Get().Run();
 #pragma endregion
   ApplicationContext::Get().Terminate();

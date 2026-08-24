@@ -1,7 +1,9 @@
-# August 11 Sorghum A/B/C Vulkan handoff
+# August 11 Sorghum Vulkan handoff
 
-This branch runs the measured-endpoint 6x10 A/A/B/B/C/C field on current EvoEngine `dev` without CUDA. The field has
-60 plants, 20 per genotype, and opens from `Resources/DigitalAgricultureProject/test_lsystem_sorghum.eveproj`.
+DigitalAgriculture now opens the isolated August 11 Genotype C experiment by default. It has two rows of ten C plants
+and uses `Resources/DigitalAgricultureProject/test_lsystem_sorghum_genotype_c_aug11_2x10.eveproj`. The original
+measured-endpoint 6x10 A/A/B/B/C/C field remains available, unchanged, from
+`Resources/DigitalAgricultureProject/test_lsystem_sorghum.eveproj`.
 
 ## Build and run
 
@@ -40,20 +42,21 @@ out/install/vs2026-x64-nocuda/bin/DigitalAgricultureApp.exe --editor
 
 The app and project both request the `DigitalAgriculture` and `LSystem` runtime packages. No package selection or
 manual scene navigation is required. Use `--editor` to change descriptors and `--player` for the faster, read-only
-field review path. Both modes load only the start scene and its referenced assets; this includes the three genotype
-descriptors without scanning the rest of the research archive.
+field review path. Both modes load only the C-only start scene and its referenced assets without scanning the rest of
+the research archive.
 Use `RelWithDebInfo` for field review: the verified no-CUDA Player reached its first complete field frame in about
 one minute on the integration machine, while the unoptimized Debug build took several minutes.
 The Vulkan device setup also supports GPUs that expose only one graphics/compute/present queue by safely sharing that
 queue between engine roles.
 
 After an editor install exists, colleagues can double-click `Open-Sorghum-Editor.cmd` in the repository root. The
-launcher finds the standard Sorghum install layouts. The scene opens with the **Sorghum Genotype Lab** window
-visible. Use its A/B/C descriptor buttons,
+launcher finds the standard Sorghum install layouts. The editor opens in Vulkan ray-tracing mode with only the Scene
+viewport, Entity Explorer, and **LSystem Layer** panel visible. The legacy **Sorghum Layer** is not started; its old
+model is unrelated to this experiment. Use the LSystem panel's **Sorghum Genotype Lab** Genotype C descriptor,
 leave **Live preview** enabled, and choose either representative-only or whole-genotype updates while dragging.
 Dragging uses a coarse mesh; releasing the control queues all 20 plants for that genotype at full quality, two per
 frame. Each current mesh remains visible until its replacement is GPU-ready, so the editor stays responsive and all
-60 plants remain visible throughout the update.
+20 plants remain visible throughout the update.
 
 Use **Rasterization (interactive)** while tuning. **Vulkan Ray Tracing** and **Vulkan Ray Query** consume the exact
 same generated meshes and can be selected from the lab for quality review. Unsupported modes fall back through the
@@ -63,18 +66,15 @@ or Sorghum geometry.
 The pinned data commit already removes stale `.evefoldermeta` files, so a normal first asset scan does not dirty the
 data submodule merely by pruning old metadata.
 
-## The three editable genotype assets
+## Editable Genotype C asset
 
-- `Assets/GeneratedAssets/Experiments/Sorghum2026_6x10_2026-08-11/Descriptors/FinalSnapshot/GenotypeA.sorghumls`
-- `Assets/GeneratedAssets/Experiments/Sorghum2026_6x10_2026-08-11/Descriptors/FinalSnapshot/GenotypeB.sorghumls`
-- `Assets/GeneratedAssets/Experiments/Sorghum2026_6x10_2026-08-11/Descriptors/FinalSnapshot/GenotypeC.sorghumls`
+- `Assets/GeneratedAssets/Experiments/Sorghum2026_C_2x10_2026-08-11/Descriptors/FinalSnapshot/GenotypeC.sorghumls`
 
-They live inside the `Resources/DigitalAgricultureProject` submodule. The field scene references them directly.
+It lives inside the `Resources/DigitalAgricultureProject` submodule. The C-only field scene references it directly.
 Use the descriptor inspector's Live Preview while editing and save the descriptor asset when the result is accepted.
 Dragging previews one representative plant by default for smooth feedback; releasing the control rebuilds all 20
 plants in that genotype progressively at full quality. Enable `Update whole genotype while dragging` only when
-seeing every plant change during the drag is worth the additional latency of the roughly 69-million-triangle final
-field.
+seeing every plant change during the drag is worth the additional latency.
 
 ## Parameters that control measured endpoint agreement
 
@@ -108,7 +108,15 @@ are retained. Standalone legacy metallic and roughness images are deliberately n
 metallic-roughness slot; exact image-map fidelity needs an offline G/B channel packer, while Sorghum geometry and
 endpoint measurements are unaffected.
 
-## Fixed experiment contract
+## Fixed C-only experiment contract
+
+- Layout: two rows by ten plants, all Genotype C (range 73), at 0.76 m column and 1.10 m row spacing.
+- Measured endpoint mean: 2.220 m height, 14.2 main-culm leaves, 1.8 primary tillers, and 100% panicle emergence.
+- Measured panicle mean: 0.201 m long and 0.068 m wide.
+- Field placement, preserved per-plant seeds, provenance, and validation reports are stored under
+  `Data/Experiments/Sorghum2026_GenotypeC_2x10_2026-08-11` in the data submodule.
+
+## Preserved A/B/C experiment contract
 
 - Layout: six rows by ten plants in A, A, B, B, C, C order.
 - Source mapping: A = range 75, B = range 74, C = range 73.

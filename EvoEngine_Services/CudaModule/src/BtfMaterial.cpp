@@ -735,7 +735,7 @@ void DeserializeBtfBase(BtfBase &target, const YAML::Node &in) {
 }
 
 template <typename T>
-void LoadList(const std::string &name, const YAML::Node &in, std::vector<T> &target) {
+void LoadBinaryList(const std::string &name, const YAML::Node &in, std::vector<T> &target) {
   if (in[name]) {
     const auto &data = in[name].as<YAML::Binary>();
     target.resize(data.size() / sizeof(T));
@@ -744,7 +744,7 @@ void LoadList(const std::string &name, const YAML::Node &in, std::vector<T> &tar
 }
 
 template <typename T>
-void SaveList(const std::string &name, YAML::Emitter &out, const std::vector<T> &target) {
+void SaveBinaryList(const std::string &name, YAML::Emitter &out, const std::vector<T> &target) {
   if (!target.empty()) {
     out << YAML::Key << name << YAML::Value
         << YAML::Binary((const unsigned char *)target.data(), target.size() * sizeof(T));
@@ -757,26 +757,26 @@ void evo_engine::SerializeBtfMaterial(YAML::Emitter &out, const BtfMaterial &tar
     SerializeBtfBase(target.btf_base, out);
     out << YAML::EndMap;
 
-    SaveList("shared_coordinates_beta_angles", out, target.shared_coordinates_beta_angles);
+    SaveBinaryList("shared_coordinates_beta_angles", out, target.shared_coordinates_beta_angles);
 
-    SaveList("pdf6d", out, target.pdf6d);
-    SaveList("pdf6d_scales", out, target.pdf6d_scales);
+    SaveBinaryList("pdf6d", out, target.pdf6d);
+    SaveBinaryList("pdf6d_scales", out, target.pdf6d_scales);
 
-    SaveList("pdf4d", out, target.pdf4d);
-    SaveList("pdf4d_scales", out, target.pdf4d_scales);
+    SaveBinaryList("pdf4d", out, target.pdf4d);
+    SaveBinaryList("pdf4d_scales", out, target.pdf4d_scales);
 
-    SaveList("pdf3d", out, target.pdf3d);
-    SaveList("pdf3d_scales", out, target.pdf3d_scales);
+    SaveBinaryList("pdf3d", out, target.pdf3d);
+    SaveBinaryList("pdf3d_scales", out, target.pdf3d_scales);
 
-    SaveList("luminance_color_indices", out, target.luminance_color_indices);
-    SaveList("pdf2d_colors", out, target.pdf2d_colors);
-    SaveList("pdf2d_scales", out, target.pdf2d_scales);
-    SaveList("pdf2d", out, target.pdf2d);
+    SaveBinaryList("luminance_color_indices", out, target.luminance_color_indices);
+    SaveBinaryList("pdf2d_colors", out, target.pdf2d_colors);
+    SaveBinaryList("pdf2d_scales", out, target.pdf2d_scales);
+    SaveBinaryList("pdf2d", out, target.pdf2d);
 
-    SaveList("index_ab", out, target.index_ab);
+    SaveBinaryList("index_ab", out, target.index_ab);
 
-    SaveList("pdf1d", out, target.pdf1d);
-    SaveList("vector_color", out, target.vector_color);
+    SaveBinaryList("pdf1d", out, target.pdf1d);
+    SaveBinaryList("vector_color", out, target.vector_color);
   }
 }
 
@@ -785,26 +785,26 @@ void evo_engine::DeserializeBtfMaterial(const YAML::Node &in, BtfMaterial &targe
   if (in["btf_base"]) {
     DeserializeBtfBase(target.btf_base, in["btf_base"]);
 
-    LoadList("shared_coordinates_beta_angles", in, target.shared_coordinates_beta_angles);
+    LoadBinaryList("shared_coordinates_beta_angles", in, target.shared_coordinates_beta_angles);
 
-    LoadList("pdf6d", in, target.pdf6d);
-    LoadList("pdf6d_scales", in, target.pdf6d_scales);
+    LoadBinaryList("pdf6d", in, target.pdf6d);
+    LoadBinaryList("pdf6d_scales", in, target.pdf6d_scales);
 
-    LoadList("pdf4d", in, target.pdf4d);
-    LoadList("pdf4d_scales", in, target.pdf4d_scales);
+    LoadBinaryList("pdf4d", in, target.pdf4d);
+    LoadBinaryList("pdf4d_scales", in, target.pdf4d_scales);
 
-    LoadList("pdf3d", in, target.pdf3d);
-    LoadList("pdf3d_scales", in, target.pdf3d_scales);
+    LoadBinaryList("pdf3d", in, target.pdf3d);
+    LoadBinaryList("pdf3d_scales", in, target.pdf3d_scales);
 
-    LoadList("luminance_color_indices", in, target.luminance_color_indices);
-    LoadList("pdf2d_colors", in, target.pdf2d_colors);
-    LoadList("pdf2d_scales", in, target.pdf2d_scales);
-    LoadList("pdf2d", in, target.pdf2d);
+    LoadBinaryList("luminance_color_indices", in, target.luminance_color_indices);
+    LoadBinaryList("pdf2d_colors", in, target.pdf2d_colors);
+    LoadBinaryList("pdf2d_scales", in, target.pdf2d_scales);
+    LoadBinaryList("pdf2d", in, target.pdf2d);
 
-    LoadList("index_ab", in, target.index_ab);
+    LoadBinaryList("index_ab", in, target.index_ab);
 
-    LoadList("pdf1d", in, target.pdf1d);
-    LoadList("vector_color", in, target.vector_color);
+    LoadBinaryList("pdf1d", in, target.pdf1d);
+    LoadBinaryList("vector_color", in, target.vector_color);
 
     target.UploadDeviceData();
   }

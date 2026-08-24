@@ -60,7 +60,6 @@ struct Curves {
         hit_info.color = interpolator.color(u);
       } break;
     }
-    hit_info.data = glm::vec4(0.0f);
     hit_info.tangent = glm::cross(hit_info.normal, glm::vec3(hit_info.normal.y, hit_info.normal.z, hit_info.normal.x));
     return hit_info;
   }
@@ -234,19 +233,20 @@ struct SurfaceMaterial {
     if (!albedo_texture)
       return glm::vec4(material_properties.albedo_color, 1.0f - material_properties.transmission);
     float4 textureAlbedo = tex2D<float4>(albedo_texture, tex_coord.x, tex_coord.y);
-    return glm::vec4(textureAlbedo.x, textureAlbedo.y, textureAlbedo.z, textureAlbedo.w);
+    return glm::vec4(material_properties.albedo_color, 1.0f - material_properties.transmission) *
+           glm::vec4(textureAlbedo.x, textureAlbedo.y, textureAlbedo.z, textureAlbedo.w);
   }
 
   __device__ float GetRoughness(const glm::vec2 &tex_coord) const {
     if (!roughness_texture)
       return material_properties.roughness;
-    return tex2D<float4>(roughness_texture, tex_coord.x, tex_coord.y).x;
+    return material_properties.roughness * tex2D<float4>(roughness_texture, tex_coord.x, tex_coord.y).y;
   }
 
   __device__ float GetMetallic(const glm::vec2 &tex_coord) const {
     if (!metallic_texture)
       return material_properties.metallic;
-    return tex2D<float4>(metallic_texture, tex_coord.x, tex_coord.y).x;
+    return material_properties.metallic * tex2D<float4>(metallic_texture, tex_coord.x, tex_coord.y).z;
   }
 
   __device__ void ApplyNormalTexture(glm::vec3 &normal, const glm::vec2 &tex_coord, const glm::vec3 &tangent) const {

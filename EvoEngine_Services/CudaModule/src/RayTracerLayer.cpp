@@ -1,10 +1,10 @@
 #include "RayTracerLayer.hpp"
 #include "Application.hpp"
 #include "BasicPointCloudScanner.hpp"
-#include "BtfMaterial.hpp"
-#include "BtfMeshRenderer.hpp"
 #include "CudaSerializationAdapters.hpp"
 #include "EditorLayer.hpp"
+#include "EnvironmentalLightingResolver.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GlobalReflectionProbe.hpp"
 #include "InspectorRegistry.hpp"
 #include "MeshRenderer.hpp"
@@ -271,63 +271,6 @@ void RayTracerLayer::UpdateMeshesStorage(const std::shared_ptr<Scene>& scene,
       rebuild_instances = rebuild_instances || need_instance_update;
     }
   }
-  if (const auto* ray_traced_entities = scene->UnsafeGetPrivateComponentOwnersList<BtfMeshRenderer>();
-      ray_traced_entities && render_btf_mesh_renderer) {
-    for (auto entity : *ray_traced_entities) {
-      if (!scene->IsEntityEnabled(entity))
-        continue;
-      auto mesh_renderer = scene->GetOrSetPrivateComponent<BtfMeshRenderer>(entity).lock();
-      if (!mesh_renderer->IsEnabled())
-        continue;
-      auto mesh = mesh_renderer->mesh.Get<Mesh>();
-      auto material = mesh_renderer->btf.Get<BtfMaterial>();
-      if (!material || !material->btf_base.has_data || !mesh || mesh->UnsafeGetVertices().empty())
-        continue;
-      auto global_transform = scene->GetDataComponent<GlobalTransform>(entity).value;
-      bool need_instance_update = false;
-      bool need_material_update = false;
-
-      auto entity_handle = scene->GetEntityHandle(entity);
-      auto geometry_handle = mesh->GetHandle();
-      auto material_handle = material->GetHandle();
-      auto& ray_traced_instance = instance_storage[mesh_renderer->GetHandle().GetValue()];
-      auto& ray_traced_geometry = geometry_storage[geometry_handle];
-      auto& ray_traced_material = material_storage[material_handle];
-      ray_traced_instance.remove_flag = false;
-      ray_traced_material.remove_flag = false;
-      ray_traced_geometry.remove_flag = false;
-
-      if (ray_traced_instance.entity_handle != entity_handle ||
-          ray_traced_instance.private_component_handle != mesh_renderer->GetHandle().GetValue() ||
-          ray_traced_instance.version != mesh_renderer->GetVersion() ||
-          global_transform != ray_traced_instance.global_transform) {
-        need_instance_update = true;
-      }
-      if (ray_traced_geometry.handle == 0 || ray_traced_geometry.version != mesh->GetVersion()) {
-        ray_traced_geometry.update_flag = true;
-        need_instance_update = true;
-        ray_traced_geometry.renderer_type = RendererType::Default;
-        ray_traced_geometry.triangles = &mesh->UnsafeGetTriangles();
-        ray_traced_geometry.vertices = &mesh->UnsafeGetVertices();
-        ray_traced_geometry.version = mesh->GetVersion();
-        ray_traced_geometry.geometry_type = PrimitiveType::Triangle;
-        ray_traced_geometry.handle = geometry_handle;
-      }
-      if (CheckBtfMaterial(ray_traced_material, material))
-        need_instance_update = true;
-      if (need_instance_update) {
-        ray_traced_instance.entity_handle = entity_handle;
-        ray_traced_instance.private_component_handle = mesh_renderer->GetHandle().GetValue();
-        ray_traced_instance.version = mesh_renderer->GetVersion();
-        ray_traced_instance.global_transform = global_transform;
-        ray_traced_instance.geometry_map_key = geometry_handle;
-        ray_traced_instance.material_map_key = material_handle;
-      }
-      update_shader_binding_table = update_shader_binding_table || need_material_update;
-      rebuild_instances = rebuild_instances || need_instance_update;
-    }
-  }
-
   for (auto& i : instance_storage)
     if (i.second.remove_flag)
       rebuild_instances = true;
@@ -341,64 +284,73 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
   auto& geometry_storage = CudaModule::GetRayTracer()->geometries;
   UpdateMeshesStorage(scene, material_storage, geometry_storage, instance_storage, rebuild_acceleration_structure,
                       update_shader_binding_table);
-  auto& env_settings = scene->environment;
-  const bool use_env_map = env_settings.environment_type == Scene::EnvironmentType::EnvironmentalMap;
-  const auto requested_environmental_map = env_settings.environmental_map.GetAssetHandle();
-  auto env_map = env_settings.environmental_map.Get<EnvironmentalMap>();
-  auto reflection_probe = scene->GetGlobalReflectionProbeFallback(false);
-  if (!reflection_probe || !reflection_probe->IsRuntimeReady()) {
-    env_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
-    reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe();
-  }
-  if (reflection_probe && !reflection_probe->IsRuntimeReady()) {
-    reflection_probe.reset();
-  }
-  const Handle requested_reflection_probe = reflection_probe ? reflection_probe->GetHandle() : Handle{};
-  const uint64_t requested_payload_hash = reflection_probe ? reflection_probe->GetPayloadHash() : 0u;
-  if (environmental_map_handle != requested_environmental_map ||
-      global_reflection_probe_handle != requested_reflection_probe ||
-      global_reflection_probe_payload_hash != requested_payload_hash) {
-    environmental_map_handle = requested_environmental_map;
-    global_reflection_probe_handle = requested_reflection_probe;
-    global_reflection_probe_payload_hash = requested_payload_hash;
-    environment_properties.environmental_map = 0;
-    environmental_map_image.reset();
-    update_shader_binding_table = true;
-  }
-  if (use_env_map && !environmental_map_image) {
-    const auto imported = reflection_probe ? CudaModule::ImportCubemap(reflection_probe->GetCubemap()) : nullptr;
-    if (imported) {
-      environmental_map_image = imported;
-      environment_properties.environmental_map = imported->texture_object;
+  if (environment_properties.environmental_lighting_type == EnvironmentalLightingType::Scene) {
+    const auto lighting = ResolveEnvironmentalLighting(scene);
+    const auto& source = lighting.indirect_environment_source;
+    const bool use_env_map =
+        source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap;
+    auto environmental_map_ref = source.environmental_map;
+    const auto requested_environmental_map = environmental_map_ref.GetAssetHandle();
+    auto env_map = environmental_map_ref.Get<EnvironmentalMap>();
+    auto reflection_probe = scene->GetGlobalReflectionProbeFallback(false);
+    if (!reflection_probe || !reflection_probe->IsRuntimeReady()) {
+      env_map = Resources::GetInstance().GetDefaultEnvironmentalMap();
+      reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe();
     }
-    update_shader_binding_table = true;
-  }
-  const bool use_imported_env_map = use_env_map && environmental_map_image;
-  if (environment_properties.use_environmental_map != use_imported_env_map) {
-    environment_properties.use_environmental_map = use_imported_env_map;
-    update_shader_binding_table = true;
-  }
-  if (env_settings.background_color != environment_properties.color) {
-    environment_properties.color = env_settings.background_color;
-    update_shader_binding_table = true;
-  }
-  const float sky_light_intensity_scale = glm::max(env_settings.sky_light_intensity_scale, 0.0f);
-  if (environment_properties.sky_light_intensity_scale != sky_light_intensity_scale) {
-    environment_properties.sky_light_intensity_scale = sky_light_intensity_scale;
-    update_shader_binding_table = true;
-  }
-  const float indirect_lighting_intensity = glm::max(env_settings.indirect_lighting_intensity, 0.0f);
-  if (environment_properties.indirect_lighting_intensity != indirect_lighting_intensity) {
-    environment_properties.indirect_lighting_intensity = indirect_lighting_intensity;
-    update_shader_binding_table = true;
-  }
-  if (environment_properties.environment_rotation != env_settings.environment_rotation) {
-    environment_properties.environment_rotation = env_settings.environment_rotation;
-    update_shader_binding_table = true;
-  }
-  if (environment_properties.gamma != env_settings.environment_gamma) {
-    environment_properties.gamma = env_settings.environment_gamma;
-    update_shader_binding_table = true;
+    if (reflection_probe && !reflection_probe->IsRuntimeReady()) {
+      reflection_probe.reset();
+    }
+    const Handle requested_reflection_probe = reflection_probe ? reflection_probe->GetHandle() : Handle{};
+    const uint64_t requested_payload_hash = reflection_probe ? reflection_probe->GetPayloadHash() : 0u;
+    if (environmental_map_handle != requested_environmental_map ||
+        global_reflection_probe_handle != requested_reflection_probe ||
+        global_reflection_probe_payload_hash != requested_payload_hash) {
+      environmental_map_handle = requested_environmental_map;
+      global_reflection_probe_handle = requested_reflection_probe;
+      global_reflection_probe_payload_hash = requested_payload_hash;
+      environment_properties.environmental_map = 0;
+      environmental_map_image.reset();
+      update_shader_binding_table = true;
+    }
+    if (use_env_map && !environmental_map_image) {
+      const auto imported = reflection_probe ? CudaModule::ImportCubemap(reflection_probe->GetCubemap()) : nullptr;
+      if (imported) {
+        environmental_map_image = imported;
+        environment_properties.environmental_map = imported->texture_object;
+      }
+      update_shader_binding_table = true;
+    }
+    const bool use_imported_env_map = use_env_map && environmental_map_image;
+    if (environment_properties.use_environmental_map != use_imported_env_map) {
+      environment_properties.use_environmental_map = use_imported_env_map;
+      update_shader_binding_table = true;
+    }
+    const glm::vec3 background_color =
+        source.kind == ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color
+            ? source.color
+            : environment_properties.color;
+    if (background_color != environment_properties.color) {
+      environment_properties.color = background_color;
+      update_shader_binding_table = true;
+    }
+    const float skylight_intensity = std::max(lighting.environment_lighting_intensity, 0.0f);
+    if (environment_properties.skylight_intensity != skylight_intensity) {
+      environment_properties.skylight_intensity = skylight_intensity;
+      update_shader_binding_table = true;
+    }
+    const float ambient_light_intensity = std::max(lighting.diffuse_fallback_intensity, 0.0f);
+    if (environment_properties.ambient_light_intensity != ambient_light_intensity) {
+      environment_properties.ambient_light_intensity = ambient_light_intensity;
+      update_shader_binding_table = true;
+    }
+    if (environment_properties.environment_rotation != source.rotation) {
+      environment_properties.environment_rotation = source.rotation;
+      update_shader_binding_table = true;
+    }
+    if (environment_properties.gamma != source.gamma) {
+      environment_properties.gamma = source.gamma;
+      update_shader_binding_table = true;
+    }
   }
 
   CudaModule::GetRayTracer()->scene_modified = false;
@@ -414,13 +366,9 @@ bool RayTracerLayer::UpdateScene(const std::shared_ptr<Scene>& scene) {
 }
 
 void RayTracerLayer::RegisterTypes(Application& application) {
-  application.RegisterPrivateComponent<BtfMeshRenderer>("BtfMeshRenderer");
   application.RegisterPrivateComponent<TriangleIlluminationEstimator>("TriangleIlluminationEstimator");
   application.RegisterPrivateComponent<RayTracerCamera>("RayTracerCamera");
   application.RegisterPrivateComponent<BasicPointCloudScanner>("BasicPointCloudScanner");
-  application.RegisterAsset<BtfMaterial>("BtfMaterial", {".btf"});
-  Serialization::RegisterSerializationHandler<BtfMeshRenderer>(SerializeBtfMeshRenderer, DeserializeBtfMeshRenderer, {},
-                                                               "BtfMeshRenderer");
   Serialization::RegisterSerializationHandler<TriangleIlluminationEstimator>(SerializeTriangleIlluminationEstimator,
                                                                              DeserializeTriangleIlluminationEstimator,
                                                                              {}, "TriangleIlluminationEstimator");
@@ -428,13 +376,6 @@ void RayTracerLayer::RegisterTypes(Application& application) {
                                                                "RayTracerCamera");
   Serialization::RegisterSerializationHandler<BasicPointCloudScanner>(
       SerializeBasicPointCloudScanner, DeserializeBasicPointCloudScanner, {}, "BasicPointCloudScanner");
-  Serialization::RegisterSerializationHandler<BtfMaterial>(SerializeBtfMaterial, DeserializeBtfMaterial, {},
-                                                           "BtfMaterial");
-  InspectorRegistry::GetInstance().RegisterInspector<BtfMeshRenderer>(
-      [](InspectorContext& context, BtfMeshRenderer& renderer) {
-        return renderer.DrawGui(context.editor_layer);
-      },
-      {}, "BtfMeshRenderer");
   InspectorRegistry::GetInstance().RegisterInspector<TriangleIlluminationEstimator>(
       [](InspectorContext& context, TriangleIlluminationEstimator& estimator) {
         return estimator.DrawGui(context.editor_layer);
@@ -450,11 +391,6 @@ void RayTracerLayer::RegisterTypes(Application& application) {
         return scanner.DrawGui(context.editor_layer);
       },
       {}, "BasicPointCloudScanner");
-  InspectorRegistry::GetInstance().RegisterInspector<BtfMaterial>(
-      [](InspectorContext& context, BtfMaterial& material) {
-        return material.DrawGui(context.editor_layer);
-      },
-      {}, "BtfMaterial");
   InspectorRegistry::GetInstance().RegisterInspector<RayTracerLayer>(
       [](InspectorContext& context, RayTracerLayer& layer) {
         layer.DrawGui(context.editor_layer);
@@ -540,7 +476,6 @@ void RayTracerLayer::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   ImGui::Checkbox("Strand Renderer", &render_strands_renderer);
   ImGui::Checkbox("Particles", &render_particles);
   ImGui::Checkbox("Skinned Mesh Renderer", &render_skinned_mesh_renderer);
-  ImGui::Checkbox("BTF Mesh Renderer", &render_btf_mesh_renderer);
 
   if (ImGui::TreeNode("Scene Camera Settings")) {
     scene_camera->DrawGui(editor_layer);
@@ -724,51 +659,60 @@ bool RayTracerLayer::CheckMaterial(RayTracedMaterial& ray_tracer_material, const
   if (changed || ray_tracer_material.version != material->GetVersion()) {
     ray_tracer_material.handle = material->GetHandle();
     ray_tracer_material.version = material->GetVersion();
-    ray_tracer_material.material_properties = material->material_properties;
+    const auto& source = material->material_data.shade_material;
+    auto& destination = ray_tracer_material.material_properties;
+    destination.albedo_color = glm::vec3(source.pbr_base_color_factor);
+    destination.metallic = source.pbr_metallic_factor;
+    destination.roughness = source.pbr_roughness_factor;
+#if MAT_EXT_SPECULAR
+    destination.specular = source.specular_factor;
+    destination.specular_tint =
+        1.0f - std::min(source.specular_color_factor.x,
+                        std::min(source.specular_color_factor.y, source.specular_color_factor.z));
+#endif
+#if MAT_EXT_CLEARCOAT
+    destination.clear_coat = source.clearcoat_factor;
+    destination.clear_coat_roughness = source.clearcoat_roughness;
+#endif
+#if MAT_EXT_IOR
+    destination.ior = source.ior;
+#endif
+#if MAT_EXT_TRANSMISSION
+    destination.transmission = source.transmission_factor;
+#endif
+#if MAT_EXT_SHEEN
+    destination.sheen =
+        std::max(source.sheen_color_factor.x, std::max(source.sheen_color_factor.y, source.sheen_color_factor.z));
+    destination.sheen_tint = source.sheen_roughness_factor;
+#endif
+    destination.emission =
+        std::max(source.emissive_factor.x, std::max(source.emissive_factor.y, source.emissive_factor.z));
 
-    if (const auto albedo_texture = material->GetAlbedoTexture();
+    if (const auto albedo_texture = material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
         albedo_texture && albedo_texture->GetVkImage() != VK_NULL_HANDLE) {
       ray_tracer_material.albedo_texture = CudaModule::ImportTexture2D(albedo_texture);
     } else {
       ray_tracer_material.albedo_texture = nullptr;
     }
-    if (const auto normal_texture = material->GetNormalTexture();
+    if (const auto normal_texture = material->GetTexture(&GltfShadeMaterial::normal_texture);
         normal_texture && normal_texture->GetVkImage() != VK_NULL_HANDLE) {
       ray_tracer_material.normal_texture = CudaModule::ImportTexture2D(normal_texture);
     } else {
       ray_tracer_material.normal_texture = nullptr;
     }
-    if (const auto roughness_texture = material->GetRoughnessTexture();
-        roughness_texture && roughness_texture->GetVkImage() != VK_NULL_HANDLE) {
-      ray_tracer_material.roughness_texture = CudaModule::ImportTexture2D(roughness_texture);
+    if (const auto metallic_roughness_texture =
+            material->GetTexture(&GltfShadeMaterial::pbr_metallic_roughness_texture);
+        metallic_roughness_texture && metallic_roughness_texture->GetVkImage() != VK_NULL_HANDLE) {
+      ray_tracer_material.roughness_texture = CudaModule::ImportTexture2D(metallic_roughness_texture);
+      ray_tracer_material.metallic_texture = ray_tracer_material.roughness_texture;
     } else {
       ray_tracer_material.roughness_texture = nullptr;
-    }
-    if (const auto metallic_texture = material->GetMetallicTexture();
-        metallic_texture && metallic_texture->GetVkImage() != VK_NULL_HANDLE) {
-      ray_tracer_material.metallic_texture = CudaModule::ImportTexture2D(metallic_texture);
-    } else {
       ray_tracer_material.metallic_texture = nullptr;
     }
 
     changed = true;
   }
 
-  return changed;
-}
-
-bool RayTracerLayer::CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
-                                      const std::shared_ptr<BtfMaterial>& compressed_btf) {
-  bool changed = false;
-  if (ray_tracer_material.material_type != MaterialType::CompressedBTF) {
-    changed = true;
-    ray_tracer_material.material_type = MaterialType::CompressedBTF;
-  }
-  if (ray_tracer_material.version != compressed_btf->GetVersion()) {
-    changed = true;
-    ray_tracer_material.version = compressed_btf->GetVersion();
-    ray_tracer_material.btf_base = &compressed_btf->btf_base;
-  }
   return changed;
 }
 

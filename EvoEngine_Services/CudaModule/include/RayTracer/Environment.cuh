@@ -175,25 +175,24 @@ static __forceinline__ __device__ glm::vec3 CalculateEnvironmentSourceRadiance(
       } else {
         environmentalLightColor = environment.color;
       }
+      environmentalLightColor *= environment.skylight_intensity;
       break;
     case EnvironmentalLightingType::Skydome:
       environmentalLightColor = NishitaSkyIncidentLight(position, rayDir, environment);
+      environmentalLightColor *= environment.skylight_intensity;
       break;
     case EnvironmentalLightingType::SingleLightSource:
-      environmentalLightColor = environment.color;
+      environmentalLightColor = environment.color * environment.skylight_intensity;
       break;
   }
-  environmentalLightColor = pow(glm::max(environmentalLightColor, glm::vec3(0.0f)),
-                                glm::vec3(1.0f / environment.gamma));
   return glm::max(glm::vec3(0.0f), environmentalLightColor);
 }
 
-static __forceinline__ __device__ glm::vec3 CalculateEnvironmentalLight(
-    const glm::vec3 &position, const glm::vec3 &rayDir, const EnvironmentProperties &environment,
-    const bool diffuseIndirectPath) {
-  const float indirectScale = diffuseIndirectPath ? environment.indirect_lighting_intensity : 1.0f;
-  return CalculateEnvironmentSourceRadiance(position, rayDir, environment) *
-         glm::max(environment.sky_light_intensity_scale, 0.0f) * glm::max(indirectScale, 0.0f);
+static __forceinline__ __device__ glm::vec3 CalculateEnvironmentalLight(const glm::vec3 &position,
+                                                                        const glm::vec3 &rayDir,
+                                                                        const EnvironmentProperties &environment,
+                                                                        const bool diffuseIndirectPath) {
+  return CalculateEnvironmentSourceRadiance(position, rayDir, environment);
 }
 
 #pragma endregion

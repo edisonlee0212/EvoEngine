@@ -146,11 +146,19 @@ class PyEvoEngine {
    * @return True when the scene, camera, and at least one directional light were configured.
    */
   static bool ConfigureCurrentSceneOutdoorLightingForCapture(const glm::vec3& sun_euler_degrees,
-                                                              float sun_angular_diameter_radians,
-                                                              float sun_intensity, const glm::vec3& sun_color,
-                                                              float sky_light_intensity,
-                                                              float ambient_light_intensity,
-                                                              const glm::vec3& background_color_linear, float gamma);
+                                                             float sun_angular_diameter_radians, float sun_intensity,
+                                                             const glm::vec3& sun_color, float sky_light_intensity,
+                                                             float ambient_light_intensity,
+                                                             const glm::vec3& background_color_linear, float gamma);
+  /**
+   * @brief Apply the matching CUDA/OptiX skydome profile when the CUDA service is available.
+   * @return True when a CUDA ray-tracer layer was configured.
+   */
+  static bool ConfigureCurrentSceneCudaOutdoorLightingForCapture(const glm::vec3& sun_euler_degrees,
+                                                                 float sun_angular_diameter_radians,
+                                                                 float sun_intensity, const glm::vec3& sun_color,
+                                                                 float sky_light_intensity,
+                                                                 float ambient_light_intensity, float gamma);
   /**
    * @brief Position the active scene's main camera using a world-space look-at transform.
    * @param position Camera position in world space.
@@ -179,6 +187,13 @@ class PyEvoEngine {
    */
   static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
                                   int warmup_frames = 1, bool require_accumulated_frames = false);
+  /**
+   * @brief Render the active main-camera pose through CUDA/OptiX and save a PNG.
+   * @return True when CUDA/OptiX is available and a non-empty image was written.
+   */
+  static bool CaptureCurrentSceneCuda(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
+                                      int samples = 64, int bounces = 4, float gamma = 2.2f,
+                                      float denoiser_strength = 0.0f);
   /**
    * @brief Check whether the active scene is configured to render with DDGI.
    * @return True when DDGI runtime is enabled, indirect rendering is enabled, and an enabled DDGI volume exists.

@@ -1,7 +1,6 @@
 #pragma once
 #include "EvoEngine_SDK_PCH.hpp"
 
-#include "BtfMaterial.hpp"
 #include "CUDAModule.hpp"
 #include "Cubemap.hpp"
 #include "ILayer.hpp"
@@ -29,9 +28,6 @@ class RayTracerLayer : public ILayer {
 
   static bool CheckMaterial(RayTracedMaterial& ray_tracer_material, const std::shared_ptr<Material>& material);
 
-  static bool CheckBtfMaterial(RayTracedMaterial& ray_tracer_material,
-                               const std::shared_ptr<BtfMaterial>& compressed_btf);
-
   glm::ivec2 scene_camera_resolution_ = glm::ivec2(0);
 
  public:
@@ -39,7 +35,6 @@ class RayTracerLayer : public ILayer {
   bool render_mesh_renderer = true;
   bool render_strands_renderer = true;
   bool render_particles = true;
-  bool render_btf_mesh_renderer = true;
   bool render_skinned_mesh_renderer = false;
   [[nodiscard]] glm::ivec2 GetSceneCameraResolution() const;
   EnvironmentProperties environment_properties;

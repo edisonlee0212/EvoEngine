@@ -797,12 +797,15 @@ bool l_system_package::InspectLSystemLayer(InspectorContext& context, LSystemLay
 
   const auto scene = layer.GetScene();
   const bool has_sorghum = scene && scene->UnsafeGetPrivateComponentOwnersList<SorghumLS>() != nullptr;
-  const std::string window_title = has_sorghum ? "Sorghum Genotype Lab" : layer.GetLayerName();
+  const std::string window_title = layer.GetLayerName();
   bool open = layer.enable_inspection;
   if (!ImGui::Begin(window_title.c_str(), &open)) {
     ImGui::End();
     layer.enable_inspection = open;
     return false;
+  }
+  if (has_sorghum) {
+    ImGui::SeparatorText("Sorghum Genotype Lab");
   }
 
   struct DescriptorGroup {

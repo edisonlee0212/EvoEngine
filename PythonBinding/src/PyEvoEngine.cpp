@@ -7,6 +7,8 @@
 #include "TextureStorage.hpp"
 #include "TransformGraph.hpp"
 #ifdef CUDA_MODULE_SERVICE
+#  include "CUDAModule.hpp"
+#  include "RayTracerCamera.hpp"
 #  include "RayTracerLayer.hpp"
 #endif
 using namespace py_evo_engine;
@@ -54,7 +56,7 @@ bool IsCurrentSceneCaptureReady() {
 }  // namespace
 
 bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, const int samples_per_frame,
-                                                         const int bounces) {
+                                                        const int bounces) {
   if (samples_per_frame <= 0 || bounces < 0) {
     EVOENGINE_ERROR("Invalid capture camera sample or bounce settings.")
     return false;
@@ -145,6 +147,31 @@ bool PyEvoEngine::ConfigureCurrentSceneOutdoorLightingForCapture(
   return !directional_light_entities.empty();
 }
 
+bool PyEvoEngine::ConfigureCurrentSceneCudaOutdoorLightingForCapture(
+    const glm::vec3& sun_euler_degrees, const float sun_angular_diameter_radians, const float sun_intensity,
+    const glm::vec3& sun_color, const float sky_light_intensity, const float ambient_light_intensity,
+    const float gamma) {
+#ifdef CUDA_MODULE_SERVICE
+  const auto layer = ApplicationContext::Get().GetLayer<RayTracerLayer>();
+  if (!layer || !std::isfinite(sun_angular_diameter_radians) || !std::isfinite(sun_intensity) ||
+      !std::isfinite(sky_light_intensity) || !std::isfinite(ambient_light_intensity) || !std::isfinite(gamma)) {
+    return false;
+  }
+  auto& environment = layer->environment_properties;
+  environment.environmental_lighting_type = EnvironmentalLightingType::Skydome;
+  environment.sun_direction = glm::quat(glm::radians(sun_euler_degrees)) * glm::vec3(0.0f, 0.0f, -1.0f);
+  environment.sun_angular_diameter_radians = glm::clamp(sun_angular_diameter_radians, 0.0f, glm::pi<float>());
+  environment.sun_intensity = std::max(0.0f, sun_intensity);
+  environment.sun_color = glm::max(sun_color, glm::vec3(0.0f));
+  environment.skylight_intensity = std::max(0.0f, sky_light_intensity);
+  environment.ambient_light_intensity = std::max(0.0f, ambient_light_intensity);
+  environment.gamma = std::max(0.01f, gamma);
+  return true;
+#else
+  return false;
+#endif
+}
+
 bool PyEvoEngine::SetMainCameraLookAt(const glm::vec3& position, const glm::vec3& target, const glm::vec3& up,
                                       const float fov_degrees) {
   const auto scene = ApplicationContext::Get().GetActiveScene();
@@ -196,9 +223,8 @@ bool PyEvoEngine::WaitForCurrentSceneReady(const int maximum_frames) {
       EVOENGINE_LOG("Scene readiness progress: frames=" + std::to_string(frame_count) +
                     ", project idle=" + std::to_string(ProjectManager::IsProjectIdle()) +
                     ", geometry pending=" + std::to_string(GeometryStorage::HasPendingUploads()) +
-                    ", texture pending=" + std::to_string(TextureStorage::HasPendingUploads()) +
-                    ", asset queued=" + std::to_string(snapshot.queued) +
-                    ", asset loading CPU=" + std::to_string(snapshot.loading_cpu) +
+                    ", texture pending=" + std::to_string(TextureStorage::HasPendingUploads()) + ", asset queued=" +
+                    std::to_string(snapshot.queued) + ", asset loading CPU=" + std::to_string(snapshot.loading_cpu) +
                     ", asset waiting finalize=" + std::to_string(snapshot.waiting_for_finalize) +
                     ", asset GPU pending=" + std::to_string(snapshot.gpu_pending))
     }
@@ -211,9 +237,8 @@ bool PyEvoEngine::WaitForCurrentSceneReady(const int maximum_frames) {
   EVOENGINE_ERROR("Scene did not become ready for capture. Frames: " + std::to_string(frame_count) +
                   ", project idle: " + std::to_string(ProjectManager::IsProjectIdle()) +
                   ", geometry pending: " + std::to_string(GeometryStorage::HasPendingUploads()) +
-                  ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) +
-                  ", asset queued: " + std::to_string(snapshot.queued) +
-                  ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
+                  ", texture pending: " + std::to_string(TextureStorage::HasPendingUploads()) + ", asset queued: " +
+                  std::to_string(snapshot.queued) + ", asset loading CPU: " + std::to_string(snapshot.loading_cpu) +
                   ", asset waiting finalize: " + std::to_string(snapshot.waiting_for_finalize) +
                   ", asset GPU pending: " + std::to_string(snapshot.gpu_pending))
   return false;
@@ -299,6 +324,56 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     EVOENGINE_ERROR("Failed to export image to " + output_path.string())
   }
   return success;
+}
+
+bool PyEvoEngine::CaptureCurrentSceneCuda(const int resolution_x, const int resolution_y,
+                                          const std::filesystem::path& output_path, const int samples,
+                                          const int bounces, const float gamma, const float denoiser_strength) {
+#ifdef CUDA_MODULE_SERVICE
+  if (resolution_x <= 0 || resolution_y <= 0 || samples <= 0 || bounces < 0 || gamma <= 0.0f ||
+      !std::isfinite(denoiser_strength) || denoiser_strength < 0.0f || denoiser_strength > 1.0f) {
+    return false;
+  }
+  auto& application = ApplicationContext::Get();
+  const auto scene = application.GetActiveScene();
+  const auto layer = application.GetLayer<RayTracerLayer>();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!scene || !layer || !main_camera || !scene->IsEntityValid(main_camera->GetOwner())) {
+    return false;
+  }
+
+  layer->UpdateScene(scene);
+  if (CudaModule::GetRayTracer()->instances.empty()) {
+    return false;
+  }
+
+  const Entity camera_entity = scene->CreateEntity("__PythonCudaCaptureCamera");
+  scene->SetDataComponent(camera_entity, scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner()));
+  auto camera = scene->GetOrSetPrivateComponent<RayTracerCamera>(camera_entity).lock();
+  if (!camera) {
+    scene->DeleteEntity(camera_entity);
+    return false;
+  }
+  camera->allow_auto_resize = false;
+  camera->frame_size = glm::uvec2(resolution_x, resolution_y);
+  camera->ApplyCameraSettings(main_camera->camera_settings);
+  camera->ray_properties.samples = samples;
+  camera->ray_properties.bounces = bounces;
+  camera->SetGamma(gamma);
+  camera->SetDenoiserStrength(denoiser_strength);
+  camera->Render(camera->ray_properties, layer->environment_properties);
+
+  if (const auto parent = output_path.parent_path(); !parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+  camera->render_texture->StoreToPng(output_path);
+  const bool success = std::filesystem::exists(output_path) && std::filesystem::file_size(output_path) > 0;
+  camera.reset();
+  scene->DeleteEntity(camera_entity);
+  return success;
+#else
+  return false;
+#endif
 }
 
 Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
@@ -428,11 +503,17 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("sun_euler_degrees"), py::arg("sun_angular_diameter_radians"), py::arg("sun_intensity"),
         py::arg("sun_color"), py::arg("sky_light_intensity"), py::arg("ambient_light_intensity"),
         py::arg("background_color_linear"), py::arg("gamma"));
+  m.def("ConfigureCurrentSceneCudaOutdoorLightingForCapture", &ConfigureCurrentSceneCudaOutdoorLightingForCapture,
+        py::arg("sun_euler_degrees"), py::arg("sun_angular_diameter_radians"), py::arg("sun_intensity"),
+        py::arg("sun_color"), py::arg("sky_light_intensity"), py::arg("ambient_light_intensity"), py::arg("gamma"));
   m.def("SetMainCameraLookAt", &SetMainCameraLookAt, py::arg("position"), py::arg("target"), py::arg("up"),
         py::arg("fov_degrees"));
   m.def("WaitForCurrentSceneReady", &WaitForCurrentSceneReady, py::arg("maximum_frames") = 3000);
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
         py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false);
+  m.def("CaptureCurrentSceneCuda", &CaptureCurrentSceneCuda, py::arg("resolution_x"), py::arg("resolution_y"),
+        py::arg("output_path"), py::arg("samples") = 64, py::arg("bounces") = 4, py::arg("gamma") = 2.2f,
+        py::arg("denoiser_strength") = 0.0f);
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
