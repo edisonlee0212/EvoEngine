@@ -1577,69 +1577,185 @@ void DsKineticVoronoiMeshing::DeactivateOutsidePhysicsSegments(
 }
 
 void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
-  auto& meshes = tree_mesher.getSegmentMeshlets();
-  std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
-      strand_tree->getNormalTransformsByHeightAndBranch();
-  auto& boundary_mesh = tree_mesher.getBoundaryMesh();
-
+  const auto& meshes = tree_mesher.getSegmentMeshlets();
   const auto& meshing_neighbor_indices = tree_mesher.getMeshingNeighborIndices();
   const auto& meshing_to_physics_segment_indices = tree_mesher.getMeshingToPhysicsSegmentIndices();
   const auto& meshing_strand_to_segment_indices = tree_mesher.getMeshingStrandToSegmentIndices();
-  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list = dynamic_strands->segment_data_list;
-  std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = dynamic_strands->segment_pairs;
+  const auto& physics_strand_to_segment_indices = strand_tree->getPhysicsStrandToSegmentIndices();
+
+  auto& segment_data_list = dynamic_strands->segment_data_list;
+  auto& segment_pairs = dynamic_strands->segment_pairs;
+  auto& strands = dynamic_strands->strands;
 
   segment_pairs.clear();
-
-  std::vector<size_t> pair_handle_offsets(segment_data_list.size(), 0);
-
-  // clear existing pair handles in segment data
   for (auto& segment_data : segment_data_list) {
-    for (auto& pair_handle : segment_data.pair_handles) {
+    for (int& pair_handle : segment_data.pair_handles) {
       pair_handle = -1;
     }
   }
 
-  for (size_t strand_id = 0; strand_id < strand_tree->getPhysicsStrandToSegmentIndices().size(); ++strand_id) {
-    for (size_t segment_no = 0; segment_no < meshing_strand_to_segment_indices[strand_id].size(); ++segment_no) {
-      size_t meshing_segment_id = meshing_strand_to_segment_indices[strand_id][segment_no];
-      auto& mesh = meshes[meshing_segment_id];
-      int physics_segment_id = strand_tree->getPhysicsStrandToSegmentIndices()[strand_id][segment_no];
-      const auto& triangles = mesh.getTriangles();
+  // Collect physics-segment neighbors implied by meshlet face adjacency.
+  const auto collect_physics_neighbors = [&](const size_t meshing_segment_id) {
+    std::unordered_set<int> neighbors;
+    if (meshing_segment_id >= meshes.size() || meshing_segment_id >= meshing_neighbor_indices.size()) {
+      return neighbors;
+    }
+    const auto& triangles = meshes[meshing_segment_id].getTriangles();
+    const auto& face_neighbors = meshing_neighbor_indices[meshing_segment_id];
+    for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
+      const size_t face_index = triangle_vertex_index / 3;
+      if (face_index >= face_neighbors.size()) {
+        continue;
+      }
+      const int meshing_neighbor_segment_index = face_neighbors[face_index];
+      if (meshing_neighbor_segment_index < 0 ||
+          static_cast<size_t>(meshing_neighbor_segment_index) >= meshing_to_physics_segment_indices.size()) {
+        continue;
+      }
+      const int physics_neighbor =
+          static_cast<int>(meshing_to_physics_segment_indices[static_cast<size_t>(meshing_neighbor_segment_index)]);
+      if (physics_neighbor >= 0) {
+        neighbors.insert(physics_neighbor);
+      }
+    }
+    return neighbors;
+  };
 
-      std::set<int> neighbor_set;
-      for (size_t triangle_vertex_index = 0; triangle_vertex_index < triangles.size(); triangle_vertex_index += 3) {
-        int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
-        if (meshing_neighbor_segment_index >= 0) {
-          int physics_neighbor_segment_index = meshing_to_physics_segment_indices[meshing_neighbor_segment_index];
-          if (physics_neighbor_segment_index != -1) {
-            neighbor_set.insert(physics_neighbor_segment_index);
-          }
-        }
+  // Pass 1: same-strand vertical pairs.
+  // Convention (matches DynamicStrandsInitialize / StiffRod):
+  //   pair_handles[0] = below (prev / proximal)
+  //   pair_handles[1] = above (next / distal)
+  //   GpuSegmentPair.segment0 = below, segment1 = above
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+    if (strand_id >= strands.size() || strand_id >= meshing_strand_to_segment_indices.size()) {
+      continue;
+    }
+    auto& strand = strands[strand_id];
+    strand.begin_segment_pair_handle = -1;
+    strand.end_segment_pair_handle = -1;
+
+    const auto& physics_segments = physics_strand_to_segment_indices[strand_id];
+    const auto& meshing_segments = meshing_strand_to_segment_indices[strand_id];
+    const size_t segment_count = std::min(physics_segments.size(), meshing_segments.size());
+    if (segment_count < 2) {
+      continue;
+    }
+
+    for (size_t segment_no = 0; segment_no + 1 < segment_count; ++segment_no) {
+      const int below_physics_id = physics_segments[segment_no];
+      const int above_physics_id = physics_segments[segment_no + 1];
+      const size_t below_meshing_id = meshing_segments[segment_no];
+      const size_t above_meshing_id = meshing_segments[segment_no + 1];
+      if (below_physics_id < 0 || above_physics_id < 0 ||
+          static_cast<size_t>(below_physics_id) >= segment_data_list.size() ||
+          static_cast<size_t>(above_physics_id) >= segment_data_list.size()) {
+        continue;
       }
 
-      // create a new segment pair for each neighbor if the neighbor index is greater to avoid duplicates from
-      // symmetry
-      for (auto& physics_neighbor_segment_index : neighbor_set) {
-        if (physics_neighbor_segment_index > physics_segment_id) {
-          DynamicStrands::GpuSegmentPair segment_pair;
-          segment_pair.segment0_handle = physics_segment_id;
-          segment_pair.segment1_handle = physics_neighbor_segment_index;
+      const auto below_neighbors = collect_physics_neighbors(below_meshing_id);
+      const auto above_neighbors = collect_physics_neighbors(above_meshing_id);
+      const bool adjacent =
+          below_neighbors.count(above_physics_id) > 0 || above_neighbors.count(below_physics_id) > 0;
+      if (!adjacent) {
+        continue;
+      }
 
-          // TODO: other properties
+      const int pair_handle = static_cast<int>(segment_pairs.size());
+      DynamicStrands::GpuSegmentPair segment_pair{};
+      segment_pair.segment0_handle = below_physics_id;
+      segment_pair.segment1_handle = above_physics_id;
+      segment_pairs.emplace_back(segment_pair);
 
-          int pair_handle = static_cast<int>(segment_pairs.size());
-          segment_data_list[physics_segment_id].pair_handles[pair_handle_offsets[physics_segment_id]] = pair_handle;
-          pair_handle_offsets[physics_segment_id]++;
+      segment_data_list[below_physics_id].pair_handles[1] = pair_handle;
+      segment_data_list[above_physics_id].pair_handles[0] = pair_handle;
 
-          segment_data_list[physics_neighbor_segment_index]
-              .pair_handles[pair_handle_offsets[physics_neighbor_segment_index]] = pair_handle;
-          pair_handle_offsets[physics_neighbor_segment_index]++;
+      if (strand.begin_segment_pair_handle == -1) {
+        strand.begin_segment_pair_handle = pair_handle;
+      }
+      strand.end_segment_pair_handle = pair_handle;
+    }
+  }
 
-          segment_pairs.emplace_back(segment_pair);
+  dynamic_strands->connection_segment_pair_size = static_cast<uint32_t>(segment_pairs.size());
+
+  // Mirror initialize: refresh strand pair-propagation bookkeeping from the new vertical range.
+  for (auto& strand : strands) {
+    strand.front_propagate_begin_segment_pair_handle = -1;
+    strand.back_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_back_propagate_begin_segment_pair_handle = -1;
+    if (strand.begin_segment_handle == -1 || strand.begin_segment_pair_handle == -1) {
+      continue;
+    }
+    strand.front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+    if (strand.begin_segment_pair_handle == strand.end_segment_pair_handle) {
+      strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+      continue;
+    }
+    strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle + 1;
+
+    const int connection_size = strand.end_segment_pair_handle - strand.begin_segment_pair_handle + 1;
+    strand.back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? strand.end_segment_pair_handle : strand.end_segment_pair_handle - 1;
+    strand.alternative_back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? strand.end_segment_pair_handle - 1 : strand.end_segment_pair_handle;
+  }
+
+  // Pass 2: remaining mesh neighbors as lateral pairs starting at slot 2.
+  std::vector<uint32_t> pair_slot_offsets(segment_data_list.size(), 2);
+  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+    if (strand_id >= meshing_strand_to_segment_indices.size()) {
+      continue;
+    }
+    const auto& physics_segments = physics_strand_to_segment_indices[strand_id];
+    const auto& meshing_segments = meshing_strand_to_segment_indices[strand_id];
+    const size_t segment_count = std::min(physics_segments.size(), meshing_segments.size());
+    for (size_t segment_no = 0; segment_no < segment_count; ++segment_no) {
+      const int physics_segment_id = physics_segments[segment_no];
+      if (physics_segment_id < 0 || static_cast<size_t>(physics_segment_id) >= segment_data_list.size()) {
+        continue;
+      }
+      const int below_physics_id = segment_no > 0 ? physics_segments[segment_no - 1] : -1;
+      const int above_physics_id =
+          segment_no + 1 < segment_count ? physics_segments[segment_no + 1] : -1;
+
+      for (const int physics_neighbor_id : collect_physics_neighbors(meshing_segments[segment_no])) {
+        if (physics_neighbor_id == physics_segment_id || physics_neighbor_id == below_physics_id ||
+            physics_neighbor_id == above_physics_id) {
+          continue;
         }
+        if (physics_neighbor_id < 0 || static_cast<size_t>(physics_neighbor_id) >= segment_data_list.size()) {
+          continue;
+        }
+        // Create each undirected pair once.
+        if (physics_neighbor_id <= physics_segment_id) {
+          continue;
+        }
+
+        auto& first_slot = pair_slot_offsets[static_cast<size_t>(physics_segment_id)];
+        auto& second_slot = pair_slot_offsets[static_cast<size_t>(physics_neighbor_id)];
+        if (first_slot >= BUNDLE_MAX_CONNECTION || second_slot >= BUNDLE_MAX_CONNECTION) {
+          continue;
+        }
+
+        const int pair_handle = static_cast<int>(segment_pairs.size());
+        DynamicStrands::GpuSegmentPair segment_pair{};
+        segment_pair.segment0_handle = physics_segment_id;
+        segment_pair.segment1_handle = physics_neighbor_id;
+        segment_pairs.emplace_back(segment_pair);
+
+        segment_data_list[physics_segment_id].pair_handles[first_slot] = pair_handle;
+        segment_data_list[physics_neighbor_id].pair_handles[second_slot] = pair_handle;
+        ++first_slot;
+        ++second_slot;
       }
     }
   }
+
+  EVOENGINE_LOG("Recomputed segment pairs from mesh: " << dynamic_strands->connection_segment_pair_size
+                                                       << " vertical, "
+                                                       << (segment_pairs.size() - dynamic_strands->connection_segment_pair_size)
+                                                       << " lateral (total " << segment_pairs.size() << ").");
 }
 
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
@@ -1649,8 +1765,6 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
     std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
-  bool recompute_segment_pairs = false;  // TODO: expose as option?
-
   std::vector<float> bottom_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
   std::vector<float> top_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
 
@@ -1740,6 +1854,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
   };
 
+  bool loaded_from_cache = false;
   if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
     std::vector<GpuMeshletVertex> gpu_vertices;
     std::vector<GpuMeshletTriangle> gpu_triangles;
@@ -1762,57 +1877,67 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       EVOENGINE_LOG("Loaded Kinetic Voronoi mesh buffer " << input_hash << " (" << segment_meshlet_vertices.size()
                                                           << " vertices, " << segment_meshlet_triangles.size()
                                                           << " triangles).");
-      debug_export_meshes();
-      return;
+      loaded_from_cache = true;
+    } else {
+      EVOENGINE_WARNING("Meshing buffer " << bin_path.string() << " exists but could not be loaded; remeshing.");
     }
-    EVOENGINE_WARNING("Meshing buffer " << bin_path.string() << " exists but could not be loaded; remeshing.");
   }
 
-  auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
+  if (!loaded_from_cache) {
+    auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
 
-  // Keep pristine copies for later Intersect button runs (no clipping during meshing).
-  segment_meshlets_ = meshes;
-  meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
-  meshlets_root_transform_ = root_transform;
+    // Keep pristine copies for later Intersect button runs (no clipping during meshing).
+    segment_meshlets_ = meshes;
+    meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+    meshlets_root_transform_ = root_transform;
+    warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+  }
 
+  const auto& meshes = tree_mesher_->getSegmentMeshlets();
   const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
   const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
   const auto& meshing_strand_to_segment_indices = tree_mesher_->getMeshingStrandToSegmentIndices();
 
-  if (recompute_segment_pairs) {  // TODO: use first two indices for vertical neighbors.
+  if (meshing_settings.recompute_segment_pairs) {
     RecomputeSegmentPairs(*tree_mesher_);
   }
 
-  warn_segment_count_mismatch(meshing_strand_to_segment_indices);
+  // Cache stores GPU buffers for the pairs that existed at save time. Rebuild them when we remeshed
+  // or when pairs were recomputed after a cache hit.
+  if (!loaded_from_cache || meshing_settings.recompute_segment_pairs) {
+    segment_meshlet_vertices.clear();
+    segment_meshlet_triangles.clear();
+    PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
+                              meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
+  }
 
-  segment_meshlet_vertices.clear();
-  segment_meshlet_triangles.clear();
-  PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
-                            meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
+  if (!loaded_from_cache) {
+    auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
+    auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
 
-  auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
-  auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
+    boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
+    for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
+      size_t strand_id = boundary_vertex_to_strand_id[i];
 
-  boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
-  for (size_t i = 0; i < boundary_mesh.getVertexCount(); i++) {
-    size_t strand_id = boundary_vertex_to_strand_id[i];
-
-    // as a heuristic, just use the bottom boundary distance if height is <= 0, otherwise use the top boundary distance
-    float height = boundary_mesh.getVertices()[i][2];
-    if (height <= 0.0f) {
-      boundary_distances_by_vertex[i] = bottom_boundary_distances_by_strand_id[strand_id];
-    } else {
-      boundary_distances_by_vertex[i] = top_boundary_distances_by_strand_id[strand_id];
+      // as a heuristic, just use the bottom boundary distance if height is <= 0, otherwise use the top boundary
+      // distance
+      float height = boundary_mesh.getVertices()[i][2];
+      if (height <= 0.0f) {
+        boundary_distances_by_vertex[i] = bottom_boundary_distances_by_strand_id[strand_id];
+      } else {
+        boundary_distances_by_vertex[i] = top_boundary_distances_by_strand_id[strand_id];
+      }
     }
+
+    if (SaveMeshingBuffer(bin_path, yml_path, input_hash, root_transform, segment_meshlet_vertices,
+                          segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
+                          meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
+      EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
+    }
+
+    EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
   }
 
-  if (SaveMeshingBuffer(bin_path, yml_path, input_hash, root_transform, segment_meshlet_vertices,
-                        segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
-                        meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
-    EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
-  }
-
-  EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
   debug_export_meshes();
 }
 
@@ -2406,6 +2531,12 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "When enabled, skip loading a cached meshing buffer and overwrite it with newly computed mesh data.");
+  }
+  ImGui::Checkbox("Recompute segment pairs from mesh", &meshing_settings.recompute_segment_pairs);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Rebuild the physics segment-pair graph from meshlet adjacency. pair_handles[0]/[1] are reserved for "
+        "same-strand below/above neighbors (-1 if missing); other neighbors start at index 2.");
   }
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {

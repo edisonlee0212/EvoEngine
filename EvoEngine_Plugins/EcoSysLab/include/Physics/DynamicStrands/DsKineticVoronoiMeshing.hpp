@@ -59,6 +59,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   };
 
   struct MeshingSettings {
+    /// When true, rebuild physics segment pairs from meshlet adjacency after meshing.
+    /// @c pair_handles[0]/[1] are reserved for same-strand below/above neighbors.
+    bool recompute_segment_pairs = false;
     /// When true, skip loading a cached meshing buffer and overwrite it after computing.
     bool override_meshing_buffer = false;
     bool dry_run_strand_tree_only = false;
