@@ -5,25 +5,207 @@
 #include "EnvironmentalLightingResolver.hpp"
 #include "EnvironmentalMap.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "Jobs.hpp"
 #include "LodGroup.hpp"
 #include "Platform.hpp"
+#include "Profiler.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Texture2D.hpp"
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstring>
 #include <functional>
 #include <glm/gtc/constants.hpp>
 #include <limits>
+#include <numeric>
+#include <thread>
 #include <unordered_map>
 
 using namespace evo_engine;
 
 namespace {
+VkDeviceSize StorageBufferAlignment() {
+  return glm::max<VkDeviceSize>(
+      4, Platform::GetSelectedPhysicalDevice()->properties.limits.minStorageBufferOffsetAlignment);
+}
+
+template <typename T>
+VkDeviceSize AppendAligned(std::vector<T>& destination, const std::vector<T>& source, const VkDeviceSize alignment) {
+  const size_t aligned_element_count = std::lcm(static_cast<size_t>(alignment), sizeof(T)) / sizeof(T);
+  destination.resize(((destination.size() + aligned_element_count - 1) / aligned_element_count) *
+                     aligned_element_count);
+  const VkDeviceSize offset = destination.size() * sizeof(T);
+  destination.insert(destination.end(), source.begin(), source.end());
+  return offset;
+}
+
+void RunDedicatedRasterBatch(const size_t item_count, const std::function<void(size_t)>& function) {
+  if (item_count == 0) {
+    return;
+  }
+  std::atomic_size_t next_item = 0;
+  const auto claim_items = [&] {
+    while (true) {
+      const size_t item = next_item.fetch_add(1, std::memory_order_relaxed);
+      if (item >= item_count) {
+        break;
+      }
+      function(item);
+    }
+  };
+  const size_t worker_tasks = std::min(Jobs::GetWorkerSize(), item_count);
+  std::vector<JobHandle> jobs;
+  jobs.reserve(worker_tasks);
+  for (size_t worker = 0; worker < worker_tasks; ++worker) {
+    jobs.emplace_back(Jobs::Run([&] {
+      claim_items();
+    }));
+  }
+  const auto completed = Jobs::Combine(jobs);
+  Jobs::Execute(completed);
+  claim_items();
+  while (!Jobs::IsCompleted(completed)) {
+    std::this_thread::yield();
+  }
+  Jobs::Wait(completed);
+}
+
+template <typename T>
+uint64_t VectorBytes(const std::vector<T>& values) {
+  return static_cast<uint64_t>(values.size()) * sizeof(T);
+}
+
+uint64_t ByteSignature(const void* data, const size_t size) {
+  auto signature = 1469598103934665603ull;
+  const auto* bytes = static_cast<const uint8_t*>(data);
+  for (size_t index = 0; index < size; ++index) {
+    signature = (signature ^ bytes[index]) * 1099511628211ull;
+  }
+  return signature ^ size;
+}
+
+bool BoundsEqual(const Bound& left, const Bound& right) {
+  return left.min == right.min && left.max == right.max;
+}
+
+Bound MergeBounds(const Bound& left, const Bound& right) {
+  Bound result;
+  result.min = glm::min(left.min, right.min);
+  result.max = glm::max(left.max, right.max);
+  return result;
+}
+
+bool ContainsBound(const Bound& container, const Bound& contained) {
+  return glm::all(glm::lessThanEqual(container.min, contained.min)) &&
+         glm::all(glm::greaterThanEqual(container.max, contained.max));
+}
+
+float BoundSurfaceArea(const Bound& bound) {
+  const auto size = glm::max(bound.max - bound.min, glm::vec3(0.0f));
+  return 2.0f * (size.x * size.y + size.y * size.z + size.z * size.x);
+}
+
+Bound FatBound(const Bound& bound) {
+  const auto margin = glm::max((bound.max - bound.min) * 0.05f, glm::vec3(0.1f));
+  Bound result;
+  result.min = bound.min - margin;
+  result.max = bound.max + margin;
+  return result;
+}
+
+struct ClipSpaceBoundIntersector {
+  std::array<glm::vec4, 6> planes{};
+
+  [[nodiscard]] bool operator()(const Bound& bound) const {
+    const auto finite_vec3 = [](const glm::vec3& value) {
+      return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+    if (!finite_vec3(bound.min) || !finite_vec3(bound.max) || glm::any(glm::greaterThan(bound.min, bound.max))) {
+      return true;
+    }
+    for (const auto& plane : planes) {
+      if (!std::isfinite(plane.x) || !std::isfinite(plane.y) || !std::isfinite(plane.z) || !std::isfinite(plane.w)) {
+        return true;
+      }
+      const glm::vec3 vertex{plane.x >= 0.0f ? bound.max.x : bound.min.x, plane.y >= 0.0f ? bound.max.y : bound.min.y,
+                             plane.z >= 0.0f ? bound.max.z : bound.min.z};
+      if (glm::dot(plane, glm::vec4(vertex, 1.0f)) < 0.0f) {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
+ClipSpaceBoundIntersector BuildClipSpaceBoundIntersector(const glm::mat4& projection_view, const bool zero_near_plane) {
+  const glm::vec4 row_0{projection_view[0][0], projection_view[1][0], projection_view[2][0], projection_view[3][0]};
+  const glm::vec4 row_1{projection_view[0][1], projection_view[1][1], projection_view[2][1], projection_view[3][1]};
+  const glm::vec4 row_2{projection_view[0][2], projection_view[1][2], projection_view[2][2], projection_view[3][2]};
+  const glm::vec4 row_3{projection_view[0][3], projection_view[1][3], projection_view[2][3], projection_view[3][3]};
+  ClipSpaceBoundIntersector result;
+  result.planes = {row_3 + row_0, row_3 - row_0, row_3 + row_1, row_3 - row_1, zero_near_plane ? row_2 : row_3 + row_2,
+                   row_3 - row_2};
+  return result;
+}
+
+template <typename T, typename Equal>
+std::vector<RenderInstanceStorage::InstanceUploadRange> PlanUploadRanges(const std::vector<T>& previous,
+                                                                         const std::vector<T>& current, Equal&& equal) {
+  std::vector<RenderInstanceStorage::InstanceUploadRange> ranges;
+  for (uint32_t index = 0; index < current.size(); ++index) {
+    if (index < previous.size() && equal(previous[index], current[index])) {
+      continue;
+    }
+    if (!ranges.empty() && ranges.back().first_instance + ranges.back().instance_count == index) {
+      ranges.back().instance_count++;
+    } else {
+      ranges.push_back({index, 1u});
+    }
+  }
+  return ranges;
+}
+
+template <typename T>
+uint64_t AddUploadRanges(BufferUploadBatch& batch, const std::shared_ptr<Buffer>& buffer, const std::vector<T>& values,
+                         const std::vector<RenderInstanceStorage::InstanceUploadRange>& ranges,
+                         const BufferUploadOptions& options) {
+  uint64_t uploaded_bytes = 0;
+  for (const auto& range : ranges) {
+    const auto byte_size = static_cast<size_t>(range.instance_count) * sizeof(T);
+    const auto byte_offset = static_cast<size_t>(range.first_instance) * sizeof(T);
+    if (byte_offset + byte_size > buffer->GetSize()) {
+      batch.AddVector(buffer, values, options);
+      return VectorBytes(values);
+    }
+    batch.Add(buffer, values.data() + range.first_instance, byte_size, byte_offset, options);
+    uploaded_bytes += byte_size;
+  }
+  return uploaded_bytes;
+}
+
+template <typename T>
+void CommitUploadedRanges(std::vector<T>& uploaded, const std::vector<T>& values,
+                          const std::vector<RenderInstanceStorage::InstanceUploadRange>& ranges) {
+  uploaded.resize(values.size());
+  for (const auto& range : ranges) {
+    std::copy_n(values.begin() + range.first_instance, range.instance_count, uploaded.begin() + range.first_instance);
+  }
+}
+
+template <typename T>
+void ResetCompactCollection(std::shared_ptr<T>& collection) {
+  if (!collection) {
+    collection = std::make_shared<T>();
+  } else {
+    collection->Clear();
+  }
+}
+
 uint64_t MixDdgiInventorySignature(const uint64_t seed, const uint64_t value) {
   return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6u) + (seed >> 2u));
 }
@@ -272,6 +454,18 @@ VkCullModeFlags ResolveInstancedCullModeForTransforms(const VkCullModeFlags cull
   return has_negative_determinant ? SwapCullModeFaces(cull_mode) : cull_mode;
 }
 
+Bound CalculateInstancedWorldBound(const Bound& local_bound, const glm::mat4& model,
+                                   const std::vector<ParticleInfo>& particle_infos) {
+  Bound world_bound;
+  for (const auto& particle_info : particle_infos) {
+    auto instance_bound = local_bound;
+    instance_bound.ApplyTransform(model * particle_info.instance_matrix.value);
+    world_bound.min = glm::min(world_bound.min, instance_bound.min);
+    world_bound.max = glm::max(world_bound.max, instance_bound.max);
+  }
+  return world_bound;
+}
+
 VkDrawMeshTasksIndirectCommandEXT CreateMeshTaskCommand(const uint32_t meshlet_range) {
   VkDrawMeshTasksIndirectCommandEXT command{};
   const uint32_t task_work_group_invocations =
@@ -290,6 +484,18 @@ VkDrawIndexedIndirectCommand CreateIndexedCommand(const uint32_t triangle_offset
   command.vertexOffset = 0;
   command.firstInstance = 0;
   return command;
+}
+
+std::shared_ptr<Buffer> CreateIndirectBuffer() {
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.size = 1;
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  return std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
 }
 
 void AppendMeshIndirectCommands(std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
@@ -311,19 +517,23 @@ size_t CountRenderInstances(const std::shared_ptr<RenderInstanceStorage::IRender
 void ValidateDeferredMeshIndirectCommandCount(
     const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& deferred_render_instances,
     const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
-    const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands) {
+    const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands,
+    const std::vector<uint32_t>& draw_instance_indices) {
   if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
     return;
   }
   const auto deferred_count = CountRenderInstances(deferred_render_instances);
   const auto indexed_count = indexed_commands.size();
   const auto mesh_task_count = mesh_task_commands.size();
+  const auto draw_instance_count = draw_instance_indices.size();
   assert(indexed_count == deferred_count);
   assert(mesh_task_count == deferred_count);
-  if (indexed_count != deferred_count || mesh_task_count != deferred_count) {
+  assert(draw_instance_count == deferred_count);
+  if (indexed_count != deferred_count || mesh_task_count != deferred_count || draw_instance_count != deferred_count) {
     EVOENGINE_ERROR("Deferred mesh indirect command count mismatch: deferred_instances=" +
                     std::to_string(deferred_count) + ", indexed_commands=" + std::to_string(indexed_count) +
-                    ", mesh_task_commands=" + std::to_string(mesh_task_count))
+                    ", mesh_task_commands=" + std::to_string(mesh_task_count) +
+                    ", draw_instance_indices=" + std::to_string(draw_instance_count))
   }
 }
 
@@ -332,6 +542,286 @@ bool GaussianSplatGpuRadixSortSupported() {
 }
 
 }  // namespace
+
+void RenderInstanceStorage::EntitySelectionRenderSnapshot::Include(const Bound& bound) {
+  if (!RenderInstanceStorage::IsFiniteBound(bound))
+    return;
+  if (!has_renderable_bounds) {
+    world_bound = bound;
+    has_renderable_bounds = true;
+    return;
+  }
+  world_bound.min = glm::min(world_bound.min, bound.min);
+  world_bound.max = glm::max(world_bound.max, bound.max);
+}
+
+bool RenderInstanceStorage::EntitySelectionRenderSnapshot::Matches(const std::shared_ptr<Scene>& target_scene,
+                                                                   const uint64_t target_selection_revision,
+                                                                   const uint64_t target_hierarchy_revision) const {
+  return scene.lock() == target_scene && selection_revision == target_selection_revision &&
+         hierarchy_revision == target_hierarchy_revision;
+}
+
+const RenderInstanceStorage::EntitySelectionRenderSnapshot& RenderInstanceStorage::GetEntitySelectionRenderSnapshot()
+    const {
+  return entity_selection_render_snapshot_;
+}
+
+bool RenderInstanceStorage::RasterSpatialIndex::Node::IsLeaf() const {
+  return left < 0;
+}
+
+int32_t RenderInstanceStorage::RasterSpatialIndex::AllocateNode() {
+  if (!free_nodes_.empty()) {
+    const auto index = free_nodes_.back();
+    free_nodes_.pop_back();
+    nodes_[index] = {};
+    nodes_[index].active = true;
+    return index;
+  }
+  nodes_.emplace_back().active = true;
+  return static_cast<int32_t>(nodes_.size() - 1u);
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::ReleaseNode(const int32_t node_index) {
+  nodes_[node_index] = {};
+  free_nodes_.emplace_back(node_index);
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::RefreshAncestors(int32_t node_index) {
+  while (node_index >= 0) {
+    auto& node = nodes_[node_index];
+    if (!node.IsLeaf()) {
+      node.bound = MergeBounds(nodes_[node.left].bound, nodes_[node.right].bound);
+    }
+    node_index = node.parent;
+  }
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::InsertLeaf(const int32_t leaf_index) {
+  if (root_ < 0) {
+    root_ = leaf_index;
+    nodes_[leaf_index].parent = -1;
+    return;
+  }
+  int32_t sibling = root_;
+  while (!nodes_[sibling].IsLeaf()) {
+    const auto& node = nodes_[sibling];
+    const auto left_cost = BoundSurfaceArea(MergeBounds(nodes_[node.left].bound, nodes_[leaf_index].bound)) -
+                           BoundSurfaceArea(nodes_[node.left].bound);
+    const auto right_cost = BoundSurfaceArea(MergeBounds(nodes_[node.right].bound, nodes_[leaf_index].bound)) -
+                            BoundSurfaceArea(nodes_[node.right].bound);
+    sibling = left_cost <= right_cost ? node.left : node.right;
+  }
+  const int32_t previous_parent = nodes_[sibling].parent;
+  const int32_t new_parent = AllocateNode();
+  nodes_[new_parent].parent = previous_parent;
+  nodes_[new_parent].left = sibling;
+  nodes_[new_parent].right = leaf_index;
+  nodes_[new_parent].bound = MergeBounds(nodes_[sibling].bound, nodes_[leaf_index].bound);
+  nodes_[sibling].parent = new_parent;
+  nodes_[leaf_index].parent = new_parent;
+  if (previous_parent < 0) {
+    root_ = new_parent;
+  } else if (nodes_[previous_parent].left == sibling) {
+    nodes_[previous_parent].left = new_parent;
+  } else {
+    nodes_[previous_parent].right = new_parent;
+  }
+  RefreshAncestors(new_parent);
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::DetachLeaf(const int32_t leaf_index) {
+  if (leaf_index == root_) {
+    root_ = -1;
+    nodes_[leaf_index].parent = -1;
+    return;
+  }
+  const int32_t parent = nodes_[leaf_index].parent;
+  const int32_t grand_parent = nodes_[parent].parent;
+  const int32_t sibling = nodes_[parent].left == leaf_index ? nodes_[parent].right : nodes_[parent].left;
+  if (grand_parent < 0) {
+    root_ = sibling;
+    nodes_[sibling].parent = -1;
+  } else {
+    if (nodes_[grand_parent].left == parent) {
+      nodes_[grand_parent].left = sibling;
+    } else {
+      nodes_[grand_parent].right = sibling;
+    }
+    nodes_[sibling].parent = grand_parent;
+    RefreshAncestors(grand_parent);
+  }
+  nodes_[leaf_index].parent = -1;
+  ReleaseNode(parent);
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::BeginUpdate() {
+  seen_.clear();
+  update_stats_ = {};
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::Upsert(const Handle handle, const Bound& bound) {
+  if (handle == 0) {
+    return;
+  }
+  seen_.insert(handle);
+  const auto found = leaves_.find(handle);
+  if (found == leaves_.end()) {
+    const int32_t leaf = AllocateNode();
+    nodes_[leaf].handle = handle;
+    nodes_[leaf].exact_bound = bound;
+    nodes_[leaf].bound = FatBound(bound);
+    leaves_[handle] = leaf;
+    InsertLeaf(leaf);
+    update_stats_.inserted_leaves++;
+    return;
+  }
+  auto& leaf = nodes_[found->second];
+  if (ContainsBound(leaf.bound, bound)) {
+    leaf.exact_bound = bound;
+    update_stats_.unchanged_leaves++;
+    return;
+  }
+  DetachLeaf(found->second);
+  leaf.exact_bound = bound;
+  leaf.bound = FatBound(bound);
+  InsertLeaf(found->second);
+  update_stats_.reinserted_leaves++;
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::RefreshTreeStats() {
+  update_stats_.leaf_count = static_cast<uint32_t>(leaves_.size());
+  update_stats_.node_count = update_stats_.leaf_count == 0u ? 0u : update_stats_.leaf_count * 2u - 1u;
+  update_stats_.max_depth = 0;
+  if (root_ < 0) {
+    return;
+  }
+  std::vector<std::pair<int32_t, uint32_t>> pending{{root_, 1u}};
+  while (!pending.empty()) {
+    const auto [node_index, depth] = pending.back();
+    pending.pop_back();
+    update_stats_.max_depth = glm::max(update_stats_.max_depth, depth);
+    const auto& node = nodes_[node_index];
+    if (!node.IsLeaf()) {
+      pending.emplace_back(node.left, depth + 1u);
+      pending.emplace_back(node.right, depth + 1u);
+    }
+  }
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::RebuildBalanced() {
+  std::vector<int32_t> leaf_nodes;
+  leaf_nodes.reserve(leaves_.size());
+  for (int32_t index = 0; index < static_cast<int32_t>(nodes_.size()); ++index) {
+    auto& node = nodes_[index];
+    if (!node.active) {
+      continue;
+    }
+    if (node.IsLeaf()) {
+      node.parent = -1;
+      leaf_nodes.emplace_back(index);
+    } else {
+      ReleaseNode(index);
+    }
+  }
+  if (leaf_nodes.empty()) {
+    root_ = -1;
+    return;
+  }
+  const auto build = [&](auto&& self, const size_t begin, const size_t end) -> int32_t {
+    if (end - begin == 1u) {
+      return leaf_nodes[begin];
+    }
+    Bound centers;
+    for (size_t index = begin; index < end; ++index) {
+      const auto center = nodes_[leaf_nodes[index]].bound.Center();
+      centers.min = glm::min(centers.min, center);
+      centers.max = glm::max(centers.max, center);
+    }
+    const auto size = centers.Size();
+    const int axis = size.x >= size.y && size.x >= size.z ? 0 : size.y >= size.z ? 1 : 2;
+    const size_t middle = begin + (end - begin) / 2u;
+    std::nth_element(leaf_nodes.begin() + begin, leaf_nodes.begin() + middle, leaf_nodes.begin() + end,
+                     [&](const int32_t left, const int32_t right) {
+                       return nodes_[left].bound.Center()[axis] < nodes_[right].bound.Center()[axis];
+                     });
+    const int32_t left = self(self, begin, middle);
+    const int32_t right = self(self, middle, end);
+    const int32_t parent = AllocateNode();
+    nodes_[parent].left = left;
+    nodes_[parent].right = right;
+    nodes_[parent].bound = MergeBounds(nodes_[left].bound, nodes_[right].bound);
+    nodes_[left].parent = parent;
+    nodes_[right].parent = parent;
+    return parent;
+  };
+  root_ = build(build, 0u, leaf_nodes.size());
+  nodes_[root_].parent = -1;
+}
+
+void RenderInstanceStorage::RasterSpatialIndex::EndUpdate() {
+  std::vector<Handle> removed;
+  removed.reserve(leaves_.size());
+  for (const auto& [handle, leaf] : leaves_) {
+    if (seen_.find(handle) == seen_.end()) {
+      removed.emplace_back(handle);
+    }
+  }
+  for (const auto handle : removed) {
+    const int32_t leaf = leaves_.at(handle);
+    DetachLeaf(leaf);
+    ReleaseNode(leaf);
+    leaves_.erase(handle);
+    update_stats_.removed_leaves++;
+  }
+  RefreshTreeStats();
+  if (update_stats_.inserted_leaves + update_stats_.removed_leaves + update_stats_.reinserted_leaves != 0u &&
+      update_stats_.leaf_count > 2u) {
+    const auto target_depth = static_cast<uint32_t>(std::ceil(std::log2(update_stats_.leaf_count))) + 1u;
+    if (update_stats_.max_depth > target_depth * 2u) {
+      RebuildBalanced();
+      RefreshTreeStats();
+    }
+  }
+}
+
+std::vector<Handle> RenderInstanceStorage::RasterSpatialIndex::Query(
+    const std::function<bool(const Bound&)>& intersects, QueryStats* stats) const {
+  QueryStats local_stats{};
+  std::vector<Handle> result;
+  if (root_ >= 0) {
+    std::vector<int32_t> pending{root_};
+    while (!pending.empty()) {
+      const int32_t node_index = pending.back();
+      pending.pop_back();
+      const auto& node = nodes_[node_index];
+      local_stats.visited_nodes++;
+      if (!intersects(node.bound)) {
+        continue;
+      }
+      if (node.IsLeaf()) {
+        local_stats.tested_leaves++;
+        if (intersects(node.exact_bound)) {
+          result.emplace_back(node.handle);
+          local_stats.accepted_leaves++;
+        }
+      } else {
+        pending.emplace_back(node.left);
+        pending.emplace_back(node.right);
+      }
+    }
+  }
+  if (stats) {
+    *stats = local_stats;
+  }
+  return result;
+}
+
+const RenderInstanceStorage::RasterSpatialIndex::UpdateStats&
+RenderInstanceStorage::RasterSpatialIndex::GetUpdateStats() const {
+  return update_stats_;
+}
 
 float RenderSettings::GetShadowCascadeSplit(const int split, const float near_distance) const {
   const auto clamped_split = glm::clamp(split, 0, 3);
@@ -831,6 +1321,10 @@ bool RenderInstanceStorage::ExternalRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
+void RenderInstanceStorage::ExternalRenderInstanceCollection::Clear() {
+  render_commands.clear();
+}
+
 void RenderInstanceStorage::ExternalRenderInstanceCollection::Register(
     const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<ExternalRenderInstance>(render_instance));
@@ -873,6 +1367,10 @@ bool RenderInstanceStorage::MeshRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
+void RenderInstanceStorage::MeshRenderInstanceCollection::Clear() {
+  render_commands.clear();
+}
+
 void RenderInstanceStorage::MeshRenderInstanceCollection::Register(
     const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<MeshRenderInstance>(render_instance));
@@ -894,6 +1392,10 @@ void RenderInstanceStorage::MeshRenderInstanceCollection::ForEachMeshRenderInsta
 
 bool RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::Empty() const {
   return render_commands.empty();
+}
+
+void RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::Clear() {
+  render_commands.clear();
 }
 
 void RenderInstanceStorage::SkinnedMeshRenderInstanceCollection::Register(
@@ -930,6 +1432,10 @@ bool RenderInstanceStorage::StrandsRenderInstanceCollection::Empty() const {
   return render_commands.empty();
 }
 
+void RenderInstanceStorage::StrandsRenderInstanceCollection::Clear() {
+  render_commands.clear();
+}
+
 void RenderInstanceStorage::StrandsRenderInstanceCollection::Register(
     const std::shared_ptr<IRenderInstance>& render_instance) {
   render_commands.emplace_back(std::dynamic_pointer_cast<StrandsRenderInstance>(render_instance));
@@ -962,6 +1468,10 @@ void RenderInstanceStorage::StrandsRenderInstanceCollection::ForEachStrandsRende
 
 bool RenderInstanceStorage::GaussianSplatRenderInstanceCollection::Empty() const {
   return render_commands.empty();
+}
+
+void RenderInstanceStorage::GaussianSplatRenderInstanceCollection::Clear() {
+  render_commands.clear();
 }
 
 void RenderInstanceStorage::GaussianSplatRenderInstanceCollection::Register(
@@ -1000,6 +1510,10 @@ void RenderInstanceStorage::GaussianSplatRenderInstanceCollection::ForEachGaussi
 
 bool RenderInstanceStorage::InstancedRenderInstanceCollection::Empty() const {
   return render_commands.empty();
+}
+
+void RenderInstanceStorage::InstancedRenderInstanceCollection::Clear() {
+  render_commands.clear();
 }
 
 void RenderInstanceStorage::InstancedRenderInstanceCollection::Register(
@@ -1044,12 +1558,10 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
   else
     debug_visualization = 0;
 
-  pcf_sample_amount = target_render_settings.pcf_sample_amount;
   shadow_cascade_transition_width = glm::max(target_render_settings.shadow_cascade_transition_width, 0.0f);
   shadow_debug_parameters = glm::ivec4(glm::clamp(target_render_settings.shadow_debug_mode, 0, 5),
                                        glm::clamp(target_render_settings.shadow_debug_selected_cascade, 0, 3),
-                                       glm::max(target_render_settings.shadow_debug_selected_light, 0),
-                                       glm::clamp(target_render_settings.directional_pcf_sample_amount, 1, 64));
+                                       glm::max(target_render_settings.shadow_debug_selected_light, 0), 0);
   shadow_fade_parameters = glm::vec4(
       glm::clamp(target_render_settings.shadow_distance_fade, 0.0f,
                  glm::max(target_render_settings.max_shadow_distance, 0.0f)),
@@ -1063,9 +1575,6 @@ void RenderInstanceStorage::RenderInfoBlock::Apply(const RenderSettings& target_
 
 bool RenderInstanceStorage::RenderInfoBlock::operator!=(const RenderInfoBlock& other) const {
   if (split_distances != other.split_distances)
-    return true;
-
-  if (pcf_sample_amount != other.pcf_sample_amount)
     return true;
 
   if (shadow_cascade_transition_width != other.shadow_cascade_transition_width)
@@ -1282,7 +1791,569 @@ bool RenderInstanceStorage::InstanceInfoBlock::operator!=(const InstanceInfoBloc
     return true;
   if (ray_tracing_geometry != other.ray_tracing_geometry)
     return true;
+  if (world_bound_min != other.world_bound_min || world_bound_max != other.world_bound_max)
+    return true;
   return false;
+}
+
+bool RenderInstanceStorage::IsFiniteBound(const Bound& bound) {
+  return std::isfinite(bound.min.x) && std::isfinite(bound.min.y) && std::isfinite(bound.min.z) &&
+         std::isfinite(bound.max.x) && std::isfinite(bound.max.y) && std::isfinite(bound.max.z) &&
+         bound.min.x <= bound.max.x && bound.min.y <= bound.max.y && bound.min.z <= bound.max.z;
+}
+
+bool RenderInstanceStorage::BoundIntersectsCameraClipSpace(const Bound& bound, const glm::mat4& projection_view) {
+  if (!IsFiniteBound(bound)) {
+    return true;
+  }
+  const std::array corners = {
+      glm::vec3{bound.min.x, bound.min.y, bound.min.z}, glm::vec3{bound.max.x, bound.min.y, bound.min.z},
+      glm::vec3{bound.min.x, bound.max.y, bound.min.z}, glm::vec3{bound.max.x, bound.max.y, bound.min.z},
+      glm::vec3{bound.min.x, bound.min.y, bound.max.z}, glm::vec3{bound.max.x, bound.min.y, bound.max.z},
+      glm::vec3{bound.min.x, bound.max.y, bound.max.z}, glm::vec3{bound.max.x, bound.max.y, bound.max.z}};
+  std::array<uint32_t, 6> outside{};
+  for (const auto& corner : corners) {
+    const auto clip = projection_view * glm::vec4(corner, 1.0f);
+    if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w)) {
+      return true;
+    }
+    outside[0] += clip.x < -clip.w ? 1u : 0u;
+    outside[1] += clip.x > clip.w ? 1u : 0u;
+    outside[2] += clip.y < -clip.w ? 1u : 0u;
+    outside[3] += clip.y > clip.w ? 1u : 0u;
+    outside[4] += clip.z < 0.0f ? 1u : 0u;
+    outside[5] += clip.z > clip.w ? 1u : 0u;
+  }
+  return std::none_of(outside.begin(), outside.end(), [&](const uint32_t count) {
+    return count == corners.size();
+  });
+}
+
+bool RenderInstanceStorage::BoundIntersectsShadowClipSpace(const Bound& bound, const glm::mat4& projection_view) {
+  if (!IsFiniteBound(bound)) {
+    return true;
+  }
+  const std::array corners = {
+      glm::vec3{bound.min.x, bound.min.y, bound.min.z}, glm::vec3{bound.max.x, bound.min.y, bound.min.z},
+      glm::vec3{bound.min.x, bound.max.y, bound.min.z}, glm::vec3{bound.max.x, bound.max.y, bound.min.z},
+      glm::vec3{bound.min.x, bound.min.y, bound.max.z}, glm::vec3{bound.max.x, bound.min.y, bound.max.z},
+      glm::vec3{bound.min.x, bound.max.y, bound.max.z}, glm::vec3{bound.max.x, bound.max.y, bound.max.z}};
+  std::array<uint32_t, 6> outside{};
+  for (const auto& corner : corners) {
+    const auto clip = projection_view * glm::vec4(corner, 1.0f);
+    if (!std::isfinite(clip.x) || !std::isfinite(clip.y) || !std::isfinite(clip.z) || !std::isfinite(clip.w)) {
+      return true;
+    }
+    outside[0] += clip.x < -clip.w ? 1u : 0u;
+    outside[1] += clip.x > clip.w ? 1u : 0u;
+    outside[2] += clip.y < -clip.w ? 1u : 0u;
+    outside[3] += clip.y > clip.w ? 1u : 0u;
+    outside[4] += clip.z < -clip.w ? 1u : 0u;
+    outside[5] += clip.z > clip.w ? 1u : 0u;
+  }
+  return std::none_of(outside.begin(), outside.end(), [&](const uint32_t count) {
+    return count == corners.size();
+  });
+}
+
+bool RenderInstanceStorage::MeshletSphereIntersectsClipSpace(const glm::vec4& local_sphere, const glm::mat4& model,
+                                                             const glm::mat4& projection_view,
+                                                             const bool zero_near_plane) {
+  if (!std::isfinite(local_sphere.x) || !std::isfinite(local_sphere.y) || !std::isfinite(local_sphere.z) ||
+      !std::isfinite(local_sphere.w) || local_sphere.w < 0.0f) {
+    return true;
+  }
+  const glm::vec3 basis_x = model * glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+  const glm::vec3 basis_y = model * glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
+  const glm::vec3 basis_z = model * glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
+  const glm::vec3 basis_lengths{glm::length(basis_x), glm::length(basis_y), glm::length(basis_z)};
+  const bool orthogonal = std::abs(glm::dot(basis_x, basis_y)) <= 1e-5f * basis_lengths.x * basis_lengths.y &&
+                          std::abs(glm::dot(basis_x, basis_z)) <= 1e-5f * basis_lengths.x * basis_lengths.z &&
+                          std::abs(glm::dot(basis_y, basis_z)) <= 1e-5f * basis_lengths.y * basis_lengths.z;
+  const float world_scale =
+      orthogonal ? glm::max(basis_lengths.x, glm::max(basis_lengths.y, basis_lengths.z)) : glm::length(basis_lengths);
+  const glm::vec3 world_center = model * glm::vec4(local_sphere.x, local_sphere.y, local_sphere.z, 1.0f);
+  const float world_radius = local_sphere.w * world_scale;
+  if (!std::isfinite(world_center.x) || !std::isfinite(world_center.y) || !std::isfinite(world_center.z) ||
+      !std::isfinite(world_radius)) {
+    return true;
+  }
+  Bound world_bound;
+  world_bound.min = world_center - world_radius;
+  world_bound.max = world_center + world_radius;
+  return zero_near_plane ? BoundIntersectsCameraClipSpace(world_bound, projection_view)
+                         : BoundIntersectsShadowClipSpace(world_bound, projection_view);
+}
+
+RenderInstanceStorage::ShadowViewIndirectCommands RenderInstanceStorage::BuildShadowViewIndirectCommands(
+    const glm::mat4& light_space_matrix) {
+  const ProfilerScope profiler_scope("RenderInstanceStorage::BuildShadowViewIndirectCommands", "Render");
+  ShadowViewIndirectCommands result;
+  result.deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  result.deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  result.deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  result.deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+  const auto visible_entries = QueryRasterSpatialEntries(BuildClipSpaceBoundIntersector(light_space_matrix, false));
+  for (const auto& entry : visible_entries) {
+    const auto& render_instance = entry.render_instance;
+    if (!render_instance || entry.category != SpatialRenderCategory::Deferred || !render_instance->cast_shadow) {
+      continue;
+    }
+    if (entry.deferred_mesh_command_index < 0) {
+      if (std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(render_instance)) {
+        result.deferred_skinned_render_instances->Register(render_instance);
+      } else if (std::dynamic_pointer_cast<InstancedRenderInstance>(render_instance)) {
+        result.deferred_instanced_render_instances->Register(render_instance);
+      } else if (std::dynamic_pointer_cast<StrandsRenderInstance>(render_instance)) {
+        result.deferred_strands_render_instances->Register(render_instance);
+      }
+      continue;
+    }
+    const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
+    if (command_index >= opaque_shadow_mesh_draw_indexed_indirect_commands.size() ||
+        command_index >= opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size()) {
+      continue;
+    }
+    const auto& indexed_command = opaque_shadow_mesh_draw_indexed_indirect_commands[command_index];
+    const auto& mesh_task_command = opaque_shadow_mesh_draw_mesh_tasks_indirect_commands[command_index];
+    if (indexed_command.indexCount != 0u) {
+      const uint32_t primitive_count = indexed_command.indexCount / 3u;
+      result.indexed_commands.emplace_back(indexed_command);
+      result.mesh_task_commands.emplace_back(mesh_task_command);
+      result.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+      result.deferred_render_instances->Register(render_instance);
+      result.submitted_primitives += primitive_count;
+    }
+  }
+  return result;
+}
+
+void RenderInstanceStorage::MergeShadowRasterVisibilityResult(ShadowViewIndirectCommands& destination,
+                                                              ShadowViewIndirectCommands&& visibility,
+                                                              const bool use_mesh_shader) {
+  visibility.draw_instance_index_offset = static_cast<uint32_t>(raster_draw_instance_indices.size());
+  raster_draw_instance_indices.insert(raster_draw_instance_indices.end(), visibility.draw_instance_indices.begin(),
+                                      visibility.draw_instance_indices.end());
+  if (!visibility.indexed_commands.empty()) {
+    if (use_mesh_shader) {
+      visibility.indirect_buffer_offset = VectorBytes(packed_shadow_mesh_task_commands);
+      packed_shadow_mesh_task_commands.insert(packed_shadow_mesh_task_commands.end(),
+                                              visibility.mesh_task_commands.begin(),
+                                              visibility.mesh_task_commands.end());
+    } else {
+      visibility.indirect_buffer_offset = VectorBytes(packed_shadow_indexed_commands);
+      packed_shadow_indexed_commands.insert(packed_shadow_indexed_commands.end(), visibility.indexed_commands.begin(),
+                                            visibility.indexed_commands.end());
+    }
+    visibility.indirect_buffer = packed_shadow_indirect_buffer;
+  }
+  destination = std::move(visibility);
+}
+
+const RenderInstanceStorage::ShadowViewIndirectCommands* RenderInstanceStorage::GetDirectionalShadowView(
+    const int32_t camera_index, const int32_t light_index, const uint32_t split) const {
+  if (camera_index < 0 || light_index < 0 || split >= 4u || directional_shadow_light_count_ == 0u) {
+    return nullptr;
+  }
+  const size_t index = (static_cast<size_t>(camera_index) * 4u + split) * directional_shadow_light_count_ +
+                       static_cast<size_t>(light_index);
+  return index < directional_shadow_views_.size() ? &directional_shadow_views_[index] : nullptr;
+}
+
+const RenderInstanceStorage::ShadowViewIndirectCommands* RenderInstanceStorage::GetPointShadowView(
+    const int32_t light_index, const uint32_t face) const {
+  if (light_index < 0 || face >= 6u || point_light_info_blocks_.empty()) {
+    return nullptr;
+  }
+  const size_t index = face * point_light_info_blocks_.size() + static_cast<size_t>(light_index);
+  return index < point_shadow_views_.size() ? &point_shadow_views_[index] : nullptr;
+}
+
+const RenderInstanceStorage::ShadowViewIndirectCommands* RenderInstanceStorage::GetSpotShadowView(
+    const int32_t light_index) const {
+  return light_index >= 0 && static_cast<size_t>(light_index) < spot_shadow_views_.size()
+             ? &spot_shadow_views_[light_index]
+             : nullptr;
+}
+
+void RenderInstanceStorage::FinalizeShadowIndirectBuffers(const bool use_mesh_shader) {
+  packed_shadow_uses_mesh_shader_ = use_mesh_shader;
+}
+
+RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCameraRasterVisibilityResult(
+    const size_t camera_index) const {
+  const ProfilerScope profiler_scope("RenderInstanceStorage::BuildCameraRasterVisibilityResult", "Render");
+  CameraRasterVisibility visibility;
+  visibility.enabled = true;
+  visibility.draw_instance_index_offset = deferred_mesh_draw_instance_index_offset;
+  visibility.instance_visibility.assign(instance_info_blocks_.size(), 1u);
+  visibility.deferred_mesh_indirect_batches.clear();
+  visibility.mesh_draw_indexed_indirect_commands.clear();
+  visibility.mesh_draw_mesh_tasks_indirect_commands.clear();
+  visibility.total_gaussian_splats = 0;
+  ResetCompactCollection(visibility.deferred_render_instances);
+  ResetCompactCollection(visibility.deferred_skinned_render_instances);
+  ResetCompactCollection(visibility.deferred_instanced_render_instances);
+  ResetCompactCollection(visibility.deferred_strands_render_instances);
+  ResetCompactCollection(visibility.forward_render_instances);
+  ResetCompactCollection(visibility.forward_skinned_render_instances);
+  ResetCompactCollection(visibility.forward_instanced_render_instances);
+  ResetCompactCollection(visibility.forward_strands_render_instances);
+  ResetCompactCollection(visibility.transparent_render_instances);
+  ResetCompactCollection(visibility.transparent_skinned_render_instances);
+  ResetCompactCollection(visibility.transparent_instanced_render_instances);
+  ResetCompactCollection(visibility.transparent_strands_render_instances);
+  ResetCompactCollection(visibility.gaussian_splat_render_instances);
+  const auto& camera_info = camera_info_blocks_[camera_index];
+  const auto unjittered_intersects = BuildClipSpaceBoundIntersector(camera_info.unjittered_projection_view, true);
+  const auto jittered_intersects = BuildClipSpaceBoundIntersector(camera_info.projection_view, true);
+  const auto intersects = [&](const Bound& bound) {
+    return unjittered_intersects(bound) || jittered_intersects(bound);
+  };
+  for (const auto& [handle, entry] : spatial_render_entries_) {
+    if (entry.render_instance && entry.render_instance->instance_index >= 0 &&
+        static_cast<size_t>(entry.render_instance->instance_index) < visibility.instance_visibility.size()) {
+      visibility.instance_visibility[entry.render_instance->instance_index] = 0u;
+    }
+  }
+  const auto visible_entries = QueryRasterSpatialEntries(intersects);
+  const auto register_geometry = [&](const SpatialRenderEntry& entry, const auto& mesh_collection,
+                                     const auto& skinned_collection, const auto& instanced_collection,
+                                     const auto& strands_collection) {
+    if (std::dynamic_pointer_cast<MeshRenderInstance>(entry.render_instance)) {
+      mesh_collection->Register(entry.render_instance);
+    } else if (std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(entry.render_instance)) {
+      skinned_collection->Register(entry.render_instance);
+    } else if (std::dynamic_pointer_cast<InstancedRenderInstance>(entry.render_instance)) {
+      instanced_collection->Register(entry.render_instance);
+    } else if (std::dynamic_pointer_cast<StrandsRenderInstance>(entry.render_instance)) {
+      strands_collection->Register(entry.render_instance);
+    }
+  };
+  for (const auto& entry : visible_entries) {
+    const auto& render_instance = entry.render_instance;
+    if (!render_instance || render_instance->instance_index < 0 ||
+        static_cast<size_t>(render_instance->instance_index) >= visibility.instance_visibility.size()) {
+      continue;
+    }
+    visibility.instance_visibility[render_instance->instance_index] = 1u;
+    switch (entry.category) {
+      case SpatialRenderCategory::Deferred:
+        register_geometry(entry, visibility.deferred_render_instances, visibility.deferred_skinned_render_instances,
+                          visibility.deferred_instanced_render_instances, visibility.deferred_strands_render_instances);
+        break;
+      case SpatialRenderCategory::Forward:
+        register_geometry(entry, visibility.forward_render_instances, visibility.forward_skinned_render_instances,
+                          visibility.forward_instanced_render_instances, visibility.forward_strands_render_instances);
+        break;
+      case SpatialRenderCategory::Transparent:
+        register_geometry(
+            entry, visibility.transparent_render_instances, visibility.transparent_skinned_render_instances,
+            visibility.transparent_instanced_render_instances, visibility.transparent_strands_render_instances);
+        break;
+      case SpatialRenderCategory::Gaussian:
+        visibility.gaussian_splat_render_instances->Register(render_instance);
+        break;
+    }
+  }
+  visibility.gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance([&](const auto& render_instance) {
+    if (render_instance && render_instance->gaussian_splat) {
+      visibility.total_gaussian_splats += render_instance->gaussian_splat->GetSplatCount();
+    }
+  });
+  visibility.draw_instance_indices.reserve(mesh_draw_indexed_indirect_commands.size());
+  for (const auto& entry : visible_entries) {
+    if (entry.category != SpatialRenderCategory::Deferred || entry.deferred_mesh_command_index < 0) {
+      continue;
+    }
+    const auto render_instance = std::dynamic_pointer_cast<MeshRenderInstance>(entry.render_instance);
+    const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
+    if (command_index >= mesh_draw_indexed_indirect_commands.size() ||
+        command_index >= mesh_draw_mesh_tasks_indirect_commands.size() || !render_instance) {
+      visibility.enabled = false;
+      break;
+    }
+    const auto compact_command_index = static_cast<uint32_t>(visibility.mesh_draw_indexed_indirect_commands.size());
+    visibility.mesh_draw_indexed_indirect_commands.emplace_back(mesh_draw_indexed_indirect_commands[command_index]);
+    visibility.mesh_draw_mesh_tasks_indirect_commands.emplace_back(
+        mesh_draw_mesh_tasks_indirect_commands[command_index]);
+    visibility.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+    const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+      return batch.material_index == render_instance->material_index &&
+             batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+             batch.polygon_mode == render_instance->polygon_mode;
+    };
+    if (visibility.deferred_mesh_indirect_batches.empty() ||
+        !same_batch(visibility.deferred_mesh_indirect_batches.back())) {
+      auto& batch = visibility.deferred_mesh_indirect_batches.emplace_back();
+      batch.material_index = render_instance->material_index;
+      batch.first_command = compact_command_index;
+      batch.line_width = render_instance->line_width;
+      batch.cull_mode = render_instance->cull_mode;
+      batch.polygon_mode = render_instance->polygon_mode;
+    }
+    auto& batch = visibility.deferred_mesh_indirect_batches.back();
+    batch.command_count++;
+    batch.triangle_count += mesh_draw_indexed_indirect_commands[command_index].indexCount / 3u;
+  }
+  if (!visibility.enabled) {
+    return visibility;
+  }
+  return visibility;
+}
+
+void RenderInstanceStorage::MergeCameraRasterVisibilityResult(const size_t camera_index,
+                                                              CameraRasterVisibility&& visibility) {
+  visibility.draw_instance_index_offset = static_cast<uint32_t>(raster_draw_instance_indices.size());
+  raster_draw_instance_indices.insert(raster_draw_instance_indices.end(), visibility.draw_instance_indices.begin(),
+                                      visibility.draw_instance_indices.end());
+  if (visibility.enabled) {
+    const auto alignment = StorageBufferAlignment();
+    visibility.indexed_indirect_buffer_offset =
+        AppendAligned(packed_camera_indexed_commands, visibility.mesh_draw_indexed_indirect_commands, alignment);
+    visibility.mesh_task_indirect_buffer_offset =
+        AppendAligned(packed_camera_mesh_task_commands, visibility.mesh_draw_mesh_tasks_indirect_commands, alignment);
+    visibility.mesh_draw_indexed_indirect_commands_buffer = packed_camera_indexed_buffer;
+    visibility.mesh_draw_mesh_tasks_indirect_commands_buffer = packed_camera_mesh_task_buffer;
+  }
+  camera_raster_visibility_[camera_index] = std::move(visibility);
+}
+
+void RenderInstanceStorage::BuildRasterVisibility(const bool use_mesh_shader) {
+  const auto canonical_mapping_end =
+      deferred_mesh_draw_instance_index_offset + static_cast<uint32_t>(mesh_draw_indexed_indirect_commands.size());
+  raster_draw_instance_indices.resize(canonical_mapping_end);
+  packed_camera_indexed_commands.clear();
+  packed_camera_mesh_task_commands.clear();
+  camera_raster_visibility_.resize(camera_info_blocks_.size());
+
+  directional_shadow_views_.clear();
+  point_shadow_views_.clear();
+  spot_shadow_views_.clear();
+  packed_shadow_indexed_commands.clear();
+  packed_shadow_mesh_task_commands.clear();
+  directional_shadow_light_count_ = static_cast<uint32_t>(glm::max(render_info_block.directional_light_size, 0));
+  struct ShadowWorkItem {
+    ShadowViewIndirectCommands* destination = nullptr;
+    glm::mat4 light_space_matrix{1.0f};
+  };
+  std::vector<ShadowWorkItem> shadow_work_items;
+  const size_t camera_count = camera_info_blocks_.size();
+  const size_t directional_stride = camera_count == 0 ? 0 : directional_light_info_blocks_.size() / camera_count;
+  directional_shadow_views_.resize(camera_count * 4u * directional_shadow_light_count_);
+  for (size_t camera_index = 0; camera_index < camera_count; ++camera_index) {
+    for (uint32_t split = 0; split < 4u; ++split) {
+      for (uint32_t light_index = 0; light_index < directional_shadow_light_count_; ++light_index) {
+        const auto block_index = camera_index * directional_stride + light_index;
+        if (block_index >= directional_light_info_blocks_.size() ||
+            directional_light_info_blocks_[block_index].diffuse.w <= 0.5f) {
+          continue;
+        }
+        shadow_work_items.push_back(
+            {&directional_shadow_views_[(camera_index * 4u + split) * directional_shadow_light_count_ + light_index],
+             directional_light_info_blocks_[block_index].light_space_matrix[split]});
+      }
+    }
+  }
+  const size_t point_light_count = point_light_info_blocks_.size();
+  point_shadow_views_.resize(6u * point_light_count);
+  for (uint32_t face = 0; face < 6u; ++face) {
+    for (size_t light_index = 0; light_index < point_light_count; ++light_index) {
+      if (point_light_info_blocks_[light_index].diffuse.w > 0.5f) {
+        shadow_work_items.push_back({&point_shadow_views_[face * point_light_count + light_index],
+                                     point_light_info_blocks_[light_index].light_space_matrix[face]});
+      }
+    }
+  }
+  spot_shadow_views_.resize(spot_light_info_blocks_.size());
+  for (size_t light_index = 0; light_index < spot_light_info_blocks_.size(); ++light_index) {
+    if (spot_light_info_blocks_[light_index].diffuse.w > 0.5f) {
+      shadow_work_items.push_back(
+          {&spot_shadow_views_[light_index], spot_light_info_blocks_[light_index].light_space_matrix});
+    }
+  }
+
+  std::vector<CameraRasterVisibility> camera_results(camera_count);
+  std::vector<ShadowViewIndirectCommands> shadow_results(shadow_work_items.size());
+  const size_t work_item_count = camera_count + shadow_work_items.size();
+  const auto build_item = [&](const size_t index) {
+    if (index < camera_count) {
+      camera_results[index] = BuildCameraRasterVisibilityResult(index);
+    } else {
+      const size_t shadow_index = index - camera_count;
+      shadow_results[shadow_index] =
+          BuildShadowViewIndirectCommands(shadow_work_items[shadow_index].light_space_matrix);
+    }
+  };
+  if (work_item_count > 1u) {
+    RunDedicatedRasterBatch(work_item_count, build_item);
+  } else if (work_item_count == 1u) {
+    build_item(0u);
+  }
+
+  for (size_t camera_index = 0; camera_index < camera_count; ++camera_index) {
+    MergeCameraRasterVisibilityResult(camera_index, std::move(camera_results[camera_index]));
+  }
+
+  for (size_t shadow_index = 0; shadow_index < shadow_work_items.size(); ++shadow_index) {
+    MergeShadowRasterVisibilityResult(*shadow_work_items[shadow_index].destination,
+                                      std::move(shadow_results[shadow_index]), use_mesh_shader);
+  }
+  FinalizeShadowIndirectBuffers(use_mesh_shader);
+}
+
+bool RenderInstanceStorage::IsInstanceVisible(const int32_t camera_index, const int32_t instance_index) const {
+  const auto* visibility = GetCameraRasterVisibility(camera_index);
+  return !visibility || !visibility->enabled || instance_index < 0 ||
+         static_cast<size_t>(instance_index) >= visibility->instance_visibility.size() ||
+         visibility->instance_visibility[instance_index] != 0u;
+}
+
+const RenderInstanceStorage::CameraRasterVisibility* RenderInstanceStorage::GetCameraRasterVisibility(
+    const int32_t camera_index) const {
+  if (camera_index < 0 || static_cast<size_t>(camera_index) >= camera_raster_visibility_.size()) {
+    return nullptr;
+  }
+  return &camera_raster_visibility_[camera_index];
+}
+
+const Bound* RenderInstanceStorage::FindPersistentWorldBound(const Handle renderer_handle, const GlobalTransform& model,
+                                                             const Bound& local_bound,
+                                                             const uint64_t content_signature) {
+  if (renderer_handle == 0) {
+    return nullptr;
+  }
+  persistent_transform_seen_.insert(renderer_handle);
+  const auto found = persistent_transform_records_.find(renderer_handle);
+  if (found == persistent_transform_records_.end() || found->second.model != model ||
+      !BoundsEqual(found->second.local_bound, local_bound) || found->second.content_signature != content_signature) {
+    return nullptr;
+  }
+  return &found->second.world_bound;
+}
+
+void RenderInstanceStorage::StorePersistentWorldBound(const Handle renderer_handle, const GlobalTransform& model,
+                                                      const Bound& local_bound, const uint64_t content_signature,
+                                                      const Bound& world_bound) {
+  if (renderer_handle == 0) {
+    return;
+  }
+  persistent_transform_seen_.insert(renderer_handle);
+  persistent_transform_records_[renderer_handle] = {model, local_bound, world_bound, content_signature};
+}
+
+void RenderInstanceStorage::PrunePersistentTransformRecords() {
+  for (auto iterator = persistent_transform_records_.begin(); iterator != persistent_transform_records_.end();) {
+    if (persistent_transform_seen_.find(iterator->first) != persistent_transform_seen_.end()) {
+      ++iterator;
+      continue;
+    }
+    iterator = persistent_transform_records_.erase(iterator);
+  }
+}
+
+void RenderInstanceStorage::PrepareStaticMeshCache(const std::shared_ptr<Scene>& scene) {
+  const auto revision = scene->GetRenderStructureRevision();
+  if (static_mesh_cache_scene_.lock() != scene || static_mesh_cache_structure_revision_ != revision) {
+    static_mesh_render_instance_cache_.clear();
+    static_mesh_cache_scene_ = scene;
+    static_mesh_cache_structure_revision_ = revision;
+  }
+}
+
+void RenderInstanceStorage::InvalidateStaticEntityCache(const std::shared_ptr<Scene>& scene, const Entity& entity) {
+  if (!scene || static_mesh_cache_scene_.lock() != scene || !scene->IsEntityValid(entity))
+    return;
+  std::unordered_set<Entity, Entity> invalid_entities;
+  scene->ForEachDescendant(
+      entity,
+      [&](const Entity& descendant) {
+        invalid_entities.insert(descendant);
+      },
+      false);
+  for (auto iterator = static_mesh_render_instance_cache_.begin();
+       iterator != static_mesh_render_instance_cache_.end();) {
+    const auto& record = iterator->second;
+    if (invalid_entities.find(record.source_owner) != invalid_entities.end() ||
+        (record.render_instance && invalid_entities.find(record.render_instance->owner) != invalid_entities.end())) {
+      iterator = static_mesh_render_instance_cache_.erase(iterator);
+    } else {
+      ++iterator;
+    }
+  }
+}
+
+const GltfMaterialData& RenderInstanceStorage::ResolveMaterialData(const std::shared_ptr<Material>& material) {
+  const auto handle = material->GetHandle();
+  const auto version = material->GetVersion();
+  if (const auto found = material_data_cache_.find(handle);
+      found != material_data_cache_.end() && found->second.version == version) {
+    return found->second.data;
+  }
+  auto& cached = material_data_cache_[handle];
+  cached.version = version;
+  cached.data = BuildMaterialGltfData(*material);
+  return cached.data;
+}
+
+void RenderInstanceStorage::UpdateRasterSpatialIndex() {
+  spatial_render_entries_.clear();
+  spatial_always_visible_entries_.clear();
+  raster_spatial_index_.BeginUpdate();
+  const auto register_entry = [&](const std::shared_ptr<IRenderInstance>& render_instance,
+                                  const SpatialRenderCategory category,
+                                  const int32_t deferred_mesh_command_index = -1) {
+    if (!render_instance) {
+      return;
+    }
+    SpatialRenderEntry entry{render_instance, category, deferred_mesh_command_index};
+    if (render_instance->renderer_handle == 0 || !IsFiniteBound(render_instance->world_bound)) {
+      spatial_always_visible_entries_.emplace_back(std::move(entry));
+      return;
+    }
+    spatial_render_entries_[render_instance->renderer_handle] = entry;
+    raster_spatial_index_.Upsert(render_instance->renderer_handle, render_instance->world_bound);
+  };
+  int32_t deferred_mesh_command_index = 0;
+  deferred_render_instances->ForEachRenderInstance([&](const auto& instance) {
+    register_entry(instance, SpatialRenderCategory::Deferred, deferred_mesh_command_index++);
+  });
+  const auto register_collection = [&](const auto& collection, const SpatialRenderCategory category) {
+    collection->ForEachRenderInstance([&](const auto& instance) {
+      register_entry(instance, category);
+    });
+  };
+  register_collection(deferred_skinned_render_instances, SpatialRenderCategory::Deferred);
+  register_collection(deferred_instanced_render_instances, SpatialRenderCategory::Deferred);
+  register_collection(deferred_strands_render_instances, SpatialRenderCategory::Deferred);
+  register_collection(forward_render_instances, SpatialRenderCategory::Forward);
+  register_collection(forward_skinned_render_instances, SpatialRenderCategory::Forward);
+  register_collection(forward_instanced_render_instances, SpatialRenderCategory::Forward);
+  register_collection(forward_strands_render_instances, SpatialRenderCategory::Forward);
+  register_collection(transparent_render_instances, SpatialRenderCategory::Transparent);
+  register_collection(transparent_skinned_render_instances, SpatialRenderCategory::Transparent);
+  register_collection(transparent_instanced_render_instances, SpatialRenderCategory::Transparent);
+  register_collection(transparent_strands_render_instances, SpatialRenderCategory::Transparent);
+  register_collection(gaussian_splat_render_instances, SpatialRenderCategory::Gaussian);
+  raster_spatial_index_.EndUpdate();
+}
+
+std::vector<RenderInstanceStorage::SpatialRenderEntry> RenderInstanceStorage::QueryRasterSpatialEntries(
+    const std::function<bool(const Bound&)>& intersects) const {
+  std::vector<SpatialRenderEntry> result = spatial_always_visible_entries_;
+  for (const auto handle : raster_spatial_index_.Query(intersects)) {
+    if (const auto found = spatial_render_entries_.find(handle); found != spatial_render_entries_.end()) {
+      result.emplace_back(found->second);
+    }
+  }
+  std::sort(result.begin(), result.end(), [](const auto& left, const auto& right) {
+    const auto left_index =
+        left.render_instance ? left.render_instance->instance_index : std::numeric_limits<int32_t>::max();
+    const auto right_index =
+        right.render_instance ? right.render_instance->instance_index : std::numeric_limits<int32_t>::max();
+    return left_index < right_index;
+  });
+  return result;
 }
 
 void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>& target_scene, Bound& world_bound) {
@@ -1290,6 +2361,7 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   auto& max_bound = world_bound.max;
   geometry_storage_version = GeometryStorage::GetVersion();
   texture_storage_version = TextureStorage::GetVersion();
+  PrepareStaticMeshCache(target_scene);
   bool has_render_instance = false;
   std::unordered_set<Handle> lod_group_renderers{};
   if (const auto* owners = target_scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
@@ -1423,11 +2495,104 @@ void RenderInstanceStorage::CollectEntityRenderers(const std::shared_ptr<Scene>&
   }
 }
 
+uint64_t RenderInstanceStorage::CalculateCanonicalStructureSignature() const {
+  uint64_t signature = 0;
+  uint64_t entry_count = 0;
+  const auto append = [&](const std::shared_ptr<IRenderInstance>& instance, const uint64_t category) {
+    if (!instance) {
+      return;
+    }
+    entry_count++;
+    signature = MixDdgiInventorySignature(signature, category);
+    signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(instance->renderer_handle));
+    signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(instance->entity_handle));
+    signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(instance->command_type));
+    signature = MixDdgiInventorySignature(signature, static_cast<uint32_t>(instance->material_index));
+    signature = MixDdgiInventorySignature(signature, instance->geometry_version);
+    signature = MixDdgiInventorySignature(signature, instance->cast_shadow ? 1u : 0u);
+    signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(instance->cull_mode));
+    signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(instance->polygon_mode));
+    signature = MixDdgiInventorySignature(signature, glm::floatBitsToUint(instance->line_width));
+    if (const auto mesh = std::dynamic_pointer_cast<MeshRenderInstance>(instance); mesh && mesh->mesh) {
+      signature = MixDdgiInventorySignature(signature, mesh->mesh->GetHandle().GetValue());
+      if (mesh->mesh->triangle_range_) {
+        signature = MixDdgiInventorySignature(signature, mesh->mesh->triangle_range_->prev_frame_offset);
+        signature = MixDdgiInventorySignature(signature, mesh->mesh->triangle_range_->prev_frame_index_count);
+      }
+      if (mesh->mesh->meshlet_range_) {
+        signature = MixDdgiInventorySignature(signature, mesh->mesh->meshlet_range_->prev_frame_range);
+      }
+    } else if (const auto skinned = std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(instance);
+               skinned && skinned->skinned_mesh) {
+      signature = MixDdgiInventorySignature(signature, skinned->skinned_mesh->GetHandle().GetValue());
+      if (skinned->skinned_mesh->skinned_triangle_range_) {
+        signature = MixDdgiInventorySignature(signature,
+                                              skinned->skinned_mesh->skinned_triangle_range_->prev_frame_index_count);
+      }
+      if (skinned->skinned_mesh->skinned_meshlet_range_) {
+        signature =
+            MixDdgiInventorySignature(signature, skinned->skinned_mesh->skinned_meshlet_range_->prev_frame_range);
+      }
+    } else if (const auto instanced = std::dynamic_pointer_cast<InstancedRenderInstance>(instance); instanced) {
+      signature = MixDdgiInventorySignature(signature, instanced->mesh ? instanced->mesh->GetHandle().GetValue() : 0u);
+      signature = MixDdgiInventorySignature(signature, instanced->particle_info_list_version);
+      signature = MixDdgiInventorySignature(
+          signature, instanced->particle_infos ? instanced->particle_infos->PeekParticleInfoList().size() : 0u);
+    } else if (const auto strands = std::dynamic_pointer_cast<StrandsRenderInstance>(instance);
+               strands && strands->strands) {
+      signature = MixDdgiInventorySignature(signature, strands->strands->GetHandle().GetValue());
+      if (strands->strands->segment_range_) {
+        signature = MixDdgiInventorySignature(signature, strands->strands->segment_range_->prev_frame_index_count);
+      }
+      if (strands->strands->strand_meshlet_range_) {
+        signature = MixDdgiInventorySignature(signature, strands->strands->strand_meshlet_range_->prev_frame_range);
+      }
+    } else if (const auto gaussian = std::dynamic_pointer_cast<GaussianSplatRenderInstance>(instance); gaussian) {
+      signature = MixDdgiInventorySignature(
+          signature, gaussian->gaussian_splat ? gaussian->gaussian_splat->GetHandle().GetValue() : 0u);
+      signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(gaussian->sort_mode));
+      signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(gaussian->depth_mode));
+      signature = MixDdgiInventorySignature(signature, static_cast<uint64_t>(gaussian->raster_mode));
+    }
+  };
+  const auto append_collection = [&](const auto& collection, const uint64_t category) {
+    collection->ForEachRenderInstance([&](const auto& instance) {
+      append(instance, category);
+    });
+  };
+  append_collection(deferred_render_instances, 0u);
+  append_collection(deferred_skinned_render_instances, 1u);
+  append_collection(deferred_instanced_render_instances, 2u);
+  append_collection(deferred_strands_render_instances, 3u);
+  append_collection(forward_render_instances, 4u);
+  append_collection(forward_skinned_render_instances, 5u);
+  append_collection(forward_instanced_render_instances, 6u);
+  append_collection(forward_strands_render_instances, 7u);
+  append_collection(transparent_render_instances, 8u);
+  append_collection(transparent_skinned_render_instances, 9u);
+  append_collection(transparent_instanced_render_instances, 10u);
+  append_collection(transparent_strands_render_instances, 11u);
+  append_collection(gaussian_splat_render_instances, 12u);
+  append_collection(external_render_instances, 13u);
+  return MixDdgiInventorySignature(signature, entry_count);
+}
+
 void RenderInstanceStorage::BuildRenderInstanceBlocks() {
+  const auto structure_signature = CalculateCanonicalStructureSignature();
+  canonical_structure_changed_this_frame_ =
+      !canonical_structure_initialized_ || structure_signature != canonical_structure_signature_;
+  canonical_structure_initialized_ = true;
+  canonical_structure_signature_ = structure_signature;
   total_opaque_shadow_mesh_triangles = 0;
-  deferred_mesh_indirect_batches.clear();
-  opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
-  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+  raster_draw_instance_indices.clear();
+  deferred_mesh_draw_instance_index_offset = 0;
+  if (canonical_structure_changed_this_frame_) {
+    deferred_mesh_indirect_batches.clear();
+    mesh_draw_indexed_indirect_commands.clear();
+    mesh_draw_mesh_tasks_indirect_commands.clear();
+    opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
+    opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+  }
 
   const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance,
                                             const bool rigid_motion_supported) {
@@ -1440,7 +2605,42 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
     auto& render_instance_block = instance_info_blocks_.emplace_back();
     render_instance->Apply(render_instance_block);
+    if (render_instance->entity_selected)
+      entity_selection_render_snapshot_.Include(render_instance->world_bound);
+    render_instance_block.world_bound_min = glm::vec4(render_instance->world_bound.min, 0.0f);
+    render_instance_block.world_bound_max = glm::vec4(render_instance->world_bound.max, 0.0f);
     rigid_motion_supported_.emplace_back(rigid_motion_supported ? 1u : 0u);
+  };
+  const auto register_tlas_input =
+      [&](const std::shared_ptr<IRenderInstance>& render_instance,
+          const std::shared_ptr<BottomLevelAccelerationStructure>& bottom_level_acceleration_structure,
+          const glm::mat4& model, const uint32_t custom_index, const bool linear_swept_spheres = false) {
+        if (Platform::RayAccelerationStructureEnabled()) {
+          top_level_acceleration_structure_inputs_.push_back(
+              {render_instance, bottom_level_acceleration_structure, model, custom_index, linear_swept_spheres});
+        }
+      };
+  const auto register_mesh_tlas_input = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+    if (render_instance && render_instance->mesh) {
+      register_tlas_input(
+          render_instance,
+          render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas : render_instance->mesh->blas_,
+          render_instance->model.value, static_cast<uint32_t>(render_instance->instance_index));
+    }
+  };
+  const auto register_skinned_tlas_input = [&](const std::shared_ptr<SkinnedMeshRenderInstance>& render_instance) {
+    if (render_instance && render_instance->skinned_mesh) {
+      register_tlas_input(
+          render_instance,
+          render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas : render_instance->skinned_mesh->blas_,
+          render_instance->model.value, static_cast<uint32_t>(render_instance->instance_index));
+    }
+  };
+  const auto register_strands_tlas_input = [&](const std::shared_ptr<StrandsRenderInstance>& render_instance) {
+    if (Platform::RayTracingLinearSweptSpheresEnabled() && render_instance && render_instance->strands) {
+      register_tlas_input(render_instance, render_instance->strands->blas_, render_instance->model.value,
+                          static_cast<uint32_t>(render_instance->instance_index), true);
+    }
   };
   const auto prepare_gaussian_splat_render_instance =
       [&](const std::shared_ptr<GaussianSplatRenderInstance>& render_instance) {
@@ -1478,8 +2678,10 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       total_opaque_shadow_mesh_triangles += triangle_index_count;
     }
 
-    opaque_shadow_mesh_draw_indexed_indirect_commands.emplace_back(opaque_draw);
-    opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(opaque_mesh_task);
+    if (canonical_structure_changed_this_frame_) {
+      opaque_shadow_mesh_draw_indexed_indirect_commands.emplace_back(opaque_draw);
+      opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(opaque_mesh_task);
+    }
   };
   uint32_t deferred_mesh_command_index = 0;
   const auto register_deferred_mesh_indirect_batch = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
@@ -1492,13 +2694,11 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
       return batch.material_index == render_instance->material_index &&
              batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
-             batch.polygon_mode == render_instance->polygon_mode &&
-             batch.first_instance_index + static_cast<int32_t>(batch.command_count) == render_instance->instance_index;
+             batch.polygon_mode == render_instance->polygon_mode;
     };
     if (deferred_mesh_indirect_batches.empty() || !same_batch(deferred_mesh_indirect_batches.back())) {
       auto& batch = deferred_mesh_indirect_batches.emplace_back();
       batch.material_index = render_instance->material_index;
-      batch.first_instance_index = render_instance->instance_index;
       batch.first_command = deferred_mesh_command_index;
       batch.line_width = render_instance->line_width;
       batch.cull_mode = render_instance->cull_mode;
@@ -1510,46 +2710,64 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     deferred_mesh_command_index++;
   };
   deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
+    if (canonical_structure_changed_this_frame_ && render_instance && render_instance->mesh) {
+      AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
+                                 render_instance->mesh->triangle_range_->prev_frame_offset,
+                                 render_instance->mesh->triangle_range_->prev_frame_index_count,
+                                 render_instance->mesh->meshlet_range_->prev_frame_range);
+    }
     register_render_instance(render_instance, true);
-    register_deferred_mesh_indirect_batch(render_instance);
+    register_mesh_tlas_input(render_instance);
+    raster_draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+    if (canonical_structure_changed_this_frame_) {
+      register_deferred_mesh_indirect_batch(render_instance);
+    }
     register_shadow_mesh_indirect_command(render_instance);
   });
   ValidateDeferredMeshIndirectCommandCount(deferred_render_instances, mesh_draw_indexed_indirect_commands,
-                                           mesh_draw_mesh_tasks_indirect_commands);
+                                           mesh_draw_mesh_tasks_indirect_commands, raster_draw_instance_indices);
   deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_skinned_tlas_input(render_instance);
   });
   deferred_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
   });
   deferred_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_strands_tlas_input(render_instance);
   });
 
   forward_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, true);
+    register_mesh_tlas_input(render_instance);
   });
   forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_skinned_tlas_input(render_instance);
   });
   forward_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
   });
   forward_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_strands_tlas_input(render_instance);
   });
 
   transparent_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, true);
+    register_mesh_tlas_input(render_instance);
   });
   transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_skinned_tlas_input(render_instance);
   });
   transparent_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
   });
   transparent_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    register_strands_tlas_input(render_instance);
   });
 
   gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance([&](const auto& render_instance) {
@@ -1559,11 +2777,15 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
 
   external_render_instances->ForEachExternalRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
+    if (render_instance && render_instance->HasDdgiRayTracingGeometry()) {
+      register_tlas_input(render_instance, render_instance->ddgi_geometry.bottom_level_acceleration_structure,
+                          render_instance->model.value, static_cast<uint32_t>(render_instance->instance_index));
+    }
   });
 
   const auto append_particle_ray_instances = [&](const std::shared_ptr<InstancedRenderInstance>& render_instance) {
     render_instance->ray_tracing_instance_indices.clear();
-    if (!Platform::RayAccelerationStructureEnabled() || !render_instance->particle_infos ||
+    if (!Platform::RayAccelerationStructureEnabled() || !render_instance->mesh || !render_instance->particle_infos ||
         render_instance->instance_index < 0 ||
         static_cast<size_t>(render_instance->instance_index) >= instance_info_blocks_.size()) {
       return;
@@ -1578,6 +2800,8 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       ray_instance_block.model.value = render_instance->model.value * particle_info.instance_matrix.value;
       rigid_motion_supported_.emplace_back(0u);
       render_instance->ray_tracing_instance_indices.emplace_back(ray_instance_index);
+      register_tlas_input(render_instance, render_instance->mesh->blas_, ray_instance_block.model.value,
+                          ray_instance_index);
       if (render_instance->entity_handle != 0) {
         instance_entity_handles_[ray_instance_index] = render_instance->entity_handle;
       }
@@ -2357,6 +3581,8 @@ RenderInstanceStorage::RenderInstanceStorage() {
   buffer_create_info.size =
       glm::max(static_cast<size_t>(1), sizeof(InstanceInfoBlock) * Platform::Constants::initial_instance_size);
   instance_info_descriptor_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  buffer_create_info.size = sizeof(uint32_t) * Platform::Constants::initial_instance_size;
+  raster_draw_instance_indices_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   buffer_create_info.size =
       glm::max(static_cast<size_t>(1), sizeof(PreviousInstanceInfoBlock) * Platform::Constants::initial_instance_size);
   previous_instance_info_descriptor_buffer =
@@ -2392,6 +3618,9 @@ RenderInstanceStorage::RenderInstanceStorage() {
                sizeof(VkDrawMeshTasksIndirectCommandEXT) * opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size());
   opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  packed_shadow_indirect_buffer = CreateIndirectBuffer();
+  packed_camera_indexed_buffer = CreateIndirectBuffer();
+  packed_camera_mesh_task_buffer = CreateIndirectBuffer();
 
   deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
   deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
@@ -2413,44 +3642,54 @@ RenderInstanceStorage::RenderInstanceStorage() {
 }
 
 void RenderInstanceStorage::Clear() {
-  total_mesh_triangles = 0;
   total_opaque_shadow_mesh_triangles = 0;
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;
-  total_strand_meshlets = 0;
   total_gaussian_splats = 0;
+  directional_shadow_views_.clear();
+  point_shadow_views_.clear();
+  spot_shadow_views_.clear();
+  directional_shadow_light_count_ = 0;
+  persistent_transform_seen_.clear();
+  active_material_handles_.clear();
+  canonical_structure_changed_this_frame_ = false;
+  material_cache_changed_this_frame_ = false;
+  spatial_render_entries_.clear();
+  spatial_always_visible_entries_.clear();
 
-  deferred_render_instances = std::make_shared<MeshRenderInstanceCollection>();
-  deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
-  deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
-  deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
-
-  forward_render_instances = std::make_shared<MeshRenderInstanceCollection>();
-  forward_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
-  forward_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
-  forward_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
-
-  transparent_render_instances = std::make_shared<MeshRenderInstanceCollection>();
-  transparent_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
-  transparent_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
-  transparent_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
-
-  gaussian_splat_render_instances = std::make_shared<GaussianSplatRenderInstanceCollection>();
-  external_render_instances = std::make_shared<ExternalRenderInstanceCollection>();
+  deferred_render_instances->Clear();
+  deferred_skinned_render_instances->Clear();
+  deferred_instanced_render_instances->Clear();
+  deferred_strands_render_instances->Clear();
+  forward_render_instances->Clear();
+  forward_skinned_render_instances->Clear();
+  forward_instanced_render_instances->Clear();
+  forward_strands_render_instances->Clear();
+  transparent_render_instances->Clear();
+  transparent_skinned_render_instances->Clear();
+  transparent_instanced_render_instances->Clear();
+  transparent_strands_render_instances->Clear();
+  gaussian_splat_render_instances->Clear();
+  external_render_instances->Clear();
+  top_level_acceleration_structure_inputs_.clear();
 
   instance_entity_handles_.clear();
   instance_renderer_handles_.clear();
 
   renderer_indices_.clear();
   camera_indices_.clear();
-  material_indices_.clear();
   render_settings = {};
 
   camera_info_blocks_.clear();
-  gltf_material_cache_.Clear();
-  raster_material_descriptor_sets.clear();
-  raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
+  for (auto& visibility : camera_raster_visibility_) {
+    visibility.enabled = false;
+    visibility.draw_instance_index_offset = 0;
+    visibility.instance_visibility.clear();
+    visibility.deferred_mesh_indirect_batches.clear();
+    visibility.mesh_draw_indexed_indirect_commands.clear();
+    visibility.mesh_draw_mesh_tasks_indirect_commands.clear();
+  }
   instance_info_blocks_.clear();
   previous_instance_info_blocks_.clear();
   rigid_motion_supported_.clear();
@@ -2461,54 +3700,115 @@ void RenderInstanceStorage::Clear() {
 
   cameras.clear();
 
-  mesh_draw_indexed_indirect_commands.clear();
-  mesh_draw_mesh_tasks_indirect_commands.clear();
-  deferred_mesh_indirect_batches.clear();
-  opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
-  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+  deferred_mesh_draw_instance_index_offset = 0;
+  raster_draw_instance_indices.clear();
 }
 
-void RenderInstanceStorage::Upload() {
+void RenderInstanceStorage::Upload(const bool immediate) {
   if (!Platform::Initialized())
     return;
-  camera_info_descriptor_buffer->UploadVector(camera_info_blocks_);
-  gltf_material_descriptor_buffer->UploadVector(gltf_material_cache_.GetShadeMaterials());
-  gltf_texture_info_descriptor_buffer->UploadVector(gltf_material_cache_.GetTextureInfos());
-  instance_info_descriptor_buffer->UploadVector(instance_info_blocks_);
-  previous_instance_info_descriptor_buffer->UploadVector(previous_instance_info_blocks_);
+  const ProfilerScope profiler_scope("RenderInstanceStorage::Upload", "Render");
+  const auto instance_upload_ranges =
+      PlanInstanceInfoUploadRanges(uploaded_instance_info_blocks_, instance_info_blocks_);
+  const auto previous_instance_upload_ranges =
+      PlanPreviousInstanceInfoUploadRanges(uploaded_previous_instance_info_blocks_, previous_instance_info_blocks_);
+  const BufferUploadOptions uniform_options{BufferUploadUsage::Uniform, BufferUploadCapacityPolicy::GrowIfNeeded};
+  const BufferUploadOptions storage_read_options{BufferUploadUsage::StorageRead,
+                                                 BufferUploadCapacityPolicy::GrowIfNeeded};
+  const BufferUploadOptions indirect_options{BufferUploadUsage::Indirect, BufferUploadCapacityPolicy::GrowIfNeeded};
+  const BufferUploadOptions storage_indirect_options{
+      BufferUploadUsage::Custom, BufferUploadCapacityPolicy::GrowIfNeeded, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+      VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT |
+          VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT};
+  BufferUploadBatch upload_batch;
+  std::vector<std::pair<const Buffer*, uint64_t>> pending_signatures;
+  const auto add_if_changed = [&](const std::shared_ptr<Buffer>& buffer, const void* data, const size_t size,
+                                  const BufferUploadOptions& options) {
+    if (size == 0) {
+      return;
+    }
+    const auto signature = ByteSignature(data, size);
+    if (const auto found = uploaded_payload_signatures_.find(buffer.get());
+        found != uploaded_payload_signatures_.end() && found->second == signature) {
+      return;
+    }
+    upload_batch.Add(buffer, data, size, 0, options);
+    pending_signatures.emplace_back(buffer.get(), signature);
+  };
+  const auto add_vector_if_changed = [&](const std::shared_ptr<Buffer>& buffer, const auto& values,
+                                         const BufferUploadOptions& options) {
+    add_if_changed(buffer, values.data(), VectorBytes(values), options);
+  };
+  add_vector_if_changed(camera_info_descriptor_buffer, camera_info_blocks_, storage_read_options);
+  if (material_cache_changed_this_frame_) {
+    upload_batch.AddVector(gltf_material_descriptor_buffer, gltf_material_cache_.GetShadeMaterials(),
+                           storage_read_options);
+    upload_batch.AddVector(gltf_texture_info_descriptor_buffer, gltf_material_cache_.GetTextureInfos(),
+                           storage_read_options);
+  }
+  AddUploadRanges(upload_batch, instance_info_descriptor_buffer, instance_info_blocks_, instance_upload_ranges,
+                  storage_read_options);
+  AddUploadRanges(upload_batch, previous_instance_info_descriptor_buffer, previous_instance_info_blocks_,
+                  previous_instance_upload_ranges, storage_read_options);
+  add_vector_if_changed(raster_draw_instance_indices_buffer, raster_draw_instance_indices, storage_read_options);
   const bool upload_emissive =
       emissive_instance_info_dirty_ || emissive_triangle_distribution_info_dirty_ || emissive_triangle_info_dirty_;
   const auto emissive_upload_started = std::chrono::steady_clock::now();
   if (emissive_instance_info_dirty_) {
-    emissive_instance_info_descriptor_buffer->UploadVector(emissive_instance_info_blocks_);
-    emissive_instance_info_dirty_ = false;
+    upload_batch.AddVector(emissive_instance_info_descriptor_buffer, emissive_instance_info_blocks_,
+                           storage_read_options);
   }
   if (emissive_triangle_distribution_info_dirty_) {
-    emissive_triangle_distribution_descriptor_buffer->UploadVector(emissive_triangle_distribution_info_blocks_);
-    emissive_triangle_distribution_info_dirty_ = false;
+    upload_batch.AddVector(emissive_triangle_distribution_descriptor_buffer,
+                           emissive_triangle_distribution_info_blocks_, storage_read_options);
   }
   if (emissive_triangle_info_dirty_) {
-    emissive_triangle_info_descriptor_buffer->UploadVector(emissive_triangle_info_blocks_);
-    emissive_triangle_info_dirty_ = false;
+    upload_batch.AddVector(emissive_triangle_info_descriptor_buffer, emissive_triangle_info_blocks_,
+                           storage_read_options);
+  }
+  add_if_changed(render_info_descriptor_buffer, &render_info_block, sizeof(render_info_block), uniform_options);
+  add_vector_if_changed(directional_light_info_descriptor_buffer, directional_light_info_blocks_, storage_read_options);
+  add_vector_if_changed(point_light_info_descriptor_buffer, point_light_info_blocks_, storage_read_options);
+  add_vector_if_changed(spot_light_info_descriptor_buffer, spot_light_info_blocks_, storage_read_options);
+
+  if (canonical_structure_changed_this_frame_) {
+    upload_batch.AddVector(mesh_draw_indexed_indirect_commands_buffer, mesh_draw_indexed_indirect_commands,
+                           storage_indirect_options);
+    upload_batch.AddVector(mesh_draw_mesh_tasks_indirect_commands_buffer, mesh_draw_mesh_tasks_indirect_commands,
+                           storage_indirect_options);
+    upload_batch.AddVector(opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
+                           opaque_shadow_mesh_draw_indexed_indirect_commands, storage_indirect_options);
+    upload_batch.AddVector(opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                           opaque_shadow_mesh_draw_mesh_tasks_indirect_commands, storage_indirect_options);
+  }
+  add_vector_if_changed(packed_camera_indexed_buffer, packed_camera_indexed_commands, indirect_options);
+  add_vector_if_changed(packed_camera_mesh_task_buffer, packed_camera_mesh_task_commands, indirect_options);
+  if (packed_shadow_uses_mesh_shader_) {
+    add_vector_if_changed(packed_shadow_indirect_buffer, packed_shadow_mesh_task_commands, indirect_options);
+  } else {
+    add_vector_if_changed(packed_shadow_indirect_buffer, packed_shadow_indexed_commands, indirect_options);
+  }
+  add_if_changed(environment_info_descriptor_buffer, &environment_info_block, sizeof(environment_info_block),
+                 uniform_options);
+  if (immediate) {
+    upload_batch.SubmitImmediate();
+  } else {
+    upload_batch.Record(upload_arena_);
+  }
+  for (const auto& [buffer, signature] : pending_signatures) {
+    uploaded_payload_signatures_[buffer] = signature;
   }
   ddgi_emissive_inventory_stats_.upload_ms =
       upload_emissive
           ? std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - emissive_upload_started)
                 .count()
           : 0.0;
-  render_info_descriptor_buffer->Upload(render_info_block);
-  directional_light_info_descriptor_buffer->UploadVector(directional_light_info_blocks_);
-  point_light_info_descriptor_buffer->UploadVector(point_light_info_blocks_);
-  spot_light_info_descriptor_buffer->UploadVector(spot_light_info_blocks_);
-
-  mesh_draw_indexed_indirect_commands_buffer->UploadVector(mesh_draw_indexed_indirect_commands);
-  mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(mesh_draw_mesh_tasks_indirect_commands);
-  opaque_shadow_mesh_draw_indexed_indirect_commands_buffer->UploadVector(
-      opaque_shadow_mesh_draw_indexed_indirect_commands);
-  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer->UploadVector(
-      opaque_shadow_mesh_draw_mesh_tasks_indirect_commands);
-
-  environment_info_descriptor_buffer->Upload(environment_info_block);
+  CommitUploadedRanges(uploaded_instance_info_blocks_, instance_info_blocks_, instance_upload_ranges);
+  CommitUploadedRanges(uploaded_previous_instance_info_blocks_, previous_instance_info_blocks_,
+                       previous_instance_upload_ranges);
+  emissive_instance_info_dirty_ = false;
+  emissive_triangle_distribution_info_dirty_ = false;
+  emissive_triangle_info_dirty_ = false;
 }
 
 const std::vector<GltfShadeMaterial>& RenderInstanceStorage::GetGltfShadeMaterials() const {
@@ -2537,8 +3837,23 @@ RenderInstanceStorage::GetPreviousInstanceInfoBlocks() const {
   return previous_instance_info_blocks_;
 }
 
+std::vector<RenderInstanceStorage::InstanceUploadRange> RenderInstanceStorage::PlanInstanceInfoUploadRanges(
+    const std::vector<InstanceInfoBlock>& previous, const std::vector<InstanceInfoBlock>& current) {
+  return PlanUploadRanges(previous, current, [](const auto& left, const auto& right) {
+    return left.info_index == right.info_index && !(left != right);
+  });
+}
+
+std::vector<RenderInstanceStorage::InstanceUploadRange> RenderInstanceStorage::PlanPreviousInstanceInfoUploadRanges(
+    const std::vector<PreviousInstanceInfoBlock>& previous, const std::vector<PreviousInstanceInfoBlock>& current) {
+  return PlanUploadRanges(previous, current, [](const auto& left, const auto& right) {
+    return left.previous_model == right.previous_model && left.flags == right.flags;
+  });
+}
+
 void RenderInstanceStorage::BuildPreviousInstanceInfoBlocks(
     const std::shared_ptr<RenderInstanceStorage>& previous_render_instances) {
+  const ProfilerScope profiler_scope("RenderInstanceStorage::BuildPreviousInstanceInfoBlocks", "Render");
   previous_instance_info_blocks_.resize(instance_info_blocks_.size());
   std::unordered_map<uint32_t, size_t> previous_entity_indices;
   if (previous_render_instances) {
@@ -2811,7 +4126,7 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
     return false;
   auto mesh_bound = mesh->GetBound();
   mesh_bound.ApplyTransform(model.value);
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
   const auto render_instance = std::make_shared<MeshRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromApi;
   render_instance->owner = Entity();
@@ -2834,10 +4149,6 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
     transparent_render_instances->Register(render_instance);
   } else {
     deferred_render_instances->Register(render_instance);
-    AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
-                               mesh->triangle_range_->prev_frame_offset, mesh->triangle_range_->prev_frame_index_count,
-                               mesh->meshlet_range_->prev_frame_range);
-    total_mesh_triangles += mesh->triangle_range_->prev_frame_index_count;
   }
 
   return true;
@@ -2846,13 +4157,13 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
 bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
     const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material, const GlobalTransform& model,
     const std::shared_ptr<ParticleInfoList>& particle_info_list, const bool cast_shadow) {
-  if (!material || !mesh || !mesh->meshlet_range_ || !mesh->triangle_range_)
+  if (!material || !mesh || !particle_info_list || !mesh->meshlet_range_ || !mesh->triangle_range_)
     return false;
   if (mesh->UnsafeGetVertices().empty() || mesh->UnsafeGetTriangles().empty())
     return false;
   if (mesh->triangle_range_->prev_frame_index_count == 0 || mesh->meshlet_range_->prev_frame_range == 0)
     return false;
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
   const auto render_instance = std::make_shared<InstancedRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromApi;
   render_instance->owner = Entity();
@@ -2865,6 +4176,8 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
   render_instance->particle_info_list_version = particle_info_list->GetVersion();
   render_instance->renderer_handle = 0;
   render_instance->cast_shadow = cast_shadow;
+  render_instance->world_bound =
+      CalculateInstancedWorldBound(mesh->GetBound(), model.value, particle_info_list->PeekParticleInfoList());
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
@@ -2879,14 +4192,12 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
     deferred_instanced_render_instances->Register(render_instance);
   }
 
-  total_mesh_triangles +=
-      mesh->triangle_range_->prev_frame_index_count * particle_info_list->PeekParticleInfoList().size();
-
   return true;
 }
 
 bool RenderInstanceStorage::IsEntitySelectionHighlighted(const Entity& entity) const {
-  return entity_selection_highlight_coverage_.find(entity) != entity_selection_highlight_coverage_.end();
+  return entity_selection_highlight_coverage_ &&
+         entity_selection_highlight_coverage_->find(entity) != entity_selection_highlight_coverage_->end();
 }
 
 bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>& target_scene, const Entity& entity,
@@ -2902,7 +4213,7 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
   if (!material)
     return false;
   const auto gt = target_scene->GetDataComponent<GlobalTransform>(entity);
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
   const auto render_instance = std::make_shared<ExternalRenderInstance>();
   render_instance->command_type = RenderInstanceType::Unknown;
   render_instance->owner = entity;
@@ -2931,7 +4242,13 @@ bool RenderInstanceStorage::RegisterRenderInstance(const std::shared_ptr<Scene>&
 int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& material) {
   if (!material)
     return -1;
-  return RegisterMaterial(material, BuildMaterialGltfData(*material));
+  const auto handle = material->GetHandle();
+  if (const auto found = material_indices_.find(handle);
+      found != material_indices_.end() && material_versions_[handle] == material->GetVersion()) {
+    active_material_handles_.insert(handle);
+    return found->second;
+  }
+  return RegisterMaterial(material, ResolveMaterialData(material));
 }
 
 void RenderInstanceStorage::BuildFromScene(
@@ -2940,40 +4257,65 @@ void RenderInstanceStorage::BuildFromScene(
     const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
     const bool include_reflection_probes,
     const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides,
-    const EntitySelectionHighlightCoverage* entity_selection_highlight_coverage) {
-  entity_selection_highlight_coverage_ =
-      entity_selection_highlight_coverage ? *entity_selection_highlight_coverage : EntitySelectionHighlightCoverage{};
+    std::shared_ptr<const EntitySelectionHighlightCoverage> entity_selection_highlight_coverage,
+    const uint64_t entity_selection_revision, const uint64_t scene_hierarchy_revision) {
+  const ProfilerScope profiler_scope("RenderInstanceStorage::BuildFromScene", "Render");
+  {
+    const ProfilerScope selection_scope("RenderInstanceStorage::BindSelectionHighlightCoverage", "Render");
+    entity_selection_highlight_coverage_ = std::move(entity_selection_highlight_coverage);
+    entity_selection_render_snapshot_ = {scene, entity_selection_revision, scene_hierarchy_revision};
+  }
   this->render_settings = render_settings;
   render_info_block.Apply(this->render_settings);
-  CollectEnvironment(scene);
-  if (include_reflection_probes) {
-    CollectReflectionProbes(scene, reflection_probe_texture_overrides);
-  } else {
-    render_info_block.reflection_probe_header = glm::uvec4(0u);
-    render_info_block.reflection_probes = {};
-  }
-  if (include_editor_cameras) {
-    CollectEditorCameras(scene, cameras);
-  }
-  CollectCameras(scene, cameras);
-  if (injected_cameras) {
-    for (const auto& injected_camera : *injected_cameras) {
-      if (injected_camera.second) {
-        cameras.emplace_back(injected_camera);
-      }
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::CollectEnvironmentAndProbes", "Render");
+    CollectEnvironment(scene);
+    if (include_reflection_probes) {
+      CollectReflectionProbes(scene, reflection_probe_texture_overrides);
+    } else {
+      render_info_block.reflection_probe_header = glm::uvec4(0u);
+      render_info_block.reflection_probes = {};
     }
   }
-  for (const auto& camera_info : cameras) {
-    CameraInfoBlock camera_info_block;
-    camera_info.second->UpdateCameraInfoBlock(camera_info_block, camera_info.first);
-    camera_info_block.shadow_split_distances =
-        render_settings.GetShadowCascadeSplitDistances(camera_info.second->camera_settings.near_distance);
-    const auto index = RegisterCamera(camera_info.second->GetHandle(), camera_info_block);
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::CollectCameras", "Render");
+    if (include_editor_cameras) {
+      CollectEditorCameras(scene, cameras);
+    }
+    CollectCameras(scene, cameras);
+    if (injected_cameras) {
+      for (const auto& injected_camera : *injected_cameras) {
+        if (injected_camera.second) {
+          cameras.emplace_back(injected_camera);
+        }
+      }
+    }
+    for (const auto& camera_info : cameras) {
+      CameraInfoBlock camera_info_block;
+      camera_info.second->UpdateCameraInfoBlock(camera_info_block, camera_info.first);
+      camera_info_block.shadow_split_distances =
+          render_settings.GetShadowCascadeSplitDistances(camera_info.second->camera_settings.near_distance);
+      (void)RegisterCamera(camera_info.second->GetHandle(), camera_info_block);
+    }
   }
-  CollectEntityRenderers(scene, world_bound);
-  BuildRenderInstanceBlocks();
-  BuildEmissiveTriangleInfoBlocks();
-  CollectLights(scene, world_bound);
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::CollectEntityRenderers", "Render");
+    CollectEntityRenderers(scene, world_bound);
+    PrunePersistentTransformRecords();
+  }
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::BuildRenderInstanceBlocks", "Render");
+    BuildRenderInstanceBlocks();
+  }
+  UpdateRasterSpatialIndex();
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks", "Render");
+    BuildEmissiveTriangleInfoBlocks();
+  }
+  {
+    const ProfilerScope stage_scope("RenderInstanceStorage::CollectLights", "Render");
+    CollectLights(scene, world_bound);
+  }
 }
 
 void RenderInstanceStorage::CollectReflectionProbes(
@@ -3037,10 +4379,18 @@ RenderInstanceStorage::GetReflectionProbeInfoBlocks() const {
 }
 
 void RenderInstanceStorage::UpdateTopLevelAccelerationStructure() {
+  const ProfilerScope profiler_scope("RenderInstanceStorage::UpdateTopLevelAccelerationStructure", "Render");
   if (!mesh_top_level_acceleration_structure) {
     mesh_top_level_acceleration_structure = std::make_shared<TopLevelAccelerationStructure>();
   }
-  mesh_top_level_acceleration_structure->Update(*this);
+  switch (mesh_top_level_acceleration_structure->Update(*this)) {
+    case TopLevelAccelerationStructure::UpdateMode::NoOp:
+      break;
+    case TopLevelAccelerationStructure::UpdateMode::Build:
+      break;
+    case TopLevelAccelerationStructure::UpdateMode::Update:
+      break;
+  }
 }
 
 bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_scene, const Entity& owner,
@@ -3053,8 +4403,15 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   }
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
-  auto mesh_bound = strands->bound_;
-  mesh_bound.ApplyTransform(ltw);
+  const auto local_bound = strands->bound_;
+  auto mesh_bound = local_bound;
+  if (const auto* cached =
+          FindPersistentWorldBound(strands_renderer->GetHandle(), gt, local_bound, strands->GetVersion())) {
+    mesh_bound = *cached;
+  } else {
+    mesh_bound.ApplyTransform(ltw);
+    StorePersistentWorldBound(strands_renderer->GetHandle(), gt, local_bound, strands->GetVersion(), mesh_bound);
+  }
   glm::vec3 center = mesh_bound.Center();
 
   glm::vec3 size = mesh_bound.Size();
@@ -3071,7 +4428,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     return false;
   }
 
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
 
   const auto render_instance = std::make_shared<StrandsRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
@@ -3099,7 +4456,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   if (raster_ready) {
     total_strands_segments += strands->segment_range_->prev_frame_index_count;
-    total_strand_meshlets += strands->strand_meshlet_range_->prev_frame_range;
   }
   return true;
 }
@@ -3111,11 +4467,20 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   if (!gaussian_splat_renderer->IsEnabled() || !gaussian_splat || gaussian_splat->Empty())
     return false;
 
+  (void)gaussian_splat->EnsureGpuData();
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
-  auto mesh_bound = Bound();
-  mesh_bound.min = gaussian_splat->GetMinBound();
-  mesh_bound.max = gaussian_splat->GetMaxBound();
-  mesh_bound.ApplyTransform(gt.value);
+  Bound local_bound;
+  local_bound.min = gaussian_splat->GetMinBound();
+  local_bound.max = gaussian_splat->GetMaxBound();
+  auto mesh_bound = local_bound;
+  if (const auto* cached = FindPersistentWorldBound(gaussian_splat_renderer->GetHandle(), gt, local_bound,
+                                                    gaussian_splat->GetGpuDataRevision())) {
+    mesh_bound = *cached;
+  } else {
+    mesh_bound.ApplyTransform(gt.value);
+    StorePersistentWorldBound(gaussian_splat_renderer->GetHandle(), gt, local_bound,
+                              gaussian_splat->GetGpuDataRevision(), mesh_bound);
+  }
   glm::vec3 center = mesh_bound.Center();
 
   glm::vec3 size = mesh_bound.Size();
@@ -3125,7 +4490,6 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                         glm::max(max_bound.z, center.z + size.z));
 
   const auto render_instance = std::make_shared<GaussianSplatRenderInstance>();
-  (void)gaussian_splat->EnsureGpuData();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
   render_instance->entity_handle = target_scene->GetEntityHandle(owner);
@@ -3160,12 +4524,47 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
 
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
-  auto mesh_bound = mesh->GetBound();
+  auto local_bound = mesh->GetBound();
   if (mesh_renderer->ray_tracing_blas_) {
-    mesh_bound.min = glm::min(mesh_bound.min, mesh_renderer->ray_tracing_bound_.min);
-    mesh_bound.max = glm::max(mesh_bound.max, mesh_renderer->ray_tracing_bound_.max);
+    local_bound.min = glm::min(local_bound.min, mesh_renderer->ray_tracing_bound_.min);
+    local_bound.max = glm::max(local_bound.max, mesh_renderer->ray_tracing_bound_.max);
   }
-  mesh_bound.ApplyTransform(ltw);
+  const auto renderer_handle = mesh_renderer->GetHandle();
+  const auto source_owner = mesh_renderer->GetOwner();
+  const auto entity_handle = target_scene->GetEntityHandle(owner);
+  const auto mesh_version = mesh->GetVersion();
+  const auto material_version = material->GetVersion();
+  const bool cacheable = target_scene->IsEntityStatic(source_owner) && renderer_handle != 0;
+  std::shared_ptr<MeshRenderInstance> render_instance;
+  bool transparent = false;
+  if (cacheable) {
+    if (const auto found = static_mesh_render_instance_cache_.find(renderer_handle);
+        found != static_mesh_render_instance_cache_.end()) {
+      const auto& record = found->second;
+      const auto& cached = record.render_instance;
+      if (cached && record.source_owner == source_owner && cached->owner == owner &&
+          cached->entity_handle == entity_handle && cached->mesh == mesh && cached->material == material &&
+          cached->model == gt && BoundsEqual(record.local_bound, local_bound) &&
+          cached->geometry_version == mesh_version && cached->material_version == material_version &&
+          cached->cast_shadow == mesh_renderer->cast_shadow &&
+          cached->ray_tracing_geometry_version == mesh_renderer->ray_tracing_geometry_version_ &&
+          cached->morph_weights_version == mesh_renderer->morph_weights_version_ &&
+          cached->ray_tracing_triangle_range == mesh_renderer->ray_tracing_triangle_range_ &&
+          cached->ray_tracing_blas == mesh_renderer->ray_tracing_blas_) {
+        render_instance = cached;
+        transparent = record.transparent;
+      }
+    }
+  }
+  auto mesh_bound = local_bound;
+  if (render_instance) {
+    mesh_bound = render_instance->world_bound;
+  } else if (const auto* cached = FindPersistentWorldBound(renderer_handle, gt, local_bound, mesh_version)) {
+    mesh_bound = *cached;
+  } else {
+    mesh_bound.ApplyTransform(ltw);
+    StorePersistentWorldBound(renderer_handle, gt, local_bound, mesh_version, mesh_bound);
+  }
   glm::vec3 center = mesh_bound.Center();
 
   glm::vec3 size = mesh_bound.Size();
@@ -3174,38 +4573,40 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
 
-  const auto material_data = BuildMaterialGltfData(*material);
-  const auto render_instance = std::make_shared<MeshRenderInstance>();
-  render_instance->command_type = RenderInstanceType::FromRenderer;
-  render_instance->owner = owner;
-  render_instance->mesh = mesh;
-  render_instance->material = material;
-  render_instance->model = gt;
-  render_instance->entity_handle = target_scene->GetEntityHandle(owner);
-  render_instance->renderer_handle = mesh_renderer->GetHandle();
-  render_instance->cast_shadow = mesh_renderer->cast_shadow;
-  render_instance->world_bound = mesh_bound;
-  render_instance->geometry_version = mesh->GetVersion();
-  render_instance->ray_tracing_geometry_version = mesh_renderer->ray_tracing_geometry_version_;
-  render_instance->morph_weights_version = mesh_renderer->morph_weights_version_;
-  render_instance->ray_tracing_triangle_range = mesh_renderer->ray_tracing_triangle_range_;
-  render_instance->ray_tracing_blas = mesh_renderer->ray_tracing_blas_;
-  render_instance->material_version = material->GetVersion();
-  render_instance->material_index = RegisterMaterial(material, material_data);
-  render_instance->line_width = material->draw_settings.line_width;
-  render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
-  render_instance->polygon_mode = material->draw_settings.polygon_mode;
+  if (!render_instance) {
+    const auto& material_data = ResolveMaterialData(material);
+    render_instance = std::make_shared<MeshRenderInstance>();
+    render_instance->command_type = RenderInstanceType::FromRenderer;
+    render_instance->owner = owner;
+    render_instance->mesh = mesh;
+    render_instance->material = material;
+    render_instance->model = gt;
+    render_instance->entity_handle = entity_handle;
+    render_instance->renderer_handle = renderer_handle;
+    render_instance->cast_shadow = mesh_renderer->cast_shadow;
+    render_instance->world_bound = mesh_bound;
+    render_instance->geometry_version = mesh_version;
+    render_instance->ray_tracing_geometry_version = mesh_renderer->ray_tracing_geometry_version_;
+    render_instance->morph_weights_version = mesh_renderer->morph_weights_version_;
+    render_instance->ray_tracing_triangle_range = mesh_renderer->ray_tracing_triangle_range_;
+    render_instance->ray_tracing_blas = mesh_renderer->ray_tracing_blas_;
+    render_instance->material_version = material_version;
+    render_instance->material_index = RegisterMaterial(material, material_data);
+    render_instance->line_width = material->draw_settings.line_width;
+    render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
+    render_instance->polygon_mode = material->draw_settings.polygon_mode;
+    transparent = UsesTransparentRasterPass(*material, material_data.shade_material);
+    if (cacheable) {
+      static_mesh_render_instance_cache_[renderer_handle] = {source_owner, local_bound, render_instance, transparent};
+    }
+  } else {
+    render_instance->material_index = RegisterMaterial(material);
+  }
   render_instance->entity_selected = IsEntitySelectionHighlighted(owner);
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
+  if (transparent) {
     transparent_render_instances->Register(render_instance);
   } else {
     deferred_render_instances->Register(render_instance);
-    if (ApplicationContext::Get().GetLayer<RenderLayer>()) {
-      AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
-                                 mesh->triangle_range_->prev_frame_offset,
-                                 mesh->triangle_range_->prev_frame_index_count, mesh->meshlet_range_->prev_frame_range);
-    }
-    total_mesh_triangles += mesh->triangle_range_->prev_frame_index_count;
   }
   return true;
 }
@@ -3231,12 +4632,21 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   }
   auto ltw = gt.value;
-  auto mesh_bound = skinned_mesh->GetBound();
+  auto local_bound = skinned_mesh->GetBound();
   if (skinned_mesh_renderer->ray_tracing_blas_) {
-    mesh_bound.min = glm::min(mesh_bound.min, skinned_mesh_renderer->ray_tracing_bound_.min);
-    mesh_bound.max = glm::max(mesh_bound.max, skinned_mesh_renderer->ray_tracing_bound_.max);
+    local_bound.min = glm::min(local_bound.min, skinned_mesh_renderer->ray_tracing_bound_.min);
+    local_bound.max = glm::max(local_bound.max, skinned_mesh_renderer->ray_tracing_bound_.max);
   }
-  mesh_bound.ApplyTransform(ltw);
+  auto mesh_bound = local_bound;
+  const uint64_t content_signature =
+      static_cast<uint64_t>(skinned_mesh->GetVersion()) << 32u | skinned_mesh_renderer->morph_weights_version_;
+  if (const auto* cached =
+          FindPersistentWorldBound(skinned_mesh_renderer->GetHandle(), gt, local_bound, content_signature)) {
+    mesh_bound = *cached;
+  } else {
+    mesh_bound.ApplyTransform(ltw);
+    StorePersistentWorldBound(skinned_mesh_renderer->GetHandle(), gt, local_bound, content_signature, mesh_bound);
+  }
   glm::vec3 center = mesh_bound.Center();
 
   glm::vec3 size = mesh_bound.Size();
@@ -3245,7 +4655,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
 
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
   const auto render_instance = std::make_shared<SkinnedMeshRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
   render_instance->owner = owner;
@@ -3296,8 +4706,16 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     return false;
   auto gt = target_scene->GetDataComponent<GlobalTransform>(owner);
   auto ltw = gt.value;
-  auto mesh_bound = mesh->GetBound();
-  mesh_bound.ApplyTransform(ltw);
+  const auto local_bound = mesh->GetBound();
+  Bound mesh_bound;
+  const uint64_t content_signature =
+      static_cast<uint64_t>(mesh->GetVersion()) << 32u | particle_info_list->GetVersion();
+  if (const auto* cached = FindPersistentWorldBound(particles->GetHandle(), gt, local_bound, content_signature)) {
+    mesh_bound = *cached;
+  } else {
+    mesh_bound = CalculateInstancedWorldBound(local_bound, ltw, particle_info_list->PeekParticleInfoList());
+    StorePersistentWorldBound(particles->GetHandle(), gt, local_bound, content_signature, mesh_bound);
+  }
   glm::vec3 center = mesh_bound.Center();
 
   glm::vec3 size = mesh_bound.Size();
@@ -3307,7 +4725,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   max_bound = glm::vec3(glm::max(max_bound.x, center.x + size.x), glm::max(max_bound.y, center.y + size.y),
                         glm::max(max_bound.z, center.z + size.z));
 
-  const auto material_data = BuildMaterialGltfData(*material);
+  const auto& material_data = ResolveMaterialData(material);
 
   const auto render_instance = std::make_shared<InstancedRenderInstance>();
   render_instance->command_type = RenderInstanceType::FromRenderer;
@@ -3319,6 +4737,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->material = material;
   render_instance->cast_shadow = particles->cast_shadow;
   render_instance->particle_infos = particle_info_list;
+  render_instance->world_bound = mesh_bound;
   render_instance->geometry_version = mesh->GetVersion();
   render_instance->material_version = material->GetVersion();
   render_instance->material_index = RegisterMaterial(material, material_data);
@@ -3345,15 +4764,25 @@ int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& mat
   if (!material)
     return -1;
   const auto handle = material->GetHandle();
+  active_material_handles_.insert(handle);
   const auto search = material_indices_.find(handle);
   if (search == material_indices_.end()) {
     const int index = static_cast<int>(gltf_material_cache_.GetShadeMaterials().size());
     material_indices_[handle] = index;
+    material_versions_[handle] = material->GetVersion();
     const auto gltf_material_index = gltf_material_cache_.Append(material_data);
     if (gltf_material_index != static_cast<uint32_t>(index)) {
       throw std::runtime_error("glTF material cache drifted from render material indices.");
     }
+    material_cache_changed_this_frame_ = true;
     return index;
+  }
+  const auto version = material->GetVersion();
+  if (material_versions_[handle] != version) {
+    gltf_material_cache_.Update(static_cast<uint32_t>(search->second), material_data);
+    material_versions_[handle] = version;
+    material_cache_changed_this_frame_ = true;
+    raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   }
   return search->second;
 }

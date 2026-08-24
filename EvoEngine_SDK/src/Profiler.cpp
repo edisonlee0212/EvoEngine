@@ -1,15 +1,19 @@
 #include "Profiler.hpp"
+#include "ProfilerPanelModel.hpp"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <deque>
 #include <fstream>
 #include <functional>
 #include <iomanip>
+#include <limits>
 #include <mutex>
 #include <sstream>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <utility>
 
@@ -25,6 +29,7 @@ struct ActiveProfilerScope {
   ProfilerClock::time_point frame_start_time;
   uint64_t frame_index = 0;
   uint64_t thread_id = 0;
+  uint64_t capture_session_index = 0;
   uint32_t depth = 0;
 };
 
@@ -36,6 +41,14 @@ uint64_t CurrentThreadId() {
 
 double MillisecondsBetween(const ProfilerClock::time_point start_time, const ProfilerClock::time_point end_time) {
   return std::chrono::duration<double, std::milli>(end_time - start_time).count();
+}
+
+double ValidDuration(const double duration_ms) {
+  return std::isfinite(duration_ms) ? std::max(0.0, duration_ms) : 0.0;
+}
+
+double ValidStart(const double start_ms) {
+  return std::isfinite(start_ms) ? start_ms : std::numeric_limits<double>::max();
 }
 
 std::string DefaultThreadName(const uint64_t thread_id) {
@@ -113,14 +126,66 @@ void SortTotals(std::vector<ProfilerAggregateTotal>& totals) {
   });
 }
 
+ProfilerHierarchyNode& FindOrAddHierarchyNode(std::vector<ProfilerHierarchyNode>& nodes,
+                                              const ProfilerScopeEvent& event) {
+  const auto search = std::find_if(nodes.begin(), nodes.end(), [&](const ProfilerHierarchyNode& node) {
+    return node.name == event.name && node.category == event.category;
+  });
+  if (search != nodes.end()) {
+    return *search;
+  }
+  auto& node = nodes.emplace_back();
+  node.name = event.name;
+  node.category = event.category;
+  return node;
+}
+
+void FinishHierarchy(std::vector<ProfilerHierarchyNode>& nodes) {
+  for (auto& node : nodes) {
+    FinishHierarchy(node.children);
+    double child_ms = 0.0;
+    for (const auto& child : node.children) {
+      child_ms += child.inclusive_ms;
+    }
+    node.self_ms = std::max(0.0, node.inclusive_ms - child_ms);
+  }
+}
+
+void BuildHierarchy(ProfilerThreadLane& lane) {
+  struct StackEntry {
+    uint32_t depth = 0;
+    double end_ms = 0.0;
+    ProfilerHierarchyNode* node = nullptr;
+  };
+  std::vector<StackEntry> stack;
+  for (const auto& event : lane.events) {
+    const double start_ms = ValidStart(event.start_ms);
+    const double duration_ms = ValidDuration(event.duration_ms);
+    while (!stack.empty() && (stack.back().depth >= event.depth || stack.back().end_ms <= start_ms)) {
+      stack.pop_back();
+    }
+    auto& siblings = stack.empty() ? lane.hierarchy : stack.back().node->children;
+    auto& node = FindOrAddHierarchyNode(siblings, event);
+    ++node.count;
+    node.inclusive_ms += duration_ms;
+    node.max_ms = std::max(node.max_ms, duration_ms);
+    stack.push_back({event.depth, start_ms + duration_ms, &node});
+  }
+  FinishHierarchy(lane.hierarchy);
+}
+
 class ProfilerState {
  public:
-  std::atomic_bool enabled{true};
+  std::atomic_bool enabled{false};
   mutable std::mutex mutex;
   uint64_t active_frame_index = 0;
+  uint64_t active_application_frame_index = 0;
+  uint64_t capture_session_index = 0;
   bool frame_open = false;
   ProfilerClock::time_point frame_start_time = ProfilerClock::now();
   std::vector<ProfilerScopeEvent> completed_events;
+  std::vector<ProfilerCounter> counters;
+  uint32_t dropped_event_count = 0;
   std::deque<ProfilerFrameSnapshot> frame_history;
   std::unordered_map<uint64_t, std::string> thread_names;
   size_t max_frame_history = 240;
@@ -133,18 +198,108 @@ ProfilerState& State() {
 }
 }  // namespace
 
+double evo_engine::profiler_panel_detail::IntervalUnionMilliseconds(std::vector<TimingInterval> intervals) {
+  intervals.erase(std::remove_if(intervals.begin(), intervals.end(),
+                                 [](const auto& interval) {
+                                   return !std::isfinite(interval.start_ms) || !std::isfinite(interval.duration_ms) ||
+                                          interval.duration_ms <= 0.0;
+                                 }),
+                  intervals.end());
+  if (intervals.empty())
+    return 0.0;
+  std::sort(intervals.begin(), intervals.end(), [](const auto& left, const auto& right) {
+    return std::tie(left.start_ms, left.duration_ms) < std::tie(right.start_ms, right.duration_ms);
+  });
+  double total = 0.0;
+  double start = intervals.front().start_ms;
+  double end = start + intervals.front().duration_ms;
+  for (size_t index = 1; index < intervals.size(); ++index) {
+    const double next_start = intervals[index].start_ms;
+    const double next_end = next_start + intervals[index].duration_ms;
+    if (next_start <= end) {
+      end = std::max(end, next_end);
+    } else {
+      total += end - start;
+      start = next_start;
+      end = next_end;
+    }
+  }
+  return total + end - start;
+}
+
+evo_engine::profiler_panel_detail::FrameOverviewSample evo_engine::profiler_panel_detail::BuildFrameOverviewSample(
+    const double cpu_wall_ms, const double synchronization_ms, const std::optional<double> gpu_ms) {
+  FrameOverviewSample sample;
+  sample.cpu_wall_ms = std::max(0.0, cpu_wall_ms);
+  sample.synchronization_ms = std::clamp(synchronization_ms, 0.0, sample.cpu_wall_ms);
+  sample.cpu_active_ms = sample.cpu_wall_ms - sample.synchronization_ms;
+  sample.gpu_available = gpu_ms.has_value() && std::isfinite(*gpu_ms) && *gpu_ms >= 0.0;
+  sample.gpu_ms = sample.gpu_available ? *gpu_ms : 0.0;
+  sample.total_ms = sample.gpu_available ? std::max(sample.cpu_wall_ms, sample.gpu_ms) : sample.cpu_wall_ms;
+  return sample;
+}
+
+evo_engine::profiler_panel_detail::CpuExecutorGroup evo_engine::profiler_panel_detail::ClassifyCpuExecutor(
+    const std::string& thread_name) {
+  if (thread_name == "MainThread")
+    return CpuExecutorGroup::MainThread;
+  if (thread_name.rfind("Worker-", 0) == 0)
+    return CpuExecutorGroup::Worker;
+  if (thread_name.rfind("AssetIo-", 0) == 0)
+    return CpuExecutorGroup::AssetIo;
+  if (thread_name.rfind("Gpu-", 0) == 0)
+    return CpuExecutorGroup::GpuSubmission;
+  if (thread_name.rfind("Render-", 0) == 0)
+    return CpuExecutorGroup::Render;
+  if (thread_name.rfind("Background-", 0) == 0)
+    return CpuExecutorGroup::Background;
+  return CpuExecutorGroup::Other;
+}
+
+const char* evo_engine::profiler_panel_detail::CpuExecutorGroupName(const CpuExecutorGroup group) {
+  switch (group) {
+    case CpuExecutorGroup::MainThread:
+      return "Main Thread";
+    case CpuExecutorGroup::Worker:
+      return "Worker";
+    case CpuExecutorGroup::AssetIo:
+      return "Asset I/O";
+    case CpuExecutorGroup::GpuSubmission:
+      return "GPU Submission (CPU)";
+    case CpuExecutorGroup::Render:
+      return "Render";
+    case CpuExecutorGroup::Background:
+      return "Background";
+    case CpuExecutorGroup::Other:
+      return "Other";
+  }
+  return "Other";
+}
+
+std::string evo_engine::profiler_panel_detail::StableHierarchyKey(const CpuExecutorGroup group,
+                                                                  const std::string& parent_path,
+                                                                  const std::string& category,
+                                                                  const std::string& name) {
+  return std::to_string(static_cast<uint8_t>(group)) + "\x1f" + parent_path + "\x1f" + category + "\x1f" + name;
+}
+
 ProfilerFrameStats evo_engine::BuildProfilerFrameStats(const ProfilerFrameSnapshot& snapshot) {
   ProfilerFrameStats stats;
   stats.frame_index = snapshot.frame_index;
+  stats.application_frame_index = snapshot.application_frame_index;
+  stats.capture_session_index = snapshot.capture_session_index;
+  stats.counters = snapshot.counters;
   stats.duration_ms = snapshot.duration_ms;
   stats.event_count = static_cast<uint32_t>(snapshot.events.size());
+  stats.dropped_event_count = snapshot.dropped_event_count;
 
   std::unordered_map<uint64_t, size_t> lane_indices;
   std::unordered_map<std::string, size_t> category_indices;
   std::unordered_map<std::string, size_t> event_indices;
   for (const auto& event : snapshot.events) {
-    stats.total_event_ms += event.duration_ms;
-    stats.max_event_ms = std::max(stats.max_event_ms, event.duration_ms);
+    const double duration_ms = ValidDuration(event.duration_ms);
+    stats.total_event_ms += duration_ms;
+    stats.max_event_ms = std::max(stats.max_event_ms, duration_ms);
 
     auto lane_search = lane_indices.find(event.thread_id);
     if (lane_search == lane_indices.end()) {
@@ -154,22 +309,23 @@ ProfilerFrameStats evo_engine::BuildProfilerFrameStats(const ProfilerFrameSnapsh
       lane.thread_name = event.thread_name;
     }
     auto& lane = stats.thread_lanes[lane_search->second];
-    lane.total_ms += event.duration_ms;
+    lane.total_ms += duration_ms;
     lane.events.emplace_back(event);
 
     AccumulateTotal(stats.category_totals, category_indices, event.category, event.category, event.category,
-                    event.duration_ms);
+                    duration_ms);
     AccumulateTotal(stats.named_event_totals, event_indices, event.category + "\n" + event.name, event.name,
-                    event.category, event.duration_ms);
+                    event.category, duration_ms);
   }
 
   for (auto& lane : stats.thread_lanes) {
     std::sort(lane.events.begin(), lane.events.end(), [](const ProfilerScopeEvent& a, const ProfilerScopeEvent& b) {
-      if (a.start_ms != b.start_ms) {
-        return a.start_ms < b.start_ms;
+      if (ValidStart(a.start_ms) != ValidStart(b.start_ms)) {
+        return ValidStart(a.start_ms) < ValidStart(b.start_ms);
       }
       return a.depth < b.depth;
     });
+    BuildHierarchy(lane);
   }
   std::sort(stats.thread_lanes.begin(), stats.thread_lanes.end(),
             [](const ProfilerThreadLane& a, const ProfilerThreadLane& b) {
@@ -181,6 +337,173 @@ ProfilerFrameStats evo_engine::BuildProfilerFrameStats(const ProfilerFrameSnapsh
   SortTotals(stats.category_totals);
   SortTotals(stats.named_event_totals);
   return stats;
+}
+
+namespace {
+struct HistoryNodeAccumulator {
+  std::string name;
+  std::string category;
+  std::vector<double> inclusive;
+  std::vector<double> self;
+  size_t observed_frame_count = 0;
+  size_t last_observed_frame = std::numeric_limits<size_t>::max();
+  std::vector<HistoryNodeAccumulator> children;
+};
+
+struct ThreadHistoryAccumulator {
+  uint64_t thread_id = 0;
+  std::string thread_name;
+  std::vector<double> root_work;
+  size_t observed_frame_count = 0;
+  std::vector<HistoryNodeAccumulator> hierarchy;
+};
+
+struct CounterHistoryAccumulator {
+  std::string name;
+  std::string category;
+  std::string unit;
+  std::vector<double> values;
+  size_t observed_frame_count = 0;
+  size_t last_observed_frame = std::numeric_limits<size_t>::max();
+};
+
+ProfilerDurationSummary SummarizeDurations(std::vector<double> values, const size_t frame_count,
+                                           const size_t observed_frame_count, const size_t selected_frame_index) {
+  ProfilerDurationSummary summary;
+  summary.frame_count = frame_count;
+  summary.observed_frame_count = observed_frame_count;
+  if (frame_count == 0)
+    return summary;
+  for (const auto value : values) {
+    summary.average_ms += value;
+    summary.maximum_ms = std::max(summary.maximum_ms, value);
+  }
+  summary.average_ms /= static_cast<double>(frame_count);
+  values.resize(frame_count, 0.0);
+  summary.selected_ms = values[std::min(selected_frame_index, frame_count - 1)];
+  std::sort(values.begin(), values.end());
+  summary.median_ms = values[(frame_count - 1) / 2];
+  summary.p95_ms = values[static_cast<size_t>(std::ceil(static_cast<double>(frame_count) * 0.95)) - 1];
+  return summary;
+}
+
+void AccumulateHistoryNodes(std::vector<HistoryNodeAccumulator>& accumulators,
+                            const std::vector<ProfilerHierarchyNode>& nodes, const size_t frame_index) {
+  for (const auto& node : nodes) {
+    const auto search = std::find_if(accumulators.begin(), accumulators.end(), [&](const auto& accumulator) {
+      return accumulator.name == node.name && accumulator.category == node.category;
+    });
+    auto* accumulator = search == accumulators.end()
+                            ? &accumulators.emplace_back(HistoryNodeAccumulator{node.name, node.category})
+                            : &*search;
+    accumulator->inclusive.resize(frame_index + 1, 0.0);
+    accumulator->self.resize(frame_index + 1, 0.0);
+    accumulator->inclusive[frame_index] += node.inclusive_ms;
+    accumulator->self[frame_index] += node.self_ms;
+    if (accumulator->last_observed_frame != frame_index) {
+      accumulator->last_observed_frame = frame_index;
+      accumulator->observed_frame_count++;
+    }
+    AccumulateHistoryNodes(accumulator->children, node.children, frame_index);
+  }
+}
+
+std::vector<ProfilerHistoryNode> FinishHistoryNodes(std::vector<HistoryNodeAccumulator> accumulators,
+                                                    const size_t frame_count, const size_t selected_frame_index) {
+  std::vector<ProfilerHistoryNode> nodes;
+  nodes.reserve(accumulators.size());
+  for (auto& accumulator : accumulators) {
+    nodes.push_back({std::move(accumulator.name), std::move(accumulator.category),
+                     SummarizeDurations(std::move(accumulator.inclusive), frame_count, accumulator.observed_frame_count,
+                                        selected_frame_index),
+                     SummarizeDurations(std::move(accumulator.self), frame_count, accumulator.observed_frame_count,
+                                        selected_frame_index),
+                     FinishHistoryNodes(std::move(accumulator.children), frame_count, selected_frame_index)});
+  }
+  return nodes;
+}
+}  // namespace
+
+ProfilerHistoryStats evo_engine::BuildProfilerHistoryStats(const std::vector<ProfilerFrameStats>& frames,
+                                                           const size_t selected_frame_index) {
+  ProfilerHistoryStats result;
+  result.frame_count = frames.size();
+  std::vector<double> frame_durations;
+  std::vector<double> main_thread_wall;
+  std::vector<double> worker_cpu_work;
+  std::vector<ThreadHistoryAccumulator> thread_accumulators;
+  std::vector<CounterHistoryAccumulator> counter_accumulators;
+  frame_durations.reserve(frames.size());
+  main_thread_wall.reserve(frames.size());
+  worker_cpu_work.reserve(frames.size());
+  for (size_t frame_index = 0; frame_index < frames.size(); frame_index++) {
+    const auto& frame = frames[frame_index];
+    frame_durations.emplace_back(frame.duration_ms);
+    double frame_main_thread_wall = 0.0;
+    double frame_worker_cpu_work = 0.0;
+    for (const auto& lane : frame.thread_lanes) {
+      const auto search = std::find_if(thread_accumulators.begin(), thread_accumulators.end(), [&](const auto& entry) {
+        return entry.thread_id == lane.thread_id;
+      });
+      auto* accumulator =
+          search == thread_accumulators.end()
+              ? &thread_accumulators.emplace_back(ThreadHistoryAccumulator{lane.thread_id, lane.thread_name})
+              : &*search;
+      double root_work = 0.0;
+      for (const auto& root : lane.hierarchy)
+        root_work += root.inclusive_ms;
+      accumulator->root_work.resize(frame_index + 1, 0.0);
+      accumulator->root_work[frame_index] += root_work;
+      accumulator->observed_frame_count++;
+      AccumulateHistoryNodes(accumulator->hierarchy, lane.hierarchy, frame_index);
+      if (lane.thread_name == "MainThread")
+        frame_main_thread_wall += root_work;
+      else
+        frame_worker_cpu_work += root_work;
+    }
+    main_thread_wall.emplace_back(frame_main_thread_wall);
+    worker_cpu_work.emplace_back(frame_worker_cpu_work);
+    for (const auto& counter : frame.counters) {
+      const auto search =
+          std::find_if(counter_accumulators.begin(), counter_accumulators.end(), [&](const auto& entry) {
+            return entry.name == counter.name && entry.category == counter.category && entry.unit == counter.unit;
+          });
+      auto* accumulator = search == counter_accumulators.end()
+                              ? &counter_accumulators.emplace_back(
+                                    CounterHistoryAccumulator{counter.name, counter.category, counter.unit})
+                              : &*search;
+      accumulator->values.resize(frame_index + 1, 0.0);
+      accumulator->values[frame_index] = counter.value;
+      if (accumulator->last_observed_frame != frame_index) {
+        accumulator->last_observed_frame = frame_index;
+        accumulator->observed_frame_count++;
+      }
+    }
+  }
+  result.frame_duration =
+      SummarizeDurations(std::move(frame_durations), frames.size(), frames.size(), selected_frame_index);
+  result.main_thread_wall =
+      SummarizeDurations(std::move(main_thread_wall), frames.size(), frames.size(), selected_frame_index);
+  result.worker_cpu_work =
+      SummarizeDurations(std::move(worker_cpu_work), frames.size(), frames.size(), selected_frame_index);
+  result.threads.reserve(thread_accumulators.size());
+  for (auto& accumulator : thread_accumulators) {
+    result.threads.push_back(
+        {accumulator.thread_id, std::move(accumulator.thread_name),
+         SummarizeDurations(std::move(accumulator.root_work), frames.size(), accumulator.observed_frame_count,
+                            selected_frame_index),
+         FinishHistoryNodes(std::move(accumulator.hierarchy), frames.size(), selected_frame_index)});
+  }
+  result.counters.reserve(counter_accumulators.size());
+  for (auto& accumulator : counter_accumulators) {
+    const auto summary = SummarizeDurations(std::move(accumulator.values), frames.size(),
+                                            accumulator.observed_frame_count, selected_frame_index);
+    result.counters.push_back({std::move(accumulator.name), std::move(accumulator.category),
+                               std::move(accumulator.unit), summary.frame_count, summary.observed_frame_count,
+                               summary.selected_ms, summary.average_ms, summary.median_ms, summary.p95_ms,
+                               summary.maximum_ms});
+  }
+  return result;
 }
 
 std::vector<ProfilerFrameStats> evo_engine::BuildProfilerFrameStatsHistory(
@@ -256,7 +579,20 @@ Profiler& Profiler::GetInstance() {
 }
 
 void Profiler::SetEnabled(const bool enabled) {
-  State().enabled = enabled;
+  auto& state = State();
+  std::lock_guard lock(state.mutex);
+  if (state.enabled == enabled) {
+    return;
+  }
+  if (enabled) {
+    ++state.capture_session_index;
+  } else {
+    state.frame_open = false;
+    state.completed_events.clear();
+    state.counters.clear();
+    state.dropped_event_count = 0;
+  }
+  state.enabled = enabled;
 }
 
 bool Profiler::IsEnabled() const {
@@ -267,9 +603,13 @@ void Profiler::Reset() {
   auto& state = State();
   std::lock_guard lock(state.mutex);
   state.active_frame_index = 0;
+  state.active_application_frame_index = 0;
+  state.capture_session_index = state.enabled ? 1 : 0;
   state.frame_open = false;
   state.frame_start_time = ProfilerClock::now();
   state.completed_events.clear();
+  state.counters.clear();
+  state.dropped_event_count = 0;
   state.frame_history.clear();
   state.thread_names.clear();
   g_active_scopes.clear();
@@ -279,6 +619,8 @@ void Profiler::ClearFrameHistory() {
   auto& state = State();
   std::lock_guard lock(state.mutex);
   state.completed_events.clear();
+  state.counters.clear();
+  state.dropped_event_count = 0;
   state.frame_history.clear();
 }
 
@@ -297,13 +639,17 @@ void Profiler::RegisterThread(const std::string& name) {
   state.thread_names[CurrentThreadId()] = name;
 }
 
-uint64_t Profiler::BeginFrame() {
+uint64_t Profiler::BeginFrame(const uint64_t application_frame_index) {
   if (!IsEnabled()) {
     return 0;
   }
   auto& state = State();
   std::lock_guard lock(state.mutex);
+  if (!state.enabled) {
+    return 0;
+  }
   state.frame_open = true;
+  state.active_application_frame_index = application_frame_index;
   state.frame_start_time = ProfilerClock::now();
   return ++state.active_frame_index;
 }
@@ -320,6 +666,9 @@ void Profiler::EndFrame() {
 
   ProfilerFrameSnapshot frame;
   frame.frame_index = state.active_frame_index;
+  frame.application_frame_index = state.active_application_frame_index;
+  frame.capture_session_index = state.capture_session_index;
+  frame.dropped_event_count = state.dropped_event_count;
   frame.duration_ms = MillisecondsBetween(state.frame_start_time, ProfilerClock::now());
   auto new_end = std::remove_if(state.completed_events.begin(), state.completed_events.end(),
                                 [&](const ProfilerScopeEvent& event) {
@@ -330,11 +679,30 @@ void Profiler::EndFrame() {
                                   return false;
                                 });
   state.completed_events.erase(new_end, state.completed_events.end());
+  state.dropped_event_count = 0;
+  frame.counters = std::move(state.counters);
   state.frame_history.emplace_back(std::move(frame));
   while (state.frame_history.size() > state.max_frame_history) {
     state.frame_history.pop_front();
   }
   state.frame_open = false;
+}
+
+void Profiler::RecordCounter(const std::string& name, const double value, const std::string& category,
+                             const std::string& unit) {
+  if (!IsEnabled())
+    return;
+  auto& state = State();
+  std::lock_guard lock(state.mutex);
+  if (!state.enabled || !state.frame_open)
+    return;
+  const auto search = std::find_if(state.counters.begin(), state.counters.end(), [&](const auto& counter) {
+    return counter.name == name && counter.category == category && counter.unit == unit;
+  });
+  if (search == state.counters.end())
+    state.counters.push_back({name, category, unit, value});
+  else
+    search->value = value;
 }
 
 ProfilerScopeToken Profiler::BeginScope(const std::string& name, const std::string& category) {
@@ -351,11 +719,16 @@ ProfilerScopeToken Profiler::BeginScope(const std::string& name, const std::stri
   scope.depth = static_cast<uint32_t>(g_active_scopes.size());
   {
     std::lock_guard lock(state.mutex);
+    if (!state.frame_open) {
+      return {};
+    }
     scope.frame_index = state.active_frame_index;
+    scope.capture_session_index = state.capture_session_index;
     scope.frame_start_time = state.frame_open ? state.frame_start_time : now;
   }
+  const auto capture_session_index = scope.capture_session_index;
   g_active_scopes.emplace_back(std::move(scope));
-  return {true};
+  return {true, capture_session_index};
 }
 
 void Profiler::EndScope(ProfilerScopeToken& token) {
@@ -369,6 +742,9 @@ void Profiler::EndScope(ProfilerScopeToken& token) {
 
   auto scope = std::move(g_active_scopes.back());
   g_active_scopes.pop_back();
+  if (token.capture_session_index != scope.capture_session_index) {
+    return;
+  }
   ProfilerScopeEvent event;
   event.frame_index = scope.frame_index;
   event.thread_id = scope.thread_id;
@@ -381,14 +757,28 @@ void Profiler::EndScope(ProfilerScopeToken& token) {
 
   auto& state = State();
   std::lock_guard lock(state.mutex);
+  if (!state.enabled || token.capture_session_index != state.capture_session_index) {
+    return;
+  }
   if (const auto search = state.thread_names.find(event.thread_id); search != state.thread_names.end()) {
     event.thread_name = search->second;
   } else {
     event.thread_name = DefaultThreadName(event.thread_id);
   }
+  if (!state.frame_open || event.frame_index < state.active_frame_index) {
+    const auto frame =
+        std::find_if(state.frame_history.rbegin(), state.frame_history.rend(), [&](const auto& candidate) {
+          return candidate.frame_index == event.frame_index;
+        });
+    if (frame != state.frame_history.rend()) {
+      frame->events.emplace_back(std::move(event));
+    }
+    return;
+  }
   state.completed_events.emplace_back(std::move(event));
   if (state.completed_events.size() > state.max_completed_event_size) {
     state.completed_events.erase(state.completed_events.begin());
+    ++state.dropped_event_count;
   }
 }
 
@@ -427,8 +817,8 @@ ProfilerScope::~ProfilerScope() {
   Profiler::GetInstance().EndScope(token_);
 }
 
-ProfilerFrameScope::ProfilerFrameScope() {
-  Profiler::GetInstance().BeginFrame();
+ProfilerFrameScope::ProfilerFrameScope(const uint64_t application_frame_index) {
+  Profiler::GetInstance().BeginFrame(application_frame_index);
 }
 
 ProfilerFrameScope::~ProfilerFrameScope() {

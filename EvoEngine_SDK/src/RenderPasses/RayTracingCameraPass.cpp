@@ -133,6 +133,8 @@ RenderPassDescriptor RayTracingCameraPass::CreateDescriptor(const char* pass_nam
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
   AddRayCameraOptionalOutputAccesses(descriptor, outputs);
+  descriptor.profiler_group = RenderPassProfilerGroup::RayTracing;
+  descriptor.profiler_display_name = "Path Trace (RTX)";
   return descriptor;
 }
 
@@ -149,6 +151,8 @@ RenderPassDescriptor RayQueryCameraPass::CreateDescriptor(const CameraSettings::
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}}};
   AddRayCameraOptionalOutputAccesses(descriptor, outputs);
+  descriptor.profiler_group = RenderPassProfilerGroup::RayTracing;
+  descriptor.profiler_display_name = "Path Trace (RQ)";
   return descriptor;
 }
 
@@ -225,10 +229,12 @@ void RayTracingCameraPass::Execute(const RenderGraphExecutionContext& context, c
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RTX)");
-    parameters.pipeline->Trace(vk_command_buffer, render_texture->GetExtent().width, render_texture->GetExtent().height,
-                               1);
-    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
+    {
+      const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                      parameters.camera->GetHandle().GetValue());
+      parameters.pipeline->Trace(vk_command_buffer, render_texture->GetExtent().width,
+                                 render_texture->GetExtent().height, 1);
+    }
     history_resources.valid = true;
     ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);
@@ -303,11 +309,13 @@ void RayQueryCameraPass::Execute(const RenderGraphExecutionContext& context, con
     push_constant.max_directional_light_size =
         ApplicationContext::Get().GetApplicationInfo().graphics_settings.max_directional_light_size;
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Path Trace (RQ)");
-    parameters.pipeline->Dispatch(vk_command_buffer,
-                                  Platform::DivUp(render_texture->GetExtent().width, kRayQueryCameraWorkGroupSize),
-                                  Platform::DivUp(render_texture->GetExtent().height, kRayQueryCameraWorkGroupSize), 1);
-    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
+    {
+      const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                      parameters.camera->GetHandle().GetValue());
+      parameters.pipeline->Dispatch(
+          vk_command_buffer, Platform::DivUp(render_texture->GetExtent().width, kRayQueryCameraWorkGroupSize),
+          Platform::DivUp(render_texture->GetExtent().height, kRayQueryCameraWorkGroupSize), 1);
+    }
     history_resources.valid = true;
     ++history_resources.frame_id;
     parameters.transient_resources->RetainDescriptorSet(output_descriptor_set);

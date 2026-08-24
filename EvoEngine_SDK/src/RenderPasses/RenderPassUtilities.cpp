@@ -8,6 +8,68 @@
 using namespace evo_engine;
 
 namespace {
+const char* GetProfilerGroupName(const RenderPassProfilerGroup group) {
+  switch (group) {
+    case RenderPassProfilerGroup::FramePreparation:
+      return "Frame Preparation";
+    case RenderPassProfilerGroup::Shadows:
+      return "Shadows";
+    case RenderPassProfilerGroup::CameraVisibility:
+      return "Camera Visibility";
+    case RenderPassProfilerGroup::Geometry:
+      return "Geometry";
+    case RenderPassProfilerGroup::Lighting:
+      return "Lighting";
+    case RenderPassProfilerGroup::AmbientOcclusionAndDdgi:
+      return "AO / DDGI";
+    case RenderPassProfilerGroup::PostProcessing:
+      return "Post Processing";
+    case RenderPassProfilerGroup::ReflectionProbes:
+      return "Reflection Probes";
+    case RenderPassProfilerGroup::EditorAndUi:
+      return "Editor / UI";
+    case RenderPassProfilerGroup::RayTracing:
+      return "Ray Tracing";
+    case RenderPassProfilerGroup::Other:
+      return "Other";
+  }
+  return "Other";
+}
+
+GpuTimestampQueue GetTimestampQueue(const RenderPassQueue queue) {
+  if (queue == RenderPassQueue::Compute) {
+    return GpuTimestampQueue::Compute;
+  }
+  return queue == RenderPassQueue::RayTracing ? GpuTimestampQueue::RayTracing : GpuTimestampQueue::Graphics;
+}
+}  // namespace
+
+GpuTimestampScopeToken evo_engine::BeginRenderPassGpuTimestamp(const VkCommandBuffer vk_command_buffer,
+                                                               const RenderGraphExecutionContext& context,
+                                                               const uint64_t view_id, const uint64_t instance_id) {
+  const auto* descriptor = context.GetCurrentPassDescriptor();
+  if (!descriptor) {
+    return {};
+  }
+  return Platform::BeginGpuTimestampScope(
+      vk_command_buffer,
+      {descriptor->name,
+       descriptor->profiler_display_name.empty() ? descriptor->name : descriptor->profiler_display_name,
+       GetProfilerGroupName(descriptor->profiler_group), GetTimestampQueue(descriptor->queue), view_id, instance_id});
+}
+
+RenderPassGpuTimestampScope::RenderPassGpuTimestampScope(const VkCommandBuffer vk_command_buffer,
+                                                         const RenderGraphExecutionContext& context,
+                                                         const uint64_t view_id, const uint64_t instance_id)
+    : vk_command_buffer_(vk_command_buffer),
+      token_(BeginRenderPassGpuTimestamp(vk_command_buffer, context, view_id, instance_id)) {
+}
+
+RenderPassGpuTimestampScope::~RenderPassGpuTimestampScope() {
+  Platform::EndGpuTimestampScope(vk_command_buffer_, token_);
+}
+
+namespace {
 VkImageLayout ToVkImageLayout(const RenderResourceState state) {
   switch (state) {
     case RenderResourceState::ColorAttachment:

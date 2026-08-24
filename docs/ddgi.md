@@ -53,9 +53,9 @@ lighting rays receive a frame-wide random rotation. The default runtime settings
 emissive-triangle rays per updated probe.
 
 The DDGI acceleration structure includes supported triangle geometry and explicitly registered external DDGI geometry.
-Strands and Gaussian splats are not traversed. Alpha-masked triangle hits use deterministic cutoff testing. Blended,
-transmissive, and refractive surfaces are opaque to DDGI traversal even though accepted hits can still evaluate their
-base color and emission.
+Strands and Gaussian splats are not traversed. Alpha-masked triangle hits use deterministic cutoff testing. Blended and
+transmissive surfaces use straight-through traversal with colored attenuation for probe, emissive-target, and visibility
+rays. Volume attenuation is applied between entry and exit intersections, but DDGI does not refract the ray direction.
 
 ## Probe Updates And Convergence
 
@@ -127,7 +127,7 @@ runtime state, including:
 - volume readiness, memory, convergence, warmup, and rejection reasons;
 - probe positions, irradiance/state visualization, and one explicitly selected probe;
 - selected-probe rays and metadata such as hit distance, backface ratio, relocation, and active state;
-- optional one-shot emissive sampling counters and isolated gather timing.
+- emissive inventory and sampling eligibility summaries.
 
 Debug selection is editor-session state and is never serialized. Debug visualization is restricted to the editor scene
 viewport and does not appear in game cameras or ray-camera output.
@@ -137,7 +137,7 @@ viewport and does not appear in game cameras or ray-camera output.
 - DDGI uses ray-tracing-pipeline traversal; there is no inline-ray-query DDGI backend.
 - Probe transport is diffuse and does not reproduce the full camera BSDF.
 - Strands and Gaussian splats do not participate in DDGI geometry or emissive sampling.
-- Blended and transmissive surfaces do not provide alpha/transmission traversal for probe rays.
+- Blended and transmissive surfaces use straight-through attenuation without reflection or refraction.
 - Local reflection probes affect raster specular lighting and are excluded from the DDGI source signature.
 
 Contributor capture commands and acceptance checks live in [Rendering validation](rendering-validation.md).

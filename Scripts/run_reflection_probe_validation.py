@@ -39,7 +39,6 @@ CAPTURE_NAMES = (
     "m15-occluded-material-gtao",
     "m15-visibility-unavailable",
     "m15-occluded-unavailable",
-    "m15-occluded-ssao",
     "m15-occluded-indirect-double",
     "m15-boundary-left",
     "m15-boundary-center",
@@ -185,7 +184,6 @@ def validate_images(images: dict[str, PngImage]) -> dict[str, object]:
         "unavailable_visibility_nrmse": normalized_rms(
             images["m15-visibility-off"], images["m15-visibility-unavailable"]
         ),
-        "ssao_specular_nrmse": normalized_rms(images["m15-unoccluded"], images["m15-occluded-ssao"]),
         "indirect_intensity_nrmse": normalized_rms(
             images["m15-occluded-material"], images["m15-occluded-indirect-double"]
         ),
@@ -253,7 +251,6 @@ def validate_images(images: dict[str, PngImage]) -> dict[str, object]:
         "disabled_bypasses_visibility": deltas["disabled_bypass_nrmse"] < 1.0e-5,
         "unavailable_bypasses_visibility": deltas["unavailable_bypass_nrmse"] < 1.0e-5
         and deltas["unavailable_visibility_nrmse"] < 1.0e-5,
-        "ssao_is_diffuse_only": deltas["ssao_specular_nrmse"] < 1.0e-5,
         "material_ao_suppresses_rough_specular": deltas["material_ao_nrmse"] > 0.00005
         and luminance(metrics["m15-occluded-material"]["rough"])
         < luminance(metrics["m15-unoccluded"]["rough"]) * 0.97,
@@ -427,7 +424,6 @@ def main() -> int:
             "m15-occluded-material-gtao": (4, "gtao", 0.2, 0.0),
             "m15-visibility-unavailable": (3, "unavailable", 1.0, 0.0),
             "m15-occluded-unavailable": (4, "unavailable", 1.0, 0.0),
-            "m15-occluded-ssao": (4, "ssao", 1.0, 0.0),
             "m15-occluded-indirect-double": (4, "disabled", 0.2, 2.0),
             "m15-boundary-left": (4, "disabled", 0.2, 0.0),
             "m15-boundary-center": (4, "disabled", 0.2, 0.0),
@@ -590,7 +586,6 @@ def main() -> int:
             "disabled_bypass_nrmse",
             "unavailable_bypass_nrmse",
             "unavailable_visibility_nrmse",
-            "ssao_specular_nrmse",
             "indirect_intensity_nrmse",
             "scalar_channel_error",
             "maximum_amplification",
@@ -608,7 +603,6 @@ def main() -> int:
             rough_specular["disabled_bypass_nrmse"] >= 1.0e-6
             or rough_specular["unavailable_bypass_nrmse"] >= 1.0e-6
             or rough_specular["unavailable_visibility_nrmse"] >= 1.0e-6
-            or rough_specular["ssao_specular_nrmse"] >= 1.0e-6
             or rough_specular["indirect_intensity_nrmse"] >= 1.0e-6
             or rough_specular["scalar_channel_error"] >= 1.0e-6
             or rough_specular["material_ao_nrmse"] <= 0.0001

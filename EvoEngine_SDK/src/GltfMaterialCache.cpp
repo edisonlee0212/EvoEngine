@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
 
 using namespace evo_engine;
 
@@ -662,12 +663,20 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
 }
 
 void GltfMaterialCache::Clear() {
+  material_data_.clear();
   shade_materials_.clear();
   texture_infos_.clear();
   texture_infos_.emplace_back();
 }
 
 uint32_t GltfMaterialCache::Append(const GltfMaterialData& material_data) {
+  const auto material_index = static_cast<uint32_t>(material_data_.size());
+  material_data_.emplace_back(material_data);
+  AppendFlattened(material_data);
+  return material_index;
+}
+
+void GltfMaterialCache::AppendFlattened(const GltfMaterialData& material_data) {
   if (texture_infos_.empty()) {
     texture_infos_.emplace_back();
   }
@@ -684,13 +693,28 @@ uint32_t GltfMaterialCache::Append(const GltfMaterialData& material_data) {
 
   auto shade_material = material_data.shade_material;
   RemapTextureSlots(shade_material, remap);
-  const auto material_index = static_cast<uint32_t>(shade_materials_.size());
   shade_materials_.emplace_back(shade_material);
-  return material_index;
 }
 
 uint32_t GltfMaterialCache::Append(Material& material) {
   return Append(BuildMaterialGltfData(material));
+}
+
+void GltfMaterialCache::Update(const uint32_t material_index, const GltfMaterialData& material_data) {
+  if (material_index >= material_data_.size()) {
+    throw std::out_of_range("glTF material cache update index is out of range.");
+  }
+  material_data_[material_index] = material_data;
+  Rebuild();
+}
+
+void GltfMaterialCache::Rebuild() {
+  shade_materials_.clear();
+  texture_infos_.clear();
+  texture_infos_.emplace_back();
+  for (const auto& material_data : material_data_) {
+    AppendFlattened(material_data);
+  }
 }
 
 const std::vector<GltfShadeMaterial>& GltfMaterialCache::GetShadeMaterials() const {

@@ -1,17 +1,13 @@
 {
   "counts": {
-    "files": 177,
-    "imports": 290,
-    "macro_control_files": 13
+    "files": 175,
+    "imports": 294,
+    "macro_control_files": 12
   },
   "macro_adapters": [
     {
       "macro_controls": 27,
       "path": "Compute/DDGIProbeUpdate.slang"
-    },
-    {
-      "macro_controls": 15,
-      "path": "Compute/PostProcessing/TAAResolve.slang"
     },
     {
       "macro_controls": 3,
@@ -112,10 +108,6 @@
       "path": "Compute/PostProcessing/AmbientOcclusionBlur.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.AmbientOcclusionGeometry",
-      "path": "Compute/PostProcessing/AmbientOcclusionGeometry.slang"
-    },
-    {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.BloomCopy",
       "path": "Compute/PostProcessing/BloomCopy.slang"
     },
@@ -136,6 +128,10 @@
       "path": "Compute/PostProcessing/Blur.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.GTAO",
+      "path": "Compute/PostProcessing/GTAO.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SMAAPrepare",
       "path": "Compute/PostProcessing/SMAAPrepare.slang"
     },
@@ -146,14 +142,6 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRReflect",
       "path": "Compute/PostProcessing/SSRReflect.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.TAACopy",
-      "path": "Compute/PostProcessing/TAACopy.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.TAAResolve",
-      "path": "Compute/PostProcessing/TAAResolve.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMapping",
@@ -270,10 +258,6 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.PostProcessing.SSRReflect",
       "path": "Graphics/Fragment/PostProcessing/SSRReflect.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.DDGIGatherTiming",
-      "path": "Graphics/Fragment/Standard/DDGIGatherTiming.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.SkinnedMotionVectors",
@@ -544,10 +528,6 @@
       "path": "Modules/EvoEngine/DDGI.slang"
     },
     {
-      "module": "EvoEngine.DDGIEmissiveSamplingStats",
-      "path": "Modules/EvoEngine/DDGIEmissiveSamplingStats.slang"
-    },
-    {
       "module": "EvoEngine.DDGIGather",
       "path": "Modules/EvoEngine/DDGIGather.slang"
     },
@@ -566,6 +546,10 @@
     {
       "module": "EvoEngine.DDGIProbeRayData",
       "path": "Modules/EvoEngine/DDGIProbeRayData.slang"
+    },
+    {
+      "module": "EvoEngine.DDGIProbeRayPayload",
+      "path": "Modules/EvoEngine/DDGIProbeRayPayload.slang"
     },
     {
       "module": "EvoEngine.EmissiveTriangleSampling",
@@ -634,6 +618,10 @@
     {
       "module": "EvoEngine.Meshlet",
       "path": "Modules/EvoEngine/Meshlet.slang"
+    },
+    {
+      "module": "EvoEngine.MeshletCulling",
+      "path": "Modules/EvoEngine/MeshletCulling.slang"
     },
     {
       "module": "EvoEngine.PerFrame",
@@ -728,16 +716,16 @@
       "path": "RayTracing/AnyHit/Camera.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.RayTracing.AnyHit.DDGIProbeDiagnostics",
-      "path": "RayTracing/AnyHit/DDGIProbeDiagnostics.slang"
+      "module": "EvoEngine.EntryPoints.RayTracing.AnyHit.DDGIProbeTrace",
+      "path": "RayTracing/AnyHit/DDGIProbeTrace.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.Camera",
       "path": "RayTracing/ClosestHit/Camera.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.DDGIProbeDiagnostics",
-      "path": "RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"
+      "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.DDGIProbeTrace",
+      "path": "RayTracing/ClosestHit/DDGIProbeTrace.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.RayTracing.ClosestHit.PointCloud",
@@ -748,8 +736,8 @@
       "path": "RayTracing/Miss/Camera.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.RayTracing.Miss.DDGIProbeDiagnostics",
-      "path": "RayTracing/Miss/DDGIProbeDiagnostics.slang"
+      "module": "EvoEngine.EntryPoints.RayTracing.Miss.DDGIProbeTrace",
+      "path": "RayTracing/Miss/DDGIProbeTrace.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.RayTracing.Miss.PointCloud",
@@ -760,8 +748,8 @@
       "path": "RayTracing/RayGen/Camera.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.DDGIProbeDiagnostics",
-      "path": "RayTracing/RayGen/DDGIProbeDiagnostics.slang"
+      "module": "EvoEngine.EntryPoints.RayTracing.RayGen.DDGIProbeTrace",
+      "path": "RayTracing/RayGen/DDGIProbeTrace.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.RayTracing.RayGen.PointCloud",

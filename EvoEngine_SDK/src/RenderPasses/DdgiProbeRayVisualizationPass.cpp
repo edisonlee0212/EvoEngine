@@ -6,17 +6,9 @@
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 void RecordProbeRayVisualization(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                                  const DdgiProbeRayVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
@@ -31,6 +23,8 @@ void RecordProbeRayVisualization(const VkCommandBuffer vk_command_buffer, const 
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                  parameters.camera->GetHandle().GetValue());
   std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
   parameters.camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                                     VK_ATTACHMENT_STORE_OP_STORE);
@@ -83,6 +77,8 @@ RenderPassDescriptor DdgiProbeRayVisualizationPass::CreateDescriptor(const char*
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment}}};
   descriptor.dependencies = {dependency ? dependency : RenderPassNames::deferred_camera};
+  descriptor.profiler_group = RenderPassProfilerGroup::EditorAndUi;
+  descriptor.profiler_display_name = "DDGI Probe Ray Visualization";
   return descriptor;
 }
 
@@ -91,10 +87,6 @@ void DdgiProbeRayVisualizationPass::Execute(const RenderGraphExecutionContext& c
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeRayVisualization(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

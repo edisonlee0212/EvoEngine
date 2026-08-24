@@ -13,7 +13,7 @@ struct BlurConstants {
   int horizontal;
   float camera_near;
   float camera_far;
-  float avoid_distance;
+  float denoise_radius;
   float weight0;
   float weight1;
   float weight2;
@@ -64,12 +64,12 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     float2 offset = constants.horizontal != 0 ? float2(tex_offset.x * i, 0.0f) : float2(0.0f, tex_offset.y * i);
     float2 coord1 = tex_coord + offset;
     float depth1 = LinearizeDepth(inDepth.SampleLevel(coord1, 0.0f).x);
-    result += abs(depth1 - depth) < constants.avoid_distance ? image.SampleLevel(coord1, 0.0f).r * weight
+    result += abs(depth1 - depth) < constants.denoise_radius ? image.SampleLevel(coord1, 0.0f).r * weight
                                                               : current * weight;
 
     float2 coord2 = tex_coord - offset;
     float depth2 = LinearizeDepth(inDepth.SampleLevel(coord2, 0.0f).x);
-    result += abs(depth2 - depth) < constants.avoid_distance ? image.SampleLevel(coord2, 0.0f).r * weight
+    result += abs(depth2 - depth) < constants.denoise_radius ? image.SampleLevel(coord2, 0.0f).r * weight
                                                               : current * weight;
   }
   outImage[int2(pixel)] = result;

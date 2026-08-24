@@ -69,8 +69,8 @@ the previous on-disk payload remains intact until the user explicitly saves. Rel
 the persisted payload.
 
 The capture uses the probe's authored bake background. Inherited environment radiance is scaled by
-`environment_lighting_intensity`. Raster diffuse and specular fallback intensities are disabled during capture so they do
-not become bake inputs.
+`environment_lighting_intensity`. Raster diffuse fallback remains enabled so surfaces receive the same non-DDGI
+environmental diffuse lighting as camera rendering. Specular fallback remains disabled to prevent recursive probe input.
 
 Probe capture includes opaque and alpha-masked geometry, direct lighting, shadows, emission, the visible bake
 background, and ready DDGI diffuse lighting. It excludes local reflection probes, screen-space effects, ambient
@@ -83,15 +83,18 @@ check leaves the previous valid payload available and reports an actionable erro
 ## Dynamic Updates
 
 Dynamic local-probe updates are controlled by `EnvironmentalLighting` and are enabled by default. The authored
-**Faces per frame** budget ranges from one to six and defaults to six. The scheduler completes one probe before advancing
-in priority/stable-ID order, then begins another sweep.
+**Faces per frame** budget ranges from one to six and defaults to six. It independently limits capture faces and GGX
+filter output faces in a frame. The scheduler completes each capture in priority/stable-ID order and filters every mip
+of each selected output face from the completed raw cubemap.
 
 Dynamic and explicit persistent bakes are mutually exclusive. Explicit bake requests are rejected while dynamic updates
 are active, and dynamic work waits for already submitted explicit bakes to publish.
 
 Dynamic updates never read back, serialize, save, or mark probe assets dirty. Each probe alternates between two filtered
-GPU cubemaps and blends from the previous result over a complete update cycle. The last published result remains visible
-while newer faces or filtering work are in flight.
+GPU cubemaps and blends from the previous result over a complete update cycle. Two raw capture cubemaps allow filtering
+one completed probe while the next eligible probe captures. A filtered generation is published atomically only after all
+six faces have completed and the owning frame-slot fence signals. The last published result remains visible while newer
+capture or filtering work is in flight.
 
 Moving a probe restarts an incomplete six-face capture so one generation never mixes capture origins. Disabling dynamic
 updates, resetting history, removing a probe, or replacing the scene retires transient resources after submitted frames

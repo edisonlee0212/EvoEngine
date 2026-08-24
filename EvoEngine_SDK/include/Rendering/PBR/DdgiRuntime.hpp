@@ -64,16 +64,6 @@ struct DdgiPerformanceStats {
   double emissive_estimated_power = 0.0;
   uint32_t emissive_sampling_enabled_volume_count = 0;
   uint64_t emissive_sampling_candidate_ray_count = 0;
-  bool emissive_sampling_stats_available = false;
-  uint64_t emissive_nee_attempt_count = 0;
-  uint64_t emissive_zero_pdf_reject_count = 0;
-  uint64_t emissive_emitter_backface_reject_count = 0;
-  uint64_t emissive_alpha_mask_reject_count = 0;
-  uint64_t emissive_invalid_sample_reject_count = 0;
-  uint64_t emissive_receiver_backface_reject_count = 0;
-  uint64_t emissive_shadowed_sample_count = 0;
-  uint64_t emissive_zero_radiance_sample_count = 0;
-  uint64_t emissive_nonzero_contribution_count = 0;
   uint32_t recorded_ray_sample_count = 0;
   uint32_t recorded_probe_update_count = 0;
   uint32_t selected_ray_sample_count = 0;
@@ -110,15 +100,6 @@ struct DdgiPerformanceStats {
   float probe_update_hysteresis = 0.0f;
   uint32_t hysteresis_boosted_volume_count = 0;
   uint32_t hysteresis_restoring_volume_count = 0;
-  float atlas_prepare_record_ms = 0.0f;
-  float ray_diagnostics_record_ms = 0.0f;
-  float probe_update_record_ms = 0.0f;
-  float probe_relocation_record_ms = 0.0f;
-  float probe_classification_record_ms = 0.0f;
-  float probe_variability_record_ms = 0.0f;
-  float frame_graph_execute_ms = 0.0f;
-  float probe_visualization_record_ms = 0.0f;
-  float probe_ray_visualization_record_ms = 0.0f;
 };
 
 enum DdgiUpdateReason : uint32_t {
@@ -254,7 +235,6 @@ class DdgiRuntime final {
   static constexpr uint32_t kMaxResidentProbeCount = 8192u;
   static constexpr uint32_t kProbeRayFlagSkipInactive = 1u << 0u;
   static constexpr uint32_t kProbeRayFlagEmissiveMeshSampling = 1u << 1u;
-  static constexpr uint32_t kProbeRayFlagEmissiveSamplingStats = 1u << 2u;
 
   [[nodiscard]] static uint32_t GetProbeCount(const glm::ivec3& probe_counts);
   [[nodiscard]] static uint32_t GetFixedRayCount(uint32_t ray_count, bool fixed_rays_enabled);

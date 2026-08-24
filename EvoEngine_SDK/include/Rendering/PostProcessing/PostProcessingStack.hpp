@@ -66,7 +66,6 @@ class PostProcessingStack : public IAsset {
 
   void OnCreate() override;
   void Process(const std::shared_ptr<Camera>& target_camera,
-               const std::shared_ptr<ImageView>& motion_vectors_image_view = {},
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
@@ -105,46 +104,32 @@ class IPostProcessing {
 
 class AmbientOcclusion : public IPostProcessing {
  public:
-  enum class Algorithm : int32_t { Ssao = 0, Gtao = 1 };
   struct BlurPushConstant {
     int horizontal = false;
     float camera_near;
     float camera_far;
-    float avoid_distance;
+    float denoise_radius;
     float weight[5] = {0.227027f, 0.1945946f, 0.1216216f, 0.054054f, 0.016216f};
     float padding0 = 0.0f;
     float padding1 = 0.0f;
     float padding2 = 0.0f;
   };
-  float avoid_distance = 0.1f;
-  /**
-   * \brief Parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
-   */
-  Algorithm algorithm = Algorithm::Gtao;
-  int kernel_size = 64;
-  float radius = 0.15f;
-  float bias = 0.01f;
-  float factor = 0.0f;
+  float radius = 0.4f;
+  float bias = 0.02f;
   float intensity = 1.0f;
-  float gtao_radius = 0.4f;
-  float gtao_bias = 0.02f;
-  float gtao_intensity = 1.0f;
   float thickness = 1.0f;
   int slice_count = 8;
   int steps_per_slice = 6;
   float denoise_radius = 0.1f;
   struct PushConstant {
     int camera_index;
-    // parameters (you'd probably want to use them as uniforms to more easily tweak the effect)
-    int kernel_size;
     float radius;
     float bias;
-    float factor;
     float intensity;
-    int algorithm;
     int slice_count;
     int steps_per_slice;
     float thickness;
+    float padding = 0.0f;
   };
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
@@ -155,91 +140,10 @@ class AmbientOcclusion : public IPostProcessing {
 
 class AntiAliasing final : public IPostProcessing {
  public:
-  enum class Algorithm : int32_t { Taa = 0, Smaa = 1 };
+  enum class Preset : int32_t { Low = 0, Medium = 1, High = 2, Ultra = 3 };
+  enum class DebugMode : int32_t { None = 0, Edges = 1, BlendWeights = 2 };
 
-  enum class TaaPreset : int32_t {
-    BestQuality = 0,
-    HighQuality = 1,
-    Performance = 2,
-    Custom = 3,
-  };
-
-  enum class VarianceClippingMode : int32_t {
-    Disabled = 0,
-    Clamp = 1,
-    Intersection = 2,
-  };
-
-  enum class HistoryColorMode : int32_t {
-    ToneMapped = 0,
-    Linear = 1,
-  };
-
-  enum class TaaDebugMode : int32_t {
-    None = 0,
-    Motion = 1,
-    DepthConfidence = 2,
-    HistoryConfidence = 3,
-    NoHistory = 4,
-  };
-
-  enum class SmaaPreset : int32_t { Low = 0, Medium = 1, High = 2, Ultra = 3 };
-  enum class SmaaDebugMode : int32_t { None = 0, Edges = 1, BlendWeights = 2 };
-
-  struct TaaSettings {
-    TaaPreset preset = TaaPreset::BestQuality;
-    VarianceClippingMode variance_clipping_mode = VarianceClippingMode::Intersection;
-    HistoryColorMode history_color_mode = HistoryColorMode::ToneMapped;
-    int variance_sample_count = 9;
-    int longest_velocity_sample_count = 9;
-    bool use_ycocg = true;
-    bool use_neighborhood_sampling = true;
-    bool use_bicubic_filter = true;
-    bool use_longest_velocity = true;
-    bool use_depth_threshold = true;
-    bool use_tgsm = true;
-    bool use_fp16 = false;
-    float min_variance_gamma = 0.75f;
-    float max_variance_gamma = 2.0f;
-    float velocity_rejection_threshold = 128.0f;
-    float depth_threshold = 0.002f;
-    float sharpen = 0.0f;
-    TaaDebugMode debug_mode = TaaDebugMode::None;
-  };
-
-  struct SmaaSettings {
-    SmaaPreset preset = SmaaPreset::Ultra;
-    SmaaDebugMode debug_mode = SmaaDebugMode::None;
-  };
-
-  struct TaaPushConstant {
-    int32_t camera_index = 0;
-    int32_t history_valid = 0;
-    int32_t frame_index = 0;
-    int32_t variance_clipping_mode = static_cast<int32_t>(VarianceClippingMode::Intersection);
-    int32_t variance_sample_count = 9;
-    int32_t use_ycocg = 1;
-    int32_t use_neighborhood_sampling = 1;
-    int32_t use_bicubic_filter = 1;
-    int32_t use_longest_velocity = 1;
-    int32_t longest_velocity_sample_count = 9;
-    int32_t use_depth_threshold = 1;
-    int32_t history_color_mode = static_cast<int32_t>(HistoryColorMode::ToneMapped);
-    int32_t debug_mode = 0;
-    int32_t padding0 = 0;
-    int32_t padding1 = 0;
-    int32_t padding2 = 0;
-    float min_variance_gamma = 0.75f;
-    float max_variance_gamma = 2.0f;
-    float velocity_rejection_threshold = 128.0f;
-    float depth_threshold = 0.002f;
-    float sharpen = 0.0f;
-    float padding3 = 0.0f;
-    float padding4 = 0.0f;
-    float padding5 = 0.0f;
-  };
-
-  struct SmaaPushConstant {
+  struct PushConstant {
     glm::vec4 metrics = glm::vec4(1.0f);
     glm::vec4 subsample_indices = glm::vec4(0.0f);
     int32_t tone_mapped = 1;
@@ -248,25 +152,17 @@ class AntiAliasing final : public IPostProcessing {
     int32_t padding1 = 0;
   };
 
-  Algorithm algorithm = Algorithm::Smaa;
-  TaaSettings taa{};
-  SmaaSettings smaa{};
+  Preset preset = Preset::Ultra;
+  DebugMode debug_mode = DebugMode::None;
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
-  void ApplyTaaPreset(TaaPreset value);
   void NormalizeSettings();
   void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
   void Serialize(YAML::Emitter& out) const;
   void Deserialize(const YAML::Node& in);
 
  private:
-  void ProcessTaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
-                  PostProcessingExecutionContext& context) const;
-  void ProcessSmaa(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
-                   PostProcessingExecutionContext& context) const;
-  void BuildTaaPipelines(PostProcessingRendererResources& resources, bool force_rebuild) const;
-  void BuildSmaaPipelines(PostProcessingRendererResources& resources, bool force_rebuild) const;
   void EnsureSmaaTargets(const glm::uvec2& size, PostProcessingCameraResources& resources) const;
   void EnsureSmaaLookupTextures(PostProcessingRendererResources& resources) const;
 };
@@ -394,18 +290,6 @@ struct PostProcessingCameraResources {
   } ambient_occlusion;
 
   struct AntiAliasingResources {
-    struct HistoryResources {
-      std::shared_ptr<RenderTexture> textures[2];
-      std::shared_ptr<RenderTexture> depth_textures[2];
-      glm::uvec2 size = glm::uvec2(0);
-      uint32_t frame_index = 0;
-      uint32_t last_processed_frame = 0;
-      uint32_t camera_history_version = 0;
-      bool valid = false;
-    } history;
-
-    PerFrameDescriptorSet copy_descriptor_set;
-    PerFrameDescriptorSet resolve_descriptor_set;
     glm::uvec2 smaa_size = glm::uvec2(0);
     std::shared_ptr<RenderTexture> smaa_edges_texture;
     std::shared_ptr<RenderTexture> smaa_blend_texture;
@@ -446,10 +330,6 @@ struct PostProcessingCameraResources {
   uint64_t version_reset_count = 0;
   uint64_t resolution_reset_count = 0;
   uint64_t technique_reset_count = 0;
-  glm::vec2 current_jitter = {};
-  glm::vec2 previous_jitter = {};
-  uint32_t jitter_frame_index = 0;
-  bool jitter_taa_enabled = false;
   glm::mat4 previous_projection_view = glm::mat4(1.0f);
   glm::mat4 previous_inverse_projection = glm::mat4(1.0f);
   glm::mat4 previous_inverse_view = glm::mat4(1.0f);
@@ -478,10 +358,6 @@ struct PostProcessingRendererResources {
   } ambient_occlusion;
 
   struct AntiAliasingResources {
-    std::shared_ptr<DescriptorSetLayout> copy_layout;
-    std::shared_ptr<DescriptorSetLayout> resolve_layout;
-    std::shared_ptr<ComputePipeline> copy_pipeline;
-    std::array<std::shared_ptr<ComputePipeline>, 4> resolve_pipelines{};
     std::shared_ptr<Image> smaa_area_image;
     std::shared_ptr<Image> smaa_search_image;
     std::shared_ptr<ImageView> smaa_area_view;
@@ -525,7 +401,6 @@ struct PostProcessingRendererResources {
 struct PostProcessingExecutionContext {
   PostProcessingCameraResources& camera;
   PostProcessingRendererResources& renderer;
-  std::shared_ptr<ImageView> motion_vectors_image_view;
   std::shared_ptr<ImageView> ambient_occlusion_image_view;
   std::shared_ptr<ImageView> ambient_occlusion_scratch_image_view;
 };

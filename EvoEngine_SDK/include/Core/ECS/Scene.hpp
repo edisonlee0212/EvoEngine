@@ -264,6 +264,9 @@ class Scene final : public IAsset {
    */
   [[nodiscard]] Bound GetBound() const;
 
+  [[nodiscard]] uint64_t GetHierarchyRevision() const;
+  [[nodiscard]] uint64_t GetRenderStructureRevision() const;
+
   /**
    * @brief Sets the boundary of the world in the scene.
    * @param value The new boundary to set.
@@ -828,12 +831,18 @@ class Scene final : public IAsset {
   friend class Input;
   friend class EditorLayer;
   friend class PackageManager;
+  friend class IPrivateComponent;
 
   /// Stores the states of pressed keys in the scene.
   std::unordered_map<int, Input::KeyActionType> pressed_keys_ = {};
 
   /// Storage structure for scene data.
   SceneDataStorage scene_data_storage_;
+
+  uint64_t hierarchy_revision_ = 0;
+  uint64_t render_structure_revision_ = 0;
+
+  void MarkRenderStructureChanged();
 
   /// Multimap of systems ordered by their execution order.
   std::multimap<float, std::shared_ptr<ISystem>> systems_;
@@ -1507,6 +1516,7 @@ std::weak_ptr<T> Scene::GetOrSetPrivateComponent(const Entity& entity) {
   }
   auto ptr = scene_data_storage_.entity_private_component_storage.GetOrSetPrivateComponent<T>(entity);
   elements.emplace_back(typeid(T).hash_code(), ptr, entity, std::dynamic_pointer_cast<Scene>(GetSelf()));
+  MarkRenderStructureChanged();
   SetUnsaved();
   return std::move(ptr);
 }
@@ -1520,6 +1530,7 @@ void Scene::RemovePrivateComponent(const Entity& entity) {
       scene_data_storage_.entity_private_component_storage.RemovePrivateComponent<T>(
           entity, elements[i].private_component_data);
       elements.erase(elements.begin() + i);
+      MarkRenderStructureChanged();
       SetUnsaved();
       return;
     }

@@ -36,7 +36,8 @@ bool SamePass(const RenderPassDescriptor& left, const RenderPassDescriptor& righ
   return left.name == right.name && left.queue == right.queue && left.scope == right.scope &&
          std::equal(left.resources.begin(), left.resources.end(), right.resources.begin(), right.resources.end(),
                     SameAccess) &&
-         left.resources.size() == right.resources.size() && left.dependencies == right.dependencies;
+         left.resources.size() == right.resources.size() && left.dependencies == right.dependencies &&
+         left.profiler_group == right.profiler_group && left.profiler_display_name == right.profiler_display_name;
 }
 
 bool SameCompileContext(const RenderGraphCompileContext& left, const RenderGraphCompileContext& right) {
@@ -1261,14 +1262,6 @@ void evo_engine::AddAdvancedCameraResources(RenderGraph& graph) {
                      RenderResourceLifetime::Camera,
                      {RenderResourceSizeMode::CameraRelative, 0, 0, 1, 1, 0},
                      "DepthPyramid",
-                     1,
-                     1,
-                     true});
-  graph.AddResource({RenderResourceNames::camera_ddgi_gather_timing,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Camera,
-                     {RenderResourceSizeMode::CameraRelative},
-                     "RGBA16F",
                      1,
                      1,
                      true});

@@ -99,6 +99,8 @@ void RecordGaussianSplatCull(const VkCommandBuffer vk_command_buffer, const Rend
   }
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                  parameters.camera->GetHandle().GetValue());
   parameters.pipeline->Bind(vk_command_buffer);
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                          parameters.per_frame_descriptor_set->GetVkDescriptorSet());
@@ -161,6 +163,8 @@ void RecordGaussianSplatRadixSort(const VkCommandBuffer vk_command_buffer, const
   }
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                  parameters.camera->GetHandle().GetValue());
   gaussian_splat_render_instances->ForEachGaussianSplatRenderInstance(
       [&](const std::shared_ptr<RenderInstanceStorage::GaussianSplatRenderInstance>& gaussian_instance) {
         if (!gaussian_instance || !gaussian_instance->gaussian_splat ||
@@ -244,6 +248,8 @@ void RecordGaussianSplats(const VkCommandBuffer vk_command_buffer, const RenderG
   }
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                  parameters.camera->GetHandle().GetValue());
   std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
   parameters.camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                                     VK_ATTACHMENT_STORE_OP_STORE);
@@ -397,14 +403,22 @@ RenderPassDescriptor GaussianSplatCullPass::CreateDescriptor(const char* depende
        {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
        {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite}},
-      {dependency ? dependency : RenderPassNames::deferred_camera}};
+      {dependency ? dependency : RenderPassNames::deferred_camera},
+      RenderPassProfilerGroup::CameraVisibility,
+      "Gaussian Splat Cull"};
 }
 
 void GaussianSplatCullPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  const auto* visibility = parameters.render_instances
+                               ? parameters.render_instances->GetCameraRasterVisibility(parameters.camera_index)
+                               : nullptr;
   const auto gaussian_splat_render_instances =
-      parameters.render_instances ? parameters.render_instances->gaussian_splat_render_instances : nullptr;
-  const auto total_gaussian_splats =
-      parameters.render_instances ? parameters.render_instances->total_gaussian_splats : 0u;
+      visibility && visibility->enabled ? visibility->gaussian_splat_render_instances
+      : parameters.render_instances     ? parameters.render_instances->gaussian_splat_render_instances
+                                        : nullptr;
+  const auto total_gaussian_splats = visibility && visibility->enabled ? visibility->total_gaussian_splats
+                                     : parameters.render_instances ? parameters.render_instances->total_gaussian_splats
+                                                                   : 0u;
   if (!parameters.record_commands || !parameters.camera || !parameters.render_instances ||
       total_gaussian_splats == 0u || !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
     return;
@@ -423,14 +437,24 @@ RenderPassDescriptor GaussianSplatSortPass::CreateDescriptor(const char* depende
           {{RenderResourceNames::frame_render_instances, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::ReadWrite,
             RenderResourceState::StorageReadWrite}},
-          {dependency ? dependency : RenderPassNames::gaussian_splat_cull}};
+          {dependency ? dependency : RenderPassNames::gaussian_splat_cull},
+          RenderPassProfilerGroup::CameraVisibility,
+          "Gaussian Splat Sort"};
 }
 
 void GaussianSplatSortPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  const auto camera_index = parameters.render_instances && parameters.camera
+                                ? parameters.render_instances->GetCameraIndex(parameters.camera->GetHandle())
+                                : -1;
+  const auto* visibility =
+      parameters.render_instances ? parameters.render_instances->GetCameraRasterVisibility(camera_index) : nullptr;
   const auto gaussian_splat_render_instances =
-      parameters.render_instances ? parameters.render_instances->gaussian_splat_render_instances : nullptr;
-  const auto total_gaussian_splats =
-      parameters.render_instances ? parameters.render_instances->total_gaussian_splats : 0u;
+      visibility && visibility->enabled ? visibility->gaussian_splat_render_instances
+      : parameters.render_instances     ? parameters.render_instances->gaussian_splat_render_instances
+                                        : nullptr;
+  const auto total_gaussian_splats = visibility && visibility->enabled ? visibility->total_gaussian_splats
+                                     : parameters.render_instances ? parameters.render_instances->total_gaussian_splats
+                                                                   : 0u;
   if (!parameters.record_commands || !parameters.camera || !parameters.render_instances ||
       total_gaussian_splats == 0u || !gaussian_splat_render_instances || gaussian_splat_render_instances->Empty()) {
     return;
@@ -452,7 +476,9 @@ RenderPassDescriptor GaussianSplatPass::CreateDescriptor(const char* dependency)
        {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
-      {dependency ? dependency : RenderPassNames::deferred_camera}};
+      {dependency ? dependency : RenderPassNames::deferred_camera},
+      RenderPassProfilerGroup::Geometry,
+      "Gaussian Splats"};
 }
 
 RenderPassDescriptor GaussianSplatPass::CreateOverlayDescriptor(const char* dependency) {
@@ -464,14 +490,22 @@ RenderPassDescriptor GaussianSplatPass::CreateOverlayDescriptor(const char* depe
        {RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
        {RenderResourceNames::camera_gaussian_splat_prepass, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
-      {dependency ? dependency : RenderPassNames::ray_tracing_camera}};
+      {dependency ? dependency : RenderPassNames::ray_tracing_camera},
+      RenderPassProfilerGroup::Geometry,
+      "Gaussian Splats"};
 }
 
 void GaussianSplatPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+  const auto* visibility = parameters.render_instances
+                               ? parameters.render_instances->GetCameraRasterVisibility(parameters.camera_index)
+                               : nullptr;
   const auto gaussian_splat_render_instances =
-      parameters.render_instances ? parameters.render_instances->gaussian_splat_render_instances : nullptr;
-  const auto total_gaussian_splats =
-      parameters.render_instances ? parameters.render_instances->total_gaussian_splats : 0u;
+      visibility && visibility->enabled ? visibility->gaussian_splat_render_instances
+      : parameters.render_instances     ? parameters.render_instances->gaussian_splat_render_instances
+                                        : nullptr;
+  const auto total_gaussian_splats = visibility && visibility->enabled ? visibility->total_gaussian_splats
+                                     : parameters.render_instances ? parameters.render_instances->total_gaussian_splats
+                                                                   : 0u;
   if (!parameters.record_commands || !parameters.camera || !parameters.camera->GetRenderTexture() ||
       !parameters.render_instances || total_gaussian_splats == 0u || !gaussian_splat_render_instances ||
       gaussian_splat_render_instances->Empty()) {

@@ -2,8 +2,8 @@
 import EvoEngine.DDGI;
 import EvoEngine.DDGIProbeRayConstants;
 import EvoEngine.DDGIProbeRayData;
+import EvoEngine.DDGIProbeRayPayload;
 import EvoEngine.EmissiveTriangleSampling;
-import EvoEngine.PointCloudRayTracingPayload;
 import EvoEngine.Random;
 import EvoEngine.RayTracingBasic;
 
@@ -14,7 +14,7 @@ struct DdgiProbeRaySample {
   uint hit_count;
   uint64_t handle;
   uint64_t padding1;
-  HitInfo hit_info;
+  DdgiProbeHitInfo hit_info;
 };
 
 [[vk::binding(0, 2)]] RWStructuredBuffer<DdgiProbeRayData> EE_DDGI_PROBE_RAY_DATA;
@@ -89,7 +89,8 @@ float3 EE_DDGI_RAY_DIRECTION(const uint ray_index, const uint ray_count, const u
     EE_DDGI_PROBE_RAY_SAMPLE_INFO[emissive_sample_index] = sample_info;
   }
 
-  PointCloudRayTracingPayload hit_value = {};
+  DdgiProbeRayPayload hit_value = {};
+  hit_value.transmission = float3(1.0f);
   hit_value.seed = fixed_ray ? EE_DDGI_FIXED_RAY_PAYLOAD_FLAG
                              : emissive_ray ? primary_ray_seed | EE_DDGI_EMISSIVE_RAY_PAYLOAD_FLAG : primary_ray_seed;
   hit_value.hit_info.position = origin;
@@ -117,6 +118,7 @@ float3 EE_DDGI_RAY_DIRECTION(const uint ray_index, const uint ray_count, const u
     hit_value.hit_info.color.rgb =
         selected_emitter_visible ? emissive_sample.radiance_over_pdf * emissive_sample.solid_angle_pdf : float3(0.0f);
   }
+  hit_value.hit_info.color.rgb *= hit_value.transmission;
   DdgiProbeRayData ray_data;
   ray_data.radiance_and_signed_distance = float4(max(hit_value.hit_info.color.rgb, float3(0.0f)), signed_hit_distance);
   EE_DDGI_PROBE_RAY_DATA[sample_index] = ray_data;

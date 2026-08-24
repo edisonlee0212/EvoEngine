@@ -114,17 +114,6 @@ uint64_t RayCameraHistoryByteSize(const RayCameraHistoryResources& history) {
   return byte_size;
 }
 
-float Halton(uint32_t index, const uint32_t base) {
-  float result = 0.0f;
-  float fraction = 1.0f / static_cast<float>(base);
-  while (index > 0) {
-    result += static_cast<float>(index % base) * fraction;
-    index /= base;
-    fraction /= static_cast<float>(base);
-  }
-  return result;
-}
-
 std::shared_ptr<Cubemap> ResolveEnvironmentalMapCubemap(AssetRef& environmental_map_ref) {
   if (const auto environmental_map = environmental_map_ref.Get<EnvironmentalMap>()) {
     environmental_map->EnsureEnvironmentSource();
@@ -550,28 +539,6 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   if (require_rendering_) {
     const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
     post_processing_resources = &AcquirePostProcessingResources(post_processing_stack);
-    const bool taa_enabled = camera_render_mode == CameraRenderMode::Rasterization && post_processing_stack &&
-                             post_processing_stack->enable_anti_aliasing && post_processing_stack->anti_aliasing &&
-                             post_processing_stack->anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa;
-    if (post_processing_resources->jitter_taa_enabled != taa_enabled) {
-      post_processing_resources->current_jitter = {};
-      post_processing_resources->previous_jitter = {};
-      post_processing_resources->jitter_frame_index = 0;
-      post_processing_resources->jitter_taa_enabled = taa_enabled;
-    }
-    post_processing_resources->previous_jitter = post_processing_resources->current_jitter;
-    post_processing_resources->current_jitter = {};
-    if (taa_enabled && size_.x != 0 && size_.y != 0) {
-      const uint32_t sequence_index = post_processing_resources->jitter_frame_index % 16u + 1u;
-      post_processing_resources->current_jitter =
-          glm::vec2(Halton(sequence_index, 2u) - 0.5f, Halton(sequence_index, 3u) - 0.5f);
-      post_processing_resources->current_jitter *= 2.0f / glm::vec2(size_);
-      camera_info_block.projection[2][0] += post_processing_resources->current_jitter.x;
-      camera_info_block.projection[2][1] += post_processing_resources->current_jitter.y;
-      ++post_processing_resources->jitter_frame_index;
-    } else {
-      post_processing_resources->jitter_frame_index = 0;
-    }
   }
   camera_info_block.view = glm::lookAt(position, position + front, up);
   camera_info_block.projection_view = camera_info_block.projection * camera_info_block.view;
@@ -615,9 +582,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
       glm::vec4(inherit_background_color ? resolved_lighting.indirect_environment_source.color
                                          : glm::vec3(camera_settings.clear_color),
                 camera_settings.background_intensity);
-  camera_info_block.jitter = post_processing_resources ? glm::vec4(post_processing_resources->current_jitter,
-                                                                   post_processing_resources->previous_jitter)
-                                                       : glm::vec4(0.0f);
+  camera_info_block.jitter = glm::vec4(0.0f);
   camera_info_block.resolution = size_;
   camera_info_block.fade_factor = camera_settings.fade_factor;
   camera_info_block.fade_ratio = camera_settings.fade_ratio;
@@ -662,8 +627,7 @@ void Camera::UpdateCameraInfoBlock(CameraInfoBlock& camera_info_block, const Glo
   camera_info_block.raster_lighting_flags = 0u;
   if (const auto post_processing_stack = post_processing_stack_ref.Get<PostProcessingStack>();
       post_processing_stack && post_processing_stack->enable_ambient_occlusion &&
-      post_processing_stack->ambient_occlusion &&
-      post_processing_stack->ambient_occlusion->algorithm == AmbientOcclusion::Algorithm::Gtao) {
+      post_processing_stack->ambient_occlusion) {
     camera_info_block.raster_lighting_flags |= CameraInfoBlock::kRasterLightingGtaoVisibility;
   }
   const auto auto_spp_min_samples = static_cast<uint32_t>(glm::max(camera_settings.auto_spp_min_samples, 1));

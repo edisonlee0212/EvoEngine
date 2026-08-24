@@ -33,7 +33,6 @@ class DdgiProbeVisualizationPass final {
     uint32_t probe_count = 0;
     bool depth_test = false;
     DdgiProbeVisualizationPushConstant push_constant;
-    float* record_time_ms = nullptr;
     std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)> record_commands;
   };
 

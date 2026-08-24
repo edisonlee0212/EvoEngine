@@ -263,9 +263,10 @@ TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
 }
 
 TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfaceHelpers) {
-  const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/DDGIProbeDiagnostics.slang"));
-  const auto closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
-  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/DDGIProbeDiagnostics.slang"));
+  const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/DDGIProbeTrace.slang"));
+  const auto closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"));
+  const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/DDGIProbeTrace.slang"));
+  const auto payload = ReadTextFile(ShaderPath("Modules/EvoEngine/DDGIProbeRayPayload.slang"));
   const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
   const auto ray_material = ReadTextFile(ShaderPath("Modules/EvoEngine/RayTracingMaterial.slang"));
   const auto emissive_sampling = ReadTextFile(ShaderPath("Modules/EvoEngine/EmissiveTriangleSampling.slang"));
@@ -276,6 +277,7 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   ASSERT_FALSE(any_hit.empty());
   ASSERT_FALSE(closest_hit.empty());
   ASSERT_FALSE(raygen.empty());
+  ASSERT_FALSE(payload.empty());
   ASSERT_FALSE(evaluator.empty());
   ASSERT_FALSE(ray_material.empty());
   ASSERT_FALSE(emissive_sampling.empty());
@@ -283,11 +285,14 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   ASSERT_FALSE(render_storage.empty());
   ASSERT_FALSE(render_layer.empty());
 
-  EXPECT_NE(any_hit.find("EE_GLTF_MATERIALS[material_index].alpha_mode != EE_GLTF_ALPHA_MODE_MASK"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_ALPHA_MASK_PASSES"), std::string::npos);
   EXPECT_NE(any_hit.find("IgnoreHit()"), std::string::npos);
   EXPECT_EQ(any_hit.find("EE_PCG_RANDOM"), std::string::npos);
-  EXPECT_EQ(any_hit.find("SHADOW_TRANSMISSION"), std::string::npos);
+  EXPECT_NE(any_hit.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0("), std::string::npos);
+  EXPECT_NE(any_hit.find("EE_GLTF_RASTER_OPACITY_LOD0("), std::string::npos);
+  EXPECT_NE(any_hit.find("(1.0f - opacity) + opacity * surface_transmission"), std::string::npos);
+  EXPECT_NE(any_hit.find("hit_value.transmission = accumulated_transmission"), std::string::npos);
+  EXPECT_NE(any_hit.find("hit_value.transmission_is_inside = is_inside ? 1u : 0u"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_RT_TEXTURE_GRADIENTS"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_RT_SPHERICAL_RAY_SPREAD("), std::string::npos);
   EXPECT_NE(any_hit.find("EE_DDGI_UNIFORM_RAY_COUNT()"), std::string::npos);
@@ -338,6 +343,9 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(closest_hit.find("EE_DDGI_EMISSIVE_MESH_IRRADIANCE"), std::string::npos);
   EXPECT_NE(closest_hit.find("diffuse_albedo / EE_DDGI_PI * emissive_sample.radiance_over_pdf"), std::string::npos);
   EXPECT_NE(closest_hit.find("hit_value = primary_hit"), std::string::npos);
+  EXPECT_NE(closest_hit.find("float3 EE_DDGI_SHADOW_TRANSMISSION"), std::string::npos);
+  EXPECT_NE(closest_hit.find("const float3 visibility"), std::string::npos);
+  EXPECT_NE(closest_hit.find("receiver_cosine * visibility"), std::string::npos);
   EXPECT_EQ(closest_hit.find("EE_CAMERA_BALANCE_HEURISTIC"), std::string::npos);
   EXPECT_NE(ray_material.find("dot(world_clearcoat_normal, world_geometric_normal) < 0.0f"), std::string::npos);
   EXPECT_NE(ray_material.find("reflect(incident_direction, world_clearcoat_normal)"), std::string::npos);
@@ -348,14 +356,43 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(raygen.find("EE_XXHASH32("), std::string::npos);
   EXPECT_NE(raygen.find("EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w"), std::string::npos);
   EXPECT_NE(raygen.find("primary_ray_seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG"), std::string::npos);
+  EXPECT_NE(raygen.find("hit_value.transmission = float3(1.0f)"), std::string::npos);
+  EXPECT_NE(raygen.find("hit_value.hit_info.color.rgb *= hit_value.transmission"), std::string::npos);
+  EXPECT_NE(payload.find("struct DdgiProbeHitInfo"), std::string::npos);
+  EXPECT_NE(payload.find("struct DdgiProbeRayPayload"), std::string::npos);
+  EXPECT_EQ(payload.find("PointCloudRayTracingPayload"), std::string::npos);
+  EXPECT_NE(payload.find("float3 transmission"), std::string::npos);
+  EXPECT_NE(payload.find("float previous_hit_t"), std::string::npos);
+  EXPECT_NE(payload.find("uint transmission_is_inside"), std::string::npos);
   EXPECT_NE(render_storage.find("append_mesh_collection(forward_render_instances)"), std::string::npos);
   EXPECT_NE(render_storage.find("append_skinned_collection(transparent_skinned_render_instances)"), std::string::npos);
   EXPECT_NE(render_storage.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"),
             std::string::npos);
-  EXPECT_NE(render_layer.find("Shaders/RayTracing/AnyHit/DDGIProbeDiagnostics.slang"), std::string::npos);
+  EXPECT_NE(render_layer.find("Shaders/RayTracing/AnyHit/DDGIProbeTrace.slang"), std::string::npos);
   EXPECT_NE(render_layer.find("emissive_dispatch_seed"), std::string::npos);
   EXPECT_NE(render_layer.find("probe_scroll_offset.w = static_cast<int32_t>(emissive_dispatch_seed & 0x7fffffffu)"),
             std::string::npos);
+}
+
+TEST(GltfRayTracingMaterial, DdgiTransparentTraversalCombinesCoverageAndColoredTransmission) {
+  const auto local_transmission = [](const float opacity, const glm::vec3& surface_transmission) {
+    return glm::clamp(glm::vec3(1.0f - opacity) + opacity * surface_transmission, glm::vec3(0.0f), glm::vec3(1.0f));
+  };
+
+  EXPECT_EQ(local_transmission(1.0f, glm::vec3(0.0f)), glm::vec3(0.0f));
+  EXPECT_EQ(local_transmission(0.25f, glm::vec3(0.0f)), glm::vec3(0.75f));
+  EXPECT_EQ(local_transmission(1.0f, glm::vec3(0.9f, 0.8f, 0.7f)), glm::vec3(0.9f, 0.8f, 0.7f));
+  EXPECT_EQ(local_transmission(0.5f, glm::vec3(0.8f, 0.4f, 0.2f)), glm::vec3(0.9f, 0.7f, 0.6f));
+
+  const auto first_layer = local_transmission(1.0f, glm::vec3(0.9f, 0.8f, 0.7f));
+  const auto accumulated = first_layer * local_transmission(1.0f, glm::vec3(0.5f, 0.25f, 0.1f));
+  EXPECT_NEAR(accumulated.x, 0.45f, 0.000001f);
+  EXPECT_NEAR(accumulated.y, 0.2f, 0.000001f);
+  EXPECT_NEAR(accumulated.z, 0.07f, 0.000001f);
+  const auto effectively_opaque = local_transmission(1.0f, glm::vec3(0.005f));
+  EXPECT_LE(effectively_opaque.x, 0.01f);
+  EXPECT_LE(effectively_opaque.y, 0.01f);
+  EXPECT_LE(effectively_opaque.z, 0.01f);
 }
 
 TEST(GltfRayTracingMaterial, DdgiCutoutFootprintAndTangentContractsAreNumericallyStable) {
@@ -476,12 +513,9 @@ TEST(GltfRayTracingMaterial, CameraRaygenUsesRgbTransparentShadowTransmission) {
 
 TEST(GltfRayTracingMaterial, RayShadersUseCanonicalMaterialBlockOnly) {
   const std::filesystem::path paths[] = {
-      ShaderPath("RayTracing/RayGen/Camera.slang"),
-      ShaderPath("RayTracing/Miss/Camera.slang"),
-      ShaderPath("RayTracing/ClosestHit/Camera.slang"),
-      ShaderPath("RayTracing/AnyHit/Camera.slang"),
-      ShaderPath("RayTracing/ClosestHit/PointCloud.slang"),
-      ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"),
+      ShaderPath("RayTracing/RayGen/Camera.slang"),         ShaderPath("RayTracing/Miss/Camera.slang"),
+      ShaderPath("RayTracing/ClosestHit/Camera.slang"),     ShaderPath("RayTracing/AnyHit/Camera.slang"),
+      ShaderPath("RayTracing/ClosestHit/PointCloud.slang"), ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"),
   };
 
   for (const auto& path : paths) {
@@ -1602,7 +1636,9 @@ TEST(GltfRayTracingMaterial, PersistentTlasUsesMainQueueAndRayOnlyParticleInstan
   EXPECT_NE(graphics.find("dummy.accelerationStructureReference = 0"), std::string::npos);
   EXPECT_EQ(graphics.find("ImmediateSubmitWithGpuTimestamp(\"TLAS Build\""), std::string::npos);
   EXPECT_NE(storage_header.find("ray_tracing_instance_indices"), std::string::npos);
+  EXPECT_NE(storage_header.find("top_level_acceleration_structure_inputs_"), std::string::npos);
   EXPECT_NE(storage.find("ray_instance_block.model.value"), std::string::npos);
+  EXPECT_NE(storage.find("register_tlas_input"), std::string::npos);
   EXPECT_NE(storage.find("mesh_top_level_acceleration_structure->Update(*this)"), std::string::npos);
   EXPECT_EQ(storage.find("mesh_top_level_acceleration_structure.reset()"), std::string::npos);
   EXPECT_NE(platform.find("FrameSubmissionState::Status::Discarded"), std::string::npos);
@@ -1615,6 +1651,8 @@ TEST(GltfRayTracingMaterial, PersistentTlasUsesMainQueueAndRayOnlyParticleInstan
   EXPECT_NE(graphics.find("upload_byte_size"), std::string::npos);
   EXPECT_NE(graphics.find("pending_submission_state_->status == FrameSubmissionState::Status::Submitted"),
             std::string::npos);
+  EXPECT_NE(graphics.find("render_instance_storage.top_level_acceleration_structure_inputs_"), std::string::npos);
+  EXPECT_EQ(graphics.find("ForEachMeshRenderInstance(register_mesh)"), std::string::npos);
   EXPECT_NE(render_layer.find("particle_info.instance_matrix.value"), std::string::npos);
   EXPECT_EQ(render_layer.find("particle_info.instance_color"), std::string::npos);
 }
@@ -2791,7 +2829,7 @@ TEST(GltfRayTracingMaterial, RigidEmissiveTrianglesAreSharedByCamerasAndDdgi) {
   const auto basic = ReadTextFile(ShaderPath("Modules/EvoEngine/RayTracingBasic.slang"));
   const auto integrator = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayIntegrator.slang"));
   const auto emissive_sampling = ReadTextFile(ShaderPath("Modules/EvoEngine/EmissiveTriangleSampling.slang"));
-  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   const auto render_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto editor = ReadTextFile(AppPath("src/EvoEngineEditor.cpp"));

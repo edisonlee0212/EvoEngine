@@ -72,8 +72,6 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.ray_count = runtime["ray_count"].as<int>();
     if (runtime["emissive_ray_count"])
       settings.runtime.emissive_ray_count = runtime["emissive_ray_count"].as<int>();
-    else if (runtime["guided_ray_count"])
-      settings.runtime.emissive_ray_count = runtime["guided_ray_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
     if (runtime["normal_bias"])

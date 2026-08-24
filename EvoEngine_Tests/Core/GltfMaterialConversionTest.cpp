@@ -23,6 +23,35 @@
 
 using namespace evo_engine;
 
+TEST(GltfMaterialConversion, CacheUpdatesDeterministicallyWithoutRetainingHistory) {
+  GltfMaterialData initial;
+  initial.shade_material.pbr_base_color_texture = AppendGltfTextureInfo(initial, MakeGltfTextureInfo(7));
+  GltfMaterialCache history_cache;
+  GltfMaterialCache direct_cache;
+  ASSERT_EQ(history_cache.Append(initial), 0u);
+  ASSERT_EQ(direct_cache.Append(initial), 0u);
+  const auto initial_texture_count = history_cache.GetTextureInfos().size();
+
+  auto intermediate = initial;
+  intermediate.shade_material.pbr_base_color_factor = glm::vec4(0.5f);
+  history_cache.Update(0u, intermediate);
+
+  GltfMaterialData updated;
+  updated.shade_material.pbr_base_color_factor = glm::vec4(0.25f, 0.5f, 0.75f, 1.0f);
+  updated.shade_material.pbr_base_color_texture = AppendGltfTextureInfo(updated, MakeGltfTextureInfo(11));
+  history_cache.Update(0u, updated);
+  direct_cache.Update(0u, updated);
+
+  ASSERT_EQ(history_cache.GetShadeMaterials().size(), 1u);
+  const auto& material = history_cache.GetShadeMaterials()[0];
+  EXPECT_EQ(material.pbr_base_color_factor, updated.shade_material.pbr_base_color_factor);
+  EXPECT_EQ(history_cache.GetTextureInfos()[material.pbr_base_color_texture].index, 11);
+  EXPECT_EQ(history_cache.GetTextureInfos().size(), initial_texture_count);
+  EXPECT_EQ(history_cache.GetShadeMaterials(), direct_cache.GetShadeMaterials());
+  EXPECT_EQ(history_cache.GetTextureInfos(), direct_cache.GetTextureInfos());
+  EXPECT_THROW(history_cache.Update(1u, updated), std::out_of_range);
+}
+
 namespace {
 constexpr float kEpsilon = 0.0001f;
 constexpr uint64_t kProjectGltfHandle = 0xE703'0000'0000'0001ull;

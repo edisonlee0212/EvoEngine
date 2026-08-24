@@ -16,6 +16,7 @@
 #include <limits>
 #include <mutex>
 #include <thread>
+#include <unordered_set>
 
 using namespace evo_engine;
 
@@ -398,56 +399,58 @@ void ExecuteStaticBlasBuildJob(const std::shared_ptr<StaticBlasBuildJob>& job,
         RequireVkSuccess(vkCreateQueryPool(Platform::GetVkDevice(), &query_pool_info, nullptr, &query_pool),
                          "Static BLAS compact-size query-pool creation");
 
-        Platform::ImmediateSubmitWithGpuTimestamp("BLAS Build", [&](const VkCommandBuffer command_buffer) {
-          vkCmdResetQueryPool(command_buffer, query_pool, 0, static_cast<uint32_t>(pass.count));
-          std::vector<VkAccelerationStructureBuildGeometryInfoKHR> wave_builds;
-          std::vector<VkAccelerationStructureBuildRangeInfoKHR> wave_ranges;
-          std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> wave_range_pointers;
-          wave_builds.reserve(pass.count);
-          wave_ranges.reserve(pass.count);
-          wave_range_pointers.reserve(pass.count);
-          VkDeviceSize wave_scratch_size = 0;
-          const auto flush_wave = [&]() {
-            if (wave_builds.empty()) {
-              return;
-            }
-            wave_range_pointers.clear();
-            for (const auto& range : wave_ranges) {
-              wave_range_pointers.emplace_back(&range);
-            }
-            vkCmdBuildAccelerationStructuresKHR(command_buffer, static_cast<uint32_t>(wave_builds.size()),
-                                                wave_builds.data(), wave_range_pointers.data());
-            RecordAccelerationStructureBarrier(command_buffer);
-            wave_builds.clear();
-            wave_ranges.clear();
-            wave_scratch_size = 0;
-          };
+        Platform::ImmediateSubmitWithGpuTimestamp(
+            {"BlasBuild", "BLAS Build", "Ray Tracing", GpuTimestampQueue::Immediate, 0, 0},
+            [&](const VkCommandBuffer command_buffer) {
+              vkCmdResetQueryPool(command_buffer, query_pool, 0, static_cast<uint32_t>(pass.count));
+              std::vector<VkAccelerationStructureBuildGeometryInfoKHR> wave_builds;
+              std::vector<VkAccelerationStructureBuildRangeInfoKHR> wave_ranges;
+              std::vector<const VkAccelerationStructureBuildRangeInfoKHR*> wave_range_pointers;
+              wave_builds.reserve(pass.count);
+              wave_ranges.reserve(pass.count);
+              wave_range_pointers.reserve(pass.count);
+              VkDeviceSize wave_scratch_size = 0;
+              const auto flush_wave = [&]() {
+                if (wave_builds.empty()) {
+                  return;
+                }
+                wave_range_pointers.clear();
+                for (const auto& range : wave_ranges) {
+                  wave_range_pointers.emplace_back(&range);
+                }
+                vkCmdBuildAccelerationStructuresKHR(command_buffer, static_cast<uint32_t>(wave_builds.size()),
+                                                    wave_builds.data(), wave_range_pointers.data());
+                RecordAccelerationStructureBarrier(command_buffer);
+                wave_builds.clear();
+                wave_ranges.clear();
+                wave_scratch_size = 0;
+              };
 
-          for (size_t local_index = 0; local_index < pass.count; ++local_index) {
-            auto& record = records[pass.begin + local_index];
-            const auto aligned_scratch = AlignUp(record.sizes.buildScratchSize, scratch_alignment);
-            if (wave_scratch_size != 0 && aligned_scratch > pass.scratch_size - wave_scratch_size) {
+              for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+                auto& record = records[pass.begin + local_index];
+                const auto aligned_scratch = AlignUp(record.sizes.buildScratchSize, scratch_alignment);
+                if (wave_scratch_size != 0 && aligned_scratch > pass.scratch_size - wave_scratch_size) {
+                  flush_wave();
+                }
+                auto& build = wave_builds.emplace_back();
+                build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+                build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+                build.flags = kBlasBuildFlags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
+                build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+                build.dstAccelerationStructure = record.original;
+                build.geometryCount = 1;
+                build.pGeometries = &record.geometry;
+                build.scratchData.deviceAddress = scratch_address + wave_scratch_size;
+                auto& range = wave_ranges.emplace_back();
+                range.primitiveCount = record.request.triangle_count;
+                range.primitiveOffset = record.request.triangle_offset * sizeof(glm::uvec3);
+                wave_scratch_size += aligned_scratch;
+              }
               flush_wave();
-            }
-            auto& build = wave_builds.emplace_back();
-            build.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-            build.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-            build.flags = kBlasBuildFlags | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_COMPACTION_BIT_KHR;
-            build.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            build.dstAccelerationStructure = record.original;
-            build.geometryCount = 1;
-            build.pGeometries = &record.geometry;
-            build.scratchData.deviceAddress = scratch_address + wave_scratch_size;
-            auto& range = wave_ranges.emplace_back();
-            range.primitiveCount = record.request.triangle_count;
-            range.primitiveOffset = record.request.triangle_offset * sizeof(glm::uvec3);
-            wave_scratch_size += aligned_scratch;
-          }
-          flush_wave();
-          vkCmdWriteAccelerationStructuresPropertiesKHR(
-              command_buffer, static_cast<uint32_t>(originals.size()), originals.data(),
-              VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query_pool, 0);
-        });
+              vkCmdWriteAccelerationStructuresPropertiesKHR(
+                  command_buffer, static_cast<uint32_t>(originals.size()), originals.data(),
+                  VK_QUERY_TYPE_ACCELERATION_STRUCTURE_COMPACTED_SIZE_KHR, query_pool, 0);
+            });
 
         std::vector<VkDeviceSize> compact_sizes(pass.count);
         RequireVkSuccess(
@@ -473,17 +476,19 @@ void ExecuteStaticBlasBuildJob(const std::shared_ptr<StaticBlasBuildJob>& job,
             SaturatingAdd(job->telemetry.scratch_peak_bytes,
                           SaturatingAdd(retained_compacted_bytes, SaturatingAdd(original_bytes, compact_bytes))));
 
-        Platform::ImmediateSubmitWithGpuTimestamp("BLAS Compact", [&](const VkCommandBuffer command_buffer) {
-          for (size_t local_index = 0; local_index < pass.count; ++local_index) {
-            const auto& record = records[pass.begin + local_index];
-            VkCopyAccelerationStructureInfoKHR copy_info{};
-            copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
-            copy_info.src = record.original;
-            copy_info.dst = record.compact;
-            copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
-            vkCmdCopyAccelerationStructureKHR(command_buffer, &copy_info);
-          }
-        });
+        Platform::ImmediateSubmitWithGpuTimestamp(
+            {"BlasCompact", "BLAS Compact", "Ray Tracing", GpuTimestampQueue::Immediate, 0, 0},
+            [&](const VkCommandBuffer command_buffer) {
+              for (size_t local_index = 0; local_index < pass.count; ++local_index) {
+                const auto& record = records[pass.begin + local_index];
+                VkCopyAccelerationStructureInfoKHR copy_info{};
+                copy_info.sType = VK_STRUCTURE_TYPE_COPY_ACCELERATION_STRUCTURE_INFO_KHR;
+                copy_info.src = record.original;
+                copy_info.dst = record.compact;
+                copy_info.mode = VK_COPY_ACCELERATION_STRUCTURE_MODE_COMPACT_KHR;
+                vkCmdCopyAccelerationStructureKHR(command_buffer, &copy_info);
+              }
+            });
 
         for (size_t local_index = 0; local_index < pass.count; ++local_index) {
           auto& record = records[pass.begin + local_index];
@@ -1120,10 +1125,17 @@ void Buffer::UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const
     auto& gpu_service = Platform::GetGpuService();
     auto staging_buffer = gpu_service.AcquireStagingBuffer(size, false);
     try {
+      const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+      const auto staging_copy_started = std::chrono::steady_clock::now();
       void* mapping;
       Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
       memcpy(mapping, src, size);
       vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+      if (timing_enabled) {
+        Platform::RecordCpuTimingSample(
+            "Buffer Upload / Staging Copy",
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - staging_copy_started).count());
+      }
       CopyFromBufferOnGpuThread(state, staging_buffer.vk_buffer, size, 0, dst_offset);
       gpu_service.ReleaseStagingBuffer(staging_buffer);
     } catch (...) {
@@ -1134,13 +1146,27 @@ void Buffer::UploadDataOnGpuThread(const std::shared_ptr<GpuState>& state, const
 }
 
 void Buffer::UploadData(const size_t size, const void* src) {
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto started = std::chrono::steady_clock::now();
   const auto handle = UploadDataAsync(size, src);
   Platform::GetGpuService().Wait(handle);
+  if (timing_enabled && size != 0) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload / Synchronous Operation",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+  }
 }
 
 void Buffer::UploadSubData(const size_t size, const void* src, const VkDeviceSize dst_offset) {
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto started = std::chrono::steady_clock::now();
   const auto handle = UploadSubDataAsync(size, src, dst_offset);
   Platform::GetGpuService().Wait(handle);
+  if (timing_enabled && size != 0) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload / Synchronous Operation",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+  }
 }
 
 GpuWorkHandle Buffer::UploadDataAsync(const size_t size, const void* src) {
@@ -1155,7 +1181,14 @@ GpuWorkHandle Buffer::UploadSubDataAsync(const size_t size, const void* src, con
     throw std::invalid_argument("Buffer upload source cannot be null.");
   }
   auto owned_data = std::make_shared<std::vector<std::byte>>(size);
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto source_copy_started = std::chrono::steady_clock::now();
   memcpy(owned_data->data(), src, size);
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload / Source Copy",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - source_copy_started).count());
+  }
 
   GpuWorkOptions options;
   options.debug_name = dst_offset == 0 ? "Buffer::UploadDataAsync" : "Buffer::UploadSubDataAsync";
@@ -1606,6 +1639,269 @@ const VkBuffer& Buffer::GetVkBuffer() const {
 
 VkDeviceSize Buffer::GetSize() const {
   return gpu_state_->size;
+}
+
+struct BufferUploadArena::State {
+  struct Block {
+    std::shared_ptr<Buffer> buffer;
+    void* mapping = nullptr;
+    VkDeviceSize capacity = 0;
+    VkDeviceSize cursor = 0;
+  };
+
+  VkDeviceSize initial_block_size = 0;
+  std::vector<Block> blocks;
+  std::shared_ptr<FrameSubmissionState> submission;
+};
+
+BufferUploadArena::BufferUploadArena(const VkDeviceSize initial_block_size) : state_(std::make_unique<State>()) {
+  if (initial_block_size == 0) {
+    throw std::invalid_argument("Buffer upload arena block size cannot be zero.");
+  }
+  state_->initial_block_size = (initial_block_size + 3) & ~VkDeviceSize{3};
+}
+
+BufferUploadArena::~BufferUploadArena() {
+  if (Platform::Initialized()) {
+    for (auto& block : state_->blocks) {
+      vmaUnmapMemory(Platform::GetVmaAllocator(), block.buffer->GetVmaAllocation());
+    }
+  }
+}
+
+void BufferUploadBatch::Add(const std::shared_ptr<Buffer>& destination, const void* source, const size_t size,
+                            const VkDeviceSize destination_offset, const BufferUploadOptions& options) {
+  if (size == 0) {
+    return;
+  }
+  if (!destination) {
+    throw std::invalid_argument("Buffer upload batch destination cannot be null.");
+  }
+  if (!source) {
+    throw std::invalid_argument("Buffer upload batch source cannot be null.");
+  }
+  if ((size & 3u) != 0 || (destination_offset & 3u) != 0) {
+    throw std::invalid_argument("Buffer upload batch sizes and offsets must be four-byte aligned.");
+  }
+  if (size > std::numeric_limits<VkDeviceSize>::max() - destination_offset) {
+    throw std::overflow_error("Buffer upload batch destination range overflows.");
+  }
+  const auto required_size = destination_offset + size;
+  const auto& state = destination->gpu_state_;
+  if ((state->usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) == 0) {
+    throw std::invalid_argument("Buffer upload batch destination must support transfer writes.");
+  }
+  if (options.capacity_policy == BufferUploadCapacityPolicy::RequireCapacity && required_size > state->size) {
+    throw std::out_of_range("Buffer upload batch destination capacity is insufficient.");
+  }
+  const bool has_stage_override = options.destination_stage_mask != 0;
+  const bool has_access_override = options.destination_access_mask != 0;
+  if ((!has_stage_override && has_access_override) ||
+      (options.usage == BufferUploadUsage::Custom && !has_stage_override)) {
+    throw std::invalid_argument("Buffer upload batch custom synchronization requires a stage mask.");
+  }
+  for (const auto& entry : entries_) {
+    if (entry.destination.get() != destination.get()) {
+      continue;
+    }
+    const auto entry_end = entry.destination_offset + entry.size;
+    if (destination_offset < entry_end && entry.destination_offset < required_size) {
+      throw std::invalid_argument("Buffer upload batch destination ranges cannot overlap.");
+    }
+  }
+  if (size > std::numeric_limits<VkDeviceSize>::max() - staging_size_) {
+    throw std::overflow_error("Buffer upload batch staging size overflows.");
+  }
+  entries_.push_back({destination, source, size, destination_offset, staging_size_, options});
+  staging_size_ += size;
+}
+
+size_t BufferUploadBatch::GetEntryCount() const {
+  return entries_.size();
+}
+
+VkDeviceSize BufferUploadBatch::GetStagingSize() const {
+  return staging_size_;
+}
+
+void BufferUploadBatch::RecordCopies(const VkCommandBuffer command_buffer, const VkBuffer staging_buffer,
+                                     const VkDeviceSize staging_base, const std::vector<Entry>& entries) {
+  std::vector<VkBufferMemoryBarrier2> barriers;
+  barriers.reserve(entries.size());
+  for (const auto& entry : entries) {
+    const VkBufferCopy copy{staging_base + entry.staging_offset, entry.destination_offset, entry.size};
+    vkCmdCopyBuffer(command_buffer, staging_buffer, entry.destination->gpu_state_->vk_buffer, 1, &copy);
+
+    VkPipelineStageFlags2 destination_stage = entry.options.destination_stage_mask;
+    VkAccessFlags2 destination_access = entry.options.destination_access_mask;
+    if (destination_stage == 0) {
+      switch (entry.options.usage) {
+        case BufferUploadUsage::Uniform:
+          destination_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+          destination_access = VK_ACCESS_2_UNIFORM_READ_BIT;
+          break;
+        case BufferUploadUsage::StorageRead:
+          destination_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+          destination_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT;
+          break;
+        case BufferUploadUsage::StorageReadWrite:
+          destination_stage = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
+          destination_access = VK_ACCESS_2_SHADER_STORAGE_READ_BIT | VK_ACCESS_2_SHADER_STORAGE_WRITE_BIT;
+          break;
+        case BufferUploadUsage::Vertex:
+          destination_stage = VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT;
+          destination_access = VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT;
+          break;
+        case BufferUploadUsage::Index:
+          destination_stage = VK_PIPELINE_STAGE_2_INDEX_INPUT_BIT;
+          destination_access = VK_ACCESS_2_INDEX_READ_BIT;
+          break;
+        case BufferUploadUsage::Indirect:
+          destination_stage = VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT;
+          destination_access = VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT;
+          break;
+        case BufferUploadUsage::Custom:
+          break;
+      }
+    }
+    VkBufferMemoryBarrier2 barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+    barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+    barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+    barrier.dstStageMask = destination_stage;
+    barrier.dstAccessMask = destination_access;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.buffer = entry.destination->gpu_state_->vk_buffer;
+    barrier.offset = entry.destination_offset;
+    barrier.size = entry.size;
+    barriers.push_back(barrier);
+  }
+  VkDependencyInfo dependency_info{};
+  dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency_info.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
+  dependency_info.pBufferMemoryBarriers = barriers.data();
+  vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+}
+
+void BufferUploadBatch::SubmitImmediate() {
+  if (entries_.empty()) {
+    return;
+  }
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto started = std::chrono::steady_clock::now();
+  const auto entries = entries_;
+  const auto staging_size = staging_size_;
+  GpuWorkOptions work_options;
+  work_options.debug_name = "BufferUploadBatch::SubmitImmediate";
+  auto& gpu_service = Platform::GetGpuService();
+  const auto handle = gpu_service.EnqueueStaging(staging_size, work_options, [entries, staging_size]() {
+    for (const auto& entry : entries) {
+      const auto required_size = entry.destination_offset + entry.size;
+      if (required_size > entry.destination->gpu_state_->size) {
+        Buffer::ResizeOnGpuThread(entry.destination->gpu_state_, required_size);
+      }
+    }
+
+    auto& service = Platform::GetGpuService();
+    auto staging_buffer = service.AcquireStagingBuffer(staging_size, false);
+    try {
+      const auto staging_copy_started = std::chrono::steady_clock::now();
+      void* mapping = nullptr;
+      Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation, &mapping));
+      for (const auto& entry : entries) {
+        memcpy(static_cast<std::byte*>(mapping) + entry.staging_offset, entry.source, entry.size);
+      }
+      vmaUnmapMemory(Platform::GetVmaAllocator(), staging_buffer.vma_allocation);
+      if (Platform::GpuTimestampCaptureEnabled()) {
+        Platform::RecordCpuTimingSample(
+            "Buffer Upload Batch / Staging Copy",
+            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - staging_copy_started).count());
+      }
+
+      service.SubmitImmediate([&](const VkCommandBuffer command_buffer) {
+        RecordCopies(command_buffer, staging_buffer.vk_buffer, 0, entries);
+      });
+      service.ReleaseStagingBuffer(staging_buffer);
+    } catch (...) {
+      service.ReleaseStagingBuffer(staging_buffer);
+      throw;
+    }
+  });
+  gpu_service.Wait(handle);
+  entries_.clear();
+  staging_size_ = 0;
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload Batch / Synchronous Operation",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+  }
+}
+
+void BufferUploadBatch::Record(BufferUploadArena& arena) {
+  if (entries_.empty()) {
+    return;
+  }
+  const auto started = std::chrono::steady_clock::now();
+  for (const auto& entry : entries_) {
+    const auto required_size = entry.destination_offset + entry.size;
+    if (required_size > entry.destination->GetSize()) {
+      entry.destination->Resize(required_size);
+    }
+  }
+
+  auto& arena_state = *arena.state_;
+  if (!arena_state.submission || arena_state.submission->status != FrameSubmissionState::Status::Pending) {
+    for (auto& block : arena_state.blocks) {
+      block.cursor = 0;
+    }
+    arena_state.submission = Platform::TrackCurrentFrameSubmission();
+  }
+  BufferUploadArena::State::Block* selected_block = nullptr;
+  for (auto& block : arena_state.blocks) {
+    if (staging_size_ <= block.capacity - block.cursor) {
+      selected_block = &block;
+      break;
+    }
+  }
+  if (!selected_block) {
+    VkDeviceSize capacity = arena_state.initial_block_size;
+    while (capacity < staging_size_) {
+      capacity *= 2;
+    }
+    auto buffer = std::make_shared<Buffer>(capacity, false);
+    buffer->SetDebugName("Frame Buffer Upload Arena");
+    void* mapping = nullptr;
+    Platform::CheckVk(vmaMapMemory(Platform::GetVmaAllocator(), buffer->GetVmaAllocation(), &mapping));
+    arena_state.blocks.push_back({std::move(buffer), mapping, capacity, 0});
+    selected_block = &arena_state.blocks.back();
+  }
+  const auto staging_base = selected_block->cursor;
+  const auto staging_copy_started = std::chrono::steady_clock::now();
+  for (const auto& entry : entries_) {
+    memcpy(static_cast<std::byte*>(selected_block->mapping) + staging_base + entry.staging_offset, entry.source,
+           entry.size);
+  }
+  Platform::CheckVk(vmaFlushAllocation(Platform::GetVmaAllocator(), selected_block->buffer->GetVmaAllocation(),
+                                       staging_base, staging_size_));
+  selected_block->cursor += staging_size_;
+  if (Platform::GpuTimestampCaptureEnabled()) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload Batch / Frame Staging Copy",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - staging_copy_started).count());
+  }
+  const auto entries = entries_;
+  const auto staging_buffer = selected_block->buffer;
+  Platform::RecordCommandsMainQueue([entries, staging_buffer, staging_base](const VkCommandBuffer command_buffer) {
+    RecordCopies(command_buffer, staging_buffer->GetVkBuffer(), staging_base, entries);
+  });
+  entries_.clear();
+  staging_size_ = 0;
+  if (Platform::GpuTimestampCaptureEnabled()) {
+    Platform::RecordCpuTimingSample(
+        "Buffer Upload Batch / Frame Record",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+  }
 }
 
 VmaAllocation Buffer::GetVmaAllocation() const {
@@ -2196,9 +2492,11 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   VkAccelerationStructureBuildRangeInfoKHR range_info{};
   range_info.primitiveCount = primitive_count_;
   const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
-  Platform::ImmediateSubmitWithGpuTimestamp("LSS BLAS Build", [&](const VkCommandBuffer command_buffer) {
-    vkCmdBuildAccelerationStructuresKHR(command_buffer, 1, &build_info, range_infos);
-  });
+  Platform::ImmediateSubmitWithGpuTimestamp(
+      {"LssBlasBuild", "LSS BLAS Build", "Ray Tracing", GpuTimestampQueue::Immediate, 0, 0},
+      [&](const VkCommandBuffer command_buffer) {
+        vkCmdBuildAccelerationStructuresKHR(command_buffer, 1, &build_info, range_infos);
+      });
 
   VkAccelerationStructureDeviceAddressInfoKHR address_info{};
   address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
@@ -2527,9 +2825,11 @@ BottomLevelAccelerationStructure::BottomLevelAccelerationStructure(const std::ve
   VkAccelerationStructureBuildRangeInfoKHR range_info{};
   range_info.primitiveCount = primitive_count_;
   const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
-  Platform::ImmediateSubmitWithGpuTimestamp("BLAS Build", [&](const VkCommandBuffer vk_command_buffer) {
-    vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
-  });
+  Platform::ImmediateSubmitWithGpuTimestamp(
+      {"BlasBuild", "BLAS Build", "Ray Tracing", GpuTimestampQueue::Immediate, 0, 0},
+      [&](const VkCommandBuffer vk_command_buffer) {
+        vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
+      });
 
   VkAccelerationStructureDeviceAddressInfoKHR address_info{};
   address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
@@ -2659,7 +2959,8 @@ std::shared_ptr<FrameSubmissionState> BottomLevelAccelerationStructure::UpdateVe
     VkAccelerationStructureBuildRangeInfoKHR range_info{};
     range_info.primitiveCount = primitive_count_;
     const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
-    const auto timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "BLAS Update");
+    const auto timestamp = Platform::BeginGpuTimestampScope(
+        vk_command_buffer, {"BlasUpdate", "BLAS Update", "Ray Tracing", GpuTimestampQueue::Graphics, 0, 0});
     vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
     Platform::EndGpuTimestampScope(vk_command_buffer, timestamp);
 
@@ -2902,8 +3203,9 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
   std::vector<VkAccelerationStructureInstanceKHR> instances;
   std::vector<uint32_t> blas_content_versions;
   std::vector<std::shared_ptr<BottomLevelAccelerationStructure>> blas_references;
+  std::unordered_set<const BottomLevelAccelerationStructure*> unique_blas_references;
   const auto append_blas_reference = [&](const std::shared_ptr<BottomLevelAccelerationStructure>& blas) {
-    if (std::find(blas_references.begin(), blas_references.end(), blas) == blas_references.end()) {
+    if (unique_blas_references.emplace(blas.get()).second) {
       blas_references.emplace_back(blas);
     }
   };
@@ -2939,66 +3241,13 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     instance.accelerationStructureReference = blas->GetDeviceAddress();
     append_blas_reference(blas);
   };
-  const auto register_mesh = [&](const std::shared_ptr<RenderInstanceStorage::MeshRenderInstance>& render_instance) {
-    if (render_instance && render_instance->mesh) {
-      const auto blas =
-          render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas : render_instance->mesh->blas_;
-      register_instance(render_instance, blas, render_instance->model.value,
-                        static_cast<uint32_t>(render_instance->instance_index));
-    }
-  };
-  const auto register_skinned =
-      [&](const std::shared_ptr<RenderInstanceStorage::SkinnedMeshRenderInstance>& render_instance) {
-        if (!render_instance || !render_instance->skinned_mesh) {
-          return;
-        }
-        const auto blas = render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas
-                                                            : render_instance->skinned_mesh->blas_;
-        register_instance(render_instance, blas, render_instance->model.value,
-                          static_cast<uint32_t>(render_instance->instance_index));
-      };
-  const auto register_instanced =
-      [&](const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstance>& render_instance) {
-        if (!render_instance || !render_instance->mesh || !render_instance->particle_infos) {
-          return;
-        }
-        const auto& particle_infos = render_instance->particle_infos->PeekParticleInfoList();
-        if (particle_infos.size() != render_instance->ray_tracing_instance_indices.size()) {
-          throw std::runtime_error("Particle ray tracing instance blocks are out of date.");
-        }
-        for (size_t index = 0; index < particle_infos.size(); ++index) {
-          register_instance(render_instance, render_instance->mesh->blas_,
-                            render_instance->model.value * particle_infos[index].instance_matrix.value,
-                            render_instance->ray_tracing_instance_indices[index]);
-        }
-      };
-  const auto register_external =
-      [&](const std::shared_ptr<RenderInstanceStorage::ExternalRenderInstance>& render_instance) {
-        if (render_instance && render_instance->HasDdgiRayTracingGeometry()) {
-          register_instance(render_instance, render_instance->ddgi_geometry.bottom_level_acceleration_structure,
-                            render_instance->model.value, static_cast<uint32_t>(render_instance->instance_index));
-        }
-      };
-  const auto register_strands =
-      [&](const std::shared_ptr<RenderInstanceStorage::StrandsRenderInstance>& render_instance) {
-        if (Platform::RayTracingLinearSweptSpheresEnabled() && render_instance && render_instance->strands) {
-          register_instance(render_instance, render_instance->strands->blas_, render_instance->model.value,
-                            static_cast<uint32_t>(render_instance->instance_index), true);
-        }
-      };
-  render_instance_storage.deferred_render_instances->ForEachMeshRenderInstance(register_mesh);
-  render_instance_storage.deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
-  render_instance_storage.deferred_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
-  render_instance_storage.deferred_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
-  render_instance_storage.forward_render_instances->ForEachMeshRenderInstance(register_mesh);
-  render_instance_storage.forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
-  render_instance_storage.forward_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
-  render_instance_storage.forward_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
-  render_instance_storage.transparent_render_instances->ForEachMeshRenderInstance(register_mesh);
-  render_instance_storage.transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance(register_skinned);
-  render_instance_storage.transparent_instanced_render_instances->ForEachInstancedRenderInstance(register_instanced);
-  render_instance_storage.transparent_strands_render_instances->ForEachStrandsRenderInstance(register_strands);
-  render_instance_storage.external_render_instances->ForEachExternalRenderInstance(register_external);
+  instances.reserve(render_instance_storage.top_level_acceleration_structure_inputs_.size());
+  blas_content_versions.reserve(render_instance_storage.top_level_acceleration_structure_inputs_.size());
+  unique_blas_references.reserve(render_instance_storage.top_level_acceleration_structure_inputs_.size());
+  for (const auto& input : render_instance_storage.top_level_acceleration_structure_inputs_) {
+    register_instance(input.render_instance, input.bottom_level_acceleration_structure, input.model, input.custom_index,
+                      input.linear_swept_spheres);
+  }
 
   if (instances.empty()) {
     auto& dummy = instances.emplace_back();
@@ -3161,7 +3410,9 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     const VkAccelerationStructureBuildRangeInfoKHR* range_infos[] = {&range_info};
 
     const auto timestamp =
-        Platform::BeginGpuTimestampScope(vk_command_buffer, mode == UpdateMode::Update ? "TLAS Update" : "TLAS Build");
+        Platform::BeginGpuTimestampScope(vk_command_buffer, {mode == UpdateMode::Update ? "TlasUpdate" : "TlasBuild",
+                                                             mode == UpdateMode::Update ? "TLAS Update" : "TLAS Build",
+                                                             "Ray Tracing", GpuTimestampQueue::Graphics, 0, 0});
     vkCmdBuildAccelerationStructuresKHR(vk_command_buffer, 1, &build_info, range_infos);
     Platform::EndGpuTimestampScope(vk_command_buffer, timestamp);
 
@@ -3182,9 +3433,13 @@ TopLevelAccelerationStructure::UpdateMode TopLevelAccelerationStructure::Update(
     pending_retained_blas_references_ = committed_blas_references_;
     pending_extra_staging_buffers_.clear();
   }
+  std::unordered_set<const BottomLevelAccelerationStructure*> retained_blas_references;
+  retained_blas_references.reserve(pending_retained_blas_references_.size() + blas_references.size());
+  for (const auto& blas : pending_retained_blas_references_) {
+    retained_blas_references.emplace(blas.get());
+  }
   for (const auto& blas : blas_references) {
-    if (std::find(pending_retained_blas_references_.begin(), pending_retained_blas_references_.end(), blas) ==
-        pending_retained_blas_references_.end()) {
+    if (retained_blas_references.emplace(blas.get()).second) {
       pending_retained_blas_references_.emplace_back(blas);
     }
   }

@@ -7,22 +7,15 @@
 #include "RenderPasses/RenderPassUtilities.hpp"
 
 #include <algorithm>
-#include <chrono>
 
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
-void DispatchProbeUpdate(const VkCommandBuffer vk_command_buffer, const DdgiProbeUpdatePass::Parameters& parameters,
+void DispatchProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
+                         const DdgiProbeUpdatePass::Parameters& parameters,
                          const std::shared_ptr<ComputePipeline>& pipeline,
                          const std::shared_ptr<DescriptorSet>& descriptor_set, const uint32_t update_mode,
-                         const std::string& timestamp_name, const uint32_t group_count_x,
-                         const uint32_t group_count_y) {
+                         const uint32_t group_count_x, const uint32_t group_count_y) {
   pipeline->Bind(vk_command_buffer);
   pipeline->BindDescriptorSet(vk_command_buffer, 0, parameters.per_frame_descriptor_set->GetVkDescriptorSet());
   pipeline->BindDescriptorSet(vk_command_buffer, 1, descriptor_set->GetVkDescriptorSet());
@@ -30,9 +23,8 @@ void DispatchProbeUpdate(const VkCommandBuffer vk_command_buffer, const DdgiProb
   push_constant.atlas_columns_fixed_ray_count_and_update_mode.w = update_mode;
   push_constant.probe_scroll_offset.w = static_cast<int32_t>(std::max(group_count_x, 1u));
   pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-  const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, timestamp_name);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context, 0, update_mode);
   pipeline->Dispatch(vk_command_buffer, group_count_x, group_count_y);
-  Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
 }
 
 void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
@@ -112,12 +104,10 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   }
   const auto& irradiance_pipeline = use_parallel ? parameters.parallel_irradiance_pipeline : parameters.pipeline;
   const auto& visibility_pipeline = use_parallel ? parameters.parallel_visibility_pipeline : parameters.pipeline;
-  const auto atlas_update_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "DDGI Atlas Update Total");
-  DispatchProbeUpdate(vk_command_buffer, parameters, irradiance_pipeline, descriptor_set, 1u, "DDGI Irradiance Update",
-                      dispatch.x, dispatch.y);
-  DispatchProbeUpdate(vk_command_buffer, parameters, visibility_pipeline, descriptor_set, 2u, "DDGI Visibility Update",
-                      dispatch.x, dispatch.y);
-  Platform::EndGpuTimestampScope(vk_command_buffer, atlas_update_timestamp);
+  DispatchProbeUpdate(vk_command_buffer, context, parameters, irradiance_pipeline, descriptor_set, 1u, dispatch.x,
+                      dispatch.y);
+  DispatchProbeUpdate(vk_command_buffer, context, parameters, visibility_pipeline, descriptor_set, 2u, dispatch.x,
+                      dispatch.y);
   if (parameters.recorded_probe_update_count) {
     *parameters.recorded_probe_update_count += parameters.push_constant.probe_count_ray_count_and_tile_sizes.x;
   }
@@ -171,7 +161,9 @@ RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor(const bool use_emissi
        {RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}};
-  descriptor.dependencies = {RenderPassNames::ddgi_ray_diagnostics};
+  descriptor.dependencies = {RenderPassNames::ddgi_probe_trace};
+  descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
+  descriptor.profiler_display_name = "DDGI Probe Update";
   if (use_emissive_sampling) {
     descriptor.resources.push_back(
         {RenderResourceNames::frame_ddgi_ray_sample_info, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
@@ -181,10 +173,6 @@ RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor(const bool use_emissi
 
 void DdgiProbeUpdatePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeUpdate(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

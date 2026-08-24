@@ -28,7 +28,6 @@ class DdgiProbeUpdatePass final {
     std::shared_ptr<Buffer> metadata_readback_buffer;
     bool* metadata_readback_recorded = nullptr;
     uint32_t* recorded_probe_update_count = nullptr;
-    float* record_time_ms = nullptr;
     bool* path_reported = nullptr;
     bool use_emissive_sampling = false;
   };

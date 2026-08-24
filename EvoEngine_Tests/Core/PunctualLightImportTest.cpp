@@ -93,7 +93,7 @@ TEST(PunctualLightImport, RayTracingShadersSeeSharedLightSsbo) {
   const auto ray_tracing_basic = ReadTextFile(ShaderPath("Modules/EvoEngine/RayTracingBasic.slang"));
   const auto per_frame_module = ReadTextFile(ShaderPath("Modules/EvoEngine/PerFrame.slang"));
   const auto lights = ReadTextFile(ShaderPath("Modules/EvoEngine/Lights.slang"));
-  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   const auto camera_raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/Camera.slang"));
 
   ASSERT_FALSE(render_layer.empty());
@@ -157,7 +157,7 @@ TEST(PunctualLightImport, DirectionalLightIntensityKeepsSceneUnitAcrossRenderPat
   const auto prefab_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Prefab.cpp"));
   const auto render_storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   const auto raster_lighting = ReadTextFile(ShaderPath("Modules/EvoEngine/Lighting.slang"));
-  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
+  const auto ddgi_closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   const auto integrator = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayIntegrator.slang"));
 
   ASSERT_FALSE(prefab_source.empty());

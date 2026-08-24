@@ -18,6 +18,8 @@
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
 #include "Prefab.hpp"
+#include "Profiler.hpp"
+#include "ProfilerPanelModel.hpp"
 #include "ProjectContentBrowserPanel.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
@@ -43,6 +45,69 @@
 #include <functional>
 #include <limits>
 #include <unordered_map>
+#include <unordered_set>
+
+namespace evo_engine {
+struct ProfilerBreakdownSeries {
+  std::string key;
+  std::string name;
+  std::vector<float> values;
+};
+
+struct CpuProfilerSeries {
+  std::string key;
+  std::string name;
+  profiler_panel_detail::CpuExecutorGroup group = profiler_panel_detail::CpuExecutorGroup::Other;
+  std::vector<float> values;
+  double average_milliseconds = 0.0;
+};
+
+struct ProfilerPanelState {
+  struct CpuNode {
+    std::string key;
+    std::string name;
+    std::string category;
+    std::vector<CpuNode> children;
+  };
+  struct CpuThread {
+    uint64_t id = 0;
+    std::string name;
+    std::vector<CpuNode> roots;
+  };
+  struct GpuPass {
+    std::string key;
+    GpuTimestampScopeMetadata metadata;
+  };
+  struct GpuGroup {
+    std::string name;
+    std::vector<GpuPass> passes;
+  };
+
+  std::vector<CpuThread> cpu_threads;
+  std::vector<GpuGroup> gpu_groups;
+  std::vector<GpuTimestampFrameSnapshot> gpu_frames;
+  std::unordered_set<std::string> cataloged_cpu_frames;
+  std::unordered_set<std::string> cataloged_gpu_frames;
+  std::unordered_set<std::string> pinned_gpu_passes;
+  std::unordered_set<std::string> hidden_gpu_passes;
+  std::unordered_set<std::string> pinned_cpu_scopes;
+  std::unordered_set<std::string> hidden_cpu_scopes;
+  std::array<char, 128> gpu_filter{};
+  std::array<char, 128> cpu_plot_filter{};
+  int gpu_top_series_count = 8;
+  int cpu_top_series_count = 8;
+  ProfilerHistoryStats breakdown_cpu_history;
+  GpuTimestampHistoryStats breakdown_gpu_history;
+  std::vector<GpuTimestampFrameSnapshot> breakdown_aligned_gpu_frames;
+  std::vector<ProfilerBreakdownSeries> breakdown_cpu_series;
+  std::vector<ProfilerBreakdownSeries> breakdown_gpu_series;
+  std::chrono::steady_clock::time_point breakdown_next_refresh{};
+  int breakdown_selected_frame_index = -1;
+  std::optional<ProfilerFrameStats> diagnostics_cpu_frame;
+  std::optional<GpuTimestampFrameSnapshot> diagnostics_gpu_frame;
+  bool diagnostics_follow_latest = false;
+};
+}  // namespace evo_engine
 
 using namespace evo_engine;
 
@@ -381,6 +446,1067 @@ std::filesystem::path DefaultProfilerTracePath() {
     return ProjectManager::GetProjectPath().parent_path() / "ProfilerTrace.json";
   }
   return std::filesystem::current_path() / "ProfilerTrace.json";
+}
+
+bool TextContainsCaseInsensitive(const std::string& text, const std::string& query);
+
+struct ProfilerHistorySummary {
+  double average_ms = 0.0;
+  double maximum_ms = 0.0;
+  double p95_ms = 0.0;
+  size_t frame_count = 0;
+};
+
+using ProfilerHistorySummaries = std::unordered_map<std::string, ProfilerHistorySummary>;
+
+std::string ProfilerNodePath(const uint64_t thread_id, const std::string& parent_path,
+                             const ProfilerHierarchyNode& node) {
+  return std::to_string(thread_id) + "\x1f" + parent_path + "\x1f" + node.category + "\x1f" + node.name;
+}
+
+void UpdateProfilerCpuCatalogNodes(const uint64_t thread_id, const std::vector<ProfilerHierarchyNode>& nodes,
+                                   const std::string& parent_path,
+                                   std::vector<ProfilerPanelState::CpuNode>& catalog_nodes) {
+  for (const auto& node : nodes) {
+    const auto key = ProfilerNodePath(thread_id, parent_path, node);
+    auto& catalog = profiler_panel_detail::AppendFirstSeen(
+        catalog_nodes, key,
+        [](const auto& entry) -> const std::string& {
+          return entry.key;
+        },
+        ProfilerPanelState::CpuNode{key, node.name, node.category});
+    UpdateProfilerCpuCatalogNodes(thread_id, node.children, key, catalog.children);
+  }
+}
+
+void UpdateProfilerCpuCatalog(const std::vector<ProfilerFrameStats>& frames, ProfilerPanelState& state) {
+  for (const auto& frame : frames) {
+    const auto frame_key = std::to_string(frame.capture_session_index) + "\x1f" + std::to_string(frame.frame_index);
+    if (!state.cataloged_cpu_frames.emplace(frame_key).second)
+      continue;
+    for (const auto& lane : frame.thread_lanes) {
+      auto& thread = profiler_panel_detail::AppendFirstSeen(
+          state.cpu_threads, lane.thread_id,
+          [](const auto& entry) {
+            return entry.id;
+          },
+          ProfilerPanelState::CpuThread{lane.thread_id, lane.thread_name});
+      UpdateProfilerCpuCatalogNodes(lane.thread_id, lane.hierarchy, "", thread.roots);
+    }
+  }
+}
+
+void CollectProfilerCurrentNodes(const uint64_t thread_id, const std::vector<ProfilerHierarchyNode>& nodes,
+                                 const std::string& parent_path,
+                                 std::unordered_map<std::string, const ProfilerHierarchyNode*>& current_nodes) {
+  for (const auto& node : nodes) {
+    const auto path = ProfilerNodePath(thread_id, parent_path, node);
+    current_nodes[path] = &node;
+    CollectProfilerCurrentNodes(thread_id, node.children, path, current_nodes);
+  }
+}
+
+void CollectProfilerHistorySamples(const uint64_t thread_id, const std::vector<ProfilerHierarchyNode>& nodes,
+                                   const std::string& parent_path,
+                                   std::unordered_map<std::string, std::vector<double>>& samples) {
+  for (const auto& node : nodes) {
+    const auto path = ProfilerNodePath(thread_id, parent_path, node);
+    samples[path].emplace_back(node.inclusive_ms);
+    CollectProfilerHistorySamples(thread_id, node.children, path, samples);
+  }
+}
+
+ProfilerHistorySummaries BuildProfilerHistorySummaries(const std::vector<ProfilerFrameStats>& frames) {
+  std::unordered_map<std::string, std::vector<double>> samples;
+  for (const auto& frame : frames) {
+    for (const auto& lane : frame.thread_lanes) {
+      CollectProfilerHistorySamples(lane.thread_id, lane.hierarchy, "", samples);
+    }
+  }
+
+  ProfilerHistorySummaries summaries;
+  for (auto& [path, values] : samples) {
+    auto& summary = summaries[path];
+    const auto rolling = profiler_panel_detail::SummarizeWithMissingZeros(std::move(values), frames.size());
+    summary.average_ms = rolling.average;
+    summary.maximum_ms = rolling.maximum;
+    summary.p95_ms = rolling.p95;
+    summary.frame_count = rolling.observed_count;
+  }
+  return summaries;
+}
+
+bool ProfilerHierarchyMatchesFilter(const ProfilerHierarchyNode& node, const std::string& filter) {
+  if (TextContainsCaseInsensitive(node.name, filter) || TextContainsCaseInsensitive(node.category, filter)) {
+    return true;
+  }
+  return std::any_of(node.children.begin(), node.children.end(), [&](const auto& child) {
+    return ProfilerHierarchyMatchesFilter(child, filter);
+  });
+}
+
+bool ProfilerHierarchyMatchesFilter(const ProfilerPanelState::CpuNode& node, const std::string& filter) {
+  if (TextContainsCaseInsensitive(node.name, filter) || TextContainsCaseInsensitive(node.category, filter)) {
+    return true;
+  }
+  return std::any_of(node.children.begin(), node.children.end(), [&](const auto& child) {
+    return ProfilerHierarchyMatchesFilter(child, filter);
+  });
+}
+
+std::string ProfilerScopeDisplayName(const std::string& name) {
+  if (name == "Application::Loop")
+    return "Application Loop";
+  if (name.rfind("Application::", 0) == 0)
+    return name.substr(13);
+  return name;
+}
+
+void DrawProfilerHierarchyNode(const ProfilerPanelState::CpuNode& catalog_node,
+                               const std::unordered_map<std::string, const ProfilerHierarchyNode*>& current_nodes,
+                               const double parent_ms, const double frame_ms, const ProfilerHistorySummaries& summaries,
+                               const std::string& filter, const bool ancestor_matches = false) {
+  const bool node_matches = TextContainsCaseInsensitive(catalog_node.name, filter) ||
+                            TextContainsCaseInsensitive(catalog_node.category, filter);
+  if (!ancestor_matches && !node_matches && !ProfilerHierarchyMatchesFilter(catalog_node, filter)) {
+    return;
+  }
+
+  const auto current_search = current_nodes.find(catalog_node.key);
+  const auto* node = current_search == current_nodes.end() ? nullptr : current_search->second;
+  const auto summary_search = summaries.find(catalog_node.key);
+  const ProfilerHistorySummary summary =
+      summary_search == summaries.end() ? ProfilerHistorySummary{} : summary_search->second;
+  const bool has_children = !catalog_node.children.empty();
+  ImGui::TableNextRow();
+  ImGui::TableNextColumn();
+  ImGui::PushID(catalog_node.key.c_str());
+  ImGuiTreeNodeFlags flags =
+      ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick;
+  if (!filter.empty())
+    flags |= ImGuiTreeNodeFlags_DefaultOpen;
+  if (!has_children)
+    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+  const auto display_name = ProfilerScopeDisplayName(catalog_node.name);
+  const bool open = ImGui::TreeNodeEx("Scope", flags, "%s", display_name.c_str());
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("%s\nCategory: %s%s", catalog_node.name.c_str(), catalog_node.category.c_str(),
+                      node ? "" : "\nNot present in the selected frame");
+  }
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node ? node->inclusive_ms : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node ? node->self_ms : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%u", node ? node->count : 0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.1f%%", node && parent_ms > 0.0 ? node->inclusive_ms / parent_ms * 100.0 : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.1f%%", node && frame_ms > 0.0 ? node->inclusive_ms / frame_ms * 100.0 : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.average_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.maximum_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.p95_ms);
+  if (open && has_children) {
+    for (const auto& child : catalog_node.children) {
+      DrawProfilerHierarchyNode(child, current_nodes, node ? node->inclusive_ms : 0.0, frame_ms, summaries, filter,
+                                ancestor_matches || node_matches);
+    }
+    ImGui::TreePop();
+  }
+  ImGui::PopID();
+}
+
+std::string GpuProfilerPassKey(const GpuTimestampScopeMetadata& metadata) {
+  const auto& pass_id = metadata.stable_pass_id.empty() ? metadata.display_name : metadata.stable_pass_id;
+  return metadata.group + "\x1f" + pass_id;
+}
+
+std::string GpuProfilerFrameKey(const uint64_t session_index, const uint64_t frame_index) {
+  return std::to_string(session_index) + "\x1f" + std::to_string(frame_index);
+}
+
+struct GpuProfilerHistorySummary {
+  GpuTimestampScopeMetadata metadata{};
+  GpuTimestampStats stats{};
+};
+
+using GpuProfilerHistorySummaries = std::unordered_map<std::string, GpuProfilerHistorySummary>;
+
+ImU32 GpuProfilerSeriesColor(const std::string& key);
+
+void CatalogCpuProfilerSeries(const profiler_panel_detail::CpuExecutorGroup group,
+                              const std::vector<ProfilerHierarchyNode>& nodes, const std::string& parent_path,
+                              std::vector<CpuProfilerSeries>& series,
+                              std::unordered_map<std::string, size_t>& series_indices) {
+  for (const auto& node : nodes) {
+    const auto key = profiler_panel_detail::StableHierarchyKey(group, parent_path, node.category, node.name);
+    if (series_indices.emplace(key, series.size()).second) {
+      auto& item = series.emplace_back();
+      item.key = key;
+      item.name = ProfilerScopeDisplayName(node.name);
+      item.group = group;
+    }
+    CatalogCpuProfilerSeries(group, node.children, key, series, series_indices);
+  }
+}
+
+void AccumulateCpuProfilerSeries(const profiler_panel_detail::CpuExecutorGroup group,
+                                 const std::vector<ProfilerHierarchyNode>& nodes, const std::string& parent_path,
+                                 std::unordered_map<std::string, double>& values) {
+  for (const auto& node : nodes) {
+    const auto key = profiler_panel_detail::StableHierarchyKey(group, parent_path, node.category, node.name);
+    values[key] += node.inclusive_ms;
+    AccumulateCpuProfilerSeries(group, node.children, key, values);
+  }
+}
+
+std::vector<CpuProfilerSeries> BuildCpuProfilerSeries(const std::vector<ProfilerFrameStats>& frames) {
+  std::vector<CpuProfilerSeries> series;
+  std::unordered_map<std::string, size_t> series_indices;
+  for (const auto& frame : frames) {
+    for (const auto& lane : frame.thread_lanes) {
+      CatalogCpuProfilerSeries(profiler_panel_detail::ClassifyCpuExecutor(lane.thread_name), lane.hierarchy, "", series,
+                               series_indices);
+    }
+  }
+  for (auto& item : series)
+    item.values.assign(frames.size(), 0.0f);
+  for (size_t frame_index = 0; frame_index < frames.size(); ++frame_index) {
+    std::unordered_map<std::string, double> values;
+    for (const auto& lane : frames[frame_index].thread_lanes) {
+      AccumulateCpuProfilerSeries(profiler_panel_detail::ClassifyCpuExecutor(lane.thread_name), lane.hierarchy, "",
+                                  values);
+    }
+    for (const auto& [key, value] : values) {
+      if (const auto found = series_indices.find(key); found != series_indices.end())
+        series[found->second].values[frame_index] = static_cast<float>(value);
+    }
+  }
+  for (auto& item : series) {
+    for (const float value : item.values)
+      item.average_milliseconds += value;
+    if (!item.values.empty())
+      item.average_milliseconds /= static_cast<double>(item.values.size());
+  }
+  return series;
+}
+
+void DrawCpuProfilerHistoryPlot(const char* id, const std::vector<CpuProfilerSeries>& series,
+                                const std::vector<size_t>& visible_series,
+                                const std::vector<ProfilerFrameStats>& frames, int& selected_frame_index) {
+  const ImVec2 size(std::max(320.0f, ImGui::GetContentRegionAvail().x), 180.0f);
+  ImGui::InvisibleButton(id, size);
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+  float plot_max = 16.667f;
+  for (const auto index : visible_series) {
+    for (const auto value : series[index].values)
+      plot_max = std::max(plot_max, value);
+  }
+  const auto x_for_frame = [&](const size_t index) {
+    return minimum.x +
+           (frames.size() <= 1 ? 0.0f : static_cast<float>(index) / static_cast<float>(frames.size() - 1) * size.x);
+  };
+  const auto y_for_value = [&](const float value) {
+    return maximum.y - value / plot_max * size.y;
+  };
+  for (const float budget : {16.667f, 33.333f}) {
+    if (budget > plot_max)
+      continue;
+    const float y = y_for_value(budget);
+    draw_list->AddLine(ImVec2(minimum.x, y), ImVec2(maximum.x, y), IM_COL32(180, 180, 180, 80));
+  }
+  for (const auto series_index : visible_series) {
+    const auto color = GpuProfilerSeriesColor(series[series_index].key);
+    for (size_t frame_index = 1; frame_index < frames.size(); ++frame_index) {
+      if (frames[frame_index - 1].capture_session_index != frames[frame_index].capture_session_index)
+        continue;
+      draw_list->AddLine(
+          ImVec2(x_for_frame(frame_index - 1), y_for_value(series[series_index].values[frame_index - 1])),
+          ImVec2(x_for_frame(frame_index), y_for_value(series[series_index].values[frame_index])), color, 1.5f);
+    }
+  }
+  if (selected_frame_index >= 0 && selected_frame_index < static_cast<int>(frames.size())) {
+    const float x = x_for_frame(static_cast<size_t>(selected_frame_index));
+    draw_list->AddLine(ImVec2(x, minimum.y), ImVec2(x, maximum.y), ImGui::GetColorU32(ImGuiCol_PlotLinesHovered));
+  }
+  draw_list->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+  if (ImGui::IsItemHovered() && !frames.empty()) {
+    const float fraction = std::clamp((ImGui::GetIO().MousePos.x - minimum.x) / size.x, 0.0f, 1.0f);
+    const size_t index = static_cast<size_t>(std::round(fraction * static_cast<float>(frames.size() - 1)));
+    ImGui::BeginTooltip();
+    ImGui::Text("Session %llu  Frame %llu", static_cast<unsigned long long>(frames[index].capture_session_index),
+                static_cast<unsigned long long>(frames[index].frame_index));
+    for (const auto series_index : visible_series) {
+      const auto& item = series[series_index];
+      const float value = item.values[index];
+      if (value > 0.0f)
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(item.key)), "%s / %s  %.3f ms",
+                           profiler_panel_detail::CpuExecutorGroupName(item.group), item.name.c_str(), value);
+    }
+    ImGui::EndTooltip();
+    if (ImGui::IsItemClicked())
+      selected_frame_index = static_cast<int>(index);
+  }
+}
+
+void UpdateGpuProfilerCatalog(const std::vector<GpuTimestampFrameSnapshot>& frames, ProfilerPanelState& state) {
+  for (const auto& frame : frames) {
+    if (!frame.results_available)
+      continue;
+    if (!state.cataloged_gpu_frames
+             .emplace(GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index))
+             .second)
+      continue;
+    for (const auto& aggregate : BuildGpuTimestampPassAggregates(frame)) {
+      auto& group = profiler_panel_detail::AppendFirstSeen(
+          state.gpu_groups, aggregate.metadata.group,
+          [](const auto& entry) -> const std::string& {
+            return entry.name;
+          },
+          ProfilerPanelState::GpuGroup{aggregate.metadata.group});
+      const auto key = GpuProfilerPassKey(aggregate.metadata);
+      profiler_panel_detail::AppendFirstSeen(
+          group.passes, key,
+          [](const auto& pass) -> const std::string& {
+            return pass.key;
+          },
+          ProfilerPanelState::GpuPass{key, aggregate.metadata});
+    }
+  }
+}
+
+GpuProfilerHistorySummaries BuildGpuProfilerHistorySummaries(const std::vector<GpuTimestampFrameSnapshot>& frames,
+                                                             const ProfilerPanelState& state) {
+  GpuProfilerHistorySummaries summaries;
+  for (const auto& group : state.gpu_groups) {
+    for (const auto& pass : group.passes) {
+      auto& summary = summaries[pass.key];
+      summary.metadata = pass.metadata;
+      summary.stats.name = pass.metadata.display_name;
+    }
+  }
+  for (const auto& frame : frames) {
+    if (!frame.results_available)
+      continue;
+    std::unordered_map<std::string, double> frame_values;
+    for (const auto& aggregate : BuildGpuTimestampPassAggregates(frame)) {
+      frame_values[GpuProfilerPassKey(aggregate.metadata)] = aggregate.total_milliseconds;
+    }
+    for (auto& [key, summary] : summaries) {
+      const auto value = frame_values.find(key);
+      summary.stats.AddSample(value == frame_values.end() ? 0.0 : value->second);
+    }
+  }
+  return summaries;
+}
+
+struct GpuProfilerSeries {
+  std::string key{};
+  GpuTimestampScopeMetadata metadata{};
+  std::vector<float> values{};
+  double average_milliseconds = 0.0;
+};
+
+std::vector<GpuProfilerSeries> BuildGpuProfilerSeries(const std::vector<ProfilerFrameStats>& cpu_frames,
+                                                      const std::vector<GpuTimestampFrameSnapshot>& gpu_frames,
+                                                      const ProfilerPanelState& state) {
+  std::unordered_map<std::string, const GpuTimestampFrameSnapshot*> gpu_by_frame;
+  for (const auto& gpu_frame : gpu_frames) {
+    gpu_by_frame[GpuProfilerFrameKey(gpu_frame.capture_session_index, gpu_frame.application_frame_index)] = &gpu_frame;
+  }
+
+  std::vector<GpuProfilerSeries> series;
+  std::unordered_map<std::string, size_t> series_indices;
+  for (const auto& group : state.gpu_groups) {
+    for (const auto& pass : group.passes) {
+      if (!pass.metadata.contributes_to_frame_total)
+        continue;
+      series_indices[pass.key] = series.size();
+      auto& pass_series = series.emplace_back();
+      pass_series.key = pass.key;
+      pass_series.metadata = pass.metadata;
+      pass_series.values.resize(cpu_frames.size(), std::numeric_limits<float>::quiet_NaN());
+    }
+  }
+
+  for (size_t frame_index = 0; frame_index < cpu_frames.size(); ++frame_index) {
+    const auto& cpu_frame = cpu_frames[frame_index];
+    const auto gpu_search =
+        gpu_by_frame.find(GpuProfilerFrameKey(cpu_frame.capture_session_index, cpu_frame.application_frame_index));
+    if (gpu_search == gpu_by_frame.end() || !gpu_search->second->results_available)
+      continue;
+    for (auto& pass_series : series)
+      pass_series.values[frame_index] = 0.0f;
+    for (const auto& aggregate : BuildGpuTimestampPassAggregates(*gpu_search->second)) {
+      if (!aggregate.metadata.contributes_to_frame_total)
+        continue;
+      const auto series_search = series_indices.find(GpuProfilerPassKey(aggregate.metadata));
+      if (series_search != series_indices.end())
+        series[series_search->second].values[frame_index] = static_cast<float>(aggregate.total_milliseconds);
+    }
+  }
+
+  for (auto& pass_series : series) {
+    double total = 0.0;
+    size_t count = 0;
+    for (const float value : pass_series.values) {
+      if (!std::isfinite(value))
+        continue;
+      total += value;
+      ++count;
+    }
+    pass_series.average_milliseconds = count == 0 ? 0.0 : total / static_cast<double>(count);
+  }
+  return series;
+}
+
+ImU32 GpuProfilerSeriesColor(const std::string& key) {
+  const float hue = static_cast<float>(std::hash<std::string>{}(key) % 360) / 360.0f;
+  float red = 0.0f;
+  float green = 0.0f;
+  float blue = 0.0f;
+  ImGui::ColorConvertHSVtoRGB(hue, 0.70f, 0.95f, red, green, blue);
+  return ImGui::GetColorU32(ImVec4(red, green, blue, 1.0f));
+}
+
+const char* GpuTimestampQueueName(const GpuTimestampQueue queue) {
+  switch (queue) {
+    case GpuTimestampQueue::Graphics:
+      return "Graphics";
+    case GpuTimestampQueue::Compute:
+      return "Compute";
+    case GpuTimestampQueue::Transfer:
+      return "Transfer";
+    case GpuTimestampQueue::RayTracing:
+      return "Ray tracing";
+    case GpuTimestampQueue::Immediate:
+      return "Immediate";
+  }
+  return "Unknown";
+}
+
+void DrawGpuProfilerHistoryPlot(const char* id, const std::vector<GpuProfilerSeries>& series,
+                                const std::vector<size_t>& visible_series,
+                                const std::vector<ProfilerFrameStats>& frames, int& selected_frame_index) {
+  const ImVec2 size(std::max(320.0f, ImGui::GetContentRegionAvail().x), 180.0f);
+  ImGui::InvisibleButton(id, size);
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+  draw_list->PushClipRect(minimum, maximum, true);
+  float plot_max = 16.667f;
+  for (const auto series_index : visible_series) {
+    for (const float value : series[series_index].values) {
+      if (std::isfinite(value))
+        plot_max = std::max(plot_max, value);
+    }
+  }
+  const auto x_for_frame = [&](const size_t frame_index) {
+    return minimum.x + (frames.size() <= 1
+                            ? 0.0f
+                            : static_cast<float>(frame_index) / static_cast<float>(frames.size() - 1) * size.x);
+  };
+  const auto y_for_value = [&](const float value) {
+    return maximum.y - value / plot_max * size.y;
+  };
+  for (const float budget : {16.667f, 33.333f}) {
+    if (budget > plot_max)
+      continue;
+    const float y = y_for_value(budget);
+    draw_list->AddLine(ImVec2(minimum.x, y), ImVec2(maximum.x, y), IM_COL32(180, 180, 180, 80), 1.0f);
+    draw_list->AddText(ImVec2(minimum.x + 4.0f, y + 2.0f), IM_COL32(180, 180, 180, 160),
+                       budget < 20.0f ? "16.7 ms" : "33.3 ms");
+  }
+  for (size_t frame_index = 1; frame_index < frames.size(); ++frame_index) {
+    if (frames[frame_index - 1].capture_session_index == frames[frame_index].capture_session_index)
+      continue;
+    const float gap_x = (x_for_frame(frame_index - 1) + x_for_frame(frame_index)) * 0.5f;
+    draw_list->AddLine(ImVec2(gap_x, minimum.y), ImVec2(gap_x, maximum.y), IM_COL32(255, 190, 70, 180), 2.0f);
+  }
+  for (const auto series_index : visible_series) {
+    const auto& pass_series = series[series_index];
+    const auto color = GpuProfilerSeriesColor(pass_series.key);
+    for (size_t frame_index = 1; frame_index < frames.size(); ++frame_index) {
+      const float previous = pass_series.values[frame_index - 1];
+      const float current = pass_series.values[frame_index];
+      if (!std::isfinite(previous) || !std::isfinite(current) ||
+          frames[frame_index - 1].capture_session_index != frames[frame_index].capture_session_index)
+        continue;
+      draw_list->AddLine(ImVec2(x_for_frame(frame_index - 1), y_for_value(previous)),
+                         ImVec2(x_for_frame(frame_index), y_for_value(current)), color, 1.5f);
+    }
+  }
+  if (selected_frame_index >= 0 && selected_frame_index < static_cast<int>(frames.size())) {
+    const float selected_x = x_for_frame(static_cast<size_t>(selected_frame_index));
+    draw_list->AddLine(ImVec2(selected_x, minimum.y), ImVec2(selected_x, maximum.y),
+                       ImGui::GetColorU32(ImGuiCol_PlotLinesHovered), 1.0f);
+  }
+  draw_list->PopClipRect();
+  draw_list->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+  if (ImGui::IsItemHovered() && !frames.empty()) {
+    const float fraction = std::clamp((ImGui::GetIO().MousePos.x - minimum.x) / size.x, 0.0f, 1.0f);
+    const auto hovered_index = static_cast<size_t>(std::round(fraction * static_cast<float>(frames.size() - 1)));
+    ImGui::BeginTooltip();
+    ImGui::Text("Frame %llu", static_cast<unsigned long long>(frames[hovered_index].frame_index));
+    for (const auto series_index : visible_series) {
+      const float value = series[series_index].values[hovered_index];
+      if (std::isfinite(value) && value > 0.0f)
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(series[series_index].key)),
+                           "%s  %.3f ms", series[series_index].metadata.display_name.c_str(), value);
+    }
+    ImGui::EndTooltip();
+    if (ImGui::IsItemClicked())
+      selected_frame_index = static_cast<int>(hovered_index);
+  }
+}
+
+void DrawGpuProfilerStackedPlot(const char* id, const std::vector<GpuProfilerSeries>& series,
+                                const std::vector<size_t>& visible_series,
+                                const std::vector<ProfilerFrameStats>& frames, int& selected_frame_index) {
+  const ImVec2 size(std::max(320.0f, ImGui::GetContentRegionAvail().x), 150.0f);
+  ImGui::InvisibleButton(id, size);
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+  float maximum_total = 16.667f;
+  std::vector<float> totals(frames.size(), 0.0f);
+  for (const auto& pass_series : series) {
+    for (size_t frame_index = 0; frame_index < frames.size(); ++frame_index) {
+      if (std::isfinite(pass_series.values[frame_index]))
+        totals[frame_index] += pass_series.values[frame_index];
+    }
+  }
+  for (const float total : totals)
+    maximum_total = std::max(maximum_total, total);
+  const float frame_width = frames.empty() ? size.x : size.x / static_cast<float>(frames.size());
+  for (size_t frame_index = 0; frame_index < frames.size(); ++frame_index) {
+    float accumulated = 0.0f;
+    for (const auto series_index : visible_series) {
+      const float value = series[series_index].values[frame_index];
+      if (!std::isfinite(value) || value <= 0.0f)
+        continue;
+      const float lower_y = maximum.y - accumulated / maximum_total * size.y;
+      accumulated += value;
+      const float upper_y = maximum.y - accumulated / maximum_total * size.y;
+      draw_list->AddRectFilled(ImVec2(minimum.x + frame_width * static_cast<float>(frame_index), upper_y),
+                               ImVec2(minimum.x + frame_width * static_cast<float>(frame_index + 1), lower_y),
+                               GpuProfilerSeriesColor(series[series_index].key));
+    }
+    const float other = std::max(0.0f, totals[frame_index] - accumulated);
+    if (other > 0.0f) {
+      const float lower_y = maximum.y - accumulated / maximum_total * size.y;
+      accumulated += other;
+      const float upper_y = maximum.y - accumulated / maximum_total * size.y;
+      draw_list->AddRectFilled(ImVec2(minimum.x + frame_width * static_cast<float>(frame_index), upper_y),
+                               ImVec2(minimum.x + frame_width * static_cast<float>(frame_index + 1), lower_y),
+                               IM_COL32(110, 110, 110, 220));
+    }
+  }
+  for (size_t frame_index = 1; frame_index < frames.size(); ++frame_index) {
+    if (frames[frame_index - 1].capture_session_index == frames[frame_index].capture_session_index)
+      continue;
+    const float gap_x = minimum.x + frame_width * static_cast<float>(frame_index);
+    draw_list->AddLine(ImVec2(gap_x, minimum.y), ImVec2(gap_x, maximum.y), IM_COL32(255, 190, 70, 220), 2.0f);
+  }
+  draw_list->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+  if (ImGui::IsItemHovered() && !frames.empty()) {
+    const size_t hovered_index = std::min(
+        frames.size() - 1, static_cast<size_t>(std::max(0.0f, ImGui::GetIO().MousePos.x - minimum.x) / frame_width));
+    float visible_total = 0.0f;
+    ImGui::BeginTooltip();
+    ImGui::Text("Session %llu  Frame %llu%s",
+                static_cast<unsigned long long>(frames[hovered_index].capture_session_index),
+                static_cast<unsigned long long>(frames[hovered_index].frame_index),
+                selected_frame_index == static_cast<int>(hovered_index) ? "  (selected)" : "");
+    for (const auto series_index : visible_series) {
+      const float value = series[series_index].values[hovered_index];
+      if (!std::isfinite(value) || value <= 0.0f)
+        continue;
+      visible_total += value;
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(series[series_index].key)),
+                         "%s  %.3f ms", series[series_index].metadata.display_name.c_str(), value);
+    }
+    const float other = std::max(0.0f, totals[hovered_index] - visible_total);
+    if (other > 0.0f)
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(IM_COL32(110, 110, 110, 220)), "Other  %.3f ms", other);
+    ImGui::Separator();
+    ImGui::Text("Summed pass work  %.3f ms", totals[hovered_index]);
+    ImGui::EndTooltip();
+    if (ImGui::IsItemClicked())
+      selected_frame_index = static_cast<int>(hovered_index);
+  }
+}
+
+double ProfilerFrameSynchronizationMilliseconds(const ProfilerFrameStats& frame) {
+  std::vector<profiler_panel_detail::TimingInterval> intervals;
+  for (const auto& lane : frame.thread_lanes) {
+    if (lane.thread_name != "MainThread")
+      continue;
+    for (const auto& event : lane.events) {
+      if (event.category != "Synchronization")
+        continue;
+      const double start = std::clamp(event.start_ms, 0.0, frame.duration_ms);
+      const double end = std::clamp(event.start_ms + event.duration_ms, start, frame.duration_ms);
+      intervals.emplace_back(profiler_panel_detail::TimingInterval{start, end - start});
+    }
+  }
+  return profiler_panel_detail::IntervalUnionMilliseconds(std::move(intervals));
+}
+
+std::vector<profiler_panel_detail::FrameOverviewSample> BuildProfilerOverviewSamples(
+    const std::vector<ProfilerFrameStats>& cpu_frames, const std::vector<GpuTimestampFrameSnapshot>& gpu_frames) {
+  std::unordered_map<std::string, const GpuTimestampFrameSnapshot*> gpu_by_frame;
+  for (const auto& frame : gpu_frames)
+    gpu_by_frame[GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index)] = &frame;
+  std::vector<profiler_panel_detail::FrameOverviewSample> samples;
+  samples.reserve(cpu_frames.size());
+  for (const auto& frame : cpu_frames) {
+    const auto gpu = gpu_by_frame.find(GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index));
+    std::optional<double> gpu_span;
+    if (gpu != gpu_by_frame.end() && gpu->second->results_available)
+      gpu_span = gpu->second->span_milliseconds;
+    samples.emplace_back(profiler_panel_detail::BuildFrameOverviewSample(
+        frame.duration_ms, ProfilerFrameSynchronizationMilliseconds(frame), gpu_span));
+  }
+  return samples;
+}
+
+void DrawProfilerOverviewPlot(const char* id, const std::vector<profiler_panel_detail::FrameOverviewSample>& samples,
+                              const std::vector<ProfilerFrameStats>& frames, int& selected_frame_index) {
+  const ImVec2 size(std::max(320.0f, ImGui::GetContentRegionAvail().x), 220.0f);
+  ImGui::InvisibleButton(id, size);
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+  float plot_max = 16.667f;
+  for (const auto& sample : samples)
+    plot_max = std::max(plot_max, static_cast<float>(sample.total_ms));
+  const float frame_width = frames.empty() ? size.x : size.x / static_cast<float>(frames.size());
+  const auto y_for_value = [&](const double value) {
+    return maximum.y - static_cast<float>(value) / plot_max * size.y;
+  };
+  for (const float budget : {16.667f, 33.333f}) {
+    if (budget > plot_max)
+      continue;
+    const float y = y_for_value(budget);
+    draw_list->AddLine(ImVec2(minimum.x, y), ImVec2(maximum.x, y), IM_COL32(180, 180, 180, 80));
+    draw_list->AddText(ImVec2(minimum.x + 4.0f, y + 2.0f), IM_COL32(180, 180, 180, 160),
+                       budget < 20.0f ? "16.7 ms" : "33.3 ms");
+  }
+  const ImU32 cpu_color = IM_COL32(65, 155, 235, 220);
+  const ImU32 sync_color = IM_COL32(245, 170, 55, 230);
+  const ImU32 gpu_color = IM_COL32(85, 210, 120, 255);
+  const ImU32 total_color = IM_COL32(235, 235, 235, 230);
+  for (size_t index = 0; index < samples.size(); ++index) {
+    const float left = minimum.x + frame_width * static_cast<float>(index);
+    const float right = minimum.x + frame_width * static_cast<float>(index + 1);
+    const auto& sample = samples[index];
+    draw_list->AddRectFilled(ImVec2(left, y_for_value(sample.cpu_active_ms)), ImVec2(right, maximum.y), cpu_color);
+    draw_list->AddRectFilled(ImVec2(left, y_for_value(sample.cpu_wall_ms)),
+                             ImVec2(right, y_for_value(sample.cpu_active_ms)), sync_color);
+  }
+  for (size_t index = 1; index < samples.size(); ++index) {
+    if (frames[index - 1].capture_session_index != frames[index].capture_session_index)
+      continue;
+    const float previous_x = minimum.x + frame_width * (static_cast<float>(index) - 0.5f);
+    const float current_x = minimum.x + frame_width * (static_cast<float>(index) + 0.5f);
+    if (samples[index - 1].gpu_available && samples[index].gpu_available)
+      draw_list->AddLine(ImVec2(previous_x, y_for_value(samples[index - 1].gpu_ms)),
+                         ImVec2(current_x, y_for_value(samples[index].gpu_ms)), gpu_color, 1.5f);
+    draw_list->AddLine(ImVec2(previous_x, y_for_value(samples[index - 1].total_ms)),
+                       ImVec2(current_x, y_for_value(samples[index].total_ms)), total_color, 1.0f);
+  }
+  for (size_t index = 1; index < frames.size(); ++index) {
+    if (frames[index - 1].capture_session_index == frames[index].capture_session_index)
+      continue;
+    const float x = minimum.x + frame_width * static_cast<float>(index);
+    draw_list->AddLine(ImVec2(x, minimum.y), ImVec2(x, maximum.y), IM_COL32(255, 190, 70, 220), 2.0f);
+  }
+  if (selected_frame_index >= 0 && selected_frame_index < static_cast<int>(frames.size())) {
+    const float x = minimum.x + frame_width * (static_cast<float>(selected_frame_index) + 0.5f);
+    draw_list->AddLine(ImVec2(x, minimum.y), ImVec2(x, maximum.y), ImGui::GetColorU32(ImGuiCol_PlotLinesHovered));
+  }
+  draw_list->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+  if (ImGui::IsItemHovered() && !frames.empty()) {
+    const size_t index = std::min(
+        frames.size() - 1, static_cast<size_t>(std::max(0.0f, ImGui::GetIO().MousePos.x - minimum.x) / frame_width));
+    const auto& sample = samples[index];
+    ImGui::BeginTooltip();
+    ImGui::Text("Session %llu  Frame %llu", static_cast<unsigned long long>(frames[index].capture_session_index),
+                static_cast<unsigned long long>(frames[index].frame_index));
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(cpu_color), "CPU active  %.3f ms", sample.cpu_active_ms);
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(sync_color), "Synchronization  %.3f ms",
+                       sample.synchronization_ms);
+    ImGui::Text("CPU wall  %.3f ms", sample.cpu_wall_ms);
+    if (sample.gpu_available)
+      ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(gpu_color), "GPU span  %.3f ms", sample.gpu_ms);
+    else
+      ImGui::TextDisabled("GPU span  pending/unavailable");
+    ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(total_color), "Total  %.3f ms", sample.total_ms);
+    ImGui::EndTooltip();
+    if (ImGui::IsItemClicked())
+      selected_frame_index = static_cast<int>(index);
+  }
+}
+
+const ProfilerHierarchyNode* FindApplicationLoop(const ProfilerFrameStats& frame) {
+  const auto main_thread = std::find_if(frame.thread_lanes.begin(), frame.thread_lanes.end(), [](const auto& lane) {
+    return lane.thread_name == "MainThread";
+  });
+  if (main_thread == frame.thread_lanes.end())
+    return nullptr;
+  const auto loop = std::find_if(main_thread->hierarchy.begin(), main_thread->hierarchy.end(), [](const auto& node) {
+    return node.name == "Application::Loop";
+  });
+  return loop == main_thread->hierarchy.end() ? nullptr : &*loop;
+}
+
+const ProfilerThreadHistory* FindMainThreadHistory(const ProfilerHistoryStats& history) {
+  const auto thread = std::find_if(history.threads.begin(), history.threads.end(), [](const auto& candidate) {
+    return candidate.thread_name == "MainThread";
+  });
+  return thread == history.threads.end() ? nullptr : &*thread;
+}
+
+const ProfilerCounterHistory* FindProfilerCounter(const ProfilerHistoryStats& history, const std::string& name) {
+  const auto counter = std::find_if(history.counters.begin(), history.counters.end(), [&](const auto& candidate) {
+    return candidate.name == name;
+  });
+  return counter == history.counters.end() ? nullptr : &*counter;
+}
+
+std::vector<GpuTimestampFrameSnapshot> AlignGpuProfilerFrames(
+    const std::vector<ProfilerFrameStats>& cpu_frames, const std::vector<GpuTimestampFrameSnapshot>& gpu_frames) {
+  std::unordered_map<std::string, const GpuTimestampFrameSnapshot*> gpu_by_frame;
+  for (const auto& frame : gpu_frames)
+    gpu_by_frame[GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index)] = &frame;
+  std::vector<GpuTimestampFrameSnapshot> aligned;
+  aligned.reserve(cpu_frames.size());
+  for (const auto& frame : cpu_frames) {
+    const auto search =
+        gpu_by_frame.find(GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index));
+    if (search == gpu_by_frame.end()) {
+      aligned.emplace_back();
+    } else {
+      aligned.emplace_back(*search->second);
+    }
+  }
+  return aligned;
+}
+
+std::vector<ProfilerBreakdownSeries> BuildCpuBreakdownSeries(const std::vector<ProfilerFrameStats>& frames) {
+  std::vector<ProfilerBreakdownSeries> series;
+  for (const auto& frame : frames) {
+    if (const auto* loop = FindApplicationLoop(frame)) {
+      for (const auto& child : loop->children) {
+        profiler_panel_detail::AppendFirstSeen(
+            series, child.name,
+            [](const auto& entry) -> const std::string& {
+              return entry.key;
+            },
+            ProfilerBreakdownSeries{child.name, ProfilerScopeDisplayName(child.name), {}});
+      }
+    }
+  }
+  series.emplace_back(ProfilerBreakdownSeries{"ApplicationLoopSelf", "Loop self", {}});
+  series.emplace_back(ProfilerBreakdownSeries{"FrameOverhead", "Frame overhead", {}});
+  for (auto& item : series)
+    item.values.reserve(frames.size());
+  for (const auto& frame : frames) {
+    const auto* loop = FindApplicationLoop(frame);
+    for (auto& item : series) {
+      double value = 0.0;
+      if (loop && item.key == "ApplicationLoopSelf") {
+        value = loop->self_ms;
+      } else if (item.key == "FrameOverhead") {
+        value = std::max(0.0, frame.duration_ms - (loop ? loop->inclusive_ms : 0.0));
+      } else if (loop) {
+        const auto child = std::find_if(loop->children.begin(), loop->children.end(), [&](const auto& candidate) {
+          return candidate.name == item.key;
+        });
+        if (child != loop->children.end())
+          value = child->inclusive_ms;
+      }
+      item.values.emplace_back(static_cast<float>(value));
+    }
+  }
+  return series;
+}
+
+std::vector<ProfilerBreakdownSeries> BuildGpuGroupBreakdownSeries(
+    const std::vector<GpuTimestampFrameSnapshot>& aligned_frames) {
+  std::vector<ProfilerBreakdownSeries> series;
+  for (const auto& frame : aligned_frames) {
+    if (!frame.results_available)
+      continue;
+    for (const auto& aggregate : BuildGpuTimestampPassAggregates(frame)) {
+      profiler_panel_detail::AppendFirstSeen(
+          series, aggregate.metadata.group,
+          [](const auto& entry) -> const std::string& {
+            return entry.key;
+          },
+          ProfilerBreakdownSeries{aggregate.metadata.group, aggregate.metadata.group, {}});
+    }
+  }
+  for (auto& item : series)
+    item.values.reserve(aligned_frames.size());
+  for (const auto& frame : aligned_frames) {
+    std::unordered_map<std::string, double> values;
+    if (frame.results_available) {
+      for (const auto& aggregate : BuildGpuTimestampPassAggregates(frame)) {
+        if (aggregate.metadata.contributes_to_frame_total)
+          values[aggregate.metadata.group] += aggregate.total_milliseconds;
+      }
+    }
+    for (auto& item : series)
+      item.values.emplace_back(static_cast<float>(values[item.key]));
+  }
+  return series;
+}
+
+void DrawProfilerBreakdownStackedPlot(const char* id, const std::vector<ProfilerBreakdownSeries>& series,
+                                      const std::vector<ProfilerFrameStats>& frames, int& selected_frame_index) {
+  const ImVec2 size(std::max(320.0f, ImGui::GetContentRegionAvail().x), 140.0f);
+  ImGui::InvisibleButton(id, size);
+  const auto minimum = ImGui::GetItemRectMin();
+  const auto maximum = ImGui::GetItemRectMax();
+  auto* draw_list = ImGui::GetWindowDrawList();
+  draw_list->AddRectFilled(minimum, maximum, ImGui::GetColorU32(ImGuiCol_FrameBg), 4.0f);
+  std::vector<float> totals(frames.size(), 0.0f);
+  float maximum_total = 16.667f;
+  for (const auto& item : series) {
+    for (size_t frame_index = 0; frame_index < item.values.size(); frame_index++)
+      totals[frame_index] += item.values[frame_index];
+  }
+  for (const auto total : totals)
+    maximum_total = std::max(maximum_total, total);
+  const float frame_width = frames.empty() ? size.x : size.x / static_cast<float>(frames.size());
+  for (size_t frame_index = 0; frame_index < frames.size(); frame_index++) {
+    float accumulated = 0.0f;
+    for (const auto& item : series) {
+      const float value = item.values[frame_index];
+      if (value <= 0.0f)
+        continue;
+      const float lower_y = maximum.y - accumulated / maximum_total * size.y;
+      accumulated += value;
+      const float upper_y = maximum.y - accumulated / maximum_total * size.y;
+      draw_list->AddRectFilled(ImVec2(minimum.x + frame_width * static_cast<float>(frame_index), upper_y),
+                               ImVec2(minimum.x + frame_width * static_cast<float>(frame_index + 1), lower_y),
+                               GpuProfilerSeriesColor(item.key));
+    }
+  }
+  if (selected_frame_index >= 0 && selected_frame_index < static_cast<int>(frames.size())) {
+    const float selected_x = minimum.x + frame_width * (static_cast<float>(selected_frame_index) + 0.5f);
+    draw_list->AddLine(ImVec2(selected_x, minimum.y), ImVec2(selected_x, maximum.y),
+                       ImGui::GetColorU32(ImGuiCol_PlotLinesHovered), 1.0f);
+  }
+  draw_list->AddRect(minimum, maximum, ImGui::GetColorU32(ImGuiCol_Border), 4.0f);
+  if (ImGui::IsItemHovered() && !frames.empty()) {
+    const size_t hovered_index = std::min(
+        frames.size() - 1, static_cast<size_t>(std::max(0.0f, ImGui::GetIO().MousePos.x - minimum.x) / frame_width));
+    ImGui::BeginTooltip();
+    ImGui::Text("Frame %llu  %.3f ms", static_cast<unsigned long long>(frames[hovered_index].frame_index),
+                totals[hovered_index]);
+    for (const auto& item : series) {
+      if (item.values[hovered_index] > 0.0f)
+        ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(item.key)), "%s  %.3f ms",
+                           item.name.c_str(), item.values[hovered_index]);
+    }
+    ImGui::EndTooltip();
+    if (ImGui::IsItemClicked())
+      selected_frame_index = static_cast<int>(hovered_index);
+  }
+}
+
+ProfilerDurationSummary SummarizeBreakdownSeries(const ProfilerBreakdownSeries& series,
+                                                 const size_t selected_frame_index) {
+  ProfilerDurationSummary summary;
+  summary.frame_count = series.values.size();
+  summary.observed_frame_count = series.values.size();
+  if (series.values.empty())
+    return summary;
+  std::vector<double> sorted;
+  sorted.reserve(series.values.size());
+  for (const auto value : series.values) {
+    summary.average_ms += value;
+    summary.maximum_ms = std::max(summary.maximum_ms, static_cast<double>(value));
+    sorted.emplace_back(value);
+  }
+  summary.selected_ms = series.values[std::min(selected_frame_index, series.values.size() - 1)];
+  summary.average_ms /= static_cast<double>(series.values.size());
+  std::sort(sorted.begin(), sorted.end());
+  summary.median_ms = sorted[(sorted.size() - 1) / 2];
+  summary.p95_ms = sorted[static_cast<size_t>(std::ceil(static_cast<double>(sorted.size()) * 0.95)) - 1];
+  return summary;
+}
+
+void DrawProfilerBreakdownCpuSummaryRow(const char* name, const ProfilerDurationSummary& summary,
+                                        const double frame_ms) {
+  ImGui::TableNextRow();
+  ImGui::TableNextColumn();
+  ImGui::TreeNodeEx(name,
+                    ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.selected_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.selected_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.average_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.median_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", summary.p95_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.1f%%", frame_ms > 0.0 ? summary.selected_ms / frame_ms * 100.0 : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%zu/%zu", summary.observed_frame_count, summary.frame_count);
+}
+
+void DrawProfilerBreakdownCpuNode(const ProfilerHistoryNode& node, const double frame_ms,
+                                  const std::string& parent_path = {}) {
+  ImGui::TableNextRow();
+  ImGui::TableNextColumn();
+  const auto stable_path = profiler_panel_detail::StableHierarchyKey(
+      profiler_panel_detail::CpuExecutorGroup::MainThread, parent_path, node.category, node.name);
+  ImGui::PushID(stable_path.c_str());
+  ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_OpenOnArrow;
+  if (node.name == "Application::Loop")
+    flags |= ImGuiTreeNodeFlags_DefaultOpen;
+  if (node.children.empty())
+    flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+  const auto display_name = ProfilerScopeDisplayName(node.name);
+  const bool open = ImGui::TreeNodeEx("BreakdownScope", flags, "%s", display_name.c_str());
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node.inclusive.selected_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node.self.selected_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node.inclusive.average_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node.inclusive.median_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.3f", node.inclusive.p95_ms);
+  ImGui::TableNextColumn();
+  ImGui::Text("%.1f%%", frame_ms > 0.0 ? node.inclusive.selected_ms / frame_ms * 100.0 : 0.0);
+  ImGui::TableNextColumn();
+  ImGui::Text("%zu/%zu", node.inclusive.observed_frame_count, node.inclusive.frame_count);
+  if (open && !node.children.empty()) {
+    for (const auto& child : node.children)
+      DrawProfilerBreakdownCpuNode(child, frame_ms, stable_path);
+    ImGui::TreePop();
+  }
+  ImGui::PopID();
+}
+
+std::string ProfilerThreadDisplayName(const std::string& name) {
+  if (profiler_panel_detail::ClassifyCpuExecutor(name) == profiler_panel_detail::CpuExecutorGroup::GpuSubmission)
+    return "GPU Submission (CPU) / " + name;
+  return name;
+}
+
+void DrawProfilerCpuTimeline(const ProfilerFrameStats& frame) {
+  const float timeline_width = std::max(320.0f, ImGui::GetContentRegionAvail().x - 180.0f);
+  const float scale = timeline_width / std::max(0.001f, static_cast<float>(frame.duration_ms));
+  auto* draw_list = ImGui::GetWindowDrawList();
+  for (const auto& lane : frame.thread_lanes) {
+    const auto row_origin = ImGui::GetCursorScreenPos();
+    const auto display_name = ProfilerThreadDisplayName(lane.thread_name);
+    ImGui::TextUnformatted(display_name.c_str());
+    const float timeline_x = row_origin.x + 170.0f;
+    const float timeline_y = row_origin.y;
+    draw_list->AddRectFilled(ImVec2(timeline_x, timeline_y), ImVec2(timeline_x + timeline_width, timeline_y + 20.0f),
+                             ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
+    for (const auto& event : lane.events) {
+      const float event_x = timeline_x + static_cast<float>(event.start_ms) * scale;
+      const float event_width = std::max(1.0f, static_cast<float>(event.duration_ms) * scale);
+      const float event_y = timeline_y + 2.0f + static_cast<float>(event.depth % 3) * 4.0f;
+      const ImVec2 event_min(event_x, event_y);
+      const ImVec2 event_max(event_x + event_width, event_y + 12.0f);
+      draw_list->AddRectFilled(event_min, event_max, ProfilerCategoryColor(event.category), 2.0f);
+      const auto mouse = ImGui::GetIO().MousePos;
+      if (ImGui::IsWindowHovered() && mouse.x >= event_min.x && mouse.x <= event_max.x && mouse.y >= event_min.y &&
+          mouse.y <= event_max.y) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(event.name.c_str());
+        ImGui::Text("Category: %s", event.category.c_str());
+        ImGui::Text("Start %.3f ms  Duration %.3f ms", event.start_ms, event.duration_ms);
+        ImGui::EndTooltip();
+      }
+    }
+    ImGui::Dummy(ImVec2(timeline_width + 170.0f, 26.0f));
+  }
+}
+
+void DrawProfilerGpuTimeline(const GpuTimestampFrameSnapshot& frame) {
+  if (!frame.results_available) {
+    ImGui::TextDisabled("GPU results are unresolved for this frame.");
+    return;
+  }
+  const float timeline_width = std::max(320.0f, ImGui::GetContentRegionAvail().x - 150.0f);
+  const float scale = timeline_width / std::max(0.001f, static_cast<float>(frame.span_milliseconds));
+  auto* draw_list = ImGui::GetWindowDrawList();
+  for (const auto queue : {GpuTimestampQueue::Graphics, GpuTimestampQueue::Compute, GpuTimestampQueue::Transfer,
+                           GpuTimestampQueue::RayTracing, GpuTimestampQueue::Immediate}) {
+    std::vector<const GpuTimestampSample*> samples;
+    for (const auto& sample : frame.samples) {
+      if (sample.metadata.queue == queue)
+        samples.emplace_back(&sample);
+    }
+    if (samples.empty())
+      continue;
+    std::stable_sort(samples.begin(), samples.end(), [](const auto* left, const auto* right) {
+      return std::tie(left->begin_offset_milliseconds, left->end_offset_milliseconds) <
+             std::tie(right->begin_offset_milliseconds, right->end_offset_milliseconds);
+    });
+    std::vector<double> lane_ends;
+    std::vector<size_t> lanes;
+    for (const auto* sample : samples) {
+      size_t lane = 0;
+      while (lane < lane_ends.size() && lane_ends[lane] > sample->begin_offset_milliseconds)
+        ++lane;
+      if (lane == lane_ends.size())
+        lane_ends.emplace_back();
+      lane_ends[lane] = sample->end_offset_milliseconds;
+      lanes.emplace_back(lane);
+    }
+    const float row_height = 4.0f + 16.0f * static_cast<float>(lane_ends.size());
+    const auto row_origin = ImGui::GetCursorScreenPos();
+    ImGui::TextUnformatted(GpuTimestampQueueName(queue));
+    const float timeline_x = row_origin.x + 140.0f;
+    draw_list->AddRectFilled(ImVec2(timeline_x, row_origin.y),
+                             ImVec2(timeline_x + timeline_width, row_origin.y + row_height),
+                             ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
+    for (size_t index = 0; index < samples.size(); ++index) {
+      const auto* sample = samples[index];
+      const ImVec2 sample_min(timeline_x + static_cast<float>(sample->begin_offset_milliseconds) * scale,
+                              row_origin.y + 2.0f + static_cast<float>(lanes[index]) * 16.0f);
+      const ImVec2 sample_max(
+          std::max(sample_min.x + 1.0f, timeline_x + static_cast<float>(sample->end_offset_milliseconds) * scale),
+          sample_min.y + 13.0f);
+      const auto key = GpuProfilerPassKey(sample->metadata);
+      draw_list->AddRectFilled(sample_min, sample_max, GpuProfilerSeriesColor(key), 2.0f);
+      const auto mouse = ImGui::GetIO().MousePos;
+      if (ImGui::IsWindowHovered() && mouse.x >= sample_min.x && mouse.x <= sample_max.x && mouse.y >= sample_min.y &&
+          mouse.y <= sample_max.y) {
+        ImGui::BeginTooltip();
+        ImGui::TextUnformatted(sample->metadata.display_name.c_str());
+        ImGui::Text("Group: %s  Queue: %s", sample->metadata.group.c_str(), GpuTimestampQueueName(queue));
+        ImGui::Text("Offset %.3f ms  Duration %.3f ms", sample->begin_offset_milliseconds,
+                    sample->duration_milliseconds);
+        ImGui::EndTooltip();
+      }
+    }
+    ImGui::Dummy(ImVec2(timeline_width + 140.0f, row_height + 5.0f));
+  }
 }
 
 bool TextContainsCaseInsensitive(const std::string& text, const std::string& query) {
@@ -2503,7 +3629,19 @@ bool EditorLayer::DrawBatchTransformInspector(const std::shared_ptr<Scene>& scen
     ImGui::EndTable();
   }
   ImGui::PopStyleVar(2);
+  if (edited)
+    NotifyStaticEntitiesChanged(scene, targets);
   return edited;
+}
+
+void EditorLayer::NotifyStaticEntitiesChanged(const std::shared_ptr<Scene>& scene,
+                                              const std::vector<Entity>& entities) const {
+  if (!scene)
+    return;
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    for (const auto entity : entities)
+      render_layer->NotifyStaticEntityChanged(scene, entity);
+  }
 }
 
 void EditorLayer::DrawBatchEntityInspector(const std::shared_ptr<Scene>& scene,
@@ -2653,8 +3791,10 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
                                    scene->GetDataComponentPointer(context.targets.front(), component.type_index)),
                                type, scene->GetParent(context.targets.front()).GetIndex() != 0);
         } else if (!removed && dispatch == EntityInspectorDispatch::Batch) {
-          if (batch_adapter->second(scene, context.targets))
+          if (batch_adapter->second(scene, context.targets)) {
             scene->SetUnsaved();
+            NotifyStaticEntitiesChanged(scene, context.targets);
+          }
         } else if (!removed) {
           ImGui::TextDisabled(multiple ? "Multi-object editing not supported" : "Component inspection not supported");
         }
@@ -2722,6 +3862,7 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
         for (const auto& instance : instances)
           instance->SetEnabled(enabled);
         scene->SetUnsaved();
+        NotifyStaticEntitiesChanged(scene, context.targets);
       }
       bool removed = false;
       if (ImGui::BeginPopup("ComponentSettings")) {
@@ -2746,12 +3887,16 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
             EntityBatchInspector::ResolveInspectorDispatch(context.targets.size(), single_available, batch_available);
         if (!removed && dispatch == EntityInspectorDispatch::Single) {
           InspectorContext inspector_context{editor_layer, scene};
-          if (registry.Inspect(inspector_context, *instances.front()))
+          if (registry.Inspect(inspector_context, *instances.front())) {
             scene->SetUnsaved();
+            NotifyStaticEntitiesChanged(scene, context.targets);
+          }
         } else if (!removed && dispatch == EntityInspectorDispatch::Batch) {
           InspectorContext inspector_context{editor_layer, scene};
-          if (registry.InspectBatch(inspector_context, instances))
+          if (registry.InspectBatch(inspector_context, instances)) {
             scene->SetUnsaved();
+            NotifyStaticEntitiesChanged(scene, context.targets);
+          }
         } else if (!removed) {
           ImGui::TextDisabled(multiple ? "Multi-object editing not supported" : "Component inspection not supported");
         }
@@ -2763,6 +3908,61 @@ void EditorLayer::DrawEntityComponentInspectors(const std::shared_ptr<Scene>& sc
     }
   }
   ImGui::PopID();
+}
+
+const std::vector<Entity>& EditorLayer::ResolveSelectionGizmoParticipants(const std::shared_ptr<Scene>& scene,
+                                                                          const EntitySelection::Snapshot& selection) {
+  const uint64_t hierarchy_revision = scene ? scene->GetHierarchyRevision() : 0;
+  if (selection_gizmo_cache_scene_.lock() == scene && selection_gizmo_cache_selection_revision_ == selection.revision &&
+      selection_gizmo_cache_hierarchy_revision_ == hierarchy_revision) {
+    return selection_gizmo_participants_;
+  }
+
+  const auto participants_started = std::chrono::steady_clock::now();
+  {
+    const ProfilerScope profiler_scope("EditorLayer::ResolveSelectionGizmoParticipants", "Editor");
+    selection_gizmo_participants_ = EntityBatchInspector::BuildGizmoParticipants(scene, selection.entities);
+  }
+  if (Platform::Initialized() && !selection.entities.empty()) {
+    Platform::RecordCpuTimingSample(
+        "Editor Selection / Resolve Gizmo Participants",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - participants_started).count());
+  }
+
+  const auto bound_started = std::chrono::steady_clock::now();
+  EntityBatchSelectionBound fallback_bound;
+  {
+    const ProfilerScope profiler_scope("EditorLayer::ResolveSelectionGizmoBoundFallback", "Editor");
+    fallback_bound = EntityBatchInspector::BuildSelectionWorldBound(scene, selection_gizmo_participants_);
+  }
+  if (Platform::Initialized() && !selection.entities.empty()) {
+    Platform::RecordCpuTimingSample(
+        "Editor Selection / Resolve Gizmo Bound Fallback",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - bound_started).count());
+  }
+  selection_gizmo_cache_scene_ = scene;
+  selection_gizmo_cache_selection_revision_ = selection.revision;
+  selection_gizmo_cache_hierarchy_revision_ = hierarchy_revision;
+  selection_gizmo_fallback_bound_ = fallback_bound.world_bound;
+  selection_gizmo_fallback_has_renderable_bounds_ = fallback_bound.has_renderable_bounds;
+  selection_gizmo_fallback_valid_ = fallback_bound.valid;
+  return selection_gizmo_participants_;
+}
+
+EntityBatchSelectionBound EditorLayer::ResolveSelectionGizmoBound(const std::shared_ptr<Scene>& scene,
+                                                                  const EntitySelection::Snapshot& selection) {
+  ResolveSelectionGizmoParticipants(scene, selection);
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    if (const auto render_instances = render_layer->GetPreviousRenderInstanceStorage()) {
+      const auto& snapshot = render_instances->GetEntitySelectionRenderSnapshot();
+      if (snapshot.Matches(scene, selection.revision, selection_gizmo_cache_hierarchy_revision_) &&
+          snapshot.has_renderable_bounds) {
+        return {snapshot.world_bound, true, true};
+      }
+    }
+  }
+  return {selection_gizmo_fallback_bound_, selection_gizmo_fallback_has_renderable_bounds_,
+          selection_gizmo_fallback_valid_};
 }
 
 bool EditorLayer::BeginEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& handle,
@@ -2853,6 +4053,11 @@ bool EditorLayer::ApplyEntityGizmoSession(const std::shared_ptr<Scene>& scene, c
   }
   for (size_t i = 0; i < session.participants.size(); ++i)
     scene->SetDataComponent(session.participants[i].entity, local_results[i]);
+  std::vector<Entity> changed_entities;
+  changed_entities.reserve(session.participants.size());
+  for (const auto& participant : session.participants)
+    changed_entities.emplace_back(participant.entity);
+  NotifyStaticEntitiesChanged(scene, changed_entities);
   entity_gizmo_message_.clear();
   return true;
 }
@@ -3476,6 +4681,9 @@ void EditorLayer::DrawProfilerWindow() {
   }
 
   auto& profiler = Profiler::GetInstance();
+  if (!profiler_panel_state_)
+    profiler_panel_state_ = std::make_shared<ProfilerPanelState>();
+  auto& panel_state = *profiler_panel_state_;
   bool profiler_open = show_profiler_window;
   if (!ImGui::Begin("Profiler", &profiler_open)) {
     show_profiler_window = profiler_open;
@@ -3487,19 +4695,30 @@ void EditorLayer::DrawProfilerWindow() {
   bool capture_enabled = profiler.IsEnabled();
   if (ImGui::Checkbox("Capture", &capture_enabled)) {
     profiler.SetEnabled(capture_enabled);
+    Platform::SetGpuTimestampCaptureEnabled(capture_enabled);
   }
   ImGui::SameLine();
   if (ImGui::Button(profiler_panel_paused_ ? "Resume" : "Pause")) {
     profiler_panel_paused_ = !profiler_panel_paused_;
   }
-  ImGui::SameLine();
   ImGui::Checkbox("Pause on next frame", &profiler_pause_on_next_frame_);
   ImGui::SameLine();
   if (ImGui::Button("Clear")) {
     profiler.ClearFrameHistory();
+    Platform::ResetGpuTimestampStats();
     profiler_panel_frames_.clear();
+    panel_state = {};
     profiler_selected_frame_index_ = -1;
     profiler_cached_latest_frame_index_ = 0;
+  }
+  if (capture_enabled) {
+    if (Platform::GpuTimestampCaptureAvailable()) {
+      ImGui::TextUnformatted("CPU + GPU capture active");
+    } else {
+      ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f), "CPU capture active; GPU timestamps unavailable");
+    }
+  } else {
+    ImGui::TextUnformatted("Capture stopped; history frozen");
   }
 
   if (ImGui::SliderInt("History", &profiler_history_length_, 30, 2000)) {
@@ -3508,192 +4727,1049 @@ void EditorLayer::DrawProfilerWindow() {
 
   if (!profiler_panel_paused_) {
     auto frames = profiler.GetFrameStatsHistorySnapshot();
+    panel_state.gpu_frames = Platform::GetGpuTimestampFrameHistory();
     if (!frames.empty()) {
       const auto latest_frame_index = frames.back().frame_index;
       profiler_panel_frames_ = std::move(frames);
-      if (profiler_selected_frame_index_ < 0 ||
-          profiler_selected_frame_index_ >= static_cast<int>(profiler_panel_frames_.size())) {
-        profiler_selected_frame_index_ = static_cast<int>(profiler_panel_frames_.size()) - 1;
+      profiler_selected_frame_index_ = static_cast<int>(profiler_panel_frames_.size()) - 1;
+      std::unordered_set<std::string> resolved_gpu_frames;
+      for (const auto& frame : panel_state.gpu_frames) {
+        resolved_gpu_frames.emplace(GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index));
+      }
+      for (int i = profiler_selected_frame_index_; i >= 0; --i) {
+        const auto& frame = profiler_panel_frames_[i];
+        if (resolved_gpu_frames.find(GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index)) !=
+            resolved_gpu_frames.end()) {
+          profiler_selected_frame_index_ = i;
+          break;
+        }
       }
       if (profiler_pause_on_next_frame_ && latest_frame_index != profiler_cached_latest_frame_index_) {
         profiler_panel_paused_ = true;
         profiler_pause_on_next_frame_ = false;
-        profiler_selected_frame_index_ = static_cast<int>(profiler_panel_frames_.size()) - 1;
       }
       profiler_cached_latest_frame_index_ = latest_frame_index;
     }
   }
 
+  UpdateProfilerCpuCatalog(profiler_panel_frames_, panel_state);
+  UpdateGpuProfilerCatalog(panel_state.gpu_frames, panel_state);
+
   if (profiler_panel_frames_.empty()) {
-    ImGui::TextUnformatted("No profiler frames captured.");
+    ImGui::TextUnformatted(capture_enabled ? "Waiting for the first complete profiler frame."
+                                           : "No profiler frames captured. Enable Capture to begin.");
     ImGui::End();
     return;
   }
 
-  const auto export_frames = profiler.GetFrameHistorySnapshot();
-  if (ImGui::Button("Quick Export Trace")) {
-    std::string error;
-    const auto export_path = DefaultProfilerTracePath();
-    if (ExportProfilerChromeTrace(export_path, export_frames, &error)) {
-      profiler_export_status_ = "Exported " + export_path.string();
-    } else {
-      profiler_export_status_ = "Export failed: " + error;
-    }
-  }
-  ImGui::SameLine();
-  FileUtils::SaveFile(
-      "Export Trace...", "Chrome Trace JSON", {".json"},
-      [export_frames, this](const std::filesystem::path& path) {
-        std::string error;
-        if (ExportProfilerChromeTrace(path, export_frames, &error)) {
-          profiler_export_status_ = "Exported " + path.string();
-        } else {
-          profiler_export_status_ = "Export failed: " + error;
-        }
-      },
-      false);
-  if (!profiler_export_status_.empty()) {
-    ImGui::TextWrapped("%s", profiler_export_status_.c_str());
-  }
-
-  std::vector<float> frame_times;
-  frame_times.reserve(profiler_panel_frames_.size());
-  float max_frame_time = 16.0f;
-  for (const auto& frame : profiler_panel_frames_) {
-    const float frame_time = static_cast<float>(frame.duration_ms);
-    frame_times.emplace_back(frame_time);
-    max_frame_time = std::max(max_frame_time, frame_time);
-  }
-  ImGui::PlotLines("Frame Time", frame_times.data(), static_cast<int>(frame_times.size()), 0, nullptr, 0.0f,
-                   max_frame_time, ImVec2(0.0f, 80.0f));
-
-  if (ImGui::BeginChild("ProfilerFrameList", ImVec2(0.0f, 84.0f), true)) {
-    for (int i = 0; i < static_cast<int>(profiler_panel_frames_.size()); ++i) {
-      const auto& frame = profiler_panel_frames_[i];
-      ImGui::PushID(i);
-      const bool selected = profiler_selected_frame_index_ == i;
-      if (ImGui::Selectable(("Frame " + std::to_string(frame.frame_index)).c_str(), selected, 0,
-                            ImVec2(120.0f, 0.0f))) {
-        profiler_selected_frame_index_ = i;
-        profiler_panel_paused_ = true;
-      }
-      ImGui::SameLine();
-      ImGui::Text("%.2f ms", frame.duration_ms);
-      if (i + 1 < static_cast<int>(profiler_panel_frames_.size())) {
-        ImGui::SameLine();
-      }
-      ImGui::PopID();
-    }
-  }
-  ImGui::EndChild();
-
   profiler_selected_frame_index_ =
       std::clamp(profiler_selected_frame_index_, 0, static_cast<int>(profiler_panel_frames_.size()) - 1);
   const auto& selected_frame = profiler_panel_frames_[profiler_selected_frame_index_];
-  ImGui::Text("Frame %llu  %.2f ms  %u events  total scope %.2f ms",
-              static_cast<unsigned long long>(selected_frame.frame_index), selected_frame.duration_ms,
-              selected_frame.event_count, selected_frame.total_event_ms);
-
-  if (ImGui::BeginChild("ProfilerTimeline", ImVec2(0.0f, 220.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
-    const float timeline_width = std::max(1.0f, ImGui::GetContentRegionAvail().x - 160.0f);
-    const float row_height = 24.0f;
-    const float scale = timeline_width / std::max(0.001f, static_cast<float>(selected_frame.duration_ms));
-    auto* draw_list = ImGui::GetWindowDrawList();
-    for (const auto& lane : selected_frame.thread_lanes) {
-      const auto row_origin = ImGui::GetCursorScreenPos();
-      ImGui::Text("%s", lane.thread_name.c_str());
-      const float timeline_x = row_origin.x + 150.0f;
-      const float timeline_y = row_origin.y;
-      draw_list->AddRectFilled(ImVec2(timeline_x, timeline_y), ImVec2(timeline_x + timeline_width, timeline_y + 18.0f),
-                               ImGui::GetColorU32(ImGuiCol_FrameBg), 3.0f);
-      for (const auto& event : lane.events) {
-        const float event_x = timeline_x + static_cast<float>(event.start_ms) * scale;
-        const float event_width = std::max(1.0f, static_cast<float>(event.duration_ms) * scale);
-        const float event_y = timeline_y + 2.0f + static_cast<float>(event.depth % 3) * 4.0f;
-        draw_list->AddRectFilled(ImVec2(event_x, event_y), ImVec2(event_x + event_width, event_y + 12.0f),
-                                 ProfilerCategoryColor(event.category), 2.0f);
-      }
-      ImGui::Dummy(ImVec2(timeline_width + 160.0f, row_height));
-    }
+  if (!ImGui::BeginTabBar("ProfilerTabs")) {
+    ImGui::End();
+    return;
   }
-  ImGui::EndChild();
 
-  if (ImGui::BeginTable("ProfilerTotals", 2, ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersInnerV)) {
-    ImGui::TableNextColumn();
-    ImGui::TextUnformatted("Categories");
-    if (ImGui::BeginTable("ProfilerCategoryTotals", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-      ImGui::TableSetupColumn("Category");
-      ImGui::TableSetupColumn("Count");
-      ImGui::TableSetupColumn("Total");
-      ImGui::TableSetupColumn("Max");
+  if (ImGui::BeginTabItem("Overview")) {
+    const auto overview_samples = BuildProfilerOverviewSamples(profiler_panel_frames_, panel_state.gpu_frames);
+    const int previous_selected_frame = profiler_selected_frame_index_;
+    ImGui::TextUnformatted("Frame time: CPU active + synchronization; GPU and Total are overlapping wall-time lines");
+    DrawProfilerOverviewPlot("ProfilerOverviewPlot", overview_samples, profiler_panel_frames_,
+                             profiler_selected_frame_index_);
+    if (profiler_selected_frame_index_ != previous_selected_frame)
+      profiler_panel_paused_ = true;
+
+    profiler_panel_detail::FrameOverviewSample average;
+    size_t paired_frame_count = 0;
+    for (const auto& sample : overview_samples) {
+      if (!sample.gpu_available)
+        continue;
+      average.cpu_active_ms += sample.cpu_active_ms;
+      average.synchronization_ms += sample.synchronization_ms;
+      average.gpu_ms += sample.gpu_ms;
+      average.total_ms += sample.total_ms;
+      ++paired_frame_count;
+    }
+    if (paired_frame_count > 0) {
+      const double divisor = static_cast<double>(paired_frame_count);
+      average.cpu_active_ms /= divisor;
+      average.synchronization_ms /= divisor;
+      average.gpu_ms /= divisor;
+      average.total_ms /= divisor;
+    }
+    if (ImGui::BeginTable("ProfilerOverviewAverage", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders)) {
+      ImGui::TableSetupColumn("History row", ImGuiTableColumnFlags_WidthStretch);
+      ImGui::TableSetupColumn("CPU ms");
+      ImGui::TableSetupColumn("Sync ms");
+      ImGui::TableSetupColumn("GPU ms");
+      ImGui::TableSetupColumn("Total ms");
       ImGui::TableHeadersRow();
-      for (const auto& total : selected_frame.category_totals) {
+      ImGui::TableNextRow();
+      ImGui::TableNextColumn();
+      ImGui::Text("Average (%zu paired frames)", paired_frame_count);
+      ImGui::TableNextColumn();
+      paired_frame_count ? ImGui::Text("%.3f", average.cpu_active_ms) : ImGui::TextUnformatted("-");
+      ImGui::TableNextColumn();
+      paired_frame_count ? ImGui::Text("%.3f", average.synchronization_ms) : ImGui::TextUnformatted("-");
+      ImGui::TableNextColumn();
+      paired_frame_count ? ImGui::Text("%.3f", average.gpu_ms) : ImGui::TextUnformatted("-");
+      ImGui::TableNextColumn();
+      paired_frame_count ? ImGui::Text("%.3f", average.total_ms) : ImGui::TextUnformatted("-");
+      ImGui::EndTable();
+    }
+    const size_t pending_gpu_frames = overview_samples.size() - paired_frame_count;
+    if (!Platform::GpuTimestampCaptureAvailable())
+      ImGui::TextDisabled("GPU timestamps unavailable; paired averages require resolved GPU frames.");
+    else if (pending_gpu_frames > 0)
+      ImGui::TextDisabled("%zu CPU frames are pending or do not have aligned GPU results.", pending_gpu_frames);
+    ImGui::EndTabItem();
+  }
+
+  if (ImGui::BeginTabItem("Breakdown")) {
+    const auto selected_index = static_cast<size_t>(profiler_selected_frame_index_);
+    const auto now = std::chrono::steady_clock::now();
+    if (panel_state.breakdown_selected_frame_index != profiler_selected_frame_index_ ||
+        now >= panel_state.breakdown_next_refresh) {
+      panel_state.breakdown_cpu_history = BuildProfilerHistoryStats(profiler_panel_frames_, selected_index);
+      panel_state.breakdown_aligned_gpu_frames = AlignGpuProfilerFrames(profiler_panel_frames_, panel_state.gpu_frames);
+      panel_state.breakdown_gpu_history = BuildGpuTimestampHistoryStats(panel_state.breakdown_aligned_gpu_frames,
+                                                                        profiler_panel_frames_.size(), selected_index);
+      panel_state.breakdown_cpu_series = BuildCpuBreakdownSeries(profiler_panel_frames_);
+      panel_state.breakdown_gpu_series = BuildGpuGroupBreakdownSeries(panel_state.breakdown_aligned_gpu_frames);
+      panel_state.breakdown_selected_frame_index = profiler_selected_frame_index_;
+      panel_state.breakdown_next_refresh = now + std::chrono::milliseconds(500);
+    }
+    const auto& cpu_history = panel_state.breakdown_cpu_history;
+    const auto& gpu_history = panel_state.breakdown_gpu_history;
+    const auto counter_value = [&](const char* name) {
+      const auto* counter = FindProfilerCounter(cpu_history, name);
+      return counter ? counter->selected : 0.0;
+    };
+    const double rolling_fps =
+        cpu_history.frame_duration.average_ms > 0.0 ? 1000.0 / cpu_history.frame_duration.average_ms : 0.0;
+    ImGui::Text("Selected %.3f ms (%.1f FPS)  |  Rolling %.3f ms (%.1f FPS)", cpu_history.frame_duration.selected_ms,
+                cpu_history.frame_duration.selected_ms > 0.0 ? 1000.0 / cpu_history.frame_duration.selected_ms : 0.0,
+                cpu_history.frame_duration.average_ms, rolling_fps);
+    ImGui::Text("GPU span %.3f ms  |  summed GPU work %.3f ms  |  %.0fx%.0f  |  %.0f cameras  |  %.0f instances",
+                gpu_history.span.selected_milliseconds, gpu_history.summed_work.selected_milliseconds,
+                counter_value("Scene Camera Width"), counter_value("Scene Camera Height"),
+                counter_value("Camera Count"), counter_value("Canonical Instances"));
+    ImGui::Text("Shadow views %.0f  |  DDGI active %.0f  updated %.0f  converged %s",
+                counter_value("Shadow View Count"), counter_value("Active Probes"), counter_value("Updated Probes"),
+                counter_value("Converged") > 0.0 ? "yes" : "no");
+    ImGui::TextDisabled("Main-thread wall %.3f ms; worker CPU work %.3f ms is reported separately and is not added.",
+                        cpu_history.main_thread_wall.selected_ms, cpu_history.worker_cpu_work.selected_ms);
+
+    ImGui::SeparatorText("CPU frame budget");
+    if (ImGui::BeginTable(
+            "ProfilerBreakdownCpu", 8,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+            ImVec2(0.0f, 300.0f))) {
+      ImGui::TableSetupScrollFreeze(1, 1);
+      ImGui::TableSetupColumn("Application hierarchy", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+      ImGui::TableSetupColumn("Selected inclusive ms");
+      ImGui::TableSetupColumn("Selected self ms");
+      ImGui::TableSetupColumn("Average ms");
+      ImGui::TableSetupColumn("Median ms");
+      ImGui::TableSetupColumn("P95 ms");
+      ImGui::TableSetupColumn("% frame");
+      ImGui::TableSetupColumn("Observed");
+      ImGui::TableHeadersRow();
+      const auto* main_thread = FindMainThreadHistory(cpu_history);
+      const ProfilerHistoryNode* application_loop = nullptr;
+      if (main_thread) {
+        const auto loop =
+            std::find_if(main_thread->hierarchy.begin(), main_thread->hierarchy.end(), [](const auto& node) {
+              return node.name == "Application::Loop";
+            });
+        if (loop != main_thread->hierarchy.end()) {
+          application_loop = &*loop;
+          DrawProfilerBreakdownCpuNode(*application_loop, cpu_history.frame_duration.selected_ms);
+          DrawProfilerBreakdownCpuSummaryRow("Loop self (uncategorized)", application_loop->self,
+                                             cpu_history.frame_duration.selected_ms);
+        }
+      }
+      const auto overhead = std::find_if(panel_state.breakdown_cpu_series.begin(),
+                                         panel_state.breakdown_cpu_series.end(), [](const auto& item) {
+                                           return item.key == "FrameOverhead";
+                                         });
+      if (overhead != panel_state.breakdown_cpu_series.end()) {
+        DrawProfilerBreakdownCpuSummaryRow("Frame overhead (outside Application Loop)",
+                                           SummarizeBreakdownSeries(*overhead, selected_index),
+                                           cpu_history.frame_duration.selected_ms);
+      }
+      DrawProfilerBreakdownCpuSummaryRow("Worker CPU work (parallel; excluded from wall)", cpu_history.worker_cpu_work,
+                                         cpu_history.frame_duration.selected_ms);
+      ImGui::EndTable();
+    }
+
+    ImGui::SeparatorText("GPU frame budget");
+    if (ImGui::BeginTable(
+            "ProfilerBreakdownGpu", 7,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+            ImVec2(0.0f, 260.0f))) {
+      ImGui::TableSetupScrollFreeze(1, 1);
+      ImGui::TableSetupColumn("GPU group / pass", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+      ImGui::TableSetupColumn("Selected ms");
+      ImGui::TableSetupColumn("Average ms");
+      ImGui::TableSetupColumn("Median ms");
+      ImGui::TableSetupColumn("P95 ms");
+      ImGui::TableSetupColumn("% work");
+      ImGui::TableSetupColumn("Duty");
+      ImGui::TableHeadersRow();
+      for (const auto& group : gpu_history.groups) {
+        ImGui::PushID(group.name.c_str());
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(total.category.c_str());
+        const bool open =
+            ImGui::TreeNodeEx("BreakdownGroup", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth, "%s",
+                              group.name.c_str());
         ImGui::TableNextColumn();
-        ImGui::Text("%u", total.count);
+        ImGui::Text("%.3f", group.duration.selected_milliseconds);
         ImGui::TableNextColumn();
-        ImGui::Text("%.2f", total.total_ms);
+        ImGui::Text("%.3f", group.duration.stats.AverageMilliseconds());
         ImGui::TableNextColumn();
-        ImGui::Text("%.2f", total.max_ms);
+        ImGui::Text("%.3f", group.duration.stats.MedianMilliseconds());
+        ImGui::TableNextColumn();
+        ImGui::Text("%.3f", group.duration.stats.PercentileMilliseconds(0.95));
+        ImGui::TableNextColumn();
+        ImGui::Text("%.1f%%",
+                    gpu_history.summed_work.selected_milliseconds > 0.0
+                        ? group.duration.selected_milliseconds / gpu_history.summed_work.selected_milliseconds * 100.0
+                        : 0.0);
+        ImGui::TableNextColumn();
+        ImGui::Text("%.1f%%", group.duration.duty_cycle * 100.0);
+        if (open) {
+          for (const auto& pass : group.passes) {
+            ImGui::PushID(pass.metadata.stable_pass_id.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TreeNodeEx(
+                "BreakdownPass",
+                ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanFullWidth, "%s",
+                pass.metadata.display_name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", pass.duration.selected_milliseconds);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", pass.duration.stats.AverageMilliseconds());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", pass.duration.stats.MedianMilliseconds());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", pass.duration.stats.PercentileMilliseconds(0.95));
+            ImGui::TableNextColumn();
+            ImGui::Text(
+                "%.1f%%",
+                gpu_history.summed_work.selected_milliseconds > 0.0 && pass.metadata.contributes_to_frame_total
+                    ? pass.duration.selected_milliseconds / gpu_history.summed_work.selected_milliseconds * 100.0
+                    : 0.0);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f%%", pass.duration.duty_cycle * 100.0);
+            ImGui::PopID();
+          }
+          ImGui::TreePop();
+        }
+        ImGui::PopID();
       }
       ImGui::EndTable();
     }
-    ImGui::TableNextColumn();
-    ImGui::TextUnformatted("Events");
-    if (ImGui::BeginTable("ProfilerEventTotals", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-      ImGui::TableSetupColumn("Name");
-      ImGui::TableSetupColumn("Category");
-      ImGui::TableSetupColumn("Count");
-      ImGui::TableSetupColumn("Total");
+
+    const int previous_selected_frame = profiler_selected_frame_index_;
+    ImGui::SeparatorText("CPU phase history");
+    DrawProfilerBreakdownStackedPlot("ProfilerBreakdownCpuPlot", panel_state.breakdown_cpu_series,
+                                     profiler_panel_frames_, profiler_selected_frame_index_);
+    ImGui::SeparatorText("GPU group history");
+    DrawProfilerBreakdownStackedPlot("ProfilerBreakdownGpuPlot", panel_state.breakdown_gpu_series,
+                                     profiler_panel_frames_, profiler_selected_frame_index_);
+    if (profiler_selected_frame_index_ != previous_selected_frame)
+      profiler_panel_paused_ = true;
+    ImGui::EndTabItem();
+  }
+
+  if (ImGui::BeginTabItem("CPU")) {
+    ImGui::SetNextItemWidth(320.0f);
+    ImGui::InputTextWithHint("##ProfilerFilter", "Filter scope, layer, or category", profiler_filter_.data(),
+                             profiler_filter_.size());
+    ImGui::SameLine();
+    ImGui::TextDisabled("History: average / max / p95 across %zu frames", profiler_panel_frames_.size());
+
+    const auto history_summaries = BuildProfilerHistorySummaries(profiler_panel_frames_);
+    if (ImGui::BeginTable(
+            "ProfilerCpuHierarchy", 9,
+            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+            ImVec2(0.0f, 360.0f))) {
+      ImGui::TableSetupScrollFreeze(1, 1);
+      ImGui::TableSetupColumn("CPU hierarchy", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+      ImGui::TableSetupColumn("Inclusive ms");
+      ImGui::TableSetupColumn("Self ms");
+      ImGui::TableSetupColumn("Calls");
+      ImGui::TableSetupColumn("% Parent");
+      ImGui::TableSetupColumn("% Frame");
+      ImGui::TableSetupColumn("Avg ms");
+      ImGui::TableSetupColumn("Max ms");
+      ImGui::TableSetupColumn("P95 ms");
       ImGui::TableHeadersRow();
-      for (const auto& total : selected_frame.named_event_totals) {
+      const std::string filter = profiler_filter_.data();
+      std::unordered_map<uint64_t, const ProfilerThreadLane*> current_lanes;
+      for (const auto& lane : selected_frame.thread_lanes)
+        current_lanes[lane.thread_id] = &lane;
+      for (const auto group :
+           {profiler_panel_detail::CpuExecutorGroup::MainThread, profiler_panel_detail::CpuExecutorGroup::Worker,
+            profiler_panel_detail::CpuExecutorGroup::AssetIo, profiler_panel_detail::CpuExecutorGroup::GpuSubmission,
+            profiler_panel_detail::CpuExecutorGroup::Render, profiler_panel_detail::CpuExecutorGroup::Background,
+            profiler_panel_detail::CpuExecutorGroup::Other}) {
+        std::vector<const ProfilerPanelState::CpuThread*> group_threads;
+        const bool group_matches =
+            TextContainsCaseInsensitive(profiler_panel_detail::CpuExecutorGroupName(group), filter);
+        for (const auto& thread : panel_state.cpu_threads) {
+          if (profiler_panel_detail::ClassifyCpuExecutor(thread.name) != group)
+            continue;
+          const bool thread_matches = TextContainsCaseInsensitive(thread.name, filter);
+          const bool hierarchy_matches = std::any_of(thread.roots.begin(), thread.roots.end(), [&](const auto& node) {
+            return ProfilerHierarchyMatchesFilter(node, filter);
+          });
+          if (group_matches || thread_matches || hierarchy_matches)
+            group_threads.emplace_back(&thread);
+        }
+        if (group_threads.empty())
+          continue;
+        double group_root_ms = 0.0;
+        size_t group_event_count = 0;
+        for (const auto* thread : group_threads) {
+          const auto lane_search = current_lanes.find(thread->id);
+          if (lane_search == current_lanes.end())
+            continue;
+          group_event_count += lane_search->second->events.size();
+          for (const auto& root : lane_search->second->hierarchy)
+            group_root_ms += root.inclusive_ms;
+        }
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(total.name.c_str());
+        ImGui::PushID(static_cast<int>(group));
+        ImGuiTreeNodeFlags group_flags = ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_OpenOnArrow;
+        if (group == profiler_panel_detail::CpuExecutorGroup::MainThread)
+          group_flags |= ImGuiTreeNodeFlags_DefaultOpen;
+        const bool group_open =
+            ImGui::TreeNodeEx("ExecutorGroup", group_flags, "%s (%zu)",
+                              profiler_panel_detail::CpuExecutorGroupName(group), group_threads.size());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(total.category.c_str());
+        ImGui::Text("%.3f", group_root_ms);
         ImGui::TableNextColumn();
-        ImGui::Text("%u", total.count);
+        ImGui::TextUnformatted("-");
         ImGui::TableNextColumn();
-        ImGui::Text("%.2f", total.total_ms);
+        ImGui::Text("%zu", group_event_count);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("-");
+        ImGui::TableNextColumn();
+        ImGui::Text("%.1f%%",
+                    selected_frame.duration_ms > 0.0 ? group_root_ms / selected_frame.duration_ms * 100.0 : 0.0);
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("-");
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("-");
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted("-");
+        if (group_open) {
+          for (const auto* catalog_thread : group_threads) {
+            const auto lane_search = current_lanes.find(catalog_thread->id);
+            const auto* lane = lane_search == current_lanes.end() ? nullptr : lane_search->second;
+            double lane_root_ms = 0.0;
+            if (lane) {
+              for (const auto& root : lane->hierarchy)
+                lane_root_ms += root.inclusive_ms;
+            }
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::PushID(static_cast<int>(catalog_thread->id));
+            const bool lane_open = ImGui::TreeNodeEx("PhysicalThread", ImGuiTreeNodeFlags_SpanFullWidth, "%s",
+                                                     catalog_thread->name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", lane_root_ms);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::Text("%zu", lane ? lane->events.size() : 0);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::Text("%.1f%%",
+                        selected_frame.duration_ms > 0.0 ? lane_root_ms / selected_frame.duration_ms * 100.0 : 0.0);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+            if (lane_open) {
+              std::unordered_map<std::string, const ProfilerHierarchyNode*> current_nodes;
+              if (lane)
+                CollectProfilerCurrentNodes(lane->thread_id, lane->hierarchy, "", current_nodes);
+              for (const auto& node : catalog_thread->roots) {
+                DrawProfilerHierarchyNode(node, current_nodes, selected_frame.duration_ms, selected_frame.duration_ms,
+                                          history_summaries, filter, group_matches);
+              }
+              ImGui::TreePop();
+            }
+            ImGui::PopID();
+          }
+          ImGui::TreePop();
+        }
+        ImGui::PopID();
       }
       ImGui::EndTable();
     }
-    ImGui::EndTable();
+
+    auto cpu_series = BuildCpuProfilerSeries(profiler_panel_frames_);
+    if (!cpu_series.empty()) {
+      ImGui::SetNextItemWidth(220.0f);
+      ImGui::SliderInt("Top CPU scopes", &panel_state.cpu_top_series_count, 1, 16);
+      ImGui::SameLine();
+      ImGui::SetNextItemWidth(280.0f);
+      ImGui::InputTextWithHint("##CpuPlotFilter", "Filter CPU plot series", panel_state.cpu_plot_filter.data(),
+                               panel_state.cpu_plot_filter.size());
+      const std::string plot_filter = panel_state.cpu_plot_filter.data();
+      std::vector<size_t> ranked;
+      for (size_t index = 0; index < cpu_series.size(); ++index) {
+        const auto& item = cpu_series[index];
+        if (!TextContainsCaseInsensitive(item.name, plot_filter) &&
+            !TextContainsCaseInsensitive(profiler_panel_detail::CpuExecutorGroupName(item.group), plot_filter))
+          continue;
+        if (panel_state.hidden_cpu_scopes.count(item.key) == 0 && panel_state.pinned_cpu_scopes.count(item.key) == 0)
+          ranked.emplace_back(index);
+      }
+      std::stable_sort(ranked.begin(), ranked.end(), [&](const size_t left, const size_t right) {
+        return cpu_series[left].average_milliseconds > cpu_series[right].average_milliseconds;
+      });
+      if (ranked.size() > static_cast<size_t>(panel_state.cpu_top_series_count))
+        ranked.resize(static_cast<size_t>(panel_state.cpu_top_series_count));
+      const std::unordered_set<size_t> automatic(ranked.begin(), ranked.end());
+      std::vector<size_t> visible;
+      for (size_t index = 0; index < cpu_series.size(); ++index) {
+        const auto& item = cpu_series[index];
+        if (panel_state.hidden_cpu_scopes.count(item.key) != 0)
+          continue;
+        if (automatic.count(index) != 0 || panel_state.pinned_cpu_scopes.count(item.key) != 0)
+          visible.emplace_back(index);
+      }
+      if (ImGui::CollapsingHeader("CPU plot series and legend")) {
+        if (ImGui::BeginTable("CpuPlotSeries", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV,
+                              ImVec2(0.0f, 180.0f))) {
+          ImGui::TableSetupColumn("Show");
+          ImGui::TableSetupColumn("Pin");
+          ImGui::TableSetupColumn("Scope");
+          ImGui::TableSetupColumn("Executor");
+          ImGui::TableSetupColumn("Average ms");
+          ImGui::TableHeadersRow();
+          for (const auto& item : cpu_series) {
+            if (!TextContainsCaseInsensitive(item.name, plot_filter) &&
+                !TextContainsCaseInsensitive(profiler_panel_detail::CpuExecutorGroupName(item.group), plot_filter))
+              continue;
+            ImGui::PushID(item.key.c_str());
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            bool shown = panel_state.hidden_cpu_scopes.count(item.key) == 0;
+            if (ImGui::Checkbox("##Show", &shown)) {
+              if (shown)
+                panel_state.hidden_cpu_scopes.erase(item.key);
+              else
+                panel_state.hidden_cpu_scopes.insert(item.key);
+            }
+            ImGui::TableNextColumn();
+            bool pinned = panel_state.pinned_cpu_scopes.count(item.key) != 0;
+            if (ImGui::Checkbox("##Pin", &pinned)) {
+              if (pinned) {
+                panel_state.pinned_cpu_scopes.insert(item.key);
+                panel_state.hidden_cpu_scopes.erase(item.key);
+              } else {
+                panel_state.pinned_cpu_scopes.erase(item.key);
+              }
+            }
+            ImGui::TableNextColumn();
+            ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(item.key)), "%s",
+                               item.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(profiler_panel_detail::CpuExecutorGroupName(item.group));
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", item.average_milliseconds);
+            ImGui::PopID();
+          }
+          ImGui::EndTable();
+        }
+      }
+      const int previous_selected_frame = profiler_selected_frame_index_;
+      ImGui::TextUnformatted("Per-scope CPU history");
+      DrawCpuProfilerHistoryPlot("CpuScopeHistoryPlot", cpu_series, visible, profiler_panel_frames_,
+                                 profiler_selected_frame_index_);
+      ImGui::TextUnformatted("Non-overlapping main-thread phase composition");
+      const auto cpu_phase_series = BuildCpuBreakdownSeries(profiler_panel_frames_);
+      DrawProfilerBreakdownStackedPlot("CpuPhaseStackedPlot", cpu_phase_series, profiler_panel_frames_,
+                                       profiler_selected_frame_index_);
+      if (profiler_selected_frame_index_ != previous_selected_frame)
+        profiler_panel_paused_ = true;
+    }
+    ImGui::EndTabItem();
   }
 
-  if (ImGui::BeginTable(
-          "ProfilerEvents", 6,
-          ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
-          ImVec2(0.0f, 260.0f))) {
-    ImGui::TableSetupColumn("Thread");
-    ImGui::TableSetupColumn("Name");
-    ImGui::TableSetupColumn("Category");
-    ImGui::TableSetupColumn("Start");
-    ImGui::TableSetupColumn("Duration");
-    ImGui::TableSetupColumn("Depth");
-    ImGui::TableHeadersRow();
-    for (const auto& lane : selected_frame.thread_lanes) {
-      for (const auto& event : lane.events) {
-        ImGui::TableNextRow();
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(lane.thread_name.c_str());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(event.name.c_str());
-        ImGui::TableNextColumn();
-        ImGui::TextUnformatted(event.category.c_str());
-        ImGui::TableNextColumn();
-        ImGui::Text("%.2f", event.start_ms);
-        ImGui::TableNextColumn();
-        ImGui::Text("%.2f", event.duration_ms);
-        ImGui::TableNextColumn();
-        ImGui::Text("%u", event.depth);
+  if (ImGui::BeginTabItem("GPU")) {
+    ImGui::SeparatorText("GPU render passes");
+    std::unordered_map<std::string, const GpuTimestampFrameSnapshot*> gpu_by_frame;
+    for (const auto& frame : panel_state.gpu_frames) {
+      gpu_by_frame[GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index)] = &frame;
+    }
+    const auto selected_gpu_search = gpu_by_frame.find(
+        GpuProfilerFrameKey(selected_frame.capture_session_index, selected_frame.application_frame_index));
+    const auto* selected_gpu_frame = selected_gpu_search == gpu_by_frame.end() ? nullptr : selected_gpu_search->second;
+    if (!Platform::GpuTimestampCaptureAvailable()) {
+      ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f),
+                         "GPU timestamps are unavailable on the active graphics queue; CPU history remains valid.");
+    } else if (!selected_gpu_frame) {
+      ImGui::TextDisabled(
+          "No GPU result for this application frame. GPU queries resolve after submission and may still "
+          "be delayed, or this frame was captured without GPU work.");
+    } else if (!selected_gpu_frame->results_available) {
+      ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.25f, 1.0f), "GPU result is delayed: %u scopes remain unresolved.",
+                         selected_gpu_frame->unresolved_scope_count);
+    }
+    {
+      const auto gpu_aggregates = selected_gpu_frame && selected_gpu_frame->results_available
+                                      ? BuildGpuTimestampPassAggregates(*selected_gpu_frame)
+                                      : std::vector<GpuTimestampPassAggregate>{};
+      const auto gpu_history_summaries = BuildGpuProfilerHistorySummaries(panel_state.gpu_frames, panel_state);
+      double summed_pass_work = 0.0;
+      for (const auto& aggregate : gpu_aggregates) {
+        if (aggregate.metadata.contributes_to_frame_total)
+          summed_pass_work += aggregate.total_milliseconds;
+      }
+      if (selected_gpu_frame && selected_gpu_frame->results_available) {
+        ImGui::Text("GPU span %.3f ms  |  summed pass work %.3f ms  |  queries %u/%u",
+                    selected_gpu_frame->span_milliseconds, summed_pass_work, selected_gpu_frame->query_used,
+                    selected_gpu_frame->query_capacity);
+        if (ImGui::IsItemHovered()) {
+          ImGui::SetTooltip(
+              "GPU span is elapsed device-clock time from the first scope begin to the last scope end.\n"
+              "Summed pass work adds non-summary logical pass durations and can differ when work overlaps.");
+        }
+        if (selected_gpu_frame->skipped_scope_count > 0 || selected_gpu_frame->unresolved_scope_count > 0) {
+          ImGui::TextColored(ImVec4(1.0f, 0.35f, 0.25f, 1.0f),
+                             "Incomplete GPU capture: %u capacity-skipped and %u unresolved scopes.",
+                             selected_gpu_frame->skipped_scope_count, selected_gpu_frame->unresolved_scope_count);
+        }
+      }
+
+      ImGui::SetNextItemWidth(320.0f);
+      ImGui::InputTextWithHint("##GpuProfilerFilter", "Filter GPU group or pass", panel_state.gpu_filter.data(),
+                               panel_state.gpu_filter.size());
+      const std::string gpu_filter_text = panel_state.gpu_filter.data();
+
+      std::unordered_map<std::string, const GpuTimestampPassAggregate*> selected_passes;
+      std::unordered_map<std::string, double> selected_group_totals;
+      std::unordered_set<std::string> selected_groups;
+      for (const auto& aggregate : gpu_aggregates) {
+        selected_passes[GpuProfilerPassKey(aggregate.metadata)] = &aggregate;
+        selected_groups.emplace(aggregate.metadata.group);
+        if (aggregate.metadata.contributes_to_frame_total)
+          selected_group_totals[aggregate.metadata.group] += aggregate.total_milliseconds;
+      }
+
+      if (ImGui::BeginTable(
+              "ProfilerGpuHierarchy", 9,
+              ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+              ImVec2(0.0f, 340.0f))) {
+        ImGui::TableSetupScrollFreeze(1, 1);
+        ImGui::TableSetupColumn("GPU group / pass / instance", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn("Duration ms");
+        ImGui::TableSetupColumn("% Group");
+        ImGui::TableSetupColumn("% Work");
+        ImGui::TableSetupColumn("Calls");
+        ImGui::TableSetupColumn("Avg ms");
+        ImGui::TableSetupColumn("Median ms");
+        ImGui::TableSetupColumn("Max ms");
+        ImGui::TableSetupColumn("P95 ms");
+        ImGui::TableHeadersRow();
+        for (const auto& group : panel_state.gpu_groups) {
+          const auto group_total_search = selected_group_totals.find(group.name);
+          const bool group_present = selected_groups.count(group.name) != 0;
+          const double group_total =
+              group_total_search == selected_group_totals.end() ? 0.0 : group_total_search->second;
+          const bool group_matches = TextContainsCaseInsensitive(group.name, gpu_filter_text);
+          const bool pass_matches = std::any_of(group.passes.begin(), group.passes.end(), [&](const auto& pass) {
+            return TextContainsCaseInsensitive(pass.metadata.display_name, gpu_filter_text);
+          });
+          if (!group_matches && !pass_matches)
+            continue;
+          ImGui::PushID(group.name.c_str());
+          if (!group_present)
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          const bool group_open = ImGui::TreeNodeEx(
+              "Group", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth, "%s", group.name.c_str());
+          ImGui::TableNextColumn();
+          group_present ? ImGui::Text("%.3f", group_total) : ImGui::TextUnformatted("-");
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted("-");
+          ImGui::TableNextColumn();
+          group_present ? ImGui::Text("%.1f%%", summed_pass_work > 0.0 ? group_total / summed_pass_work * 100.0 : 0.0)
+                        : ImGui::TextUnformatted("-");
+          ImGui::TableNextColumn();
+          if (group_present) {
+            const auto call_count = std::count_if(group.passes.begin(), group.passes.end(), [&](const auto& pass) {
+              return selected_passes.count(pass.key) != 0;
+            });
+            ImGui::Text("%zu", call_count);
+          } else {
+            ImGui::TextUnformatted("-");
+          }
+          for (int column = 5; column < 9; ++column) {
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("-");
+          }
+          if (group_open) {
+            for (const auto& catalog_pass : group.passes) {
+              if (!group_matches && !TextContainsCaseInsensitive(catalog_pass.metadata.display_name, gpu_filter_text))
+                continue;
+              const auto selected_pass_search = selected_passes.find(catalog_pass.key);
+              const auto* pass = selected_pass_search == selected_passes.end() ? nullptr : selected_pass_search->second;
+              const auto summary_search = gpu_history_summaries.find(catalog_pass.key);
+              const GpuTimestampStats* stats =
+                  summary_search == gpu_history_summaries.end() ? nullptr : &summary_search->second.stats;
+              ImGui::PushID(catalog_pass.key.c_str());
+              if (!pass)
+                ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+              ImGuiTreeNodeFlags pass_flags = ImGuiTreeNodeFlags_SpanFullWidth;
+              if (!pass || pass->instances.empty())
+                pass_flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+              const bool pass_open = ImGui::TreeNodeEx(
+                  "Pass", pass_flags, "%s%s", catalog_pass.metadata.display_name.c_str(),
+                  catalog_pass.metadata.contributes_to_frame_total ? "" : "  (summary; excluded from sum)");
+              ImGui::TableNextColumn();
+              pass ? ImGui::Text("%.3f", pass->total_milliseconds) : ImGui::TextUnformatted("-");
+              ImGui::TableNextColumn();
+              pass ? ImGui::Text("%.1f%%", group_total > 0.0 && catalog_pass.metadata.contributes_to_frame_total
+                                               ? pass->total_milliseconds / group_total * 100.0
+                                               : 0.0)
+                   : ImGui::TextUnformatted("-");
+              ImGui::TableNextColumn();
+              if (!pass)
+                ImGui::TextUnformatted("-");
+              else if (catalog_pass.metadata.contributes_to_frame_total)
+                ImGui::Text("%.1f%%",
+                            summed_pass_work > 0.0 ? pass->total_milliseconds / summed_pass_work * 100.0 : 0.0);
+              else
+                ImGui::TextUnformatted("-");
+              ImGui::TableNextColumn();
+              pass ? ImGui::Text("%u", pass->call_count) : ImGui::TextUnformatted("-");
+              ImGui::TableNextColumn();
+              ImGui::Text("%.3f", stats ? stats->AverageMilliseconds() : 0.0);
+              ImGui::TableNextColumn();
+              ImGui::Text("%.3f", stats ? stats->MedianMilliseconds() : 0.0);
+              ImGui::TableNextColumn();
+              ImGui::Text("%.3f", stats ? stats->maximum_milliseconds : 0.0);
+              ImGui::TableNextColumn();
+              ImGui::Text("%.3f", stats ? stats->PercentileMilliseconds(0.95) : 0.0);
+              if (pass_open && pass && !pass->instances.empty()) {
+                for (size_t instance_index = 0; instance_index < pass->instances.size(); ++instance_index) {
+                  const auto& instance = pass->instances[instance_index];
+                  ImGui::PushID(static_cast<int>(instance_index));
+                  ImGui::TableNextRow();
+                  ImGui::TableNextColumn();
+                  ImGui::TreeNodeEx(
+                      "Instance",
+                      ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanFullWidth,
+                      "#%zu  view %llu  instance %llu  [%s]", instance_index + 1,
+                      static_cast<unsigned long long>(instance.metadata.view_id),
+                      static_cast<unsigned long long>(instance.metadata.instance_id),
+                      GpuTimestampQueueName(instance.metadata.queue));
+                  ImGui::TableNextColumn();
+                  ImGui::Text("%.3f", instance.duration_milliseconds);
+                  for (int column = 2; column < 9; ++column) {
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted("-");
+                  }
+                  ImGui::PopID();
+                }
+                ImGui::TreePop();
+              }
+              if (!pass)
+                ImGui::PopStyleColor();
+              ImGui::PopID();
+            }
+            ImGui::TreePop();
+          }
+          if (!group_present)
+            ImGui::PopStyleColor();
+          ImGui::PopID();
+        }
+        ImGui::EndTable();
+      }
+
+      auto gpu_series = BuildGpuProfilerSeries(profiler_panel_frames_, panel_state.gpu_frames, panel_state);
+      if (!gpu_series.empty()) {
+        ImGui::SetNextItemWidth(220.0f);
+        ImGui::SliderInt("Top GPU passes", &panel_state.gpu_top_series_count, 1, 16);
+        std::vector<size_t> ranked_series;
+        for (size_t series_index = 0; series_index < gpu_series.size(); ++series_index) {
+          const auto& pass_series = gpu_series[series_index];
+          if (TextContainsCaseInsensitive(pass_series.metadata.display_name, gpu_filter_text) ||
+              TextContainsCaseInsensitive(pass_series.metadata.group, gpu_filter_text)) {
+            if (panel_state.hidden_gpu_passes.count(pass_series.key) == 0 &&
+                panel_state.pinned_gpu_passes.count(pass_series.key) == 0)
+              ranked_series.emplace_back(series_index);
+          }
+        }
+        std::stable_sort(ranked_series.begin(), ranked_series.end(), [&](const size_t left, const size_t right) {
+          return gpu_series[left].average_milliseconds > gpu_series[right].average_milliseconds;
+        });
+        if (ranked_series.size() > static_cast<size_t>(panel_state.gpu_top_series_count))
+          ranked_series.resize(static_cast<size_t>(panel_state.gpu_top_series_count));
+        const std::unordered_set<size_t> automatic_series(ranked_series.begin(), ranked_series.end());
+        std::vector<size_t> visible_series;
+        for (size_t series_index = 0; series_index < gpu_series.size(); ++series_index) {
+          const auto& pass_series = gpu_series[series_index];
+          if (!TextContainsCaseInsensitive(pass_series.metadata.display_name, gpu_filter_text) &&
+              !TextContainsCaseInsensitive(pass_series.metadata.group, gpu_filter_text))
+            continue;
+          if (panel_state.hidden_gpu_passes.count(pass_series.key) != 0)
+            continue;
+          const bool pinned = panel_state.pinned_gpu_passes.count(pass_series.key) != 0;
+          if (pinned || automatic_series.count(series_index) != 0) {
+            visible_series.emplace_back(series_index);
+          }
+        }
+        if (ImGui::CollapsingHeader("GPU plot series and legend")) {
+          if (ImGui::BeginTable("GpuPlotSeries", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV,
+                                ImVec2(0.0f, 180.0f))) {
+            ImGui::TableSetupColumn("Show");
+            ImGui::TableSetupColumn("Pin");
+            ImGui::TableSetupColumn("Pass");
+            ImGui::TableSetupColumn("Group");
+            ImGui::TableSetupColumn("Average ms");
+            ImGui::TableHeadersRow();
+            for (const auto& pass_series : gpu_series) {
+              if (!TextContainsCaseInsensitive(pass_series.metadata.display_name, gpu_filter_text) &&
+                  !TextContainsCaseInsensitive(pass_series.metadata.group, gpu_filter_text))
+                continue;
+              ImGui::PushID(pass_series.key.c_str());
+              ImGui::TableNextRow();
+              ImGui::TableNextColumn();
+              bool shown = panel_state.hidden_gpu_passes.count(pass_series.key) == 0;
+              if (ImGui::Checkbox("##Show", &shown)) {
+                if (shown)
+                  panel_state.hidden_gpu_passes.erase(pass_series.key);
+                else
+                  panel_state.hidden_gpu_passes.insert(pass_series.key);
+              }
+              ImGui::TableNextColumn();
+              bool pinned = panel_state.pinned_gpu_passes.count(pass_series.key) != 0;
+              if (ImGui::Checkbox("##Pin", &pinned)) {
+                if (pinned) {
+                  panel_state.pinned_gpu_passes.insert(pass_series.key);
+                  panel_state.hidden_gpu_passes.erase(pass_series.key);
+                } else {
+                  panel_state.pinned_gpu_passes.erase(pass_series.key);
+                }
+              }
+              ImGui::TableNextColumn();
+              ImGui::TextColored(ImGui::ColorConvertU32ToFloat4(GpuProfilerSeriesColor(pass_series.key)), "%s",
+                                 pass_series.metadata.display_name.c_str());
+              ImGui::TableNextColumn();
+              ImGui::TextUnformatted(pass_series.metadata.group.c_str());
+              ImGui::TableNextColumn();
+              ImGui::Text("%.3f", pass_series.average_milliseconds);
+              ImGui::PopID();
+            }
+            ImGui::EndTable();
+          }
+        }
+        ImGui::TextUnformatted("Per-pass GPU history (click a point to select its application frame)");
+        const int previous_selected_frame = profiler_selected_frame_index_;
+        DrawGpuProfilerHistoryPlot("GpuPassHistoryPlot", gpu_series, visible_series, profiler_panel_frames_,
+                                   profiler_selected_frame_index_);
+        ImGui::TextUnformatted("Stacked GPU pass composition (unselected passes are combined as Other)");
+        DrawGpuProfilerStackedPlot("GpuPassStackedPlot", gpu_series, visible_series, profiler_panel_frames_,
+                                   profiler_selected_frame_index_);
+        if (profiler_selected_frame_index_ != previous_selected_frame)
+          profiler_panel_paused_ = true;
       }
     }
-    ImGui::EndTable();
+    ImGui::EndTabItem();
   }
+
+  if (ImGui::BeginTabItem("Diagnostics")) {
+    const auto pin_frame = [&](const int index) {
+      const auto& frame = profiler_panel_frames_[index];
+      panel_state.diagnostics_cpu_frame = frame;
+      const auto gpu_frame =
+          std::find_if(panel_state.gpu_frames.begin(), panel_state.gpu_frames.end(), [&](const auto& candidate) {
+            return candidate.capture_session_index == frame.capture_session_index &&
+                   candidate.application_frame_index == frame.application_frame_index;
+          });
+      if (gpu_frame == panel_state.gpu_frames.end())
+        panel_state.diagnostics_gpu_frame.reset();
+      else
+        panel_state.diagnostics_gpu_frame = *gpu_frame;
+    };
+    const auto find_pinned_index = [&]() {
+      if (!panel_state.diagnostics_cpu_frame)
+        return -1;
+      const auto& pinned = *panel_state.diagnostics_cpu_frame;
+      for (size_t i = 0; i < profiler_panel_frames_.size(); ++i) {
+        const auto& candidate = profiler_panel_frames_[i];
+        if (candidate.capture_session_index == pinned.capture_session_index &&
+            candidate.frame_index == pinned.frame_index)
+          return static_cast<int>(i);
+      }
+      return -1;
+    };
+    if (!panel_state.diagnostics_cpu_frame)
+      pin_frame(profiler_selected_frame_index_);
+    if (panel_state.diagnostics_follow_latest)
+      pin_frame(static_cast<int>(profiler_panel_frames_.size()) - 1);
+    auto pinned_index = find_pinned_index();
+    if (ImGui::Button("Previous") && pinned_index > 0) {
+      pin_frame(pinned_index - 1);
+      pinned_index = find_pinned_index();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Next")) {
+      if (pinned_index >= 0 && pinned_index + 1 < static_cast<int>(profiler_panel_frames_.size()))
+        pin_frame(pinned_index + 1);
+      else if (pinned_index < 0)
+        pin_frame(0);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Latest"))
+      pin_frame(static_cast<int>(profiler_panel_frames_.size()) - 1);
+    ImGui::SameLine();
+    if (ImGui::Checkbox("Follow latest", &panel_state.diagnostics_follow_latest) &&
+        panel_state.diagnostics_follow_latest)
+      pin_frame(static_cast<int>(profiler_panel_frames_.size()) - 1);
+    const auto& diagnostics_frame = *panel_state.diagnostics_cpu_frame;
+    if (!panel_state.diagnostics_gpu_frame) {
+      const auto gpu_frame =
+          std::find_if(panel_state.gpu_frames.begin(), panel_state.gpu_frames.end(), [&](const auto& frame) {
+            return frame.capture_session_index == diagnostics_frame.capture_session_index &&
+                   frame.application_frame_index == diagnostics_frame.application_frame_index;
+          });
+      if (gpu_frame != panel_state.gpu_frames.end())
+        panel_state.diagnostics_gpu_frame = *gpu_frame;
+    }
+    ImGui::Text("Pinned session %llu  frame %llu  CPU %.3f ms  events %u  dropped %u",
+                static_cast<unsigned long long>(diagnostics_frame.capture_session_index),
+                static_cast<unsigned long long>(diagnostics_frame.frame_index), diagnostics_frame.duration_ms,
+                diagnostics_frame.event_count, diagnostics_frame.dropped_event_count);
+    if (!panel_state.diagnostics_gpu_frame) {
+      ImGui::TextDisabled("GPU snapshot pending or unavailable for the pinned frame.");
+    } else {
+      const auto& diagnostics_gpu_frame = *panel_state.diagnostics_gpu_frame;
+      ImGui::Text("GPU span %.3f ms  queries %u/%u  skipped %u  unresolved %u", diagnostics_gpu_frame.span_milliseconds,
+                  diagnostics_gpu_frame.query_used, diagnostics_gpu_frame.query_capacity,
+                  diagnostics_gpu_frame.skipped_scope_count, diagnostics_gpu_frame.unresolved_scope_count);
+    }
+
+    ImGui::SeparatorText("CPU timeline (CPU frame-relative clock)");
+    if (ImGui::BeginChild("ProfilerCpuTimeline", ImVec2(0.0f, 220.0f), true, ImGuiWindowFlags_HorizontalScrollbar))
+      DrawProfilerCpuTimeline(diagnostics_frame);
+    ImGui::EndChild();
+    ImGui::SeparatorText("GPU timeline (GPU snapshot-relative clock; not aligned to CPU)");
+    if (ImGui::BeginChild("ProfilerGpuTimeline", ImVec2(0.0f, 220.0f), true, ImGuiWindowFlags_HorizontalScrollbar)) {
+      if (!panel_state.diagnostics_gpu_frame)
+        ImGui::TextDisabled("No aligned GPU snapshot.");
+      else
+        DrawProfilerGpuTimeline(*panel_state.diagnostics_gpu_frame);
+    }
+    ImGui::EndChild();
+
+    if (ImGui::CollapsingHeader("CPU category totals", ImGuiTreeNodeFlags_DefaultOpen)) {
+      std::vector<const ProfilerAggregateTotal*> rows;
+      for (const auto& row : diagnostics_frame.category_totals)
+        rows.emplace_back(&row);
+      if (ImGui::BeginTable("ProfilerCategoryTotals", 4,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Sortable)) {
+        ImGui::TableSetupColumn("Category");
+        ImGui::TableSetupColumn("Count");
+        ImGui::TableSetupColumn("Total ms",
+                                ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending);
+        ImGui::TableSetupColumn("Max ms");
+        ImGui::TableHeadersRow();
+        if (const auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
+          const auto spec = specs->Specs[0];
+          std::stable_sort(rows.begin(), rows.end(), [&](const auto* left, const auto* right) {
+            int comparison = 0;
+            if (spec.ColumnIndex == 0)
+              comparison = left->category.compare(right->category);
+            else {
+              const double left_value = spec.ColumnIndex == 1   ? left->count
+                                        : spec.ColumnIndex == 2 ? left->total_ms
+                                                                : left->max_ms;
+              const double right_value = spec.ColumnIndex == 1   ? right->count
+                                         : spec.ColumnIndex == 2 ? right->total_ms
+                                                                 : right->max_ms;
+              comparison = left_value < right_value ? -1 : left_value > right_value ? 1 : 0;
+            }
+            return spec.SortDirection == ImGuiSortDirection_Ascending ? comparison < 0 : comparison > 0;
+          });
+        }
+        for (const auto* row : rows) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row->category.c_str());
+          ImGui::TableNextColumn();
+          ImGui::Text("%u", row->count);
+          ImGui::TableNextColumn();
+          ImGui::Text("%.3f", row->total_ms);
+          ImGui::TableNextColumn();
+          ImGui::Text("%.3f", row->max_ms);
+        }
+        ImGui::EndTable();
+      }
+    }
+
+    if (ImGui::CollapsingHeader("CPU event totals", ImGuiTreeNodeFlags_DefaultOpen)) {
+      std::vector<const ProfilerAggregateTotal*> rows;
+      for (const auto& row : diagnostics_frame.named_event_totals)
+        rows.emplace_back(&row);
+      if (ImGui::BeginTable("ProfilerEventTotals", 4,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Sortable)) {
+        ImGui::TableSetupColumn("Name");
+        ImGui::TableSetupColumn("Category");
+        ImGui::TableSetupColumn("Count");
+        ImGui::TableSetupColumn("Total ms",
+                                ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending);
+        ImGui::TableHeadersRow();
+        if (const auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
+          const auto spec = specs->Specs[0];
+          std::stable_sort(rows.begin(), rows.end(), [&](const auto* left, const auto* right) {
+            int comparison = spec.ColumnIndex == 0   ? left->name.compare(right->name)
+                             : spec.ColumnIndex == 1 ? left->category.compare(right->category)
+                             : spec.ColumnIndex == 2 ? (left->count < right->count   ? -1
+                                                        : left->count > right->count ? 1
+                                                                                     : 0)
+                                                     : (left->total_ms < right->total_ms   ? -1
+                                                        : left->total_ms > right->total_ms ? 1
+                                                                                           : 0);
+            return spec.SortDirection == ImGuiSortDirection_Ascending ? comparison < 0 : comparison > 0;
+          });
+        }
+        for (const auto* row : rows) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row->name.c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row->category.c_str());
+          ImGui::TableNextColumn();
+          ImGui::Text("%u", row->count);
+          ImGui::TableNextColumn();
+          ImGui::Text("%.3f", row->total_ms);
+        }
+        ImGui::EndTable();
+      }
+    }
+
+    if (panel_state.diagnostics_gpu_frame &&
+        ImGui::CollapsingHeader("GPU pass totals", ImGuiTreeNodeFlags_DefaultOpen)) {
+      auto rows = BuildGpuTimestampPassAggregates(*panel_state.diagnostics_gpu_frame);
+      if (ImGui::BeginTable("ProfilerGpuTotals", 5,
+                            ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Sortable)) {
+        ImGui::TableSetupColumn("Pass");
+        ImGui::TableSetupColumn("Group");
+        ImGui::TableSetupColumn("Queue");
+        ImGui::TableSetupColumn("Calls");
+        ImGui::TableSetupColumn("Total ms",
+                                ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending);
+        ImGui::TableHeadersRow();
+        if (const auto* specs = ImGui::TableGetSortSpecs(); specs && specs->SpecsCount > 0) {
+          const auto spec = specs->Specs[0];
+          std::stable_sort(rows.begin(), rows.end(), [&](const auto& left, const auto& right) {
+            int comparison = spec.ColumnIndex == 0   ? left.metadata.display_name.compare(right.metadata.display_name)
+                             : spec.ColumnIndex == 1 ? left.metadata.group.compare(right.metadata.group)
+                             : spec.ColumnIndex == 2 ? std::string(GpuTimestampQueueName(left.metadata.queue))
+                                                           .compare(GpuTimestampQueueName(right.metadata.queue))
+                             : spec.ColumnIndex == 3 ? (left.call_count < right.call_count   ? -1
+                                                        : left.call_count > right.call_count ? 1
+                                                                                             : 0)
+                                                     : (left.total_milliseconds < right.total_milliseconds   ? -1
+                                                        : left.total_milliseconds > right.total_milliseconds ? 1
+                                                                                                             : 0);
+            return spec.SortDirection == ImGuiSortDirection_Ascending ? comparison < 0 : comparison > 0;
+          });
+        }
+        for (const auto& row : rows) {
+          ImGui::TableNextRow();
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row.metadata.display_name.c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(row.metadata.group.c_str());
+          ImGui::TableNextColumn();
+          ImGui::TextUnformatted(GpuTimestampQueueName(row.metadata.queue));
+          ImGui::TableNextColumn();
+          ImGui::Text("%u", row.call_count);
+          ImGui::TableNextColumn();
+          ImGui::Text("%.3f", row.total_milliseconds);
+        }
+        ImGui::EndTable();
+      }
+    }
+
+    if (ImGui::CollapsingHeader("Raw CPU events")) {
+      if (ImGui::BeginTable(
+              "ProfilerEvents", 6,
+              ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY,
+              ImVec2(0.0f, 260.0f))) {
+        for (const char* column : {"Thread", "Name", "Category", "Start", "Duration", "Depth"})
+          ImGui::TableSetupColumn(column);
+        ImGui::TableHeadersRow();
+        for (const auto& lane : diagnostics_frame.thread_lanes) {
+          for (const auto& event : lane.events) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            const auto thread_name = ProfilerThreadDisplayName(lane.thread_name);
+            ImGui::TextUnformatted(thread_name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(event.name.c_str());
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(event.category.c_str());
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", event.start_ms);
+            ImGui::TableNextColumn();
+            ImGui::Text("%.3f", event.duration_ms);
+            ImGui::TableNextColumn();
+            ImGui::Text("%u", event.depth);
+          }
+        }
+        ImGui::EndTable();
+      }
+    }
+
+    const auto export_frames = profiler.GetFrameHistorySnapshot();
+    ImGui::SeparatorText("Trace export");
+    if (ImGui::Button("Quick Export Trace")) {
+      std::string error;
+      const auto export_path = DefaultProfilerTracePath();
+      if (ExportProfilerChromeTrace(export_path, export_frames, &error)) {
+        profiler_export_status_ = "Exported " + export_path.string();
+      } else {
+        profiler_export_status_ = "Export failed: " + error;
+      }
+    }
+    ImGui::SameLine();
+    FileUtils::SaveFile(
+        "Export Trace...", "Chrome Trace JSON", {".json"},
+        [export_frames, this](const std::filesystem::path& path) {
+          std::string error;
+          if (ExportProfilerChromeTrace(path, export_frames, &error)) {
+            profiler_export_status_ = "Exported " + path.string();
+          } else {
+            profiler_export_status_ = "Export failed: " + error;
+          }
+        },
+        false);
+    if (!profiler_export_status_.empty())
+      ImGui::TextWrapped("%s", profiler_export_status_.c_str());
+    ImGui::EndTabItem();
+  }
+  ImGui::EndTabBar();
 
   ImGui::End();
 }
@@ -4815,6 +6891,7 @@ void EditorLayer::InspectComponentData(const Entity entity, IDataComponent* data
     if (component_data_inspector_map_.at(type.type_index)(entity, data, is_root)) {
       const auto scene = GetScene();
       scene->SetUnsaved();
+      NotifyStaticEntitiesChanged(scene, {entity});
     }
   }
 }
@@ -4957,7 +7034,7 @@ void EditorLayer::SceneCameraWindow() {
             }
           }
           const auto selection = entity_selection_.GetSnapshot();
-          const auto participants = EntityBatchInspector::BuildGizmoParticipants(scene, selection.entities);
+          const auto& participants = ResolveSelectionGizmoParticipants(scene, selection);
           const auto reference = EntityBatchInspector::FindGizmoReference(scene, participants, selection.primary);
           if (entity_gizmo_session_ && (environmental_lighting_gizmo_target_ || !scene->IsEntityValid(reference)))
             CancelEntityGizmoSession("Entity gizmo drag cancelled because its target changed.");
@@ -4968,12 +7045,13 @@ void EditorLayer::SceneCameraWindow() {
             glm::vec3 reference_position(0.0f), reference_scale(1.0f);
             glm::quat reference_rotation(1.0f, 0.0f, 0.0f, 0.0f);
             reference_transform.Decompose(reference_position, reference_rotation, reference_scale);
-            const auto pivot_bound = EntityBatchInspector::BuildSelectionWorldBound(scene, participants);
+            const auto pivot_bound = ResolveSelectionGizmoBound(scene, selection);
             const glm::vec3 pivot = pivot_bound.valid ? pivot_bound.world_bound.Center() : reference_position;
             const auto basis = entity_gizmo_orientation_mode_ == EntityGizmoOrientationMode::Local
                                    ? glm::mat4_cast(reference_rotation)
                                    : glm::mat4(1.0f);
-            const glm::mat4 initial_handle = glm::translate(pivot) * basis;
+            const glm::mat4 initial_handle =
+                entity_gizmo_session_ ? entity_gizmo_session_->handle : glm::translate(pivot) * basis;
             auto manipulated_handle =
                 entity_gizmo_session_ ? entity_gizmo_session_->manipulated_handle : initial_handle;
             ImGuizmo::Manipulate(
@@ -5887,8 +7965,8 @@ bool EditorLayer::FocusSceneCameraOnSelection(const std::shared_ptr<Scene>& scen
   if (!scene || !scene_camera)
     return false;
   const auto selection = entity_selection_.GetSnapshot();
-  const auto participants = EntityBatchInspector::BuildGizmoParticipants(scene, selection.entities);
-  const auto selection_bound = EntityBatchInspector::BuildSelectionWorldBound(scene, participants);
+  ResolveSelectionGizmoParticipants(scene, selection);
+  const auto selection_bound = ResolveSelectionGizmoBound(scene, selection);
   if (!selection_bound.valid)
     return false;
 

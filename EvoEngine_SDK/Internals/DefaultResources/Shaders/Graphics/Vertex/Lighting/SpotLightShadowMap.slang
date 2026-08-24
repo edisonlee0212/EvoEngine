@@ -8,7 +8,8 @@ struct ShadowVertexInput {
 
 [shader("vertex")]
 float4 main(ShadowVertexInput input, uint draw_id : SV_DrawIndex) : SV_Position {
-  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  uint instance_index =
+      EE_RASTER_DRAW_INSTANCE_INDEX(draw_id, EE_BASIC_CONSTANTS.instance_index, EE_BASIC_CONSTANTS.meshlet_culling_flags);
   float4 position = mul(float4(input.position, 1.0f), EE_INSTANCES[instance_index].model);
   return mul(position, EE_SPOT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].light_space_matrix);
 }

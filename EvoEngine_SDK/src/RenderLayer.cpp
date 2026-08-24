@@ -25,16 +25,15 @@
 #include "ProjectManager.hpp"
 #include "RenderGraph.hpp"
 #include "RenderPasses/DdgiAtlasPreparePass.hpp"
-#include "RenderPasses/DdgiGatherTimingPass.hpp"
 #include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/DdgiProbeClassificationPass.hpp"
 #include "RenderPasses/DdgiProbeRayVisualizationPass.hpp"
 #include "RenderPasses/DdgiProbeRelocationPass.hpp"
 #include "RenderPasses/DdgiProbeScrollPass.hpp"
+#include "RenderPasses/DdgiProbeTracePass.hpp"
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
-#include "RenderPasses/DdgiRayDiagnosticsPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
 #include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
@@ -55,6 +54,7 @@
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
 #include "Times.hpp"
+#include "TransformGraph.hpp"
 #include "Utilities.hpp"
 #include "WindowLayer.hpp"
 
@@ -77,7 +77,16 @@
 using namespace evo_engine;
 
 namespace {
-using DdgiPerformanceClock = std::chrono::steady_clock;
+uint32_t MeshletCullingFlags(const bool frustum, const bool cone, const VkCullModeFlags cull_mode,
+                             const uint32_t view) {
+  uint32_t flags = view | (frustum ? 1u : 0u);
+  if (cone) {
+    flags |= 2u;
+    flags |= cull_mode == VK_CULL_MODE_BACK_BIT ? 4u : cull_mode == VK_CULL_MODE_FRONT_BIT ? 8u : 0u;
+  }
+  return flags;
+}
+
 constexpr int kDdgiProbeScrollClearXBit = 1 << 0;
 constexpr int kDdgiProbeScrollClearYBit = 1 << 1;
 constexpr int kDdgiProbeScrollClearZBit = 1 << 2;
@@ -168,23 +177,6 @@ std::vector<VkFormat> CreateDeferredGBufferColorAttachmentFormats() {
   return {Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_attribute, Platform::Constants::g_buffer_attribute,
           Platform::Constants::g_buffer_utility};
-}
-
-float DdgiElapsedMilliseconds(const DdgiPerformanceClock::time_point start) {
-  return std::chrono::duration<float, std::milli>(DdgiPerformanceClock::now() - start).count();
-}
-
-void ApplyDdgiEmissiveSamplingStats(DdgiPerformanceStats& performance, const DdgiEmissiveSamplingStats& stats) {
-  performance.emissive_sampling_stats_available = true;
-  performance.emissive_nee_attempt_count = stats.nee_attempt_count;
-  performance.emissive_zero_pdf_reject_count = stats.zero_pdf_reject_count;
-  performance.emissive_emitter_backface_reject_count = stats.emitter_backface_reject_count;
-  performance.emissive_alpha_mask_reject_count = stats.alpha_mask_reject_count;
-  performance.emissive_invalid_sample_reject_count = stats.invalid_sample_reject_count;
-  performance.emissive_receiver_backface_reject_count = stats.receiver_backface_reject_count;
-  performance.emissive_shadowed_sample_count = stats.shadowed_sample_count;
-  performance.emissive_zero_radiance_sample_count = stats.zero_radiance_sample_count;
-  performance.emissive_nonzero_contribution_count = stats.nonzero_contribution_count;
 }
 
 uint32_t HashDdgiProbeRayRotationSeed(uint32_t value) {
@@ -295,6 +287,8 @@ void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayo
   layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+  layout->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TASK_BIT_EXT, 0);
 }
 
 void PushPerFrameBindlessTextureDescriptorBindings(
@@ -442,17 +436,6 @@ bool BoundIntersectsClipSpace(const Bound& bound, const glm::mat4& matrix) {
 bool ShouldRenderShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRenderInstance>& render_instance,
                                 const glm::mat4& light_space_matrix) {
   return render_instance->cast_shadow && BoundIntersectsClipSpace(render_instance->world_bound, light_space_matrix);
-}
-
-bool HasVisibleShadowInstance(const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
-                              const glm::mat4& light_space_matrix) {
-  bool has_visible_instance = false;
-  collection->ForEachRenderInstance([&](const auto& render_instance) {
-    if (!has_visible_instance && ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
-      has_visible_instance = true;
-    }
-  });
-  return has_visible_instance;
 }
 
 RenderGraphCompileContext CreateCameraRenderGraphCompileContext(const std::shared_ptr<Camera>& camera) {
@@ -1467,8 +1450,6 @@ void AddDdgiFrameResources(RenderGraph& graph, const DdgiFrameResourceLayout& la
   }
   graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_selected_ray_diagnostics,
                                                                layout.selected_ray_diagnostics_byte_size));
-  graph.AddResource(CreateDdgiImportedBufferResourceDescriptor(RenderResourceNames::frame_ddgi_emissive_sampling_stats,
-                                                               sizeof(DdgiEmissiveSamplingStats)));
   graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_irradiance_atlas,
                                                               layout.irradiance_atlas, "RGBA16F"));
   graph.AddResource(CreateDdgiImportedImageResourceDescriptor(RenderResourceNames::frame_ddgi_visibility_atlas,
@@ -1650,10 +1631,10 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!meshlet_layout_) {
     meshlet_layout_ = std::make_shared<DescriptorSetLayout>();
-    meshlet_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
-    meshlet_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-                                           VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_MESH_BIT_EXT, 0);
+    constexpr auto meshlet_stages =
+        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_TASK_BIT_EXT | VK_SHADER_STAGE_MESH_BIT_EXT;
+    meshlet_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, meshlet_stages, 0);
+    meshlet_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, meshlet_stages, 0);
     meshlet_layout_->Initialize();
   }
   if (Platform::MeshShaderEnabled() && !strand_meshlet_layout_) {
@@ -1743,8 +1724,6 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
-    ddgi_probe_ray_output_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
@@ -2386,96 +2365,96 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang",
         per_frame_layout_, strand_meshlet_layout_);
   }
-  if (!deferred_prepass_pipeline_normal) {
-    deferred_prepass_pipeline_normal = std::make_shared<GraphicsPipeline>();
-    deferred_prepass_pipeline_normal->vertex_shader = Shader::CreateTemporary(
+  if (!deferred_geometry_pipeline_normal) {
+    deferred_geometry_pipeline_normal = std::make_shared<GraphicsPipeline>();
+    deferred_geometry_pipeline_normal->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.slang");
-    deferred_prepass_pipeline_normal->fragment_shader = Shader::CreateTemporary(
+    deferred_geometry_pipeline_normal->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
-    deferred_prepass_pipeline_normal->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    deferred_prepass_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    deferred_prepass_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
-    deferred_prepass_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_normal->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
-    auto& push_constant_range = deferred_prepass_pipeline_normal->push_constant_ranges.emplace_back();
+    deferred_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
+    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    deferred_geometry_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
+    deferred_geometry_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    deferred_geometry_pipeline_normal->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
+    auto& push_constant_range = deferred_geometry_pipeline_normal->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    deferred_prepass_pipeline_normal->Initialize();
+    deferred_geometry_pipeline_normal->Initialize();
   }
-  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !deferred_prepass_pipeline_mesh) {
-    deferred_prepass_pipeline_mesh = std::make_shared<GraphicsPipeline>();
-    deferred_prepass_pipeline_mesh->task_shader =
+  if (Platform::GetInstance().GetCapabilities().support_mesh_shader && !deferred_geometry_pipeline_mesh) {
+    deferred_geometry_pipeline_mesh = std::make_shared<GraphicsPipeline>();
+    deferred_geometry_pipeline_mesh->task_shader =
         Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/Standard.slang");
-    deferred_prepass_pipeline_mesh->mesh_shader =
+    deferred_geometry_pipeline_mesh->mesh_shader =
         Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.slang");
-    deferred_prepass_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
+    deferred_geometry_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
-    deferred_prepass_pipeline_mesh->geometry_type = GeometryType::Mesh;
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    deferred_prepass_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    deferred_prepass_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
-    deferred_prepass_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    deferred_prepass_pipeline_mesh->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
-    auto& push_constant_range = deferred_prepass_pipeline_mesh->push_constant_ranges.emplace_back();
+    deferred_geometry_pipeline_mesh->geometry_type = GeometryType::Mesh;
+    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
+    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    deferred_geometry_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
+    deferred_geometry_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    deferred_geometry_pipeline_mesh->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
+    auto& push_constant_range = deferred_geometry_pipeline_mesh->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    deferred_prepass_pipeline_mesh->Initialize();
+    deferred_geometry_pipeline_mesh->Initialize();
   }
-  if (!instanced_deferred_prepass_pipeline) {
-    instanced_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
-    instanced_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
+  if (!instanced_deferred_geometry_pipeline) {
+    instanced_deferred_geometry_pipeline = std::make_shared<GraphicsPipeline>();
+    instanced_deferred_geometry_pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.slang");
-    instanced_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
+    instanced_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
-    instanced_deferred_prepass_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    instanced_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    instanced_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    instanced_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    instanced_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
-    auto& push_constant_range = instanced_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
+    instanced_deferred_geometry_pipeline->geometry_type = GeometryType::Mesh;
+    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
+    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    instanced_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    instanced_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    instanced_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
+    auto& push_constant_range = instanced_deferred_geometry_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    instanced_deferred_prepass_pipeline->Initialize();
+    instanced_deferred_geometry_pipeline->Initialize();
   }
-  if (!skinned_deferred_prepass_pipeline) {
-    skinned_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
-    skinned_deferred_prepass_pipeline->vertex_shader = Shader::CreateTemporary(
+  if (!skinned_deferred_geometry_pipeline) {
+    skinned_deferred_geometry_pipeline = std::make_shared<GraphicsPipeline>();
+    skinned_deferred_geometry_pipeline->vertex_shader = Shader::CreateTemporary(
         ShaderType::Vertex, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.slang");
-    skinned_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
+    skinned_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
-    skinned_deferred_prepass_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    skinned_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    skinned_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    skinned_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    skinned_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
-    auto& push_constant_range = skinned_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
+    skinned_deferred_geometry_pipeline->geometry_type = GeometryType::SkinnedMesh;
+    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
+    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    skinned_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    skinned_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    skinned_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
+    auto& push_constant_range = skinned_deferred_geometry_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    skinned_deferred_prepass_pipeline->Initialize();
+    skinned_deferred_geometry_pipeline->Initialize();
   }
   if (!skinned_motion_vectors_pipeline_) {
     skinned_motion_vectors_pipeline_ = std::make_shared<GraphicsPipeline>();
@@ -2523,30 +2502,30 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     transparent_motion_vectors_pipeline_->Initialize();
   }
-  if (Platform::MeshShaderEnabled() && !strands_deferred_prepass_pipeline) {
-    strands_deferred_prepass_pipeline = std::make_shared<GraphicsPipeline>();
-    strands_deferred_prepass_pipeline->task_shader = Shader::CreateTemporary(
+  if (Platform::MeshShaderEnabled() && !strands_deferred_geometry_pipeline) {
+    strands_deferred_geometry_pipeline = std::make_shared<GraphicsPipeline>();
+    strands_deferred_geometry_pipeline->task_shader = Shader::CreateTemporary(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Task/Standard/StandardStrands.slang");
-    strands_deferred_prepass_pipeline->mesh_shader = Shader::CreateTemporary(
+    strands_deferred_geometry_pipeline->mesh_shader = Shader::CreateTemporary(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/StandardStrands.slang");
-    strands_deferred_prepass_pipeline->fragment_shader = Shader::CreateTemporary(
+    strands_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
-    strands_deferred_prepass_pipeline->vertex_input_enabled = false;
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    strands_deferred_prepass_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
-    strands_deferred_prepass_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
-    strands_deferred_prepass_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    strands_deferred_prepass_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
-    auto& push_constant_range = strands_deferred_prepass_pipeline->push_constant_ranges.emplace_back();
+    strands_deferred_geometry_pipeline->vertex_input_enabled = false;
+    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
+    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
+    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
+    strands_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
+    strands_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+    strands_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
+    auto& push_constant_range = strands_deferred_geometry_pipeline->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    strands_deferred_prepass_pipeline->Initialize();
+    strands_deferred_geometry_pipeline->Initialize();
   }
   if (!deferred_lighting_pass_pipeline) {
     deferred_lighting_pass_pipeline = std::make_shared<GraphicsPipeline>();
@@ -2569,28 +2548,6 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     deferred_lighting_pass_pipeline->Initialize();
-  }
-  if (!ddgi_gather_timing_pipeline_) {
-    ddgi_gather_timing_pipeline_ = std::make_shared<GraphicsPipeline>();
-    ddgi_gather_timing_pipeline_->vertex_shader = Shader::CreateTemporary(
-        ShaderType::Vertex, Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/TexturePassThrough.slang");
-    ddgi_gather_timing_pipeline_->fragment_shader =
-        Shader::CreateTemporary(ShaderType::Fragment, Resources::GetDefaultResourcesPath() /
-                                                          "Shaders/Graphics/Fragment/Standard/DDGIGatherTiming.slang");
-    ddgi_gather_timing_pipeline_->geometry_type = GeometryType::Mesh;
-    ddgi_gather_timing_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
-    ddgi_gather_timing_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
-    ddgi_gather_timing_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
-    ddgi_gather_timing_pipeline_->descriptor_set_layouts.emplace_back(lighting_layout_);
-    ddgi_gather_timing_pipeline_->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
-    ddgi_gather_timing_pipeline_->depth_attachment_format = VK_FORMAT_UNDEFINED;
-    ddgi_gather_timing_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
-    ddgi_gather_timing_pipeline_->color_attachment_formats = {VK_FORMAT_R16G16B16A16_SFLOAT};
-    auto& push_constant_range = ddgi_gather_timing_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(RenderInstancePushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    ddgi_gather_timing_pipeline_->Initialize();
   }
   if (!deferred_lighting_pass_pipeline_scene_camera) {
     deferred_lighting_pass_pipeline_scene_camera = std::make_shared<GraphicsPipeline>();
@@ -2902,28 +2859,28 @@ void RenderLayer::OnCreate() {
     ray_tracing_point_cloud_pipeline->descriptor_set_layouts.emplace_back(ray_tracing_point_cloud_layout_);
     ray_tracing_point_cloud_pipeline->Initialize();
   }
-  if (Platform::RayTracingEnabled() && !ddgi_probe_ray_diagnostic_pipeline_) {
-    ddgi_probe_ray_diagnostic_pipeline_ = std::make_shared<RayTracingPipeline>();
-    ddgi_probe_ray_diagnostic_pipeline_->raygen_shader = Shader::CreateTemporary(
+  if (Platform::RayTracingEnabled() && !ddgi_probe_trace_pipeline_) {
+    ddgi_probe_trace_pipeline_ = std::make_shared<RayTracingPipeline>();
+    ddgi_probe_trace_pipeline_->raygen_shader = Shader::CreateTemporary(
         ShaderType::RayGen, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeDiagnostics.slang");
-    ddgi_probe_ray_diagnostic_pipeline_->miss_shader = Shader::CreateTemporary(
-        ShaderType::Miss, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeDiagnostics.slang");
-    ddgi_probe_ray_diagnostic_pipeline_->closest_hit_shader = Shader::CreateTemporary(
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/RayGen/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->miss_shader =
+        Shader::CreateTemporary(ShaderType::Miss, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/Miss/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->closest_hit_shader = Shader::CreateTemporary(
         ShaderType::ClosestHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeDiagnostics.slang");
-    ddgi_probe_ray_diagnostic_pipeline_->any_hit_shader = Shader::CreateTemporary(
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/ClosestHit/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->any_hit_shader = Shader::CreateTemporary(
         ShaderType::AnyHit, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeDiagnostics.slang");
-    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
-    ddgi_probe_ray_diagnostic_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
-    auto& push_constant_range = ddgi_probe_ray_diagnostic_pipeline_->push_constant_ranges.emplace_back();
+        Resources::GetDefaultResourcesPath() / "Shaders/RayTracing/AnyHit/DDGIProbeTrace.slang");
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ray_tracing_layout_);
+    ddgi_probe_trace_pipeline_->descriptor_set_layouts.emplace_back(ddgi_probe_ray_output_layout_);
+    auto& push_constant_range = ddgi_probe_trace_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(DdgiProbeRayTracingPushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = ray_tracing_push_constant_stages;
-    ddgi_probe_ray_diagnostic_pipeline_->Initialize();
+    ddgi_probe_trace_pipeline_->Initialize();
   }
 #pragma endregion
 
@@ -3074,25 +3031,6 @@ void RenderLayer::RequestDdgiHistoryReset() {
   }
 }
 
-void RenderLayer::RequestDdgiEmissiveSamplingCapture() {
-  if (ddgi_session_state_.emissive_capture_pending) {
-    return;
-  }
-  ddgi_session_state_.emissive_capture_requested = true;
-  ddgi_session_state_.emissive_capture_pending = true;
-  for (auto& [stable_entity_id, runtime] : ddgi_volume_runtime_states_) {
-    (void)stable_entity_id;
-    if (runtime) {
-      runtime->has_emissive_sampling_stats = false;
-      runtime->emissive_sampling_stats = {};
-    }
-  }
-}
-
-void RenderLayer::RequestDdgiGatherTimingCapture() {
-  ddgi_session_state_.gather_timing_capture_pending = true;
-}
-
 RenderLayer::DdgiInspectorSnapshot RenderLayer::GetDdgiInspectorSnapshot() const {
   DdgiInspectorSnapshot snapshot;
   snapshot.enabled = ResolveEnvironmentalLighting(GetScene()).ddgi_settings.runtime.enabled;
@@ -3101,9 +3039,6 @@ RenderLayer::DdgiInspectorSnapshot RenderLayer::GetDdgiInspectorSnapshot() const
   snapshot.last_probe_history_cleared = primary && primary->clear_probe_atlas_this_frame;
   snapshot.validation_error = ddgi_volume_set_validation_error_;
   snapshot.aggregate = ddgi_last_performance_stats_;
-  if (has_ddgi_emissive_sampling_capture_snapshot_) {
-    ApplyDdgiEmissiveSamplingStats(snapshot.aggregate, ddgi_emissive_sampling_capture_snapshot_);
-  }
   snapshot.volumes = BuildDdgiVolumeRuntimeStats();
   return snapshot;
 }
@@ -3165,7 +3100,6 @@ std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() c
 
 void RenderLayer::ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_state) {
   runtime_state.frame_trace_probe_rays = false;
-  runtime_state.frame_capture_emissive_sampling_stats = false;
   runtime_state.frame_clear_scrolled_probes = false;
   runtime_state.frame_ray_push_constant = {};
   runtime_state.frame_probe_scroll_push_constant = {};
@@ -3254,58 +3188,6 @@ DdgiProbeDebugDataView RenderLayer::RefreshDdgiProbeDebugData() {
         ray_ticket.consumed_generation = ray_ticket.generation;
       }
     }
-    for (const auto volume_id : ddgi_ordered_volume_ids_) {
-      const auto runtime_entry = ddgi_volume_runtime_states_.find(volume_id);
-      if (runtime_entry == ddgi_volume_runtime_states_.end()) {
-        continue;
-      }
-      auto& volume_runtime = *runtime_entry->second;
-      DdgiReadbackTicket* newest_ticket = nullptr;
-      for (auto& ticket : volume_runtime.emissive_sampling_stats_readback_tickets) {
-        if (ticket.generation > ticket.consumed_generation &&
-            (!newest_ticket || ticket.generation > newest_ticket->generation)) {
-          newest_ticket = &ticket;
-        }
-      }
-      if (newest_ticket && readback_ready(*newest_ticket)) {
-        const auto consumed_generation = newest_ticket->generation;
-        if (newest_ticket->byte_size == sizeof(DdgiEmissiveSamplingStats) &&
-            newest_ticket->buffer->GetSize() >= newest_ticket->byte_size) {
-          newest_ticket->buffer->Download(volume_runtime.emissive_sampling_stats);
-          volume_runtime.has_emissive_sampling_stats = true;
-          ApplyDdgiEmissiveSamplingStats(volume_runtime.last_performance_stats, volume_runtime.emissive_sampling_stats);
-        }
-        for (auto& ticket : volume_runtime.emissive_sampling_stats_readback_tickets) {
-          if (ticket.generation <= consumed_generation) {
-            ticket.consumed_generation = ticket.generation;
-          }
-        }
-      }
-    }
-    const bool capture_complete =
-        ddgi_session_state_.emissive_capture_pending && !ddgi_ordered_volume_ids_.empty() &&
-        std::all_of(ddgi_ordered_volume_ids_.begin(), ddgi_ordered_volume_ids_.end(), [&](const uint64_t volume_id) {
-          const auto runtime = ddgi_volume_runtime_states_.find(volume_id);
-          return runtime != ddgi_volume_runtime_states_.end() && runtime->second->has_emissive_sampling_stats;
-        });
-    if (capture_complete) {
-      DdgiEmissiveSamplingStats captured{};
-      for (const auto volume_id : ddgi_ordered_volume_ids_) {
-        const auto& stats = ddgi_volume_runtime_states_.at(volume_id)->emissive_sampling_stats;
-        captured.nee_attempt_count += stats.nee_attempt_count;
-        captured.zero_pdf_reject_count += stats.zero_pdf_reject_count;
-        captured.emitter_backface_reject_count += stats.emitter_backface_reject_count;
-        captured.alpha_mask_reject_count += stats.alpha_mask_reject_count;
-        captured.invalid_sample_reject_count += stats.invalid_sample_reject_count;
-        captured.receiver_backface_reject_count += stats.receiver_backface_reject_count;
-        captured.shadowed_sample_count += stats.shadowed_sample_count;
-        captured.zero_radiance_sample_count += stats.zero_radiance_sample_count;
-        captured.nonzero_contribution_count += stats.nonzero_contribution_count;
-      }
-      ddgi_emissive_sampling_capture_snapshot_ = captured;
-      has_ddgi_emissive_sampling_capture_snapshot_ = true;
-      ddgi_session_state_.emissive_capture_pending = false;
-    }
   }
   if (!selected_runtime) {
     return {};
@@ -3355,14 +3237,64 @@ void RenderLayer::PrepareForRendering() {
   PrepareSceneForRendering(scene, true, true, true, true, injected_cameras);
 }
 
+void RenderLayer::NotifyStaticEntityChanged(const std::shared_ptr<Scene>& scene, const Entity& entity) {
+  if (!scene || !scene->IsEntityValid(entity) || !scene->IsEntityStatic(entity))
+    return;
+  const auto active_scene = GetScene();
+  if (active_scene && scene != active_scene)
+    return;
+  if (pending_static_entity_change_scene_.lock() != scene) {
+    pending_static_entity_change_scene_ = scene;
+    pending_static_entity_changes_.clear();
+  }
+  if (std::find(pending_static_entity_changes_.begin(), pending_static_entity_changes_.end(), entity) ==
+      pending_static_entity_changes_.end()) {
+    pending_static_entity_changes_.emplace_back(entity);
+  }
+}
+
+void RenderLayer::ConsumeStaticEntityChanges(const std::shared_ptr<Scene>& scene) {
+  if (pending_static_entity_change_scene_.lock() != scene) {
+    pending_static_entity_change_scene_ = scene;
+    pending_static_entity_changes_.clear();
+    return;
+  }
+  auto changes = std::move(pending_static_entity_changes_);
+  pending_static_entity_changes_.clear();
+  changes.erase(std::remove_if(changes.begin(), changes.end(),
+                               [&](const Entity entity) {
+                                 return !scene->IsEntityValid(entity) || !scene->IsEntityStatic(entity);
+                               }),
+                changes.end());
+  for (const auto entity : changes) {
+    auto ancestor = scene->GetParent(entity);
+    bool covered = false;
+    while (scene->IsEntityValid(ancestor)) {
+      if (std::find(changes.begin(), changes.end(), ancestor) != changes.end()) {
+        covered = true;
+        break;
+      }
+      ancestor = scene->GetParent(ancestor);
+    }
+    if (!covered) {
+      TransformGraph::CalculateTransformGraphForDescendants(scene, entity);
+      for (const auto& render_instances : render_instances_list_) {
+        if (render_instances)
+          render_instances->InvalidateStaticEntityCache(scene, entity);
+      }
+    }
+  }
+}
+
 void RenderLayer::PrepareSceneForRendering(
     const std::shared_ptr<Scene>& scene, const bool include_editor_cameras, const bool update_editor_selection,
     const bool update_ray_tracing, const bool track_ddgi_scene_inputs,
     const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras,
-    const bool include_reflection_probes) {
+    const bool include_reflection_probes, const bool immediate_upload) {
   if (!scene)
     return;
   const ProfilerScope profiler_scope("RenderLayer::PrepareSceneForRendering", "Render");
+  ConsumeStaticEntityChanges(scene);
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   Platform::ResetRenderPassDrawStats(current_frame_index);
   const auto current_render_instances = render_instances_list_[current_frame_index];
@@ -3440,7 +3372,9 @@ void RenderLayer::PrepareSceneForRendering(
     PrepareDdgiFrameState(scene, current_render_instances);
   }
   current_render_instances->BuildPreviousInstanceInfoBlocks(GetPreviousRenderInstanceStorage());
-  current_render_instances->Upload();
+  const auto raster_visibility_started = std::chrono::steady_clock::now();
+  current_render_instances->BuildRasterVisibility(Platform::MeshShaderEnabled() && enable_meshlet);
+  current_render_instances->Upload(immediate_upload);
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 }
 
@@ -3458,16 +3392,8 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
     ddgi_runtime_scene_ = scene;
     ddgi_session_state_.pause_updates = false;
     ddgi_session_state_.reset_history_requested = false;
-    ddgi_session_state_.emissive_capture_requested = false;
-    ddgi_session_state_.emissive_capture_pending = false;
-    ddgi_session_state_.gather_timing_capture_pending = false;
     ddgi_session_state_.selected_volume_id = 0u;
     ddgi_session_state_.selected_probe_grid = glm::ivec3(0);
-    ddgi_emissive_sampling_capture_snapshot_ = {};
-    has_ddgi_emissive_sampling_capture_snapshot_ = false;
-  }
-  if (ddgi_session_state_.emissive_capture_pending && !ddgi_session_state_.emissive_capture_requested) {
-    (void)RefreshDdgiProbeDebugData();
   }
 
   render_instances->render_info_block.ddgi_volume_header = glm::uvec4(0u);
@@ -3546,7 +3472,6 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   ddgi_ordered_volume_ids_ = current_ids;
 
   const bool reset_probe_history = ddgi_session_state_.reset_history_requested;
-  bool emissive_capture_scheduled = false;
   const auto prepare_runtime = [&](const DdgiVolumeRuntimeInfo& info,
                                    const ResolvedEnvironmentalLighting::DdgiVolume& volume,
                                    const DdgiFrameResourceLayout& preflight_layout) {
@@ -3564,7 +3489,6 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
     runtime->manual_reset_pending |= reset_probe_history;
     PrepareDdgiVolumeFrameState(scene, render_instances, *runtime, volume, ddgi_settings, preflight_layout,
                                 info.sorted_index, runtime->manual_reset_pending);
-    emissive_capture_scheduled |= runtime->frame_capture_emissive_sampling_stats;
     if (runtime->frame_trace_probe_rays) {
       runtime->manual_reset_pending = false;
     }
@@ -3621,9 +3545,6 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       });
   if (reset_consumed) {
     ddgi_session_state_.reset_history_requested = false;
-  }
-  if (emissive_capture_scheduled) {
-    ddgi_session_state_.emissive_capture_requested = false;
   }
   ddgi_latched_scene_change_triggers_ = DdgiVolumeTriggerConditionNone;
   ddgi_deferred_scene_readiness_refresh_ = false;
@@ -3685,15 +3606,10 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   runtime_state.probe_metadata_readback_buffers.resize(max_frames_in_flight);
   runtime_state.probe_ray_readback_buffers.resize(max_frames_in_flight);
   runtime_state.selected_ray_diagnostics_buffers.resize(max_frames_in_flight);
-  runtime_state.emissive_sampling_stats_buffers.resize(max_frames_in_flight);
-  runtime_state.emissive_sampling_stats_readback_tickets.resize(max_frames_in_flight);
   runtime_state.variability_readback_tickets.resize(max_frames_in_flight);
   auto& ddgi_probe_metadata_readback_buffer = runtime_state.probe_metadata_readback_buffers.at(current_frame_index);
   auto& ddgi_probe_ray_readback_buffer = runtime_state.probe_ray_readback_buffers.at(current_frame_index);
   auto& ddgi_selected_ray_diagnostics_buffer = runtime_state.selected_ray_diagnostics_buffers.at(current_frame_index);
-  auto& ddgi_emissive_sampling_stats_buffer = runtime_state.emissive_sampling_stats_buffers.at(current_frame_index);
-  auto& ddgi_emissive_sampling_stats_readback_ticket =
-      runtime_state.emissive_sampling_stats_readback_tickets.at(current_frame_index);
   auto& ddgi_variability_readback_ticket = runtime_state.variability_readback_tickets.at(current_frame_index);
   auto& ddgi_variability_readback_buffer = ddgi_variability_readback_ticket.buffer;
 
@@ -4078,7 +3994,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
                                              !geometry_relocation_requested;
   const bool forced_probe_trace = scene_readiness_refresh || hysteresis_boost_update.force_update ||
                                   runtime_state.frame_probe_warmup_active || ddgi_variability_policy_changed ||
-                                  ddgi_session_state_.emissive_capture_requested || relocation_requested;
+                                  relocation_requested;
   const bool should_trace_probe_rays =
       forced_probe_trace || !convergence_pause_enabled ||
       (!wait_for_periodic_observation && (!runtime_state.probe_variability_converged || periodic_refresh_due));
@@ -4122,25 +4038,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, true, emissive_ray_count);
   runtime_state.frame_probe_classification_update_push_constant = CreateDdgiProbeClassificationPushConstant(
       ddgi_settings, ddgi_total_probe_count, ddgi_ray_source, false, emissive_ray_count);
-  runtime_state.frame_capture_emissive_sampling_stats = ddgi_session_state_.emissive_capture_requested;
-  if (runtime_state.frame_capture_emissive_sampling_stats) {
-    if (!ddgi_emissive_sampling_stats_buffer ||
-        ddgi_emissive_sampling_stats_buffer->GetSize() != sizeof(DdgiEmissiveSamplingStats)) {
-      ddgi_emissive_sampling_stats_buffer = CreateDdgiProbeStateBuffer(sizeof(DdgiEmissiveSamplingStats));
-    }
-    auto& readback_buffer = ddgi_emissive_sampling_stats_readback_ticket.buffer;
-    if (!readback_buffer || readback_buffer->GetSize() != sizeof(DdgiEmissiveSamplingStats)) {
-      ddgi_emissive_sampling_stats_readback_ticket = {};
-      readback_buffer = std::make_shared<Buffer>(sizeof(DdgiEmissiveSamplingStats), true);
-    }
-    if (!ddgi_emissive_sampling_stats_buffer || !readback_buffer) {
-      runtime_state.frame_capture_emissive_sampling_stats = false;
-    }
-  }
-  if (runtime_state.frame_capture_emissive_sampling_stats) {
-    runtime_state.frame_ray_push_constant.selected_probe_volume_flags_environment.z |=
-        DdgiRuntime::kProbeRayFlagEmissiveSamplingStats;
-  }
   if (prepare_debug_data && ddgi_session_state_.selected_probe_readback_requested) {
     if (!ddgi_probe_metadata_readback_buffer ||
         ddgi_probe_metadata_readback_buffer->GetSize() != layout.probe_metadata_byte_size) {
@@ -4221,6 +4118,7 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
     descriptor_set->UpdateBufferDescriptorBinding(8, render_instances->spot_light_info_descriptor_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(11, render_instances->gltf_material_descriptor_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(12, render_instances->gltf_texture_info_descriptor_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(14, render_instances->raster_draw_instance_indices_buffer);
   };
   update_per_frame_buffers(per_frame_descriptor_sets_[current_frame_index]);
   update_per_frame_buffers(raster_material_per_frame_descriptor_sets_[current_frame_index]);
@@ -4377,7 +4275,7 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
     const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> injected_cameras{
         {camera_global_transform, camera}};
     PrepareSceneForRendering(scene, false, false, false, false, reflection_probe_capture ? &injected_cameras : nullptr,
-                             !reflection_probe_capture);
+                             !reflection_probe_capture, true);
     const auto capture_render_instances = render_instances_list_[current_frame_index];
     bool render_info_changed = false;
     if (capture_render_instances && capture_render_instances->render_info_block.shadow_fade_parameters.y != 0.0f) {
@@ -4385,7 +4283,6 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
       render_info_changed = true;
     }
     if (reflection_probe_capture && capture_render_instances) {
-      capture_render_instances->environment_info_block.diffuse_fallback_intensity = 0.0f;
       capture_render_instances->environment_info_block.specular_fallback_intensity = 0.0f;
       if (previous_render_instances) {
         PreserveDdgiRenderInfo(capture_render_instances->render_info_block,
@@ -4394,12 +4291,11 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
       capture_render_instances->render_info_block.reflection_probe_header = glm::uvec4(0u);
       capture_render_instances->render_info_block.reflection_probes = {};
       capture_render_instances->render_info_block.debug_visualization = 0;
-      capture_render_instances->render_info_block.shadow_debug_parameters =
-          glm::ivec4(0, 0, 0, glm::clamp(capture_render_instances->render_info_block.shadow_debug_parameters.w, 1, 64));
+      capture_render_instances->render_info_block.shadow_debug_parameters = glm::ivec4(0);
       render_info_changed = true;
     }
     if (render_info_changed) {
-      capture_render_instances->Upload();
+      capture_render_instances->Upload(true);
       BindRenderInstanceStorage(current_frame_index, capture_render_instances);
     }
     if (reflection_probe_capture && previous_render_instances && capture_render_instances) {
@@ -4480,6 +4376,7 @@ RenderLayer::DynamicReflectionProbeStats RenderLayer::GetDynamicReflectionProbeS
   stats.active = dynamic_reflection_probe_contributing_;
   stats.queued_probe_count = static_cast<uint32_t>(dynamic_reflection_probe_queue_.size());
   bool current_probe_selected = false;
+  bool current_filter_probe_selected = false;
   bool transition_weight_set = false;
   for (const auto& [stable_id, state] : dynamic_reflection_probe_runtime_states_) {
     stats.published_generation_count += state.published_generation_count;
@@ -4503,18 +4400,28 @@ RenderLayer::DynamicReflectionProbeStats RenderLayer::GetDynamicReflectionProbeS
         ++stats.transitioning_probe_count;
       }
     }
-    if (state.next_face > 0u || state.completion_in_flight) {
-      ++stats.in_progress_probe_count;
-      if (!current_probe_selected) {
-        stats.current_probe_stable_id = stable_id;
-        stats.completed_face_count = state.next_face;
-        current_probe_selected = true;
+    if (state.filtering) {
+      ++stats.filtering_probe_count;
+      if (!current_filter_probe_selected) {
+        stats.current_filter_probe_stable_id = stable_id;
+        stats.completed_filter_face_count = state.filtered_face_count;
+        current_filter_probe_selected = true;
       }
+    }
+    if (state.next_face > 0u || state.filtering || state.completion_in_flight) {
+      ++stats.in_progress_probe_count;
+    }
+    if (state.next_face > 0u && !current_probe_selected) {
+      stats.current_probe_stable_id = stable_id;
+      stats.completed_face_count = state.next_face;
+      current_probe_selected = true;
     }
   }
   if (dynamic_reflection_probe_contributing_) {
-    if (reflection_probe_capture_raw_cubemap_) {
-      stats.transient_gpu_bytes += GlobalReflectionProbe::kCanonicalPayloadByteSize;
+    for (const auto& slot : dynamic_reflection_probe_raw_slots_) {
+      if (slot.cubemap) {
+        stats.transient_gpu_bytes += GlobalReflectionProbe::kCanonicalPayloadByteSize;
+      }
     }
     if (reflection_probe_capture_filtered_cubemap_) {
       stats.transient_gpu_bytes += GlobalReflectionProbe::kCanonicalPayloadByteSize;
@@ -4640,6 +4547,33 @@ bool RenderLayer::PrepareReflectionProbeCaptureResources(const VkFormat raw_form
   return reflection_probe_capture_filter_depth_image_ && reflection_probe_capture_filter_depth_view_ &&
          reflection_probe_capture_filter_descriptor_set_ && reflection_probe_capture_prefilter_pipeline_ &&
          reflection_probe_capture_prefilter_pipeline_->Initialized();
+}
+
+bool RenderLayer::PrepareDynamicReflectionProbeCaptureResources(const VkFormat raw_format) {
+  if (!PrepareReflectionProbeCaptureResources(raw_format)) {
+    return false;
+  }
+  auto& first_slot = dynamic_reflection_probe_raw_slots_[0];
+  first_slot.cubemap = reflection_probe_capture_raw_cubemap_;
+  first_slot.descriptor_set = reflection_probe_capture_filter_descriptor_set_;
+  auto& second_slot = dynamic_reflection_probe_raw_slots_[1];
+  if (!second_slot.cubemap) {
+    second_slot.cubemap = AssetManager::CreateTemporaryAsset<Cubemap>();
+    second_slot.cubemap->Initialize(GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kMipLevels, raw_format,
+                                    false);
+  }
+  if (!second_slot.cubemap->GetImage() || second_slot.cubemap->GetFormat() != raw_format) {
+    return false;
+  }
+  if (!second_slot.descriptor_set) {
+    second_slot.descriptor_set = std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
+    VkDescriptorImageInfo descriptor_image_info{};
+    descriptor_image_info.imageView = second_slot.cubemap->GetImageView()->GetVkImageView();
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.sampler = second_slot.cubemap->GetSampler()->GetVkSampler();
+    second_slot.descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
+  }
+  return true;
 }
 
 void RenderLayer::FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error,
@@ -4796,14 +4730,14 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
       geometry_descriptor, [this](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
         const auto& geometry_pipeline =
-            capture.use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
+            capture.use_mesh_shader ? deferred_geometry_pipeline_mesh : deferred_geometry_pipeline_normal;
         DeferredGeometryPass::Execute(
             context, {capture.camera,
                       capture.render_instances,
                       geometry_pipeline,
-                      instanced_deferred_prepass_pipeline,
-                      skinned_deferred_prepass_pipeline,
-                      capture.use_mesh_shader ? strands_deferred_prepass_pipeline : nullptr,
+                      instanced_deferred_geometry_pipeline,
+                      skinned_deferred_geometry_pipeline,
+                      capture.use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
                       raster_material_per_frame_descriptor_sets_[capture.current_frame_index],
                       meshlet_descriptor_sets_[capture.current_frame_index],
                       capture.use_mesh_shader ? strand_meshlet_descriptor_sets_[capture.current_frame_index] : nullptr,
@@ -4811,7 +4745,6 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       capture.current_frame_index,
                       capture.use_mesh_shader,
                       enable_indirect_rendering,
-                      true,
                       false,
                       false,
                       {},
@@ -4918,12 +4851,16 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
   const auto requests = prepared.requests;
   const auto outputs = prepared.output_cubemaps;
   Platform::RecordCommandsMainQueue([&, requests, outputs](const VkCommandBuffer command_buffer) {
-    const auto total_timestamp = Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe Bake GPU Total");
+    const auto total_timestamp = Platform::BeginGpuTimestampScope(
+        command_buffer, {"ReflectionProbeBakeTotal", "Reflection Probe Bake GPU Total", "Reflection Probes",
+                         GpuTimestampQueue::Graphics, 0, 0, false});
     const RenderCommandRecorder recorder = [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
       action(command_buffer);
     };
     for (size_t request_index = 0; request_index < requests.size(); ++request_index) {
-      const auto capture_timestamp = Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe Face Capture");
+      const auto capture_timestamp = Platform::BeginGpuTimestampScope(
+          command_buffer, {"ReflectionProbeFaceCapture", "Reflection Probe Face Capture", "Reflection Probes",
+                           GpuTimestampQueue::Graphics, requests[request_index].stable_id, 0, false});
       reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer,
                                                                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       for (uint32_t face = 0; face < 6u; ++face) {
@@ -4953,8 +4890,9 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
       reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
 
-      const auto prefilter_timestamp =
-          Platform::BeginGpuTimestampScope(command_buffer, "Reflection Probe GGX Prefilter");
+      const auto prefilter_timestamp = Platform::BeginGpuTimestampScope(
+          command_buffer, {"ReflectionProbeGgxPrefilter", "Reflection Probe GGX Prefilter", "Reflection Probes",
+                           GpuTimestampQueue::Graphics, requests[request_index].stable_id, 0});
       GlobalReflectionProbe::RecordPrefilter(
           command_buffer, reflection_probe_capture_filtered_cubemap_, reflection_probe_capture_filtered_mip_views_,
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
@@ -5007,7 +4945,7 @@ void RenderLayer::PublishSubmittedReflectionProbeBake(const uint32_t frame_index
 void RenderLayer::RebuildDynamicReflectionProbeQueue() {
   dynamic_reflection_probe_queue_.clear();
   for (auto& [stable_id, state] : dynamic_reflection_probe_runtime_states_) {
-    if (state.completion_in_flight) {
+    if (state.filtering || state.completion_in_flight) {
       continue;
     }
     dynamic_reflection_probe_queue_.emplace_back(stable_id);
@@ -5074,6 +5012,14 @@ void RenderLayer::RetireDynamicReflectionProbeRuntime() {
   }
   dynamic_reflection_probe_runtime_states_.clear();
   dynamic_reflection_probe_queue_.clear();
+  dynamic_reflection_probe_filter_queue_.clear();
+  for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+    slot.stable_id = 0u;
+    slot.capture_revision = 0u;
+    slot.output_generation = 0;
+    slot.capturing = false;
+    slot.filtering = false;
+  }
   prepared_dynamic_reflection_probe_update_.reset();
   dynamic_reflection_probe_texture_overrides_.clear();
   dynamic_reflection_probe_scene_.reset();
@@ -5194,7 +5140,7 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
       if (state.position != position) {
         state.position = position;
         ++state.capture_revision;
-        if (!state.completion_in_flight) {
+        if (!state.filtering && !state.completion_in_flight) {
           state.next_face = 0u;
           required_probe_ids.emplace_back(probe.stable_id);
         }
@@ -5223,6 +5169,14 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
 
   if (dynamic_reflection_probe_runtime_states_.empty()) {
     dynamic_reflection_probe_queue_.clear();
+    dynamic_reflection_probe_filter_queue_.clear();
+    for (auto& slot : dynamic_reflection_probe_raw_slots_) {
+      slot.stable_id = 0u;
+      slot.capture_revision = 0u;
+      slot.output_generation = 0;
+      slot.capturing = false;
+      slot.filtering = false;
+    }
     return;
   }
   if (previous_probe_count != dynamic_reflection_probe_runtime_states_.size()) {
@@ -5242,7 +5196,8 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
   } else {
     for (const auto stable_id : required_probe_ids) {
       const auto found = dynamic_reflection_probe_runtime_states_.find(stable_id);
-      if (found == dynamic_reflection_probe_runtime_states_.end() || found->second.completion_in_flight ||
+      if (found == dynamic_reflection_probe_runtime_states_.end() || found->second.filtering ||
+          found->second.completion_in_flight ||
           std::find(dynamic_reflection_probe_queue_.begin(), dynamic_reflection_probe_queue_.end(), stable_id) !=
               dynamic_reflection_probe_queue_.end()) {
         continue;
@@ -5253,47 +5208,100 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
       SortDynamicReflectionProbeQueue();
     }
   }
-  const bool idle = !prepared_dynamic_reflection_probe_update_ && dynamic_reflection_probe_queue_.empty() &&
-                    std::none_of(dynamic_reflection_probe_runtime_states_.begin(),
-                                 dynamic_reflection_probe_runtime_states_.end(), [](const auto& entry) {
-                                   return entry.second.next_face > 0u || entry.second.completion_in_flight;
-                                 });
+  const bool idle =
+      !prepared_dynamic_reflection_probe_update_ && dynamic_reflection_probe_queue_.empty() &&
+      std::none_of(dynamic_reflection_probe_runtime_states_.begin(), dynamic_reflection_probe_runtime_states_.end(),
+                   [](const auto& entry) {
+                     return entry.second.next_face > 0u || entry.second.filtering || entry.second.completion_in_flight;
+                   });
   if (idle) {
     RebuildDynamicReflectionProbeQueue();
   }
-  if (prepared_dynamic_reflection_probe_update_ || dynamic_reflection_probe_queue_.empty()) {
+  if (prepared_dynamic_reflection_probe_update_) {
     return;
   }
 
   PreparedDynamicReflectionProbeUpdate prepared;
   prepared.epoch = dynamic_reflection_probe_epoch_;
-  uint32_t remaining_budget = settings.faces_per_frame;
-  uint32_t camera_count = 0u;
-  while (remaining_budget > 0u && !dynamic_reflection_probe_queue_.empty()) {
-    const auto stable_id = dynamic_reflection_probe_queue_.front();
-    const auto state_it = dynamic_reflection_probe_runtime_states_.find(stable_id);
-    if (state_it == dynamic_reflection_probe_runtime_states_.end() || state_it->second.completion_in_flight) {
-      dynamic_reflection_probe_queue_.pop_front();
+  while (!dynamic_reflection_probe_filter_queue_.empty()) {
+    const auto raw_slot = dynamic_reflection_probe_filter_queue_.front();
+    if (raw_slot >= dynamic_reflection_probe_raw_slots_.size() ||
+        !dynamic_reflection_probe_raw_slots_[raw_slot].filtering) {
+      dynamic_reflection_probe_filter_queue_.pop_front();
       continue;
     }
-    auto& state = state_it->second;
-    const uint32_t face_count = glm::min(remaining_budget, 6u - state.next_face);
-    prepared.jobs.push_back({stable_id, state.next_face, face_count, camera_count,
-                             state.published_generation < 0 ? 1 : 1 - state.published_generation, 0u,
-                             state.capture_revision});
-    camera_count += face_count;
-    remaining_budget -= face_count;
-    if (state.next_face + face_count == 6u) {
+    const auto& slot = dynamic_reflection_probe_raw_slots_[raw_slot];
+    const auto state = dynamic_reflection_probe_runtime_states_.find(slot.stable_id);
+    if (state == dynamic_reflection_probe_runtime_states_.end() || !state->second.filtering) {
+      dynamic_reflection_probe_filter_queue_.pop_front();
+      auto& invalid_slot = dynamic_reflection_probe_raw_slots_[raw_slot];
+      invalid_slot.stable_id = 0u;
+      invalid_slot.capture_revision = 0u;
+      invalid_slot.output_generation = 0;
+      invalid_slot.capturing = false;
+      invalid_slot.filtering = false;
+      continue;
+    }
+    prepared.filter_jobs.push_back({raw_slot, state->second.filtered_face_count,
+                                    glm::min(settings.faces_per_frame, 6u - state->second.filtered_face_count)});
+    break;
+  }
+
+  uint32_t camera_count = 0u;
+  int newly_assigned_slot = -1;
+  if (!HasPendingGlobalReflectionProbeBake() && !dynamic_reflection_probe_queue_.empty()) {
+    const auto stable_id = dynamic_reflection_probe_queue_.front();
+    const auto state_it = dynamic_reflection_probe_runtime_states_.find(stable_id);
+    if (state_it == dynamic_reflection_probe_runtime_states_.end() || state_it->second.filtering ||
+        state_it->second.completion_in_flight) {
       dynamic_reflection_probe_queue_.pop_front();
     } else {
-      break;
+      auto& state = state_it->second;
+      int raw_slot = -1;
+      for (uint32_t index = 0; index < dynamic_reflection_probe_raw_slots_.size(); ++index) {
+        const auto& slot = dynamic_reflection_probe_raw_slots_[index];
+        if (slot.capturing && slot.stable_id == stable_id) {
+          raw_slot = static_cast<int>(index);
+          break;
+        }
+      }
+      if (raw_slot < 0) {
+        for (uint32_t index = 0; index < dynamic_reflection_probe_raw_slots_.size(); ++index) {
+          auto& slot = dynamic_reflection_probe_raw_slots_[index];
+          if (!slot.capturing && !slot.filtering) {
+            raw_slot = static_cast<int>(index);
+            newly_assigned_slot = raw_slot;
+            slot.stable_id = stable_id;
+            slot.capture_revision = state.capture_revision;
+            slot.output_generation = state.published_generation < 0 ? 1 : 1 - state.published_generation;
+            slot.capturing = true;
+            break;
+          }
+        }
+      }
+      if (raw_slot >= 0) {
+        dynamic_reflection_probe_raw_slots_[raw_slot].capture_revision = state.capture_revision;
+        const uint32_t face_count = glm::min(settings.faces_per_frame, 6u - state.next_face);
+        prepared.jobs.push_back({stable_id, state.next_face, face_count, camera_count,
+                                 dynamic_reflection_probe_raw_slots_[raw_slot].output_generation, 0u,
+                                 state.capture_revision, static_cast<uint32_t>(raw_slot)});
+        camera_count = face_count;
+        if (state.next_face + face_count == 6u) {
+          dynamic_reflection_probe_queue_.pop_front();
+        }
+      }
     }
   }
-  if (prepared.jobs.empty()) {
+  if (prepared.jobs.empty() && prepared.filter_jobs.empty()) {
     return;
   }
-  const auto& cameras = GetOrCreateReflectionProbeCaptureCameras(camera_count);
-  if (cameras.size() < camera_count || !cameras.front()) {
+  const auto& cameras = GetOrCreateReflectionProbeCaptureCameras(glm::max(camera_count, 1u));
+  if (cameras.size() < glm::max(camera_count, 1u) || !cameras.front()) {
+    if (newly_assigned_slot >= 0) {
+      auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.stable_id = 0u;
+      slot.capturing = false;
+    }
     return;
   }
   const auto camera = cameras.front();
@@ -5307,7 +5315,12 @@ void RenderLayer::PrepareDynamicReflectionProbeUpdate(const std::shared_ptr<Scen
     cameras[index]->background_environment = background.environmental_map;
   }
   if (!camera->GetRenderTexture() || !camera->GetRenderTexture()->GetColorImage() ||
-      !PrepareReflectionProbeCaptureResources(camera->GetRenderTexture()->GetColorImage()->GetFormat())) {
+      !PrepareDynamicReflectionProbeCaptureResources(camera->GetRenderTexture()->GetColorImage()->GetFormat())) {
+    if (newly_assigned_slot >= 0) {
+      auto& slot = dynamic_reflection_probe_raw_slots_[newly_assigned_slot];
+      slot.stable_id = 0u;
+      slot.capturing = false;
+    }
     return;
   }
   constexpr std::array<glm::vec3, 6> directions = {glm::vec3(1, 0, 0),  glm::vec3(-1, 0, 0), glm::vec3(0, 1, 0),
@@ -5387,43 +5400,35 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
                                reflection_probe_capture_render_graph_plan_);
   transient_resources.Bind(resources);
   const auto capture_lighting_descriptor_set =
-      GetRasterLightingTextureDescriptorSet(current_frame_index, face_camera_indices.front(), render_instances);
+      prepared.jobs.empty()
+          ? nullptr
+          : GetRasterLightingTextureDescriptorSet(current_frame_index, face_camera_indices.front(), render_instances);
 
-  std::vector<VkImageCopy> copies;
-  copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * 6u);
-  for (uint32_t face = 0; face < 6u; ++face) {
-    for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
-      VkImageCopy copy{};
-      copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1};
-      copy.dstSubresource = copy.srcSubresource;
-      const auto mip_width = glm::max(GlobalReflectionProbe::kResolution >> mip, 1u);
-      copy.extent = {mip_width, mip_width, 1};
-      copies.emplace_back(copy);
-    }
-  }
-  std::vector<std::shared_ptr<Cubemap>> outputs(prepared.jobs.size());
-  for (size_t index = 0; index < prepared.jobs.size(); ++index) {
-    const auto& job = prepared.jobs[index];
-    if (job.first_face + job.face_count == 6u) {
-      outputs[index] = dynamic_reflection_probe_runtime_states_.at(job.stable_id)
-                           .filtered_generations.at(static_cast<size_t>(job.output_generation));
+  std::vector<std::shared_ptr<Cubemap>> filter_outputs(prepared.filter_jobs.size());
+  for (size_t index = 0; index < prepared.filter_jobs.size(); ++index) {
+    const auto& slot = dynamic_reflection_probe_raw_slots_.at(prepared.filter_jobs[index].raw_slot);
+    const auto state = dynamic_reflection_probe_runtime_states_.find(slot.stable_id);
+    if (state != dynamic_reflection_probe_runtime_states_.end()) {
+      filter_outputs[index] = state->second.filtered_generations.at(static_cast<size_t>(slot.output_generation));
     }
   }
   const auto record_start = std::chrono::steady_clock::now();
   const auto source_image = camera->GetRenderTexture()->GetColorImage();
-  Platform::RecordCommandsMainQueue([&, prepared, outputs](const VkCommandBuffer command_buffer) {
-    const auto total_timestamp =
-        Platform::BeginGpuTimestampScope(command_buffer, "Dynamic Reflection Probe Update GPU Total");
+  Platform::RecordCommandsMainQueue([&, prepared, filter_outputs](const VkCommandBuffer command_buffer) {
+    const auto total_timestamp = Platform::BeginGpuTimestampScope(
+        command_buffer, {"DynamicReflectionProbeUpdateTotal", "Dynamic Reflection Probe Update GPU Total",
+                         "Reflection Probes", GpuTimestampQueue::Graphics, 0, 0, false});
     const RenderCommandRecorder recorder = [command_buffer](const std::function<void(VkCommandBuffer)>& action) {
       action(command_buffer);
     };
     for (size_t job_index = 0; job_index < prepared.jobs.size(); ++job_index) {
       const auto& job = prepared.jobs[job_index];
-      const auto capture_timestamp =
-          Platform::BeginGpuTimestampScope(command_buffer, "Dynamic Reflection Probe Face Capture");
+      const auto& raw_cubemap = dynamic_reflection_probe_raw_slots_.at(job.raw_slot).cubemap;
+      const auto capture_timestamp = Platform::BeginGpuTimestampScope(
+          command_buffer, {"DynamicReflectionProbeFaceCapture", "Dynamic Reflection Probe Face Capture",
+                           "Reflection Probes", GpuTimestampQueue::Graphics, job.stable_id, job.first_face, false});
       if (job.first_face == 0u) {
-        reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
       }
       for (uint32_t face_offset = 0; face_offset < job.face_count; ++face_offset) {
         const auto camera_offset = job.first_camera + face_offset;
@@ -5446,40 +5451,57 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, job.first_face + face_offset, 1};
         copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
         vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
       }
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
-      if (!outputs[job_index]) {
+      if (job.first_face + job.face_count == 6u) {
+        raw_cubemap->GetImage()->GenerateMipmaps(command_buffer);
+      }
+    }
+    for (size_t job_index = 0; job_index < prepared.filter_jobs.size(); ++job_index) {
+      const auto& job = prepared.filter_jobs[job_index];
+      const auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
+      const auto& output = filter_outputs[job_index];
+      if (!slot.cubemap || !slot.descriptor_set || !output) {
         continue;
       }
-      reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
-      const auto prefilter_timestamp =
-          Platform::BeginGpuTimestampScope(command_buffer, "Dynamic Reflection Probe GGX Prefilter");
-      GlobalReflectionProbe::RecordPrefilter(
+      const auto prefilter_timestamp = Platform::BeginGpuTimestampScope(
+          command_buffer, {"DynamicReflectionProbeGgxPrefilter", "Dynamic Reflection Probe GGX Prefilter",
+                           "Reflection Probes", GpuTimestampQueue::Graphics, slot.stable_id,
+                           (static_cast<uint64_t>(slot.output_generation) << 32u) | job.first_face});
+      GlobalReflectionProbe::RecordPrefilterFaces(
           command_buffer, reflection_probe_capture_filtered_cubemap_, reflection_probe_capture_filtered_mip_views_,
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
-          reflection_probe_capture_filter_descriptor_set_, reflection_probe_capture_prefilter_pipeline_);
+          slot.descriptor_set, reflection_probe_capture_prefilter_pipeline_, job.first_face, job.face_count);
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
                                                                                  VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-      outputs[job_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      std::vector<VkImageCopy> copies;
+      copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * job.face_count);
+      for (uint32_t face = job.first_face; face < job.first_face + job.face_count; ++face) {
+        for (uint32_t mip = 0; mip < GlobalReflectionProbe::kMipLevels; ++mip) {
+          VkImageCopy copy{};
+          copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, mip, face, 1};
+          copy.dstSubresource = copy.srcSubresource;
+          const auto mip_width = glm::max(GlobalReflectionProbe::kResolution >> mip, 1u);
+          copy.extent = {mip_width, mip_width, 1};
+          copies.emplace_back(copy);
+        }
+      }
       vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outputs[job_index]->GetImage()->GetVkImage(),
+                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, output->GetImage()->GetVkImage(),
                      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
           command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      outputs[job_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      if (job.first_face + job.face_count == 6u) {
+        output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      }
       Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
     }
     Platform::EndGpuTimestampScope(command_buffer, total_timestamp);
   });
 
-  auto& submitted = submitted_dynamic_reflection_probe_updates_[current_frame_index];
-  if (!submitted) {
-    submitted = SubmittedDynamicReflectionProbeUpdate{prepared.epoch, {}};
-  }
-  for (size_t index = 0; index < prepared.jobs.size(); ++index) {
-    const auto& job = prepared.jobs[index];
+  for (const auto& job : prepared.jobs) {
     const auto state_it = dynamic_reflection_probe_runtime_states_.find(job.stable_id);
     if (state_it == dynamic_reflection_probe_runtime_states_.end()) {
       continue;
@@ -5488,12 +5510,47 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     state.next_face = job.first_face + job.face_count;
     if (state.next_face == 6u) {
       state.next_face = 0u;
-      state.completion_in_flight = true;
-      submitted->completions.push_back({job.stable_id, job.output_generation, job.capture_revision, outputs[index]});
+      state.filtered_face_count = 0u;
+      state.filtering = true;
+      auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
+      slot.capturing = false;
+      slot.filtering = true;
+      dynamic_reflection_probe_filter_queue_.emplace_back(job.raw_slot);
     }
   }
-  if (submitted->completions.empty()) {
-    submitted.reset();
+  auto& submitted = submitted_dynamic_reflection_probe_updates_[current_frame_index];
+  for (size_t index = 0; index < prepared.filter_jobs.size(); ++index) {
+    const auto& job = prepared.filter_jobs[index];
+    auto& slot = dynamic_reflection_probe_raw_slots_.at(job.raw_slot);
+    const auto state_it = dynamic_reflection_probe_runtime_states_.find(slot.stable_id);
+    if (state_it == dynamic_reflection_probe_runtime_states_.end() || !filter_outputs[index]) {
+      continue;
+    }
+    auto& state = state_it->second;
+    state.filtered_face_count = job.first_face + job.face_count;
+    if (state.filtered_face_count != 6u) {
+      continue;
+    }
+    state.filtering = false;
+    state.completion_in_flight = true;
+    if (!submitted) {
+      submitted = SubmittedDynamicReflectionProbeUpdate{prepared.epoch, {}};
+    }
+    submitted->completions.push_back(
+        {slot.stable_id, slot.output_generation, slot.capture_revision, filter_outputs[index]});
+    slot.stable_id = 0u;
+    slot.capture_revision = 0u;
+    slot.output_generation = 0;
+    slot.filtering = false;
+    if (!dynamic_reflection_probe_filter_queue_.empty() &&
+        dynamic_reflection_probe_filter_queue_.front() == job.raw_slot) {
+      dynamic_reflection_probe_filter_queue_.pop_front();
+    } else {
+      dynamic_reflection_probe_filter_queue_.erase(
+          std::remove(dynamic_reflection_probe_filter_queue_.begin(), dynamic_reflection_probe_filter_queue_.end(),
+                      job.raw_slot),
+          dynamic_reflection_probe_filter_queue_.end());
+    }
   }
   prepared_dynamic_reflection_probe_update_.reset();
   Platform::RecordCpuTimingSample(
@@ -5511,7 +5568,11 @@ void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate(const uint32_t fr
   if (submission.epoch != dynamic_reflection_probe_epoch_) {
     return;
   }
-  reflection_probe_capture_raw_cubemap_->MarkGpuContentValid();
+  for (const auto& slot : dynamic_reflection_probe_raw_slots_) {
+    if (slot.cubemap) {
+      slot.cubemap->MarkGpuContentValid();
+    }
+  }
   reflection_probe_capture_filtered_cubemap_->MarkGpuContentValid();
   for (const auto& completion : submission.completions) {
     const auto found = dynamic_reflection_probe_runtime_states_.find(completion.stable_id);
@@ -5521,6 +5582,7 @@ void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate(const uint32_t fr
     auto& state = found->second;
     completion.output->MarkGpuContentValid();
     state.completion_in_flight = false;
+    state.filtered_face_count = 0u;
     if (completion.capture_revision != state.capture_revision) {
       if (std::find(dynamic_reflection_probe_queue_.begin(), dynamic_reflection_probe_queue_.end(),
                     completion.stable_id) == dynamic_reflection_probe_queue_.end()) {
@@ -5551,11 +5613,12 @@ void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate(const uint32_t fr
     ++state.published_generation_count;
     dynamic_reflection_probe_texture_overrides_[completion.stable_id] = texture_override;
   }
-  const bool idle = dynamic_reflection_probe_queue_.empty() && !prepared_dynamic_reflection_probe_update_ &&
-                    std::none_of(dynamic_reflection_probe_runtime_states_.begin(),
-                                 dynamic_reflection_probe_runtime_states_.end(), [](const auto& entry) {
-                                   return entry.second.next_face > 0u || entry.second.completion_in_flight;
-                                 });
+  const bool idle =
+      dynamic_reflection_probe_queue_.empty() && !prepared_dynamic_reflection_probe_update_ &&
+      std::none_of(dynamic_reflection_probe_runtime_states_.begin(), dynamic_reflection_probe_runtime_states_.end(),
+                   [](const auto& entry) {
+                     return entry.second.next_face > 0u || entry.second.filtering || entry.second.completion_in_flight;
+                   });
   if (!idle) {
     return;
   }
@@ -5576,9 +5639,6 @@ void RenderLayer::RenderAll() {
   if (!ddgi_fallback_probe_state_buffer_) {
     ddgi_fallback_probe_state_buffer_ =
         CreateDdgiFallbackProbeStateBuffer(DdgiRuntime::kMaxResidentProbeCount * sizeof(glm::vec4));
-  }
-  if (!ddgi_fallback_emissive_sampling_stats_buffer_) {
-    ddgi_fallback_emissive_sampling_stats_buffer_ = CreateDdgiProbeStateBuffer(sizeof(DdgiEmissiveSamplingStats));
   }
   BindDdgiFallbackLightingDescriptors(lighting_descriptor_set, ddgi_fallback_probe_state_buffer_);
   ddgi_last_performance_stats_ = {};
@@ -5631,16 +5691,6 @@ void RenderLayer::RenderAll() {
         glm::max(aggregate.emissive_estimated_power, volume_stats.emissive_estimated_power);
     aggregate.emissive_sampling_enabled_volume_count += volume_stats.emissive_sampling_enabled_volume_count;
     aggregate.emissive_sampling_candidate_ray_count += volume_stats.emissive_sampling_candidate_ray_count;
-    aggregate.emissive_sampling_stats_available |= volume_stats.emissive_sampling_stats_available;
-    aggregate.emissive_nee_attempt_count += volume_stats.emissive_nee_attempt_count;
-    aggregate.emissive_zero_pdf_reject_count += volume_stats.emissive_zero_pdf_reject_count;
-    aggregate.emissive_emitter_backface_reject_count += volume_stats.emissive_emitter_backface_reject_count;
-    aggregate.emissive_alpha_mask_reject_count += volume_stats.emissive_alpha_mask_reject_count;
-    aggregate.emissive_invalid_sample_reject_count += volume_stats.emissive_invalid_sample_reject_count;
-    aggregate.emissive_receiver_backface_reject_count += volume_stats.emissive_receiver_backface_reject_count;
-    aggregate.emissive_shadowed_sample_count += volume_stats.emissive_shadowed_sample_count;
-    aggregate.emissive_zero_radiance_sample_count += volume_stats.emissive_zero_radiance_sample_count;
-    aggregate.emissive_nonzero_contribution_count += volume_stats.emissive_nonzero_contribution_count;
     aggregate.recorded_ray_sample_count += volume_stats.recorded_ray_sample_count;
     aggregate.recorded_probe_update_count += volume_stats.recorded_probe_update_count;
     aggregate.selected_ray_sample_count += volume_stats.selected_ray_sample_count;
@@ -5669,13 +5719,6 @@ void RenderLayer::RenderAll() {
     aggregate.hysteresis_boosted_volume_count += volume_stats.hysteresis_boosted_volume_count;
     aggregate.hysteresis_restoring_volume_count += volume_stats.hysteresis_restoring_volume_count;
     aggregate.lighting_descriptors_bound &= volume_stats.lighting_descriptors_bound;
-    aggregate.atlas_prepare_record_ms += volume_stats.atlas_prepare_record_ms;
-    aggregate.ray_diagnostics_record_ms += volume_stats.ray_diagnostics_record_ms;
-    aggregate.probe_update_record_ms += volume_stats.probe_update_record_ms;
-    aggregate.probe_relocation_record_ms += volume_stats.probe_relocation_record_ms;
-    aggregate.probe_classification_record_ms += volume_stats.probe_classification_record_ms;
-    aggregate.probe_variability_record_ms += volume_stats.probe_variability_record_ms;
-    aggregate.frame_graph_execute_ms += volume_stats.frame_graph_execute_ms;
   };
 
   const auto execute_ddgi_runtime = [&](DdgiVolumeRuntimeState& ddgi_runtime, const uint32_t volume_slot,
@@ -5701,9 +5744,6 @@ void RenderLayer::RenderAll() {
       ddgi_runtime.last_performance_stats.emissive_unrepresentable_probability_count =
           inventory.unrepresentable_probability_count;
       ddgi_runtime.last_performance_stats.emissive_estimated_power = inventory.estimated_emitted_power;
-    }
-    if (ddgi_runtime.has_emissive_sampling_stats) {
-      ApplyDdgiEmissiveSamplingStats(ddgi_runtime.last_performance_stats, ddgi_runtime.emissive_sampling_stats);
     }
     ddgi_runtime.last_performance_stats.emissive_sampling_enabled_volume_count =
         ddgi_runtime.emissive_mesh_sampling_enabled ? 1u : 0u;
@@ -5785,18 +5825,17 @@ void RenderLayer::RenderAll() {
       const auto ddgi_probe_scroll_push_constant = ddgi_runtime.frame_probe_scroll_push_constant;
       AddDdgiFrameResources(frame_render_graph, ddgi_runtime.frame_resource_layout);
       if (clear_ddgi_probe_atlas) {
-        frame_render_graph.AddPass(
-            DdgiAtlasPreparePass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-              DdgiAtlasPreparePass::Execute(context, {&ddgi_runtime.last_performance_stats.atlas_prepare_record_ms});
-            });
+        frame_render_graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(),
+                                   [&](const RenderGraphExecutionContext& context) {
+                                     DdgiAtlasPreparePass::Execute(context);
+                                   });
       }
       if (clear_scrolled_probes) {
         frame_render_graph.AddPass(DdgiProbeScrollPass::CreateDescriptor(),
                                    [&, ddgi_probe_scroll_push_constant](const RenderGraphExecutionContext& context) {
                                      DdgiProbeScrollPass::Execute(
                                          context, {ddgi_probe_scroll_pipeline_, ddgi_probe_update_layout_,
-                                                   active_frame_transient_resources, ddgi_probe_scroll_push_constant,
-                                                   &ddgi_runtime.last_performance_stats.atlas_prepare_record_ms});
+                                                   active_frame_transient_resources, ddgi_probe_scroll_push_constant});
                                    });
       }
     }
@@ -5837,40 +5876,25 @@ void RenderLayer::RenderAll() {
                 ddgi_runtime.selected_ray_diagnostics_buffers[current_frame_index]
             ? ddgi_runtime.selected_ray_diagnostics_buffers[current_frame_index]
             : ddgi_fallback_probe_state_buffer_;
-    const auto ddgi_emissive_sampling_stats_buffer =
-        ddgi_runtime.frame_capture_emissive_sampling_stats &&
-                current_frame_index < ddgi_runtime.emissive_sampling_stats_buffers.size()
-            ? ddgi_runtime.emissive_sampling_stats_buffers[current_frame_index]
-            : ddgi_fallback_emissive_sampling_stats_buffer_;
-    const auto ddgi_emissive_sampling_stats_readback_buffer =
-        ddgi_runtime.frame_capture_emissive_sampling_stats &&
-                current_frame_index < ddgi_runtime.emissive_sampling_stats_readback_tickets.size()
-            ? ddgi_runtime.emissive_sampling_stats_readback_tickets[current_frame_index].buffer
-            : nullptr;
     const auto ddgi_variability_readback_buffer =
         current_frame_index < ddgi_runtime.variability_readback_tickets.size()
             ? ddgi_runtime.variability_readback_tickets[current_frame_index].buffer
             : nullptr;
     bool metadata_readback_recorded = false;
     bool selected_ray_readback_recorded = false;
-    bool emissive_sampling_stats_readback_recorded = false;
     bool variability_readback_recorded = false;
     if (trace_ddgi_probe_rays) {
       AddDdgiRayTracingFrameResources(frame_render_graph);
       frame_render_graph.AddPass(
-          DdgiRayDiagnosticsPass::CreateDescriptor(use_emissive_sampling),
+          DdgiProbeTracePass::CreateDescriptor(use_emissive_sampling),
           [&, ddgi_ray_push_constant](const RenderGraphExecutionContext& context) {
-            DdgiRayDiagnosticsPass::Execute(
-                context,
-                {ddgi_probe_ray_diagnostic_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                 ray_tracing_descriptor_sets_[current_frame_index], ddgi_probe_ray_output_layout_,
-                 active_frame_transient_resources, ddgi_atlas_sampler_, ddgi_ray_push_constant,
-                 ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
-                 ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
-                 ddgi_emissive_sampling_stats_readback_buffer, ddgi_runtime.frame_capture_emissive_sampling_stats,
-                 &emissive_sampling_stats_readback_recorded, use_emissive_sampling,
-                 &ddgi_runtime.last_performance_stats.recorded_ray_sample_count,
-                 &ddgi_runtime.last_performance_stats.ray_diagnostics_record_ms});
+            DdgiProbeTracePass::Execute(
+                context, {ddgi_probe_trace_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                          ray_tracing_descriptor_sets_[current_frame_index], ddgi_probe_ray_output_layout_,
+                          active_frame_transient_resources, ddgi_atlas_sampler_, ddgi_ray_push_constant,
+                          ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
+                          ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
+                          use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count});
           });
       frame_render_graph.AddPass(
           DdgiProbeUpdatePass::CreateDescriptor(use_emissive_sampling),
@@ -5882,8 +5906,7 @@ void RenderLayer::RenderAll() {
                  per_frame_descriptor_sets_[current_frame_index], ddgi_probe_update_layout_,
                  active_frame_transient_resources, ddgi_probe_update_push_constant, ddgi_probe_metadata_readback_buffer,
                  &metadata_readback_recorded, &ddgi_runtime.last_performance_stats.recorded_probe_update_count,
-                 &ddgi_runtime.last_performance_stats.probe_update_record_ms, &ddgi_probe_update_path_reported_,
-                 use_emissive_sampling});
+                 &ddgi_probe_update_path_reported_, use_emissive_sampling});
           });
       if (reset_ddgi_probe_relocation || relocate_ddgi_probes) {
         frame_render_graph.AddPass(
@@ -5891,10 +5914,10 @@ void RenderLayer::RenderAll() {
             [&, ddgi_probe_relocation_reset_push_constant, ddgi_probe_relocation_update_push_constant,
              reset_ddgi_probe_relocation, relocate_ddgi_probes](const RenderGraphExecutionContext& context) {
               DdgiProbeRelocationPass::Execute(
-                  context, {ddgi_probe_relocation_pipeline_, ddgi_probe_relocation_layout_,
-                            active_frame_transient_resources, ddgi_probe_relocation_reset_push_constant,
-                            ddgi_probe_relocation_update_push_constant, reset_ddgi_probe_relocation,
-                            relocate_ddgi_probes, &ddgi_runtime.last_performance_stats.probe_relocation_record_ms});
+                  context,
+                  {ddgi_probe_relocation_pipeline_, ddgi_probe_relocation_layout_, active_frame_transient_resources,
+                   ddgi_probe_relocation_reset_push_constant, ddgi_probe_relocation_update_push_constant,
+                   reset_ddgi_probe_relocation, relocate_ddgi_probes});
             });
       }
       if (reset_ddgi_probe_classification || classify_ddgi_probes) {
@@ -5906,7 +5929,7 @@ void RenderLayer::RenderAll() {
                   context, {ddgi_probe_classification_pipeline_, ddgi_probe_classification_layout_,
                             active_frame_transient_resources, ddgi_probe_classification_reset_push_constant,
                             ddgi_probe_classification_update_push_constant, reset_ddgi_probe_classification,
-                            classify_ddgi_probes, &ddgi_runtime.last_performance_stats.probe_classification_record_ms});
+                            classify_ddgi_probes});
             });
       }
       if (reduce_ddgi_probe_variability) {
@@ -5914,11 +5937,10 @@ void RenderLayer::RenderAll() {
             DdgiProbeVariabilityPass::CreateDescriptor(),
             [&, ddgi_probe_variability_layout](const RenderGraphExecutionContext& context) {
               DdgiProbeVariabilityPass::Execute(
-                  context,
-                  {ddgi_probe_variability_reduce_pipeline_, ddgi_probe_variability_extra_reduce_pipeline_,
-                   ddgi_probe_variability_layout_, active_frame_transient_resources, ddgi_probe_variability_layout,
-                   ddgi_runtime.frame_probe_variability_threshold, ddgi_variability_readback_buffer,
-                   &variability_readback_recorded, &ddgi_runtime.last_performance_stats.probe_variability_record_ms});
+                  context, {ddgi_probe_variability_reduce_pipeline_, ddgi_probe_variability_extra_reduce_pipeline_,
+                            ddgi_probe_variability_layout_, active_frame_transient_resources,
+                            ddgi_probe_variability_layout, ddgi_runtime.frame_probe_variability_threshold,
+                            ddgi_variability_readback_buffer, &variability_readback_recorded});
             });
       }
     }
@@ -5982,8 +6004,6 @@ void RenderLayer::RenderAll() {
                                               ddgi_runtime.probe_state_buffer);
       frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_selected_ray_diagnostics,
                                               ddgi_selected_ray_diagnostics_buffer);
-      frame_render_graph_resources.BindBuffer(RenderResourceNames::frame_ddgi_emissive_sampling_stats,
-                                              ddgi_emissive_sampling_stats_buffer);
     }
     auto& frame_transient_resources = current_frame_transient_resources.emplace_back();
     active_frame_transient_resources = &frame_transient_resources;
@@ -6023,12 +6043,9 @@ void RenderLayer::RenderAll() {
                                   frame_ddgi_selected_ray_diagnostics);
       });
     }
-    const auto ddgi_frame_graph_timer = DdgiPerformanceClock::now();
     frame_render_graph.Execute(frame_render_graph_plan, frame_render_graph_resources);
-    ddgi_runtime.last_performance_stats.frame_graph_execute_ms = DdgiElapsedMilliseconds(ddgi_frame_graph_timer);
     std::shared_ptr<FrameSubmissionState> readback_submission;
-    if (metadata_readback_recorded || selected_ray_readback_recorded || emissive_sampling_stats_readback_recorded ||
-        variability_readback_recorded) {
+    if (metadata_readback_recorded || selected_ray_readback_recorded || variability_readback_recorded) {
       readback_submission = Platform::TrackCurrentFrameSubmission();
     }
     if (metadata_readback_recorded) {
@@ -6054,17 +6071,6 @@ void RenderLayer::RenderAll() {
       ticket.logical_probe_index = ddgi_runtime.frame_selected_probe_ray_logical_index;
       ticket.physical_probe_index = ddgi_runtime.frame_selected_probe_ray_physical_index;
     }
-    if (emissive_sampling_stats_readback_recorded &&
-        current_frame_index < ddgi_runtime.emissive_sampling_stats_readback_tickets.size()) {
-      auto& ticket = ddgi_runtime.emissive_sampling_stats_readback_tickets[current_frame_index];
-      ticket = {};
-      ticket.buffer = ddgi_emissive_sampling_stats_readback_buffer;
-      ticket.submission = readback_submission;
-      ticket.generation = ++ddgi_runtime.next_emissive_sampling_stats_generation;
-      ticket.byte_size = sizeof(DdgiEmissiveSamplingStats);
-      ticket.frame_index = current_frame_index;
-      ticket.element_count = 1u;
-    }
     if (variability_readback_recorded && current_frame_index < ddgi_runtime.variability_readback_tickets.size()) {
       auto& ticket = ddgi_runtime.variability_readback_tickets[current_frame_index];
       ticket = {};
@@ -6086,7 +6092,9 @@ void RenderLayer::RenderAll() {
     }
     if (trace_ddgi_probe_rays && !reduce_ddgi_probe_variability && Platform::GpuTimestampCaptureEnabled()) {
       Platform::RecordCommandsMainQueue([](const VkCommandBuffer command_buffer) {
-        const auto gpu_timestamp = Platform::BeginGpuTimestampScope(command_buffer, "DDGI Variability Reduction");
+        const auto gpu_timestamp = Platform::BeginGpuTimestampScope(
+            command_buffer, {RenderPassNames::ddgi_probe_variability, "DDGI Variability Reduction", "AO / DDGI",
+                             GpuTimestampQueue::Graphics, 0, 0});
         Platform::EndGpuTimestampScope(command_buffer, gpu_timestamp);
       });
     }
@@ -6188,6 +6196,20 @@ void RenderLayer::RenderAll() {
       }
     }
   }
+
+  auto& profiler = Profiler::GetInstance();
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    if (const auto scene_camera = editor_layer->GetSceneCamera()) {
+      if (const auto render_texture = scene_camera->GetRenderTexture()) {
+        const auto extent = render_texture->GetExtent();
+        profiler.RecordCounter("Scene Camera Width", extent.width, "Raster", "pixels");
+        profiler.RecordCounter("Scene Camera Height", extent.height, "Raster", "pixels");
+      }
+    }
+  }
+  profiler.RecordCounter("Active Probes", ddgi_last_performance_stats_.active_probe_count, "DDGI", "probes");
+  profiler.RecordCounter("Updated Probes", ddgi_last_performance_stats_.updated_probe_count, "DDGI", "probes");
+  profiler.RecordCounter("Converged", ddgi_last_performance_stats_.probe_variability_converged ? 1.0 : 0.0, "DDGI");
 
   external_render_resource_descriptors.clear();
   frame_render_pass_external_functions.clear();
@@ -6522,68 +6544,83 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
     const auto render_shadow_collection =
         [&](const RenderPassDrawBucket bucket,
             const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
-            const std::shared_ptr<GraphicsPipeline>& opaque_pipeline, const glm::mat4& light_space_matrix,
-            const int light_index, const int split_index, const glm::ivec4& viewport) {
+            const std::shared_ptr<GraphicsPipeline>& opaque_pipeline, const bool compact,
+            const glm::mat4& light_space_matrix, const int light_index, const int split_index,
+            const glm::ivec4& viewport) {
           if (!prepare_graphics_pipeline(opaque_pipeline, viewport)) {
             return;
           }
           collection->ForEachRenderInstance([&](const auto& render_instance) {
-            if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+            if (!compact && !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
               return;
             }
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = light_index;
             push_constant.light_split_index = split_index;
             push_constant.instance_index = render_instance->instance_index;
+            const bool rigid_meshlets = opaque_pipeline == point_light_shadow_opaque_pipeline ||
+                                        opaque_pipeline == spot_light_shadow_opaque_pipeline;
+            push_constant.meshlet_culling_flags =
+                MeshletCullingFlags(true, rigid_meshlets, render_instance->cull_mode,
+                                    bucket == RenderPassDrawBucket::PointLightShadow ? 512u : 768u);
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, opaque_pipeline);
             account_draw(bucket, RenderDrawCallKind::Direct, prim_count);
           });
         };
     const auto draw_shadow_indirect = [&](const RenderPassDrawBucket bucket,
                                           const std::shared_ptr<GraphicsPipeline>& target_pipeline,
-                                          const uint32_t prim_count, const std::shared_ptr<Buffer>& indexed_buffer,
-                                          const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
-                                          const std::shared_ptr<Buffer>& mesh_task_buffer,
-                                          const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands,
-                                          const glm::mat4& light_space_matrix, const int light_index,
-                                          const int split_index, const glm::ivec4& viewport) {
-      if (prim_count == 0 ||
-          !HasVisibleShadowInstance(current_render_instances->deferred_render_instances, light_space_matrix) ||
-          !prepare_graphics_pipeline(target_pipeline, viewport)) {
+                                          const RenderInstanceStorage::ShadowViewIndirectCommands* view,
+                                          const int light_index, const int split_index, const glm::ivec4& viewport) {
+      const auto& buffer = view ? view->indirect_buffer
+                           : use_mesh_shader
+                               ? current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer
+                               : current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer;
+      const auto submitted_primitives =
+          view ? view->submitted_primitives : current_render_instances->total_opaque_shadow_mesh_triangles;
+      const auto command_count =
+          view              ? (use_mesh_shader ? view->mesh_task_commands.size() : view->indexed_commands.size())
+          : use_mesh_shader ? current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size()
+                            : current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.size();
+      if (!buffer || submitted_primitives == 0u || !prepare_graphics_pipeline(target_pipeline, viewport)) {
         return;
       }
       RenderInstancePushConstant push_constant;
       push_constant.camera_index = light_index;
       push_constant.light_split_index = split_index;
-      push_constant.instance_index = 0;
+      push_constant.instance_index = static_cast<int>(
+          view ? view->draw_instance_index_offset : current_render_instances->deferred_mesh_draw_instance_index_offset);
+      push_constant.meshlet_culling_flags =
+          MeshletCullingFlags(true, true, VK_CULL_MODE_BACK_BIT,
+                              bucket == RenderPassDrawBucket::PointLightShadow ? 512u : 768u) |
+          RenderInstancePushConstant::kRasterDrawInstanceMappingBit;
       target_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
       target_pipeline->states.ApplyAllStates(vk_command_buffer);
-      account_draw(bucket, RenderDrawCallKind::Indirect, prim_count,
-                   use_mesh_shader ? mesh_task_commands.size() : indexed_commands.size());
+      account_draw(bucket, RenderDrawCallKind::Indirect, submitted_primitives, command_count);
       if (use_mesh_shader) {
-        Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_task_buffer, 0, mesh_task_commands.size(),
-                                        sizeof(VkDrawMeshTasksIndirectCommandEXT));
+        Platform::DrawMeshTasksIndirect(vk_command_buffer, *buffer, view ? view->indirect_buffer_offset : 0,
+                                        command_count, sizeof(VkDrawMeshTasksIndirectCommandEXT));
       } else {
-        Platform::DrawIndexedIndirect(vk_command_buffer, *indexed_buffer, 0, indexed_commands.size(),
-                                      sizeof(VkDrawIndexedIndirectCommand));
+        Platform::DrawIndexedIndirect(vk_command_buffer, *buffer, view ? view->indirect_buffer_offset : 0,
+                                      command_count, sizeof(VkDrawIndexedIndirectCommand));
       }
     };
     const auto render_strands_shadow_collection =
         [&](const RenderPassDrawBucket bucket,
             const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& collection,
-            const std::shared_ptr<GraphicsPipeline>& pipeline, const glm::mat4& light_space_matrix,
+            const std::shared_ptr<GraphicsPipeline>& pipeline, const bool compact, const glm::mat4& light_space_matrix,
             const int light_index, const int split_index, const glm::ivec4& viewport) {
           if (!prepare_graphics_pipeline(pipeline, viewport)) {
             return;
           }
           collection->ForEachRenderInstance([&](const auto& render_instance) {
-            if (!ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
+            if (!compact && !ShouldRenderShadowInstance(render_instance, light_space_matrix)) {
               return;
             }
             RenderInstancePushConstant push_constant;
             push_constant.camera_index = light_index;
             push_constant.light_split_index = split_index;
             push_constant.instance_index = render_instance->instance_index;
+            push_constant.meshlet_culling_flags = bucket == RenderPassDrawBucket::PointLightShadow ? 513u : 769u;
             pipeline->states.cull_mode = render_instance->cull_mode;
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, pipeline);
             if (count_draw_calls) {
@@ -6614,48 +6651,58 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
           if (!LightCastsShadow(point_light_info_block.diffuse)) {
             continue;
           }
+          const auto point_shadow_timestamp = Platform::BeginGpuTimestampScope(
+              vk_command_buffer, {"PointShadow", "Point Shadow", "Shadows", GpuTimestampQueue::Graphics,
+                                  static_cast<uint64_t>(i), static_cast<uint64_t>(face)});
           const auto& light_space_matrix = point_light_info_block.light_space_matrix[face];
+          const auto* shadow_view = current_render_instances->GetPointShadowView(i, face);
+          const bool use_compact_view = shadow_view != nullptr;
+          const auto& deferred_render_instances = use_compact_view
+                                                      ? shadow_view->deferred_render_instances
+                                                      : current_render_instances->deferred_render_instances;
+          const auto& deferred_instanced_render_instances =
+              use_compact_view ? shadow_view->deferred_instanced_render_instances
+                               : current_render_instances->deferred_instanced_render_instances;
+          const auto& deferred_skinned_render_instances =
+              use_compact_view ? shadow_view->deferred_skinned_render_instances
+                               : current_render_instances->deferred_skinned_render_instances;
+          const auto& deferred_strands_render_instances =
+              use_compact_view ? shadow_view->deferred_strands_render_instances
+                               : current_render_instances->deferred_strands_render_instances;
           GeometryStorage::BindVertices(vk_command_buffer);
           {
             if (enable_indirect_rendering &&
                 !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
-              draw_shadow_indirect(
-                  RenderPassDrawBucket::PointLightShadow, point_light_shadow_opaque_pipeline,
-                  current_render_instances->total_opaque_shadow_mesh_triangles,
-                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
-                  current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
-                  current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
-                  current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands, light_space_matrix, i,
-                  face, point_light_info_block.viewport);
+              draw_shadow_indirect(RenderPassDrawBucket::PointLightShadow, point_light_shadow_opaque_pipeline,
+                                   shadow_view, i, face, point_light_info_block.viewport);
             } else {
-              render_shadow_collection(
-                  RenderPassDrawBucket::PointLightShadow, current_render_instances->deferred_render_instances,
-                  point_light_shadow_opaque_pipeline, light_space_matrix, i, face, point_light_info_block.viewport);
+              render_shadow_collection(RenderPassDrawBucket::PointLightShadow, deferred_render_instances,
+                                       point_light_shadow_opaque_pipeline, use_compact_view, light_space_matrix, i,
+                                       face, point_light_info_block.viewport);
             }
           }
           {
-            render_shadow_collection(RenderPassDrawBucket::PointLightShadow,
-                                     current_render_instances->deferred_instanced_render_instances,
-                                     instanced_point_light_shadow_pipeline_opaque, light_space_matrix, i, face,
-                                     point_light_info_block.viewport);
+            render_shadow_collection(RenderPassDrawBucket::PointLightShadow, deferred_instanced_render_instances,
+                                     instanced_point_light_shadow_pipeline_opaque, use_compact_view, light_space_matrix,
+                                     i, face, point_light_info_block.viewport);
           }
           GeometryStorage::BindSkinnedVertices(vk_command_buffer);
           {
-            render_shadow_collection(RenderPassDrawBucket::PointLightShadow,
-                                     current_render_instances->deferred_skinned_render_instances,
-                                     skinned_point_light_shadow_pipeline_opaque, light_space_matrix, i, face,
-                                     point_light_info_block.viewport);
+            render_shadow_collection(RenderPassDrawBucket::PointLightShadow, deferred_skinned_render_instances,
+                                     skinned_point_light_shadow_pipeline_opaque, use_compact_view, light_space_matrix,
+                                     i, face, point_light_info_block.viewport);
           }
-          render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow,
-                                           current_render_instances->deferred_strands_render_instances,
+          render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow, deferred_strands_render_instances,
                                            use_mesh_shader ? strands_point_light_shadow_pipeline : nullptr,
-                                           light_space_matrix, i, face, point_light_info_block.viewport);
+                                           use_compact_view, light_space_matrix, i, face,
+                                           point_light_info_block.viewport);
           if (include_external) {
             for (const auto& func : point_light_shadow_map_external_functions) {
               const auto prim_count = func(vk_command_buffer, {i, face, point_light_info_block.viewport});
               account_draw(RenderPassDrawBucket::PointLightShadow, RenderDrawCallKind::Direct, prim_count);
             }
           }
+          Platform::EndGpuTimestampScope(vk_command_buffer, point_shadow_timestamp);
         }
       });
     }
@@ -6682,45 +6729,56 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
         if (!LightCastsShadow(spot_light_info_block.diffuse)) {
           continue;
         }
+        const auto spot_shadow_timestamp = Platform::BeginGpuTimestampScope(
+            vk_command_buffer,
+            {"SpotShadow", "Spot Shadow", "Shadows", GpuTimestampQueue::Graphics, static_cast<uint64_t>(i), 0});
         const auto& light_space_matrix = spot_light_info_block.light_space_matrix;
+        const auto* shadow_view = current_render_instances->GetSpotShadowView(i);
+        const bool use_compact_view = shadow_view != nullptr;
+        const auto& deferred_render_instances = use_compact_view ? shadow_view->deferred_render_instances
+                                                                 : current_render_instances->deferred_render_instances;
+        const auto& deferred_instanced_render_instances =
+            use_compact_view ? shadow_view->deferred_instanced_render_instances
+                             : current_render_instances->deferred_instanced_render_instances;
+        const auto& deferred_skinned_render_instances =
+            use_compact_view ? shadow_view->deferred_skinned_render_instances
+                             : current_render_instances->deferred_skinned_render_instances;
+        const auto& deferred_strands_render_instances =
+            use_compact_view ? shadow_view->deferred_strands_render_instances
+                             : current_render_instances->deferred_strands_render_instances;
         GeometryStorage::BindVertices(vk_command_buffer);
         {
           if (enable_indirect_rendering &&
               !current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands.empty()) {
-            draw_shadow_indirect(RenderPassDrawBucket::SpotLightShadow, spot_light_shadow_opaque_pipeline,
-                                 current_render_instances->total_opaque_shadow_mesh_triangles,
-                                 current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
-                                 current_render_instances->opaque_shadow_mesh_draw_indexed_indirect_commands,
-                                 current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
-                                 current_render_instances->opaque_shadow_mesh_draw_mesh_tasks_indirect_commands,
-                                 light_space_matrix, i, 0, spot_light_info_block.viewport);
+            draw_shadow_indirect(RenderPassDrawBucket::SpotLightShadow, spot_light_shadow_opaque_pipeline, shadow_view,
+                                 i, 0, spot_light_info_block.viewport);
           } else {
-            render_shadow_collection(
-                RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_render_instances,
-                spot_light_shadow_opaque_pipeline, light_space_matrix, i, 0, spot_light_info_block.viewport);
+            render_shadow_collection(RenderPassDrawBucket::SpotLightShadow, deferred_render_instances,
+                                     spot_light_shadow_opaque_pipeline, use_compact_view, light_space_matrix, i, 0,
+                                     spot_light_info_block.viewport);
           }
         }
         {
-          render_shadow_collection(
-              RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_instanced_render_instances,
-              instanced_spot_light_shadow_pipeline_opaque, light_space_matrix, i, 0, spot_light_info_block.viewport);
+          render_shadow_collection(RenderPassDrawBucket::SpotLightShadow, deferred_instanced_render_instances,
+                                   instanced_spot_light_shadow_pipeline_opaque, use_compact_view, light_space_matrix, i,
+                                   0, spot_light_info_block.viewport);
         }
         GeometryStorage::BindSkinnedVertices(vk_command_buffer);
         {
-          render_shadow_collection(
-              RenderPassDrawBucket::SpotLightShadow, current_render_instances->deferred_skinned_render_instances,
-              skinned_spot_light_shadow_pipeline_opaque, light_space_matrix, i, 0, spot_light_info_block.viewport);
+          render_shadow_collection(RenderPassDrawBucket::SpotLightShadow, deferred_skinned_render_instances,
+                                   skinned_spot_light_shadow_pipeline_opaque, use_compact_view, light_space_matrix, i,
+                                   0, spot_light_info_block.viewport);
         }
-        render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow,
-                                         current_render_instances->deferred_strands_render_instances,
+        render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow, deferred_strands_render_instances,
                                          use_mesh_shader ? strands_spot_light_shadow_pipeline : nullptr,
-                                         light_space_matrix, i, 0, spot_light_info_block.viewport);
+                                         use_compact_view, light_space_matrix, i, 0, spot_light_info_block.viewport);
         if (include_external) {
           for (const auto& func : spot_light_shadow_map_external_functions) {
             const auto prim_count = func(vk_command_buffer, {i, spot_light_info_block.viewport});
             account_draw(RenderPassDrawBucket::SpotLightShadow, RenderDrawCallKind::Direct, prim_count);
           }
         }
+        Platform::EndGpuTimestampScope(vk_command_buffer, spot_shadow_timestamp);
       }
     });
     lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
@@ -6760,23 +6818,49 @@ bool RenderLayer::UpdateRenderInstanceStorage(
   RenderInstanceStorage::CalculateLodFactor(scene, lod_center, lod_max_distance);
   auto world_bound = scene->GetBound();
   const auto current_render_instances = render_instances_list_[current_frame_index];
-  EntitySelectionHighlightCoverage selection_highlight_coverage;
+  std::shared_ptr<const EntitySelectionHighlightCoverage> selection_highlight_coverage;
+  uint32_t selection_root_count = 0;
+  uint64_t selection_revision = 0;
+  uint64_t hierarchy_revision = scene->GetHierarchyRevision();
+  bool selection_coverage_rebuilt = false;
+  const auto selection_coverage_started = std::chrono::steady_clock::now();
   if (update_editor_selection) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
-      for (const auto& selected : editor_layer->GetEntitySelectionSnapshot().entities) {
-        if (!scene->IsEntityValid(selected))
-          continue;
-        selection_highlight_coverage.emplace(selected);
-        for (const auto& descendant : scene->GetDescendants(selected)) {
-          selection_highlight_coverage.emplace(descendant);
+      const auto selection = editor_layer->GetEntitySelectionSnapshot();
+      selection_root_count = static_cast<uint32_t>(selection.entities.size());
+      selection_revision = selection.revision;
+      if (selection_highlight_coverage_scene_.lock() != scene ||
+          selection_highlight_coverage_selection_revision_ != selection.revision ||
+          selection_highlight_coverage_hierarchy_revision_ != hierarchy_revision) {
+        const ProfilerScope selection_scope("RenderLayer::BuildSelectionHighlightCoverage", "Render");
+        auto rebuilt_coverage = std::make_shared<EntitySelectionHighlightCoverage>();
+        for (const auto& selected : selection.entities) {
+          if (!scene->IsEntityValid(selected))
+            continue;
+          rebuilt_coverage->emplace(selected);
+          for (const auto& descendant : scene->GetDescendants(selected)) {
+            rebuilt_coverage->emplace(descendant);
+          }
         }
+        selection_highlight_coverage_scene_ = scene;
+        selection_highlight_coverage_selection_revision_ = selection.revision;
+        selection_highlight_coverage_hierarchy_revision_ = hierarchy_revision;
+        selection_highlight_coverage_ = std::move(rebuilt_coverage);
+        selection_coverage_rebuilt = true;
       }
+      selection_highlight_coverage = selection_highlight_coverage_;
     }
+  }
+  if (Platform::Initialized() && selection_coverage_rebuilt) {
+    Platform::RecordCpuTimingSample(
+        "Editor Selection / Expand Coverage",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - selection_coverage_started)
+            .count());
   }
   current_render_instances->BuildFromScene(
       render_settings, scene, world_bound, include_editor_cameras, injected_cameras, include_reflection_probes,
       dynamic_reflection_probe_contributing_ ? &dynamic_reflection_probe_texture_overrides_ : nullptr,
-      &selection_highlight_coverage);
+      selection_highlight_coverage, selection_revision, hierarchy_revision);
   if (update_editor_selection) {
     if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
       editor_layer->ProcessPendingViewportSelection();
@@ -7210,16 +7294,16 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     }
     camera_render_graph.AddPass(
         std::move(deferred_geometry_descriptor), [&](const RenderGraphExecutionContext& context) {
-          const auto& deferred_prepass_pipeline =
-              use_mesh_shader ? deferred_prepass_pipeline_mesh : deferred_prepass_pipeline_normal;
+          const auto& deferred_geometry_pipeline =
+              use_mesh_shader ? deferred_geometry_pipeline_mesh : deferred_geometry_pipeline_normal;
           DeferredGeometryPass::Execute(
               context,
-              {camera, current_render_instances, deferred_prepass_pipeline, instanced_deferred_prepass_pipeline,
-               skinned_deferred_prepass_pipeline, use_mesh_shader ? strands_deferred_prepass_pipeline : nullptr,
+              {camera, current_render_instances, deferred_geometry_pipeline, instanced_deferred_geometry_pipeline,
+               skinned_deferred_geometry_pipeline, use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
                raster_material_per_frame_descriptor_sets_[current_frame_index],
                meshlet_descriptor_sets_[current_frame_index],
                use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr, camera_index,
-               current_frame_index, use_mesh_shader, enable_indirect_rendering, true, count_draw_calls,
+               current_frame_index, use_mesh_shader, enable_indirect_rendering, count_draw_calls,
                reflection_probe_capture ? false : wire_frame,
                [&](const VkCommandBuffer vk_command_buffer,
                    const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
@@ -7262,17 +7346,6 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                   [&](const RenderGraphExecutionContext& context) {
                                     AmbientOcclusionPass::Execute(context, {camera, active_camera_transient_resources});
                                   });
-    }
-    if (is_scene_camera && Platform::GpuTimestampCaptureEnabled() &&
-        ddgi_session_state_.gather_timing_capture_pending && ddgi_last_performance_stats_.lighting_descriptors_bound) {
-      camera_render_graph.AddPass(
-          DdgiGatherTimingPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
-            DdgiGatherTimingPass::Execute(context, {camera, ddgi_gather_timing_pipeline_,
-                                                    raster_material_per_frame_descriptor_sets_[current_frame_index],
-                                                    lighting_descriptor_set, raster_lighting_texture_descriptor_set,
-                                                    active_camera_transient_resources, camera_index, record_commands});
-          });
-      ddgi_session_state_.gather_timing_capture_pending = false;
     }
     camera_render_graph.AddPass(
         DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
@@ -7393,12 +7466,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             for (const auto& draw : ddgi_probe_visualization_draws) {
               const auto probe_count = draw.runtime->frame_resource_layout.probe_count;
               DdgiProbeVisualizationPass::Execute(
-                  context,
-                  {ddgi_probe_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                   ddgi_probe_visualization_layout_, active_camera_transient_resources, ddgi_atlas_sampler_,
-                   draw.runtime->probe_metadata_buffer, draw.runtime->probe_state_buffer,
-                   draw.runtime->irradiance_atlas, camera, probe_count, ddgi_probe_visualization_depth_test,
-                   draw.push_constant, &ddgi_last_performance_stats_.probe_visualization_record_ms, record_commands});
+                  context, {ddgi_probe_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                            ddgi_probe_visualization_layout_, active_camera_transient_resources, ddgi_atlas_sampler_,
+                            draw.runtime->probe_metadata_buffer, draw.runtime->probe_state_buffer,
+                            draw.runtime->irradiance_atlas, camera, probe_count, ddgi_probe_visualization_depth_test,
+                            draw.push_constant, record_commands});
               ddgi_last_performance_stats_.visualized_probe_count += probe_count;
               if (count_draw_calls) {
                 Platform::CountRenderPassDraw(RenderPassDrawBucket::DdgiProbeVisualization, RenderDrawCallKind::Direct,
@@ -7414,11 +7486,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           DdgiProbeRayVisualizationPass::CreateDescriptor(dependency),
           [&, ddgi_probe_ray_visualization_push_constant](const RenderGraphExecutionContext& context) {
             DdgiProbeRayVisualizationPass::Execute(
-                context, {ddgi_probe_ray_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
-                          ddgi_probe_ray_visualization_layout_, active_camera_transient_resources,
-                          ddgi_debug_runtime->frame_selected_ray_diagnostics_buffer, camera,
-                          ddgi_probe_visualization_depth_test, ddgi_probe_ray_visualization_push_constant,
-                          &ddgi_last_performance_stats_.probe_ray_visualization_record_ms, record_commands});
+                context,
+                {ddgi_probe_ray_visualization_pipeline_, per_frame_descriptor_sets_[current_frame_index],
+                 ddgi_probe_ray_visualization_layout_, active_camera_transient_resources,
+                 ddgi_debug_runtime->frame_selected_ray_diagnostics_buffer, camera, ddgi_probe_visualization_depth_test,
+                 ddgi_probe_ray_visualization_push_constant, record_commands});
             if (count_draw_calls) {
               Platform::CountRenderPassDraw(RenderPassDrawBucket::DdgiProbeRayVisualization, RenderDrawCallKind::Direct,
                                             current_frame_index, selected_ray_sample_count);
@@ -7670,6 +7742,8 @@ void RenderLayer::OnDestroy() {
   reflection_probe_capture_cameras_.clear();
   reflection_probe_shadow_camera_handle_ = {};
   reflection_probe_capture_raw_cubemap_.reset();
+  dynamic_reflection_probe_raw_slots_ = {};
+  dynamic_reflection_probe_filter_queue_.clear();
   reflection_probe_capture_filtered_cubemap_.reset();
   reflection_probe_capture_filtered_mip_views_.clear();
   reflection_probe_capture_filter_depth_view_.reset();

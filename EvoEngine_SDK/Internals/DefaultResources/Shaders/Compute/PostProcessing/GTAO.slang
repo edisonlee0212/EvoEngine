@@ -14,21 +14,17 @@ RWTexture2D<float> outAmbientOcclusion;
 
 struct EeAoConstants {
   int camera_index;
-  int kernelSize;
   float radius;
   float bias;
-  float factor;
   float intensity;
-  int algorithm;
   int sliceCount;
   int stepsPerSlice;
   float thickness;
+  float padding;
 };
 
 [[vk::push_constant]]
 ConstantBuffer<EeAoConstants> constants;
-
-static const int EE_AO_SSAO = 0;
 
 float3 GetNormal(float2 texCoord) {
   return inNormalRoughness.SampleLevel(texCoord, 0.0f).rgb;
@@ -48,39 +44,6 @@ bool GetViewPosition(float2 texCoord, out float3 position) {
   }
   position = EE_DEPTH_TO_VIEW_POS(constants.camera_index, texCoord, ndcDepth);
   return true;
-}
-
-float ComputeSsao(float2 texCoord, float3 viewPos, float3 normal) {
-  float3 randomVec = EE_KERNEL_BLOCK.uniform_kernel[int(EE_INTERLEAVED_GRADIENT_NOISE(viewPos * 3141) * EE_MAX_KERNEL_AMOUNT) %
-                                     EE_MAX_KERNEL_AMOUNT]
-                       .xyz;
-  float4x4 projection = EE_CAMERAS[constants.camera_index].projection;
-
-  float3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-  float3 bitangent = cross(normal, tangent);
-  float3x3 TBN = float3x3(tangent, bitangent, normal);
-  float occlusion = 0.0f;
-  int sampleCount = clamp(constants.kernelSize, 1, EE_MAX_KERNEL_AMOUNT);
-  for (int i = 0; i < sampleCount; ++i) {
-    float3 point = EE_KERNEL_BLOCK.uniform_kernel[i].xyz;
-    point.z = abs(point.z);
-    float3 samplePos = mul(point, TBN);
-    samplePos = viewPos + samplePos * constants.radius;
-    float4 offset = mul(float4(samplePos, 1.0f), projection);
-    offset.xyz /= offset.w;
-    offset.xyz = offset.xyz * 0.5f + 0.5f;
-
-    float3 sampleViewPos;
-    if (!GetViewPosition(offset.xy, sampleViewPos)) {
-      continue;
-    }
-    float sampleDepth = sampleViewPos.z;
-    float rangeCheck = smoothstep(0.0f, 1.0f,
-                                  pow((constants.radius - distance(viewPos, sampleViewPos)) / constants.radius,
-                                      constants.factor));
-    occlusion += (sampleDepth >= (samplePos.z + constants.bias) ? 1.0f : 0.0f) * rangeCheck;
-  }
-  return max(0.0f, 1.0f - occlusion / float(sampleCount) * constants.intensity);
 }
 
 float ComputeGtao(float2 texCoord, float3 viewPos, float3 normal, float2 resolution) {
@@ -204,8 +167,6 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
   }
 
   float3 normal = GetViewNormal(texCoord);
-  float ambientOcclusion =
-      constants.algorithm == EE_AO_SSAO ? ComputeSsao(texCoord, viewPos, normal)
-                                        : ComputeGtao(texCoord, viewPos, normal, float2(resolution));
+  float ambientOcclusion = ComputeGtao(texCoord, viewPos, normal, float2(resolution));
   outAmbientOcclusion[int2(pixel)] = ambientOcclusion;
 }

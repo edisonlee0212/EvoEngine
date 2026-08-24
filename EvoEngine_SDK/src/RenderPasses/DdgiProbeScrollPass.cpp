@@ -5,17 +5,9 @@
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 void RecordProbeScroll(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                        const DdgiProbeScrollPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.descriptor_set_layout ||
@@ -55,6 +47,7 @@ void RecordProbeScroll(const VkCommandBuffer vk_command_buffer, const RenderGrap
   descriptor_set->UpdateImageDescriptorBinding(5, image_info);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context);
   parameters.pipeline->Bind(vk_command_buffer);
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
   parameters.pipeline->PushConstant(vk_command_buffer, 0, parameters.push_constant);
@@ -79,15 +72,13 @@ RenderPassDescriptor DdgiProbeScrollPass::CreateDescriptor() {
                                     RenderResourceState::StorageReadWrite},
                                    {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Write,
                                     RenderResourceState::StorageReadWrite}}};
+  descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
+  descriptor.profiler_display_name = "DDGI Probe Scroll";
   return descriptor;
 }
 
 void DdgiProbeScrollPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeScroll(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

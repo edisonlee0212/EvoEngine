@@ -56,8 +56,6 @@ TEST(DirectionalShadowCascadeFit, StableSphereIsTheTransientStartupDefault) {
   const RenderSettings settings;
   EXPECT_EQ(settings.shadow_cascade_fit_mode, RenderSettings::ShadowCascadeFitMode::StableSphere);
   EXPECT_FLOAT_EQ(settings.shadow_cascade_split_lambda, 0.9f);
-  EXPECT_EQ(settings.directional_pcf_sample_amount, 16);
-  EXPECT_EQ(settings.pcf_sample_amount, 32);
   EXPECT_EQ(static_cast<int>(RenderSettings::ShadowCascadeFitMode::StableSphere), 0);
   EXPECT_EQ(static_cast<int>(RenderSettings::ShadowCascadeFitMode::TightLightSpaceAabb), 1);
   EXPECT_STREQ(RenderSettings::GetShadowCascadeFitModeName(settings.shadow_cascade_fit_mode), "Stable Sphere");

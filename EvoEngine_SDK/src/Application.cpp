@@ -392,9 +392,7 @@ void DeserializePostProcessingStack(const YAML::Node& in, PostProcessingStack& s
   stack.enable_anti_aliasing = true;
   if (!stack.anti_aliasing)
     stack.anti_aliasing = std::make_shared<AntiAliasing>();
-  stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Smaa;
-  stack.anti_aliasing->taa = {};
-  stack.anti_aliasing->smaa = {};
+  *stack.anti_aliasing = AntiAliasing{};
   if (in["enable_ambient_occlusion"])
     stack.enable_ambient_occlusion = in["enable_ambient_occlusion"].as<bool>();
   if (in["enable_bloom"])
@@ -1300,13 +1298,11 @@ VertexAttributes DefaultVertexAttributes() {
 
 template <typename VertexType>
 std::vector<VertexType> DeserializeVertexData(const YAML::Binary& data, const size_t stride) {
-  if (stride == 0 || data.size() % stride != 0) {
+  if (stride != sizeof(VertexType) || data.size() % stride != 0) {
     return {};
   }
   std::vector<VertexType> vertices(data.size() / stride);
-  for (size_t i = 0; i < vertices.size(); ++i) {
-    std::memcpy(&vertices[i], data.data() + i * stride, std::min(stride, sizeof(VertexType)));
-  }
+  std::memcpy(vertices.data(), data.data(), data.size());
   return vertices;
 }
 
@@ -1395,11 +1391,10 @@ std::pair<std::vector<MorphTarget>, std::vector<float>> DeserializeMorphTargets(
 }
 
 template <typename VertexType>
-std::vector<VertexType> DeserializeMorphBaseVertices(const YAML::Node& in, const size_t fallback_stride) {
+std::vector<VertexType> DeserializeMorphBaseVertices(const YAML::Node& in) {
   if (const auto node = in["morph_base_vertices_"]) {
     const auto& binary = node.as<YAML::Binary>();
-    const auto stride =
-        in["morph_base_vertex_stride_"] ? in["morph_base_vertex_stride_"].as<size_t>() : fallback_stride;
+    const auto stride = in["morph_base_vertex_stride_"].as<size_t>();
     return DeserializeVertexData<VertexType>(binary, stride);
   }
   return {};
@@ -1431,15 +1426,8 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
 
   if (in["vertices_"] && in["triangles_"]) {
     const auto& vertex_data = in["vertices_"].as<YAML::Binary>();
-    const auto stride = in["vertex_stride_"] ? in["vertex_stride_"].as<size_t>() : size_t{80};
+    const auto stride = in["vertex_stride_"].as<size_t>();
     auto vertices = DeserializeVertexData<Vertex>(vertex_data, stride);
-    if (stride == 96) {
-      for (auto& vertex : vertices) {
-        vertex.tex_coord_2 = glm::vec2(0.0f);
-        vertex.tex_coord_3 = glm::vec2(0.0f);
-        vertex.padding = glm::vec2(0.0f);
-      }
-    }
 
     const auto& triangle_data = in["triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1450,7 +1438,7 @@ void DeserializeMesh(const YAML::Node& in, Mesh& mesh) {
     auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
     if (!morph_targets.empty()) {
       mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
-                           DeserializeMorphBaseVertices<Vertex>(in, stride));
+                           DeserializeMorphBaseVertices<Vertex>(in));
     }
   }
 }
@@ -1494,15 +1482,8 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
 
   if (in["skinned_vertices_"] && in["skinned_triangles_"]) {
     const auto& vertex_data = in["skinned_vertices_"].as<YAML::Binary>();
-    const auto stride = in["skinned_vertex_stride_"] ? in["skinned_vertex_stride_"].as<size_t>() : size_t{144};
+    const auto stride = in["skinned_vertex_stride_"].as<size_t>();
     auto vertices = DeserializeVertexData<SkinnedVertex>(vertex_data, stride);
-    if (stride == 160) {
-      for (auto& vertex : vertices) {
-        vertex.tex_coord_2 = glm::vec2(0.0f);
-        vertex.tex_coord_3 = glm::vec2(0.0f);
-        vertex.padding = glm::vec2(0.0f);
-      }
-    }
 
     const auto& triangle_data = in["skinned_triangles_"].as<YAML::Binary>();
     std::vector<glm::uvec3> triangles;
@@ -1513,7 +1494,7 @@ void DeserializeSkinnedMesh(const YAML::Node& in, SkinnedMesh& mesh) {
     auto [morph_targets, default_weights] = DeserializeMorphTargets(in);
     if (!morph_targets.empty()) {
       mesh.SetMorphTargets(std::move(morph_targets), std::move(default_weights),
-                           DeserializeMorphBaseVertices<SkinnedVertex>(in, stride));
+                           DeserializeMorphBaseVertices<SkinnedVertex>(in));
     }
   }
 }
@@ -2166,87 +2147,117 @@ TransformGraph& Application::GetTransformGraph() {
 
 void Application::PreUpdateInternal() {
   ApplicationContextScope application_scope(*this);
-  const ProfilerScope profile_scope("Application::PreUpdate", "Frame");
   auto& times = GetTimes();
-  const auto now = std::chrono::system_clock::now();
-  const std::chrono::duration<double> delta_time = now - times.last_update_time_;
-  times.delta_time_ = delta_time.count();
-  times.last_update_time_ = std::chrono::system_clock::now();
-  if (this->execution_status_ == ExecutionStatus::Uninitialized) {
-    EVOENGINE_ERROR("Application uninitialized!")
-    return;
-  }
-  if (this->execution_status_ == ExecutionStatus::OnDestroy)
-    return;
-
-  this->execution_order = ExecutionOrder::PreUpdate;
-  Input::PreUpdate();
-  if (const auto render_layer = GetLayer<RenderLayer>()) {
-    Platform::PreUpdate();
-  }
-  const auto asset_task_budget_start = std::chrono::steady_clock::now();
-  const auto run_asset_tasks = [&]() {
-    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
-                                                                               asset_task_budget_start);
-    if (elapsed >= kMainThreadAssetTaskFrameBudget) {
-      return size_t{0};
+  {
+    const ProfilerScope profile_scope("Application::PreUpdate", "Frame");
+    const auto now = std::chrono::system_clock::now();
+    const std::chrono::duration<double> delta_time = now - times.last_update_time_;
+    times.delta_time_ = delta_time.count();
+    times.last_update_time_ = std::chrono::system_clock::now();
+    if (this->execution_status_ == ExecutionStatus::Uninitialized) {
+      EVOENGINE_ERROR("Application uninitialized!")
+      return;
     }
-    return AssetManager::ExecuteMainThreadAssetTasksWithinBudget(1, kMainThreadAssetTaskFrameBudget - elapsed);
-  };
-  run_asset_tasks();
-  ProjectManager::PreUpdate();
-  run_asset_tasks();
-  TryStartPendingPlayerAutoplay();
-  if (this->active_scene_) {
-    const ProfilerScope scene_scope("Application::ScenePreUpdate", "Scene");
-    TransformGraph::CalculateTransformGraphs(this->active_scene_);
-    for (const auto& i : this->external_pre_update_functions_)
-      i();
-    if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
-      this->active_scene_->Start();
+    if (this->execution_status_ == ExecutionStatus::OnDestroy)
+      return;
+
+    this->execution_order = ExecutionOrder::PreUpdate;
+    {
+      const ProfilerScope input_scope("Application::InputAndPlatformPreUpdate", "Frame");
+      Input::PreUpdate();
+      if (const auto render_layer = GetLayer<RenderLayer>()) {
+        Platform::PreUpdate();
+      }
+    }
+    const auto asset_task_budget_start = std::chrono::steady_clock::now();
+    const auto run_asset_tasks = [&]() {
+      const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() -
+                                                                                 asset_task_budget_start);
+      if (elapsed >= kMainThreadAssetTaskFrameBudget) {
+        return size_t{0};
+      }
+      return AssetManager::ExecuteMainThreadAssetTasksWithinBudget(1, kMainThreadAssetTaskFrameBudget - elapsed);
+    };
+    {
+      const ProfilerScope asset_scope("Application::AssetTasks", "Asset");
+      run_asset_tasks();
+    }
+    {
+      const ProfilerScope project_scope("Application::ProjectPreUpdate", "Project");
+      ProjectManager::PreUpdate();
+    }
+    {
+      const ProfilerScope asset_scope("Application::AssetTasks", "Asset");
+      run_asset_tasks();
+    }
+    TryStartPendingPlayerAutoplay();
+    if (this->active_scene_) {
+      const ProfilerScope scene_scope("Application::ScenePreUpdate", "Scene");
+      TransformGraph::CalculateTransformGraphs(this->active_scene_);
+      {
+        const ProfilerScope external_scope("Application::ExternalPreUpdate", "Callback");
+        for (const auto& i : this->external_pre_update_functions_)
+          i();
+      }
+      if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
+        this->active_scene_->Start();
+      }
+    }
+
+    {
+      const ProfilerScope layers_scope("Application::LayerPreUpdate", "Layer");
+      for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+        const auto layer = this->layers_[layer_index];
+        const ProfilerScope layer_scope(layer->GetLayerName(), "Layer");
+        layer->PreUpdate();
+        if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+          ++layer_index;
+        }
+      }
     }
   }
 
   {
-    const ProfilerScope layers_scope("Application::LayerPreUpdate", "Layer");
-    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-      const auto layer = this->layers_[layer_index];
-      layer->PreUpdate();
-      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-        ++layer_index;
+    const ProfilerScope profile_scope("Application::FixedUpdate", "Frame");
+    if (times.steps_ == 0) {
+      times.last_fixed_update_time_ = std::chrono::system_clock::now();
+      times.steps_ = 1;
+    }
+    const auto last_fixed_update_time = times.last_fixed_update_time_;
+    std::chrono::duration<double> duration = std::chrono::system_clock::now() - last_fixed_update_time;
+    size_t step = 1;
+    while (duration.count() >= step * times.time_step_) {
+      {
+        const ProfilerScope external_scope("Application::ExternalFixedUpdate", "Callback");
+        for (const auto& i : this->external_fixed_update_functions_)
+          i();
       }
-    }
-  }
-  if (times.steps_ == 0) {
-    times.last_fixed_update_time_ = std::chrono::system_clock::now();
-    times.steps_ = 1;
-  }
-  const auto last_fixed_update_time = times.last_fixed_update_time_;
-  std::chrono::duration<double> duration = std::chrono::system_clock::now() - last_fixed_update_time;
-  size_t step = 1;
-  while (duration.count() >= step * times.time_step_) {
-    for (const auto& i : this->external_fixed_update_functions_)
-      i();
-    for (size_t layer_index = 0; layer_index < this->layers_.size();) {
-      const auto layer = this->layers_[layer_index];
-      layer->FixedUpdate();
-      if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
-        ++layer_index;
+      {
+        const ProfilerScope layers_scope("Application::LayerFixedUpdate", "Layer");
+        for (size_t layer_index = 0; layer_index < this->layers_.size();) {
+          const auto layer = this->layers_[layer_index];
+          const ProfilerScope layer_scope(layer->GetLayerName(), "Layer");
+          layer->FixedUpdate();
+          if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
+            ++layer_index;
+          }
+        }
       }
+      if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
+        const ProfilerScope scene_scope("Application::SceneFixedUpdate", "Scene");
+        this->active_scene_->FixedUpdate();
+      }
+      duration = std::chrono::system_clock::now() - last_fixed_update_time;
+      step++;
+      const auto current_time = std::chrono::system_clock::now();
+      const std::chrono::duration<double> fixed_delta_time = current_time - times.last_fixed_update_time_;
+      times.fixed_delta_time_ = fixed_delta_time.count();
+      times.last_fixed_update_time_ = std::chrono::system_clock::now();
+      if (step > 10) {
+        EVOENGINE_WARNING("Fixed update timeout!")
+      }
+      break;
     }
-    if (this->execution_status_ == ExecutionStatus::Playing || this->execution_status_ == ExecutionStatus::Step) {
-      this->active_scene_->FixedUpdate();
-    }
-    duration = std::chrono::system_clock::now() - last_fixed_update_time;
-    step++;
-    const auto current_time = std::chrono::system_clock::now();
-    const std::chrono::duration<double> fixed_delta_time = current_time - times.last_fixed_update_time_;
-    times.fixed_delta_time_ = fixed_delta_time.count();
-    times.last_fixed_update_time_ = std::chrono::system_clock::now();
-    if (step > 10) {
-      EVOENGINE_WARNING("Fixed update timeout!")
-    }
-    break;
   }
 }
 
@@ -2272,14 +2283,18 @@ void Application::UpdateInternal() {
     const ProfilerScope layers_scope("Application::LayerUpdate", "Layer");
     for (size_t layer_index = 0; layer_index < this->layers_.size();) {
       const auto layer = this->layers_[layer_index];
+      const ProfilerScope layer_scope(layer->GetLayerName(), "Layer");
       layer->Update();
       if (layer_index < this->layers_.size() && this->layers_[layer_index] == layer) {
         ++layer_index;
       }
     }
   }
-  for (const auto& i : this->external_update_functions_)
-    i();
+  {
+    const ProfilerScope external_scope("Application::ExternalUpdate", "Callback");
+    for (const auto& i : this->external_update_functions_)
+      i();
+  }
 
   if (const auto render_layer = GetLayer<RenderLayer>()) {
     const ProfilerScope render_scope("Application::PrepareRendering", "Render");
@@ -2298,14 +2313,22 @@ void Application::LateUpdateInternal() {
   }
   if (this->execution_status_ == ExecutionStatus::OnDestroy)
     return;
-  for (const auto& i : this->external_late_update_functions_)
-    i();
-  for (size_t layer_index = this->layers_.size(); layer_index > 0;) {
-    --layer_index;
-    if (layer_index >= this->layers_.size()) {
-      continue;
+  {
+    const ProfilerScope external_scope("Application::ExternalLateUpdate", "Callback");
+    for (const auto& i : this->external_late_update_functions_)
+      i();
+  }
+  {
+    const ProfilerScope layers_scope("Application::LayerLateUpdate", "Layer");
+    for (size_t layer_index = this->layers_.size(); layer_index > 0;) {
+      --layer_index;
+      if (layer_index >= this->layers_.size()) {
+        continue;
+      }
+      const auto layer = this->layers_[layer_index];
+      const ProfilerScope layer_scope(layer->GetLayerName(), "Layer");
+      layer->LateUpdate();
     }
-    this->layers_[layer_index]->LateUpdate();
   }
 
   const auto render_layer = GetLayer<RenderLayer>();
@@ -2332,6 +2355,7 @@ void Application::LateUpdateInternal() {
     window_layer->Render();
   }
   if (render_layer) {
+    const ProfilerScope platform_scope("Application::PlatformLateUpdateAndPresentation", "Render");
     Platform::LateUpdate();
   }
   if (this->execution_status_ == ExecutionStatus::Step)
@@ -2570,12 +2594,15 @@ void Application::Run() {
 bool Application::Loop() {
   const ApplicationContextScope application_scope(*this);
   if (this->execution_status_ != ExecutionStatus::OnDestroy) {
-    const ProfilerFrameScope profiler_frame_scope;
+    const ProfilerFrameScope profiler_frame_scope(Platform::GetFrameCount() + 1);
     const ProfilerScope profiler_scope("Application::Loop", "Frame");
     PreUpdateInternal();
     UpdateInternal();
     LateUpdateInternal();
-    ExecuteEndOfLoopActions();
+    {
+      const ProfilerScope end_of_loop_scope("Application::EndOfLoop", "Frame");
+      ExecuteEndOfLoopActions();
+    }
     return true;
   }
   return false;
@@ -2587,18 +2614,27 @@ void Application::End() {
 }
 
 void Application::ExecuteEndOfLoopActions() {
-  Jobs::ExecuteMainThreadJobs();
+  {
+    const ProfilerScope jobs_scope("Application::MainThreadJobs", "Jobs");
+    Jobs::ExecuteMainThreadJobs();
+  }
   if (this->end_of_loop_actions_.empty()) {
     return;
   }
   auto actions = std::move(this->end_of_loop_actions_);
   this->end_of_loop_actions_.clear();
-  for (const auto& action : actions) {
-    if (action) {
-      action();
+  {
+    const ProfilerScope actions_scope("Application::QueuedEndOfLoopActions", "Callback");
+    for (const auto& action : actions) {
+      if (action) {
+        action();
+      }
     }
   }
-  Jobs::ExecuteMainThreadJobs();
+  {
+    const ProfilerScope jobs_scope("Application::MainThreadJobs", "Jobs");
+    Jobs::ExecuteMainThreadJobs();
+  }
 }
 
 void Application::Terminate() {

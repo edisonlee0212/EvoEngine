@@ -175,7 +175,11 @@ struct ResolvedEnvironmentalLighting {
     return false;
   }
 
-  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesFallbackIntensities() {
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesDiffuseFallbackIntensity() {
+    return true;
+  }
+
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesSpecularFallbackIntensity() {
     return false;
   }
 };

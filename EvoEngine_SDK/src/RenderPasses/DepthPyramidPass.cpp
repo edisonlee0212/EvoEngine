@@ -9,6 +9,27 @@
 
 using namespace evo_engine;
 
+namespace {
+void ComputeWriteToSampledReadBarrier(const VkCommandBuffer command_buffer, const std::shared_ptr<Image>& image,
+                                      const uint32_t mip_level) {
+  VkImageMemoryBarrier2 barrier{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
+  barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
+  barrier.dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+  barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  barrier.image = image->GetVkImage();
+  barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, mip_level, 1, 0, 1};
+  VkDependencyInfo dependency{VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
+  dependency.imageMemoryBarrierCount = 1;
+  dependency.pImageMemoryBarriers = &barrier;
+  vkCmdPipelineBarrier2(command_buffer, &dependency);
+}
+}  // namespace
+
 RenderPassDescriptor DepthPyramidPass::CreateDescriptor() {
   return {
       RenderPassNames::depth_pyramid,
@@ -16,7 +37,9 @@ RenderPassDescriptor DepthPyramidPass::CreateDescriptor() {
       RenderPassScope::Camera,
       {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
-      {RenderPassNames::motion_coverage}};
+      {RenderPassNames::motion_coverage},
+      RenderPassProfilerGroup::CameraVisibility,
+      "Depth Pyramid"};
 }
 
 void DepthPyramidPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -59,6 +82,8 @@ void DepthPyramidPass::Execute(const RenderGraphExecutionContext& context, const
       depth_pyramid_views.emplace_back(std::move(image_view));
     }
 
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera ? parameters.camera->GetHandle().GetValue() : 0);
     parameters.pipeline->Bind(vk_command_buffer);
     for (uint32_t mip_level = 0; mip_level < mip_levels; ++mip_level) {
       const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
@@ -84,7 +109,9 @@ void DepthPyramidPass::Execute(const RenderGraphExecutionContext& context, const
       parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(push_constant.z, 16),
                                     Platform::DivUp(push_constant.w, 16));
       parameters.transient_resources->RetainDescriptorSet(descriptor_set);
-      Platform::EverythingBarrier(vk_command_buffer);
+      if (mip_level + 1u < mip_levels) {
+        ComputeWriteToSampledReadBarrier(vk_command_buffer, depth_pyramid_image, mip_level);
+      }
     }
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });

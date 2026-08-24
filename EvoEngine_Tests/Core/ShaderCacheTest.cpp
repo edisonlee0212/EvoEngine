@@ -709,9 +709,9 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "SharedGpuAbiProbe.slang", ShaderSourceDialect::NativeSlang))
       << diagnostics;
-  ASSERT_EQ(reflection.descriptor_bindings.size(), 13u);
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 14u);
 
-  const std::array<VkDescriptorType, 14> expected_types = {
+  const std::array<VkDescriptorType, 15> expected_types = {
       VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_MAX_ENUM,
       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -719,6 +719,7 @@ void main()
       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
       VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
       VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
   };
   size_t reflected_index = 0;
   for (uint32_t binding = 0; binding < expected_types.size(); ++binding) {
@@ -759,7 +760,7 @@ import EvoEngine.CameraRayOutputs;
 void main()
 {
     static_assert(sizeof(Vertex) == 112, "Vertex ABI");
-    static_assert(sizeof(CameraRayTracingPayload) == 52, "camera payload ABI");
+    static_assert(sizeof(CameraRayTracingPayload) == 68, "camera payload ABI");
     static_assert(sizeof(PointCloudRayTracingPayload) == 96, "point-cloud payload ABI");
     CameraRayTracingPayload cameraPayload = {};
     PointCloudRayTracingPayload pointCloudPayload = {};
@@ -778,7 +779,7 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "RayTracingFoundationProbe.slang", ShaderSourceDialect::NativeSlang))
       << diagnostics;
-  ASSERT_EQ(reflection.descriptor_bindings.size(), 27u);
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 30u);
   EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
 
   std::vector<uint32_t> binaries;
@@ -1109,7 +1110,7 @@ TEST(ShaderCache, ProductionSmaaSlangPresetVariantsCompileAndReflectInterfaces) 
           << preset << " " << test_case.path.string() << "\n"
           << diagnostics;
       ASSERT_EQ(reflection.push_constant_ranges.size(), 1u) << preset << " " << test_case.path.string();
-      EXPECT_EQ(reflection.push_constant_ranges[0].size, sizeof(AntiAliasing::SmaaPushConstant));
+      EXPECT_EQ(reflection.push_constant_ranges[0].size, sizeof(AntiAliasing::PushConstant));
       EXPECT_EQ(reflection.descriptor_bindings.size(), test_case.descriptor_count);
       EXPECT_EQ(test_case.shader_type == ShaderType::Vertex ? reflection.stage_outputs.size()
                                                             : reflection.stage_inputs.size(),
@@ -1172,8 +1173,6 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Compute, shader_root / "Compute/GaussianSplatRadixUpsweep.slang"},
       {ShaderType::Compute, shader_root / "Compute/GaussianSplatRadixSpine.slang"},
       {ShaderType::Compute, shader_root / "Compute/GaussianSplatRadixDownsweep.slang"},
-      {ShaderType::Compute, shader_root / "Compute/PostProcessing/TAAResolve.slang"},
-      {ShaderType::Compute, shader_root / "Compute/PostProcessing/TAACopy.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/BloomDownsampling.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/BloomUpsampling.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/BloomCopy.slang"},
@@ -1182,7 +1181,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/Blur.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/SSRReflect.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/SSRCombine.slang"},
-      {ShaderType::Compute, shader_root / "Compute/PostProcessing/AmbientOcclusionGeometry.slang"},
+      {ShaderType::Compute, shader_root / "Compute/PostProcessing/GTAO.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/ToneMappingHistogram.slang"},
       {ShaderType::Compute, shader_root / "Compute/PostProcessing/ToneMappingAutoExposure.slang"},
@@ -1212,7 +1211,6 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
        fixed_lighting},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang",
        fixed_material_lighting},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/DDGIGatherTiming.slang", fixed_lighting},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/SkinnedMotionVectors.slang",
        material_no_bindless},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/TransparentMotionVectors.slang",
@@ -1258,10 +1256,10 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::RayGen, shader_root / "RayTracing/RayGen/PointCloud.slang"},
       {ShaderType::Miss, shader_root / "RayTracing/Miss/PointCloud.slang"},
       {ShaderType::ClosestHit, shader_root / "RayTracing/ClosestHit/PointCloud.slang"},
-      {ShaderType::RayGen, shader_root / "RayTracing/RayGen/DDGIProbeDiagnostics.slang"},
-      {ShaderType::Miss, shader_root / "RayTracing/Miss/DDGIProbeDiagnostics.slang"},
-      {ShaderType::ClosestHit, shader_root / "RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"},
-      {ShaderType::AnyHit, shader_root / "RayTracing/AnyHit/DDGIProbeDiagnostics.slang"},
+      {ShaderType::RayGen, shader_root / "RayTracing/RayGen/DDGIProbeTrace.slang"},
+      {ShaderType::Miss, shader_root / "RayTracing/Miss/DDGIProbeTrace.slang"},
+      {ShaderType::ClosestHit, shader_root / "RayTracing/ClosestHit/DDGIProbeTrace.slang"},
+      {ShaderType::AnyHit, shader_root / "RayTracing/AnyHit/DDGIProbeTrace.slang"},
   };
 
   for (const auto& test_case : cases) {
@@ -1394,62 +1392,6 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
   }
 }
 
-TEST(ShaderCache, ProductionTaaCopySlangReflectionMatchesHostLayout) {
-  ShaderCacheScope scope;
-  RegisterDefaultShaderIncludePath();
-  const auto shader_path =
-      RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/TAACopy.slang");
-  const auto source = ShaderGlobalDefinesForTests() + ReadTextFile(shader_path);
-  auto layout = std::make_shared<DescriptorSetLayout>();
-  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-
-  const auto validation = Shader::ValidateSlangPipelineLayout(ShaderType::Compute, source, shader_path, {layout}, {});
-
-  ASSERT_TRUE(validation.success) << validation.diagnostics;
-  EXPECT_EQ(validation.reflection.compute_thread_group_size, (std::array<uint32_t, 3>{16, 16, 1}));
-  ASSERT_EQ(validation.reflection.descriptor_bindings.size(), 2u);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[0].set, 0u);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[0].binding, 0u);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[0].descriptor_type, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[1].set, 0u);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[1].binding, 1u);
-  EXPECT_EQ(validation.reflection.descriptor_bindings[1].descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-  EXPECT_TRUE(validation.reflection.stage_inputs.empty());
-  EXPECT_TRUE(validation.reflection.stage_outputs.empty());
-}
-
-TEST(ShaderCache, ProductionTaaResolveSlangThreadGroupMatchesHostDispatch) {
-  ShaderCacheScope scope;
-  RegisterDefaultShaderIncludePath();
-  const auto shader_path =
-      RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/TAAResolve.slang");
-  const auto source = ShaderGlobalDefinesForTests() + ReadTextFile(shader_path);
-
-  ShaderReflectionInfo reflection;
-  std::string diagnostics;
-  ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics, shader_path)) << diagnostics;
-  EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{8, 8, 1}));
-  std::vector<uint32_t> binaries;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, shader_path)) << diagnostics;
-  ASSERT_FALSE(binaries.empty());
-  const auto local_size = FindSpirvLocalSizeExecutionMode(binaries);
-  ASSERT_TRUE(local_size.has_value());
-  EXPECT_EQ(*local_size, (std::array<uint32_t, 3>{8, 8, 1}));
-
-  for (const int use_tgsm : {0, 1}) {
-    for (const int use_fp16 : {0, 1}) {
-      const auto variant_source = ShaderGlobalDefinesForTests() + "\n#define EE_TAA_USE_TGSM " +
-                                  std::to_string(use_tgsm) + "\n#define EE_TAA_USE_FP16 " + std::to_string(use_fp16) +
-                                  "\n" + ReadTextFile(shader_path);
-      binaries.clear();
-      ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, variant_source, binaries, shader_path))
-          << "TGSM=" << use_tgsm << ", FP16=" << use_fp16;
-      ASSERT_FALSE(binaries.empty());
-    }
-  }
-}
-
 TEST(ShaderCache, ProductionMotionVectorsSlangThreadGroupMatchesHostDispatch) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
@@ -1543,12 +1485,18 @@ TEST(ShaderCache, ProductionAmbientOcclusionSlangThreadGroupsMatchHostDispatch) 
   RegisterDefaultShaderIncludePath();
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing");
   const std::array<std::filesystem::path, 2> shader_paths = {
-      shader_root / "AmbientOcclusionGeometry.slang",
+      shader_root / "GTAO.slang",
       shader_root / "AmbientOcclusionBlur.slang",
   };
 
   for (const auto& shader_path : shader_paths) {
-    const auto source = ShaderGlobalDefinesForTests() + ReadTextFile(shader_path);
+    const auto shader_source = ReadTextFile(shader_path);
+    if (shader_path.filename() == "GTAO.slang") {
+      EXPECT_EQ(shader_source.find("ComputeSsao"), std::string::npos);
+      EXPECT_EQ(shader_source.find("EE_AO_SSAO"), std::string::npos);
+      EXPECT_EQ(shader_source.find("constants.algorithm"), std::string::npos);
+    }
+    const auto source = ShaderGlobalDefinesForTests() + shader_source;
     ShaderReflectionInfo reflection;
     std::string diagnostics;
     ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics, shader_path))
@@ -1641,22 +1589,6 @@ TEST(ShaderCache, ProductionToneMappingSlangThreadGroupMatchesHostDispatch) {
   local_size = FindSpirvLocalSizeExecutionMode(binaries);
   ASSERT_TRUE(local_size.has_value());
   EXPECT_EQ(*local_size, (std::array<uint32_t, 3>{1, 1, 1}));
-}
-
-TEST(ShaderCache, SlangPipelineLayoutValidationFailsOnDescriptorMismatch) {
-  ShaderCacheScope scope;
-  RegisterDefaultShaderIncludePath();
-  const auto shader_path =
-      RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/TAACopy.slang");
-  const auto source = ShaderGlobalDefinesForTests() + ReadTextFile(shader_path);
-  auto layout = std::make_shared<DescriptorSetLayout>();
-  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-
-  const auto validation = Shader::ValidateSlangPipelineLayout(ShaderType::Compute, source, shader_path, {layout}, {});
-
-  EXPECT_FALSE(validation.success);
-  EXPECT_NE(validation.diagnostics.find("Descriptor type mismatch"), std::string::npos) << validation.diagnostics;
 }
 
 TEST(ShaderCache, SlangMatrixPushConstantReflectionMatchesGlmLayout) {

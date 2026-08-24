@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <tuple>
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "Console.hpp"
@@ -10,6 +11,7 @@
 #include "GpuService.hpp"
 #include "ImGuiLayer.hpp"
 #include "Mesh.hpp"
+#include "Profiler.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Shader.hpp"
@@ -56,6 +58,10 @@ uint64_t TimestampDelta(const uint64_t begin, const uint64_t end, const uint32_t
   }
   const uint64_t mask = (uint64_t{1} << valid_bits) - 1;
   return (end - begin) & mask;
+}
+
+GpuTimestampScopeMetadata LegacyGpuTimestampMetadata(const std::string& name) {
+  return {name, name, "Ungrouped", GpuTimestampQueue::Graphics, 0, 0};
 }
 }  // namespace
 
@@ -116,6 +122,199 @@ double GpuTimestampStats::PercentileMilliseconds(const double percentile) const 
   const auto upper = static_cast<size_t>(std::ceil(rank));
   const auto weight = rank - static_cast<double>(lower);
   return sorted_samples[lower] * (1.0 - weight) + sorted_samples[upper] * weight;
+}
+
+GpuTimestampFrameSnapshot evo_engine::BuildGpuTimestampFrameSnapshot(
+    const uint64_t application_frame_index, const uint64_t capture_session_index, const uint32_t query_capacity,
+    const uint32_t query_used, const uint32_t skipped_scope_count,
+    const std::vector<GpuTimestampQuerySample>& query_samples, const std::vector<uint64_t>& timestamps,
+    const double timestamp_period_nanoseconds, const uint32_t timestamp_valid_bits) {
+  GpuTimestampFrameSnapshot frame;
+  frame.application_frame_index = application_frame_index;
+  frame.capture_session_index = capture_session_index;
+  frame.query_capacity = query_capacity;
+  frame.query_used = query_used;
+  frame.skipped_scope_count = skipped_scope_count;
+  frame.results_available = query_used == 0 || timestamps.size() >= query_used;
+  frame.samples.reserve(query_samples.size());
+  if (!frame.results_available) {
+    frame.unresolved_scope_count = static_cast<uint32_t>(query_samples.size());
+    return frame;
+  }
+  for (const auto& query_sample : query_samples) {
+    if (query_sample.begin_query >= timestamps.size() || query_sample.end_query >= timestamps.size()) {
+      ++frame.unresolved_scope_count;
+      continue;
+    }
+    auto& sample = frame.samples.emplace_back();
+    sample.metadata = query_sample.metadata;
+    sample.order_index = query_sample.order_index;
+    sample.begin_query = query_sample.begin_query;
+    sample.end_query = query_sample.end_query;
+    sample.duration_milliseconds =
+        static_cast<double>(
+            TimestampDelta(timestamps[sample.begin_query], timestamps[sample.end_query], timestamp_valid_bits)) *
+        timestamp_period_nanoseconds / 1.0e6;
+  }
+  std::stable_sort(frame.samples.begin(), frame.samples.end(), [](const auto& left, const auto& right) {
+    return left.order_index < right.order_index;
+  });
+  if (!frame.samples.empty()) {
+    const auto reference_timestamp = timestamps[frame.samples.front().begin_query];
+    for (auto& sample : frame.samples) {
+      sample.begin_offset_milliseconds =
+          static_cast<double>(
+              TimestampDelta(reference_timestamp, timestamps[sample.begin_query], timestamp_valid_bits)) *
+          timestamp_period_nanoseconds / 1.0e6;
+      sample.end_offset_milliseconds =
+          static_cast<double>(TimestampDelta(reference_timestamp, timestamps[sample.end_query], timestamp_valid_bits)) *
+          timestamp_period_nanoseconds / 1.0e6;
+      frame.span_milliseconds = std::max(frame.span_milliseconds, sample.end_offset_milliseconds);
+    }
+  }
+  return frame;
+}
+
+std::vector<GpuTimestampPassAggregate> evo_engine::BuildGpuTimestampPassAggregates(
+    const GpuTimestampFrameSnapshot& frame) {
+  std::vector<GpuTimestampPassAggregate> aggregates;
+  std::unordered_map<std::string, size_t> indices;
+  for (const auto& sample : frame.samples) {
+    const auto& pass_id =
+        sample.metadata.stable_pass_id.empty() ? sample.metadata.display_name : sample.metadata.stable_pass_id;
+    const auto key = sample.metadata.group + "\x1f" + pass_id;
+    auto search = indices.find(key);
+    if (search == indices.end()) {
+      search = indices.emplace(key, aggregates.size()).first;
+      auto& aggregate = aggregates.emplace_back();
+      aggregate.metadata = sample.metadata;
+      aggregate.first_order_index = sample.order_index;
+    }
+    auto& aggregate = aggregates[search->second];
+    ++aggregate.call_count;
+    aggregate.total_milliseconds += sample.duration_milliseconds;
+    aggregate.instances.emplace_back(sample);
+  }
+  std::stable_sort(aggregates.begin(), aggregates.end(), [](const auto& left, const auto& right) {
+    return left.first_order_index < right.first_order_index;
+  });
+  return aggregates;
+}
+
+GpuTimestampHistoryStats evo_engine::BuildGpuTimestampHistoryStats(const std::vector<GpuTimestampFrameSnapshot>& frames,
+                                                                   const size_t expected_frame_count,
+                                                                   const size_t selected_frame_index) {
+  GpuTimestampHistoryStats result;
+  result.frame_count = std::max(expected_frame_count, frames.size());
+  result.span.frame_count = result.frame_count;
+  result.span.stats.name = "GPU span";
+  result.summed_work.frame_count = result.frame_count;
+  result.summed_work.stats.name = "Summed GPU work";
+  for (const auto& frame : frames) {
+    if (!frame.results_available)
+      continue;
+    result.available_frame_count++;
+    for (const auto& aggregate : BuildGpuTimestampPassAggregates(frame)) {
+      auto group_search = std::find_if(result.groups.begin(), result.groups.end(), [&](const auto& group) {
+        return group.name == aggregate.metadata.group;
+      });
+      if (group_search == result.groups.end()) {
+        group_search = result.groups.emplace(result.groups.end());
+        group_search->name = aggregate.metadata.group;
+        group_search->duration.stats.name = aggregate.metadata.group;
+        group_search->duration.frame_count = result.frame_count;
+      }
+      const auto& pass_id = aggregate.metadata.stable_pass_id.empty() ? aggregate.metadata.display_name
+                                                                      : aggregate.metadata.stable_pass_id;
+      auto pass_search = std::find_if(group_search->passes.begin(), group_search->passes.end(), [&](const auto& pass) {
+        const auto& existing_id =
+            pass.metadata.stable_pass_id.empty() ? pass.metadata.display_name : pass.metadata.stable_pass_id;
+        return existing_id == pass_id;
+      });
+      if (pass_search == group_search->passes.end()) {
+        pass_search = group_search->passes.emplace(group_search->passes.end());
+        pass_search->metadata = aggregate.metadata;
+        pass_search->duration.stats.name = aggregate.metadata.display_name;
+        pass_search->duration.frame_count = result.frame_count;
+      }
+    }
+  }
+  for (size_t frame_index = 0; frame_index < result.frame_count; frame_index++) {
+    const auto* frame =
+        frame_index < frames.size() && frames[frame_index].results_available ? &frames[frame_index] : nullptr;
+    result.span.stats.AddSample(frame ? frame->span_milliseconds : 0.0);
+    if (frame)
+      result.span.observed_frame_count++;
+    std::vector<std::vector<double>> pass_values;
+    std::vector<std::vector<bool>> pass_observed;
+    pass_values.reserve(result.groups.size());
+    pass_observed.reserve(result.groups.size());
+    for (const auto& group : result.groups) {
+      pass_values.emplace_back(group.passes.size(), 0.0);
+      pass_observed.emplace_back(group.passes.size(), false);
+    }
+    if (frame) {
+      for (const auto& aggregate : BuildGpuTimestampPassAggregates(*frame)) {
+        const auto group_index = static_cast<size_t>(std::distance(
+            result.groups.begin(), std::find_if(result.groups.begin(), result.groups.end(), [&](const auto& group) {
+              return group.name == aggregate.metadata.group;
+            })));
+        const auto& pass_id = aggregate.metadata.stable_pass_id.empty() ? aggregate.metadata.display_name
+                                                                        : aggregate.metadata.stable_pass_id;
+        const auto pass_index = static_cast<size_t>(
+            std::distance(result.groups[group_index].passes.begin(),
+                          std::find_if(result.groups[group_index].passes.begin(),
+                                       result.groups[group_index].passes.end(), [&](const auto& pass) {
+                                         const auto& existing_id = pass.metadata.stable_pass_id.empty()
+                                                                       ? pass.metadata.display_name
+                                                                       : pass.metadata.stable_pass_id;
+                                         return existing_id == pass_id;
+                                       })));
+        pass_values[group_index][pass_index] = aggregate.total_milliseconds;
+        pass_observed[group_index][pass_index] = true;
+      }
+    }
+    double frame_summed_work = 0.0;
+    for (size_t group_index = 0; group_index < result.groups.size(); group_index++) {
+      auto& group = result.groups[group_index];
+      double group_work = 0.0;
+      bool group_observed = false;
+      for (size_t pass_index = 0; pass_index < group.passes.size(); pass_index++) {
+        auto& pass = group.passes[pass_index];
+        const auto value = pass_values[group_index][pass_index];
+        pass.duration.stats.AddSample(value);
+        if (pass_observed[group_index][pass_index]) {
+          pass.duration.observed_frame_count++;
+          group_observed = true;
+        }
+        if (pass.metadata.contributes_to_frame_total)
+          group_work += value;
+      }
+      group.duration.stats.AddSample(group_work);
+      if (group_observed)
+        group.duration.observed_frame_count++;
+      frame_summed_work += group_work;
+    }
+    result.summed_work.stats.AddSample(frame_summed_work);
+    if (frame_summed_work > 0.0)
+      result.summed_work.observed_frame_count++;
+  }
+  const auto set_duty_cycle = [&](GpuTimestampHistorySummary& summary) {
+    summary.duty_cycle =
+        summary.frame_count == 0 ? 0.0 : static_cast<double>(summary.observed_frame_count) / summary.frame_count;
+    if (!summary.stats.samples_milliseconds.empty()) {
+      summary.selected_milliseconds =
+          summary.stats.samples_milliseconds[std::min(selected_frame_index, summary.frame_count - 1)];
+    }
+  };
+  set_duty_cycle(result.span);
+  set_duty_cycle(result.summed_work);
+  for (auto& group : result.groups) {
+    set_duty_cycle(group.duration);
+    for (auto& pass : group.passes)
+      set_duty_cycle(pass.duration);
+  }
+  return result;
 }
 
 const char* Platform::GetRenderPassDrawBucketName(const RenderPassDrawBucket bucket) {
@@ -808,6 +1007,11 @@ void Platform::ImmediateSubmit(const std::function<void(VkCommandBuffer vk_comma
 
 void Platform::ImmediateSubmitWithGpuTimestamp(const std::string& name,
                                                const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
+  ImmediateSubmitWithGpuTimestamp(LegacyGpuTimestampMetadata(name), action);
+}
+
+void Platform::ImmediateSubmitWithGpuTimestamp(const GpuTimestampScopeMetadata& metadata,
+                                               const std::function<void(VkCommandBuffer vk_command_buffer)>& action) {
   auto& graphics = GetInstance();
   const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
   if (!graphics.gpu_timestamp_capture_enabled_ || !graphics.gpu_timestamp_capture_available_ ||
@@ -827,8 +1031,8 @@ void Platform::ImmediateSubmitWithGpuTimestamp(const std::string& name,
   if (vkGetQueryPoolResults(graphics.vk_device_, graphics.immediate_gpu_timestamp_query_pool_, 0, 2, sizeof(timestamps),
                             timestamps, sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
     const auto ticks = TimestampDelta(timestamps[0], timestamps[1], graphics.gpu_timestamp_valid_bits_);
-    graphics.AccumulateGpuTimestamp(name,
-                                    static_cast<double>(ticks) * graphics.gpu_timestamp_period_nanoseconds_ / 1.0e6);
+    graphics.AccumulateImmediateGpuTimestamp(
+        metadata, static_cast<double>(ticks) * graphics.gpu_timestamp_period_nanoseconds_ / 1.0e6);
   }
 }
 
@@ -871,21 +1075,40 @@ void Platform::ImmediateSubmitWithGpuTimestamps(const std::string& total_name,
     return static_cast<double>(TimestampDelta(timestamps[begin], timestamps[end], graphics.gpu_timestamp_valid_bits_)) *
            graphics.gpu_timestamp_period_nanoseconds_ / 1.0e6;
   };
-  graphics.AccumulateGpuTimestamp(total_name, milliseconds(0, query_count - 1u));
+  graphics.AccumulateImmediateGpuTimestamp(LegacyGpuTimestampMetadata(total_name), milliseconds(0, query_count - 1u));
   for (uint32_t index = 0; index < actions.size(); ++index) {
-    graphics.AccumulateGpuTimestamp(actions[index].name, milliseconds(index * 2u + 1u, index * 2u + 2u));
+    graphics.AccumulateImmediateGpuTimestamp(LegacyGpuTimestampMetadata(actions[index].name),
+                                             milliseconds(index * 2u + 1u, index * 2u + 2u));
   }
 }
 
 void Platform::SetGpuTimestampCaptureEnabled(const bool enabled) {
   auto& graphics = GetInstance();
+  if (!enabled && graphics.gpu_timestamp_capture_enabled_) {
+    WaitForFrameSubmissions("Profiler Capture Stop Fence Wait");
+  }
   const std::scoped_lock timestamp_lock(graphics.immediate_gpu_timestamp_mutex_);
   if (enabled && graphics.gpu_timestamp_frames_.empty()) {
     graphics.InitializeGpuTimestampResources();
   }
-  graphics.gpu_timestamp_capture_enabled_ = enabled && graphics.gpu_timestamp_capture_available_;
-  if (enabled) {
-    ResetGpuTimestampStats();
+  const bool next_enabled = enabled && graphics.gpu_timestamp_capture_available_;
+  if (next_enabled == graphics.gpu_timestamp_capture_enabled_) {
+    return;
+  }
+  graphics.gpu_timestamp_capture_enabled_ = next_enabled;
+  if (next_enabled) {
+    ++graphics.gpu_timestamp_capture_session_index_;
+    graphics.PrepareGpuTimestampFrame(graphics.current_frame_index_);
+  } else if (graphics.current_frame_index_ < graphics.gpu_timestamp_frames_.size()) {
+    auto& frame = graphics.gpu_timestamp_frames_[graphics.current_frame_index_];
+    frame.next_query = 0;
+    frame.next_scope_order = 0;
+    frame.skipped_scope_count = 0;
+    frame.application_frame_index = 0;
+    frame.capture_session_index = 0;
+    frame.reset_recorded = false;
+    frame.capacity_warning_reported = false;
+    frame.scopes.clear();
   }
 }
 
@@ -906,6 +1129,7 @@ void Platform::ResetGpuTimestampStats() {
   {
     const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
     graphics.gpu_timestamp_stats_.clear();
+    graphics.gpu_timestamp_frame_history_.clear();
   }
   {
     const std::scoped_lock stats_lock(graphics.cpu_timing_stats_mutex_);
@@ -930,6 +1154,17 @@ std::vector<GpuTimestampStats> Platform::GetGpuTimestampStats() {
     return left.name < right.name;
   });
   return result;
+}
+
+std::vector<GpuTimestampFrameSnapshot> Platform::GetGpuTimestampFrameHistory() {
+  auto& graphics = GetInstance();
+  const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
+  auto history = graphics.gpu_timestamp_frame_history_;
+  std::stable_sort(history.begin(), history.end(), [](const auto& left, const auto& right) {
+    return std::tie(left.capture_session_index, left.application_frame_index) <
+           std::tie(right.capture_session_index, right.application_frame_index);
+  });
+  return history;
 }
 
 std::vector<GpuTimestampStats> Platform::GetCpuTimingStats() {
@@ -1020,6 +1255,11 @@ bool Platform::GraphicsValidationEnabled() {
 
 GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk_command_buffer,
                                                         const std::string& name) {
+  return BeginGpuTimestampScope(vk_command_buffer, LegacyGpuTimestampMetadata(name));
+}
+
+GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk_command_buffer,
+                                                        const GpuTimestampScopeMetadata& metadata) {
   auto& graphics = GetInstance();
   GpuTimestampScopeToken token;
   if (!graphics.gpu_timestamp_capture_enabled_ || !graphics.gpu_timestamp_capture_available_ ||
@@ -1028,6 +1268,7 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
   }
   auto& frame = graphics.gpu_timestamp_frames_[graphics.current_frame_index_];
   if (frame.query_pool == VK_NULL_HANDLE || frame.next_query + 2 > kGpuTimestampQueriesPerFrame) {
+    ++frame.skipped_scope_count;
     if (!frame.capacity_warning_reported) {
       EVOENGINE_WARNING("GPU timestamp capacity exhausted for the current frame; remaining scopes were skipped.")
       frame.capacity_warning_reported = true;
@@ -1038,8 +1279,15 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
     vkCmdResetQueryPool(vk_command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
     frame.reset_recorded = true;
   }
-  token.name = name;
+  token.metadata = metadata;
+  if (token.metadata.stable_pass_id.empty())
+    token.metadata.stable_pass_id = token.metadata.display_name;
+  if (token.metadata.display_name.empty())
+    token.metadata.display_name = token.metadata.stable_pass_id;
   token.frame_index = graphics.current_frame_index_;
+  token.application_frame_index = frame.application_frame_index;
+  token.capture_session_index = frame.capture_session_index;
+  token.order_index = frame.next_scope_order++;
   token.begin_query = frame.next_query++;
   token.end_query = frame.next_query++;
   token.valid = true;
@@ -1053,8 +1301,12 @@ void Platform::EndGpuTimestampScope(const VkCommandBuffer vk_command_buffer, con
     return;
   }
   auto& frame = graphics.gpu_timestamp_frames_[token.frame_index];
+  if (token.application_frame_index != frame.application_frame_index ||
+      token.capture_session_index != frame.capture_session_index) {
+    return;
+  }
   vkCmdWriteTimestamp2(vk_command_buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, frame.query_pool, token.end_query);
-  frame.scopes.push_back({token.name, token.begin_query, token.end_query});
+  frame.scopes.push_back({{token.metadata, token.order_index, token.begin_query, token.end_query}});
 }
 
 GpuService& Platform::GetGpuService() {
@@ -2259,11 +2511,13 @@ void Platform::DestroyGpuTimestampResources() {
   immediate_gpu_timestamp_query_pool_ = VK_NULL_HANDLE;
   gpu_timestamp_capture_available_ = false;
   gpu_timestamp_capture_enabled_ = false;
+  gpu_timestamp_capture_session_index_ = 0;
   gpu_timestamp_valid_bits_ = 0;
   gpu_timestamp_period_nanoseconds_ = 0.0;
   {
     const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
     gpu_timestamp_stats_.clear();
+    gpu_timestamp_frame_history_.clear();
   }
   {
     const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
@@ -2272,42 +2526,67 @@ void Platform::DestroyGpuTimestampResources() {
 }
 
 void Platform::PrepareGpuTimestampFrame(const uint32_t frame_index) {
-  if (!gpu_timestamp_capture_enabled_ || frame_index >= gpu_timestamp_frames_.size()) {
+  if (frame_index >= gpu_timestamp_frames_.size()) {
     return;
   }
   auto& frame = gpu_timestamp_frames_[frame_index];
   frame.next_query = 0;
+  frame.next_scope_order = 0;
+  frame.skipped_scope_count = 0;
+  frame.application_frame_index = gpu_timestamp_capture_enabled_ ? frame_count : 0;
+  frame.capture_session_index = gpu_timestamp_capture_enabled_ ? gpu_timestamp_capture_session_index_ : 0;
   frame.reset_recorded = false;
   frame.capacity_warning_reported = false;
   frame.scopes.clear();
 }
 
 void Platform::ResolveGpuTimestampFrame(const uint32_t frame_index) {
-  if (!gpu_timestamp_capture_enabled_ || frame_index >= gpu_timestamp_frames_.size()) {
+  if (frame_index >= gpu_timestamp_frames_.size()) {
     return;
   }
   const auto& frame = gpu_timestamp_frames_[frame_index];
-  if (frame.next_query == 0 || frame.scopes.empty()) {
+  if (frame.capture_session_index == 0) {
     return;
   }
-  std::vector<uint64_t> timestamps(frame.next_query);
-  const auto result =
-      vkGetQueryPoolResults(vk_device_, frame.query_pool, 0, frame.next_query, timestamps.size() * sizeof(uint64_t),
-                            timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
-  if (result != VK_SUCCESS) {
-    return;
-  }
-  std::unordered_map<std::string, double> frame_totals;
-  for (const auto& scope : frame.scopes) {
-    if (scope.begin_query >= timestamps.size() || scope.end_query >= timestamps.size()) {
-      continue;
+  std::vector<uint64_t> timestamps;
+  if (frame.next_query > 0) {
+    timestamps.resize(frame.next_query);
+    if (vkGetQueryPoolResults(vk_device_, frame.query_pool, 0, frame.next_query, timestamps.size() * sizeof(uint64_t),
+                              timestamps.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS) {
+      timestamps.clear();
     }
-    const auto ticks =
-        TimestampDelta(timestamps[scope.begin_query], timestamps[scope.end_query], gpu_timestamp_valid_bits_);
-    frame_totals[scope.name] += static_cast<double>(ticks) * gpu_timestamp_period_nanoseconds_ / 1.0e6;
   }
-  for (const auto& [name, milliseconds] : frame_totals) {
-    AccumulateGpuTimestamp(name, milliseconds);
+  std::vector<GpuTimestampQuerySample> query_samples;
+  query_samples.reserve(frame.scopes.size());
+  for (const auto& scope : frame.scopes) {
+    query_samples.emplace_back(scope.query_sample);
+  }
+  auto snapshot = BuildGpuTimestampFrameSnapshot(frame.application_frame_index, frame.capture_session_index,
+                                                 kGpuTimestampQueriesPerFrame, frame.next_query,
+                                                 frame.skipped_scope_count, query_samples, timestamps,
+                                                 gpu_timestamp_period_nanoseconds_, gpu_timestamp_valid_bits_);
+  for (const auto& aggregate : BuildGpuTimestampPassAggregates(snapshot)) {
+    AccumulateGpuTimestamp(aggregate.metadata.display_name, aggregate.total_milliseconds);
+  }
+  {
+    const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
+    const auto existing = std::find_if(gpu_timestamp_frame_history_.begin(), gpu_timestamp_frame_history_.end(),
+                                       [&](const auto& candidate) {
+                                         return candidate.application_frame_index == snapshot.application_frame_index &&
+                                                candidate.capture_session_index == snapshot.capture_session_index;
+                                       });
+    if (existing == gpu_timestamp_frame_history_.end()) {
+      gpu_timestamp_frame_history_.emplace_back(std::move(snapshot));
+    } else {
+      for (auto& sample : existing->samples) {
+        sample.order_index = static_cast<uint32_t>(snapshot.samples.size());
+        snapshot.samples.emplace_back(std::move(sample));
+      }
+      *existing = std::move(snapshot);
+    }
+    if (gpu_timestamp_frame_history_.size() > max_gpu_timestamp_frame_history_) {
+      gpu_timestamp_frame_history_.erase(gpu_timestamp_frame_history_.begin());
+    }
   }
 }
 
@@ -2316,6 +2595,33 @@ void Platform::AccumulateGpuTimestamp(const std::string& name, const double mill
   auto& stats = gpu_timestamp_stats_[name];
   stats.name = name;
   stats.AddSample(milliseconds);
+}
+
+void Platform::AccumulateImmediateGpuTimestamp(const GpuTimestampScopeMetadata& metadata, const double milliseconds) {
+  AccumulateGpuTimestamp(metadata.display_name, milliseconds);
+  GpuTimestampSample sample;
+  sample.metadata = metadata;
+  sample.metadata.queue = GpuTimestampQueue::Immediate;
+  sample.duration_milliseconds = milliseconds;
+  const std::scoped_lock stats_lock(gpu_timestamp_stats_mutex_);
+  const auto frame_search =
+      std::find_if(gpu_timestamp_frame_history_.rbegin(), gpu_timestamp_frame_history_.rend(), [&](const auto& frame) {
+        return frame.application_frame_index == frame_count &&
+               frame.capture_session_index == gpu_timestamp_capture_session_index_;
+      });
+  if (frame_search == gpu_timestamp_frame_history_.rend()) {
+    auto& frame = gpu_timestamp_frame_history_.emplace_back();
+    frame.application_frame_index = frame_count;
+    frame.capture_session_index = gpu_timestamp_capture_session_index_;
+    frame.results_available = true;
+    frame.samples.emplace_back(std::move(sample));
+  } else {
+    sample.order_index = static_cast<uint32_t>(frame_search->samples.size());
+    frame_search->samples.emplace_back(std::move(sample));
+  }
+  if (gpu_timestamp_frame_history_.size() > max_gpu_timestamp_frame_history_) {
+    gpu_timestamp_frame_history_.erase(gpu_timestamp_frame_history_.begin());
+  }
 }
 
 void Platform::AccumulateCpuTiming(const std::string& name, const double milliseconds) {
@@ -2652,7 +2958,10 @@ void Platform::WaitForFrameSlotSubmission(const uint32_t frame_index, const std:
   }
   const VkFence fence = in_flight_fences_[frame_index]->GetVkFence();
   const auto wait_start = std::chrono::steady_clock::now();
-  CheckVk(vkWaitForFences(vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
+  {
+    const ProfilerScope synchronization_scope(wait_name.empty() ? "Frame Fence Wait" : wait_name, "Synchronization");
+    CheckVk(vkWaitForFences(vk_device_, 1, &fence, VK_TRUE, UINT64_MAX));
+  }
   if (gpu_timestamp_capture_enabled_ && !wait_name.empty()) {
     AccumulateCpuTiming(
         wait_name, std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - wait_start).count());
@@ -2796,16 +3105,17 @@ void Platform::PreUpdate() {
       const auto just_now = ApplicationContext::Get().GetTimes().Now();
       vulkan_update([&]() {
         graphics.cpu_wait_time = ApplicationContext::Get().GetTimes().Now() - just_now;
-        auto result =
-            vkAcquireNextImageKHR(graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
-                                  graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(),
-                                  VK_NULL_HANDLE, &graphics.next_image_index_);
-        while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
-          graphics.RecreateSwapChain();
-          result = vkAcquireNextImageKHR(
+        const auto acquire_next_image = [&]() {
+          const ProfilerScope synchronization_scope("Swapchain Image Acquire", "Synchronization");
+          return vkAcquireNextImageKHR(
               graphics.vk_device_, graphics.swapchain_->GetVkSwapchain(), UINT64_MAX,
               graphics.image_available_semaphores_[graphics.current_frame_index_]->GetVkSemaphore(), VK_NULL_HANDLE,
               &graphics.next_image_index_);
+        };
+        auto result = acquire_next_image();
+        while (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || graphics.recreate_swap_chain_) {
+          graphics.RecreateSwapChain();
+          result = acquire_next_image();
           graphics.recreate_swap_chain_ = false;
         }
         if (CheckVk(result) != VK_SUCCESS) {
@@ -2818,8 +3128,8 @@ void Platform::PreUpdate() {
     });
   }
   graphics.ResetCommandBuffers();
-  graphics.PrepareGpuTimestampFrame(graphics.current_frame_index_);
   graphics.frame_count++;
+  graphics.PrepareGpuTimestampFrame(graphics.current_frame_index_);
   if (!ApplicationContext::Get().GetLayer<EditorLayer>()) {
     if (const auto scene = ApplicationContext::Get().GetActiveScene()) {
       if (const auto main_camera = scene->main_camera.Get<Camera>(); main_camera && main_camera->IsEnabled()) {
@@ -2870,6 +3180,7 @@ void Platform::LateUpdate() {
   if (window_layer) {
     std::vector<std::pair<std::shared_ptr<Swapchain>, uint32_t>> targets;
     targets.emplace_back(graphics.swapchain_, graphics.next_image_index_);
+    const ProfilerScope synchronization_scope("Swapchain Presentation", "Synchronization");
     graphics.present_queue_->Present(signal_semaphores, targets);
   }
   graphics.current_frame_index_ = (graphics.current_frame_index_ + 1) % graphics.max_frame_in_flight_;

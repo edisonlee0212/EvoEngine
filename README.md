@@ -68,6 +68,7 @@ For detailed setup, platform requirements, Linux commands, VSCode notes, and ins
 | Build and install | [docs/building.md](docs/building.md) |
 | Testing | [docs/testing.md](docs/testing.md) |
 | SDK architecture | [docs/architecture.md](docs/architecture.md) |
+| CPU and GPU profiler | [docs/profiler.md](docs/profiler.md) |
 | Rendering | [docs/rendering.md](docs/rendering.md) |
 | Projects, assets, and serialization | [docs/projects-assets-serialization.md](docs/projects-assets-serialization.md) |
 | Runtime packages | [docs/runtime-packages.md](docs/runtime-packages.md) |

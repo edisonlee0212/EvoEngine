@@ -33,7 +33,16 @@ TEST(StrandsMeshShader, StorageAbiAndDispatchContract) {
   EXPECT_EQ(sizeof(evo_engine::StrandPointDataChunk), 48 * evo_engine::Platform::Constants::meshlet_max_vertices_size);
   EXPECT_EQ(offsetof(evo_engine::StrandMeshlet, strand_points_size),
             4 * evo_engine::Platform::Constants::meshlet_max_triangles_size);
-  EXPECT_EQ(sizeof(evo_engine::StrandMeshlet), 4 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 12);
+  EXPECT_EQ(offsetof(evo_engine::StrandMeshlet, bounding_sphere),
+            4 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 12);
+  EXPECT_EQ(sizeof(evo_engine::StrandMeshlet), 4 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 28);
+  EXPECT_EQ(offsetof(evo_engine::Meshlet, bounding_sphere),
+            3 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 12);
+  EXPECT_EQ(offsetof(evo_engine::Meshlet, normal_cone),
+            3 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 28);
+  EXPECT_EQ(offsetof(evo_engine::Meshlet, normal_cone_apex),
+            3 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 44);
+  EXPECT_EQ(sizeof(evo_engine::Meshlet), 3 * evo_engine::Platform::Constants::meshlet_max_triangles_size + 60);
   EXPECT_EQ(evo_engine::Platform::Constants::meshlet_max_vertices_size, 64);
   EXPECT_EQ(evo_engine::Platform::Constants::meshlet_max_triangles_size, 40);
   EXPECT_EQ(sizeof(evo_engine::GizmosPushConstant), 96u);
@@ -51,6 +60,47 @@ TEST(StrandsMeshShader, StorageAbiAndDispatchContract) {
   EXPECT_NE(render_instances.find("DrawMeshTasks(vk_command_buffer, strands->strand_meshlet_range_->prev_frame_range)"),
             std::string::npos);
   EXPECT_NE(render_instances.find("if (!graphics_pipeline->mesh_shader)"), std::string::npos);
+}
+
+TEST(StrandsMeshShader, RigidAndStrandMeshletsStoreConservativeBounds) {
+  evo_engine::Application application;
+  evo_engine::ApplicationContextScope context(application);
+  std::vector<evo_engine::Vertex> vertices(3);
+  vertices[0].position = {-1.0f, 0.0f, 0.0f};
+  vertices[1].position = {1.0f, 0.0f, 0.0f};
+  vertices[2].position = {0.0f, 1.0f, 0.0f};
+  std::vector<glm::uvec3> triangles{{0, 1, 2}};
+  const auto meshlet_range = std::make_shared<evo_engine::RangeDescriptor>();
+  const auto triangle_range = std::make_shared<evo_engine::RangeDescriptor>();
+  evo_engine::GeometryStorage::AllocateMesh({}, vertices, triangles, meshlet_range, triangle_range);
+  const auto& meshlet = evo_engine::GeometryStorage::PeekMeshlet(meshlet_range->offset);
+  for (uint32_t index = 0; index < meshlet.vertices_size; ++index) {
+    const auto& position = evo_engine::GeometryStorage::PeekVertex(
+        meshlet.vertex_chunk_index * evo_engine::Platform::Constants::meshlet_max_vertices_size + index);
+    EXPECT_LE(glm::distance(position.position, glm::vec3(meshlet.bounding_sphere)), meshlet.bounding_sphere.w + 1e-5f);
+  }
+  EXPECT_LT(meshlet.normal_cone.w, 1.0f);
+  EXPECT_NEAR(glm::length(glm::vec3(meshlet.normal_cone)), 1.0f, 1e-5f);
+  EXPECT_TRUE(std::isfinite(meshlet.normal_cone_apex.x));
+  EXPECT_TRUE(std::isfinite(meshlet.normal_cone_apex.y));
+  EXPECT_TRUE(std::isfinite(meshlet.normal_cone_apex.z));
+
+  std::vector<evo_engine::StrandPoint> points(4);
+  for (uint32_t index = 0; index < points.size(); ++index) {
+    points[index].position = {static_cast<float>(index), 0.0f, 0.0f};
+    points[index].thickness = index == 3 ? -0.5f : 0.25f;
+  }
+  const auto strand_meshlet_range = std::make_shared<evo_engine::RangeDescriptor>();
+  const auto segment_range = std::make_shared<evo_engine::RangeDescriptor>();
+  evo_engine::GeometryStorage::AllocateStrands({}, points, {{0, 1, 2, 3}}, strand_meshlet_range, segment_range);
+  const auto& strand_meshlet = evo_engine::GeometryStorage::PeekStrandMeshlet(strand_meshlet_range->offset);
+  for (uint32_t index = 0; index < strand_meshlet.strand_points_size; ++index) {
+    const auto& point = evo_engine::GeometryStorage::PeekStrandPoint(
+        strand_meshlet.strand_point_chunk_index * evo_engine::Platform::Constants::meshlet_max_vertices_size + index);
+    EXPECT_LE(glm::distance(point.position, glm::vec3(strand_meshlet.bounding_sphere)) + std::abs(point.thickness),
+              strand_meshlet.bounding_sphere.w + 1e-5f);
+  }
+  evo_engine::GeometryStorage::OnDestroy();
 }
 
 TEST(StrandsMeshShader, BeautyPathUsesCorrectFrameAndBoundedSubdivision) {

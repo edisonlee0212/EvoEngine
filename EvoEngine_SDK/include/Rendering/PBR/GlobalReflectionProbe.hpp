@@ -25,6 +25,13 @@ class GlobalReflectionProbe final : public IAsset {
                               const std::shared_ptr<Image>& depth_image, const std::shared_ptr<ImageView>& depth_view,
                               const std::shared_ptr<DescriptorSet>& descriptor_set,
                               const std::shared_ptr<GraphicsPipeline>& pipeline);
+  static void RecordPrefilterFaces(VkCommandBuffer command_buffer, const std::shared_ptr<Cubemap>& filtered,
+                                   const std::vector<std::vector<std::shared_ptr<ImageView>>>& filtered_mip_views,
+                                   const std::shared_ptr<Image>& depth_image,
+                                   const std::shared_ptr<ImageView>& depth_view,
+                                   const std::shared_ptr<DescriptorSet>& descriptor_set,
+                                   const std::shared_ptr<GraphicsPipeline>& pipeline, uint32_t first_face,
+                                   uint32_t face_count);
 
   friend class RenderLayer;
   friend class Camera;

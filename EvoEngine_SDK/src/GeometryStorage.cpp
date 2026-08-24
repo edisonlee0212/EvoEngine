@@ -5,12 +5,46 @@
 #include "meshoptimizer.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
+#include <numeric>
 #include <type_traits>
 
 using namespace evo_engine;
 
 namespace {
+glm::vec4 ToBoundingSphere(const meshopt_Bounds& bounds) {
+  return {bounds.center[0], bounds.center[1], bounds.center[2], bounds.radius};
+}
+
+void SetMeshletBounds(Meshlet& meshlet, const meshopt_Bounds& bounds) {
+  meshlet.bounding_sphere = ToBoundingSphere(bounds);
+  meshlet.normal_cone = {bounds.cone_axis[0], bounds.cone_axis[1], bounds.cone_axis[2], bounds.cone_cutoff};
+  meshlet.normal_cone_apex = {bounds.cone_apex[0], bounds.cone_apex[1], bounds.cone_apex[2], 0.0f};
+}
+
+void RecomputeMeshletBounds(Meshlet& meshlet, const Vertex* vertices) {
+  std::array<uint32_t, Platform::Constants::meshlet_max_vertices_size> local_indices{};
+  std::iota(local_indices.begin(), local_indices.end(), 0u);
+  SetMeshletBounds(meshlet, meshopt_computeMeshletBounds(
+                                local_indices.data(), reinterpret_cast<const unsigned char*>(meshlet.triangles),
+                                meshlet.triangle_size, &vertices[0].position.x, meshlet.vertices_size, sizeof(Vertex)));
+}
+
+glm::vec4 ComputeStrandBoundingSphere(const StrandPoint* points, const size_t count) {
+  struct PointSphere {
+    glm::vec3 position;
+    float radius;
+  };
+  std::array<PointSphere, Platform::Constants::meshlet_max_vertices_size> spheres{};
+  for (size_t index = 0; index < count; ++index) {
+    spheres[index] = {points[index].position, std::abs(points[index].thickness)};
+  }
+  return ToBoundingSphere(meshopt_computeSphereBounds(&spheres[0].position.x, count, sizeof(PointSphere),
+                                                      &spheres[0].radius, sizeof(PointSphere)));
+}
+
 class GeometryUploadScope {
   bool& in_progress_;
   bool active_ = false;
@@ -588,6 +622,11 @@ void GeometryStorage::AllocateMesh(const Handle& handle, std::vector<Vertex>& ve
     }
     current_meshlet.vertices_size = meshlet_result.vertex_count;
     current_meshlet.triangle_size = meshlet_result.triangle_count;
+    const auto meshlet_bounds = meshopt_computeMeshletBounds(
+        meshlet_result_vertices.data() + meshlet_result.vertex_offset,
+        meshlet_result_triangles.data() + meshlet_result.triangle_offset, meshlet_result.triangle_count,
+        &vertices[0].position.x, vertices.size(), sizeof(Vertex));
+    SetMeshletBounds(current_meshlet, meshlet_bounds);
     for (uint32_t ti = 0; ti < meshlet_result.triangle_count; ti++) {
       auto& current_meshlet_triangle = current_meshlet.triangles[ti];
       current_meshlet_triangle = glm::u8vec3(meshlet_result_triangles[ti * 3 + meshlet_result.triangle_offset],
@@ -633,19 +672,21 @@ void GeometryStorage::UpdateMeshVertices(const std::shared_ptr<RangeDescriptor>&
 
   size_t packed_vertex_index = 0;
   for (uint32_t meshlet_index = 0; meshlet_index < meshlet_range->range; meshlet_index++) {
-    const auto& meshlet = storage.meshlets_[meshlet_range->offset + meshlet_index];
+    auto& meshlet = storage.meshlets_[meshlet_range->offset + meshlet_index];
     if (packed_vertex_index + meshlet.vertices_size > packed_vertices.size() ||
         meshlet.vertex_chunk_index >= storage.vertex_data_chunks_.size()) {
       throw std::runtime_error("Packed mesh vertices do not match the existing meshlet topology.");
     }
     auto& chunk = storage.vertex_data_chunks_[meshlet.vertex_chunk_index];
     std::copy_n(packed_vertices.begin() + packed_vertex_index, meshlet.vertices_size, chunk.vertex_data);
+    RecomputeMeshletBounds(meshlet, chunk.vertex_data);
     packed_vertex_index += meshlet.vertices_size;
   }
   if (packed_vertex_index != packed_vertices.size()) {
     throw std::runtime_error("Packed mesh vertex count does not match the existing meshlet topology.");
   }
   storage.mesh_vertex_dirty_range_.Mark(meshlet_range->offset, meshlet_range->range);
+  storage.meshlet_dirty_range_.Mark(meshlet_range->offset, meshlet_range->range);
   storage.require_mesh_data_device_update_ = true;
 }
 
@@ -845,6 +886,8 @@ void GeometryStorage::AllocateStrands(const Handle& handle, const std::vector<St
       current_strand_meshlet.segment_size++;
       current_segment_index++;
     }
+    current_strand_meshlet.bounding_sphere =
+        ComputeStrandBoundingSphere(current_chunk.strand_point_data, current_strand_meshlet.strand_points_size);
   }
 
   storage.strand_meshlet_range_descriptor_.push_back(target_strand_meshlet_range);

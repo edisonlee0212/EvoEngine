@@ -223,7 +223,8 @@ TEST(CameraRenderTechnique, GtaoSpecularVisibilityUsesTheExistingCameraBlockLane
   const auto camera_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Camera.cpp"));
   EXPECT_NE(cameras.find("uint raster_lighting_flags"), std::string::npos);
   EXPECT_NE(lighting.find("raster_lighting_flags & 1u"), std::string::npos);
-  EXPECT_NE(camera_source.find("AmbientOcclusion::Algorithm::Gtao"), std::string::npos);
+  EXPECT_NE(camera_source.find("post_processing_stack->ambient_occlusion)"), std::string::npos);
+  EXPECT_EQ(camera_source.find("AmbientOcclusion::Algorithm"), std::string::npos);
 }
 
 TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
@@ -233,7 +234,8 @@ TEST(CameraRenderTechnique, DirectionalShadowSplitsUseTheSelectedCameraBlock) {
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   EXPECT_NE(cameras.find("float4 shadow_split_distances"), std::string::npos);
-  EXPECT_NE(lighting.find("EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].shadow_split_distances"), std::string::npos);
+  EXPECT_NE(lighting.find("EE_CAMERAS[EE_FUNC_DIRECTIONAL_SHADOW_CAMERA_INDEX()].shadow_split_distances"),
+            std::string::npos);
   EXPECT_EQ(lighting.find("EE_RENDER_INFO.shadow_split_"), std::string::npos);
   EXPECT_NE(storage.find("camera_info_block.shadow_split_distances ="), std::string::npos);
   EXPECT_NE(storage.find("camera_info_blocks_[camera_index].shadow_split_distances"), std::string::npos);
@@ -256,17 +258,15 @@ TEST(CameraRenderTechnique, ZeroToOneDepthHelpersUseProjectionTranslation) {
   EXPECT_EQ(cameras.find("float b = EE_CAMERAS[camera_index].projection[2][3];"), std::string::npos);
 }
 
-TEST(CameraRenderTechnique, DirectionalAndPunctualPcfCountsUseSeparateRenderInfoFields) {
+TEST(CameraRenderTechnique, ShadowDebugParametersReserveFourthComponent) {
   Application app;
   ApplicationContextScope scope(app);
   RenderSettings settings;
-  settings.directional_pcf_sample_amount = 7;
-  settings.pcf_sample_amount = 23;
   settings.indirect_lighting_debug_view = RenderSettings::IndirectLightingDebugView::SpecularVisibility;
   RenderInstanceStorage::RenderInfoBlock render_info;
   render_info.Apply(settings);
-  EXPECT_EQ(render_info.shadow_debug_parameters.w, 7);
-  EXPECT_EQ(render_info.pcf_sample_amount, 23);
+  EXPECT_EQ(render_info.shadow_debug_parameters.w, 0);
+  EXPECT_EQ(render_info.reserved_0, 0);
   EXPECT_FLOAT_EQ(render_info.shadow_fade_parameters.y, 3.0f);
 
   settings.indirect_lighting_debug_view = RenderSettings::IndirectLightingDebugView::DdgiProbeBlendLoss;
@@ -300,12 +300,6 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     emitter << YAML::EndMap;
     const auto node = YAML::Load(emitter.c_str());
     EXPECT_EQ(node["render_mode"].as<std::string>(), Camera::GetCameraRenderModeName(render_mode));
-    EXPECT_FALSE(node["ray_integrator"]);
-    EXPECT_FALSE(node["restir_pt"]);
-    EXPECT_FALSE(node["firefly_clamp_enabled"]);
-    EXPECT_FALSE(node["emissive_triangle_nee_enabled"]);
-    EXPECT_FALSE(node["ray_outputs"]["nrd_emission"]);
-
     Camera restored;
     Serialization::DeserializeObject(node, static_cast<IPrivateComponent&>(restored));
     EXPECT_EQ(restored.camera_render_mode, render_mode);
@@ -320,23 +314,5 @@ TEST(CameraRenderTechnique, CameraRenderModesRoundTripYaml) {
     EXPECT_FLOAT_EQ(restored.camera_settings.auto_spp_convergence_threshold, 0.025f);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.albedo);
     EXPECT_TRUE(restored.camera_settings.ray_outputs.debug);
-
-    auto legacy_node = YAML::Load(emitter.c_str());
-    legacy_node["ray_integrator"] = "ReSTIR PT";
-    legacy_node["restir_pt"]["enable_temporal_reuse"] = true;
-    legacy_node["firefly_clamp_enabled"] = false;
-    legacy_node["emissive_triangle_nee_enabled"] = false;
-    legacy_node["ray_outputs"]["nrd_diffuse_radiance_hit_distance"] = true;
-    legacy_node["ray_outputs"]["nrd_specular_radiance_hit_distance"] = true;
-    legacy_node["ray_outputs"]["nrd_residual_radiance_hit_distance"] = true;
-    legacy_node["ray_outputs"]["nrd_emission"] = true;
-    legacy_node["ray_outputs"]["nrd_diffuse_reflectance"] = true;
-    legacy_node["ray_outputs"]["nrd_specular_reflectance"] = true;
-    Camera legacy_restored;
-    EXPECT_NO_THROW(Serialization::DeserializeObject(legacy_node, static_cast<IPrivateComponent&>(legacy_restored)));
-    EXPECT_EQ(legacy_restored.camera_render_mode, render_mode);
-    EXPECT_FLOAT_EQ(legacy_restored.camera_settings.firefly_clamp_threshold, 3.5f);
-    EXPECT_TRUE(legacy_restored.camera_settings.ray_outputs.albedo);
-    EXPECT_TRUE(legacy_restored.camera_settings.ray_outputs.debug);
   }
 }

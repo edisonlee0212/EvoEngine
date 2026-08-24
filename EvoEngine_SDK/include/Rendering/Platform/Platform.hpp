@@ -10,6 +10,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <set>
@@ -94,6 +95,92 @@ struct GpuTimestampStats {
   [[nodiscard]] double PercentileMilliseconds(double percentile) const;
 };
 
+enum class GpuTimestampQueue : uint8_t { Graphics, Compute, Transfer, RayTracing, Immediate };
+
+struct GpuTimestampScopeMetadata {
+  std::string stable_pass_id{};
+  std::string display_name{};
+  std::string group{};
+  GpuTimestampQueue queue = GpuTimestampQueue::Graphics;
+  uint64_t view_id = 0;
+  uint64_t instance_id = 0;
+  bool contributes_to_frame_total = true;
+};
+
+struct GpuTimestampQuerySample {
+  GpuTimestampScopeMetadata metadata{};
+  uint32_t order_index = 0;
+  uint32_t begin_query = 0;
+  uint32_t end_query = 0;
+};
+
+struct GpuTimestampSample {
+  GpuTimestampScopeMetadata metadata{};
+  uint32_t order_index = 0;
+  uint32_t begin_query = 0;
+  uint32_t end_query = 0;
+  double begin_offset_milliseconds = 0.0;
+  double end_offset_milliseconds = 0.0;
+  double duration_milliseconds = 0.0;
+};
+
+struct GpuTimestampFrameSnapshot {
+  uint64_t application_frame_index = 0;
+  uint64_t capture_session_index = 0;
+  uint32_t query_capacity = 0;
+  uint32_t query_used = 0;
+  uint32_t skipped_scope_count = 0;
+  uint32_t unresolved_scope_count = 0;
+  bool results_available = false;
+  double span_milliseconds = 0.0;
+  std::vector<GpuTimestampSample> samples{};
+};
+
+struct GpuTimestampPassAggregate {
+  GpuTimestampScopeMetadata metadata{};
+  uint32_t first_order_index = 0;
+  uint32_t call_count = 0;
+  double total_milliseconds = 0.0;
+  std::vector<GpuTimestampSample> instances{};
+};
+
+struct GpuTimestampHistorySummary {
+  GpuTimestampStats stats{};
+  size_t frame_count = 0;
+  size_t observed_frame_count = 0;
+  double selected_milliseconds = 0.0;
+  double duty_cycle = 0.0;
+};
+
+struct GpuTimestampPassHistory {
+  GpuTimestampScopeMetadata metadata{};
+  GpuTimestampHistorySummary duration{};
+};
+
+struct GpuTimestampGroupHistory {
+  std::string name{};
+  GpuTimestampHistorySummary duration{};
+  std::vector<GpuTimestampPassHistory> passes{};
+};
+
+struct GpuTimestampHistoryStats {
+  size_t frame_count = 0;
+  size_t available_frame_count = 0;
+  GpuTimestampHistorySummary span{};
+  GpuTimestampHistorySummary summed_work{};
+  std::vector<GpuTimestampGroupHistory> groups{};
+};
+
+[[nodiscard]] GpuTimestampFrameSnapshot BuildGpuTimestampFrameSnapshot(
+    uint64_t application_frame_index, uint64_t capture_session_index, uint32_t query_capacity, uint32_t query_used,
+    uint32_t skipped_scope_count, const std::vector<GpuTimestampQuerySample>& query_samples,
+    const std::vector<uint64_t>& timestamps, double timestamp_period_nanoseconds, uint32_t timestamp_valid_bits);
+[[nodiscard]] std::vector<GpuTimestampPassAggregate> BuildGpuTimestampPassAggregates(
+    const GpuTimestampFrameSnapshot& frame);
+[[nodiscard]] GpuTimestampHistoryStats BuildGpuTimestampHistoryStats(
+    const std::vector<GpuTimestampFrameSnapshot>& frames, size_t expected_frame_count = 0,
+    size_t selected_frame_index = (std::numeric_limits<size_t>::max)());
+
 struct ImmediateGpuTimestampAction {
   std::string name{};
   std::function<void(VkCommandBuffer)> action{};
@@ -136,8 +223,11 @@ struct GpuDeviceFingerprint {
 };
 
 struct GpuTimestampScopeToken {
-  std::string name{};
+  GpuTimestampScopeMetadata metadata{};
   uint32_t frame_index = 0;
+  uint64_t application_frame_index = 0;
+  uint64_t capture_session_index = 0;
+  uint32_t order_index = 0;
   uint32_t begin_query = 0;
   uint32_t end_query = 0;
   bool valid = false;
@@ -451,6 +541,7 @@ class Platform final {
   void PrepareGpuTimestampFrame(uint32_t frame_index);
   void ResolveGpuTimestampFrame(uint32_t frame_index);
   void AccumulateGpuTimestamp(const std::string& name, double milliseconds);
+  void AccumulateImmediateGpuTimestamp(const GpuTimestampScopeMetadata& metadata, double milliseconds);
   void AccumulateCpuTiming(const std::string& name, double milliseconds);
 
   /**
@@ -844,6 +935,8 @@ class Platform final {
 
   static void ImmediateSubmitWithGpuTimestamp(const std::string& name,
                                               const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
+  static void ImmediateSubmitWithGpuTimestamp(const GpuTimestampScopeMetadata& metadata,
+                                              const std::function<void(VkCommandBuffer vk_command_buffer)>& action);
   static void ImmediateSubmitWithGpuTimestamps(const std::string& total_name,
                                                const std::vector<ImmediateGpuTimestampAction>& actions);
 
@@ -852,6 +945,7 @@ class Platform final {
   [[nodiscard]] static bool GpuTimestampCaptureAvailable();
   static void ResetGpuTimestampStats();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
+  [[nodiscard]] static std::vector<GpuTimestampFrameSnapshot> GetGpuTimestampFrameHistory();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();
   static void RecordCpuTimingSample(const std::string& name, double milliseconds);
   [[nodiscard]] static GpuMemorySnapshot GetGpuMemorySnapshot();
@@ -859,6 +953,8 @@ class Platform final {
   [[nodiscard]] static bool GraphicsValidationEnabled();
   [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
                                                                      const std::string& name);
+  [[nodiscard]] static GpuTimestampScopeToken BeginGpuTimestampScope(VkCommandBuffer vk_command_buffer,
+                                                                     const GpuTimestampScopeMetadata& metadata);
   static void EndGpuTimestampScope(VkCommandBuffer vk_command_buffer, const GpuTimestampScopeToken& token);
 
   /**
@@ -1044,14 +1140,16 @@ class Platform final {
                                           size_t prim_count, size_t indirect_draw_commands);
 
   struct PendingGpuTimestampScope {
-    std::string name{};
-    uint32_t begin_query = 0;
-    uint32_t end_query = 0;
+    GpuTimestampQuerySample query_sample{};
   };
 
   struct GpuTimestampFrame {
     VkQueryPool query_pool = VK_NULL_HANDLE;
     uint32_t next_query = 0;
+    uint32_t next_scope_order = 0;
+    uint32_t skipped_scope_count = 0;
+    uint64_t application_frame_index = 0;
+    uint64_t capture_session_index = 0;
     bool reset_recorded = false;
     bool capacity_warning_reported = false;
     std::vector<PendingGpuTimestampScope> scopes{};
@@ -1059,6 +1157,7 @@ class Platform final {
 
   static constexpr uint32_t kGpuTimestampQueriesPerFrame = 256;
   bool gpu_timestamp_capture_enabled_ = false;
+  uint64_t gpu_timestamp_capture_session_index_ = 0;
   bool gpu_timestamp_capture_available_ = false;
   uint32_t gpu_timestamp_valid_bits_ = 0;
   double gpu_timestamp_period_nanoseconds_ = 0.0;
@@ -1067,6 +1166,8 @@ class Platform final {
   std::recursive_mutex immediate_gpu_timestamp_mutex_{};
   mutable std::mutex gpu_timestamp_stats_mutex_{};
   std::unordered_map<std::string, GpuTimestampStats> gpu_timestamp_stats_{};
+  std::vector<GpuTimestampFrameSnapshot> gpu_timestamp_frame_history_{};
+  size_t max_gpu_timestamp_frame_history_ = 2000;
   mutable std::mutex cpu_timing_stats_mutex_{};
   std::unordered_map<std::string, GpuTimestampStats> cpu_timing_stats_{};
   std::optional<RenderCameraDrawScope> active_render_camera_draw_scope_{};

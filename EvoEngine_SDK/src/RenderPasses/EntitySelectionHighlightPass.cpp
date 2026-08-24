@@ -16,7 +16,9 @@ RenderPassDescriptor EntitySelectionHighlightPass::CreateDescriptor() {
           RenderPassScope::Camera,
           {{RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
-          {RenderPassNames::post_processing}};
+          {RenderPassNames::post_processing},
+          RenderPassProfilerGroup::EditorAndUi,
+          "Entity Selection Highlight"};
 }
 
 void EntitySelectionHighlightPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -27,6 +29,8 @@ void EntitySelectionHighlightPass::Execute(const RenderGraphExecutionContext& co
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera->GetHandle().GetValue());
     std::vector<VkRenderingAttachmentInfo> color_attachments;
     parameters.camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachments, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                                       VK_ATTACHMENT_STORE_OP_STORE);

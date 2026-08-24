@@ -409,7 +409,9 @@ RenderPassDescriptor CreateDescriptor(const char* dependency, const char* depth_
             RenderResourceState::StorageReadWrite},
            {RenderResourceNames::camera_volumetric_cloud_transmittance, RenderResourceUsage::Write,
             RenderResourceState::StorageReadWrite}},
-          {dependency}};
+          {dependency},
+          RenderPassProfilerGroup::Lighting,
+          "Volumetric Clouds"};
 }
 }  // namespace
 
@@ -434,6 +436,8 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera ? parameters.camera->GetHandle().GetValue() : 0);
     if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.composite_pipeline &&
         parameters.composite_pipeline->Initialized() && parameters.per_frame_descriptor_set &&
         parameters.descriptor_set_layout && parameters.transient_resources && parameters.camera &&

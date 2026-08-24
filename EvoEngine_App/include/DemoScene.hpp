@@ -41,7 +41,6 @@ void ConfigureStrandMeshShaderValidation(const std::shared_ptr<Scene>& scene);
 void UpdateStrandMeshShaderValidationGeometry(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandPunctualShadowValidation(const std::shared_ptr<Scene>& scene);
 void ConfigureStrandGizmoValidation(const std::shared_ptr<Scene>& scene);
-void SetRenderingRegressionTemporalMotionEnabled(bool enabled);
 void SetRenderingRegressionMovingLightEnabled(bool enabled);
 void SetRenderingRegressionSecondaryGeometryMotionEnabled(bool enabled);
 void ConfigureGaussianSplatDemoScene(const std::shared_ptr<Scene>& scene);

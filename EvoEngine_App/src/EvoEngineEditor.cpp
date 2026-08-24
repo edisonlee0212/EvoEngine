@@ -13,6 +13,7 @@
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "PostProcessingStack.hpp"
+#include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
@@ -74,25 +75,19 @@ struct EditorCommandLine {
   std::optional<float> preview_capture_auto_spp_convergence_threshold;
   std::optional<int> preview_capture_sample_size;
   std::optional<std::filesystem::path> preview_ray_profile_report_path;
+  std::optional<std::filesystem::path> preview_raster_profile_report_path;
+  std::optional<bool> preview_gpu_timestamp_capture;
   std::optional<glm::vec3> preview_capture_camera_position;
   std::optional<glm::vec3> preview_capture_camera_look_at;
   std::optional<bool> preview_ambient_occlusion_enabled;
-  std::optional<AmbientOcclusion::Algorithm> preview_ambient_occlusion_algorithm;
   std::optional<bool> preview_anti_aliasing_enabled;
-  std::optional<AntiAliasing::Algorithm> preview_anti_aliasing_algorithm;
-  std::optional<AntiAliasing::TaaPreset> preview_taa_preset;
-  std::optional<AntiAliasing::SmaaPreset> preview_smaa_preset;
-  std::optional<bool> preview_anti_aliasing_tgsm;
-  std::optional<bool> preview_anti_aliasing_fp16;
-  std::optional<bool> preview_anti_aliasing_motion_sequence;
-  std::optional<AntiAliasing::TaaDebugMode> preview_taa_debug_mode;
-  std::optional<AntiAliasing::SmaaDebugMode> preview_smaa_debug_mode;
+  std::optional<AntiAliasing::Preset> preview_anti_aliasing_preset;
+  std::optional<AntiAliasing::DebugMode> preview_anti_aliasing_debug_mode;
   bool preview_anti_aliasing_debug_disabled = false;
   std::optional<float> preview_shadow_split_lambda;
   std::optional<float> preview_shadow_cascade_transition_width;
   std::optional<float> preview_shadow_distance_fade;
   std::optional<RenderSettings::ShadowCascadeFitMode> preview_shadow_fit_mode;
-  std::optional<int> preview_shadow_pcf_samples;
   std::optional<int> preview_shadow_debug_mode;
   std::optional<int> preview_shadow_debug_cascade;
   std::optional<int> preview_shadow_debug_light;
@@ -404,46 +399,34 @@ bool ParsePreviewBool(const std::string& value, const std::string& argument) {
   throw std::invalid_argument(argument + " requires enabled or disabled.");
 }
 
-std::optional<AmbientOcclusion::Algorithm> ParsePreviewAmbientOcclusionAlgorithm(const std::string& value,
-                                                                                 bool& enabled) {
+bool ParsePreviewAmbientOcclusionEnabled(const std::string& value) {
   auto normalized = value;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
-  if (normalized == "ssao") {
-    enabled = true;
-    return AmbientOcclusion::Algorithm::Ssao;
-  }
   if (normalized == "gtao") {
-    enabled = true;
-    return AmbientOcclusion::Algorithm::Gtao;
+    return true;
   }
   if (normalized == "0" || normalized == "off" || normalized == "false" || normalized == "disabled" ||
       normalized == "disable" || normalized == "none") {
-    enabled = false;
-    return {};
+    return false;
   }
-  throw std::invalid_argument("--preview-ao requires ssao, gtao, or disabled.");
+  throw std::invalid_argument("--preview-ao requires gtao or disabled.");
 }
 
-std::optional<AntiAliasing::Algorithm> ParsePreviewAntiAliasingAlgorithm(const std::string& value, bool& enabled) {
+bool ParsePreviewAntiAliasingEnabled(const std::string& value) {
   auto normalized = value;
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
-  if (normalized == "taa") {
-    enabled = true;
-    return AntiAliasing::Algorithm::Taa;
-  }
   if (normalized == "smaa") {
-    enabled = true;
-    return AntiAliasing::Algorithm::Smaa;
+    return true;
   }
-  if (normalized == "disabled") {
-    enabled = false;
-    return {};
+  if (normalized == "0" || normalized == "off" || normalized == "false" || normalized == "disabled" ||
+      normalized == "disable" || normalized == "none") {
+    return false;
   }
-  throw std::invalid_argument("--preview-aa requires disabled, taa, or smaa.");
+  throw std::invalid_argument("--preview-aa requires smaa or disabled.");
 }
 
 int ParsePreviewShadowDebugMode(const std::string& value) {
@@ -479,40 +462,17 @@ void ParsePreviewDebugMode(const std::string& value, EditorCommandLine& command_
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
   if (normalized == "off" || normalized == "disabled" || normalized == "none") {
-    command_line.preview_taa_debug_mode.reset();
-    command_line.preview_smaa_debug_mode.reset();
+    command_line.preview_anti_aliasing_debug_mode.reset();
     command_line.preview_anti_aliasing_debug_disabled = true;
     return;
   }
   command_line.preview_anti_aliasing_debug_disabled = false;
-  if (normalized == "taa-motion" || normalized == "motion") {
-    command_line.preview_smaa_debug_mode.reset();
-    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::Motion;
+  if (normalized == "smaa-edges" || normalized == "edges") {
+    command_line.preview_anti_aliasing_debug_mode = AntiAliasing::DebugMode::Edges;
     return;
   }
-  if (normalized == "taa-depth-confidence" || normalized == "depth-confidence") {
-    command_line.preview_smaa_debug_mode.reset();
-    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::DepthConfidence;
-    return;
-  }
-  if (normalized == "taa-history-confidence" || normalized == "history-confidence") {
-    command_line.preview_smaa_debug_mode.reset();
-    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::HistoryConfidence;
-    return;
-  }
-  if (normalized == "taa-no-history" || normalized == "no-history") {
-    command_line.preview_smaa_debug_mode.reset();
-    command_line.preview_taa_debug_mode = AntiAliasing::TaaDebugMode::NoHistory;
-    return;
-  }
-  if (normalized == "smaa-edges") {
-    command_line.preview_taa_debug_mode.reset();
-    command_line.preview_smaa_debug_mode = AntiAliasing::SmaaDebugMode::Edges;
-    return;
-  }
-  if (normalized == "smaa-weights") {
-    command_line.preview_taa_debug_mode.reset();
-    command_line.preview_smaa_debug_mode = AntiAliasing::SmaaDebugMode::BlendWeights;
+  if (normalized == "smaa-weights" || normalized == "weights") {
+    command_line.preview_anti_aliasing_debug_mode = AntiAliasing::DebugMode::BlendWeights;
     return;
   }
   throw std::invalid_argument("Unknown preview debug mode: " + value);
@@ -523,43 +483,23 @@ void ParsePreviewAntiAliasingPreset(const std::string& value, EditorCommandLine&
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](const char character) {
     return static_cast<char>(std::tolower(static_cast<unsigned char>(character)));
   });
-  if (normalized == "best" || normalized == "best-quality") {
-    command_line.preview_smaa_preset.reset();
-    command_line.preview_taa_preset = AntiAliasing::TaaPreset::BestQuality;
-    return;
-  }
-  if (normalized == "high-quality") {
-    command_line.preview_smaa_preset.reset();
-    command_line.preview_taa_preset = AntiAliasing::TaaPreset::HighQuality;
-    return;
-  }
-  if (normalized == "performance") {
-    command_line.preview_smaa_preset.reset();
-    command_line.preview_taa_preset = AntiAliasing::TaaPreset::Performance;
-    return;
-  }
   if (normalized == "low") {
-    command_line.preview_taa_preset.reset();
-    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Low;
+    command_line.preview_anti_aliasing_preset = AntiAliasing::Preset::Low;
     return;
   }
   if (normalized == "medium") {
-    command_line.preview_taa_preset.reset();
-    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Medium;
+    command_line.preview_anti_aliasing_preset = AntiAliasing::Preset::Medium;
     return;
   }
   if (normalized == "high") {
-    command_line.preview_taa_preset.reset();
-    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::High;
+    command_line.preview_anti_aliasing_preset = AntiAliasing::Preset::High;
     return;
   }
   if (normalized == "ultra") {
-    command_line.preview_taa_preset.reset();
-    command_line.preview_smaa_preset = AntiAliasing::SmaaPreset::Ultra;
+    command_line.preview_anti_aliasing_preset = AntiAliasing::Preset::Ultra;
     return;
   }
-  throw std::invalid_argument(
-      "--preview-aa-preset requires best-quality, high-quality, performance, low, medium, high, or ultra.");
+  throw std::invalid_argument("--preview-aa-preset requires low, medium, high, or ultra.");
 }
 
 glm::vec3 ParseVec3Argument(const int argc, char** argv, int& arg_index, const std::string& argument) {
@@ -681,50 +621,40 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ray-profile-report requires an output JSON path.");
       }
       command_line.preview_ray_profile_report_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--preview-raster-profile-report") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-raster-profile-report requires an output JSON path.");
+      }
+      command_line.preview_raster_profile_report_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--preview-gpu-timestamps") {
+      if (arg_index + 1 >= argc) {
+        throw std::invalid_argument("--preview-gpu-timestamps requires enabled or disabled.");
+      }
+      command_line.preview_gpu_timestamp_capture = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
     } else if (argument == "--preview-camera-position") {
       command_line.preview_capture_camera_position = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-camera-look-at") {
       command_line.preview_capture_camera_look_at = ParseVec3Argument(argc, argv, arg_index, argument);
     } else if (argument == "--preview-ao") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-ao requires ssao, gtao, or disabled.");
+        throw std::invalid_argument("--preview-ao requires gtao or disabled.");
       }
-      bool preview_ambient_occlusion_enabled = false;
-      command_line.preview_ambient_occlusion_algorithm = ParsePreviewAmbientOcclusionAlgorithm(
-          argv[++arg_index] ? argv[arg_index] : "", preview_ambient_occlusion_enabled);
-      command_line.preview_ambient_occlusion_enabled = preview_ambient_occlusion_enabled;
+      command_line.preview_ambient_occlusion_enabled =
+          ParsePreviewAmbientOcclusionEnabled(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-aa") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-aa requires disabled, taa, or smaa.");
+        throw std::invalid_argument("--preview-aa requires smaa or disabled.");
       }
-      bool preview_anti_aliasing_enabled = false;
-      command_line.preview_anti_aliasing_algorithm =
-          ParsePreviewAntiAliasingAlgorithm(argv[++arg_index] ? argv[arg_index] : "", preview_anti_aliasing_enabled);
-      command_line.preview_anti_aliasing_enabled = preview_anti_aliasing_enabled;
+      command_line.preview_anti_aliasing_enabled =
+          ParsePreviewAntiAliasingEnabled(argv[++arg_index] ? argv[arg_index] : "");
     } else if (argument == "--preview-aa-preset") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-aa-preset requires a preset.");
       }
       ParsePreviewAntiAliasingPreset(argv[++arg_index] ? argv[arg_index] : "", command_line);
-    } else if (argument == "--preview-aa-tgsm") {
+    } else if (argument == "--preview-aa-debug") {
       if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-aa-tgsm requires enabled or disabled.");
-      }
-      command_line.preview_anti_aliasing_tgsm = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-aa-fp16") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-aa-fp16 requires enabled or disabled.");
-      }
-      command_line.preview_anti_aliasing_fp16 = ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-aa-motion-sequence") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-aa-motion-sequence requires enabled or disabled.");
-      }
-      command_line.preview_anti_aliasing_motion_sequence =
-          ParsePreviewBool(argv[++arg_index] ? argv[arg_index] : "", argument);
-    } else if (argument == "--preview-debug") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-debug requires a mode.");
+        throw std::invalid_argument("--preview-aa-debug requires a mode.");
       }
       ParsePreviewDebugMode(argv[++arg_index] ? argv[arg_index] : "", command_line);
     } else if (argument == "--preview-shadow-split-lambda") {
@@ -747,11 +677,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-shadow-fit requires stable-sphere or tight-aabb.");
       }
       command_line.preview_shadow_fit_mode = ParseShadowCascadeFitModeName(argv[++arg_index] ? argv[arg_index] : "");
-    } else if (argument == "--preview-shadow-pcf-samples") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-shadow-pcf-samples requires a value between 1 and 64.");
-      }
-      command_line.preview_shadow_pcf_samples = std::clamp(std::stoi(argv[++arg_index]), 1, 64);
     } else if (argument == "--preview-shadow-debug") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-shadow-debug requires a mode.");
@@ -796,7 +721,7 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--preview-ddgi-seed requires an unsigned integer.");
       }
       command_line.preview_ddgi_seed = static_cast<uint32_t>(std::stoul(argv[++arg_index], nullptr, 0));
-    } else if (argument == "--preview-ddgi-emissive-rays" || argument == "--preview-ddgi-guided-rays") {
+    } else if (argument == "--preview-ddgi-emissive-rays") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-emissive-rays requires a value between 0 and 4096.");
       }
@@ -816,14 +741,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       command_line.preview_ddgi_uniform_ray_count = uniform_ray_count;
     } else if (argument == "--preview-ddgi-continuous-updates") {
       command_line.preview_ddgi_continuous_updates = true;
-    } else if (argument == "--preview-ddgi-guided-emitters") {
-      if (arg_index + 1 >= argc) {
-        throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
-      }
-      const int legacy_emitter_limit = std::stoi(argv[++arg_index]);
-      if (legacy_emitter_limit < 1 || legacy_emitter_limit > 8) {
-        throw std::invalid_argument("--preview-ddgi-guided-emitters requires a value between 1 and 8.");
-      }
     } else if (argument == "--preview-ddgi-measure-frames") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-ddgi-measure-frames requires a positive integer.");
@@ -890,6 +807,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
     throw std::invalid_argument(
         "--preview-ray-profile-report requires a JSON demo capture in raytracing or rayquery mode.");
   }
+  if (command_line.preview_raster_profile_report_path &&
+      (!command_line.demo_preview_capture_path ||
+       command_line.preview_raster_profile_report_path->extension() != ".json" ||
+       !command_line.preview_capture_render_mode ||
+       *command_line.preview_capture_render_mode != Camera::CameraRenderMode::Rasterization)) {
+    throw std::invalid_argument("--preview-raster-profile-report requires a JSON demo capture in rasterization mode.");
+  }
   if (command_line.preview_capture_ray_debug_view &&
       (!command_line.preview_capture_render_mode ||
        !Camera::IsRayCameraRenderMode(*command_line.preview_capture_render_mode))) {
@@ -917,11 +841,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("--preview-camera-position requires --capture-demo-preview.");
   }
-  if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_ambient_occlusion_algorithm ||
-       command_line.preview_anti_aliasing_enabled || command_line.preview_anti_aliasing_algorithm ||
-       command_line.preview_taa_preset || command_line.preview_smaa_preset || command_line.preview_anti_aliasing_tgsm ||
-       command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
-       command_line.preview_taa_debug_mode || command_line.preview_smaa_debug_mode ||
+  if ((command_line.preview_ambient_occlusion_enabled || command_line.preview_anti_aliasing_enabled ||
+       command_line.preview_anti_aliasing_preset || command_line.preview_anti_aliasing_debug_mode ||
        command_line.preview_anti_aliasing_debug_disabled) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("Preview post-processing overrides require --capture-demo-preview.");
@@ -1018,9 +939,8 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       (command_line.preview_capture_width != 1920 || command_line.preview_capture_height != 1080)) {
     throw std::invalid_argument("--bistro-smoke requires --preview-width 1920 --preview-height 1080.");
   }
-  if ((command_line.preview_shadow_fit_mode || command_line.preview_shadow_pcf_samples ||
-       command_line.preview_shadow_debug_mode || command_line.preview_shadow_debug_cascade ||
-       command_line.preview_shadow_debug_light) &&
+  if ((command_line.preview_shadow_fit_mode || command_line.preview_shadow_debug_mode ||
+       command_line.preview_shadow_debug_cascade || command_line.preview_shadow_debug_light) &&
       !command_line.demo_preview_capture_path) {
     throw std::invalid_argument("Preview shadow controls require --capture-demo-preview.");
   }
@@ -1058,32 +978,14 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   if (command_line.preview_capture_bistro_ddgi && command_line.demo_profile_id != DemoProfileId::Bistro) {
     throw std::invalid_argument("--preview-bistro-ddgi requires --demo bistro.");
   }
-  if (command_line.preview_anti_aliasing_motion_sequence &&
-      command_line.demo_profile_id != DemoProfileId::RenderingRegression) {
-    throw std::invalid_argument("--preview-aa-motion-sequence requires --demo rendering-regression.");
-  }
-  const auto preview_anti_aliasing_algorithm =
-      command_line.preview_anti_aliasing_algorithm.value_or(AntiAliasing::Algorithm::Smaa);
   const bool preview_anti_aliasing_disabled =
       command_line.preview_anti_aliasing_enabled && !*command_line.preview_anti_aliasing_enabled;
   const bool has_technique_specific_anti_aliasing_options =
-      command_line.preview_taa_preset || command_line.preview_smaa_preset || command_line.preview_anti_aliasing_tgsm ||
-      command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
-      command_line.preview_taa_debug_mode || command_line.preview_smaa_debug_mode;
+      command_line.preview_anti_aliasing_preset || command_line.preview_anti_aliasing_debug_mode;
   if (preview_anti_aliasing_disabled && has_technique_specific_anti_aliasing_options) {
     throw std::invalid_argument("--preview-aa disabled cannot be combined with AA presets, controls, or debug modes.");
   }
-  if (!command_line.preview_anti_aliasing_algorithm && has_technique_specific_anti_aliasing_options) {
-    throw std::invalid_argument("AA presets, controls, and debug modes require --preview-aa taa or --preview-aa smaa.");
-  }
-  if (preview_anti_aliasing_algorithm != AntiAliasing::Algorithm::Taa &&
-      (command_line.preview_taa_preset || command_line.preview_anti_aliasing_tgsm ||
-       command_line.preview_anti_aliasing_fp16 || command_line.preview_anti_aliasing_motion_sequence ||
-       command_line.preview_taa_debug_mode)) {
-    throw std::invalid_argument("TAA presets, controls, and debug modes require --preview-aa taa.");
-  }
-  if (preview_anti_aliasing_algorithm != AntiAliasing::Algorithm::Smaa &&
-      (command_line.preview_smaa_preset || command_line.preview_smaa_debug_mode)) {
+  if (!command_line.preview_anti_aliasing_enabled && has_technique_specific_anti_aliasing_options) {
     throw std::invalid_argument("SMAA presets and debug modes require --preview-aa smaa.");
   }
   if (command_line.demo_profile_id) {
@@ -1200,9 +1102,9 @@ void ApplyBistroDemoEditorCameraDefaults() {
     return;
   }
   editor_layer->velocity = 15.0f;
-  editor_layer->enable_gizmos = false;
   editor_layer->show_scene_info = true;
   editor_layer->SetSelectedEntity({});
+  editor_layer->apply_transform_to_main_camera = true;
   editor_layer->default_scene_camera_position = glm::vec3(3.0f, 25.0f, 150.0f);
   editor_layer->default_scene_camera_rotation = glm::quat(glm::radians(glm::vec3(-5.0f, 0.0f, 0.0f)));
   editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
@@ -1285,6 +1187,8 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
   switch (profile_id) {
     case DemoProfileId::EcoSysLab: {
       editor_layer->velocity = 2.f;
+      editor_layer->apply_transform_to_main_camera = true;
+
       const auto scene_camera = editor_layer->GetSceneCamera();
       if (!scene_camera) {
         return;
@@ -1311,6 +1215,8 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       break;
     case DemoProfileId::ProceduralGalaxy:
       editor_layer->velocity = 50.f;
+      editor_layer->apply_transform_to_main_camera = true;
+
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 100.0f, 100.0f);
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       editor_layer->SetSceneCameraRotation(glm::quat(glm::radians(glm::vec3(-50.0f, 0.0f, 0.0f))));
@@ -1318,6 +1224,8 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
     case DemoProfileId::GaussianSplat:
     case DemoProfileId::Bicycle:
       editor_layer->velocity = 1.0f;
+      editor_layer->apply_transform_to_main_camera = true;
+
       editor_layer->default_scene_camera_position = glm::vec3(0.0f, 0.0f, 3.0f);
       editor_layer->SetSceneCameraPosition(editor_layer->default_scene_camera_position);
       break;
@@ -1326,6 +1234,8 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       break;
     case DemoProfileId::RenderingRegression:
     case DemoProfileId::Rendering:
+      editor_layer->apply_transform_to_main_camera = true;
+
     case DemoProfileId::Ddgi:
       break;
   }
@@ -1597,23 +1507,12 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"restoring_volumes\": " << performance.hysteresis_restoring_volume_count
          << ", \"lighting_descriptors_bound\": " << (performance.lighting_descriptors_bound ? "true" : "false")
          << "},\n"
-         << "  \"emissive_sampling\": {\"stats_available\": "
-         << (performance.emissive_sampling_stats_available ? "true" : "false")
-         << ", \"inventory_triangles\": " << performance.emissive_triangle_count
+         << "  \"emissive_sampling\": {\"inventory_triangles\": " << performance.emissive_triangle_count
          << ", \"eligible_instances\": " << performance.emissive_eligible_instance_count
          << ", \"excluded_emissive_instances\": " << performance.emissive_excluded_instance_count
          << ", \"unrepresentable_probabilities\": " << performance.emissive_unrepresentable_probability_count
          << ", \"estimated_emitted_power\": " << performance.emissive_estimated_power
-         << ", \"candidate_rays_upper_bound\": " << performance.emissive_sampling_candidate_ray_count
-         << ", \"nee_attempts\": " << performance.emissive_nee_attempt_count
-         << ", \"zero_pdf_rejects\": " << performance.emissive_zero_pdf_reject_count
-         << ", \"emitter_backface_rejects\": " << performance.emissive_emitter_backface_reject_count
-         << ", \"alpha_mask_rejects\": " << performance.emissive_alpha_mask_reject_count
-         << ", \"invalid_sample_rejects\": " << performance.emissive_invalid_sample_reject_count
-         << ", \"receiver_backface_rejects\": " << performance.emissive_receiver_backface_reject_count
-         << ", \"shadowed_samples\": " << performance.emissive_shadowed_sample_count
-         << ", \"zero_radiance_samples\": " << performance.emissive_zero_radiance_sample_count
-         << ", \"nonzero_contributions\": " << performance.emissive_nonzero_contribution_count << "},\n"
+         << ", \"candidate_rays_upper_bound\": " << performance.emissive_sampling_candidate_ray_count << "},\n"
          << "  \"logical_memory\": {\"scope\": \"validation-volume-logical-resources-v1\", "
             "\"probe_metadata_bytes\": "
          << performance.probe_metadata_byte_size << ", \"probe_state_bytes\": " << performance.probe_state_byte_size
@@ -1738,6 +1637,218 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
   std::cout << "EVOENGINE_RAY_CAMERA_PROFILE_REPORT path=\"" << report_path.string() << "\"" << std::endl;
 }
 
+struct RasterFrameSummary {
+  size_t frame_count = 0;
+  double average_ms = 0.0;
+  double median_ms = 0.0;
+  double p95_ms = 0.0;
+  double maximum_ms = 0.0;
+};
+
+RasterFrameSummary SummarizeRasterFrames(std::vector<double> samples) {
+  RasterFrameSummary result;
+  result.frame_count = samples.size();
+  if (samples.empty())
+    return result;
+  for (const auto sample : samples) {
+    result.average_ms += sample;
+    result.maximum_ms = std::max(result.maximum_ms, sample);
+  }
+  result.average_ms /= static_cast<double>(samples.size());
+  std::sort(samples.begin(), samples.end());
+  result.median_ms = samples[(samples.size() - 1) / 2];
+  result.p95_ms = samples[static_cast<size_t>(std::ceil(samples.size() * 0.95)) - 1];
+  return result;
+}
+
+void WriteProfilerDurationSummary(std::ostream& output, const ProfilerDurationSummary& summary) {
+  output << "{\"frame_count\": " << summary.frame_count
+         << ", \"observed_frame_count\": " << summary.observed_frame_count
+         << ", \"selected_ms\": " << summary.selected_ms << ", \"average_ms\": " << summary.average_ms
+         << ", \"median_ms\": " << summary.median_ms << ", \"p95_ms\": " << summary.p95_ms
+         << ", \"maximum_ms\": " << summary.maximum_ms << "}";
+}
+
+void WriteProfilerHistoryNodes(std::ostream& output, const std::vector<ProfilerHistoryNode>& nodes,
+                               const std::string& indent) {
+  output << "[";
+  if (!nodes.empty())
+    output << "\n";
+  for (size_t index = 0; index < nodes.size(); index++) {
+    const auto& node = nodes[index];
+    output << indent << "  {\"name\": \"" << JsonEscape(node.name) << "\", \"category\": \""
+           << JsonEscape(node.category) << "\", \"inclusive\": ";
+    WriteProfilerDurationSummary(output, node.inclusive);
+    output << ", \"self\": ";
+    WriteProfilerDurationSummary(output, node.self);
+    output << ", \"children\": ";
+    WriteProfilerHistoryNodes(output, node.children, indent + "  ");
+    output << "}" << (index + 1 == nodes.size() ? "\n" : ",\n");
+  }
+  output << indent << "]";
+}
+
+void WriteProfilerHistory(std::ostream& output, const ProfilerHistoryStats& history) {
+  output << "  \"cpu_profiler\": {\n    \"frame_duration\": ";
+  WriteProfilerDurationSummary(output, history.frame_duration);
+  output << ",\n    \"main_thread_wall\": ";
+  WriteProfilerDurationSummary(output, history.main_thread_wall);
+  output << ",\n    \"worker_cpu_work\": ";
+  WriteProfilerDurationSummary(output, history.worker_cpu_work);
+  output << ",\n    \"threads\": [";
+  if (!history.threads.empty())
+    output << "\n";
+  for (size_t index = 0; index < history.threads.size(); index++) {
+    const auto& thread = history.threads[index];
+    output << "      {\"thread_id\": " << thread.thread_id << ", \"thread_name\": \"" << JsonEscape(thread.thread_name)
+           << "\", \"root_work\": ";
+    WriteProfilerDurationSummary(output, thread.root_work);
+    output << ", \"hierarchy\": ";
+    WriteProfilerHistoryNodes(output, thread.hierarchy, "      ");
+    output << "}" << (index + 1 == history.threads.size() ? "\n" : ",\n");
+  }
+  output << "    ],\n    \"counters\": [";
+  if (!history.counters.empty())
+    output << "\n";
+  for (size_t index = 0; index < history.counters.size(); index++) {
+    const auto& counter = history.counters[index];
+    output << "      {\"name\": \"" << JsonEscape(counter.name) << "\", \"category\": \""
+           << JsonEscape(counter.category) << "\", \"unit\": \"" << JsonEscape(counter.unit)
+           << "\", \"frame_count\": " << counter.frame_count
+           << ", \"observed_frame_count\": " << counter.observed_frame_count << ", \"selected\": " << counter.selected
+           << ", \"average\": " << counter.average << ", \"median\": " << counter.median << ", \"p95\": " << counter.p95
+           << ", \"maximum\": " << counter.maximum << "}" << (index + 1 == history.counters.size() ? "\n" : ",\n");
+  }
+  output << "    ]\n  },\n";
+}
+
+void WriteGpuHistorySummary(std::ostream& output, const GpuTimestampHistorySummary& summary) {
+  output << "{\"frame_count\": " << summary.frame_count
+         << ", \"observed_frame_count\": " << summary.observed_frame_count << ", \"duty_cycle\": " << summary.duty_cycle
+         << ", \"selected_ms\": " << summary.selected_milliseconds
+         << ", \"average_ms\": " << summary.stats.AverageMilliseconds()
+         << ", \"median_ms\": " << summary.stats.MedianMilliseconds()
+         << ", \"p95_ms\": " << summary.stats.PercentileMilliseconds(0.95)
+         << ", \"maximum_ms\": " << summary.stats.maximum_milliseconds << "}";
+}
+
+void WriteGpuHistory(std::ostream& output, const GpuTimestampHistoryStats& history) {
+  output << "  \"gpu_frame_budget\": {\n    \"frame_count\": " << history.frame_count
+         << ", \"available_frame_count\": " << history.available_frame_count << ",\n    \"span\": ";
+  WriteGpuHistorySummary(output, history.span);
+  output << ",\n    \"summed_work\": ";
+  WriteGpuHistorySummary(output, history.summed_work);
+  output << ",\n    \"groups\": [";
+  if (!history.groups.empty())
+    output << "\n";
+  for (size_t group_index = 0; group_index < history.groups.size(); group_index++) {
+    const auto& group = history.groups[group_index];
+    output << "      {\"name\": \"" << JsonEscape(group.name) << "\", \"duration\": ";
+    WriteGpuHistorySummary(output, group.duration);
+    output << ", \"passes\": [";
+    if (!group.passes.empty())
+      output << "\n";
+    for (size_t pass_index = 0; pass_index < group.passes.size(); pass_index++) {
+      const auto& pass = group.passes[pass_index];
+      output << "        {\"stable_pass_id\": \"" << JsonEscape(pass.metadata.stable_pass_id)
+             << "\", \"display_name\": \"" << JsonEscape(pass.metadata.display_name)
+             << "\", \"contributes_to_frame_total\": " << (pass.metadata.contributes_to_frame_total ? "true" : "false")
+             << ", \"duration\": ";
+      WriteGpuHistorySummary(output, pass.duration);
+      output << "}" << (pass_index + 1 == group.passes.size() ? "\n" : ",\n");
+    }
+    output << "      ]}" << (group_index + 1 == history.groups.size() ? "\n" : ",\n");
+  }
+  output << "    ]\n  },\n";
+}
+
+void WriteRasterProfileReport(const std::filesystem::path& report_path, const std::filesystem::path& image_path,
+                              const glm::uvec2 resolution, const std::vector<double>& cpu_frame_samples,
+                              const std::vector<ProfilerFrameSnapshot>& profiler_frames,
+                              const std::vector<GpuTimestampFrameSnapshot>& gpu_frames) {
+  const auto fingerprint = Platform::GetGpuDeviceFingerprint();
+  const auto timestamps = Platform::GetGpuTimestampStats();
+  const auto frame_summary = SummarizeRasterFrames(cpu_frame_samples);
+  constexpr size_t late_window_limit = 240;
+  const auto late_frame_count = std::min(late_window_limit, cpu_frame_samples.size());
+  const auto late_frame_summary = SummarizeRasterFrames(std::vector<double>(
+      cpu_frame_samples.end() - static_cast<std::ptrdiff_t>(late_frame_count), cpu_frame_samples.end()));
+  const auto profiler_stats = BuildProfilerFrameStatsHistory(profiler_frames);
+  const auto profiler_history = BuildProfilerHistoryStats(profiler_stats);
+  const auto gpu_history = BuildGpuTimestampHistoryStats(gpu_frames, cpu_frame_samples.size());
+  size_t ddgi_active_sample_count = 0;
+  size_t ddgi_update_sample_count = 0;
+  size_t ddgi_converged_sample_count = 0;
+  for (const auto& frame : profiler_frames) {
+    for (const auto& counter : frame.counters) {
+      if (counter.category != "DDGI" || counter.value <= 0.0)
+        continue;
+      if (counter.name == "Active Probes")
+        ddgi_active_sample_count++;
+      else if (counter.name == "Updated Probes")
+        ddgi_update_sample_count++;
+      else if (counter.name == "Converged")
+        ddgi_converged_sample_count++;
+    }
+  }
+  size_t ddgi_trace_sample_count = 0;
+  for (const auto& group : gpu_history.groups) {
+    for (const auto& pass : group.passes) {
+      if (pass.metadata.stable_pass_id == RenderPassNames::ddgi_probe_trace)
+        ddgi_trace_sample_count = pass.duration.observed_frame_count;
+    }
+  }
+  if (const auto parent = report_path.parent_path(); !parent.empty()) {
+    std::filesystem::create_directories(parent);
+  }
+  std::ofstream output(report_path, std::ios::trunc);
+  if (!output) {
+    throw std::runtime_error("Failed to open raster profile report: " + report_path.string());
+  }
+  output << std::setprecision(17);
+  output << "{\n  \"schema_version\": 4,\n"
+         << "  \"image_file\": \"" << JsonEscape(image_path.filename().string()) << "\",\n"
+         << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
+         << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
+         << ", \"driver_version\": " << fingerprint.driver_version << "},\n"
+         << "  \"capture\": {\"render_mode\": \"Rasterization\", \"resolution\": [" << resolution.x << ", "
+         << resolution.y << "], \"measured_frames\": " << cpu_frame_samples.size()
+         << ", \"measurement_policy\": \"first-requested-frames\", \"fixed_frame_window\": true"
+         << ", \"gpu_timestamps\": " << (Platform::GpuTimestampCaptureEnabled() ? "true" : "false")
+         << ", \"cpu_frame_average_ms\": " << frame_summary.average_ms
+         << ", \"cpu_frame_median_ms\": " << frame_summary.median_ms
+         << ", \"cpu_frame_p95_ms\": " << frame_summary.p95_ms
+         << ", \"cpu_frame_maximum_ms\": " << frame_summary.maximum_ms
+         << ", \"derived_average_fps\": " << (frame_summary.average_ms > 0.0 ? 1000.0 / frame_summary.average_ms : 0.0)
+         << ", \"late_window_frames\": " << late_frame_summary.frame_count
+         << ", \"late_cpu_frame_average_ms\": " << late_frame_summary.average_ms
+         << ", \"late_cpu_frame_median_ms\": " << late_frame_summary.median_ms
+         << ", \"late_cpu_frame_p95_ms\": " << late_frame_summary.p95_ms << "},\n"
+         << "  \"render_path\": {\"camera_frustum_culling\": true, \"raster_spatial_index\": true, "
+            "\"parallel_visibility_preparation\": true, \"shadow_frustum_culling\": true, "
+            "\"meshlet_frustum_culling\": true, \"meshlet_cone_culling\": true, \"depth_pyramid\": true},\n"
+         << "  \"ddgi_activity\": {\"active_sample_count\": " << ddgi_active_sample_count
+         << ", \"update_sample_count\": " << ddgi_update_sample_count
+         << ", \"trace_sample_count\": " << ddgi_trace_sample_count
+         << ", \"converged_sample_count\": " << ddgi_converged_sample_count << "},\n";
+  WriteProfilerHistory(output, profiler_history);
+  WriteGpuHistory(output, gpu_history);
+  output << "  \"gpu_timestamps\": {\n";
+  for (size_t index = 0; index < timestamps.size(); ++index) {
+    const auto& stats = timestamps[index];
+    output << "    \"" << JsonEscape(stats.name) << "\": {\"sample_count\": " << stats.sample_count
+           << ", \"average_ms\": " << stats.AverageMilliseconds() << ", \"median_ms\": " << stats.MedianMilliseconds()
+           << ", \"p95_ms\": " << stats.PercentileMilliseconds(0.95)
+           << ", \"minimum_ms\": " << stats.minimum_milliseconds << ", \"maximum_ms\": " << stats.maximum_milliseconds
+           << "}" << (index + 1 == timestamps.size() ? "\n" : ",\n");
+  }
+  output << "  }\n}\n";
+  if (!output) {
+    throw std::runtime_error("Failed to write raster profile report: " + report_path.string());
+  }
+  std::cout << "EVOENGINE_RASTER_PROFILE_REPORT path=\"" << report_path.string() << "\"" << std::endl;
+}
+
 void CaptureDemoPreview(
     const std::filesystem::path& output_path, const int width, const int height, const size_t warmup_frames,
     const std::optional<DemoProfileId> demo_profile_id,
@@ -1749,25 +1860,20 @@ void CaptureDemoPreview(
     const std::optional<int>& preview_auto_spp_min_samples, const std::optional<int>& preview_auto_spp_max_samples,
     const std::optional<float>& preview_auto_spp_convergence_threshold, const std::optional<int> preview_sample_size,
     const std::optional<std::filesystem::path>& preview_ray_profile_report_path,
+    const std::optional<std::filesystem::path>& preview_raster_profile_report_path,
     const std::optional<glm::vec3>& preview_camera_position, const std::optional<glm::vec3>& preview_camera_look_at,
     const std::optional<bool>& preview_ambient_occlusion_enabled,
-    const std::optional<AmbientOcclusion::Algorithm>& preview_ambient_occlusion_algorithm,
     const std::optional<bool>& preview_anti_aliasing_enabled,
-    const std::optional<AntiAliasing::Algorithm>& preview_anti_aliasing_algorithm,
-    const std::optional<AntiAliasing::TaaPreset>& preview_taa_preset,
-    const std::optional<AntiAliasing::SmaaPreset>& preview_smaa_preset,
-    const std::optional<bool>& preview_anti_aliasing_tgsm, const std::optional<bool>& preview_anti_aliasing_fp16,
-    const std::optional<bool>& preview_anti_aliasing_motion_sequence,
-    const std::optional<AntiAliasing::TaaDebugMode>& preview_taa_debug_mode,
-    const std::optional<AntiAliasing::SmaaDebugMode>& preview_smaa_debug_mode,
+    const std::optional<AntiAliasing::Preset>& preview_anti_aliasing_preset,
+    const std::optional<AntiAliasing::DebugMode>& preview_anti_aliasing_debug_mode,
     const bool preview_anti_aliasing_debug_disabled, const std::optional<float>& preview_shadow_split_lambda,
     const std::optional<float>& preview_shadow_cascade_transition_width,
     const std::optional<float>& preview_shadow_distance_fade,
     const std::optional<RenderSettings::ShadowCascadeFitMode>& preview_shadow_fit_mode,
-    const std::optional<int>& preview_shadow_pcf_samples, const std::optional<int>& preview_shadow_debug_mode,
-    const std::optional<int>& preview_shadow_debug_cascade, const std::optional<int>& preview_shadow_debug_light,
-    const bool preview_strand_fixture, const bool preview_strand_punctual_fixture,
-    const bool preview_strand_gizmo_fixture, const bool deterministic_capture, const bool preview_bistro_ddgi,
+    const std::optional<int>& preview_shadow_debug_mode, const std::optional<int>& preview_shadow_debug_cascade,
+    const std::optional<int>& preview_shadow_debug_light, const bool preview_strand_fixture,
+    const bool preview_strand_punctual_fixture, const bool preview_strand_gizmo_fixture,
+    const bool deterministic_capture, const bool preview_bistro_ddgi,
     const std::optional<std::string>& preview_ddgi_fixture,
     const std::optional<std::filesystem::path>& preview_ddgi_report_path, const uint32_t preview_ddgi_seed,
     const size_t preview_ddgi_measure_frames, const size_t preview_ddgi_response_frames,
@@ -1874,58 +1980,27 @@ void CaptureDemoPreview(
       }
     }
   }
-  if (preview_ambient_occlusion_enabled || preview_ambient_occlusion_algorithm || preview_anti_aliasing_enabled ||
-      preview_anti_aliasing_algorithm || preview_taa_preset || preview_smaa_preset || preview_anti_aliasing_tgsm ||
-      preview_anti_aliasing_fp16 || preview_taa_debug_mode || preview_smaa_debug_mode ||
-      preview_anti_aliasing_debug_disabled) {
+  if (preview_ambient_occlusion_enabled || preview_anti_aliasing_enabled || preview_anti_aliasing_preset ||
+      preview_anti_aliasing_debug_mode || preview_anti_aliasing_debug_disabled) {
     if (const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>()) {
       if (preview_ambient_occlusion_enabled) {
         post_processing_stack->enable_ambient_occlusion = *preview_ambient_occlusion_enabled;
-      }
-      if (preview_ambient_occlusion_algorithm) {
-        post_processing_stack->enable_ambient_occlusion = true;
-        if (post_processing_stack->ambient_occlusion) {
-          post_processing_stack->ambient_occlusion->algorithm = *preview_ambient_occlusion_algorithm;
-        }
       }
       if (preview_anti_aliasing_enabled) {
         post_processing_stack->enable_anti_aliasing = *preview_anti_aliasing_enabled;
       }
       if (post_processing_stack->anti_aliasing) {
         const auto& anti_aliasing = post_processing_stack->anti_aliasing;
-        if (preview_anti_aliasing_algorithm) {
-          anti_aliasing->algorithm = *preview_anti_aliasing_algorithm;
+        if (preview_anti_aliasing_preset) {
           post_processing_stack->enable_anti_aliasing = true;
-        }
-        if (preview_taa_preset) {
-          post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->ApplyTaaPreset(*preview_taa_preset);
-        }
-        if (preview_smaa_preset) {
-          post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->smaa.preset = *preview_smaa_preset;
-        }
-        if (preview_anti_aliasing_tgsm) {
-          post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->taa.use_tgsm = *preview_anti_aliasing_tgsm;
-          anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
-        }
-        if (preview_anti_aliasing_fp16) {
-          post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->taa.use_fp16 = *preview_anti_aliasing_fp16;
-          anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
+          anti_aliasing->preset = *preview_anti_aliasing_preset;
         }
         if (preview_anti_aliasing_debug_disabled) {
-          anti_aliasing->taa.debug_mode = AntiAliasing::TaaDebugMode::None;
-          anti_aliasing->smaa.debug_mode = AntiAliasing::SmaaDebugMode::None;
+          anti_aliasing->debug_mode = AntiAliasing::DebugMode::None;
         }
-        if (preview_taa_debug_mode) {
+        if (preview_anti_aliasing_debug_mode) {
           post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->taa.debug_mode = *preview_taa_debug_mode;
-        }
-        if (preview_smaa_debug_mode) {
-          post_processing_stack->enable_anti_aliasing = true;
-          anti_aliasing->smaa.debug_mode = *preview_smaa_debug_mode;
+          anti_aliasing->debug_mode = *preview_anti_aliasing_debug_mode;
         }
         anti_aliasing->NormalizeSettings();
       }
@@ -1933,8 +2008,8 @@ void CaptureDemoPreview(
     }
   }
   if (preview_shadow_split_lambda || preview_shadow_cascade_transition_width || preview_shadow_distance_fade ||
-      preview_shadow_fit_mode || preview_shadow_pcf_samples || preview_shadow_debug_mode ||
-      preview_shadow_debug_cascade || preview_shadow_debug_light) {
+      preview_shadow_fit_mode || preview_shadow_debug_mode || preview_shadow_debug_cascade ||
+      preview_shadow_debug_light) {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     if (!render_layer) {
       throw std::runtime_error("Preview shadow overrides require RenderLayer.");
@@ -1951,9 +2026,6 @@ void CaptureDemoPreview(
     }
     if (preview_shadow_fit_mode) {
       render_layer->render_settings.shadow_cascade_fit_mode = *preview_shadow_fit_mode;
-    }
-    if (preview_shadow_pcf_samples) {
-      render_layer->render_settings.directional_pcf_sample_amount = std::clamp(*preview_shadow_pcf_samples, 1, 64);
     }
     if (preview_shadow_debug_mode) {
       render_layer->render_settings.shadow_debug_mode = std::clamp(*preview_shadow_debug_mode, 0, 5);
@@ -1984,12 +2056,10 @@ void CaptureDemoPreview(
       throw std::runtime_error("Ray preview capture requires RenderLayer.");
     }
   }
-  if (preview_ray_profile_report_path) {
+  if (preview_ray_profile_report_path || preview_raster_profile_report_path) {
     if (!Platform::GpuTimestampCaptureAvailable() || !Platform::GpuTimestampCaptureEnabled()) {
-      throw std::runtime_error("Ray camera profiling requires available and enabled GPU timestamp capture.");
+      throw std::runtime_error("Camera profiling requires available and enabled GPU timestamp capture.");
     }
-    Platform::WaitForFrameSubmissions("Ray Camera Profile Warmup Fence Wait");
-    Platform::ResetGpuTimestampStats();
   }
   if (linear_hdr_output && !Camera::IsRayCameraRenderMode(resolved_render_mode) &&
       !(preview_ddgi_fixture && preview_ddgi_report_path)) {
@@ -2076,28 +2146,47 @@ void CaptureDemoPreview(
       main_camera->SetRequireRendering(false);
     }
   }
-  if (demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence) {
-    SetRenderingRegressionTemporalMotionEnabled(*preview_anti_aliasing_motion_sequence);
+  if (preview_ray_profile_report_path || preview_raster_profile_report_path) {
+    Platform::WaitForFrameSubmissions("Camera Profile Readiness Fence Wait");
+    Platform::ResetGpuTimestampStats();
+  }
+  auto& profiler = Profiler::GetInstance();
+  const bool profiler_was_enabled = profiler.IsEnabled();
+  if (preview_raster_profile_report_path) {
+    profiler.SetMaxFrameHistory(std::max<size_t>(1, warmup_frames));
+    profiler.ClearFrameHistory();
+    profiler.SetEnabled(true);
   }
   scene_camera->ResetFrameCount();
-  const bool temporal_motion_capture =
-      demo_profile_id == DemoProfileId::RenderingRegression && preview_anti_aliasing_motion_sequence.value_or(false);
-  const bool wait_for_ray_accumulation =
-      Camera::IsRayCameraRenderMode(resolved_render_mode) && !temporal_motion_capture;
+  const bool wait_for_ray_accumulation = Camera::IsRayCameraRenderMode(resolved_render_mode);
   constexpr size_t max_capture_frame_slack = 30000;
   const size_t max_capture_frames = warmup_frames + max_capture_frame_slack;
   size_t capture_frame_count = 0;
+  std::vector<double> cpu_frame_samples;
+  cpu_frame_samples.reserve(warmup_frames);
   const auto capture_start_time = std::chrono::steady_clock::now();
   while ((wait_for_ray_accumulation && scene_camera->GetFrameCount() < warmup_frames) ||
          (!wait_for_ray_accumulation && capture_frame_count < warmup_frames)) {
+    const auto frame_start_time = std::chrono::steady_clock::now();
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended before demo preview capture completed.");
     }
+    cpu_frame_samples.emplace_back(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frame_start_time).count());
     if (++capture_frame_count >= max_capture_frames) {
       throw std::runtime_error(wait_for_ray_accumulation
                                    ? "Demo preview capture timed out before accumulating requested ray-tracing frames."
                                    : "Demo preview capture timed out.");
     }
+  }
+  std::vector<ProfilerFrameSnapshot> raster_profiler_frames;
+  std::vector<GpuTimestampFrameSnapshot> raster_gpu_frames;
+  if (preview_raster_profile_report_path) {
+    Platform::WaitForFrameSubmissions("Raster Profile Measurement Fence Wait");
+    raster_profiler_frames = profiler.GetFrameHistorySnapshot();
+    raster_gpu_frames = Platform::GetGpuTimestampFrameHistory();
+    if (!profiler_was_enabled)
+      profiler.SetEnabled(false);
   }
   size_t ddgi_convergence_frames = 0;
   bool ddgi_convergence_observed = false;
@@ -2264,6 +2353,11 @@ void CaptureDemoPreview(
                                 capture_frame_count, capture_elapsed_seconds, ray_camera_readiness_wait_milliseconds,
                                 ray_camera_readiness_shader_stats_before, ray_camera_readiness_shader_stats_after);
   }
+  if (preview_raster_profile_report_path) {
+    WriteRasterProfileReport(*preview_raster_profile_report_path, output_path,
+                             glm::uvec2(render_extent.width, render_extent.height), cpu_frame_samples,
+                             raster_profiler_frames, raster_gpu_frames);
+  }
   if (preview_ddgi_reference) {
     std::cout << "EVOENGINE_DDGI_REFERENCE fixture=" << *preview_ddgi_fixture
               << " render_mode=" << Camera::GetCameraRenderModeName(resolved_render_mode)
@@ -2404,8 +2498,10 @@ int main(const int argc, char** argv) {
         ConfigureDemoProfile(*command_line.demo_profile_id, command_line.application_mode, application_info);
         ApplyApplicationModeDefaults(application_info);
         ApplyGraphicsCommandLineOverrides(command_line, application_info);
-        application_info.enable_gpu_timestamp_capture = command_line.preview_ddgi_report_path.has_value() ||
-                                                        command_line.preview_ray_profile_report_path.has_value();
+        application_info.enable_gpu_timestamp_capture = command_line.preview_gpu_timestamp_capture.value_or(
+            command_line.preview_ddgi_report_path.has_value() ||
+            command_line.preview_ray_profile_report_path.has_value() ||
+            command_line.preview_raster_profile_report_path.has_value());
         ApplicationContext::Get().Initialize(application_info);
         initialized = true;
         if (command_line.application_mode == ApplicationMode::Editor) {
@@ -2454,12 +2550,6 @@ int main(const int argc, char** argv) {
               }
             }
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;
-            if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-                render_layer && command_line.preview_ddgi_report_path.has_value() &&
-                !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference) {
-              render_layer->RequestDdgiEmissiveSamplingCapture();
-              render_layer->RequestDdgiGatherTimingCapture();
-            }
             if (command_line.preview_ddgi_reference &&
                 (*command_line.preview_ddgi_fixture == "scrolling" ||
                  *command_line.preview_ddgi_fixture == "emissive-moving-rigid" ||
@@ -2480,21 +2570,18 @@ int main(const int argc, char** argv) {
               command_line.preview_capture_firefly_clamp_threshold, command_line.preview_capture_auto_spp_enabled,
               command_line.preview_capture_auto_spp_min_samples, command_line.preview_capture_auto_spp_max_samples,
               command_line.preview_capture_auto_spp_convergence_threshold, command_line.preview_capture_sample_size,
-              command_line.preview_ray_profile_report_path, command_line.preview_capture_camera_position,
-              command_line.preview_capture_camera_look_at, command_line.preview_ambient_occlusion_enabled,
-              command_line.preview_ambient_occlusion_algorithm, command_line.preview_anti_aliasing_enabled,
-              command_line.preview_anti_aliasing_algorithm, command_line.preview_taa_preset,
-              command_line.preview_smaa_preset, command_line.preview_anti_aliasing_tgsm,
-              command_line.preview_anti_aliasing_fp16, command_line.preview_anti_aliasing_motion_sequence,
-              command_line.preview_taa_debug_mode, command_line.preview_smaa_debug_mode,
+              command_line.preview_ray_profile_report_path, command_line.preview_raster_profile_report_path,
+              command_line.preview_capture_camera_position, command_line.preview_capture_camera_look_at,
+              command_line.preview_ambient_occlusion_enabled, command_line.preview_anti_aliasing_enabled,
+              command_line.preview_anti_aliasing_preset, command_line.preview_anti_aliasing_debug_mode,
               command_line.preview_anti_aliasing_debug_disabled, command_line.preview_shadow_split_lambda,
               command_line.preview_shadow_cascade_transition_width, command_line.preview_shadow_distance_fade,
-              command_line.preview_shadow_fit_mode, command_line.preview_shadow_pcf_samples,
-              command_line.preview_shadow_debug_mode, command_line.preview_shadow_debug_cascade,
-              command_line.preview_shadow_debug_light, command_line.preview_strand_fixture,
-              command_line.preview_strand_punctual_fixture, command_line.preview_strand_gizmo_fixture,
-              command_line.preview_capture_deterministic, command_line.preview_capture_bistro_ddgi,
-              command_line.preview_ddgi_fixture, command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
+              command_line.preview_shadow_fit_mode, command_line.preview_shadow_debug_mode,
+              command_line.preview_shadow_debug_cascade, command_line.preview_shadow_debug_light,
+              command_line.preview_strand_fixture, command_line.preview_strand_punctual_fixture,
+              command_line.preview_strand_gizmo_fixture, command_line.preview_capture_deterministic,
+              command_line.preview_capture_bistro_ddgi, command_line.preview_ddgi_fixture,
+              command_line.preview_ddgi_report_path, command_line.preview_ddgi_seed,
               command_line.preview_ddgi_measure_frames, command_line.preview_ddgi_response_frames,
               command_line.preview_ddgi_disabled, command_line.preview_ddgi_reference, command_line.preview_ddgi_phase,
               command_line.preview_ddgi_run_index);

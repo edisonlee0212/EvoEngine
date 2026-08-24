@@ -121,23 +121,26 @@ def main() -> int:
                 kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
 
         def launcher_open_demo_hook_spawns_editor_profile() -> None:
-            env = os.environ.copy()
-            env["EVOENGINE_LAUNCHER_TEST_OPEN_DEMO"] = "rendering"
-            editor_before_launch = process_ids("EvoEngineEditor.exe")
-            demo_app_before_launch = process_ids("DemoApp.exe")
-            try:
-                launcher = subprocess.Popen([str(args.launcher)], cwd=args.launcher.parent, env=env)
-                launcher.wait(timeout=60)
-                editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
-                wait_until("demo profile editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
-                           timeout=60)
-            except subprocess.TimeoutExpired as error:
-                raise RuntimeError("Launcher did not exit after test open-demo hook.") from error
-            finally:
-                kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
-            demo_app_after_launch = process_ids("DemoApp.exe")
-            if set(demo_app_after_launch) - set(demo_app_before_launch):
-                raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
+            with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherForeignCwd_") as temp_dir:
+                foreign_working_directory = Path(temp_dir)
+                (foreign_working_directory / "Resources").mkdir()
+                env = os.environ.copy()
+                env["EVOENGINE_LAUNCHER_TEST_OPEN_DEMO"] = "rendering"
+                editor_before_launch = process_ids("EvoEngineEditor.exe")
+                demo_app_before_launch = process_ids("DemoApp.exe")
+                try:
+                    launcher = subprocess.Popen([str(args.launcher)], cwd=foreign_working_directory, env=env)
+                    launcher.wait(timeout=60)
+                    editor_pid = wait_for_new_process("EvoEngineEditor.exe", editor_before_launch)
+                    wait_until("demo profile editor window spawned by launcher", lambda: find_window_for_pid(editor_pid),
+                               timeout=60)
+                except subprocess.TimeoutExpired as error:
+                    raise RuntimeError("Launcher did not exit after test open-demo hook.") from error
+                finally:
+                    kill_new_processes("EvoEngineEditor.exe", editor_before_launch)
+                demo_app_after_launch = process_ids("DemoApp.exe")
+                if set(demo_app_after_launch) - set(demo_app_before_launch):
+                    raise RuntimeError("Launcher demo hook spawned DemoApp.exe instead of EvoEngineEditor.exe.")
 
         def launcher_open_ddgi_demo_hook_spawns_editor_profile() -> None:
             with tempfile.TemporaryDirectory(prefix="EvoEngineLauncherDdgiDemoSmoke_") as temp_dir:

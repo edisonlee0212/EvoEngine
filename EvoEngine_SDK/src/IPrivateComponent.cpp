@@ -4,6 +4,7 @@
 #include "IPrivateComponent.hpp"
 // #include <ProjectManager.hpp>
 #include "Entities.hpp"
+#include "Scene.hpp"
 
 using namespace evo_engine;
 
@@ -52,5 +53,9 @@ void IPrivateComponent::SetEnabled(const bool &value) {
       OnDisable();
     }
     enabled_ = value;
+    if (const auto scene = scene_.lock()) {
+      scene->MarkRenderStructureChanged();
+      scene->SetUnsaved();
+    }
   }
 }

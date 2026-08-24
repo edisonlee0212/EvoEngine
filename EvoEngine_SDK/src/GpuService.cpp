@@ -2,8 +2,10 @@
 
 #include "ApplicationContext.hpp"
 #include "Platform.hpp"
+#include "Profiler.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <memory>
 #include <stdexcept>
 #include <utility>
@@ -227,7 +229,17 @@ void GpuService::SubmitImmediate(std::function<void(VkCommandBuffer vk_command_b
 
 void GpuService::Wait(const GpuWorkHandle& handle) {
   const auto context_scope = CreateApplicationContextScope(owner_application_);
-  Jobs::Wait(handle);
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto started = std::chrono::steady_clock::now();
+  {
+    const ProfilerScope synchronization_scope("GpuService::Wait", "Synchronization");
+    Jobs::Wait(handle);
+  }
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "GpuService / Wait",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count());
+  }
   ClearCompletedInFlight();
 }
 
@@ -279,6 +291,8 @@ void GpuService::SubmitImmediateOnGpuThread(const std::function<void(VkCommandBu
 
   const ImmediateSubmitProgressScope immediate_submit_progress_scope(immediate_submit_in_progress_);
   std::lock_guard lock(immediate_submit_mutex_);
+  const bool timing_enabled = Platform::GpuTimestampCaptureEnabled();
+  const auto immediate_started = std::chrono::steady_clock::now();
   if (immediate_command_buffer_ == VK_NULL_HANDLE) {
     throw std::runtime_error("GpuService immediate command buffer is unavailable.");
   }
@@ -309,6 +323,7 @@ void GpuService::SubmitImmediateOnGpuThread(const std::function<void(VkCommandBu
   VkFence fence = VK_NULL_HANDLE;
   Platform::CheckVk(vkCreateFence(vk_device, &fence_info, nullptr, &fence));
   VkResult submit_result;
+  const auto queue_submit_started = std::chrono::steady_clock::now();
   {
     const std::lock_guard queue_lock(Platform::GetQueueHostMutex());
     submit_result = vkQueueSubmit(Platform::GetImmediateSubmitQueue()->GetVkQueue(), 1, &submit_info, fence);
@@ -317,9 +332,28 @@ void GpuService::SubmitImmediateOnGpuThread(const std::function<void(VkCommandBu
     vkDestroyFence(vk_device, fence, nullptr);
     throw std::runtime_error("Failed to submit immediate GPU work! Error code: " + std::to_string(submit_result));
   }
-  Platform::CheckVk(vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX));
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "GpuService / Immediate Queue Submit",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - queue_submit_started).count());
+  }
+  const auto fence_wait_started = std::chrono::steady_clock::now();
+  {
+    const ProfilerScope synchronization_scope("GpuService::ImmediateFenceWait", "Synchronization");
+    Platform::CheckVk(vkWaitForFences(vk_device, 1, &fence, VK_TRUE, UINT64_MAX));
+  }
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "GpuService / Immediate Fence Wait",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - fence_wait_started).count());
+  }
   vkDestroyFence(vk_device, fence, nullptr);
   Platform::CheckVk(vkResetCommandBuffer(immediate_command_buffer_, 0));
+  if (timing_enabled) {
+    Platform::RecordCpuTimingSample(
+        "GpuService / Immediate Submit",
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - immediate_started).count());
+  }
 }
 
 void GpuService::TrackInFlight(const GpuWorkHandle& handle) {

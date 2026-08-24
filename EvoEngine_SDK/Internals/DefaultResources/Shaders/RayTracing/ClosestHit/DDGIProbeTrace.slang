@@ -1,15 +1,14 @@
 // @evoengine-dialect native
 import EvoEngine.DDGI;
 import EvoEngine.DDGIGatherSingle;
-import EvoEngine.DDGIEmissiveSamplingStats;
 import EvoEngine.DDGIProbeRayConstants;
+import EvoEngine.DDGIProbeRayPayload;
 import EvoEngine.EmissiveTriangleSampling;
-import EvoEngine.PointCloudRayTracingPayload;
 import EvoEngine.Random;
 import EvoEngine.RayTracingBasic;
 import EvoEngine.RayTracingMaterial;
 void EE_DDGI_TRACE_RAY(const uint ray_flags, const uint instance_inclusion_mask, const float3 origin, const float t_min,
-                       const float3 direction, const float t_max, inout PointCloudRayTracingPayload hit_value) {
+                       const float3 direction, const float t_max, inout DdgiProbeRayPayload hit_value) {
   RayDesc ray;
   ray.Origin = origin;
   ray.Direction = direction;
@@ -18,25 +17,23 @@ void EE_DDGI_TRACE_RAY(const uint ray_flags, const uint instance_inclusion_mask,
   TraceRay(EE_TLAS, ray_flags, instance_inclusion_mask, 0, 0, 0, ray, hit_value);
 }
 
-bool EE_DDGI_OCCLUDED(const float3 origin, const float3 direction, const float max_distance, const uint shadow_seed,
-                      inout PointCloudRayTracingPayload hit_value) {
+float3 EE_DDGI_SHADOW_TRANSMISSION(const float3 origin, const float3 direction, const float max_distance,
+                                   const uint shadow_seed, inout DdgiProbeRayPayload hit_value) {
   if (max_distance <= EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y) {
-    return false;
+    return float3(1.0f);
   }
-  const PointCloudRayTracingPayload primary_hit = hit_value;
+  const DdgiProbeRayPayload primary_hit = hit_value;
   hit_value.hit_count = 1u;
   hit_value.seed = shadow_seed;
+  hit_value.transmission = float3(1.0f);
+  hit_value.previous_hit_t = 0.0f;
+  hit_value.transmission_is_inside = 0u;
   EE_DDGI_TRACE_RAY(RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
                     EE_DDGI_RAY_MASK_SHADOW, origin, EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y, direction,
                     max_distance, hit_value);
-  const bool occluded = hit_value.hit_count != 0u;
+  const float3 transmission = hit_value.hit_count == 0u ? hit_value.transmission : float3(0.0f);
   hit_value = primary_hit;
-  return occluded;
-}
-
-float EE_DDGI_SHADOW_VISIBILITY(const float3 origin, const float3 direction, const float max_distance,
-                                const uint shadow_seed, inout PointCloudRayTracingPayload hit_value) {
-  return EE_DDGI_OCCLUDED(origin, direction, max_distance, shadow_seed, hit_value) ? 0.0f : 1.0f;
+  return transmission;
 }
 
 float3 EE_DDGI_LAMBERT_IRRADIANCE(const float3 albedo, const float3 light_radiance, const float3 normal,
@@ -57,23 +54,23 @@ float EE_DDGI_DISTANCE_LIGHT_ATTENUATION(const float4 constant_linear_quadratic_
 float3 EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(const DirectionalLight light, const float3 albedo,
                                                      const float3 normal, const float3 geometric_normal,
                                                      const float3 position,
-                                                     inout PointCloudRayTracingPayload hit_value) {
+                                                     inout DdgiProbeRayPayload hit_value) {
   const float3 light_direction = normalize(-light.direction);
   if (dot(normal, light_direction) <= 0.0f) {
     return float3(0.0f);
   }
   const float3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
-  const float visibility =
+  const float3 visibility =
       light.diffuse.w == 1.0f
-          ? EE_DDGI_SHADOW_VISIBILITY(shadow_origin, light_direction, EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.x,
-                                      hit_value.seed, hit_value)
-          : 1.0f;
+          ? EE_DDGI_SHADOW_TRANSMISSION(shadow_origin, light_direction,
+                                        EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.x, hit_value.seed, hit_value)
+          : float3(1.0f);
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb, normal, light_direction) * visibility;
 }
 
 float3 EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(const PointLight light, const float3 albedo, const float3 normal,
                                                const float3 geometric_normal, const float3 position,
-                                               inout PointCloudRayTracingPayload hit_value) {
+                                               inout DdgiProbeRayPayload hit_value) {
   const float3 light_delta = light.position - position;
   const float light_distance = length(light_delta);
   const float attenuation = EE_DDGI_DISTANCE_LIGHT_ATTENUATION(light.constant_linear_quadratic_far, light_distance);
@@ -85,18 +82,18 @@ float3 EE_DDGI_EXPLICIT_POINT_LIGHT_IRRADIANCE(const PointLight light, const flo
     return float3(0.0f);
   }
   const float3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
-  const float visibility =
+  const float3 visibility =
       light.diffuse.w == 1.0f
-          ? EE_DDGI_SHADOW_VISIBILITY(shadow_origin, light_direction,
-                                      light_distance - EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y, hit_value.seed,
-                                      hit_value)
-          : 1.0f;
+          ? EE_DDGI_SHADOW_TRANSMISSION(
+                shadow_origin, light_direction,
+                light_distance - EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y, hit_value.seed, hit_value)
+          : float3(1.0f);
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb * attenuation, normal, light_direction) * visibility;
 }
 
 float3 EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(const SpotLight light, const float3 albedo, const float3 normal,
                                               const float3 geometric_normal, const float3 position,
-                                              inout PointCloudRayTracingPayload hit_value) {
+                                              inout DdgiProbeRayPayload hit_value) {
   const float3 light_delta = light.position - position;
   const float light_distance = length(light_delta);
   const float attenuation = EE_DDGI_DISTANCE_LIGHT_ATTENUATION(light.constant_linear_quadratic_far, light_distance);
@@ -111,18 +108,18 @@ float3 EE_DDGI_EXPLICIT_SPOT_LIGHT_IRRADIANCE(const SpotLight light, const float
   const float epsilon = max(light.cutoff_outer_inner_size_bias.x - light.cutoff_outer_inner_size_bias.y, 0.001f);
   const float spot_intensity = clamp((theta - light.cutoff_outer_inner_size_bias.y) / epsilon, 0.0f, 1.0f);
   const float3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, light_direction);
-  const float visibility =
+  const float3 visibility =
       light.diffuse.w == 1.0f
-          ? EE_DDGI_SHADOW_VISIBILITY(shadow_origin, light_direction,
-                                      light_distance - EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y, hit_value.seed,
-                                      hit_value)
-          : 1.0f;
+          ? EE_DDGI_SHADOW_TRANSMISSION(
+                shadow_origin, light_direction,
+                light_distance - EE_DDGI_PROBE_RAY_CONSTANTS.trace_parameters.y, hit_value.seed, hit_value)
+          : float3(1.0f);
   return EE_DDGI_LAMBERT_IRRADIANCE(albedo, light.diffuse.rgb * attenuation * spot_intensity, normal, light_direction) *
          visibility;
 }
 
 float3 EE_DDGI_DIRECT_IRRADIANCE(const float3 albedo, const float3 normal, const float3 geometric_normal,
-                                 const float3 position, inout PointCloudRayTracingPayload hit_value) {
+                                 const float3 position, inout DdgiProbeRayPayload hit_value) {
   float3 irradiance = float3(0.0f);
   for (int i = 0; i < EE_RENDER_INFO.directional_light_size; ++i) {
     irradiance += EE_DDGI_EXPLICIT_DIRECTIONAL_LIGHT_IRRADIANCE(EE_DIRECTIONAL_LIGHTS[i], albedo, normal,
@@ -141,11 +138,10 @@ float3 EE_DDGI_DIRECT_IRRADIANCE(const float3 albedo, const float3 normal, const
 
 float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float3 normal, const float3 geometric_normal,
                                         const float3 position, const uint primary_ray_seed,
-                                        inout PointCloudRayTracingPayload hit_value) {
+                                        inout DdgiProbeRayPayload hit_value) {
   if (EE_EMISSIVE_TRIANGLE_COUNT() == 0u || max(max(diffuse_albedo.x, diffuse_albedo.y), diffuse_albedo.z) <= 0.0f) {
     return float3(0.0f);
   }
-  EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_NEE_ATTEMPT);
   uint selection_seed = EE_XXHASH32(uint3(primary_ray_seed, 0x68bc21ebu, 0x02e5be93u));
   uint barycentric_seed = EE_XXHASH32(uint3(primary_ray_seed, 0x967a889bu, 0x368cc8b7u));
   const uint shadow_seed = EE_XXHASH32(uint3(primary_ray_seed, 0x1b56c4e9u, 0xa54ff53au));
@@ -153,41 +149,24 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
   const bool sample_valid = EE_SAMPLE_EMISSIVE_TRIANGLE(position, EE_PCG_RANDOM_2(selection_seed),
                                                         EE_PCG_RANDOM_2(barycentric_seed), emissive_sample);
   if (!sample_valid) {
-    if (emissive_sample.rejection_reason == EE_DDGI_EMISSIVE_SAMPLE_REJECT_ZERO_PDF) {
-      EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_ZERO_PDF_REJECT);
-    } else if (emissive_sample.rejection_reason == EE_DDGI_EMISSIVE_SAMPLE_REJECT_EMITTER_BACKFACE) {
-      EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_EMITTER_BACKFACE_REJECT);
-    } else if (emissive_sample.rejection_reason == EE_DDGI_EMISSIVE_SAMPLE_REJECT_ALPHA_MASK) {
-      EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_ALPHA_MASK_REJECT);
-    } else {
-      EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_INVALID_SAMPLE_REJECT);
-    }
     return float3(0.0f);
   }
   const float receiver_cosine = max(dot(normal, emissive_sample.direction), 0.0f);
   if (receiver_cosine <= 0.0f) {
-    EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_RECEIVER_BACKFACE_REJECT);
     return float3(0.0f);
   }
   const float3 shadow_origin = EE_RT_OFFSET_RAY_ORIGIN(position, geometric_normal, emissive_sample.direction);
   const float origin_advance = max(dot(shadow_origin - position, emissive_sample.direction), 0.0f);
   const float shadow_distance = max(emissive_sample.distance - origin_advance - EE_EMISSIVE_TRIANGLE_RAY_EPSILON, 0.0f);
-  const float visibility =
-      EE_DDGI_SHADOW_VISIBILITY(shadow_origin, emissive_sample.direction, shadow_distance, shadow_seed, hit_value);
-  if (visibility <= 0.0f) {
-    EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_SHADOWED_SAMPLE);
+  const float3 visibility =
+      EE_DDGI_SHADOW_TRANSMISSION(shadow_origin, emissive_sample.direction, shadow_distance, shadow_seed, hit_value);
+  if (max(max(visibility.x, visibility.y), visibility.z) <= 0.0f) {
     return float3(0.0f);
   }
-  const float3 contribution = diffuse_albedo / EE_DDGI_PI * emissive_sample.radiance_over_pdf * receiver_cosine;
-  if (max(max(contribution.x, contribution.y), contribution.z) > 0.0f) {
-    EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_NONZERO_CONTRIBUTION);
-  } else {
-    EE_DDGI_COUNT_EMISSIVE_SAMPLE(EE_DDGI_EMISSIVE_STAT_ZERO_RADIANCE_SAMPLE);
-  }
-  return contribution;
+  return diffuse_albedo / EE_DDGI_PI * emissive_sample.radiance_over_pdf * receiver_cosine * visibility;
 }
 
-[shader("closesthit")] void main(inout PointCloudRayTracingPayload hit_value,
+[shader("closesthit")] void main(inout DdgiProbeRayPayload hit_value,
                                  in BuiltInTriangleIntersectionAttributes attribs) {
   const int instance_index = int(InstanceID());
   const Instance instance = EE_INSTANCES[instance_index];

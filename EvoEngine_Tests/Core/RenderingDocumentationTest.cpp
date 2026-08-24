@@ -95,3 +95,16 @@ TEST(RenderingDocumentation, StaysWithinReadingBudget) {
   EXPECT_LE(CountWords(ReadTextFile(RepoPath("docs/rendering.md"))), 2000u);
   EXPECT_LE(total_words, 9000u);
 }
+
+TEST(RenderingDocumentation, GraphicsValidationIsOptionalAndDisabledByDefault) {
+  const auto root_cmake = ReadTextFile(RepoPath("CMakeLists.txt"));
+  const auto sdk_cmake = ReadTextFile(RepoPath("EvoEngine_SDK/CMakeLists.txt"));
+  const auto validation_guide = ReadTextFile(RepoPath("docs/rendering-validation.md"));
+
+  EXPECT_NE(root_cmake.find(
+                "option(EVOENGINE_ENABLE_GRAPHICS_VALIDATION \"Enable Vulkan validation in Debug and RelWithDebInfo "
+                "builds.\" OFF)"),
+            std::string::npos);
+  EXPECT_NE(sdk_cmake.find("$<BOOL:${EVOENGINE_ENABLE_GRAPHICS_VALIDATION}>"), std::string::npos);
+  EXPECT_NE(validation_guide.find("-DEVOENGINE_ENABLE_GRAPHICS_VALIDATION=ON"), std::string::npos);
+}

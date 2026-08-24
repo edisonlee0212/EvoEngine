@@ -27,12 +27,15 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID) {
     return;
   }
 
-  int2 source_pixel = int2(pixel * 2);
-  float depth = FetchDepth(source_pixel);
-  if (any(constants.sourceResolution != constants.targetResolution)) {
-    depth = min(depth, FetchDepth(source_pixel + int2(1, 0)));
-    depth = min(depth, FetchDepth(source_pixel + int2(0, 1)));
-    depth = min(depth, FetchDepth(source_pixel + int2(1, 1)));
+  uint2 source_begin = pixel * constants.sourceResolution / constants.targetResolution;
+  uint2 source_end =
+      ((pixel + uint2(1)) * constants.sourceResolution + constants.targetResolution - uint2(1)) /
+      constants.targetResolution;
+  float depth = FetchDepth(int2(source_begin));
+  for (uint y = source_begin.y; y < source_end.y; ++y) {
+    for (uint x = source_begin.x; x < source_end.x; ++x) {
+      depth = max(depth, FetchDepth(int2(x, y)));
+    }
   }
   targetMip[int2(pixel)] = depth;
 }

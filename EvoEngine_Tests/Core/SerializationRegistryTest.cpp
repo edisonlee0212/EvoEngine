@@ -882,11 +882,9 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.enable_anti_aliasing = false;
   stack.enable_tone_mapping = false;
   stack.ambient_occlusion = std::make_shared<AmbientOcclusion>();
-  stack.ambient_occlusion->algorithm = AmbientOcclusion::Algorithm::Ssao;
-  stack.ambient_occlusion->kernel_size = 16;
-  stack.ambient_occlusion->radius = 0.35f;
-  stack.ambient_occlusion->gtao_radius = 1.25f;
-  stack.ambient_occlusion->gtao_intensity = 1.75f;
+  stack.ambient_occlusion->radius = 1.25f;
+  stack.ambient_occlusion->bias = 0.05f;
+  stack.ambient_occlusion->intensity = 1.75f;
   stack.bloom = std::make_shared<Bloom>();
   stack.bloom->filter_radius = 0.02f;
   stack.bloom->bloom_chain_length = 4;
@@ -894,25 +892,7 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->blur = false;
   stack.anti_aliasing = std::make_shared<AntiAliasing>();
-  stack.anti_aliasing->algorithm = AntiAliasing::Algorithm::Taa;
-  stack.anti_aliasing->taa.preset = AntiAliasing::TaaPreset::Custom;
-  stack.anti_aliasing->taa.variance_clipping_mode = AntiAliasing::VarianceClippingMode::Clamp;
-  stack.anti_aliasing->taa.history_color_mode = AntiAliasing::HistoryColorMode::Linear;
-  stack.anti_aliasing->taa.variance_sample_count = 5;
-  stack.anti_aliasing->taa.longest_velocity_sample_count = 5;
-  stack.anti_aliasing->taa.use_ycocg = false;
-  stack.anti_aliasing->taa.use_neighborhood_sampling = false;
-  stack.anti_aliasing->taa.use_bicubic_filter = false;
-  stack.anti_aliasing->taa.use_longest_velocity = false;
-  stack.anti_aliasing->taa.use_depth_threshold = false;
-  stack.anti_aliasing->taa.use_tgsm = false;
-  stack.anti_aliasing->taa.use_fp16 = false;
-  stack.anti_aliasing->taa.min_variance_gamma = 0.5f;
-  stack.anti_aliasing->taa.max_variance_gamma = 1.5f;
-  stack.anti_aliasing->taa.velocity_rejection_threshold = 96.0f;
-  stack.anti_aliasing->taa.depth_threshold = 0.004f;
-  stack.anti_aliasing->taa.sharpen = 0.15f;
-  stack.anti_aliasing->smaa.preset = AntiAliasing::SmaaPreset::High;
+  stack.anti_aliasing->preset = AntiAliasing::Preset::High;
   stack.tone_mapping = std::make_shared<ToneMapping>();
   stack.tone_mapping->method = ToneMapping::ToneMapMethod::Filmic;
   stack.tone_mapping->exposure = 1.5f;
@@ -932,34 +912,13 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_TRUE(stack_node["enable_screen_space_reflection"].as<bool>());
   EXPECT_FALSE(stack_node["enable_anti_aliasing"].as<bool>());
   EXPECT_FALSE(stack_node["enable_tone_mapping"].as<bool>());
-  EXPECT_EQ(stack_node["ambient_occlusion"]["algorithm"].as<int>(),
-            static_cast<int>(AmbientOcclusion::Algorithm::Ssao));
-  EXPECT_EQ(stack_node["ambient_occlusion"]["kernel_size"].as<int>(), 16);
-  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["gtao_radius"].as<float>(), 1.25f);
-  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["gtao_intensity"].as<float>(), 1.75f);
+  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["radius"].as<float>(), 1.25f);
+  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["bias"].as<float>(), 0.05f);
+  EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["intensity"].as<float>(), 1.75f);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
   const auto anti_aliasing_node = stack_node["anti_aliasing"];
-  EXPECT_EQ(anti_aliasing_node["algorithm"].as<int>(), static_cast<int>(AntiAliasing::Algorithm::Taa));
-  const auto taa_node = anti_aliasing_node["taa"];
-  EXPECT_EQ(taa_node["preset"].as<int>(), static_cast<int>(AntiAliasing::TaaPreset::Custom));
-  EXPECT_EQ(taa_node["variance_clipping_mode"].as<int>(), static_cast<int>(AntiAliasing::VarianceClippingMode::Clamp));
-  EXPECT_EQ(taa_node["history_color_mode"].as<int>(), static_cast<int>(AntiAliasing::HistoryColorMode::Linear));
-  EXPECT_EQ(taa_node["variance_sample_count"].as<int>(), 5);
-  EXPECT_EQ(taa_node["longest_velocity_sample_count"].as<int>(), 5);
-  EXPECT_FALSE(taa_node["use_ycocg"].as<bool>());
-  EXPECT_FALSE(taa_node["use_neighborhood_sampling"].as<bool>());
-  EXPECT_FALSE(taa_node["use_bicubic_filter"].as<bool>());
-  EXPECT_FALSE(taa_node["use_longest_velocity"].as<bool>());
-  EXPECT_FALSE(taa_node["use_depth_threshold"].as<bool>());
-  EXPECT_FALSE(taa_node["use_tgsm"].as<bool>());
-  EXPECT_FALSE(taa_node["use_fp16"].as<bool>());
-  EXPECT_FLOAT_EQ(taa_node["min_variance_gamma"].as<float>(), 0.5f);
-  EXPECT_FLOAT_EQ(taa_node["max_variance_gamma"].as<float>(), 1.5f);
-  EXPECT_FLOAT_EQ(taa_node["velocity_rejection_threshold"].as<float>(), 96.0f);
-  EXPECT_FLOAT_EQ(taa_node["depth_threshold"].as<float>(), 0.004f);
-  EXPECT_FLOAT_EQ(taa_node["sharpen"].as<float>(), 0.15f);
-  EXPECT_EQ(anti_aliasing_node["smaa"]["preset"].as<int>(), static_cast<int>(AntiAliasing::SmaaPreset::High));
+  EXPECT_EQ(anti_aliasing_node["preset"].as<int>(), static_cast<int>(AntiAliasing::Preset::High));
   EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["brightness"].as<float>(), 2.2f);
   EXPECT_FLOAT_EQ(stack_node["tone_mapping"]["contrast"].as<float>(), 1.1f);
@@ -974,16 +933,9 @@ enable_screen_space_reflection: false
 enable_anti_aliasing: true
 enable_tone_mapping: true
 ambient_occlusion:
-  algorithm: 1
-  avoid_distance: 3.5
-  kernel_size: 64
-  radius: 0.45
-  bias: 0.04
-  factor: 1.25
-  intensity: 2.5
-  gtao_radius: 0.4
-  gtao_bias: 0.02
-  gtao_intensity: 1.5
+  radius: 0.4
+  bias: 0.02
+  intensity: 1.5
   thickness: 1.0
   slice_count: 8
   steps_per_slice: 6
@@ -999,27 +951,7 @@ screen_space_reflection:
   thickness: 0.75
   blur: false
 anti_aliasing:
-  algorithm: 0
-  taa:
-    preset: 3
-    variance_clipping_mode: 1
-    history_color_mode: 1
-    variance_sample_count: 5
-    longest_velocity_sample_count: 5
-    use_ycocg: false
-    use_neighborhood_sampling: false
-    use_bicubic_filter: false
-    use_longest_velocity: false
-    use_depth_threshold: false
-    use_tgsm: false
-    use_fp16: false
-    min_variance_gamma: 0.5
-    max_variance_gamma: 1.5
-    velocity_rejection_threshold: 96.0
-    depth_threshold: 0.004
-    sharpen: 0.15
-  smaa:
-    preset: 2
+  preset: 2
 tone_mapping:
   method: 0
   exposure: 1.75
@@ -1043,10 +975,9 @@ tone_mapping:
   EXPECT_TRUE(restored_stack.enable_anti_aliasing);
   EXPECT_TRUE(restored_stack.enable_tone_mapping);
   ASSERT_TRUE(restored_stack.ambient_occlusion);
-  EXPECT_EQ(restored_stack.ambient_occlusion->algorithm, AmbientOcclusion::Algorithm::Gtao);
-  EXPECT_EQ(restored_stack.ambient_occlusion->kernel_size, 64);
-  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->gtao_radius, 0.4f);
-  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->gtao_intensity, 1.5f);
+  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->radius, 0.4f);
+  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->bias, 0.02f);
+  EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->intensity, 1.5f);
   ASSERT_TRUE(restored_stack.bloom);
   EXPECT_FLOAT_EQ(restored_stack.bloom->filter_radius, 0.03f);
   EXPECT_EQ(restored_stack.bloom->bloom_chain_length, 5);
@@ -1055,26 +986,7 @@ tone_mapping:
   EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
   ASSERT_TRUE(restored_stack.anti_aliasing);
   const auto& restored_anti_aliasing = *restored_stack.anti_aliasing;
-  EXPECT_EQ(restored_anti_aliasing.algorithm, AntiAliasing::Algorithm::Taa);
-  EXPECT_EQ(restored_anti_aliasing.smaa.preset, AntiAliasing::SmaaPreset::High);
-  const auto& restored_taa = restored_anti_aliasing.taa;
-  EXPECT_EQ(restored_taa.preset, AntiAliasing::TaaPreset::Custom);
-  EXPECT_EQ(restored_taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(restored_taa.history_color_mode, AntiAliasing::HistoryColorMode::Linear);
-  EXPECT_EQ(restored_taa.variance_sample_count, 5);
-  EXPECT_EQ(restored_taa.longest_velocity_sample_count, 5);
-  EXPECT_FALSE(restored_taa.use_ycocg);
-  EXPECT_FALSE(restored_taa.use_neighborhood_sampling);
-  EXPECT_FALSE(restored_taa.use_bicubic_filter);
-  EXPECT_FALSE(restored_taa.use_longest_velocity);
-  EXPECT_FALSE(restored_taa.use_depth_threshold);
-  EXPECT_FALSE(restored_taa.use_tgsm);
-  EXPECT_FALSE(restored_taa.use_fp16);
-  EXPECT_FLOAT_EQ(restored_taa.min_variance_gamma, 0.5f);
-  EXPECT_FLOAT_EQ(restored_taa.max_variance_gamma, 1.5f);
-  EXPECT_FLOAT_EQ(restored_taa.velocity_rejection_threshold, 96.0f);
-  EXPECT_FLOAT_EQ(restored_taa.depth_threshold, 0.004f);
-  EXPECT_FLOAT_EQ(restored_taa.sharpen, 0.15f);
+  EXPECT_EQ(restored_anti_aliasing.preset, AntiAliasing::Preset::High);
   ASSERT_TRUE(restored_stack.tone_mapping);
   EXPECT_EQ(restored_stack.tone_mapping->method, ToneMapping::ToneMapMethod::Filmic);
   EXPECT_FLOAT_EQ(restored_stack.tone_mapping->exposure, 1.75f);
@@ -1096,47 +1008,18 @@ tone_mapping:
                                    static_cast<IAsset&>(missing_anti_aliasing_stack));
   EXPECT_TRUE(missing_anti_aliasing_stack.enable_anti_aliasing);
   ASSERT_TRUE(missing_anti_aliasing_stack.anti_aliasing);
-  EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->algorithm, AntiAliasing::Algorithm::Smaa);
-  EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->smaa.preset, AntiAliasing::SmaaPreset::Ultra);
+  EXPECT_EQ(missing_anti_aliasing_stack.anti_aliasing->preset, AntiAliasing::Preset::Ultra);
 
   PostProcessingStack invalid_anti_aliasing_stack;
   Serialization::DeserializeObject(YAML::Load(R"(
 enable_anti_aliasing: true
 anti_aliasing:
-  algorithm: 99
-  taa:
-    preset: 99
-    variance_clipping_mode: 99
-    history_color_mode: 99
-  smaa:
-    preset: 99
+  preset: 99
 )"),
                                    static_cast<IAsset&>(invalid_anti_aliasing_stack));
   EXPECT_TRUE(invalid_anti_aliasing_stack.enable_anti_aliasing);
   ASSERT_TRUE(invalid_anti_aliasing_stack.anti_aliasing);
-  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->algorithm, AntiAliasing::Algorithm::Smaa);
-  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->smaa.preset, AntiAliasing::SmaaPreset::Ultra);
-  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.preset, AntiAliasing::TaaPreset::BestQuality);
-  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.variance_clipping_mode,
-            AntiAliasing::VarianceClippingMode::Intersection);
-  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->taa.history_color_mode,
-            AntiAliasing::HistoryColorMode::ToneMapped);
-
-  AntiAliasing preset_taa;
-  preset_taa.ApplyTaaPreset(AntiAliasing::TaaPreset::HighQuality);
-  EXPECT_EQ(preset_taa.taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(preset_taa.taa.variance_sample_count, 5);
-  EXPECT_TRUE(preset_taa.taa.use_bicubic_filter);
-  EXPECT_FALSE(preset_taa.taa.use_fp16);
-  preset_taa.ApplyTaaPreset(AntiAliasing::TaaPreset::Performance);
-  EXPECT_EQ(preset_taa.taa.variance_clipping_mode, AntiAliasing::VarianceClippingMode::Clamp);
-  EXPECT_EQ(preset_taa.taa.variance_sample_count, 5);
-  EXPECT_FALSE(preset_taa.taa.use_ycocg);
-  EXPECT_FALSE(preset_taa.taa.use_neighborhood_sampling);
-  EXPECT_FALSE(preset_taa.taa.use_bicubic_filter);
-  EXPECT_FALSE(preset_taa.taa.use_longest_velocity);
-  EXPECT_FALSE(preset_taa.taa.use_depth_threshold);
-  EXPECT_TRUE(preset_taa.taa.use_fp16);
+  EXPECT_EQ(invalid_anti_aliasing_stack.anti_aliasing->preset, AntiAliasing::Preset::Ultra);
 
   Shader shader;
   shader.RefShaderCode() = "void main() {}";
@@ -1336,63 +1219,6 @@ anti_aliasing:
   EXPECT_EQ(
       std::memcmp(restored_mesh->PeekMorphBaseVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
 
-  const auto padded_morph_stride = sizeof(Vertex) + 8;
-  std::vector<unsigned char> padded_morph_base(vertices.size() * padded_morph_stride);
-  for (size_t i = 0; i < vertices.size(); ++i) {
-    std::memcpy(padded_morph_base.data() + i * padded_morph_stride, &vertices[i], sizeof(Vertex));
-  }
-  auto padded_morph_node = YAML::Clone(mesh_node);
-  padded_morph_node["morph_base_vertex_stride_"] = padded_morph_stride;
-  padded_morph_node["morph_base_vertices_"] = YAML::Binary(padded_morph_base.data(), padded_morph_base.size());
-  const auto padded_morph_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  Serialization::DeserializeObject(padded_morph_node, static_cast<IAsset&>(*padded_morph_mesh));
-  ASSERT_EQ(padded_morph_mesh->PeekMorphBaseVertices().size(), vertices.size());
-  EXPECT_EQ(padded_morph_mesh->PeekMorphBaseVertices()[1].position, vertices[1].position);
-
-  auto implicit_morph_stride_node = YAML::Clone(mesh_node);
-  implicit_morph_stride_node.remove("morph_base_vertex_stride_");
-  const auto implicit_morph_stride_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  Serialization::DeserializeObject(implicit_morph_stride_node, static_cast<IAsset&>(*implicit_morph_stride_mesh));
-  EXPECT_EQ(implicit_morph_stride_mesh->PeekMorphBaseVertices().size(), vertices.size());
-
-  auto missing_morph_base_node = YAML::Clone(mesh_node);
-  missing_morph_base_node.remove("morph_base_vertices_");
-  const auto missing_morph_base_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  Serialization::DeserializeObject(missing_morph_base_node, static_cast<IAsset&>(*missing_morph_base_mesh));
-  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphTargets().empty());
-  EXPECT_TRUE(missing_morph_base_mesh->GetDefaultMorphWeights().empty());
-  EXPECT_TRUE(missing_morph_base_mesh->PeekMorphBaseVertices().empty());
-
-  std::vector<unsigned char> legacy_vertex_data(vertices.size() * 80);
-  for (size_t i = 0; i < vertices.size(); ++i) {
-    std::memcpy(legacy_vertex_data.data() + i * 80, &vertices[i], 80);
-  }
-  auto legacy_mesh_node = YAML::Clone(mesh_node);
-  legacy_mesh_node.remove("vertex_stride_");
-  legacy_mesh_node["vertices_"] = YAML::Binary(legacy_vertex_data.data(), legacy_vertex_data.size());
-  const auto legacy_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  Serialization::DeserializeObject(legacy_mesh_node, static_cast<IAsset&>(*legacy_mesh));
-  ASSERT_EQ(legacy_mesh->PeekVertices().size(), 3);
-  EXPECT_FLOAT_EQ(legacy_mesh->PeekVertices()[1].position.x, 1.0f);
-  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.0f));
-  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
-  EXPECT_EQ(legacy_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
-
-  std::vector<unsigned char> previous_vertex_data(vertices.size() * 96);
-  for (size_t i = 0; i < vertices.size(); ++i) {
-    std::memcpy(previous_vertex_data.data() + i * 96, &vertices[i], 88);
-    std::memset(previous_vertex_data.data() + i * 96 + 88, 0xff, 8);
-  }
-  auto previous_mesh_node = YAML::Clone(mesh_node);
-  previous_mesh_node["vertex_stride_"] = 96;
-  previous_mesh_node["vertices_"] = YAML::Binary(previous_vertex_data.data(), previous_vertex_data.size());
-  const auto previous_mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  Serialization::DeserializeObject(previous_mesh_node, static_cast<IAsset&>(*previous_mesh));
-  ASSERT_EQ(previous_mesh->PeekVertices().size(), 3);
-  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
-  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.0f));
-  EXPECT_EQ(previous_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.0f));
-
   SkinnedVertexAttributes skinned_vertex_attributes;
   skinned_vertex_attributes.normal = true;
   skinned_vertex_attributes.tangent = true;
@@ -1443,39 +1269,6 @@ anti_aliasing:
   EXPECT_EQ(std::memcmp(restored_skinned_mesh->PeekMorphBaseVertices().data(), skinned_vertices.data(),
                         skinned_vertices.size() * sizeof(SkinnedVertex)),
             0);
-
-  std::vector<unsigned char> legacy_skinned_vertex_data(skinned_vertices.size() * 144);
-  for (size_t i = 0; i < skinned_vertices.size(); ++i) {
-    std::memcpy(legacy_skinned_vertex_data.data() + i * 144, &skinned_vertices[i], 144);
-  }
-  auto legacy_skinned_mesh_node = YAML::Clone(skinned_mesh_node);
-  legacy_skinned_mesh_node.remove("skinned_vertex_stride_");
-  legacy_skinned_mesh_node["skinned_vertices_"] =
-      YAML::Binary(legacy_skinned_vertex_data.data(), legacy_skinned_vertex_data.size());
-  const auto legacy_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
-  Serialization::DeserializeObject(legacy_skinned_mesh_node, static_cast<IAsset&>(*legacy_skinned_mesh));
-  ASSERT_EQ(legacy_skinned_mesh->PeekSkinnedVertices().size(), 3);
-  EXPECT_FLOAT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].position.x, 1.0f);
-  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.0f));
-  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
-  EXPECT_EQ(legacy_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
-  EXPECT_EQ(legacy_skinned_mesh->bone_animator_indices, skinned_mesh->bone_animator_indices);
-
-  std::vector<unsigned char> previous_skinned_vertex_data(skinned_vertices.size() * 160);
-  for (size_t i = 0; i < skinned_vertices.size(); ++i) {
-    std::memcpy(previous_skinned_vertex_data.data() + i * 160, &skinned_vertices[i], 152);
-    std::memset(previous_skinned_vertex_data.data() + i * 160 + 152, 0xff, 8);
-  }
-  auto previous_skinned_mesh_node = YAML::Clone(skinned_mesh_node);
-  previous_skinned_mesh_node["skinned_vertex_stride_"] = 160;
-  previous_skinned_mesh_node["skinned_vertices_"] =
-      YAML::Binary(previous_skinned_vertex_data.data(), previous_skinned_vertex_data.size());
-  const auto previous_skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
-  Serialization::DeserializeObject(previous_skinned_mesh_node, static_cast<IAsset&>(*previous_skinned_mesh));
-  ASSERT_EQ(previous_skinned_mesh->PeekSkinnedVertices().size(), 3);
-  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
-  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.0f));
-  EXPECT_EQ(previous_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.0f));
 
   StrandPointAttributes strand_point_attributes;
   strand_point_attributes.normal = true;

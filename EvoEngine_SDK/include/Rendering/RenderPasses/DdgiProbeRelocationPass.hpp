@@ -16,7 +16,6 @@ class DdgiProbeRelocationPass final {
     DdgiProbeRelocationPushConstant update_push_constant;
     bool reset_offsets = false;
     bool relocate_probes = false;
-    float* record_time_ms = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();

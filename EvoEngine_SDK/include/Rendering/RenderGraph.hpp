@@ -20,6 +20,20 @@ enum class RenderPassQueue { Graphics, Compute, RayTracing };
 
 enum class RenderPassScope { Frame, Camera };
 
+enum class RenderPassProfilerGroup {
+  FramePreparation,
+  Shadows,
+  CameraVisibility,
+  Geometry,
+  Lighting,
+  AmbientOcclusionAndDdgi,
+  PostProcessing,
+  ReflectionProbes,
+  EditorAndUi,
+  RayTracing,
+  Other
+};
+
 enum class RenderResourceType { Buffer, Image, DescriptorSet, AccelerationStructure, External };
 
 enum class RenderResourceLifetime { Frame, Camera, Persistent, History, Imported };
@@ -84,6 +98,8 @@ struct RenderPassDescriptor {
   RenderPassScope scope = RenderPassScope::Frame;
   std::vector<RenderResourceAccess> resources;
   std::vector<std::string> dependencies;
+  RenderPassProfilerGroup profiler_group = RenderPassProfilerGroup::Other;
+  std::string profiler_display_name;
 };
 
 namespace RenderResourceNames {
@@ -101,7 +117,6 @@ inline constexpr const char* camera_material_id = "Camera.MaterialId";
 inline constexpr const char* camera_depth_pyramid = "Camera.DepthPyramid";
 inline constexpr const char* camera_ambient_occlusion = "Camera.AmbientOcclusion";
 inline constexpr const char* camera_ambient_occlusion_scratch = "Camera.AmbientOcclusionScratch";
-inline constexpr const char* camera_ddgi_gather_timing = "Camera.DDGI.GatherTiming";
 inline constexpr const char* camera_color_history = "Camera.ColorHistory";
 inline constexpr const char* camera_radiance_history = "Camera.RadianceHistory";
 inline constexpr const char* camera_ray_hit_distance = "Camera.RayHitDistance";
@@ -120,7 +135,6 @@ inline constexpr const char* frame_ddgi_probe_state = "Frame.DDGI.ProbeState";
 inline constexpr const char* frame_ddgi_ray_output = "Frame.DDGI.RayOutput";
 inline constexpr const char* frame_ddgi_ray_sample_info = "Frame.DDGI.RaySampleInfo";
 inline constexpr const char* frame_ddgi_selected_ray_diagnostics = "Frame.DDGI.SelectedRayDiagnostics";
-inline constexpr const char* frame_ddgi_emissive_sampling_stats = "Frame.DDGI.EmissiveSamplingStats";
 inline constexpr const char* frame_ddgi_irradiance_atlas = "Frame.DDGI.IrradianceAtlas";
 inline constexpr const char* frame_ddgi_visibility_atlas = "Frame.DDGI.VisibilityAtlas";
 inline constexpr const char* frame_ddgi_variability_atlas = "Frame.DDGI.VariabilityAtlas";
@@ -132,7 +146,7 @@ namespace RenderPassNames {
 inline constexpr const char* frame_external = "Frame.External";
 inline constexpr const char* ddgi_atlas_prepare = "DDGIAtlasPrepare";
 inline constexpr const char* ddgi_probe_scroll = "DDGIProbeScroll";
-inline constexpr const char* ddgi_ray_diagnostics = "DDGIRayDiagnostics";
+inline constexpr const char* ddgi_probe_trace = "DDGIProbeTrace";
 inline constexpr const char* ddgi_probe_update = "DDGIProbeUpdate";
 inline constexpr const char* ddgi_probe_relocation = "DDGIProbeRelocation";
 inline constexpr const char* ddgi_probe_classification = "DDGIProbeClassification";
@@ -146,7 +160,6 @@ inline constexpr const char* motion_vectors = "MotionVectors";
 inline constexpr const char* motion_coverage = "MotionCoverage";
 inline constexpr const char* depth_pyramid = "DepthPyramid";
 inline constexpr const char* ambient_occlusion = "AmbientOcclusion";
-inline constexpr const char* ddgi_gather_timing = "DDGIGatherTiming";
 inline constexpr const char* deferred_camera = "DeferredCamera";
 inline constexpr const char* transparent_geometry = "TransparentGeometry";
 inline constexpr const char* volumetric_clouds = "VolumetricClouds";
