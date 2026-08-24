@@ -1,6 +1,6 @@
 // @evoengine-dialect native
 import EvoEngine.DDGIProbeRayConstants;
-import EvoEngine.PointCloudRayTracingPayload;
+import EvoEngine.DDGIProbeRayPayload;
 import EvoEngine.RayTracingBasic;
 
 float3 EE_DDGI_SAMPLE_ENVIRONMENT_CUBEMAP(const uint environment_index, const float3 direction) {
@@ -29,7 +29,7 @@ float3 EE_DDGI_MISS_RADIANCE(const float3 direction) {
 }
 
 [shader("miss")]
-void main(inout PointCloudRayTracingPayload hit_value) {
+void main(inout DdgiProbeRayPayload hit_value) {
   hit_value.hit_count = 0u;
   hit_value.handle = uint64_t(0);
   hit_value.hit_info.position = float3(0.0f);

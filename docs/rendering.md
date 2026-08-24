@@ -12,6 +12,7 @@ Focused guides:
 - [Reflection probes](reflection-probes.md)
 - [Rendering demos](rendering-demos.md)
 - [Rendering validation](rendering-validation.md)
+- [Rasterization culling results](rasterization-culling-results.md)
 
 ## Architecture
 
@@ -37,8 +38,10 @@ flowchart LR
 | `RenderGraph` | Logical resources, pass ordering, access declarations, transient allocation, and Vulkan barrier planning. |
 | `RenderLayer` | Pipeline creation, frame preparation, shadows, camera rendering, probe work, extension callbacks, diagnostics, and output handoff. |
 
-The renderer builds a fresh render-instance snapshot during frame preparation. Camera passes consume that snapshot rather
-than reading mutable scene components while commands are being recorded.
+The renderer produces an immutable render-instance snapshot during frame preparation. Camera passes consume that
+snapshot rather than reading mutable scene components while commands are being recorded. Unchanged rigid renderers under
+a static scene root may reuse cached render-instance records while the frame-local snapshot, visibility, LOD selection,
+and draw lists are still rebuilt for the current cameras.
 
 ## Frame Flow
 
@@ -51,6 +54,22 @@ than reading mutable scene components while commands are being recorded.
 
 Frame-slot fences protect resources still used by submitted GPU work. Transient graph resources and replaced renderer
 objects remain alive until their owning slot is recycled.
+
+## Static Scene Contract
+
+`Scene::SetEntityStatic(entity, true)` marks the entity's root hierarchy static. Static status is a performance contract:
+unchanged rigid `MeshRenderer` records can be reused across frames. Skinned meshes, particles, strands, Gaussian splats,
+external renderers, and API draws remain dynamic, and camera-dependent LOD and visibility are always evaluated per frame.
+
+Scene structural APIs invalidate the cache automatically. Editor transform, gizmo, component, and private-component
+edits also notify the renderer when they affect a static hierarchy. Runtime code that directly overrides a static
+transform or renderer field must call `RenderLayer::NotifyStaticEntityChanged(scene, entity)` after the mutation. The
+notification invalidates the affected subtree and reconciles its transforms before the next render snapshot; omitting it
+can leave cached raster and ray inputs stale.
+
+TLAS logical inputs are collected alongside canonical render-instance blocks instead of retraversing every renderer
+collection. Each frame slot retains its acceleration-structure resources. If instance descriptors, transforms, BLAS
+addresses, and BLAS content versions are unchanged, TLAS preparation is an exact reuse with no Vulkan build or update.
 
 ## Camera Techniques
 
@@ -117,9 +136,9 @@ for comparison. Directional shadows use Vogel-disc percentage-closer filtering. 
 shadow atlases and filtering paths. The quality override changes directional, point, and spot shadow-map resolution
 together.
 
-Raster cameras can use ambient occlusion, screen-space reflections, temporal or morphological anti-aliasing, bloom, tone
-mapping, and related post effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path
-tracing. Post-processing resources and temporal histories are camera-owned.
+Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, bloom, tone mapping, and related post
+effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
+resources and temporal histories are camera-owned. Assets must use the current flat GTAO and SMAA schemas.
 
 ## Geometry And Optional Features
 

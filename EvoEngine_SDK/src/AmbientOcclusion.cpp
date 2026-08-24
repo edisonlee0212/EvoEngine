@@ -44,16 +44,9 @@ void ComputeWriteToReadBarrier(const VkCommandBuffer command_buffer, const std::
 }  // namespace
 
 void AmbientOcclusion::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "algorithm" << YAML::Value << static_cast<int>(algorithm);
-  out << YAML::Key << "avoid_distance" << YAML::Value << avoid_distance;
-  out << YAML::Key << "kernel_size" << YAML::Value << kernel_size;
   out << YAML::Key << "radius" << YAML::Value << radius;
   out << YAML::Key << "bias" << YAML::Value << bias;
-  out << YAML::Key << "factor" << YAML::Value << factor;
   out << YAML::Key << "intensity" << YAML::Value << intensity;
-  out << YAML::Key << "gtao_radius" << YAML::Value << gtao_radius;
-  out << YAML::Key << "gtao_bias" << YAML::Value << gtao_bias;
-  out << YAML::Key << "gtao_intensity" << YAML::Value << gtao_intensity;
   out << YAML::Key << "thickness" << YAML::Value << thickness;
   out << YAML::Key << "slice_count" << YAML::Value << slice_count;
   out << YAML::Key << "steps_per_slice" << YAML::Value << steps_per_slice;
@@ -61,28 +54,12 @@ void AmbientOcclusion::Serialize(YAML::Emitter& out) const {
 }
 
 void AmbientOcclusion::Deserialize(const YAML::Node& in) {
-  if (in["algorithm"]) {
-    const auto value = in["algorithm"].as<int>();
-    algorithm = value == static_cast<int>(Algorithm::Ssao) ? Algorithm::Ssao : Algorithm::Gtao;
-  }
-  if (in["avoid_distance"])
-    avoid_distance = in["avoid_distance"].as<float>();
-  if (in["kernel_size"])
-    kernel_size = in["kernel_size"].as<int>();
   if (in["radius"])
     radius = in["radius"].as<float>();
   if (in["bias"])
     bias = in["bias"].as<float>();
-  if (in["factor"])
-    factor = in["factor"].as<float>();
   if (in["intensity"])
     intensity = in["intensity"].as<float>();
-  if (in["gtao_radius"])
-    gtao_radius = in["gtao_radius"].as<float>();
-  if (in["gtao_bias"])
-    gtao_bias = in["gtao_bias"].as<float>();
-  if (in["gtao_intensity"])
-    gtao_intensity = in["gtao_intensity"].as<float>();
   if (in["thickness"])
     thickness = in["thickness"].as<float>();
   if (in["slice_count"])
@@ -139,12 +116,9 @@ void AmbientOcclusion::Process(const PostProcessingStack&, const std::shared_ptr
   }
   const auto size = target_camera->GetSize();
   PushConstant push_constant;
-  push_constant.kernel_size = kernel_size;
-  push_constant.radius = algorithm == Algorithm::Gtao ? gtao_radius : radius;
-  push_constant.bias = algorithm == Algorithm::Gtao ? gtao_bias : bias;
-  push_constant.factor = factor;
-  push_constant.intensity = algorithm == Algorithm::Gtao ? gtao_intensity : intensity;
-  push_constant.algorithm = static_cast<int>(algorithm);
+  push_constant.radius = radius;
+  push_constant.bias = bias;
+  push_constant.intensity = intensity;
   push_constant.slice_count = slice_count;
   push_constant.steps_per_slice = steps_per_slice;
   push_constant.thickness = thickness;
@@ -163,7 +137,7 @@ void AmbientOcclusion::Process(const PostProcessingStack&, const std::shared_ptr
     ComputeWriteToReadBarrier(vk_command_buffer, ambient_occlusion_view->GetImage());
 
     BlurPushConstant blur_push_constant{};
-    blur_push_constant.avoid_distance = algorithm == Algorithm::Gtao ? denoise_radius : avoid_distance;
+    blur_push_constant.denoise_radius = denoise_radius;
     blur_push_constant.camera_near = target_camera->camera_settings.near_distance;
     blur_push_constant.camera_far = target_camera->camera_settings.far_distance;
     blur_pipeline->Bind(vk_command_buffer);
@@ -197,9 +171,9 @@ void AmbientOcclusion::BuildPipelines(PostProcessingRendererResources& resources
   }
   if (force_rebuild || !geometry_pipeline) {
     geometry_pipeline = std::make_shared<ComputePipeline>();
-    geometry_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/AmbientOcclusionGeometry.slang");
+    geometry_pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/GTAO.slang");
     geometry_pipeline->descriptor_set_layouts.emplace_back(
         ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
     geometry_pipeline->descriptor_set_layouts.emplace_back(

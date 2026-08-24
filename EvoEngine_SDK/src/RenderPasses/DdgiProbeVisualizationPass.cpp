@@ -8,17 +8,9 @@
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "Resources.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                               const DdgiProbeVisualizationPass::Parameters& parameters) {
   if (!parameters.pipeline || !parameters.pipeline->Initialized() || !parameters.per_frame_descriptor_set ||
@@ -44,6 +36,8 @@ void RecordProbeVisualization(const VkCommandBuffer vk_command_buffer, const Ren
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                  parameters.camera->GetHandle().GetValue());
   std::vector<VkRenderingAttachmentInfo> color_attachment_infos;
   parameters.camera->GetRenderTexture()->AppendColorAttachmentInfos(color_attachment_infos, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                                     VK_ATTACHMENT_STORE_OP_STORE);
@@ -98,7 +92,9 @@ RenderPassDescriptor DdgiProbeVisualizationPass::CreateDescriptor() {
               {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment},
               {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
           },
-          {RenderPassNames::deferred_camera}};
+          {RenderPassNames::deferred_camera},
+          RenderPassProfilerGroup::EditorAndUi,
+          "DDGI Probe Visualization"};
 }
 
 void DdgiProbeVisualizationPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -106,10 +102,6 @@ void DdgiProbeVisualizationPass::Execute(const RenderGraphExecutionContext& cont
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeVisualization(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

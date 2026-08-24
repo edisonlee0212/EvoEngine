@@ -1,6 +1,8 @@
 // @evoengine-dialect native
 import EvoEngine.PerFrame;
 import EvoEngine.BasicConstants;
+import EvoEngine.Meshlet;
+import EvoEngine.MeshletCulling;
 
 static const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
 static const uint TASK_MESHLET_ITERATIONS =
@@ -18,7 +20,8 @@ groupshared uint shared_meshlet_count;
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 [shader("amplification")]
 void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint draw_id : SV_DrawIndex) {
-  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  uint instance_index =
+      EE_RASTER_DRAW_INSTANCE_INDEX(draw_id, EE_BASIC_CONSTANTS.instance_index, EE_BASIC_CONSTANTS.meshlet_culling_flags);
   uint meshlet_offset = EE_INSTANCES[instance_index].meshlet_offset;
   uint meshlet_count = EE_INSTANCES[instance_index].meshlet_size;
   if (lane_id == 0u) shared_meshlet_count = 0u;
@@ -30,6 +33,17 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint draw_i
   for (uint iteration = 0u; iteration < TASK_MESHLET_ITERATIONS; ++iteration) {
     uint meshlet_local = lane_id + iteration * WORKGROUP_SIZE;
     bool render = group_meshlet_offset + meshlet_local < meshlet_count;
+    uint meshlet_index = base_id + meshlet_local;
+    if (render && (EE_BASIC_CONSTANTS.meshlet_culling_flags & EE_MESHLET_CULL_FRUSTUM) != 0u) {
+      render = EE_MESHLET_FRUSTUM_VISIBLE(EE_MESHLETS[meshlet_index].boundingSphere,
+                                          EE_INSTANCES[instance_index].model,
+                                          EE_SPOT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].light_space_matrix, false);
+    }
+    if (render) {
+      render = EE_MESHLET_CONE_VISIBLE(
+          EE_MESHLETS[meshlet_index].normalCone, EE_MESHLETS[meshlet_index].normalConeApex,
+          EE_INSTANCES[instance_index].model, EE_SPOT_LIGHTS[EE_BASIC_CONSTANTS.camera_index].position, false);
+    }
     uint wave_count = WaveActiveCountBits(render);
     uint wave_offset = 0u;
     if (EXT_TASK_SUBGROUP_COUNT > 1u) {

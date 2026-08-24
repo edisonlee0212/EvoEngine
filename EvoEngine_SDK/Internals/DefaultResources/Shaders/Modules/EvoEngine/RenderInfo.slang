@@ -30,7 +30,7 @@ public struct RenderInfo {
   public float shadow_split_2;
   public float shadow_split_3;
 
-  public int shadow_sample_size;
+  public int reserved_0;
   public int debug_visualization;
   public float shadow_cascade_transition_width;
   public float indirect_lighting_intensity;

@@ -210,7 +210,10 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_App" / "src" / "DemoScene.cpp");
   const auto bistro_source = ExtractTextRange(demo_scene_source, "void evo_engine::ConfigureBistroDemoScene",
                                               "std::filesystem::path evo_engine::FindDemoResourcesRoot");
+  const auto rendering_source = ExtractTextRange(demo_scene_source, "void ConfigureRenderingDemoScene",
+                                                 "std::shared_ptr<Material> CreateCornellMaterial");
   ASSERT_FALSE(bistro_source.empty());
+  ASSERT_FALSE(rendering_source.empty());
 
   EXPECT_NE(demo_scene_source.find("--gltfCamera 0"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("kBistroReferenceCameraPosition"), std::string::npos);
@@ -239,6 +242,8 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
   EXPECT_NE(demo_scene_source.find("frame.position - root_rotation * kBistroReferenceCameraPosition"),
             std::string::npos);
   EXPECT_NE(demo_scene_source.find("CalculateBistroCameraFrame(bistro->GetBoundingBox())"), std::string::npos);
+  EXPECT_NE(bistro_source.find("scene->SetEntityStatic(bistro_entity, true)"), std::string::npos);
+  EXPECT_NE(rendering_source.find("scene->SetEntityStatic(demo_scene, true)"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("RemoveDefaultDirectionalLight(scene)"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("FindEntityNamed(scene, \"Directional Light\")"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("scene->HasPrivateComponent<DirectionalLight>(*default_light_entity)"),

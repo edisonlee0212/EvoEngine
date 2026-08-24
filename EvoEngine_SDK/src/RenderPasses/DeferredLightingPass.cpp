@@ -25,6 +25,8 @@ RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_o
        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
       {depth_pyramid_enabled ? RenderPassNames::depth_pyramid : RenderPassNames::deferred_geometry}};
+  descriptor.profiler_group = RenderPassProfilerGroup::Lighting;
+  descriptor.profiler_display_name = "Deferred Lighting";
   if (depth_pyramid_enabled) {
     descriptor.resources.push_back(
         {RenderResourceNames::camera_depth_pyramid, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
@@ -51,7 +53,9 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
 
     ApplyGraphResourceBarriers(vk_command_buffer, context);
 
-    const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "Deferred Lighting");
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera->GetHandle().GetValue(),
+                                                    static_cast<uint64_t>(parameters.camera_index));
     const auto& g_buffer_descriptor_set = parameters.camera->GetGBufferDescriptorSet();
     if (parameters.pipeline && parameters.pipeline->Initialized() && parameters.per_frame_descriptor_set &&
         g_buffer_descriptor_set && parameters.lighting_descriptor_set &&
@@ -94,8 +98,6 @@ void DeferredLightingPass::Execute(const RenderGraphExecutionContext& context, c
         }
       });
     }
-    Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
-
     if (parameters.external_forward_rendering) {
       parameters.external_forward_rendering(vk_command_buffer, viewport);
     }

@@ -143,12 +143,6 @@ void PerFrameDescriptorSetList::Reset() {
 }
 
 void PostProcessingCameraResources::ResetTemporalState() {
-  anti_aliasing.history.valid = false;
-  anti_aliasing.history.frame_index = 0;
-  anti_aliasing.history.last_processed_frame = 0;
-  current_jitter = {};
-  previous_jitter = {};
-  jitter_frame_index = 0;
   previous_inverse_projection = glm::mat4(1.0f);
   previous_inverse_view = glm::mat4(1.0f);
   previous_matrices_valid = false;
@@ -168,14 +162,6 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
   ambient_occlusion.blur_horizontal_descriptor_set.Retain(transient_resources);
   ambient_occlusion.blur_vertical_descriptor_set.Retain(transient_resources);
   ambient_occlusion.geometry_output_descriptor_set.Retain(transient_resources);
-  anti_aliasing.copy_descriptor_set.Retain(transient_resources);
-  anti_aliasing.resolve_descriptor_set.Retain(transient_resources);
-  for (const auto& texture : anti_aliasing.history.textures) {
-    transient_resources.RetainRenderTextureResources(texture);
-  }
-  for (const auto& texture : anti_aliasing.history.depth_textures) {
-    transient_resources.RetainRenderTextureResources(texture);
-  }
   transient_resources.RetainRenderTextureResources(anti_aliasing.smaa_edges_texture);
   transient_resources.RetainRenderTextureResources(anti_aliasing.smaa_blend_texture);
   anti_aliasing.smaa_prepare_descriptor_set.Retain(transient_resources);
@@ -194,376 +180,25 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
 }
 
 void AntiAliasing::Serialize(YAML::Emitter& out) const {
-  out << YAML::Key << "algorithm" << YAML::Value << static_cast<int32_t>(algorithm);
-  out << YAML::Key << "taa" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "preset" << YAML::Value << static_cast<int32_t>(taa.preset);
-  out << YAML::Key << "variance_clipping_mode" << YAML::Value << static_cast<int32_t>(taa.variance_clipping_mode);
-  out << YAML::Key << "history_color_mode" << YAML::Value << static_cast<int32_t>(taa.history_color_mode);
-  out << YAML::Key << "variance_sample_count" << YAML::Value << taa.variance_sample_count;
-  out << YAML::Key << "longest_velocity_sample_count" << YAML::Value << taa.longest_velocity_sample_count;
-  out << YAML::Key << "use_ycocg" << YAML::Value << taa.use_ycocg;
-  out << YAML::Key << "use_neighborhood_sampling" << YAML::Value << taa.use_neighborhood_sampling;
-  out << YAML::Key << "use_bicubic_filter" << YAML::Value << taa.use_bicubic_filter;
-  out << YAML::Key << "use_longest_velocity" << YAML::Value << taa.use_longest_velocity;
-  out << YAML::Key << "use_depth_threshold" << YAML::Value << taa.use_depth_threshold;
-  out << YAML::Key << "use_tgsm" << YAML::Value << taa.use_tgsm;
-  out << YAML::Key << "use_fp16" << YAML::Value << taa.use_fp16;
-  out << YAML::Key << "min_variance_gamma" << YAML::Value << taa.min_variance_gamma;
-  out << YAML::Key << "max_variance_gamma" << YAML::Value << taa.max_variance_gamma;
-  out << YAML::Key << "velocity_rejection_threshold" << YAML::Value << taa.velocity_rejection_threshold;
-  out << YAML::Key << "depth_threshold" << YAML::Value << taa.depth_threshold;
-  out << YAML::Key << "sharpen" << YAML::Value << taa.sharpen;
-  out << YAML::EndMap;
-  out << YAML::Key << "smaa" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "preset" << YAML::Value << static_cast<int32_t>(smaa.preset);
-  out << YAML::EndMap;
+  out << YAML::Key << "preset" << YAML::Value << static_cast<int32_t>(preset);
 }
 
 void AntiAliasing::Deserialize(const YAML::Node& in) {
-  algorithm = Algorithm::Smaa;
-  taa = {};
-  smaa = {};
-  if (in["algorithm"] && in["algorithm"].as<int32_t>() == static_cast<int32_t>(Algorithm::Taa)) {
-    algorithm = Algorithm::Taa;
-  }
-  if (const auto taa_node = in["taa"]) {
-    TaaPreset loaded_preset = TaaPreset::BestQuality;
-    if (taa_node["preset"]) {
-      const auto value = taa_node["preset"].as<int32_t>();
-      if (value >= static_cast<int32_t>(TaaPreset::BestQuality) && value <= static_cast<int32_t>(TaaPreset::Custom)) {
-        loaded_preset = static_cast<TaaPreset>(value);
-      }
-    }
-    ApplyTaaPreset(loaded_preset);
-    if (taa_node["variance_clipping_mode"])
-      taa.variance_clipping_mode = static_cast<VarianceClippingMode>(taa_node["variance_clipping_mode"].as<int32_t>());
-    if (taa_node["history_color_mode"])
-      taa.history_color_mode = static_cast<HistoryColorMode>(taa_node["history_color_mode"].as<int32_t>());
-    if (taa_node["variance_sample_count"])
-      taa.variance_sample_count = taa_node["variance_sample_count"].as<int>();
-    if (taa_node["longest_velocity_sample_count"])
-      taa.longest_velocity_sample_count = taa_node["longest_velocity_sample_count"].as<int>();
-    if (taa_node["use_ycocg"])
-      taa.use_ycocg = taa_node["use_ycocg"].as<bool>();
-    if (taa_node["use_neighborhood_sampling"])
-      taa.use_neighborhood_sampling = taa_node["use_neighborhood_sampling"].as<bool>();
-    if (taa_node["use_bicubic_filter"])
-      taa.use_bicubic_filter = taa_node["use_bicubic_filter"].as<bool>();
-    if (taa_node["use_longest_velocity"])
-      taa.use_longest_velocity = taa_node["use_longest_velocity"].as<bool>();
-    if (taa_node["use_depth_threshold"])
-      taa.use_depth_threshold = taa_node["use_depth_threshold"].as<bool>();
-    if (taa_node["use_tgsm"])
-      taa.use_tgsm = taa_node["use_tgsm"].as<bool>();
-    if (taa_node["use_fp16"])
-      taa.use_fp16 = taa_node["use_fp16"].as<bool>();
-    if (taa_node["min_variance_gamma"])
-      taa.min_variance_gamma = taa_node["min_variance_gamma"].as<float>();
-    if (taa_node["max_variance_gamma"])
-      taa.max_variance_gamma = taa_node["max_variance_gamma"].as<float>();
-    if (taa_node["velocity_rejection_threshold"])
-      taa.velocity_rejection_threshold = taa_node["velocity_rejection_threshold"].as<float>();
-    if (taa_node["depth_threshold"])
-      taa.depth_threshold = taa_node["depth_threshold"].as<float>();
-    if (taa_node["sharpen"])
-      taa.sharpen = taa_node["sharpen"].as<float>();
-    taa.preset = loaded_preset;
-  }
-  if (const auto smaa_node = in["smaa"]; smaa_node && smaa_node["preset"]) {
-    const auto value = smaa_node["preset"].as<int32_t>();
-    if (value >= static_cast<int32_t>(SmaaPreset::Low) && value <= static_cast<int32_t>(SmaaPreset::Ultra)) {
-      smaa.preset = static_cast<SmaaPreset>(value);
-    }
-  }
-  NormalizeSettings();
-}
-
-void AntiAliasing::ApplyTaaPreset(const TaaPreset value) {
-  taa.preset = value;
-  if (value == TaaPreset::Custom) {
-    return;
-  }
-
-  taa.history_color_mode = HistoryColorMode::ToneMapped;
-  taa.use_tgsm = true;
-  taa.use_fp16 = false;
-  taa.min_variance_gamma = 0.75f;
-  taa.max_variance_gamma = 2.0f;
-  taa.velocity_rejection_threshold = 128.0f;
-  taa.depth_threshold = 0.002f;
-  taa.sharpen = 0.0f;
-  taa.use_depth_threshold = true;
-  taa.use_neighborhood_sampling = true;
-  taa.use_ycocg = true;
-  taa.use_bicubic_filter = true;
-  taa.use_longest_velocity = true;
-  taa.longest_velocity_sample_count = 9;
-
-  switch (value) {
-    case TaaPreset::BestQuality:
-      taa.variance_clipping_mode = VarianceClippingMode::Intersection;
-      taa.variance_sample_count = 9;
-      break;
-    case TaaPreset::HighQuality:
-      taa.variance_clipping_mode = VarianceClippingMode::Clamp;
-      taa.variance_sample_count = 5;
-      break;
-    case TaaPreset::Performance:
-      taa.variance_clipping_mode = VarianceClippingMode::Clamp;
-      taa.variance_sample_count = 5;
-      taa.longest_velocity_sample_count = 5;
-      taa.use_fp16 = true;
-      taa.use_depth_threshold = false;
-      taa.use_neighborhood_sampling = false;
-      taa.use_ycocg = false;
-      taa.use_bicubic_filter = false;
-      taa.use_longest_velocity = false;
-      break;
-    case TaaPreset::Custom:
-      break;
+  *this = AntiAliasing{};
+  if (in["preset"]) {
+    preset = static_cast<Preset>(in["preset"].as<int32_t>());
   }
   NormalizeSettings();
 }
 
 void AntiAliasing::NormalizeSettings() {
-  if (algorithm != Algorithm::Taa && algorithm != Algorithm::Smaa) {
-    algorithm = Algorithm::Smaa;
+  const auto value = static_cast<int32_t>(preset);
+  if (value < static_cast<int32_t>(Preset::Low) || value > static_cast<int32_t>(Preset::Ultra)) {
+    preset = Preset::Ultra;
   }
-  const auto variance_mode = static_cast<int32_t>(taa.variance_clipping_mode);
-  if (variance_mode < static_cast<int32_t>(VarianceClippingMode::Disabled) ||
-      variance_mode > static_cast<int32_t>(VarianceClippingMode::Intersection)) {
-    taa.variance_clipping_mode = VarianceClippingMode::Intersection;
-  }
-  const auto color_mode = static_cast<int32_t>(taa.history_color_mode);
-  if (color_mode < static_cast<int32_t>(HistoryColorMode::ToneMapped) ||
-      color_mode > static_cast<int32_t>(HistoryColorMode::Linear)) {
-    taa.history_color_mode = HistoryColorMode::ToneMapped;
-  }
-  taa.variance_sample_count = taa.variance_sample_count <= 5 ? 5 : 9;
-  taa.longest_velocity_sample_count = taa.longest_velocity_sample_count <= 5 ? 5 : 9;
-  taa.min_variance_gamma = glm::max(taa.min_variance_gamma, 0.0f);
-  taa.max_variance_gamma = glm::max(taa.max_variance_gamma, taa.min_variance_gamma);
-  taa.velocity_rejection_threshold = glm::max(taa.velocity_rejection_threshold, 1.0f);
-  taa.depth_threshold = glm::max(taa.depth_threshold, 0.0f);
-  taa.sharpen = glm::clamp(taa.sharpen, 0.0f, 1.0f);
-  const auto smaa_preset = static_cast<int32_t>(smaa.preset);
-  if (smaa_preset < static_cast<int32_t>(SmaaPreset::Low) || smaa_preset > static_cast<int32_t>(SmaaPreset::Ultra)) {
-    smaa.preset = SmaaPreset::Ultra;
-  }
-  const auto smaa_debug_mode = static_cast<int32_t>(smaa.debug_mode);
-  if (smaa_debug_mode < static_cast<int32_t>(SmaaDebugMode::None) ||
-      smaa_debug_mode > static_cast<int32_t>(SmaaDebugMode::BlendWeights)) {
-    smaa.debug_mode = SmaaDebugMode::None;
-  }
-}
-
-void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
-                           const std::shared_ptr<Camera>& target_camera,
-                           PostProcessingExecutionContext& context) const {
-  if (algorithm == Algorithm::Taa) {
-    ProcessTaa(post_processing_stack, target_camera, context);
-  } else {
-    ProcessSmaa(post_processing_stack, target_camera, context);
-  }
-}
-
-void AntiAliasing::ProcessTaa(const PostProcessingStack& post_processing_stack,
-                              const std::shared_ptr<Camera>& target_camera,
-                              PostProcessingExecutionContext& context) const {
-  auto& camera_resources = context.camera.anti_aliasing;
-  auto& renderer_resources = context.renderer.anti_aliasing;
-  const bool effective_use_fp16 = taa.use_fp16 && Platform::GetInstance().GetCapabilities().support_shader_float16;
-  const size_t resolve_pipeline_index = (taa.use_tgsm ? 1u : 0u) | (effective_use_fp16 ? 2u : 0u);
-  const auto& copy_pipeline = renderer_resources.copy_pipeline;
-  const auto& resolve_pipeline = renderer_resources.resolve_pipelines[resolve_pipeline_index];
-  if (!copy_pipeline || !copy_pipeline->Initialized() || !resolve_pipeline || !resolve_pipeline->Initialized()) {
-    return;
-  }
-  if (!context.motion_vectors_image_view) {
-    camera_resources.history.valid = false;
-    return;
-  }
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  const auto size = target_camera->GetSize();
-  const uint32_t current_frame_index = Platform::GetFrameCount();
-  auto& history = camera_resources.history;
-  if (history.size != size || !history.textures[0] || !history.textures[1] || !history.depth_textures[0] ||
-      !history.depth_textures[1]) {
-    RenderTextureCreateInfo create_info{};
-    create_info.depth = false;
-    create_info.extent = {size.x, size.y, 1};
-    history.textures[0] = std::make_shared<RenderTexture>(create_info);
-    history.textures[1] = std::make_shared<RenderTexture>(create_info);
-    history.depth_textures[0] = std::make_shared<RenderTexture>(create_info);
-    history.depth_textures[1] = std::make_shared<RenderTexture>(create_info);
-    history.size = size;
-    history.frame_index = 0;
-    history.valid = false;
-  }
-  const uint32_t previous_history_index = history.frame_index % 2u;
-  const uint32_t output_history_index = 1u - previous_history_index;
-  const bool skipped_frame = history.valid && current_frame_index > history.last_processed_frame + 1u;
-  const uint32_t camera_history_version = target_camera->GetTemporalHistoryVersion();
-  const bool camera_history_reset = history.valid && history.camera_history_version != camera_history_version;
-  const bool reject_camera_history = render_layer->RequiresCameraWideTemporalHistoryRejection();
-  const bool history_valid = history.valid && !skipped_frame && !camera_history_reset && !reject_camera_history;
-
-  const auto& copy_descriptor_set = camera_resources.copy_descriptor_set.GetOrCreate(renderer_resources.copy_layout);
-  const auto& resolve_descriptor_set =
-      camera_resources.resolve_descriptor_set.GetOrCreate(renderer_resources.resolve_layout);
-
-  {
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
-    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    copy_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-  }
-  {
-    VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = context.camera.stack.source_color_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = history.textures[previous_history_index]->GetColorImageView()->GetVkImageView();
-    image_info.sampler = history.textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-    image_info.imageView = context.motion_vectors_image_view->GetVkImageView();
-    image_info.sampler = context.camera.stack.source_color_texture->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
-    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = history.depth_textures[previous_history_index]->GetColorImageView()->GetVkImageView();
-    image_info.sampler = history.depth_textures[previous_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(3, image_info);
-    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
-    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(4, image_info);
-    image_info.imageView = history.textures[output_history_index]->GetColorImageView()->GetVkImageView();
-    image_info.sampler = history.textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(5, image_info);
-    image_info.imageView = history.depth_textures[output_history_index]->GetColorImageView()->GetVkImageView();
-    image_info.sampler = history.depth_textures[output_history_index]->GetColorSampler()->GetVkSampler();
-    resolve_descriptor_set->UpdateImageDescriptorBinding(6, image_info);
-  }
-
-  TaaPushConstant push_constant{};
-  push_constant.camera_index =
-      render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
-  push_constant.history_valid = history_valid ? 1 : 0;
-  push_constant.frame_index = static_cast<int32_t>(history.frame_index & 1u);
-  push_constant.variance_clipping_mode = static_cast<int32_t>(taa.variance_clipping_mode);
-  push_constant.variance_sample_count = taa.variance_sample_count;
-  push_constant.use_ycocg = taa.use_ycocg ? 1 : 0;
-  push_constant.use_neighborhood_sampling = taa.use_neighborhood_sampling ? 1 : 0;
-  push_constant.use_bicubic_filter = taa.use_bicubic_filter ? 1 : 0;
-  push_constant.use_longest_velocity = taa.use_longest_velocity ? 1 : 0;
-  push_constant.longest_velocity_sample_count = taa.longest_velocity_sample_count;
-  push_constant.use_depth_threshold = taa.use_depth_threshold ? 1 : 0;
-  push_constant.history_color_mode = static_cast<int32_t>(taa.history_color_mode);
-  push_constant.sharpen = glm::max(taa.sharpen, 0.0f);
-  push_constant.debug_mode = static_cast<int32_t>(taa.debug_mode);
-  push_constant.min_variance_gamma = taa.min_variance_gamma;
-  push_constant.max_variance_gamma = taa.max_variance_gamma;
-  push_constant.velocity_rejection_threshold = taa.velocity_rejection_threshold;
-  push_constant.depth_threshold = taa.depth_threshold;
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                   VK_IMAGE_LAYOUT_GENERAL);
-    copy_pipeline->Bind(vk_command_buffer);
-    copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_descriptor_set->GetVkDescriptorSet());
-    copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 16), Platform::DivUp(size.y, 16));
-    Platform::EverythingBarrier(vk_command_buffer);
-
-    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    history.textures[previous_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                  VK_IMAGE_LAYOUT_GENERAL);
-    history.textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                VK_IMAGE_LAYOUT_GENERAL);
-    history.depth_textures[previous_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                        VK_IMAGE_LAYOUT_GENERAL);
-    history.depth_textures[output_history_index]->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                                      VK_IMAGE_LAYOUT_GENERAL);
-    resolve_pipeline->Bind(vk_command_buffer);
-    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                        render_layer->GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                        target_camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
-    resolve_pipeline->BindDescriptorSet(vk_command_buffer, 2, resolve_descriptor_set->GetVkDescriptorSet());
-    resolve_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    resolve_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
-    Platform::EverythingBarrier(vk_command_buffer);
-  });
-
-  history.valid = true;
-  history.frame_index++;
-  history.last_processed_frame = current_frame_index;
-  history.camera_history_version = camera_history_version;
-}
-
-void AntiAliasing::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
-  BuildTaaPipelines(resources, force_rebuild);
-  BuildSmaaPipelines(resources, force_rebuild);
-}
-
-void AntiAliasing::BuildTaaPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
-  static_cast<void>(force_rebuild);
-  auto& renderer = resources.anti_aliasing;
-  if (!renderer.copy_layout) {
-    renderer.copy_layout = std::make_shared<DescriptorSetLayout>();
-    renderer.copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    renderer.copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    renderer.copy_layout->Initialize();
-  }
-  if (!renderer.resolve_layout) {
-    renderer.resolve_layout = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding < 4; ++binding) {
-      renderer.resolve_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    }
-    for (uint32_t binding = 4; binding < 7; ++binding) {
-      renderer.resolve_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
-                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    }
-    renderer.resolve_layout->Initialize();
-  }
-  if (!renderer.copy_pipeline) {
-    renderer.copy_pipeline = std::make_shared<ComputePipeline>();
-    renderer.copy_pipeline->compute_shader =
-        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAACopy.slang");
-    renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
-    renderer.copy_pipeline->Initialize();
-  }
-  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-  for (size_t index = 0; index < renderer.resolve_pipelines.size(); ++index) {
-    if (renderer.resolve_pipelines[index]) {
-      continue;
-    }
-    const bool use_tgsm = (index & 1u) != 0;
-    const bool use_fp16 = (index & 2u) != 0 && Platform::GetInstance().GetCapabilities().support_shader_float16;
-    const auto shader_defines = Platform::GetShaderGlobalDefines() + "\n#define EE_TAA_USE_TGSM " +
-                                std::string(use_tgsm ? "1\n" : "0\n") + "#define EE_TAA_USE_FP16 " +
-                                std::string(use_fp16 ? "1\n" : "0\n");
-    auto& pipeline = renderer.resolve_pipelines[index];
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, shader_defines,
-        Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/TAAResolve.slang");
-    pipeline->descriptor_set_layouts.emplace_back(render_layer->GetPerFrameDescriptorSetLayout());
-    pipeline->descriptor_set_layouts.emplace_back(render_layer->GetCameraGBufferDescriptorSetLayout());
-    pipeline->descriptor_set_layouts.emplace_back(renderer.resolve_layout);
-    auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(TaaPushConstant);
-    push_constant_range.offset = 0;
-    push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
-    pipeline->Initialize();
+  const auto debug = static_cast<int32_t>(debug_mode);
+  if (debug < static_cast<int32_t>(DebugMode::None) || debug > static_cast<int32_t>(DebugMode::BlendWeights)) {
+    debug_mode = DebugMode::None;
   }
 }
 
@@ -600,7 +235,7 @@ void AntiAliasing::EnsureSmaaTargets(const glm::uvec2& size, PostProcessingCamer
   anti_aliasing.smaa_size = size;
 }
 
-void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
+void AntiAliasing::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
   static_cast<void>(force_rebuild);
   EnsureSmaaLookupTextures(resources);
   auto& renderer = resources.anti_aliasing;
@@ -643,7 +278,7 @@ void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/SMAAPrepare.slang");
     renderer.smaa_prepare_pipeline->descriptor_set_layouts.emplace_back(renderer.smaa_prepare_layout);
     auto& push_constant_range = renderer.smaa_prepare_pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(SmaaPushConstant);
+    push_constant_range.size = sizeof(PushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     renderer.smaa_prepare_pipeline->Initialize();
@@ -664,7 +299,7 @@ void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources
     pipeline->color_attachment_formats = {color_format};
     pipeline->descriptor_set_layouts.emplace_back(descriptor_layout);
     auto& push_constant_range = pipeline->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(SmaaPushConstant);
+    push_constant_range.size = sizeof(PushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pipeline->Initialize();
@@ -696,12 +331,12 @@ void AntiAliasing::BuildSmaaPipelines(PostProcessingRendererResources& resources
   }
 }
 
-void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
-                               const std::shared_ptr<Camera>& target_camera,
-                               PostProcessingExecutionContext& context) const {
+void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
+                           const std::shared_ptr<Camera>& target_camera,
+                           PostProcessingExecutionContext& context) const {
   auto& camera = context.camera.anti_aliasing;
   auto& renderer = context.renderer.anti_aliasing;
-  const auto preset_index = static_cast<size_t>(smaa.preset);
+  const auto preset_index = static_cast<size_t>(preset);
   if (!renderer.smaa_prepare_pipeline || !renderer.smaa_prepare_pipeline->Initialized() ||
       !renderer.smaa_edge_pipelines[preset_index] || !renderer.smaa_edge_pipelines[preset_index]->Initialized() ||
       !renderer.smaa_weight_pipelines[preset_index] || !renderer.smaa_weight_pipelines[preset_index]->Initialized() ||
@@ -754,11 +389,11 @@ void AntiAliasing::ProcessSmaa(const PostProcessingStack& post_processing_stack,
   image_info.sampler = camera.smaa_edges_texture->GetColorSampler()->GetVkSampler();
   neighborhood_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
-  SmaaPushConstant push_constant{};
+  PushConstant push_constant{};
   push_constant.metrics = {1.0f / static_cast<float>(size.x), 1.0f / static_cast<float>(size.y),
                            static_cast<float>(size.x), static_cast<float>(size.y)};
   push_constant.tone_mapped = post_processing_stack.enable_tone_mapping ? 1 : 0;
-  push_constant.debug_mode = static_cast<int32_t>(smaa.debug_mode);
+  push_constant.debug_mode = static_cast<int32_t>(debug_mode);
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     const glm::ivec4 viewport{0, 0, static_cast<int>(size.x), static_cast<int>(size.y)};
@@ -1164,7 +799,6 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
-                                  const std::shared_ptr<ImageView>& motion_vectors_image_view,
                                   const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
   if (!target_camera) {
     return;
@@ -1180,18 +814,13 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
   auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
   auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
   Resize(camera, target_camera->GetSize());
-  PostProcessingExecutionContext context{camera, renderer, motion_vectors_image_view};
+  PostProcessingExecutionContext context{camera, renderer};
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }
 
   if (enable_screen_space_reflection) {
     screen_space_reflection->Process(*this, target_camera, context);
-  }
-  if (enable_anti_aliasing && anti_aliasing->algorithm == AntiAliasing::Algorithm::Taa) {
-    anti_aliasing->Process(*this, target_camera, context);
-  } else {
-    camera.anti_aliasing.history.valid = false;
   }
   if (enable_bloom) {
     bloom->Process(*this, target_camera, context);
@@ -1200,7 +829,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
   if (enable_tone_mapping) {
     tone_mapping->Process(*this, target_camera, context);
   }
-  if (enable_anti_aliasing && anti_aliasing->algorithm == AntiAliasing::Algorithm::Smaa) {
+  if (enable_anti_aliasing) {
     anti_aliasing->Process(*this, target_camera, context);
   }
 }
@@ -1221,7 +850,7 @@ void PostProcessingStack::ProcessAmbientOcclusion(
   ambient_occlusion->BuildPipelines(renderer);
   auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
   auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
-  PostProcessingExecutionContext context{camera, renderer, {}, ambient_occlusion_image_view, scratch_image_view};
+  PostProcessingExecutionContext context{camera, renderer, ambient_occlusion_image_view, scratch_image_view};
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }
@@ -1244,7 +873,7 @@ void PostProcessingStack::ProcessRayCamera(const std::shared_ptr<Camera>& target
   auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
   auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
   Resize(camera, target_camera->GetSize());
-  PostProcessingExecutionContext context{camera, renderer, {}};
+  PostProcessingExecutionContext context{camera, renderer};
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }

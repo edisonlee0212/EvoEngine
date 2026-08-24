@@ -375,7 +375,8 @@ TEST(EntityBatchInspector, EditorUiUsesCanonicalTransformInspectorAndGizmoSettin
 
 TEST(EntityBatchInspector, GizmoHandleUsesSharedSelectionBoundForBothPivotModes) {
   const auto source = ReadBatchInspectorSource("EvoEngine_SDK/src/EditorLayer.cpp");
-  EXPECT_NE(source.find("BuildSelectionWorldBound(scene, participants)"), std::string::npos);
+  EXPECT_NE(source.find("ResolveSelectionGizmoBound(scene, selection)"), std::string::npos);
+  EXPECT_NE(source.find("entity_gizmo_session_->handle"), std::string::npos);
   EXPECT_EQ(source.find("std::vector<Entity>{reference}"), std::string::npos);
 }
 

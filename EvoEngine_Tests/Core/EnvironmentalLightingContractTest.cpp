@@ -88,7 +88,8 @@ TEST(EnvironmentalLightingContract, FallbackControlsApplyOnlyToFallbackUses) {
 
   EXPECT_TRUE(ResolvedEnvironmentalLighting::ReflectionProbeBakeBackgroundUsesEnvironmentLightingIntensity());
   EXPECT_FALSE(ResolvedEnvironmentalLighting::ValidDdgiSurfaceIrradianceUsesEnvironmentLightingIntensity());
-  EXPECT_FALSE(ResolvedEnvironmentalLighting::ReflectionProbeBakeUsesFallbackIntensities());
+  EXPECT_TRUE(ResolvedEnvironmentalLighting::ReflectionProbeBakeUsesDiffuseFallbackIntensity());
+  EXPECT_FALSE(ResolvedEnvironmentalLighting::ReflectionProbeBakeUsesSpecularFallbackIntensity());
 }
 
 TEST(EnvironmentalLightingContract, RayCameraSeparatesVisibleBackgroundFromLightingSource) {
@@ -332,7 +333,7 @@ TEST(EnvironmentalLightingContract, GlobalSpecularFallbackUsesSceneReference) {
   EXPECT_NE(render_instance_storage_source.find("environment_info_block.specular_fallback_intensity = "
                                                 "specular_fallback_intensity"),
             std::string::npos);
-  EXPECT_NE(render_layer_source.find("environment_info_block.diffuse_fallback_intensity = 0.0f"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("environment_info_block.diffuse_fallback_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(render_layer_source.find("environment_info_block.specular_fallback_intensity = 0.0f"), std::string::npos);
   EXPECT_NE(lighting_shader.find("globalPrefiltered"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);

@@ -27,7 +27,6 @@ class DdgiProbeRayVisualizationPass final {
     std::shared_ptr<Camera> camera;
     bool depth_test = false;
     DdgiProbeRayVisualizationPushConstant push_constant;
-    float* record_time_ms = nullptr;
     std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)> record_commands;
   };
 

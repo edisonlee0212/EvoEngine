@@ -14,6 +14,9 @@ public struct Meshlet {
   public uint verticesSize;
   public uint triangleSize;
   public uint chunkIndex;
+  public float4 boundingSphere;
+  public float4 normalCone;
+  public float4 normalConeApex;
 };
 
 [[vk::binding(0, 1)]]

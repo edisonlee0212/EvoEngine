@@ -18,6 +18,7 @@ public struct StrandMeshlet {
   public uint strand_points_size;
   public uint segment_size;
   public uint strand_point_chunk_index;
+  public float4 bounding_sphere;
 };
 
 [[vk::binding(0, 1)]]

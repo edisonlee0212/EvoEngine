@@ -3,6 +3,7 @@ import EvoEngine.PerFrame;
 import EvoEngine.BasicConstants;
 import EvoEngine.Strands;
 import EvoEngine.StrandMeshlet;
+import EvoEngine.MeshletCulling;
 
 groupshared StrandTaskPayload strand_task;
 
@@ -13,6 +14,12 @@ void main(uint3 group_id : SV_GroupID, uint draw_id : SV_DrawIndex) {
   uint meshlet_index = EE_INSTANCES[instance_index].meshlet_offset + group_id.x;
   StrandMeshlet meshlet = EE_STRAND_MESHLETS[meshlet_index];
   float4x4 model = EE_INSTANCES[instance_index].model;
+  if ((EE_BASIC_CONSTANTS.meshlet_culling_flags & EE_MESHLET_CULL_FRUSTUM) != 0u &&
+      !EE_MESHLET_FRUSTUM_VISIBLE(meshlet.bounding_sphere, model,
+                                  EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view, true)) {
+    DispatchMesh(0u, 1u, 1u, strand_task);
+    return;
+  }
   uint interval_count = 0u;
   for (uint segment_index = 0u; segment_index < meshlet.segment_size; ++segment_index) {
     strand_task.interval_offsets[segment_index] = interval_count;

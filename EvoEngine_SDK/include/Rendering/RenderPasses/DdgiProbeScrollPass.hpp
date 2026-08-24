@@ -13,7 +13,6 @@ class DdgiProbeScrollPass final {
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     DdgiProbeScrollPushConstant push_constant{};
-    float* record_time_ms = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();

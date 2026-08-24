@@ -267,13 +267,19 @@ TEST(EnvironmentalLightingAsset, DdgiVolumePackYamlRoundTripsClampsRepairsAndAll
   source.volumes[0].name = "Primary";
   source.volumes[0].stable_id = 9u;
   source.volumes[0].probe_spacing = glm::vec3(-1.0f, 0.01f, 20000.0f);
-  source.volumes[0].random_ray_backface_threshold = -2.0f;
   source.volumes[1].name = "Duplicate";
   source.volumes[1].stable_id = 9u;
   YAML::Emitter out;
   out << YAML::BeginMap;
   SerializeDdgiVolumePack(out, source);
   out << YAML::EndMap;
+  const std::string yaml = out.c_str();
+  EXPECT_EQ(yaml.find("enable_probe_variability"), std::string::npos);
+  EXPECT_EQ(yaml.find("pause_probe_updates_after_convergence"), std::string::npos);
+  EXPECT_EQ(yaml.find("random_ray_backface_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("fixed_ray_backface_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("probe_variability_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("probe_variability_min_samples"), std::string::npos);
 
   DdgiVolumePack restored;
   DeserializeDdgiVolumePack(YAML::Load(out.c_str()), restored);
@@ -281,7 +287,6 @@ TEST(EnvironmentalLightingAsset, DdgiVolumePackYamlRoundTripsClampsRepairsAndAll
   EXPECT_EQ(restored.volumes[0].stable_id, 9u);
   EXPECT_EQ(restored.volumes[1].stable_id, 1u);
   EXPECT_EQ(restored.volumes[0].probe_spacing, glm::vec3(0.05f, 0.05f, 10000.0f));
-  EXPECT_FLOAT_EQ(restored.volumes[0].random_ray_backface_threshold, 0.0f);
 
   DdgiVolumePack empty;
   DeserializeDdgiVolumePack(YAML::Load("{}"), empty);
@@ -535,7 +540,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Off);
   volume.enable_probe_relocation = false;
   volume.enable_probe_classification = true;
-  volume.pause_probe_updates_after_convergence = false;
   volume.relocation_distance = 0.5f;
   volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
   const auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
@@ -605,7 +609,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   ExpectMatrixNear(ddgi_pack->volumes.front().transform, volume_transform);
   EXPECT_EQ(ddgi_pack->volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
   EXPECT_TRUE(ddgi_pack->volumes.front().enable_probe_classification);
-  EXPECT_FALSE(ddgi_pack->volumes.front().pause_probe_updates_after_convergence);
   EXPECT_EQ(ddgi_pack->volumes.front().hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
 }
 

@@ -6,17 +6,9 @@
 #include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 void DispatchRelocation(const VkCommandBuffer vk_command_buffer, const DdgiProbeRelocationPass::Parameters& parameters,
                         const DdgiProbeRelocationPushConstant& push_constant) {
   const auto probe_count = push_constant.probe_count_ray_count_and_flags.x;
@@ -39,6 +31,7 @@ void RecordProbeRelocation(const VkCommandBuffer vk_command_buffer, const Render
     return;
   }
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context);
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
   descriptor_set->UpdateBufferDescriptorBinding(0, ray_output_binding->buffer);
@@ -46,7 +39,6 @@ void RecordProbeRelocation(const VkCommandBuffer vk_command_buffer, const Render
 
   parameters.pipeline->Bind(vk_command_buffer);
   parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
-  const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "DDGI Probe Relocation");
   if (parameters.reset_offsets) {
     DispatchRelocation(vk_command_buffer, parameters, parameters.reset_push_constant);
   }
@@ -58,7 +50,6 @@ void RecordProbeRelocation(const VkCommandBuffer vk_command_buffer, const Render
   if (parameters.relocate_probes) {
     DispatchRelocation(vk_command_buffer, parameters, parameters.update_push_constant);
   }
-  Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
   parameters.transient_resources->RetainDescriptorSet(descriptor_set);
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
@@ -73,15 +64,13 @@ RenderPassDescriptor DdgiProbeRelocationPass::CreateDescriptor() {
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::ReadWrite,
         RenderResourceState::StorageReadWrite}}};
   descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
+  descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
+  descriptor.profiler_display_name = "DDGI Probe Relocation";
   return descriptor;
 }
 
 void DdgiProbeRelocationPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeRelocation(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

@@ -186,8 +186,7 @@ TEST(ReflectionProbe, BakeBackgroundUsesEnvironmentalLightingIntensity) {
   EXPECT_NE(prepare.find("face_camera->background_environment = background.environmental_map"), std::string::npos);
   EXPECT_NE(dynamic_prepare.find("resolved.environment_lighting_intensity"), std::string::npos);
   EXPECT_EQ(render_layer.find("background.intensity"), std::string::npos);
-  EXPECT_NE(lighting.find("reflectionProbeCapture ? 0.0f : EE_ENVIRONMENT.diffuse_fallback_intensity"),
-            std::string::npos);
+  EXPECT_NE(lighting.find("albedo * EE_ENVIRONMENT.diffuse_fallback_intensity"), std::string::npos);
   EXPECT_NE(lighting.find("EE_BASIC_CONSTANTS.instance_index == 2 ? 0"), std::string::npos);
   EXPECT_NE(lighting.find("if (EE_BASIC_CONSTANTS.instance_index == 2)"), std::string::npos);
 }
@@ -338,10 +337,16 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_NE(lighting_header.find("faces_per_frame = 6"), std::string::npos);
   EXPECT_NE(lighting_header.find("bool enabled = true"), std::string::npos);
   EXPECT_NE(render_header.find("std::array<std::shared_ptr<Cubemap>, 2> filtered_generations"), std::string::npos);
+  EXPECT_NE(render_header.find("std::array<DynamicReflectionProbeRawSlot, 2>"), std::string::npos);
+  EXPECT_NE(render_header.find("std::vector<DynamicReflectionProbeFilterJob> filter_jobs"), std::string::npos);
+  EXPECT_NE(render_header.find("filtered_face_count"), std::string::npos);
   EXPECT_NE(render_header.find("transition_start_face_serial"), std::string::npos);
   EXPECT_NE(render_header.find("dynamic_reflection_probe_texture_overrides_"), std::string::npos);
-  EXPECT_NE(prepare.find("while (remaining_budget > 0u && !dynamic_reflection_probe_queue_.empty())"),
-            std::string::npos);
+  EXPECT_NE(prepare.find("dynamic_reflection_probe_filter_queue_.front()"), std::string::npos);
+  EXPECT_NE(prepare.find("dynamic_reflection_probe_filter_queue_.clear()"), std::string::npos);
+  EXPECT_NE(prepare.find("prepared.filter_jobs.push_back"), std::string::npos);
+  EXPECT_NE(prepare.find("prepared.jobs.push_back"), std::string::npos);
+  EXPECT_NE(prepare.find("settings.faces_per_frame"), std::string::npos);
   EXPECT_NE(prepare.find("6u - state.next_face"), std::string::npos);
   EXPECT_NE(prepare.find("state.position != position"), std::string::npos);
   EXPECT_NE(prepare.find("++state.capture_revision"), std::string::npos);
@@ -360,9 +365,12 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_NE(prepare.find("if (idle)"), std::string::npos);
   EXPECT_NE(prepare.find("UpdateDynamicReflectionProbeTransitions"), std::string::npos);
   EXPECT_EQ(prepare.find("probe.transform !="), std::string::npos);
-  EXPECT_NE(record.find("reflection_probe_capture_raw_cubemap_"), std::string::npos);
+  EXPECT_NE(record.find("dynamic_reflection_probe_raw_slots_"), std::string::npos);
   EXPECT_NE(record.find("reflection_probe_capture_filtered_cubemap_"), std::string::npos);
-  EXPECT_NE(record.find("GlobalReflectionProbe::RecordPrefilter"), std::string::npos);
+  EXPECT_NE(record.find("GlobalReflectionProbe::RecordPrefilterFaces"), std::string::npos);
+  EXPECT_NE(record.find("GlobalReflectionProbe::kMipLevels) * job.face_count"), std::string::npos);
+  EXPECT_NE(record.find("state.filtering = true"), std::string::npos);
+  EXPECT_NE(record.find("state.completion_in_flight = true"), std::string::npos);
   EXPECT_NE(record.find("Platform::RecordCommandsMainQueue"), std::string::npos);
   EXPECT_EQ(record.find("ImmediateSubmit"), std::string::npos);
   EXPECT_EQ(record.find("WaitForFrameSubmissions"), std::string::npos);
@@ -379,6 +387,7 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_EQ(inspector.find("Dynamic update policy"), std::string::npos);
   EXPECT_NE(inspector.find("Published A/B"), std::string::npos);
   EXPECT_NE(inspector.find("Current probe: none (0/6 faces)"), std::string::npos);
+  EXPECT_NE(inspector.find("Current GGX filter: none (0/6 faces)"), std::string::npos);
   EXPECT_NE(inspector.find("Reset Dynamic Probe History"), std::string::npos);
   EXPECT_EQ(render_layer.find("InvalidateAllDynamicReflectionProbes"), std::string::npos);
   EXPECT_EQ(render_layer.find("DDGI runtime lighting updated"), std::string::npos);
@@ -391,6 +400,21 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_NE(lighting_shader.find("index * 2 + 1"), std::string::npos);
   EXPECT_NE(fixed_lighting_shader.find("EE_REFLECTION_PROBE_MAX_COUNT * 2"), std::string::npos);
   EXPECT_NE(render_instances.find("transition_parameters.z = glm::floatBitsToUint"), std::string::npos);
+}
+
+TEST(ReflectionProbe, PrefilterSupportsAContiguousFaceRange) {
+  const auto probe = ReadTextFile(SourcePath("EvoEngine_SDK/src/GlobalReflectionProbe.cpp"));
+  ASSERT_FALSE(probe.empty());
+  const auto prefilter = ExtractBetween(probe, "void GlobalReflectionProbe::RecordPrefilter(",
+                                        "void GlobalReflectionProbe::RecordPrefilterFaces(");
+  const auto face_range = ExtractBetween(probe, "void GlobalReflectionProbe::RecordPrefilterFaces(",
+                                         "void GlobalReflectionProbe::MarkBaked");
+  ASSERT_FALSE(prefilter.empty());
+  ASSERT_FALSE(face_range.empty());
+  EXPECT_NE(prefilter.find("RecordPrefilterFaces"), std::string::npos);
+  EXPECT_NE(prefilter.find("0u, 6u"), std::string::npos);
+  EXPECT_NE(face_range.find("first_face + face_count > 6u"), std::string::npos);
+  EXPECT_NE(face_range.find("face = first_face; face < first_face + face_count"), std::string::npos);
 }
 
 TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {

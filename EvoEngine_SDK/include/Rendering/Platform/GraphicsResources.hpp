@@ -526,6 +526,8 @@ class CommandPool final : public IGraphicsResource {
  * @brief Represents a Vulkan buffer resource.
  */
 class Buffer final : public IGraphicsResource {
+  friend class BufferUploadBatch;
+
   struct GpuState;
   std::shared_ptr<GpuState> gpu_state_;
 
@@ -748,6 +750,103 @@ class Buffer final : public IGraphicsResource {
 
   void SetDebugName(const std::string& name) const;
 };
+
+enum class BufferUploadUsage {
+  Uniform,
+  StorageRead,
+  StorageReadWrite,
+  Vertex,
+  Index,
+  Indirect,
+  Custom,
+};
+
+enum class BufferUploadCapacityPolicy {
+  RequireCapacity,
+  GrowIfNeeded,
+};
+
+struct BufferUploadOptions {
+  BufferUploadUsage usage = BufferUploadUsage::StorageRead;
+  BufferUploadCapacityPolicy capacity_policy = BufferUploadCapacityPolicy::RequireCapacity;
+  VkPipelineStageFlags2 destination_stage_mask = 0;
+  VkAccessFlags2 destination_access_mask = 0;
+};
+
+/**
+ * @brief Append-only staging storage whose mapped blocks remain alive until the owning frame slot is recycled.
+ */
+class BufferUploadArena final {
+  friend class BufferUploadBatch;
+  struct State;
+  std::unique_ptr<State> state_;
+
+ public:
+  explicit BufferUploadArena(VkDeviceSize initial_block_size = 4ull * 1024ull * 1024ull);
+  ~BufferUploadArena();
+  BufferUploadArena(const BufferUploadArena&) = delete;
+  BufferUploadArena& operator=(const BufferUploadArena&) = delete;
+};
+
+/**
+ * @brief Batches borrowed CPU payloads into one staging allocation and one immediate GPU submission.
+ *
+ * Add does not copy source bytes. The caller must keep every source range alive and unchanged until SubmitImmediate
+ * returns. GrowIfNeeded may only be used when the caller knows that no recorded or in-flight command references the
+ * destination buffer. The batch does not wait for prior destination-buffer users. Synchronization covers later
+ * consumers on the main queue; cross-queue use requires external synchronization.
+ */
+class BufferUploadBatch final {
+  struct Entry {
+    std::shared_ptr<Buffer> destination;
+    const void* source = nullptr;
+    size_t size = 0;
+    VkDeviceSize destination_offset = 0;
+    VkDeviceSize staging_offset = 0;
+    BufferUploadOptions options{};
+  };
+
+  std::vector<Entry> entries_;
+  VkDeviceSize staging_size_ = 0;
+  static void RecordCopies(VkCommandBuffer command_buffer, VkBuffer staging_buffer, VkDeviceSize staging_base,
+                           const std::vector<Entry>& entries);
+
+ public:
+  /**
+   * @brief Adds borrowed source memory to this batch without copying it.
+   * @param destination Destination buffer.
+   * @param source Borrowed source bytes. Keep them alive and unchanged until SubmitImmediate returns.
+   * @param size Number of bytes to copy. Zero-byte entries are ignored.
+   * @param destination_offset Destination byte offset.
+   * @param options Destination usage and capacity policy.
+   */
+  void Add(const std::shared_ptr<Buffer>& destination, const void* source, size_t size,
+           VkDeviceSize destination_offset = 0, const BufferUploadOptions& options = {});
+
+  template <typename T>
+  void Add(const std::shared_ptr<Buffer>& destination, const T& value, const BufferUploadOptions& options = {}) {
+    Add(destination, &value, sizeof(T), 0, options);
+  }
+
+  template <typename T>
+  void AddVector(const std::shared_ptr<Buffer>& destination, const std::vector<T>& values,
+                 const BufferUploadOptions& options = {}) {
+    Add(destination, values.data(), values.size() * sizeof(T), 0, options);
+  }
+
+  [[nodiscard]] size_t GetEntryCount() const;
+  [[nodiscard]] VkDeviceSize GetStagingSize() const;
+  void SubmitImmediate();
+
+  /**
+   * @brief Copies borrowed sources into a frame arena and records transfers on the normal main queue.
+   *
+   * Source memory may be changed or released after this method returns. The arena and destinations must outlive the
+   * current frame-slot submission; the arena automatically reuses its retained blocks after that slot is recycled.
+   */
+  void Record(BufferUploadArena& arena);
+};
+
 template <typename T>
 void Buffer::UploadVector(const std::vector<T>& data) {
   if (data.empty())

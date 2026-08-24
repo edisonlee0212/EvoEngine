@@ -216,8 +216,19 @@ void GlobalReflectionProbe::RecordPrefilter(
     const std::vector<std::vector<std::shared_ptr<ImageView>>>& filtered_mip_views,
     const std::shared_ptr<Image>& depth_image, const std::shared_ptr<ImageView>& depth_view,
     const std::shared_ptr<DescriptorSet>& descriptor_set, const std::shared_ptr<GraphicsPipeline>& pipeline) {
+  RecordPrefilterFaces(command_buffer, filtered, filtered_mip_views, depth_image, depth_view, descriptor_set, pipeline,
+                       0u, 6u);
+}
+
+void GlobalReflectionProbe::RecordPrefilterFaces(
+    const VkCommandBuffer command_buffer, const std::shared_ptr<Cubemap>& filtered,
+    const std::vector<std::vector<std::shared_ptr<ImageView>>>& filtered_mip_views,
+    const std::shared_ptr<Image>& depth_image, const std::shared_ptr<ImageView>& depth_view,
+    const std::shared_ptr<DescriptorSet>& descriptor_set, const std::shared_ptr<GraphicsPipeline>& pipeline,
+    const uint32_t first_face, const uint32_t face_count) {
   if (!filtered || !filtered->GetImage() || !depth_image || !depth_view || !descriptor_set || !pipeline ||
-      !pipeline->Initialized() || filtered_mip_views.size() != 6) {
+      !pipeline->Initialized() || filtered_mip_views.size() != 6 || first_face >= 6u || face_count == 0u ||
+      first_face + face_count > 6u) {
     throw std::runtime_error("Global reflection probe prefilter resources are unavailable.");
   }
   filtered->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
@@ -241,7 +252,7 @@ void GlobalReflectionProbe::RecordPrefilter(
     blend.colorWriteMask =
         VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
     blend.blendEnable = VK_FALSE;
-    for (uint32_t face = 0; face < 6; ++face) {
+    for (uint32_t face = first_face; face < first_face + face_count; ++face) {
       if (filtered_mip_views[face].size() != kMipLevels) {
         throw std::runtime_error("Global reflection probe prefilter views are incomplete.");
       }

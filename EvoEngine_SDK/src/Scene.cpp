@@ -36,6 +36,8 @@ Entity evo_engine::MakeSceneEntity(const uint32_t index, const uint32_t version)
 }
 
 void Scene::Purge() {
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   pressed_keys_.clear();
   main_camera.Clear();
   global_reflection_probe_fallback.Clear();
@@ -54,6 +56,18 @@ void Scene::Purge() {
 
 Bound Scene::GetBound() const {
   return world_bound_;
+}
+
+uint64_t Scene::GetHierarchyRevision() const {
+  return hierarchy_revision_;
+}
+
+uint64_t Scene::GetRenderStructureRevision() const {
+  return render_structure_revision_;
+}
+
+void Scene::MarkRenderStructureChanged() {
+  ++render_structure_revision_;
 }
 
 void Scene::SetBound(const Bound& value) {
@@ -1106,6 +1120,8 @@ Entity Scene::CreateEntity(const EntityArchetype& archetype, const std::string& 
   SetDataComponent(ret_val, Transform());
   SetDataComponent(ret_val, GlobalTransform());
   SetDataComponent(ret_val, TransformUpdateFlag());
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   SetUnsaved();
   return ret_val;
 }
@@ -1148,8 +1164,13 @@ std::vector<Entity> Scene::CreateEntities(const EntityArchetype& archetype, cons
     SetDataComponent(entity, global_transform);
     SetDataComponent(entity, TransformUpdateFlag());
   }
-  if (remain_amount == 0)
+  if (remain_amount == 0) {
+    if (!ret_val.empty()) {
+      ++hierarchy_revision_;
+      MarkRenderStructureChanged();
+    }
     return ret_val;
+  }
   storage.entity_count += remain_amount;
   storage.entity_alive_count += remain_amount;
   const size_t chunk_index = storage.entity_count / storage.chunk_capacity + 1;
@@ -1191,6 +1212,8 @@ std::vector<Entity> Scene::CreateEntities(const EntityArchetype& archetype, cons
 
   ret_val.insert(ret_val.end(), scene_data_storage_.entities.begin() + original_size,
                  scene_data_storage_.entities.end());
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   SetUnsaved();
   return ret_val;
 }
@@ -1211,6 +1234,8 @@ void Scene::DeleteEntity(const Entity& entity) {
   if (scene_data_storage_.entity_metadata_list.at(entity_index).parent.index_ != 0)
     RemoveChild(entity, scene_data_storage_.entity_metadata_list.at(entity_index).parent);
   DeleteEntityInternal(entity.index_);
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 
@@ -1240,8 +1265,16 @@ void Scene::SetEntityName(const Entity& entity, const std::string& name) {
 }
 void Scene::SetEntityStatic(const Entity& entity, bool value) {
   assert(IsEntityValid(entity));
-  auto& entity_info = scene_data_storage_.entity_metadata_list.at(GetRoot(entity).index_);
+  const auto root_index = GetRoot(entity).index_;
+  auto& entity_info = scene_data_storage_.entity_metadata_list.at(root_index);
+  if (entity_info.entity_static == value)
+    return;
   entity_info.entity_static = value;
+  if (value) {
+    static_cast<TransformUpdateFlag*>(GetDataComponentPointer(root_index, typeid(TransformUpdateFlag).hash_code()))
+        ->transform_modified = true;
+  }
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 void Scene::SetParent(const Entity& child, const Entity& parent, const bool& recalculate_transform) {
@@ -1282,6 +1315,8 @@ void Scene::SetParent(const Entity& child, const Entity& parent, const bool& rec
   child_entity_info.root = parent_entity_info.root;
   child_entity_info.entity_static = false;
   parent_entity_info.children.push_back(child);
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 
@@ -1344,6 +1379,8 @@ void Scene::RemoveChild(const Entity& child, const Entity& parent) {
   Transform child_transform;
   child_transform.value = child_global_transform.value;
   SetDataComponent(child, child_transform);
+  ++hierarchy_revision_;
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 
@@ -1629,6 +1666,7 @@ void Scene::SetPrivateComponent(const Entity& entity, const std::shared_ptr<IPri
   scene_data_storage_.entity_private_component_storage.SetPrivateComponent(entity, id);
   PrivateComponentElement private_component_element(id, ptr, entity, std::dynamic_pointer_cast<Scene>(GetSelf()));
   elements.emplace_back(private_component_element);
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 
@@ -1664,6 +1702,7 @@ void Scene::RemovePrivateComponent(const Entity& entity, size_t type_id) {
       scene_data_storage_.entity_private_component_storage.RemovePrivateComponent(
           entity, type_id, private_component_elements[i].private_component_data);
       private_component_elements.erase(private_component_elements.begin() + i);
+      MarkRenderStructureChanged();
       SetUnsaved();
       break;
     }
@@ -1672,7 +1711,8 @@ void Scene::RemovePrivateComponent(const Entity& entity, size_t type_id) {
 
 void Scene::SetEnable(const Entity& entity, const bool& value) {
   assert(IsEntityValid(entity));
-  if (scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled != value) {
+  const bool changed = scene_data_storage_.entity_metadata_list.at(entity.index_).entity_enabled != value;
+  if (changed) {
     for (const auto& i : scene_data_storage_.entity_metadata_list.at(entity.index_).private_component_elements) {
       if (value) {
         i.private_component_data->OnEntityEnable();
@@ -1686,6 +1726,8 @@ void Scene::SetEnable(const Entity& entity, const bool& value) {
   for (const auto& i : scene_data_storage_.entity_metadata_list.at(entity.index_).children) {
     SetEnable(i, value);
   }
+  if (changed)
+    MarkRenderStructureChanged();
   SetUnsaved();
 }
 
@@ -1701,6 +1743,7 @@ void Scene::SetEnableSingle(const Entity& entity, const bool& value) {
       }
     }
     entity_metadata.entity_enabled = value;
+    MarkRenderStructureChanged();
   }
 }
 EntityMetadata& Scene::GetEntityMetadata(const Entity& entity) {
@@ -1734,6 +1777,7 @@ void Scene::AddPrivateComponent(const Entity& entity, const size_t& type_id) {
   auto& elements = scene_data_storage_.entity_metadata_list.at(entity.index_).private_component_elements;
   auto ptr = scene_data_storage_.entity_private_component_storage.GetOrSetPrivateComponent(entity, type_id);
   elements.emplace_back(type_id, ptr, entity, std::dynamic_pointer_cast<Scene>(GetSelf()));
+  MarkRenderStructureChanged();
   SetUnsaved();
 }
 

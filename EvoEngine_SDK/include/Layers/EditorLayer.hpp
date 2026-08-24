@@ -32,7 +32,9 @@ namespace evo_engine {
 
 class EnvironmentalLighting;
 class ProjectContentBrowserPanel;
+struct ProfilerPanelState;
 struct EntityBatchInspectionContext;
+struct EntityBatchSelectionBound;
 
 enum class EnvironmentalLightingGizmoTargetType : uint8_t { LocalReflectionProbe, DdgiVolume };
 enum class LocalTransformGizmoOperation : uint8_t { Translate, Rotate, Scale, Select };
@@ -979,7 +981,12 @@ class EditorLayer : public ILayer {
   void DrawEntityComponentInspectors(const std::shared_ptr<Scene>& scene,
                                      const std::shared_ptr<EditorLayer>& editor_layer,
                                      const EntityBatchInspectionContext& context);
+  void NotifyStaticEntitiesChanged(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& entities) const;
   bool DrawBatchTransformInspector(const std::shared_ptr<Scene>& scene, const std::vector<Entity>& targets);
+  const std::vector<Entity>& ResolveSelectionGizmoParticipants(const std::shared_ptr<Scene>& scene,
+                                                               const EntitySelection::Snapshot& selection);
+  EntityBatchSelectionBound ResolveSelectionGizmoBound(const std::shared_ptr<Scene>& scene,
+                                                       const EntitySelection::Snapshot& selection);
   bool BeginEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& handle,
                                const std::vector<Entity>& participants, Entity reference, int operation);
   bool ApplyEntityGizmoSession(const std::shared_ptr<Scene>& scene, const glm::mat4& manipulated_handle);
@@ -1032,7 +1039,9 @@ class EditorLayer : public ILayer {
   int profiler_selected_frame_index_ = -1;
   uint64_t profiler_cached_latest_frame_index_ = 0;
   std::vector<ProfilerFrameStats> profiler_panel_frames_;
+  std::shared_ptr<ProfilerPanelState> profiler_panel_state_;
   std::string profiler_export_status_;
+  std::array<char, 128> profiler_filter_{};
 
   std::vector<GizmoMeshTask> gizmo_mesh_tasks_;                    /**< List of tasks for gizmo meshes. */
   std::vector<GizmoInstancedMeshTask> gizmo_instanced_mesh_tasks_; /**< List of tasks for instanced gizmo meshes. */
@@ -1124,6 +1133,13 @@ class EditorLayer : public ILayer {
   bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */
   EntityGizmoPivotMode entity_gizmo_pivot_mode_ = EntityGizmoPivotMode::Center;
   EntityGizmoOrientationMode entity_gizmo_orientation_mode_ = EntityGizmoOrientationMode::Local;
+  std::weak_ptr<Scene> selection_gizmo_cache_scene_;
+  uint64_t selection_gizmo_cache_selection_revision_ = 0;
+  uint64_t selection_gizmo_cache_hierarchy_revision_ = 0;
+  std::vector<Entity> selection_gizmo_participants_;
+  Bound selection_gizmo_fallback_bound_{};
+  bool selection_gizmo_fallback_has_renderable_bounds_ = false;
+  bool selection_gizmo_fallback_valid_ = false;
 
   struct EntityGizmoParticipantState {
     Entity entity{};

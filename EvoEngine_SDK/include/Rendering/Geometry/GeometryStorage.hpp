@@ -40,6 +40,10 @@ struct Meshlet {
    * @brief Index pointing to the corresponding vertex data chunk.
    */
   uint32_t vertex_chunk_index = 0;
+
+  glm::vec4 bounding_sphere = glm::vec4(0.0f);
+  glm::vec4 normal_cone = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+  glm::vec4 normal_cone_apex = glm::vec4(0.0f);
 };
 
 /**
@@ -110,6 +114,8 @@ struct StrandMeshlet {
    * @brief Index pointing to the corresponding strand point data chunk.
    */
   uint32_t strand_point_chunk_index = 0;
+
+  glm::vec4 bounding_sphere = glm::vec4(0.0f);
 };
 
 /**

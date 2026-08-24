@@ -6,17 +6,9 @@
 #include "RenderPasses/DdgiPassUtilities.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 std::shared_ptr<DescriptorSet> CreateVariabilityDescriptorSet(const std::shared_ptr<DescriptorSetLayout>& layout,
                                                               const std::shared_ptr<ImageView>& input_view,
                                                               const std::shared_ptr<Buffer>& state_buffer,
@@ -105,7 +97,7 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
   auto input_extent = glm::max(parameters.layout.resolution, glm::uvec2(1u));
   auto output_extent = glm::max(parameters.layout.reduction_extent, glm::uvec2(1u));
   ApplyGraphResourceBarriers(vk_command_buffer, context);
-  const auto gpu_timestamp = Platform::BeginGpuTimestampScope(vk_command_buffer, "DDGI Variability Reduction");
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context);
   DispatchReduction(vk_command_buffer, parameters.reduce_pipeline, parameters.descriptor_set_layout,
                     *parameters.transient_resources, input_view, state_binding->buffer, output_view, input_extent,
                     output_extent, parameters.layout.tile_resolution, parameters.layout.columns,
@@ -139,7 +131,6 @@ void RecordProbeVariability(const VkCommandBuffer vk_command_buffer, const Rende
       *parameters.readback_recorded = true;
     }
   }
-  Platform::EndGpuTimestampScope(vk_command_buffer, gpu_timestamp);
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace
@@ -157,15 +148,13 @@ RenderPassDescriptor DdgiProbeVariabilityPass::CreateDescriptor() {
        {RenderResourceNames::frame_ddgi_variability_reduction_b, RenderResourceUsage::ReadWrite,
         RenderResourceState::StorageReadWrite}}};
   descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
+  descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
+  descriptor.profiler_display_name = "DDGI Variability Reduction";
   return descriptor;
 }
 
 void DdgiProbeVariabilityPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordProbeVariability(vk_command_buffer, context, parameters);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

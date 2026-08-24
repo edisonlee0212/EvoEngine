@@ -4,17 +4,9 @@
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 
-#include <chrono>
-
 using namespace evo_engine;
 
 namespace {
-using Clock = std::chrono::steady_clock;
-
-float ElapsedMilliseconds(const Clock::time_point start) {
-  return std::chrono::duration<float, std::milli>(Clock::now() - start).count();
-}
-
 void FillGraphBuffer(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                      const char* resource_name, const uint32_t value) {
   const auto* binding = context.GetResourceBinding(resource_name);
@@ -42,6 +34,7 @@ VkClearColorValue MakeClearColor(const float x, const float y, const float z, co
 
 void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context) {
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context);
   FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_metadata, 0u);
   FillGraphBuffer(vk_command_buffer, context, RenderResourceNames::frame_ddgi_probe_state, 0u);
   ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_irradiance_atlas,
@@ -67,15 +60,13 @@ RenderPassDescriptor DdgiAtlasPreparePass::CreateDescriptor() {
                            RenderResourceState::TransferDestinationGeneral},
                           {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
                            RenderResourceState::TransferDestinationGeneral}};
+  descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
+  descriptor.profiler_display_name = "DDGI Atlas Prepare";
   return descriptor;
 }
 
-void DdgiAtlasPreparePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+void DdgiAtlasPreparePass::Execute(const RenderGraphExecutionContext& context) {
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    const auto timer = Clock::now();
     RecordAtlasPrepare(vk_command_buffer, context);
-    if (parameters.record_time_ms) {
-      *parameters.record_time_ms += ElapsedMilliseconds(timer);
-    }
   });
 }

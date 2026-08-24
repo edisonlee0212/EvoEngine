@@ -78,14 +78,7 @@ struct ResolvedEnvironmentalLighting {
     bool enabled = true;
     bool enable_probe_relocation = true;
     bool enable_probe_classification = false;
-    bool enable_probe_variability = true;
-    bool enable_probe_variability_gating = true;
-    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
-    float random_ray_backface_threshold = 0.1f;
-    float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.03f;
-    int probe_variability_min_samples = 128;
     int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
     int variability_reset_trigger_conditions =
         DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
@@ -175,7 +168,11 @@ struct ResolvedEnvironmentalLighting {
     return false;
   }
 
-  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesFallbackIntensities() {
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesDiffuseFallbackIntensity() {
+    return true;
+  }
+
+  [[nodiscard]] static constexpr bool ReflectionProbeBakeUsesSpecularFallbackIntensity() {
     return false;
   }
 };

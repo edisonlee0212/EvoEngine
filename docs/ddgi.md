@@ -53,9 +53,9 @@ lighting rays receive a frame-wide random rotation. The default runtime settings
 emissive-triangle rays per updated probe.
 
 The DDGI acceleration structure includes supported triangle geometry and explicitly registered external DDGI geometry.
-Strands and Gaussian splats are not traversed. Alpha-masked triangle hits use deterministic cutoff testing. Blended,
-transmissive, and refractive surfaces are opaque to DDGI traversal even though accepted hits can still evaluate their
-base color and emission.
+Strands and Gaussian splats are not traversed. Alpha-masked triangle hits use deterministic cutoff testing. Blended and
+transmissive surfaces use straight-through traversal with colored attenuation for probe, emissive-target, and visibility
+rays. Volume attenuation is applied between entry and exit intersections, but DDGI does not refract the ray direction.
 
 ## Probe Updates And Convergence
 
@@ -63,10 +63,18 @@ An update covers the complete probe volume. Irradiance history blends new observ
 settings. Cold-start warmup fills empty history quickly; compatible light, geometry, and material changes temporarily
 lower hysteresis without destroying otherwise useful probe data.
 
-Variability measurements determine when a stable volume can pause updates. Gating requires repeated complete-volume
-observations and considers average change, the unstable fraction, and severe outliers. A paused converged volume keeps
-lighting from its atlases and periodically performs a refresh observation. Changes that affect the authored variability
-policy restart convergence without clearing compatible irradiance.
+Variability measurements determine when stable volumes can pause updates. The render layer applies one variability,
+gating, pause, backface-threshold, and convergence-budget policy to every volume. Gating requires three consecutive
+complete-volume observations and considers average change, the unstable fraction, and severe outliers. Warmup and a
+temporary scene-change hysteresis boost always continue through the return to normal hysteresis, even if variability
+converges sooner. An unconverged volume then receives at most 128 additional valid full-volume updates before entering
+a distinct maximum-reached state. Both convergence and maximum exhaustion are sampling-complete and retain lighting
+from the existing atlases.
+
+There is no periodic refresh. Any scene change that activates the hysteresis boost starts a new convergence cycle;
+manual reset, incompatible source or layout changes, scrolling clears, emissive-population changes, and variability
+policy changes also restart it. These controls are live `RenderSettings` values and are not serialized into DDGI volume
+assets.
 
 Hard resets are reserved for incompatible layouts, source changes, manual reset, or scrolling movement that spans an
 entire probe-grid dimension. A compatible scrolling volume ring-maps its history and clears only newly exposed probe
@@ -127,7 +135,7 @@ runtime state, including:
 - volume readiness, memory, convergence, warmup, and rejection reasons;
 - probe positions, irradiance/state visualization, and one explicitly selected probe;
 - selected-probe rays and metadata such as hit distance, backface ratio, relocation, and active state;
-- optional one-shot emissive sampling counters and isolated gather timing.
+- emissive inventory and sampling eligibility summaries.
 
 Debug selection is editor-session state and is never serialized. Debug visualization is restricted to the editor scene
 viewport and does not appear in game cameras or ray-camera output.
@@ -137,7 +145,7 @@ viewport and does not appear in game cameras or ray-camera output.
 - DDGI uses ray-tracing-pipeline traversal; there is no inline-ray-query DDGI backend.
 - Probe transport is diffuse and does not reproduce the full camera BSDF.
 - Strands and Gaussian splats do not participate in DDGI geometry or emissive sampling.
-- Blended and transmissive surfaces do not provide alpha/transmission traversal for probe rays.
+- Blended and transmissive surfaces use straight-through attenuation without reflection or refraction.
 - Local reflection probes affect raster specular lighting and are excluded from the DDGI source signature.
 
 Contributor capture commands and acceptance checks live in [Rendering validation](rendering-validation.md).

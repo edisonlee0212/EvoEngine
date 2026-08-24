@@ -764,16 +764,13 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   Shader deferred;
   Shader scene_camera;
   Shader transparent;
-  Shader gather_timing;
-  Shader ambient_occlusion_geometry;
+  Shader gtao;
   Shader ambient_occlusion_blur;
-  EXPECT_TRUE(
-      raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/DDGIProbeDiagnostics.slang"));
-  EXPECT_TRUE(
-      any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/DDGIProbeDiagnostics.slang"));
+  EXPECT_TRUE(raygen.TryCompile(ShaderType::RayGen, header, shader_root / "RayTracing/RayGen/DDGIProbeTrace.slang"));
+  EXPECT_TRUE(any_hit.TryCompile(ShaderType::AnyHit, header, shader_root / "RayTracing/AnyHit/DDGIProbeTrace.slang"));
   EXPECT_TRUE(closest_hit.TryCompile(ShaderType::ClosestHit, header,
-                                     shader_root / "RayTracing/ClosestHit/DDGIProbeDiagnostics.slang"));
-  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeDiagnostics.slang"));
+                                     shader_root / "RayTracing/ClosestHit/DDGIProbeTrace.slang"));
+  EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeTrace.slang"));
   EXPECT_TRUE(deferred.TryCompile(ShaderType::Fragment, fixed_lighting_header,
                                   shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
   EXPECT_TRUE(
@@ -781,10 +778,7 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
                               shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
   EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, fixed_material_lighting_header,
                                      shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"));
-  EXPECT_TRUE(gather_timing.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                                       shader_root / "Graphics/Fragment/Standard/DDGIGatherTiming.slang"));
-  EXPECT_TRUE(ambient_occlusion_geometry.TryCompile(
-      ShaderType::Compute, header, shader_root / "Compute/PostProcessing/AmbientOcclusionGeometry.slang"));
+  EXPECT_TRUE(gtao.TryCompile(ShaderType::Compute, header, shader_root / "Compute/PostProcessing/GTAO.slang"));
   EXPECT_TRUE(ambient_occlusion_blur.TryCompile(ShaderType::Compute, header,
                                                 shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.slang"));
 }
@@ -841,6 +835,62 @@ TEST(GpuService, BufferUploadSubrangeRoundTrip) {
   expected[3] = patch[0];
   expected[4] = patch[1];
   EXPECT_EQ(output, expected);
+}
+
+TEST(GpuService, BufferUploadBatchRoundTrip) {
+  ScopedGpuPlatform platform;
+  constexpr std::array<uint32_t, 4> first_input = {1u, 2u, 3u, 4u};
+  constexpr std::array<uint32_t, 4> second_input = {5u, 6u, 7u, 8u};
+  constexpr auto byte_size = static_cast<VkDeviceSize>(first_input.size() * sizeof(first_input[0]));
+
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = byte_size;
+  buffer_create_info.usage =
+      VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_create_info{};
+  allocation_create_info.usage = VMA_MEMORY_USAGE_AUTO;
+  auto first = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+  buffer_create_info.size = sizeof(uint32_t);
+  auto second = std::make_shared<Buffer>(buffer_create_info, allocation_create_info);
+
+  BufferUploadBatch batch;
+  batch.Add(first, first_input.data(), sizeof(first_input));
+  BufferUploadOptions grow_options;
+  grow_options.capacity_policy = BufferUploadCapacityPolicy::GrowIfNeeded;
+  batch.Add(second, second_input.data(), sizeof(second_input), 0, grow_options);
+  EXPECT_EQ(batch.GetEntryCount(), 2u);
+  EXPECT_EQ(batch.GetStagingSize(), byte_size * 2);
+  batch.SubmitImmediate();
+  EXPECT_EQ(batch.GetEntryCount(), 0u);
+  EXPECT_EQ(second->GetSize(), byte_size);
+
+  const auto download = [](const std::shared_ptr<Buffer>& buffer) {
+    std::array<uint32_t, 4> output{};
+    const auto bytes = buffer->DownloadDataAsync(sizeof(output)).get();
+    memcpy(output.data(), bytes.data(), bytes.size());
+    return output;
+  };
+  EXPECT_EQ(download(first), first_input);
+  EXPECT_EQ(download(second), second_input);
+}
+
+TEST(GpuService, BufferUploadBatchRejectsInvalidRanges) {
+  ScopedGpuPlatform platform;
+  VkBufferCreateInfo buffer_create_info{};
+  buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_create_info.size = 16;
+  buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  auto buffer = std::make_shared<Buffer>(buffer_create_info);
+  constexpr std::array<uint32_t, 2> input = {1u, 2u};
+
+  BufferUploadBatch batch;
+  batch.Add(buffer, input.data(), sizeof(input), 0);
+  EXPECT_THROW(batch.Add(buffer, input.data(), sizeof(input), sizeof(uint32_t)), std::invalid_argument);
+  EXPECT_THROW(batch.Add(buffer, input.data(), sizeof(input), 12), std::out_of_range);
+  EXPECT_THROW(batch.Add(buffer, input.data(), sizeof(input) - 1, 8), std::invalid_argument);
 }
 
 TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {

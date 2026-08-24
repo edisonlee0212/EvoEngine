@@ -65,6 +65,12 @@ std::filesystem::path ExistingResourcesRoot(const std::filesystem::path& preferr
   if (!preferred_root.empty() && std::filesystem::exists(preferred_root)) {
     return path_utils::NormalizeAbsolutePath(preferred_root);
   }
+  if (const auto executable_path = path_utils::CurrentExecutablePath(); !executable_path.empty()) {
+    if (const auto resource_root = path_utils::FindAncestorChildPath("Resources", executable_path.parent_path(), 8);
+        !resource_root.empty()) {
+      return resource_root;
+    }
+  }
   return path_utils::FindAncestorChildPath("Resources", std::filesystem::current_path(), 8);
 }
 
@@ -262,6 +268,9 @@ void PrepareRenderingDemoShowcase(const std::shared_ptr<EditorLayer>& editor_lay
   const auto scene = ApplicationContext::Get().GetActiveScene();
   if (!scene) {
     return;
+  }
+  if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
+    lighting->dynamic_reflection_probe_settings.faces_per_frame = 1;
   }
   EnableMainCameraRayTracing(scene);
   if (!editor_layer) {

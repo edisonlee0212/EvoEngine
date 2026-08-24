@@ -4,6 +4,8 @@
 #include "DDGI.glsl"
 #include "VogelDisk.glsl"
 
+const int EE_SHADOW_PCF_SAMPLE_COUNT = 8;
+
 layout(set = EE_PER_GROUP_SET, binding = 14) uniform sampler2DArrayShadow EE_DIRECTIONAL_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 15) uniform sampler2DArray EE_POINT_LIGHT_SM;
 layout(set = EE_PER_GROUP_SET, binding = 16) uniform sampler2D EE_SPOT_LIGHT_SM;
@@ -713,17 +715,18 @@ float EE_FUNC_DIRECTIONAL_SHADOW_HARD(DirectionalLight light, int splitIndex, ve
 }
 
 float EE_FUNC_DIRECTIONAL_SHADOW_PCF(DirectionalLight light, int splitIndex, vec3 projCoords, vec2 radiusUv,
-                                     int sampleAmount, vec3 randomSeed) {
-  if (all(lessThanEqual(radiusUv, vec2(0.0f))) || sampleAmount <= 1) {
+                                     vec3 randomSeed) {
+  if (all(lessThanEqual(radiusUv, vec2(0.0f)))) {
     return EE_FUNC_DIRECTIONAL_SHADOW_HARD(light, splitIndex, projCoords);
   }
 
   float shadow = 0.0f;
-  for (int sampleIndex = 0; sampleIndex < sampleAmount; sampleIndex++) {
-    vec2 texCoord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, sampleAmount, randomSeed) * radiusUv;
+  for (int sampleIndex = 0; sampleIndex < EE_SHADOW_PCF_SAMPLE_COUNT; sampleIndex++) {
+    vec2 texCoord =
+        projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, EE_SHADOW_PCF_SAMPLE_COUNT, randomSeed) * radiusUv;
     shadow += EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(light, splitIndex, texCoord, projCoords.z);
   }
-  return shadow / float(sampleAmount);
+  return shadow / float(EE_SHADOW_PCF_SAMPLE_COUNT);
 }
 
 float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3 normal, float cameraFragDistance) {
@@ -755,8 +758,7 @@ float EE_FUNC_DIRECTIONAL_LIGHT_SHADOW(int i, int splitIndex, vec3 fragPos, vec3
   projCoords = vec3(projCoords.xy, projCoords.z - bias);
 
   vec2 radiusUv = vec2(max(light.reserved_parameters.x, 0.0f)) / (2.0f * halfExtent);
-  int sampleAmount = clamp(EE_RENDER_INFO.shadow_debug_parameters.w, 1, 64);
-  return EE_FUNC_DIRECTIONAL_SHADOW_PCF(light, splitIndex, projCoords, radiusUv, sampleAmount, fragPos * 3141);
+  return EE_FUNC_DIRECTIONAL_SHADOW_PCF(light, splitIndex, projCoords, radiusUv, fragPos * 3141);
 }
 
 vec2 EE_FUNC_SHADOW_ATLAS_UV(vec2 lightUv, int viewportXOffset, int viewportYOffset, int viewportXSize,
@@ -801,18 +803,18 @@ float EE_FUNC_SPOT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance) {
   }
 
   float radiusUv = max(light.cutoff_outer_inner_size_bias.z * 100.0f, 0.0f) / max(float(light.viewport_x_size), 1.0f);
-  int sampleAmount = clamp(EE_RENDER_INFO.shadow_sample_size, 1, 64);
-  if (radiusUv <= 0.0f || sampleAmount <= 1) {
+  if (radiusUv <= 0.0f) {
     return EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, EE_FUNC_SPOT_SHADOW_DEPTH(light, projCoords.xy));
   }
 
   float shadow = 0.0f;
-  for (int sampleIndex = 0; sampleIndex < sampleAmount; sampleIndex++) {
-    vec2 texCoord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, sampleAmount, fragPos * 3141) * radiusUv;
+  for (int sampleIndex = 0; sampleIndex < EE_SHADOW_PCF_SAMPLE_COUNT; sampleIndex++) {
+    vec2 texCoord =
+        projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, EE_SHADOW_PCF_SAMPLE_COUNT, fragPos * 3141) * radiusUv;
     float closestDepth = EE_FUNC_SPOT_SHADOW_DEPTH(light, texCoord);
     shadow += EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
   }
-  return shadow / float(sampleAmount);
+  return shadow / float(EE_SHADOW_PCF_SAMPLE_COUNT);
 }
 
 float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance) {
@@ -855,15 +857,15 @@ float EE_FUNC_POINT_LIGHT_SHADOW(int i, vec3 fragPos, float cameraFragDistance) 
   }
 
   float radiusUv = max(light.reserved_parameters.y * 100.0f, 0.0f) / max(float(light.viewport_x_size), 1.0f);
-  int sampleAmount = clamp(EE_RENDER_INFO.shadow_sample_size, 1, 64);
-  if (radiusUv <= 0.0f || sampleAmount <= 1) {
+  if (radiusUv <= 0.0f) {
     return EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, EE_FUNC_POINT_SHADOW_DEPTH(light, slice, projCoords.xy));
   }
 
-  for (int sampleIndex = 0; sampleIndex < sampleAmount; sampleIndex++) {
-    vec2 texCoord = projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, sampleAmount, fragPos * 3141) * radiusUv;
+  for (int sampleIndex = 0; sampleIndex < EE_SHADOW_PCF_SAMPLE_COUNT; sampleIndex++) {
+    vec2 texCoord =
+        projCoords.xy + EE_VOGEL_DISK_SAMPLE(sampleIndex, EE_SHADOW_PCF_SAMPLE_COUNT, fragPos * 3141) * radiusUv;
     float closestDepth = EE_FUNC_POINT_SHADOW_DEPTH(light, slice, texCoord);
     shadow += EE_FUNC_DIRECTIONAL_SHADOW_COMPARE(projCoords.z, closestDepth);
   }
-  return shadow / float(sampleAmount);
+  return shadow / float(EE_SHADOW_PCF_SAMPLE_COUNT);
 }

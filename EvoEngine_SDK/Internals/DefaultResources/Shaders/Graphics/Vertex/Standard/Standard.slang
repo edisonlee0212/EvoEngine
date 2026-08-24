@@ -17,7 +17,8 @@ struct StandardVertexInput {
 
 [shader("vertex")]
 StandardRasterOutput main(StandardVertexInput input, uint draw_id : SV_DrawIndex) {
-  uint instance_index = draw_id + uint(EE_BASIC_CONSTANTS.instance_index);
+  uint instance_index =
+      EE_RASTER_DRAW_INSTANCE_INDEX(draw_id, EE_BASIC_CONSTANTS.instance_index, EE_BASIC_CONSTANTS.meshlet_culling_flags);
   return EE_BUILD_STANDARD_RASTER_OUTPUT(
       input.position, input.normal, input.tangent, input.tangent_handedness, input.tex_coord0, input.tex_coord1,
       input.tex_coord2, input.tex_coord3, input.color, instance_index, EE_INSTANCES[instance_index].model,

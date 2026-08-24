@@ -59,7 +59,9 @@ RenderPassDescriptor TransparentGeometryPass::CreateDescriptor(const char* depen
         RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::DepthAttachment},
        {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
-      {dependency ? dependency : RenderPassNames::deferred_camera}};
+      {dependency ? dependency : RenderPassNames::deferred_camera},
+      RenderPassProfilerGroup::Geometry,
+      "Transparent Geometry"};
 }
 
 void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -75,14 +77,20 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
 
   const auto camera_position =
       glm::vec3(parameters.render_instances->camera_info_blocks_[parameters.camera_index].inverse_view[3]);
-  const auto sorted_instances =
-      CollectSortedTransparentMeshInstances(parameters.render_instances->transparent_render_instances, camera_position);
+  const auto* camera_visibility = parameters.render_instances->GetCameraRasterVisibility(parameters.camera_index);
+  const auto& transparent_render_instances = camera_visibility && camera_visibility->enabled
+                                                 ? camera_visibility->transparent_render_instances
+                                                 : parameters.render_instances->transparent_render_instances;
+  const auto sorted_instances = CollectSortedTransparentMeshInstances(transparent_render_instances, camera_position);
   if (sorted_instances.empty()) {
     return;
   }
 
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera->GetHandle().GetValue(),
+                                                    static_cast<uint64_t>(parameters.camera_index));
 
     VkRect2D render_area{};
     render_area.offset = {0, 0};

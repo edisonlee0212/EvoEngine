@@ -29,15 +29,7 @@ void SerializeVolume(YAML::Emitter& out, const DdgiVolumePack::Volume& volume) {
   out << YAML::Key << "enabled" << YAML::Value << volume.enabled;
   out << YAML::Key << "enable_probe_relocation" << YAML::Value << volume.enable_probe_relocation;
   out << YAML::Key << "enable_probe_classification" << YAML::Value << volume.enable_probe_classification;
-  out << YAML::Key << "enable_probe_variability" << YAML::Value << volume.enable_probe_variability;
-  out << YAML::Key << "enable_probe_variability_gating" << YAML::Value << volume.enable_probe_variability_gating;
-  out << YAML::Key << "pause_probe_updates_after_convergence" << YAML::Value
-      << volume.pause_probe_updates_after_convergence;
   out << YAML::Key << "relocation_distance" << YAML::Value << volume.relocation_distance;
-  out << YAML::Key << "random_ray_backface_threshold" << YAML::Value << volume.random_ray_backface_threshold;
-  out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << volume.fixed_ray_backface_threshold;
-  out << YAML::Key << "probe_variability_threshold" << YAML::Value << volume.probe_variability_threshold;
-  out << YAML::Key << "probe_variability_min_samples" << YAML::Value << volume.probe_variability_min_samples;
   out << YAML::Key << "hysteresis_boost_trigger_conditions" << YAML::Value
       << volume.hysteresis_boost_trigger_conditions;
   out << YAML::Key << "variability_reset_trigger_conditions" << YAML::Value
@@ -71,22 +63,8 @@ void DeserializeVolume(const YAML::Node& in, DdgiVolumePack::Volume& volume) {
     volume.enable_probe_relocation = in["enable_probe_relocation"].as<bool>();
   if (in["enable_probe_classification"])
     volume.enable_probe_classification = in["enable_probe_classification"].as<bool>();
-  if (in["enable_probe_variability"])
-    volume.enable_probe_variability = in["enable_probe_variability"].as<bool>();
-  if (in["enable_probe_variability_gating"])
-    volume.enable_probe_variability_gating = in["enable_probe_variability_gating"].as<bool>();
-  if (in["pause_probe_updates_after_convergence"])
-    volume.pause_probe_updates_after_convergence = in["pause_probe_updates_after_convergence"].as<bool>();
   if (in["relocation_distance"])
     volume.relocation_distance = in["relocation_distance"].as<float>();
-  if (in["random_ray_backface_threshold"])
-    volume.random_ray_backface_threshold = in["random_ray_backface_threshold"].as<float>();
-  if (in["fixed_ray_backface_threshold"])
-    volume.fixed_ray_backface_threshold = in["fixed_ray_backface_threshold"].as<float>();
-  if (in["probe_variability_threshold"])
-    volume.probe_variability_threshold = in["probe_variability_threshold"].as<float>();
-  if (in["probe_variability_min_samples"])
-    volume.probe_variability_min_samples = in["probe_variability_min_samples"].as<int>();
   if (in["hysteresis_boost_trigger_conditions"])
     volume.hysteresis_boost_trigger_conditions = in["hysteresis_boost_trigger_conditions"].as<int>();
   if (in["variability_reset_trigger_conditions"])
@@ -103,10 +81,6 @@ void DdgiVolumePack::Volume::ClampSettings() {
       glm::clamp(emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit),
                  static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
   relocation_distance = glm::clamp(relocation_distance, 0.0f, 10000.0f);
-  random_ray_backface_threshold = glm::clamp(random_ray_backface_threshold, 0.0f, 1.0f);
-  fixed_ray_backface_threshold = glm::clamp(fixed_ray_backface_threshold, 0.0f, 1.0f);
-  probe_variability_threshold = glm::clamp(probe_variability_threshold, 0.0f, 10.0f);
-  probe_variability_min_samples = glm::clamp(probe_variability_min_samples, 0, 4096);
   hysteresis_boost_trigger_conditions &= DdgiVolumeTriggerConditionAll;
   variability_reset_trigger_conditions &= DdgiVolumeTriggerConditionAll;
 }

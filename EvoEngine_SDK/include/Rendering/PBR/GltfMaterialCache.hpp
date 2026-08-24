@@ -52,11 +52,16 @@ class GltfMaterialCache {
   void Clear();
   uint32_t Append(const GltfMaterialData& material_data);
   uint32_t Append(Material& material);
+  void Update(uint32_t material_index, const GltfMaterialData& material_data);
 
   [[nodiscard]] const std::vector<GltfShadeMaterial>& GetShadeMaterials() const;
   [[nodiscard]] const std::vector<GltfTextureInfo>& GetTextureInfos() const;
 
  private:
+  void AppendFlattened(const GltfMaterialData& material_data);
+  void Rebuild();
+
+  std::vector<GltfMaterialData> material_data_;
   std::vector<GltfShadeMaterial> shade_materials_;
   std::vector<GltfTextureInfo> texture_infos_{GltfTextureInfo{}};
 };

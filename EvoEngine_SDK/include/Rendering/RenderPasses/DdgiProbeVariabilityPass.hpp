@@ -26,7 +26,6 @@ class DdgiProbeVariabilityPass final {
     float variability_threshold = 0.0f;
     std::shared_ptr<Buffer> readback_buffer;
     bool* readback_recorded = nullptr;
-    float* record_time_ms = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();

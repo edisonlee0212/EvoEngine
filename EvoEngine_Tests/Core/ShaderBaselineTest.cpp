@@ -228,8 +228,7 @@ std::string VariantDefines(const std::filesystem::path& path) {
     return material_no_bindless;
   }
   if (EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferredLighting.slang") ||
-      EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang") ||
-      EndsWith(relative, "Graphics/Fragment/Standard/DDGIGatherTiming.slang")) {
+      EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang")) {
     return fixed_lighting;
   }
   if (EndsWith(relative, "Graphics/Fragment/Standard/StandardTransparent.slang")) {

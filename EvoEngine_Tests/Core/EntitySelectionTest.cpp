@@ -46,6 +46,35 @@ EntitySelection::RequestOptions UserClearAnchor() {
 
 }  // namespace
 
+TEST(EntitySelection, SceneHierarchyRevisionTracksMembershipAndParentChanges) {
+  SelectionTestContext context;
+  const auto scene = context.scene;
+
+  auto revision = scene->GetHierarchyRevision();
+  const auto parent = scene->CreateEntity("Parent");
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+
+  revision = scene->GetHierarchyRevision();
+  const auto children = scene->CreateEntities(2, "Child");
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+
+  revision = scene->GetHierarchyRevision();
+  scene->SetParent(children.front(), parent);
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+
+  revision = scene->GetHierarchyRevision();
+  scene->RemoveChild(children.front(), parent);
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+
+  revision = scene->GetHierarchyRevision();
+  scene->DeleteEntity(children.back());
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+
+  revision = scene->GetHierarchyRevision();
+  scene->Purge();
+  EXPECT_GT(scene->GetHierarchyRevision(), revision);
+}
+
 TEST(EntitySelection, ReplaceAddToggleAndPrimaryPromotionAreDeterministic) {
   SelectionTestContext context;
   const auto scene = context.scene;
@@ -239,4 +268,28 @@ TEST(EntitySelection, HighlightBitDoesNotClassifyRenderInstancesAsSceneChanges) 
 
   EXPECT_FALSE(unselected != selected);
   EXPECT_FALSE(selected != unselected);
+}
+
+TEST(EntitySelection, RenderSnapshotCombinesFiniteSelectedBoundsAndMatchesRevisions) {
+  SelectionTestContext context;
+  RenderInstanceStorage::EntitySelectionRenderSnapshot snapshot;
+  snapshot.scene = context.scene;
+  snapshot.selection_revision = 7;
+  snapshot.hierarchy_revision = 11;
+
+  Bound first;
+  first.min = {-2.0f, -1.0f, 1.0f};
+  first.max = {1.0f, 3.0f, 4.0f};
+  Bound second;
+  second.min = {-1.0f, -5.0f, 0.0f};
+  second.max = {8.0f, 2.0f, 6.0f};
+  snapshot.Include(first);
+  snapshot.Include(second);
+
+  EXPECT_TRUE(snapshot.has_renderable_bounds);
+  EXPECT_EQ(snapshot.world_bound.min, glm::vec3(-2.0f, -5.0f, 0.0f));
+  EXPECT_EQ(snapshot.world_bound.max, glm::vec3(8.0f, 3.0f, 6.0f));
+  EXPECT_TRUE(snapshot.Matches(context.scene, 7, 11));
+  EXPECT_FALSE(snapshot.Matches(context.scene, 8, 11));
+  EXPECT_FALSE(snapshot.Matches(AssetManager::CreateTemporaryAsset<Scene>(), 7, 11));
 }

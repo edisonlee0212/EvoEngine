@@ -47,8 +47,6 @@ SPONZA_M15_CAPTURE_NAMES = (
     "sponza-gtao-diffuse-probe-double",
     "sponza-gtao-visibility",
     "sponza-gtao-occluded",
-    "sponza-ssao-diffuse",
-    "sponza-ssao-occluded",
     "sponza-gtao-occluded-indirect-double",
     "sponza-gtao-occluded-ddgi-disabled",
     "sponza-gtao-occluded-ddgi-outside",
@@ -275,7 +273,6 @@ def validate_m15_image_matrix(
         "probe_intensity_diffuse_nrmse": normalized_rms(
             images["sponza-gtao-diffuse"], images["sponza-gtao-diffuse-probe-double"]
         ),
-        "ssao_specular_nrmse": normalized_rms(unoccluded, images["sponza-ssao-occluded"]),
         "indirect_intensity_specular_nrmse": normalized_rms(
             occluded, images["sponza-gtao-occluded-indirect-double"]
         ),
@@ -316,7 +313,6 @@ def validate_m15_image_matrix(
             value["rim"] + 0.03 >= value["center"] for value in sphere_retention.values()
         ),
         "probe_intensity_is_diffuse_invariant": deltas["probe_intensity_diffuse_nrmse"] < 1.0e-5,
-        "ssao_retains_material_and_ddgi_specular_visibility": deltas["ssao_specular_nrmse"] > 1.0e-5,
         "indirect_intensity_does_not_scale_specular": deltas["indirect_intensity_specular_nrmse"] < 1.0e-5,
         "ddgi_visibility_changes_rough_specular": deltas["ddgi_disabled_specular_nrmse"] > 1.0e-5,
         "ddgi_outside_does_not_change_specular": deltas["ddgi_outside_specular_nrmse"] < 1.0e-5,
@@ -626,8 +622,6 @@ def main() -> int:
             "sponza-gtao-diffuse-probe-double": (1, "gtao"),
             "sponza-gtao-visibility": (3, "gtao"),
             "sponza-gtao-occluded": (4, "gtao"),
-            "sponza-ssao-diffuse": (1, "ssao"),
-            "sponza-ssao-occluded": (4, "ssao"),
             "sponza-gtao-occluded-indirect-double": (4, "gtao"),
             "sponza-gtao-occluded-ddgi-disabled": (4, "gtao"),
             "sponza-gtao-occluded-ddgi-outside": (4, "gtao"),
@@ -720,8 +714,6 @@ def main() -> int:
         expected_rough_keys = {
             "gtao_specular_nrmse",
             "gtao_diffuse_nrmse",
-            "ssao_diffuse_nrmse",
-            "ssao_specular_nrmse",
             "probe_intensity_diffuse_nrmse",
             "indirect_intensity_specular_nrmse",
             "ddgi_disabled_specular_nrmse",

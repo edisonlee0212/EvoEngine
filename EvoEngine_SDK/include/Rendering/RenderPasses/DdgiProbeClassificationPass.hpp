@@ -16,7 +16,6 @@ class DdgiProbeClassificationPass final {
     DdgiProbeClassificationPushConstant update_push_constant;
     bool reset_classification = false;
     bool classify_probes = false;
-    float* record_time_ms = nullptr;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor();

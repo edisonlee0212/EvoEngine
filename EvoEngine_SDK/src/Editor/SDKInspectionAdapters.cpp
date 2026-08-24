@@ -661,144 +661,35 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
 
 bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
   bool changed = false;
-  int algorithm = static_cast<int>(ambient_occlusion.algorithm);
-  const char* algorithms[] = {"SSAO", "GTAO"};
-  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
-    ambient_occlusion.algorithm =
-        algorithm == 0 ? AmbientOcclusion::Algorithm::Ssao : AmbientOcclusion::Algorithm::Gtao;
+  if (ImGui::DragFloat("Radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
     changed = true;
-  }
-  if (ambient_occlusion.algorithm == AmbientOcclusion::Algorithm::Ssao) {
-    if (ImGui::DragInt("Kernel size", &ambient_occlusion.kernel_size, 1, 1, 64))
-      changed = true;
-    if (ImGui::DragFloat("Disk radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
-      changed = true;
-    if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
-      changed = true;
-    if (ImGui::DragFloat("Factor", &ambient_occlusion.factor, 0.01f, 0.0f, 5.f))
-      changed = true;
-    if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
-      changed = true;
-    if (ImGui::DragFloat("Avoid distance", &ambient_occlusion.avoid_distance, 0.1f, 0.0f, 100.f))
-      changed = true;
-  } else {
-    if (ImGui::DragFloat("Radius", &ambient_occlusion.gtao_radius, 0.001f, 0.0f, 10.f))
-      changed = true;
-    if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
-      changed = true;
-    if (ImGui::DragInt("Slice count", &ambient_occlusion.slice_count, 1, 1, 16))
-      changed = true;
-    if (ImGui::DragInt("Steps per slice", &ambient_occlusion.steps_per_slice, 1, 1, 16))
-      changed = true;
-    if (ImGui::DragFloat("Intensity", &ambient_occlusion.gtao_intensity, 0.01f, 0.0f, 5.f))
-      changed = true;
-    if (ImGui::DragFloat("Denoise radius", &ambient_occlusion.denoise_radius, 0.01f, 0.0f, 100.f))
-      changed = true;
-    if (ImGui::DragFloat("Bias", &ambient_occlusion.gtao_bias, 0.001f, 0.0f, 1.f))
-      changed = true;
-  }
+  if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
+    changed = true;
+  if (ImGui::DragInt("Slice count", &ambient_occlusion.slice_count, 1, 1, 16))
+    changed = true;
+  if (ImGui::DragInt("Steps per slice", &ambient_occlusion.steps_per_slice, 1, 1, 16))
+    changed = true;
+  if (ImGui::DragFloat("Intensity", &ambient_occlusion.intensity, 0.01f, 0.0f, 5.f))
+    changed = true;
+  if (ImGui::DragFloat("Denoise radius", &ambient_occlusion.denoise_radius, 0.01f, 0.0f, 100.f))
+    changed = true;
+  if (ImGui::DragFloat("Bias", &ambient_occlusion.bias, 0.001f, 0.0f, 1.f))
+    changed = true;
   return changed;
 }
 
 bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
   bool changed = false;
-  int algorithm = static_cast<int>(anti_aliasing.algorithm);
-  const char* algorithms[] = {"TAA", "SMAA"};
-  if (ImGui::Combo("Algorithm", &algorithm, algorithms, IM_ARRAYSIZE(algorithms))) {
-    anti_aliasing.algorithm = static_cast<AntiAliasing::Algorithm>(algorithm);
-    changed = true;
-  }
-  if (ImGui::Button("Reset temporal state")) {
-    changed = true;
-  }
-
-  if (anti_aliasing.algorithm == AntiAliasing::Algorithm::Smaa) {
-    int preset = static_cast<int>(anti_aliasing.smaa.preset);
-    const char* presets[] = {"Low", "Medium", "High", "Ultra"};
-    if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
-      anti_aliasing.smaa.preset = static_cast<AntiAliasing::SmaaPreset>(preset);
-      changed = true;
-    }
-    int debug_mode = static_cast<int>(anti_aliasing.smaa.debug_mode);
-    const char* debug_modes[] = {"None", "Edges", "Blend weights"};
-    if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
-      anti_aliasing.smaa.debug_mode = static_cast<AntiAliasing::SmaaDebugMode>(debug_mode);
-      changed = true;
-    }
-    return changed;
-  }
-
-  auto& taa = anti_aliasing.taa;
-  int preset = static_cast<int>(taa.preset);
-  const char* presets[] = {"Best Quality", "High Quality", "Performance", "Custom"};
+  int preset = static_cast<int>(anti_aliasing.preset);
+  const char* presets[] = {"Low", "Medium", "High", "Ultra"};
   if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
-    anti_aliasing.ApplyTaaPreset(static_cast<AntiAliasing::TaaPreset>(preset));
+    anti_aliasing.preset = static_cast<AntiAliasing::Preset>(preset);
     changed = true;
   }
-
-  const auto mark_custom = [&] {
-    taa.preset = AntiAliasing::TaaPreset::Custom;
-    changed = true;
-  };
-
-  int variance_mode = static_cast<int>(taa.variance_clipping_mode);
-  const char* variance_modes[] = {"Disabled", "Clamp", "Intersection"};
-  if (ImGui::Combo("Variance clipping", &variance_mode, variance_modes, IM_ARRAYSIZE(variance_modes))) {
-    taa.variance_clipping_mode = static_cast<AntiAliasing::VarianceClippingMode>(variance_mode);
-    mark_custom();
-  }
-  int variance_samples = taa.variance_sample_count == 5 ? 0 : 1;
-  const char* sample_counts[] = {"5 samples", "9 samples"};
-  if (ImGui::Combo("Variance samples", &variance_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
-    taa.variance_sample_count = variance_samples == 0 ? 5 : 9;
-    mark_custom();
-  }
-  int history_color_mode = static_cast<int>(taa.history_color_mode);
-  const char* history_color_modes[] = {"Tone mapped", "Linear HDR"};
-  if (ImGui::Combo("History color", &history_color_mode, history_color_modes, IM_ARRAYSIZE(history_color_modes))) {
-    taa.history_color_mode = static_cast<AntiAliasing::HistoryColorMode>(history_color_mode);
-    mark_custom();
-  }
-  if (ImGui::Checkbox("YCoCg", &taa.use_ycocg))
-    mark_custom();
-  if (ImGui::Checkbox("No-history neighborhood", &taa.use_neighborhood_sampling))
-    mark_custom();
-  if (ImGui::Checkbox("Bicubic history", &taa.use_bicubic_filter))
-    mark_custom();
-  if (ImGui::Checkbox("Longest velocity", &taa.use_longest_velocity))
-    mark_custom();
-  if (taa.use_longest_velocity) {
-    int velocity_samples = taa.longest_velocity_sample_count == 5 ? 0 : 1;
-    if (ImGui::Combo("Velocity samples", &velocity_samples, sample_counts, IM_ARRAYSIZE(sample_counts))) {
-      taa.longest_velocity_sample_count = velocity_samples == 0 ? 5 : 9;
-      mark_custom();
-    }
-  }
-  if (ImGui::Checkbox("Depth threshold", &taa.use_depth_threshold))
-    mark_custom();
-  if (ImGui::DragFloat("Min variance gamma", &taa.min_variance_gamma, 0.01f, 0.0f, 10.0f))
-    mark_custom();
-  if (ImGui::DragFloat("Max variance gamma", &taa.max_variance_gamma, 0.01f, 0.0f, 10.0f))
-    mark_custom();
-  if (ImGui::DragFloat("Velocity rejection (px at 1080p)", &taa.velocity_rejection_threshold, 1.0f, 1.0f, 1024.0f))
-    mark_custom();
-  if (taa.use_depth_threshold &&
-      ImGui::DragFloat("Depth difference", &taa.depth_threshold, 0.0001f, 0.0f, 1.0f, "%.4f"))
-    mark_custom();
-  if (ImGui::DragFloat("Sharpen", &taa.sharpen, 0.01f, 0.0f, 1.0f))
-    mark_custom();
-  if (ImGui::Checkbox("Thread-group cache", &taa.use_tgsm))
-    mark_custom();
-  const bool fp16_supported = Platform::GetInstance().GetCapabilities().support_shader_float16;
-  ImGui::BeginDisabled(!fp16_supported);
-  if (ImGui::Checkbox("FP16", &taa.use_fp16))
-    mark_custom();
-  ImGui::EndDisabled();
-
-  int debug_mode = static_cast<int>(taa.debug_mode);
-  const char* debug_modes[] = {"None", "Motion", "Depth confidence", "History confidence", "No history"};
+  int debug_mode = static_cast<int>(anti_aliasing.debug_mode);
+  const char* debug_modes[] = {"None", "Edges", "Blend weights"};
   if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
-    taa.debug_mode = static_cast<AntiAliasing::TaaDebugMode>(debug_mode);
+    anti_aliasing.debug_mode = static_cast<AntiAliasing::DebugMode>(debug_mode);
     changed = true;
   }
   return changed;
@@ -1663,8 +1554,7 @@ void InspectShadowSettings(RenderSettings& render_settings) {
   }
   if (ImGui::TreeNode("Sampling")) {
     ImGui::TextUnformatted("Shadow filtering: PCF");
-    ImGui::DragInt("Directional filter samples", &render_settings.directional_pcf_sample_amount, 1, 1, 64);
-    ImGui::DragInt("Point/spot filter samples", &render_settings.pcf_sample_amount, 1, 1, 64);
+    ImGui::TextUnformatted("Samples per filtered shadow: 8 (shader constant)");
     ImGui::TextUnformatted("Directional PCF radius: light size in world units.");
     ImGui::TreePop();
   }
@@ -1782,9 +1672,13 @@ const char* GetDdgiSceneStatus(const RenderLayer::DdgiInspectorSnapshot& snapsho
       }))
     return "Warming up";
   if (snapshot.volumes.empty() || std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
-        return !volume.converged;
+        return !volume.sampling_complete;
       }))
     return "Updating";
+  if (std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
+        return volume.maximum_reached;
+      }))
+    return "Maximum reached";
   return "Converged";
 }
 
@@ -1797,6 +1691,8 @@ const char* GetDdgiVolumeStatus(const DdgiVolumeRuntimeStats& volume, const Rend
     return volume.pending_scene_changes ? "Paused / stale frozen" : "Paused / frozen";
   if (volume.warmup_active)
     return "Warming up";
+  if (volume.maximum_reached)
+    return "Maximum reached";
   if (volume.converged)
     return "Converged";
   return volume.has_valid_probe_history ? "Updating" : "Initializing";
@@ -1885,6 +1781,23 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     ImGui::TreePop();
   }
 
+  if (ImGui::TreeNodeEx("Variability and probe validity", ImGuiTreeNodeFlags_DefaultOpen)) {
+    auto& settings = render_layer.render_settings;
+    ImGui::Checkbox("Probe variability", &settings.ddgi_enable_probe_variability);
+    ImGui::Checkbox("Probe variability gating", &settings.ddgi_enable_probe_variability_gating);
+    ImGui::Checkbox("Pause updates after convergence", &settings.ddgi_pause_probe_updates_after_convergence);
+    ImGui::DragFloat("Random ray backface threshold", &settings.ddgi_random_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Fixed ray backface threshold", &settings.ddgi_fixed_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Variability threshold", &settings.ddgi_probe_variability_threshold, 0.01f, 0.0f, 10.0f);
+    ImGui::DragInt("Variability maximum frames", &settings.ddgi_probe_variability_maximum_frames, 1.0f, 1, 4096);
+    settings.ddgi_random_ray_backface_threshold = glm::clamp(settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
+    settings.ddgi_fixed_ray_backface_threshold = glm::clamp(settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
+    settings.ddgi_probe_variability_threshold = glm::clamp(settings.ddgi_probe_variability_threshold, 0.0f, 10.0f);
+    settings.ddgi_probe_variability_maximum_frames =
+        glm::clamp(settings.ddgi_probe_variability_maximum_frames, 1, 4096);
+    ImGui::TreePop();
+  }
+
   if (ImGui::TreeNodeEx("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
     const auto resident_probes = std::accumulate(snapshot.volumes.begin(), snapshot.volumes.end(), 0ull,
                                                  [](const uint64_t total, const auto& volume) {
@@ -1936,6 +1849,8 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         ImGui::TextDisabled(
             "Hysteresis %.3f (%s)", volume.current_hysteresis,
             volume.hysteresis_boost_restoring ? "restoring" : (volume.hysteresis_boost_active ? "boosted" : "normal"));
+        ImGui::TextDisabled("Variability budget %u / %u", volume.variability_budget_frame_count,
+                            volume.variability_maximum_frames);
         ImGui::TableNextColumn();
         if (session.selected_volume_id == volume.stable_entity_id) {
           ImGui::TextUnformatted("Selected");
@@ -2028,26 +1943,6 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
 
   session.selected_probe_readback_requested = false;
   if (ImGui::TreeNode("Diagnostics")) {
-    const bool emissive_capture_pending = session.emissive_capture_pending;
-    if (emissive_capture_pending)
-      ImGui::BeginDisabled();
-    if (ImGui::Button(session.pause_updates ? "Capture emissive sampling (waiting for resume)"
-                                            : "Capture emissive sampling next frame"))
-      render_layer.RequestDdgiEmissiveSamplingCapture();
-    if (emissive_capture_pending)
-      ImGui::EndDisabled();
-    if (session.emissive_capture_pending)
-      ImGui::TextDisabled("Capture pending");
-    const bool gather_timing_capture_pending = session.gather_timing_capture_pending;
-    if (gather_timing_capture_pending)
-      ImGui::BeginDisabled();
-    if (ImGui::Button("Measure isolated gather"))
-      render_layer.RequestDdgiGatherTimingCapture();
-    if (gather_timing_capture_pending)
-      ImGui::EndDisabled();
-    if (!Platform::GpuTimestampCaptureEnabled())
-      ImGui::TextDisabled("Gather timing requires GPU timestamp capture.");
-
     if (selected != snapshot.volumes.end()) {
       ImGui::Checkbox("Read selected probe state", &session.show_selected_probe_state);
       session.selected_probe_readback_requested = session.show_selected_probe_state;
@@ -2096,21 +1991,6 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
       ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f},
                          "%u positive-power entries have no representable sampling probability.",
                          snapshot.aggregate.emissive_unrepresentable_probability_count);
-    }
-    if (snapshot.aggregate.emissive_sampling_stats_available) {
-      const auto& stats = snapshot.aggregate;
-      ImGui::SeparatorText("Emissive sampling");
-      ImGui::Text("NEE attempts: %llu", static_cast<unsigned long long>(stats.emissive_nee_attempt_count));
-      ImGui::Text("Nonzero / shadowed / zero radiance: %llu / %llu / %llu",
-                  static_cast<unsigned long long>(stats.emissive_nonzero_contribution_count),
-                  static_cast<unsigned long long>(stats.emissive_shadowed_sample_count),
-                  static_cast<unsigned long long>(stats.emissive_zero_radiance_sample_count));
-      ImGui::Text("Rejected PDF / emitter / alpha / invalid / receiver: %llu / %llu / %llu / %llu / %llu",
-                  static_cast<unsigned long long>(stats.emissive_zero_pdf_reject_count),
-                  static_cast<unsigned long long>(stats.emissive_emitter_backface_reject_count),
-                  static_cast<unsigned long long>(stats.emissive_alpha_mask_reject_count),
-                  static_cast<unsigned long long>(stats.emissive_invalid_sample_reject_count),
-                  static_cast<unsigned long long>(stats.emissive_receiver_backface_reject_count));
     }
     ImGui::TreePop();
   }
@@ -2771,10 +2651,6 @@ bool InspectDdgiVolumePack(InspectorContext& context, DdgiVolumePack& pack) {
                 changed;
       changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
       changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-      changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
-      changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
-      changed =
-          ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) || changed;
       changed = ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
       changed =
           InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers", volume.hysteresis_boost_trigger_conditions) ||
@@ -3012,25 +2888,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               changed;
           changed = ImGui::Checkbox("Probe relocation", &defaults.enable_probe_relocation) || changed;
           changed = ImGui::Checkbox("Probe classification", &defaults.enable_probe_classification) || changed;
-          changed = ImGui::Checkbox("Probe variability", &defaults.enable_probe_variability) || changed;
-          changed = ImGui::Checkbox("Probe variability gating", &defaults.enable_probe_variability_gating) || changed;
-          changed =
-              ImGui::Checkbox("Pause updates after convergence", &defaults.pause_probe_updates_after_convergence) ||
-              changed;
           changed =
               ImGui::DragFloat("Relocation distance", &defaults.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-          changed = ImGui::DragFloat("Random ray backface threshold", &defaults.random_ray_backface_threshold, 0.01f,
-                                     0.0f, 1.0f) ||
-                    changed;
-          changed = ImGui::DragFloat("Fixed ray backface threshold", &defaults.fixed_ray_backface_threshold, 0.01f,
-                                     0.0f, 1.0f) ||
-                    changed;
-          changed =
-              ImGui::DragFloat("Variability threshold", &defaults.probe_variability_threshold, 0.01f, 0.0f, 10.0f) ||
-              changed;
-          changed =
-              ImGui::DragInt("Variability minimum samples", &defaults.probe_variability_min_samples, 1.0f, 0, 4096) ||
-              changed;
           ImGui::TreePop();
         }
         ImGui::TreePop();
@@ -3049,14 +2908,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           volume.movement_type = defaults.movement_type;
           volume.enable_probe_relocation = defaults.enable_probe_relocation;
           volume.enable_probe_classification = defaults.enable_probe_classification;
-          volume.enable_probe_variability = defaults.enable_probe_variability;
-          volume.enable_probe_variability_gating = defaults.enable_probe_variability_gating;
-          volume.pause_probe_updates_after_convergence = defaults.pause_probe_updates_after_convergence;
           volume.relocation_distance = defaults.relocation_distance;
-          volume.random_ray_backface_threshold = defaults.random_ray_backface_threshold;
-          volume.fixed_ray_backface_threshold = defaults.fixed_ray_backface_threshold;
-          volume.probe_variability_threshold = defaults.probe_variability_threshold;
-          volume.probe_variability_min_samples = defaults.probe_variability_min_samples;
           (void)ddgi_pack->RepairStableIds();
           changed = true;
         }
@@ -3095,25 +2947,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                       changed;
             changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
             changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-            changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
-            changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
-            changed =
-                ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) ||
-                changed;
             changed =
                 ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-            changed = ImGui::DragFloat("Random ray backface threshold", &volume.random_ray_backface_threshold, 0.01f,
-                                       0.0f, 1.0f) ||
-                      changed;
-            changed = ImGui::DragFloat("Fixed ray backface threshold", &volume.fixed_ray_backface_threshold, 0.01f,
-                                       0.0f, 1.0f) ||
-                      changed;
-            changed = ImGui::DragFloat("Probe variability threshold", &volume.probe_variability_threshold, 0.01f, 0.0f,
-                                       10000.0f) ||
-                      changed;
-            changed =
-                ImGui::DragInt("Probe variability min samples", &volume.probe_variability_min_samples, 1, 0, 1000000) ||
-                changed;
             changed = InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers",
                                                          volume.hysteresis_boost_trigger_conditions) ||
                       changed;
@@ -3168,6 +3003,13 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                       static_cast<unsigned long long>(stats.current_probe_stable_id), stats.completed_face_count);
         } else {
           ImGui::TextUnformatted("Current probe: none (0/6 faces)");
+        }
+        if (stats.filtering_probe_count != 0u) {
+          ImGui::Text("Current GGX filter: %llu (%u/6 faces)",
+                      static_cast<unsigned long long>(stats.current_filter_probe_stable_id),
+                      stats.completed_filter_face_count);
+        } else {
+          ImGui::TextUnformatted("Current GGX filter: none (0/6 faces)");
         }
         ImGui::Text("Published generations: %llu, transient GPU: %.2f MiB",
                     static_cast<unsigned long long>(stats.published_generation_count),

@@ -58,8 +58,6 @@ TEST_F(PostProcessingRuntime, AssetVersionResetsEachCameraLazilyAndPreservesScra
   second.stack.source_color_texture = MakeFakeResource<RenderTexture>();
   second.stack.result_texture = MakeFakeResource<RenderTexture>();
   second.stack.swap_texture = MakeFakeResource<RenderTexture>();
-  first.anti_aliasing.history.valid = true;
-  second.anti_aliasing.history.valid = true;
   first.tone_mapping.auto_exposure_time_initialized = true;
   second.tone_mapping.auto_exposure_time_initialized = true;
   first.tone_mapping.luminance_reset_pending = false;
@@ -76,19 +74,16 @@ TEST_F(PostProcessingRuntime, AssetVersionResetsEachCameraLazilyAndPreservesScra
   ASSERT_GT(stack->GetVersion(), previous_version);
 
   PostProcessingRuntimeTestAccess::Synchronize(first_camera, stack);
-  EXPECT_FALSE(first.anti_aliasing.history.valid);
   EXPECT_FALSE(first.tone_mapping.auto_exposure_time_initialized);
   EXPECT_TRUE(first.tone_mapping.luminance_reset_pending);
   EXPECT_EQ(first.stack.source_color_texture, first_source);
   EXPECT_EQ(first.stack.result_texture, first_result);
   EXPECT_EQ(first.stack.swap_texture, first_swap);
   EXPECT_EQ(first.version_reset_count, first_version_resets + 1);
-  EXPECT_TRUE(second.anti_aliasing.history.valid);
   EXPECT_TRUE(second.tone_mapping.auto_exposure_time_initialized);
   EXPECT_EQ(second.version_reset_count, second_version_resets);
 
   PostProcessingRuntimeTestAccess::Synchronize(second_camera, stack);
-  EXPECT_FALSE(second.anti_aliasing.history.valid);
   EXPECT_FALSE(second.tone_mapping.auto_exposure_time_initialized);
   EXPECT_TRUE(second.tone_mapping.luminance_reset_pending);
   EXPECT_EQ(second.stack.source_color_texture, second_source);
@@ -124,16 +119,10 @@ TEST_F(PostProcessingRuntime, TechniqueAndExplicitCameraResetsKeepScratchIndepen
   EXPECT_EQ(resources.version_reset_count, version_resets);
   EXPECT_EQ(resources.technique_reset_count, technique_resets + 1);
 
-  resources.current_jitter = {0.25f, -0.25f};
-  resources.previous_jitter = {-0.25f, 0.25f};
-  resources.jitter_frame_index = 7;
   resources.previous_inverse_projection = glm::mat4(2.0f);
   resources.previous_inverse_view = glm::mat4(3.0f);
   resources.previous_matrices_valid = true;
   camera.ResetFrameCount();
-  EXPECT_EQ(resources.current_jitter, glm::vec2(0.0f));
-  EXPECT_EQ(resources.previous_jitter, glm::vec2(0.0f));
-  EXPECT_EQ(resources.jitter_frame_index, 0u);
   EXPECT_EQ(resources.previous_inverse_projection, glm::mat4(1.0f));
   EXPECT_EQ(resources.previous_inverse_view, glm::mat4(1.0f));
   EXPECT_FALSE(resources.previous_matrices_valid);
@@ -145,7 +134,6 @@ TEST_F(PostProcessingRuntime, CameraCloneSharesSettingsButNotRuntime) {
   Camera source;
   auto& source_resources = PostProcessingRuntimeTestAccess::Acquire(source, stack);
   source_resources.stack.source_color_texture = MakeFakeResource<RenderTexture>();
-  source_resources.anti_aliasing.history.valid = true;
 
   Camera clone = source;
   ASSERT_TRUE(PostProcessingRuntimeTestAccess::HasRuntime(clone));
@@ -153,7 +141,5 @@ TEST_F(PostProcessingRuntime, CameraCloneSharesSettingsButNotRuntime) {
   EXPECT_FALSE(PostProcessingRuntimeTestAccess::HasRuntime(clone));
   auto& clone_resources = PostProcessingRuntimeTestAccess::Acquire(clone, stack);
   EXPECT_NE(&source_resources, &clone_resources);
-  EXPECT_TRUE(source_resources.anti_aliasing.history.valid);
-  EXPECT_FALSE(clone_resources.anti_aliasing.history.valid);
   EXPECT_FALSE(clone_resources.stack.source_color_texture);
 }

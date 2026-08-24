@@ -34,7 +34,9 @@ RenderPassDescriptor MotionVectorPass::CreateDescriptor() {
       {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_motion_vectors, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
-      {RenderPassNames::deferred_geometry}};
+      {RenderPassNames::deferred_geometry},
+      RenderPassProfilerGroup::CameraVisibility,
+      "Motion Vectors"};
 }
 
 void MotionVectorPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
@@ -43,6 +45,9 @@ void MotionVectorPass::Execute(const RenderGraphExecutionContext& context, const
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
     ApplyGraphResourceBarriers(vk_command_buffer, context);
+    const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
+                                                    parameters.camera ? parameters.camera->GetHandle().GetValue() : 0,
+                                                    static_cast<uint64_t>(parameters.camera_index));
     const auto* motion_binding = context.GetResourceBinding(RenderResourceNames::camera_motion_vectors);
     const auto release_barriers = [&] {
       ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);

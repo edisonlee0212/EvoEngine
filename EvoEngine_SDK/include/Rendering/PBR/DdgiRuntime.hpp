@@ -64,16 +64,6 @@ struct DdgiPerformanceStats {
   double emissive_estimated_power = 0.0;
   uint32_t emissive_sampling_enabled_volume_count = 0;
   uint64_t emissive_sampling_candidate_ray_count = 0;
-  bool emissive_sampling_stats_available = false;
-  uint64_t emissive_nee_attempt_count = 0;
-  uint64_t emissive_zero_pdf_reject_count = 0;
-  uint64_t emissive_emitter_backface_reject_count = 0;
-  uint64_t emissive_alpha_mask_reject_count = 0;
-  uint64_t emissive_invalid_sample_reject_count = 0;
-  uint64_t emissive_receiver_backface_reject_count = 0;
-  uint64_t emissive_shadowed_sample_count = 0;
-  uint64_t emissive_zero_radiance_sample_count = 0;
-  uint64_t emissive_nonzero_contribution_count = 0;
   uint32_t recorded_ray_sample_count = 0;
   uint32_t recorded_probe_update_count = 0;
   uint32_t selected_ray_sample_count = 0;
@@ -100,9 +90,11 @@ struct DdgiPerformanceStats {
   uint32_t probe_variability_sample_count = 0;
   uint32_t probe_variability_stable_sample_count = 0;
   uint32_t probe_variability_required_stable_sample_count = 0;
+  uint32_t probe_variability_budget_frame_count = 0;
+  uint32_t probe_variability_maximum_frames = 0;
   bool probe_variability_converged = false;
-  uint32_t probe_variability_refresh_age = 0;
-  bool probe_variability_refresh_waiting = false;
+  bool probe_variability_maximum_reached = false;
+  bool probe_variability_sampling_complete = false;
   uint32_t probe_warmup_frame_index = 0;
   uint32_t probe_warmup_frame_count = 0;
   bool probe_warmup_active = false;
@@ -110,15 +102,6 @@ struct DdgiPerformanceStats {
   float probe_update_hysteresis = 0.0f;
   uint32_t hysteresis_boosted_volume_count = 0;
   uint32_t hysteresis_restoring_volume_count = 0;
-  float atlas_prepare_record_ms = 0.0f;
-  float ray_diagnostics_record_ms = 0.0f;
-  float probe_update_record_ms = 0.0f;
-  float probe_relocation_record_ms = 0.0f;
-  float probe_classification_record_ms = 0.0f;
-  float probe_variability_record_ms = 0.0f;
-  float frame_graph_execute_ms = 0.0f;
-  float probe_visualization_record_ms = 0.0f;
-  float probe_ray_visualization_record_ms = 0.0f;
 };
 
 enum DdgiUpdateReason : uint32_t {
@@ -129,9 +112,9 @@ enum DdgiUpdateReason : uint32_t {
   DdgiUpdateReasonConverged = 1u << 3u,
   DdgiUpdateReasonWarmup = 1u << 4u,
   DdgiUpdateReasonSceneChange = 1u << 5u,
-  DdgiUpdateReasonPeriodicRefresh = 1u << 6u,
-  DdgiUpdateReasonVariabilityPolicy = 1u << 7u,
-  DdgiUpdateReasonHysteresisRestore = 1u << 8u
+  DdgiUpdateReasonVariabilityPolicy = 1u << 6u,
+  DdgiUpdateReasonHysteresisRestore = 1u << 7u,
+  DdgiUpdateReasonVariabilityMaximum = 1u << 8u
 };
 
 struct DdgiHysteresisBoostUpdate {
@@ -174,6 +157,10 @@ struct DdgiVolumeRuntimeStats {
   uint32_t warmup_frame_count = 0;
   bool warmup_active = false;
   bool converged = false;
+  bool maximum_reached = false;
+  bool sampling_complete = false;
+  uint32_t variability_budget_frame_count = 0;
+  uint32_t variability_maximum_frames = 0;
   bool pending_scene_changes = false;
   float current_hysteresis = 0.0f;
   bool hysteresis_boost_active = false;
@@ -222,6 +209,18 @@ struct DdgiProbeConvergenceUpdate {
   bool entered_convergence = false;
 };
 
+struct DdgiProbeVariabilityBudgetState {
+  uint64_t cycle = 1;
+  uint32_t completed_frame_count = 0;
+  uint32_t pending_frame_count = 0;
+};
+
+struct DdgiProbeVariabilityBudgetUpdate {
+  DdgiProbeVariabilityBudgetState state{};
+  bool accepted = false;
+  bool maximum_reached = false;
+};
+
 struct DdgiProbeUpdateDeviceLimits {
   uint32_t max_work_group_invocations = 1;
   uint32_t max_work_group_size_x = 1;
@@ -249,23 +248,27 @@ class DdgiRuntime final {
   static constexpr float kProbeVariabilityMaximumThresholdScale = 40.0f;
   static constexpr float kProbeVariabilityAllowedUnstableFraction = 0.15f;
   static constexpr float kProbeVariabilityExitUnstableFractionScale = 1.5f;
-  static constexpr uint32_t kProbeRefreshInterval = 120u;
   static constexpr uint32_t kMaxVolumeCount = RenderInstanceStorage::kDdgiMaxVolumeCount;
   static constexpr uint32_t kMaxResidentProbeCount = 8192u;
   static constexpr uint32_t kProbeRayFlagSkipInactive = 1u << 0u;
   static constexpr uint32_t kProbeRayFlagEmissiveMeshSampling = 1u << 1u;
-  static constexpr uint32_t kProbeRayFlagEmissiveSamplingStats = 1u << 2u;
 
   [[nodiscard]] static uint32_t GetProbeCount(const glm::ivec3& probe_counts);
   [[nodiscard]] static uint32_t GetFixedRayCount(uint32_t ray_count, bool fixed_rays_enabled);
   [[nodiscard]] static DdgiProbeUpdateVariant ParseProbeUpdateVariant(std::string_view value);
   [[nodiscard]] static DdgiProbeConvergenceUpdate AdvanceProbeConvergence(
       const DdgiProbeConvergenceState& state, const DdgiProbeVariabilityObservation& observation,
-      uint32_t minimum_sample_count, float entry_threshold);
-  [[nodiscard]] static bool IsPeriodicRefreshDue(bool gating_enabled, bool converged, bool waiting_for_observation,
-                                                 uint32_t refresh_age);
+      float entry_threshold);
+  [[nodiscard]] static DdgiProbeVariabilityBudgetState ResetProbeVariabilityBudget(
+      const DdgiProbeVariabilityBudgetState& state);
+  [[nodiscard]] static DdgiProbeVariabilityBudgetUpdate ReserveProbeVariabilityBudgetFrame(
+      const DdgiProbeVariabilityBudgetState& state, uint32_t maximum_frame_count);
+  [[nodiscard]] static DdgiProbeVariabilityBudgetUpdate ResolveProbeVariabilityBudgetFrame(
+      const DdgiProbeVariabilityBudgetState& state, uint64_t ticket_cycle, bool valid_observation,
+      uint32_t maximum_frame_count);
   [[nodiscard]] static bool IsReflectionProbeRuntimeReady(bool has_valid_history, bool lighting_descriptors_bound,
-                                                          bool variability_gating_enabled, bool variability_converged);
+                                                          bool variability_gating_enabled,
+                                                          bool variability_sampling_complete);
   [[nodiscard]] static DdgiProbeUpdateVariant ResolveProbeUpdateVariant(DdgiProbeUpdateVariant requested,
                                                                         const DdgiProbeUpdateDeviceLimits& limits,
                                                                         uint32_t probe_count,

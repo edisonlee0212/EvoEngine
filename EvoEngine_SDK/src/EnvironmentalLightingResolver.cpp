@@ -135,14 +135,7 @@ ResolvedEnvironmentalLighting::DdgiVolume ToResolvedDdgiVolume(const Environment
   volume.enabled = source.enabled;
   volume.enable_probe_relocation = source.enable_probe_relocation;
   volume.enable_probe_classification = source.enable_probe_classification;
-  volume.enable_probe_variability = source.enable_probe_variability;
-  volume.enable_probe_variability_gating = source.enable_probe_variability_gating;
-  volume.pause_probe_updates_after_convergence = source.pause_probe_updates_after_convergence;
   volume.relocation_distance = glm::clamp(FiniteOr(source.relocation_distance, 0.25f), 0.0f, 10000.0f);
-  volume.random_ray_backface_threshold = glm::clamp(FiniteOr(source.random_ray_backface_threshold, 0.1f), 0.0f, 1.0f);
-  volume.fixed_ray_backface_threshold = glm::clamp(FiniteOr(source.fixed_ray_backface_threshold, 0.25f), 0.0f, 1.0f);
-  volume.probe_variability_threshold = glm::clamp(FiniteOr(source.probe_variability_threshold, 0.03f), 0.0f, 10.0f);
-  volume.probe_variability_min_samples = glm::clamp(source.probe_variability_min_samples, 0, 4096);
   volume.hysteresis_boost_trigger_conditions =
       source.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll;
   volume.variability_reset_trigger_conditions =

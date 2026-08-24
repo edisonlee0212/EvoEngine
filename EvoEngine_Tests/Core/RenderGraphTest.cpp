@@ -1,21 +1,30 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
-#include "DdgiEmissiveSamplingStats.hpp"
 #include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
 #include "RenderPasses/DdgiAtlasPreparePass.hpp"
 #include "RenderPasses/DdgiProbeClassificationPass.hpp"
+#include "RenderPasses/DdgiProbeRayVisualizationPass.hpp"
 #include "RenderPasses/DdgiProbeRelocationPass.hpp"
 #include "RenderPasses/DdgiProbeScrollPass.hpp"
+#include "RenderPasses/DdgiProbeTracePass.hpp"
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
-#include "RenderPasses/DdgiRayDiagnosticsPass.hpp"
+#include "RenderPasses/DdgiProbeVisualizationPass.hpp"
+#include "RenderPasses/DeferredGeometryPass.hpp"
 #include "RenderPasses/DeferredLightingPass.hpp"
+#include "RenderPasses/DepthPyramidPass.hpp"
+#include "RenderPasses/DirectionalLightShadowPass.hpp"
+#include "RenderPasses/EntitySelectionHighlightPass.hpp"
 #include "RenderPasses/GaussianSplatPass.hpp"
+#include "RenderPasses/MotionCoveragePass.hpp"
+#include "RenderPasses/MotionVectorPass.hpp"
 #include "RenderPasses/PostProcessingPass.hpp"
 #include "RenderPasses/RayTracingCameraPass.hpp"
+#include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
+#include "Rendering/RenderInstances/RenderInstanceStorage.hpp"
 
 #include <gtest/gtest.h>
 
@@ -24,6 +33,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <string>
 #include <utility>
 
@@ -128,6 +138,239 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   EXPECT_EQ(deferred_geometry.find("platform.draw_call"), std::string::npos);
   EXPECT_EQ(directional_shadow.find("platform.draw_call"), std::string::npos);
   EXPECT_EQ(transparent.find("platform.draw_call"), std::string::npos);
+}
+
+TEST(RenderGraph, ProfilerBreakdownUsesSharedCpuAndGpuHistoryModels) {
+  const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
+  EXPECT_NE(editor_layer.find("BeginTabItem(\"Breakdown\")"), std::string::npos);
+  EXPECT_NE(editor_layer.find("BuildProfilerHistoryStats(profiler_panel_frames_, selected_index)"), std::string::npos);
+  EXPECT_NE(editor_layer.find("BuildGpuTimestampHistoryStats("), std::string::npos);
+  EXPECT_NE(editor_layer.find("breakdown_next_refresh"), std::string::npos);
+  EXPECT_NE(editor_layer.find("Loop self (uncategorized)"), std::string::npos);
+  EXPECT_NE(editor_layer.find("Frame overhead (outside Application Loop)"), std::string::npos);
+  EXPECT_NE(editor_layer.find("Worker CPU work (parallel; excluded from wall)"), std::string::npos);
+  EXPECT_NE(editor_layer.find("ProfilerBreakdownCpuPlot"), std::string::npos);
+  EXPECT_NE(editor_layer.find("ProfilerBreakdownGpuPlot"), std::string::npos);
+  EXPECT_NE(editor_layer.find("pass.duration.duty_cycle"), std::string::npos);
+}
+
+TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
+  const std::vector<RenderPassDescriptor> descriptors = {
+      DdgiAtlasPreparePass::CreateDescriptor(),
+      DdgiProbeClassificationPass::CreateDescriptor(),
+      DdgiProbeRayVisualizationPass::CreateDescriptor(nullptr),
+      DdgiProbeRelocationPass::CreateDescriptor(),
+      DdgiProbeScrollPass::CreateDescriptor(),
+      DdgiProbeUpdatePass::CreateDescriptor(),
+      DdgiProbeVariabilityPass::CreateDescriptor(),
+      DdgiProbeVisualizationPass::CreateDescriptor(),
+      DdgiProbeTracePass::CreateDescriptor(),
+      DeferredGeometryPass::CreateDescriptor(),
+      DeferredLightingPass::CreateDescriptor(),
+      DepthPyramidPass::CreateDescriptor(),
+      DirectionalLightShadowPass::CreateDescriptor(),
+      EntitySelectionHighlightPass::CreateDescriptor(),
+      GaussianSplatCullPass::CreateDescriptor(nullptr),
+      GaussianSplatSortPass::CreateDescriptor(nullptr),
+      GaussianSplatPass::CreateDescriptor(nullptr),
+      MotionCoveragePass::CreateDescriptor(),
+      MotionVectorPass::CreateDescriptor(),
+      AmbientOcclusionPass::CreateDescriptor(),
+      PostProcessingPass::CreateDescriptor(nullptr),
+      RayTracingCameraPass::CreateDescriptor(),
+      RayQueryCameraPass::CreateDescriptor(),
+      TransparentGeometryPass::CreateDescriptor(),
+      VolumetricCloudsPass::CreateRasterDescriptor(nullptr),
+  };
+
+  for (const auto& descriptor : descriptors) {
+    SCOPED_TRACE(descriptor.name);
+    EXPECT_FALSE(descriptor.name.empty());
+    EXPECT_FALSE(descriptor.profiler_display_name.empty());
+    EXPECT_NE(descriptor.profiler_group, RenderPassProfilerGroup::Other);
+  }
+  EXPECT_EQ(DirectionalLightShadowPass::CreateDescriptor().profiler_group, RenderPassProfilerGroup::Shadows);
+  EXPECT_EQ(PostProcessingPass::CreateDescriptor(nullptr).profiler_group, RenderPassProfilerGroup::PostProcessing);
+
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  EXPECT_NE(render_layer.find("{\"PointShadow\", \"Point Shadow\", \"Shadows\""), std::string::npos);
+  EXPECT_NE(render_layer.find("{\"SpotShadow\", \"Spot Shadow\", \"Shadows\""), std::string::npos);
+  EXPECT_NE(render_layer.find("ReflectionProbeGgxPrefilter"), std::string::npos);
+  EXPECT_NE(render_layer.find("DynamicReflectionProbeGgxPrefilter"), std::string::npos);
+  EXPECT_NE(render_layer.find("ReflectionProbeBakeTotal"), std::string::npos);
+  EXPECT_NE(render_layer.find("DynamicReflectionProbeUpdateTotal"), std::string::npos);
+  EXPECT_NE(render_layer.find("GpuTimestampQueue::Graphics, 0, 0, false"), std::string::npos);
+}
+
+TEST(RenderGraph, CameraFrustumBoundsAreConservative) {
+  const glm::mat4 projection_view = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+  const auto intersects = [&](const glm::vec3& min, const glm::vec3& max) {
+    Bound bound;
+    bound.min = min;
+    bound.max = max;
+    return RenderInstanceStorage::BoundIntersectsCameraClipSpace(bound, projection_view);
+  };
+
+  EXPECT_TRUE(intersects({-1.0f, -1.0f, -6.0f}, {1.0f, 1.0f, -4.0f}));
+  EXPECT_TRUE(intersects({-0.1f, -0.1f, -0.2f}, {0.1f, 0.1f, -0.05f}));
+  EXPECT_FALSE(intersects({100.0f, -1.0f, -6.0f}, {102.0f, 1.0f, -4.0f}));
+  EXPECT_FALSE(intersects({-1.0f, -1.0f, 4.0f}, {1.0f, 1.0f, 6.0f}));
+  EXPECT_FALSE(intersects({-1.0f, -1.0f, -202.0f}, {1.0f, 1.0f, -200.0f}));
+
+  Bound invalid_bound;
+  EXPECT_FALSE(RenderInstanceStorage::IsFiniteBound(invalid_bound));
+  EXPECT_TRUE(RenderInstanceStorage::BoundIntersectsCameraClipSpace(invalid_bound, projection_view));
+}
+
+TEST(RenderGraph, MeshletSphereFrustumCullingHandlesTransformsConservatively) {
+  const glm::mat4 projection_view = glm::perspective(glm::radians(45.0f), 16.0f / 9.0f, 0.1f, 100.0f);
+  const glm::vec4 sphere{0.0f, 0.0f, 0.0f, 1.0f};
+
+  glm::mat4 model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+  model = glm::scale(model, glm::vec3(-2.0f, 0.5f, 1.0f));
+  EXPECT_TRUE(RenderInstanceStorage::MeshletSphereIntersectsClipSpace(sphere, model, projection_view, true));
+
+  model = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 0.0f, -5.0f));
+  model = glm::scale(model, glm::vec3(-2.0f, 0.5f, 1.0f));
+  EXPECT_FALSE(RenderInstanceStorage::MeshletSphereIntersectsClipSpace(sphere, model, projection_view, true));
+
+  model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -0.05f));
+  EXPECT_TRUE(RenderInstanceStorage::MeshletSphereIntersectsClipSpace(sphere, model, projection_view, true));
+  EXPECT_TRUE(
+      RenderInstanceStorage::MeshletSphereIntersectsClipSpace({0.0f, 0.0f, 0.0f, -1.0f}, model, projection_view, true));
+}
+
+TEST(RenderGraph, MeshletConeCullingIsConservativelyGated) {
+  const auto culling =
+      ReadTextFile(SdkPath("Internals/DefaultResources/Shaders/Modules/EvoEngine/MeshletCulling.slang"));
+  const auto task = ReadTextFile(SdkPath("Internals/DefaultResources/Shaders/Graphics/Task/Standard/Standard.slang"));
+
+  EXPECT_NE(culling.find("determinant(linear) > 0.0f"), std::string::npos);
+  EXPECT_NE(culling.find("maximum_length <= minimum_length * 1.0001f"), std::string::npos);
+  EXPECT_NE(culling.find("EE_MESHLET_CULL_CONE_FRONT"), std::string::npos);
+  EXPECT_NE(task.find("EE_MESHLET_CONE_VISIBLE"), std::string::npos);
+}
+
+TEST(RenderGraph, ShadowFrustumBoundsAreConservative) {
+  Bound visible_bound;
+  visible_bound.min = {-0.5f, -0.5f, -0.5f};
+  visible_bound.max = {0.5f, 0.5f, 0.5f};
+  Bound outside_bound;
+  outside_bound.min = {2.0f, -0.5f, -0.5f};
+  outside_bound.max = {3.0f, 0.5f, 0.5f};
+  Bound invalid_bound;
+  EXPECT_TRUE(RenderInstanceStorage::BoundIntersectsShadowClipSpace(visible_bound, glm::mat4(1.0f)));
+  EXPECT_FALSE(RenderInstanceStorage::BoundIntersectsShadowClipSpace(outside_bound, glm::mat4(1.0f)));
+  EXPECT_TRUE(RenderInstanceStorage::BoundIntersectsShadowClipSpace(invalid_bound, glm::mat4(1.0f)));
+}
+
+TEST(RenderGraph, PackedShadowIndirectUsesOneStableArenaAndViewOffsets) {
+  const auto storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto header = ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
+  EXPECT_NE(header.find("VkDeviceSize indirect_buffer_offset = 0"), std::string::npos);
+  EXPECT_NE(storage.find("FinalizeShadowIndirectBuffers(use_mesh_shader)"), std::string::npos);
+  EXPECT_NE(storage.find("visibility.indirect_buffer_offset = VectorBytes(packed_shadow"), std::string::npos);
+  EXPECT_NE(storage.find("add_vector_if_changed(packed_shadow_indirect_buffer"), std::string::npos);
+  EXPECT_NE(storage.find("BufferUploadBatch upload_batch"), std::string::npos);
+}
+
+TEST(RenderGraph, PackedCameraIndirectUsesAlignedArenaRanges) {
+  const auto storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
+  const auto geometry = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
+  EXPECT_NE(storage.find("StorageBufferAlignment()"), std::string::npos);
+  EXPECT_NE(storage.find("AppendAligned(packed_camera_indexed_commands"), std::string::npos);
+  EXPECT_NE(geometry.find("indexed_indirect_buffer_offset +"), std::string::npos);
+}
+
+TEST(RenderGraph, PersistentInstanceStatePlansOnlyDirtyGpuRanges) {
+  using Storage = RenderInstanceStorage;
+  std::vector<Storage::InstanceInfoBlock> previous_instances(5);
+  std::vector<Storage::InstanceInfoBlock> current_instances = previous_instances;
+  current_instances[1].model.value[3].x = 1.0f;
+  current_instances[2].world_bound_max.x = 2.0f;
+  current_instances[4].material_index = 3;
+  const auto instance_ranges = Storage::PlanInstanceInfoUploadRanges(previous_instances, current_instances);
+  ASSERT_EQ(instance_ranges.size(), 2u);
+  EXPECT_EQ(instance_ranges[0].first_instance, 1u);
+  EXPECT_EQ(instance_ranges[0].instance_count, 2u);
+  EXPECT_EQ(instance_ranges[1].first_instance, 4u);
+  EXPECT_EQ(instance_ranges[1].instance_count, 1u);
+  EXPECT_TRUE(Storage::PlanInstanceInfoUploadRanges(current_instances, current_instances).empty());
+
+  auto selection_instances = previous_instances;
+  selection_instances[3].info_index = 1;
+  const auto selection_ranges = Storage::PlanInstanceInfoUploadRanges(previous_instances, selection_instances);
+  ASSERT_EQ(selection_ranges.size(), 1u);
+  EXPECT_EQ(selection_ranges[0].first_instance, 3u);
+  EXPECT_EQ(selection_ranges[0].instance_count, 1u);
+
+  std::vector<Storage::PreviousInstanceInfoBlock> previous_motion(4);
+  std::vector<Storage::PreviousInstanceInfoBlock> current_motion = previous_motion;
+  current_motion[2].previous_model[3].z = 5.0f;
+  current_motion[3].flags.x = 1u;
+  const auto motion_ranges = Storage::PlanPreviousInstanceInfoUploadRanges(previous_motion, current_motion);
+  ASSERT_EQ(motion_ranges.size(), 1u);
+  EXPECT_EQ(motion_ranges[0].first_instance, 2u);
+  EXPECT_EQ(motion_ranges[0].instance_count, 2u);
+}
+
+TEST(RenderGraph, RasterSpatialIndexMatchesLinearQueriesAndTracksLifecycle) {
+  using SpatialIndex = RenderInstanceStorage::RasterSpatialIndex;
+  SpatialIndex index;
+  std::vector<std::pair<Handle, Bound>> leaves;
+  for (uint32_t i = 0; i < 64u; ++i) {
+    const glm::vec3 center{static_cast<float>((i * 17u) % 23u) - 11.0f, static_cast<float>((i * 11u) % 19u) - 9.0f,
+                           static_cast<float>((i * 7u) % 29u) - 14.0f};
+    const glm::vec3 extent{0.2f + static_cast<float>(i % 5u) * 0.15f};
+    leaves.emplace_back(Handle(i + 1u), Bound{center - extent, center + extent});
+  }
+  index.BeginUpdate();
+  for (const auto& [handle, bound] : leaves) {
+    index.Upsert(handle, bound);
+  }
+  index.EndUpdate();
+  EXPECT_EQ(index.GetUpdateStats().leaf_count, leaves.size());
+  EXPECT_EQ(index.GetUpdateStats().inserted_leaves, leaves.size());
+
+  const auto overlaps = [](const Bound& left, const Bound& right) {
+    return glm::all(glm::lessThanEqual(left.min, right.max)) && glm::all(glm::greaterThanEqual(left.max, right.min));
+  };
+  for (uint32_t i = 0; i < 32u; ++i) {
+    const glm::vec3 center{static_cast<float>((i * 13u) % 31u) - 15.0f, static_cast<float>((i * 5u) % 17u) - 8.0f,
+                           static_cast<float>((i * 19u) % 37u) - 18.0f};
+    const Bound query{center - glm::vec3(3.0f), center + glm::vec3(3.0f)};
+    std::vector<Handle> linear;
+    for (const auto& [handle, bound] : leaves) {
+      if (overlaps(bound, query)) {
+        linear.emplace_back(handle);
+      }
+    }
+    auto spatial = index.Query([&](const Bound& bound) {
+      return overlaps(bound, query);
+    });
+    std::sort(linear.begin(), linear.end(), [](const auto left, const auto right) {
+      return static_cast<uint64_t>(left) < static_cast<uint64_t>(right);
+    });
+    std::sort(spatial.begin(), spatial.end(), [](const auto left, const auto right) {
+      return static_cast<uint64_t>(left) < static_cast<uint64_t>(right);
+    });
+    EXPECT_EQ(spatial, linear);
+  }
+
+  index.BeginUpdate();
+  for (size_t i = 0; i + 1u < leaves.size(); ++i) {
+    auto bound = leaves[i].second;
+    if (i == 0u) {
+      bound.min += glm::vec3(100.0f);
+      bound.max += glm::vec3(100.0f);
+    }
+    index.Upsert(leaves[i].first, bound);
+  }
+  index.EndUpdate();
+  EXPECT_EQ(index.GetUpdateStats().reinserted_leaves, 1u);
+  EXPECT_EQ(index.GetUpdateStats().removed_leaves, 1u);
+  EXPECT_EQ(index.GetUpdateStats().unchanged_leaves, leaves.size() - 2u);
+  EXPECT_EQ(index.GetUpdateStats().leaf_count, leaves.size() - 1u);
 }
 
 TEST(RenderGraph, ExecutesPassesInInsertionOrderAndKeepsDescriptors) {
@@ -791,7 +1034,7 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
             plan.barriers.end());
 }
 
-TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
+TEST(RenderGraph, CompilePlansDdgiProbeTraceWithoutRayClear) {
   DdgiSettings settings;
   settings.volume_defaults.probe_counts = {2, 2, 2};
   settings.runtime.ray_count = 16;
@@ -822,15 +1065,6 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
                      1,
                      false,
                      layout.selected_ray_diagnostics_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_emissive_sampling_stats,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Persistent,
-                     {},
-                     {},
-                     1,
-                     1,
-                     false,
-                     sizeof(DdgiEmissiveSamplingStats)});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -858,7 +1092,7 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
                      1,
                      1,
                      false});
-  graph.AddPass(DdgiRayDiagnosticsPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DdgiProbeTracePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
 
   const auto plan = graph.Compile();
@@ -901,7 +1135,7 @@ TEST(RenderGraph, CompilePlansDdgiRayDiagnosticsWithoutRayClear) {
             plan.barriers.end());
 }
 
-TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
+TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterProbeTrace) {
   DdgiSettings settings;
   settings.volume_defaults.probe_counts = {2, 2, 2};
   settings.runtime.ray_count = 16;
@@ -932,15 +1166,6 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      false,
                      layout.selected_ray_diagnostics_byte_size});
-  graph.AddResource({RenderResourceNames::frame_ddgi_emissive_sampling_stats,
-                     RenderResourceType::Buffer,
-                     RenderResourceLifetime::Persistent,
-                     {},
-                     {},
-                     1,
-                     1,
-                     false,
-                     sizeof(DdgiEmissiveSamplingStats)});
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_state,
                      RenderResourceType::Buffer,
                      RenderResourceLifetime::Persistent,
@@ -1004,7 +1229,7 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterRayDiagnostics) {
                      1,
                      1,
                      true});
-  graph.AddPass(DdgiRayDiagnosticsPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DdgiProbeTracePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
   graph.AddPass(DdgiProbeUpdatePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
@@ -1350,7 +1575,8 @@ TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderRead
   const auto plan = graph.Compile(context);
   ASSERT_TRUE(plan.valid);
   ASSERT_EQ(plan.passes.size(), 4);
-  EXPECT_EQ(plan.passes[2].dependency_indices, std::vector<size_t>({1}));
+  EXPECT_TRUE(plan.passes[2].dependency_indices.empty());
+  EXPECT_EQ(plan.passes[2].resource_dependency_indices, std::vector<size_t>({0}));
   EXPECT_EQ(plan.passes[3].dependency_indices, std::vector<size_t>({2}));
 
   const auto transition = std::find_if(plan.transitions.begin(), plan.transitions.end(), [](const auto& candidate) {
@@ -1360,6 +1586,31 @@ TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderRead
   });
   ASSERT_NE(transition, plan.transitions.end());
   EXPECT_TRUE(transition->memory_dependency);
+}
+
+TEST(RenderGraph, AmbientOcclusionDoesNotRequireDepthPyramid) {
+  RenderGraph graph;
+  AddDefaultRasterCameraResources(graph);
+  AddAdvancedCameraResources(graph);
+  graph.AddPass(
+      {RenderPassNames::deferred_geometry,
+       RenderPassQueue::Graphics,
+       RenderPassScope::Camera,
+       {{RenderResourceNames::camera_depth, RenderResourceUsage::Write, RenderResourceState::DepthAttachment},
+        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}}},
+      [](const RenderGraphExecutionContext&) {
+      });
+  graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
+  });
+  graph.AddPass(DeferredLightingPass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
+  });
+
+  const auto plan = graph.Compile();
+  ASSERT_TRUE(plan.valid);
+  ASSERT_EQ(plan.passes.size(), 3);
+  EXPECT_TRUE(plan.passes[1].dependency_indices.empty());
+  EXPECT_EQ(plan.passes[1].resource_dependency_indices, std::vector<size_t>({0}));
+  EXPECT_EQ(plan.passes[2].dependency_indices, std::vector<size_t>({1}));
 }
 
 TEST(RenderGraph, CompileResolvesCameraRelativeAllocationDimensions) {
@@ -2244,7 +2495,7 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto editor_source = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   const auto ddgi_probe_update_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeUpdatePass.cpp"));
-  const auto ddgi_ray_diagnostics_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiRayDiagnosticsPass.cpp"));
+  const auto ddgi_probe_trace_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeTracePass.cpp"));
   const auto ddgi_variability_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeVariabilityPass.cpp"));
 
   EXPECT_NE(lighting_header.find("lighting_descriptor_sets_"), std::string::npos);
@@ -2271,7 +2522,7 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(post_processing_pass.find("RetainAsset(post_processing_stack)"), std::string::npos);
   EXPECT_NE(post_processing_pass.find("RetainPostProcessingResources"), std::string::npos);
   EXPECT_NE(ddgi_probe_update_pass.find("RetainBuffer(parameters.metadata_readback_buffer)"), std::string::npos);
-  EXPECT_NE(ddgi_ray_diagnostics_pass.find("RetainBuffer(parameters.selected_ray_readback_buffer)"), std::string::npos);
+  EXPECT_NE(ddgi_probe_trace_pass.find("RetainBuffer(parameters.selected_ray_readback_buffer)"), std::string::npos);
   EXPECT_NE(ddgi_variability_pass.find("RetainBuffer(parameters.readback_buffer)"), std::string::npos);
   const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
   const auto ray_retention = post_processing_pass.find("RetainPostProcessingResources", ray_process);

@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -27,6 +28,7 @@ class GaussianSplatCullPass;
 class GaussianSplatSortPass;
 class GaussianSplatPass;
 class MotionCoveragePass;
+class Scene;
 class TransparentGeometryPass;
 
 /**
@@ -56,14 +58,19 @@ struct RenderSettings {
   int shadow_debug_selected_light = 0;      ///< Selected directional light for CSM diagnostics.
   IndirectLightingDebugView indirect_lighting_debug_view = IndirectLightingDebugView::Beauty;
 
-  int pcf_sample_amount = 32;                    ///< Sample amount for point and spot PCF shadow filtering.
-  int directional_pcf_sample_amount = 16;        ///< Sample amount for directional PCF shadow filtering.
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
   float ddgi_hysteresis = 0.97f;                 ///< History weight used by normal DDGI probe updates.
   float ddgi_boosted_hysteresis = 0.85f;         ///< History weight used while a DDGI hysteresis boost is active.
   float ddgi_hysteresis_restore_speed = 0.001f;  ///< Hysteresis restored toward normal per unpaused frame.
+  bool ddgi_enable_probe_variability = true;
+  bool ddgi_enable_probe_variability_gating = true;
+  bool ddgi_pause_probe_updates_after_convergence = true;
+  float ddgi_random_ray_backface_threshold = 0.1f;
+  float ddgi_fixed_ray_backface_threshold = 0.25f;
+  float ddgi_probe_variability_threshold = 0.03f;
+  int ddgi_probe_variability_maximum_frames = 128;
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
@@ -81,9 +88,12 @@ struct RenderSettings {
  * @brief Struct containing push constants for render instances.
  */
 struct RenderInstancePushConstant {
-  int instance_index = 0;     ///< Index of the instance to render.
+  static constexpr uint32_t kRasterDrawInstanceMappingBit = 1u << 31;
+
+  int instance_index = 0;     ///< Canonical instance index or mapped-draw offset.
   int camera_index = 0;       ///< Index of the camera.
   int light_split_index = 0;  ///< Index of the light split for rendering.
+  uint32_t meshlet_culling_flags = 0;
 };
 
 /**
@@ -181,6 +191,18 @@ enum class RenderInstanceType {
  */
 class RenderInstanceStorage {
  public:
+  struct EntitySelectionRenderSnapshot {
+    std::weak_ptr<Scene> scene;
+    uint64_t selection_revision = 0;
+    uint64_t hierarchy_revision = 0;
+    Bound world_bound{};
+    bool has_renderable_bounds = false;
+
+    void Include(const Bound& bound);
+    [[nodiscard]] bool Matches(const std::shared_ptr<Scene>& target_scene, uint64_t target_selection_revision,
+                               uint64_t target_hierarchy_revision) const;
+  };
+
   static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
   static constexpr uint32_t kDdgiMaxVolumeCount = 8;
   static constexpr uint32_t kReflectionProbeMaxCount = 32;
@@ -224,7 +246,7 @@ class RenderInstanceStorage {
    */
   struct alignas(16) RenderInfoBlock {
     glm::vec4 split_distances = {};                           ///< Distances for shadow cascade splits.
-    alignas(4) int pcf_sample_amount = 32;                    ///< PCF sampling amount.
+    alignas(4) int reserved_0 = 0;                            ///< Preserves the shader buffer layout.
     alignas(4) int debug_visualization = 0;                   ///< Debug visualization flag.
     alignas(4) float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width.
     alignas(4) float indirect_lighting_intensity = 1.0f;
@@ -239,7 +261,7 @@ class RenderInstanceStorage {
     alignas(4) int spot_light_size = 0;         ///< Number of spot lights.
     alignas(4) int brdflut_texture_index = 0;   ///< Texture index for BRDF LUT.
 
-    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);  ///< Debug mode/cascade/light and directional PCF samples.
+    glm::ivec4 shadow_debug_parameters = glm::ivec4(0);  ///< Debug mode, cascade, light, and reserved value.
     glm::vec4 shadow_fade_parameters = glm::vec4(20.0f, 0.0f, 0.0f, 0.0f);
     glm::uvec4 emissive_triangle_parameters = glm::uvec4(0);
     glm::uvec4 ddgi_volume_header = glm::uvec4(0u);
@@ -369,6 +391,8 @@ class RenderInstanceStorage {
     uint32_t entity_index = 0;   ///< Entity index associated with the instance.
     Handle renderer_handle = 0;  ///< Handle for the renderer.
     glm::ivec4 ray_tracing_geometry = {};
+    glm::vec4 world_bound_min = {};
+    glm::vec4 world_bound_max = {};
 
     /**
      * @brief Compares two InstanceInfoBlock objects for inequality.
@@ -377,6 +401,7 @@ class RenderInstanceStorage {
      */
     bool operator!=(const InstanceInfoBlock& other) const;
   };
+  static_assert(sizeof(InstanceInfoBlock) == 144);
 
   struct PreviousInstanceInfoBlock {
     glm::mat4 previous_model = glm::mat4(1.0f);
@@ -645,6 +670,7 @@ class RenderInstanceStorage {
      * @return True if the collection is empty, false otherwise.
      */
     bool Empty() const override;
+    void Clear();
 
     /**
      * @brief Registers a render instance in the collection.
@@ -683,6 +709,7 @@ class RenderInstanceStorage {
      * @return True if the collection is empty, false otherwise.
      */
     bool Empty() const override;
+    void Clear();
 
     /**
      * @brief Registers a render instance in the collection.
@@ -711,6 +738,7 @@ class RenderInstanceStorage {
      * @return True if the collection is empty, false otherwise.
      */
     bool Empty() const override;
+    void Clear();
 
     /**
      * @brief Registers a render instance in the collection.
@@ -747,6 +775,7 @@ class RenderInstanceStorage {
      * @return True if the collection is empty, false otherwise.
      */
     bool Empty() const override;
+    void Clear();
 
     /**
      * @brief Registers a render instance in the collection.
@@ -776,6 +805,7 @@ class RenderInstanceStorage {
 
    public:
     bool Empty() const override;
+    void Clear();
     void Register(const std::shared_ptr<IRenderInstance>& render_instance) override;
     bool operator!=(const GaussianSplatRenderInstanceCollection& other) const;
     void ForEachRenderInstance(const std::function<void(const std::shared_ptr<IRenderInstance>&)>& action) override;
@@ -796,6 +826,7 @@ class RenderInstanceStorage {
      * @return True if the collection is empty, false otherwise.
      */
     bool Empty() const override;
+    void Clear();
 
     /**
      * @brief Registers a render instance in the collection.
@@ -903,7 +934,6 @@ class RenderInstanceStorage {
 
   struct DeferredMeshIndirectBatch {
     int32_t material_index = -1;
-    int32_t first_instance_index = 0;
     uint32_t first_command = 0;
     uint32_t command_count = 0;
     uint32_t triangle_count = 0;
@@ -912,7 +942,112 @@ class RenderInstanceStorage {
     VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   };
 
+  class RasterSpatialIndex {
+   public:
+    struct UpdateStats {
+      uint32_t leaf_count = 0;
+      uint32_t node_count = 0;
+      uint32_t max_depth = 0;
+      uint32_t inserted_leaves = 0;
+      uint32_t removed_leaves = 0;
+      uint32_t reinserted_leaves = 0;
+      uint32_t unchanged_leaves = 0;
+    };
+
+    struct QueryStats {
+      uint32_t visited_nodes = 0;
+      uint32_t tested_leaves = 0;
+      uint32_t accepted_leaves = 0;
+    };
+
+    void BeginUpdate();
+    void Upsert(Handle handle, const Bound& bound);
+    void EndUpdate();
+    [[nodiscard]] std::vector<Handle> Query(const std::function<bool(const Bound&)>& intersects,
+                                            QueryStats* stats = nullptr) const;
+    [[nodiscard]] const UpdateStats& GetUpdateStats() const;
+
+   private:
+    struct Node {
+      Bound bound{};
+      Bound exact_bound{};
+      Handle handle = 0;
+      int32_t parent = -1;
+      int32_t left = -1;
+      int32_t right = -1;
+      bool active = false;
+
+      [[nodiscard]] bool IsLeaf() const;
+    };
+
+    int32_t root_ = -1;
+    std::vector<Node> nodes_{};
+    std::vector<int32_t> free_nodes_{};
+    std::unordered_map<Handle, int32_t> leaves_{};
+    std::unordered_set<Handle> seen_{};
+    UpdateStats update_stats_{};
+
+    [[nodiscard]] int32_t AllocateNode();
+    void ReleaseNode(int32_t node_index);
+    void InsertLeaf(int32_t leaf_index);
+    void DetachLeaf(int32_t leaf_index);
+    void RefreshAncestors(int32_t node_index);
+    void RebuildBalanced();
+    void RefreshTreeStats();
+  };
+
+  struct CameraRasterVisibility {
+    bool enabled = false;
+    uint32_t draw_instance_index_offset = 0;
+    VkDeviceSize indexed_indirect_buffer_offset = 0;
+    VkDeviceSize mesh_task_indirect_buffer_offset = 0;
+    std::vector<uint8_t> instance_visibility;
+    std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
+    std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
+    std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
+    std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands;
+    std::shared_ptr<Buffer> mesh_draw_mesh_tasks_indirect_commands_buffer;
+    uint32_t total_gaussian_splats = 0;
+    std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+    std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> forward_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> forward_strands_render_instances;
+    std::shared_ptr<MeshRenderInstanceCollection> transparent_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> transparent_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> transparent_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> transparent_strands_render_instances;
+    std::shared_ptr<GaussianSplatRenderInstanceCollection> gaussian_splat_render_instances;
+    std::vector<uint32_t> draw_instance_indices;
+  };
+
+  struct InstanceUploadRange {
+    uint32_t first_instance = 0;
+    uint32_t instance_count = 0;
+  };
+
+  struct ShadowViewIndirectCommands {
+    uint32_t draw_instance_index_offset = 0;
+    VkDeviceSize indirect_buffer_offset = 0;
+    std::vector<VkDrawIndexedIndirectCommand> indexed_commands;
+    std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_task_commands;
+    std::shared_ptr<Buffer> indirect_buffer;
+    std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+    std::vector<uint32_t> draw_instance_indices;
+    uint64_t submitted_primitives = 0;
+  };
+
   std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
+
+  uint32_t deferred_mesh_draw_instance_index_offset = 0;
+  std::vector<uint32_t> raster_draw_instance_indices;
+  std::shared_ptr<Buffer> raster_draw_instance_indices_buffer;
 
   std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
@@ -925,14 +1060,40 @@ class RenderInstanceStorage {
 
   std::vector<VkDrawMeshTasksIndirectCommandEXT> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands;
   std::shared_ptr<Buffer> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer;
+  std::vector<VkDrawIndexedIndirectCommand> packed_shadow_indexed_commands;
+  std::vector<VkDrawMeshTasksIndirectCommandEXT> packed_shadow_mesh_task_commands;
+  std::shared_ptr<Buffer> packed_shadow_indirect_buffer;
+  bool packed_shadow_uses_mesh_shader_ = false;
+  BufferUploadArena upload_arena_{};
+  std::unordered_map<const Buffer*, uint64_t> uploaded_payload_signatures_{};
+  std::vector<VkDrawIndexedIndirectCommand> packed_camera_indexed_commands;
+  std::vector<VkDrawMeshTasksIndirectCommandEXT> packed_camera_mesh_task_commands;
+  std::shared_ptr<Buffer> packed_camera_indexed_buffer;
+  std::shared_ptr<Buffer> packed_camera_mesh_task_buffer;
+  std::vector<ShadowViewIndirectCommands> directional_shadow_views_;
+  std::vector<ShadowViewIndirectCommands> point_shadow_views_;
+  std::vector<ShadowViewIndirectCommands> spot_shadow_views_;
+  uint32_t directional_shadow_light_count_ = 0;
 
-  uint32_t total_mesh_triangles = 0;
   uint32_t total_opaque_shadow_mesh_triangles = 0;
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;
-  uint32_t total_strand_meshlets = 0;
   uint32_t total_gaussian_splats = 0;
+
+  [[nodiscard]] static bool IsFiniteBound(const Bound& bound);
+  [[nodiscard]] static bool BoundIntersectsCameraClipSpace(const Bound& bound, const glm::mat4& projection_view);
+  [[nodiscard]] static bool BoundIntersectsShadowClipSpace(const Bound& bound, const glm::mat4& projection_view);
+  [[nodiscard]] static bool MeshletSphereIntersectsClipSpace(const glm::vec4& local_sphere, const glm::mat4& model,
+                                                             const glm::mat4& projection_view, bool zero_near_plane);
+  void BuildRasterVisibility(bool use_mesh_shader);
+  [[nodiscard]] bool IsInstanceVisible(int32_t camera_index, int32_t instance_index) const;
+  [[nodiscard]] const CameraRasterVisibility* GetCameraRasterVisibility(int32_t camera_index) const;
+  [[nodiscard]] ShadowViewIndirectCommands BuildShadowViewIndirectCommands(const glm::mat4& light_space_matrix);
+  [[nodiscard]] const ShadowViewIndirectCommands* GetDirectionalShadowView(int32_t camera_index, int32_t light_index,
+                                                                           uint32_t split) const;
+  [[nodiscard]] const ShadowViewIndirectCommands* GetPointShadowView(int32_t light_index, uint32_t face) const;
+  [[nodiscard]] const ShadowViewIndirectCommands* GetSpotShadowView(int32_t light_index) const;
   /**
    * @brief Clears all the render instance data and collections.
    */
@@ -975,7 +1136,10 @@ class RenderInstanceStorage {
       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
       bool include_reflection_probes = true,
       const std::unordered_map<uint64_t, ReflectionProbeTextureOverride>* reflection_probe_texture_overrides = nullptr,
-      const EntitySelectionHighlightCoverage* entity_selection_highlight_coverage = nullptr);
+      std::shared_ptr<const EntitySelectionHighlightCoverage> entity_selection_highlight_coverage = {},
+      uint64_t entity_selection_revision = 0, uint64_t scene_hierarchy_revision = 0);
+
+  [[nodiscard]] const EntitySelectionRenderSnapshot& GetEntitySelectionRenderSnapshot() const;
 
   /**
    * @brief Updates the top-level acceleration structure for ray tracing.
@@ -1041,8 +1205,9 @@ class RenderInstanceStorage {
 
   /**
    * @brief Uploads all data and render instance information to the GPU.
+   * @param immediate Submit and complete uploads immediately instead of recording them into the current frame stream.
    */
-  void Upload();
+  void Upload(bool immediate = false);
 
   [[nodiscard]] const std::vector<GltfShadeMaterial>& GetGltfShadeMaterials() const;
 
@@ -1057,6 +1222,10 @@ class RenderInstanceStorage {
    */
   [[nodiscard]] const std::vector<InstanceInfoBlock>& GetInstanceInfoBlocks() const;
   [[nodiscard]] const std::vector<PreviousInstanceInfoBlock>& GetPreviousInstanceInfoBlocks() const;
+  [[nodiscard]] static std::vector<InstanceUploadRange> PlanInstanceInfoUploadRanges(
+      const std::vector<InstanceInfoBlock>& previous, const std::vector<InstanceInfoBlock>& current);
+  [[nodiscard]] static std::vector<InstanceUploadRange> PlanPreviousInstanceInfoUploadRanges(
+      const std::vector<PreviousInstanceInfoBlock>& previous, const std::vector<PreviousInstanceInfoBlock>& current);
   [[nodiscard]] uint32_t GetReflectionProbeCount() const;
   [[nodiscard]] const std::array<ReflectionProbeInfoBlock, kReflectionProbeMaxCount>& GetReflectionProbeInfoBlocks()
       const;
@@ -1097,6 +1266,50 @@ class RenderInstanceStorage {
   std::vector<InstanceInfoBlock> instance_info_blocks_{};
   std::vector<PreviousInstanceInfoBlock> previous_instance_info_blocks_{};
   std::vector<uint32_t> rigid_motion_supported_{};
+  struct PersistentTransformRecord {
+    GlobalTransform model{};
+    Bound local_bound{};
+    Bound world_bound{};
+    uint64_t content_signature = 0;
+  };
+  std::unordered_map<Handle, PersistentTransformRecord> persistent_transform_records_{};
+  std::unordered_set<Handle> persistent_transform_seen_{};
+  struct StaticMeshRenderInstanceRecord {
+    Entity source_owner{};
+    Bound local_bound{};
+    std::shared_ptr<MeshRenderInstance> render_instance{};
+    bool transparent = false;
+  };
+  std::weak_ptr<Scene> static_mesh_cache_scene_{};
+  uint64_t static_mesh_cache_structure_revision_ = 0;
+  std::unordered_map<Handle, StaticMeshRenderInstanceRecord> static_mesh_render_instance_cache_{};
+  std::vector<InstanceInfoBlock> uploaded_instance_info_blocks_{};
+  std::vector<PreviousInstanceInfoBlock> uploaded_previous_instance_info_blocks_{};
+  struct CachedMaterialData {
+    uint32_t version = 0;
+    GltfMaterialData data{};
+  };
+  std::unordered_map<Handle, CachedMaterialData> material_data_cache_{};
+  std::unordered_map<Handle, uint32_t> material_versions_{};
+  std::unordered_set<Handle> active_material_handles_{};
+  uint64_t canonical_structure_signature_ = 0;
+  bool canonical_structure_initialized_ = false;
+  bool canonical_structure_changed_this_frame_ = false;
+  bool material_cache_changed_this_frame_ = false;
+  enum class SpatialRenderCategory : uint8_t {
+    Deferred,
+    Forward,
+    Transparent,
+    Gaussian,
+  };
+  struct SpatialRenderEntry {
+    std::shared_ptr<IRenderInstance> render_instance{};
+    SpatialRenderCategory category = SpatialRenderCategory::Deferred;
+    int32_t deferred_mesh_command_index = -1;
+  };
+  RasterSpatialIndex raster_spatial_index_{};
+  std::unordered_map<Handle, SpatialRenderEntry> spatial_render_entries_{};
+  std::vector<SpatialRenderEntry> spatial_always_visible_entries_{};
 
   struct EmissiveTriangleInstanceSignature {
     uint64_t mesh_handle = 0;
@@ -1138,6 +1351,7 @@ class RenderInstanceStorage {
   std::vector<SpotLightInfoBlock> spot_light_info_blocks_;
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};
+  std::vector<CameraRasterVisibility> camera_raster_visibility_{};
   uint32_t raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
   std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
@@ -1156,6 +1370,14 @@ class RenderInstanceStorage {
 
   std::shared_ptr<GaussianSplatRenderInstanceCollection> gaussian_splat_render_instances;
   std::shared_ptr<ExternalRenderInstanceCollection> external_render_instances;
+  struct TopLevelAccelerationStructureInput {
+    std::shared_ptr<IRenderInstance> render_instance;
+    std::shared_ptr<BottomLevelAccelerationStructure> bottom_level_acceleration_structure;
+    glm::mat4 model{1.0f};
+    uint32_t custom_index = 0;
+    bool linear_swept_spheres = false;
+  };
+  std::vector<TopLevelAccelerationStructureInput> top_level_acceleration_structure_inputs_;
   uint32_t geometry_storage_version = 0;
   uint32_t texture_storage_version = 0;
 
@@ -1169,7 +1391,8 @@ class RenderInstanceStorage {
   friend class MotionCoveragePass;
   friend class TransparentGeometryPass;
   friend class CpuRayTracer;
-  EntitySelectionHighlightCoverage entity_selection_highlight_coverage_;
+  std::shared_ptr<const EntitySelectionHighlightCoverage> entity_selection_highlight_coverage_;
+  EntitySelectionRenderSnapshot entity_selection_render_snapshot_;
 
   [[nodiscard]] bool IsEntitySelectionHighlighted(const Entity& entity) const;
   /**
@@ -1178,6 +1401,23 @@ class RenderInstanceStorage {
    * @param world_bound Output bounding box for the world.
    */
   void CollectEntityRenderers(const std::shared_ptr<Scene>& target_scene, Bound& world_bound);
+  [[nodiscard]] const Bound* FindPersistentWorldBound(Handle renderer_handle, const GlobalTransform& model,
+                                                      const Bound& local_bound, uint64_t content_signature);
+  void StorePersistentWorldBound(Handle renderer_handle, const GlobalTransform& model, const Bound& local_bound,
+                                 uint64_t content_signature, const Bound& world_bound);
+  void PrunePersistentTransformRecords();
+  void PrepareStaticMeshCache(const std::shared_ptr<Scene>& scene);
+  void InvalidateStaticEntityCache(const std::shared_ptr<Scene>& scene, const Entity& entity);
+  [[nodiscard]] const GltfMaterialData& ResolveMaterialData(const std::shared_ptr<Material>& material);
+  [[nodiscard]] uint64_t CalculateCanonicalStructureSignature() const;
+  void UpdateRasterSpatialIndex();
+  [[nodiscard]] std::vector<SpatialRenderEntry> QueryRasterSpatialEntries(
+      const std::function<bool(const Bound&)>& intersects) const;
+  [[nodiscard]] CameraRasterVisibility BuildCameraRasterVisibilityResult(size_t camera_index) const;
+  void MergeCameraRasterVisibilityResult(size_t camera_index, CameraRasterVisibility&& visibility);
+  void MergeShadowRasterVisibilityResult(ShadowViewIndirectCommands& destination,
+                                         ShadowViewIndirectCommands&& visibility, bool use_mesh_shader);
+  void FinalizeShadowIndirectBuffers(bool use_mesh_shader);
 
   /**
    * @brief Builds render instance blocks for rendering.

@@ -47,13 +47,14 @@ void TransformGraph::CalculateTransformGraphs(const std::shared_ptr<Scene>& scen
       [&](int i, const Entity entity, Transform& transform, GlobalTransform& global_transform,
           TransformUpdateFlag& transform_status) {
         const EntityMetadata& entity_info = scene->scene_data_storage_.entity_metadata_list.at(entity.GetIndex());
-        transform_status.transform_modified = false;
         if (entity_info.parent.GetIndex() != 0) {
           return;
         }
-        if (check_static && entity_info.entity_static) {
+        if (check_static && entity_info.entity_static && !transform_status.transform_modified &&
+            !transform_status.global_transform_modified) {
           return;
         }
+        transform_status.transform_modified = false;
         if (transform_status.global_transform_modified) {
           transform.value = global_transform.value;
           transform_status.global_transform_modified = false;

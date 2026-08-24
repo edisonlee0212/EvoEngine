@@ -50,6 +50,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/EnvironmentalLightingAssetTest.cpp
 	Core/EntitySelectionTest.cpp
 	Core/EntityBatchInspectorTest.cpp
+	Core/StaticSceneRenderTest.cpp
 	Core/EditorConsoleContractTest.cpp
 	Core/RenderingDocumentationTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
@@ -264,6 +265,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER EntityBatchInspector.*
 	PROPERTIES LABELS "core,editor,selection"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER StaticSceneRender.*
+	PROPERTIES LABELS "core,render,editor"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
