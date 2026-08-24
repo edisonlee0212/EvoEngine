@@ -59,6 +59,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   };
 
   struct MeshingSettings {
+    /// When true, skip loading a cached meshing buffer and overwrite it after computing.
+    bool override_meshing_buffer = false;
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
     /// When true, kinDS collects runtime/event statistics and writes CSV after meshing.

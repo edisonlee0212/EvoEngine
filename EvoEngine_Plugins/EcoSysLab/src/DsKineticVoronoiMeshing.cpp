@@ -5,10 +5,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
@@ -24,6 +28,7 @@
 #include "MeshRenderer.hpp"
 #include "Platform/Platform.hpp"
 #include "ProgressBar.hpp"
+#include "ProjectManager.hpp"
 #include "Shader.hpp"
 #include "Transform.hpp"
 #include "kinDS/kinDS/KineticDelaunay.hpp"
@@ -34,6 +39,446 @@
 #include "kinDS/kinDS/Statistics.hpp"
 
 using namespace eco_sys_lab_plugin;
+
+namespace {
+
+using GpuMeshletVertex = DsKineticVoronoiMeshing::GpuSegmentMeshletVertex;
+using GpuMeshletTriangle = DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle;
+
+constexpr char kMeshingBufferMagic[4] = {'K', 'V', 'M', 'G'};
+constexpr uint32_t kMeshingBufferVersion = 1;
+constexpr uint64_t kFnvOffset = 14695981039346656037ull;
+constexpr uint64_t kFnvPrime = 1099511628211ull;
+constexpr uint64_t kMaxMeshingBufferCount = 500000000ull;
+constexpr uint64_t kMaxMeshingBufferString = 16ull * 1024ull * 1024ull;
+
+struct Fnv64 {
+  uint64_t value = kFnvOffset;
+  void MixBytes(const void* data, size_t size) {
+    const auto* bytes = static_cast<const uint8_t*>(data);
+    for (size_t i = 0; i < size; ++i) {
+      value ^= bytes[i];
+      value *= kFnvPrime;
+    }
+  }
+  void MixCString(const char* text) { MixBytes(text, std::strlen(text)); }
+  template <typename T>
+  void MixPod(const T& value_pod) {
+    MixBytes(&value_pod, sizeof(T));
+  }
+  template <typename T>
+  void MixVec(const std::vector<T>& values) {
+    MixPod(static_cast<uint64_t>(values.size()));
+    if (!values.empty()) {
+      MixBytes(values.data(), values.size() * sizeof(T));
+    }
+  }
+  template <typename T>
+  void MixNested(const std::vector<std::vector<T>>& values) {
+    MixPod(static_cast<uint64_t>(values.size()));
+    for (const auto& inner : values) {
+      MixVec(inner);
+    }
+  }
+};
+
+std::string HashToHex(uint64_t hash) {
+  std::ostringstream stream;
+  stream << std::hex << std::setw(16) << std::setfill('0') << hash;
+  return stream.str();
+}
+
+std::filesystem::path MeshingBufferDirectory() {
+  const auto project_path = ProjectManager::GetProjectPath();
+  if (project_path.empty()) {
+    return std::filesystem::path("MeshBuffers");
+  }
+  return project_path.parent_path() / "MeshBuffers";
+}
+
+std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& support_points,
+                                    const std::vector<std::vector<double>>& subdivisions_by_strand,
+                                    const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+                                    const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
+                                    const GlobalTransform& root_transform,
+                                    const std::vector<std::vector<size_t>>& branch_indices,
+                                    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
+  Fnv64 hash;
+  hash.MixCString("DsKineticVoronoiMeshing.v1");
+  hash.MixPod(kMeshingBufferVersion);
+  hash.MixPod(static_cast<uint8_t>(1));  // mesh_cap_at_start
+  hash.MixPod(static_cast<uint8_t>(1));  // transform_mesh_at_construction
+  hash.MixPod(static_cast<uint8_t>(DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0));
+  hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.spline_tension);
+  hash.MixPod(root_transform.value);
+  hash.MixNested(support_points);
+  hash.MixNested(subdivisions_by_strand);
+  hash.MixNested(physics_strand_to_segment_indices);
+  hash.MixNested(transforms_by_height_and_branch);
+  hash.MixNested(branch_indices);
+  hash.MixPod(static_cast<uint64_t>(strands_by_branch_id.size()));
+  for (const auto& by_height : strands_by_branch_id) {
+    hash.MixNested(by_height);
+  }
+  return HashToHex(hash.value);
+}
+
+class BinaryWriter {
+ public:
+  explicit BinaryWriter(const std::filesystem::path& path)
+      : out_(path, std::ios::binary | std::ios::trunc) {}
+  bool Good() const { return static_cast<bool>(out_); }
+  template <typename T>
+  void WritePod(const T& value) {
+    out_.write(reinterpret_cast<const char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+  }
+  void WriteBytes(const void* data, size_t size) {
+    if (size == 0) {
+      return;
+    }
+    out_.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(size));
+  }
+  template <typename T>
+  void WriteVec(const std::vector<T>& values) {
+    WritePod(static_cast<uint64_t>(values.size()));
+    if (!values.empty()) {
+      WriteBytes(values.data(), values.size() * sizeof(T));
+    }
+  }
+  void WriteSizeTVec(const std::vector<size_t>& values) {
+    WritePod(static_cast<uint64_t>(values.size()));
+    if constexpr (sizeof(size_t) == 8) {
+      if (!values.empty()) {
+        WriteBytes(values.data(), values.size() * sizeof(size_t));
+      }
+    } else {
+      for (const size_t value : values) {
+        WritePod(static_cast<uint64_t>(value));
+      }
+    }
+  }
+  void WriteString(const std::string& value) {
+    WritePod(static_cast<uint64_t>(value.size()));
+    WriteBytes(value.data(), value.size());
+  }
+  void WriteStrings(const std::vector<std::string>& values) {
+    WritePod(static_cast<uint64_t>(values.size()));
+    for (const auto& value : values) {
+      WriteString(value);
+    }
+  }
+  void WriteNestedInt(const std::vector<std::vector<int>>& values) {
+    WritePod(static_cast<uint64_t>(values.size()));
+    for (const auto& inner : values) {
+      WriteVec(inner);
+    }
+  }
+  void WriteNestedSizeT(const std::vector<std::vector<size_t>>& values) {
+    WritePod(static_cast<uint64_t>(values.size()));
+    for (const auto& inner : values) {
+      WriteSizeTVec(inner);
+    }
+  }
+
+ private:
+  std::ofstream out_;
+};
+
+class BinaryReader {
+ public:
+  explicit BinaryReader(const std::filesystem::path& path) : in_(path, std::ios::binary) {}
+  bool Good() const { return !failed_ && static_cast<bool>(in_); }
+  void Fail() { failed_ = true; }
+  template <typename T>
+  T ReadPod() {
+    T value{};
+    in_.read(reinterpret_cast<char*>(&value), static_cast<std::streamsize>(sizeof(T)));
+    if (!in_) {
+      failed_ = true;
+    }
+    return value;
+  }
+  template <typename T>
+  std::vector<T> ReadVec() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferCount) {
+      failed_ = true;
+      return {};
+    }
+    std::vector<T> values(static_cast<size_t>(count));
+    if (count > 0) {
+      in_.read(reinterpret_cast<char*>(values.data()), static_cast<std::streamsize>(count * sizeof(T)));
+      if (!in_) {
+        failed_ = true;
+        return {};
+      }
+    }
+    return values;
+  }
+  std::vector<size_t> ReadSizeTVec() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferCount) {
+      failed_ = true;
+      return {};
+    }
+    std::vector<size_t> values(static_cast<size_t>(count));
+    if constexpr (sizeof(size_t) == 8) {
+      if (count > 0) {
+        in_.read(reinterpret_cast<char*>(values.data()), static_cast<std::streamsize>(count * sizeof(size_t)));
+        if (!in_) {
+          failed_ = true;
+          return {};
+        }
+      }
+    } else {
+      for (uint64_t i = 0; i < count; ++i) {
+        values[static_cast<size_t>(i)] = static_cast<size_t>(ReadPod<uint64_t>());
+      }
+    }
+    return values;
+  }
+  std::string ReadString() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferString) {
+      failed_ = true;
+      return {};
+    }
+    std::string value(static_cast<size_t>(count), '\0');
+    if (count > 0) {
+      in_.read(value.data(), static_cast<std::streamsize>(count));
+      if (!in_) {
+        failed_ = true;
+        return {};
+      }
+    }
+    return value;
+  }
+  std::vector<std::string> ReadStrings() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferCount) {
+      failed_ = true;
+      return {};
+    }
+    std::vector<std::string> values;
+    values.reserve(static_cast<size_t>(count));
+    for (uint64_t i = 0; i < count; ++i) {
+      values.push_back(ReadString());
+      if (failed_) {
+        return {};
+      }
+    }
+    return values;
+  }
+  std::vector<std::vector<int>> ReadNestedInt() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferCount) {
+      failed_ = true;
+      return {};
+    }
+    std::vector<std::vector<int>> values(static_cast<size_t>(count));
+    for (auto& inner : values) {
+      inner = ReadVec<int>();
+      if (failed_) {
+        return {};
+      }
+    }
+    return values;
+  }
+  std::vector<std::vector<size_t>> ReadNestedSizeT() {
+    const uint64_t count = ReadPod<uint64_t>();
+    if (failed_ || count > kMaxMeshingBufferCount) {
+      failed_ = true;
+      return {};
+    }
+    std::vector<std::vector<size_t>> values(static_cast<size_t>(count));
+    for (auto& inner : values) {
+      inner = ReadSizeTVec();
+      if (failed_) {
+        return {};
+      }
+    }
+    return values;
+  }
+
+ private:
+  std::ifstream in_;
+  bool failed_ = false;
+};
+
+void WriteVoronoiMesh(BinaryWriter& writer, const kinDS::VoronoiMesh& mesh) {
+  writer.WritePod(static_cast<int32_t>(mesh.getNormalMode()));
+  writer.WritePod(static_cast<uint8_t>(mesh.storeMetadata() ? 1 : 0));
+  writer.WritePod(mesh.getCreationKineticTime());
+  writer.WriteStrings(mesh.getMaterialNames());
+  writer.WriteVec(mesh.getVertices());
+  writer.WriteSizeTVec(mesh.getTriangles());
+  writer.WriteVec(mesh.getNormals());
+  writer.WriteVec(mesh.getUVs());
+  writer.WriteSizeTVec(mesh.getUVIndices());
+  writer.WriteVec(mesh.getMaterialIDs());
+  writer.WriteSizeTVec(mesh.getGroupOffsets());
+  writer.WriteStrings(mesh.getGroupNames());
+  writer.WriteVec(mesh.getVertexColors());
+  writer.WriteStrings(mesh.getVertexMetadata());
+  writer.WriteStrings(mesh.getFaceMetadata());
+  writer.WriteVec(mesh.getProfilePlaneXY());
+  writer.WriteVec(mesh.getVertexKineticTimes());
+  writer.WriteVec(mesh.getVertexSemanticUvs());
+  writer.WritePod(static_cast<uint64_t>(mesh.getVertexCount()));
+  for (size_t i = 0; i < mesh.getVertexCount(); ++i) {
+    writer.WritePod(static_cast<uint8_t>(mesh.isVertexFlexible(i) ? 1 : 0));
+  }
+}
+
+kinDS::VoronoiMesh ReadVoronoiMesh(BinaryReader& reader) {
+  const auto normal_mode = static_cast<kinDS::NormalMode>(reader.ReadPod<int32_t>());
+  const bool store_metadata = reader.ReadPod<uint8_t>() != 0;
+  const double creation_time = reader.ReadPod<double>();
+  auto material_names = reader.ReadStrings();
+  kinDS::VoronoiMesh mesh(std::move(material_names), normal_mode);
+  mesh.setStoreMetadata(store_metadata);
+  mesh.setCreationKineticTime(creation_time);
+  mesh.getVertices() = reader.ReadVec<glm::dvec3>();
+  mesh.getTriangles() = reader.ReadSizeTVec();
+  mesh.getNormals() = reader.ReadVec<glm::dvec3>();
+  mesh.getUVs() = reader.ReadVec<glm::dvec3>();
+  mesh.getUVIndices() = reader.ReadSizeTVec();
+  mesh.getMaterialIDs() = reader.ReadVec<int>();
+  mesh.setGroupOffsets(reader.ReadSizeTVec());
+  mesh.setGroupNames(reader.ReadStrings());
+  mesh.getVertexColors() = reader.ReadVec<glm::dvec3>();
+  mesh.getVertexMetadata() = reader.ReadStrings();
+  mesh.getFaceMetadata() = reader.ReadStrings();
+  mesh.getProfilePlaneXY() = reader.ReadVec<glm::dvec2>();
+  mesh.getVertexKineticTimes() = reader.ReadVec<double>();
+  mesh.getVertexSemanticUvs() = reader.ReadVec<glm::dvec3>();
+  const uint64_t flexible_count = reader.ReadPod<uint64_t>();
+  if (!reader.Good() || flexible_count > kMaxMeshingBufferCount) {
+    reader.Fail();
+    return mesh;
+  }
+  for (uint64_t i = 0; i < flexible_count; ++i) {
+    const uint8_t flag = reader.ReadPod<uint8_t>();
+    if (flag && i < mesh.getVertexCount()) {
+      mesh.setVertexFlexible(static_cast<size_t>(i), true);
+    }
+  }
+  return mesh;
+}
+
+bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesystem::path& yml_path,
+                       const std::string& hash, const GlobalTransform& root_transform,
+                       const std::vector<GpuMeshletVertex>& gpu_vertices,
+                       const std::vector<GpuMeshletTriangle>& gpu_triangles,
+                       const std::vector<kinDS::VoronoiMesh>& meshlets,
+                       const std::vector<std::vector<int>>& neighbors,
+                       const std::vector<size_t>& meshing_to_physics,
+                       const std::vector<std::vector<size_t>>& strand_to_segment) {
+  std::error_code error;
+  std::filesystem::create_directories(bin_path.parent_path(), error);
+  if (error) {
+    EVOENGINE_WARNING("Failed to create meshing buffer directory: " << error.message());
+    return false;
+  }
+
+  BinaryWriter writer(bin_path);
+  writer.WriteBytes(kMeshingBufferMagic, 4);
+  writer.WritePod(kMeshingBufferVersion);
+  writer.WritePod(static_cast<uint32_t>(sizeof(GpuMeshletVertex)));
+  writer.WritePod(static_cast<uint32_t>(sizeof(GpuMeshletTriangle)));
+  writer.WritePod(root_transform.value);
+  writer.WriteVec(gpu_vertices);
+  writer.WriteVec(gpu_triangles);
+  writer.WritePod(static_cast<uint64_t>(meshlets.size()));
+  for (const auto& meshlet : meshlets) {
+    WriteVoronoiMesh(writer, meshlet);
+  }
+  writer.WriteNestedInt(neighbors);
+  writer.WriteSizeTVec(meshing_to_physics);
+  writer.WriteNestedSizeT(strand_to_segment);
+  if (!writer.Good()) {
+    EVOENGINE_WARNING("Failed to write meshing buffer " << bin_path.string());
+    return false;
+  }
+
+  std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  std::tm utc{};
+  gmtime_s(&utc, &time);
+  std::ostringstream timestamp;
+  timestamp << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+
+  YAML::Emitter yaml;
+  yaml << YAML::BeginMap;
+  yaml << YAML::Key << "format" << YAML::Value << "KVMG";
+  yaml << YAML::Key << "version" << YAML::Value << kMeshingBufferVersion;
+  yaml << YAML::Key << "hash" << YAML::Value << hash;
+  yaml << YAML::Key << "created_utc" << YAML::Value << timestamp.str();
+  yaml << YAML::Key << "gpu_vertex_count" << YAML::Value << gpu_vertices.size();
+  yaml << YAML::Key << "gpu_triangle_count" << YAML::Value << gpu_triangles.size();
+  yaml << YAML::Key << "meshlet_count" << YAML::Value << meshlets.size();
+  yaml << YAML::Key << "vertex_stride" << YAML::Value << sizeof(GpuMeshletVertex);
+  yaml << YAML::Key << "triangle_stride" << YAML::Value << sizeof(GpuMeshletTriangle);
+  yaml << YAML::Key << "spline_tension" << YAML::Value << DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+  yaml << YAML::Key << "store_mesh_metadata"
+       << YAML::Value << DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
+  yaml << YAML::Key << "mesh_cap_at_start" << YAML::Value << true;
+  yaml << YAML::Key << "transform_mesh_at_construction" << YAML::Value << true;
+  yaml << YAML::EndMap;
+
+  std::ofstream yaml_out(yml_path);
+  yaml_out << yaml.c_str();
+  if (!yaml_out) {
+    EVOENGINE_WARNING("Wrote meshing buffer binary but failed to write metadata " << yml_path.string());
+  }
+  return true;
+}
+
+bool LoadMeshingBuffer(const std::filesystem::path& bin_path, const GlobalTransform& root_transform,
+                       std::vector<GpuMeshletVertex>& gpu_vertices, std::vector<GpuMeshletTriangle>& gpu_triangles,
+                       std::vector<kinDS::VoronoiMesh>& meshlets, std::vector<std::vector<int>>& neighbors,
+                       std::vector<size_t>& meshing_to_physics,
+                       std::vector<std::vector<size_t>>& strand_to_segment) {
+  BinaryReader reader(bin_path);
+  char magic[4]{};
+  magic[0] = reader.ReadPod<char>();
+  magic[1] = reader.ReadPod<char>();
+  magic[2] = reader.ReadPod<char>();
+  magic[3] = reader.ReadPod<char>();
+  if (!reader.Good() || std::memcmp(magic, kMeshingBufferMagic, 4) != 0) {
+    return false;
+  }
+  if (reader.ReadPod<uint32_t>() != kMeshingBufferVersion) {
+    return false;
+  }
+  if (reader.ReadPod<uint32_t>() != sizeof(GpuMeshletVertex) ||
+      reader.ReadPod<uint32_t>() != sizeof(GpuMeshletTriangle)) {
+    return false;
+  }
+  const glm::mat4 stored_root = reader.ReadPod<glm::mat4>();
+  if (stored_root != root_transform.value) {
+    return false;
+  }
+  gpu_vertices = reader.ReadVec<GpuMeshletVertex>();
+  gpu_triangles = reader.ReadVec<GpuMeshletTriangle>();
+  const uint64_t meshlet_count = reader.ReadPod<uint64_t>();
+  if (!reader.Good() || meshlet_count > kMaxMeshingBufferCount) {
+    return false;
+  }
+  meshlets.clear();
+  meshlets.reserve(static_cast<size_t>(meshlet_count));
+  for (uint64_t i = 0; i < meshlet_count; ++i) {
+    meshlets.push_back(ReadVoronoiMesh(reader));
+    if (!reader.Good()) {
+      return false;
+    }
+  }
+  neighbors = reader.ReadNestedInt();
+  meshing_to_physics = reader.ReadSizeTVec();
+  strand_to_segment = reader.ReadNestedSizeT();
+  return reader.Good();
+}
+
+}  // namespace
 
 // helper functions
 
@@ -1259,16 +1704,76 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
 
+  const std::string input_hash =
+      ComputeMeshingInputHash(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
+                              transforms_by_height_and_branch, root_transform, branch_indices, strands_by_branch_id);
+  const std::filesystem::path buffer_dir = MeshingBufferDirectory();
+  const std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
+  const std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
+
+  const auto warn_segment_count_mismatch =
+      [&](const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices) {
+        for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
+          if (strand_id >= meshing_strand_to_segment_indices.size()) {
+            continue;
+          }
+          if (meshing_strand_to_segment_indices[strand_id].size() !=
+              physics_strand_to_segment_indices[strand_id].size()) {
+            EVOENGINE_WARNING("Meshing algorithm resulted in "
+                              << meshing_strand_to_segment_indices[strand_id].size() << " segments for strand "
+                              << strand_id << ", but the physics simulation has "
+                              << physics_strand_to_segment_indices[strand_id].size() << ". There are "
+                              << subdivisions_by_strand[strand_id].size() << " subdivision parameters in range ["
+                              << subdivisions_by_strand[strand_id].front() << ", "
+                              << subdivisions_by_strand[strand_id].back() << "].");
+          }
+        }
+      };
+
+  const auto debug_export_meshes = [&]() {
+    if (!meshing_settings.debug_export_meshes) {
+      return;
+    }
+    EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
+    tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
+    tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
+    EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
+  };
+
+  if (!meshing_settings.override_meshing_buffer && std::filesystem::exists(bin_path)) {
+    std::vector<GpuMeshletVertex> gpu_vertices;
+    std::vector<GpuMeshletTriangle> gpu_triangles;
+    std::vector<kinDS::VoronoiMesh> meshlets;
+    std::vector<std::vector<int>> neighbors;
+    std::vector<size_t> meshing_to_physics;
+    std::vector<std::vector<size_t>> strand_to_segment;
+    if (LoadMeshingBuffer(bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors, meshing_to_physics,
+                          strand_to_segment)) {
+      tree_mesher_->getSegmentMeshlets() = std::move(meshlets);
+      tree_mesher_->getMeshingNeighborIndices() = std::move(neighbors);
+      tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
+      tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
+      segment_meshlets_ = tree_mesher_->getSegmentMeshlets();
+      meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+      meshlets_root_transform_ = root_transform;
+      segment_meshlet_vertices = std::move(gpu_vertices);
+      segment_meshlet_triangles = std::move(gpu_triangles);
+      warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+      EVOENGINE_LOG("Loaded Kinetic Voronoi mesh buffer " << input_hash << " (" << segment_meshlet_vertices.size()
+                                                          << " vertices, " << segment_meshlet_triangles.size()
+                                                          << " triangles).");
+      debug_export_meshes();
+      return;
+    }
+    EVOENGINE_WARNING("Meshing buffer " << bin_path.string() << " exists but could not be loaded; remeshing.");
+  }
+
   auto& meshes = tree_mesher_->runMeshingAlgorithm(meshing_settings.debug_svg);
 
   // Keep pristine copies for later Intersect button runs (no clipping during meshing).
   segment_meshlets_ = meshes;
   meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
   meshlets_root_transform_ = root_transform;
-
-  // std::vector<std::vector<glm::dmat4>> normal_transforms_by_height_and_branch =
-  //     strand_tree->getNormalTransformsByHeightAndBranch();
-  auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
 
   const auto& meshing_neighbor_indices = tree_mesher_->getMeshingNeighborIndices();
   const auto& meshing_to_physics_segment_indices = tree_mesher_->getMeshingToPhysicsSegmentIndices();
@@ -1278,21 +1783,14 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     RecomputeSegmentPairs(*tree_mesher_);
   }
 
-  for (size_t strand_id = 0; strand_id < physics_strand_to_segment_indices.size(); ++strand_id) {
-    if (meshing_strand_to_segment_indices[strand_id].size() != physics_strand_to_segment_indices[strand_id].size()) {
-      EVOENGINE_WARNING("Meshing algorithm resulted in "
-                        << meshing_strand_to_segment_indices[strand_id].size() << " segments for strand " << strand_id
-                        << ", but the physics simulation has " << physics_strand_to_segment_indices[strand_id].size()
-                        << ". There are " << subdivisions_by_strand[strand_id].size()
-                        << " subdivision parameters in range [" << subdivisions_by_strand[strand_id].front() << ", "
-                        << subdivisions_by_strand[strand_id].back() << "].");
-    }
-  }
+  warn_segment_count_mismatch(meshing_strand_to_segment_indices);
 
+  segment_meshlet_vertices.clear();
+  segment_meshlet_triangles.clear();
   PopulateGpuMeshletBuffers(meshes, physics_strand_to_segment_indices, meshing_strand_to_segment_indices,
                             meshing_neighbor_indices, meshing_to_physics_segment_indices, root_transform);
 
-  // const auto& boundary_mesh = tree_mesher.getBoundaryMesh();
+  auto& boundary_mesh = tree_mesher_->getBoundaryMesh();
   auto& boundary_vertex_to_strand_id = tree_mesher_->getBoundaryVertexToStrandId();
 
   boundary_distances_by_vertex.resize(boundary_mesh.getVertexCount(), 0.0f);
@@ -1308,19 +1806,14 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     }
   }
 
-  // transformed_boundary_mesh =
-  //     TransformBoundaryMesh(boundary_mesh, transforms_by_height_and_branch, normal_transforms_by_height_and_branch,
-  //                           root_transform, branch_indices, boundary_vertex_to_strand_id);
-
-  if (!meshing_settings.debug_export_meshes) {
-    EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
-    return;
+  if (SaveMeshingBuffer(bin_path, yml_path, input_hash, root_transform, segment_meshlet_vertices,
+                        segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
+                        meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
+    EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
   }
-  EVOENGINE_LOG("Exporting Kinetic Delaunay Voronoi Meshes for Debugging...");
-  tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::PerSegment, "meshlets");
-  tree_mesher_->exportMeshlets(kinDS::MeshletExportMode::Combined, "combined_mesh.obj");
-  // kinDS::ObjExporter::writeMesh(transformed_boundary_mesh, "transformed_boundary_mesh.obj");
-  EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshes exported.");
+
+  EVOENGINE_LOG("Kinetic Delaunay Voronoi Meshing completed.");
+  debug_export_meshes();
 }
 
 void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
@@ -1908,6 +2401,11 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   ImGui::Checkbox("Dry run (strand tree only)", &meshing_settings.dry_run_strand_tree_only);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Prepare the strand tree during initialization but skip the meshing algorithm.");
+  }
+  ImGui::Checkbox("Override buffer", &meshing_settings.override_meshing_buffer);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, skip loading a cached meshing buffer and overwrite it with newly computed mesh data.");
   }
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {
