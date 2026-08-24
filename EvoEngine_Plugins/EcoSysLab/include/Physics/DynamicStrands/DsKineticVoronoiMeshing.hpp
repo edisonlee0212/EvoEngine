@@ -61,6 +61,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   struct MeshingSettings {
     bool dry_run_strand_tree_only = false;
     bool debug_svg = false;
+    /// When true, kinDS collects runtime/event statistics and writes CSV after meshing.
+    bool collect_meshing_statistics = true;
     /// When true, export meshlets/combined OBJ after meshing for debugging.
     bool debug_export_meshes = false;
     /// When true, debug/failed OBJ dumps emit one object per interior/boundary contributor.
@@ -200,12 +202,27 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
   bool HasMeshedSegmentMeshlets() const;
+  struct IntersectionRunStats {
+    size_t inside_meshlets = 0;
+    size_t intersecting_meshlets = 0;
+    size_t outside_meshlets = 0;
+    size_t input_poly_count = 0;
+    double runtime_seconds = 0.0;
+  };
   /// Clip meshlets against @p raw_mesh placed at @p boundary_world_transform and rebuild GPU buffers.
   /// @p tree_world_transform is the current world transform of the DynamicTreeStrands entity; used to
   /// convert the boundary from world space into tree-local space (where the raw meshlets live).
+  /// When @p stats is non-null, fills classification counts, input poly count, and clip runtime.
   bool IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
                                      const GlobalTransform& boundary_world_transform,
-                                     const GlobalTransform& tree_world_transform);
+                                     const GlobalTransform& tree_world_transform,
+                                     IntersectionRunStats* stats = nullptr);
+  /// Write a timestamped intersection statistics CSV. @p base_csv_path is the desired filename
+  /// (e.g. @c foo_intersection_stats.csv); a timestamp is inserted before the extension.
+  /// A @c total row summing poly count and runtime is included when @p rows has more than one entry.
+  static void WriteIntersectionStatisticsCsv(
+      const std::filesystem::path& base_csv_path,
+      const std::vector<std::pair<std::string, IntersectionRunStats>>& rows);
   /// Reload pristine (pre-intersection) meshlets into GPU buffers.
   bool ResetMeshletsToGpu();
   void DownloadPhysicsSegmentsAndPairs();

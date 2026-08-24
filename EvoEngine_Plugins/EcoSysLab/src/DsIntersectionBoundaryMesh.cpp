@@ -137,10 +137,25 @@ bool DsIntersectionBoundaryMesh::OnInspect(const std::shared_ptr<EditorLayer>& e
           if (dskvm) {
             const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(owner);
             const auto tree_gt = scene->GetDataComponent<GlobalTransform>(parent);
-            dskvm->IntersectMeshletsWithBoundary(mesh_, boundary_gt, tree_gt);
-            // Hide the preview after intersection (re-enable to reposition and intersect again).
-            scene->SetEnable(owner, false);
-            changed = true;
+            DsKineticVoronoiMeshing::IntersectionRunStats intersection_stats;
+            const bool collect_stats = DsKineticVoronoiMeshing::meshing_settings.collect_meshing_statistics;
+            if (dskvm->IntersectMeshletsWithBoundary(mesh_, boundary_gt, tree_gt,
+                                                     collect_stats ? &intersection_stats : nullptr)) {
+              if (collect_stats) {
+                std::string name = path_.stem().string();
+                if (name.empty()) {
+                  name = "entity_" + std::to_string(owner.GetIndex());
+                }
+                std::filesystem::path stats_base = path_.empty()
+                                                       ? std::filesystem::path(name + "_intersection_stats.csv")
+                                                       : path_.parent_path() / (name + "_intersection_stats.csv");
+                DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(
+                    stats_base, {{std::move(name), intersection_stats}});
+              }
+              // Hide the preview after intersection (re-enable to reposition and intersect again).
+              scene->SetEnable(owner, false);
+              changed = true;
+            }
           } else {
             EVOENGINE_ERROR("DsIntersectionBoundaryMesh: parent DynamicTreeStrands does not use DsKineticVoronoiMeshing.");
           }
@@ -156,7 +171,8 @@ bool DsIntersectionBoundaryMesh::OnInspect(const std::shared_ptr<EditorLayer>& e
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
     ImGui::SetTooltip(
         "Clip the strand meshlets against this boundary mesh and rebuild GPU buffers. "
-        "Requires a loaded OBJ. The parent entity must own a DynamicTreeStrands component.");
+        "Requires a loaded OBJ. The parent entity must own a DynamicTreeStrands component. "
+        "When Collect meshing statistics is enabled, writes a timestamped intersection CSV.");
   }
 
   return changed;

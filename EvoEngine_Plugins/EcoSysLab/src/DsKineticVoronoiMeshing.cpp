@@ -3,7 +3,13 @@
 #include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DynamicTreeStrands.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <limits>
+#include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
@@ -25,6 +31,7 @@
 #include "kinDS/kinDS/ObjExporter.hpp"
 #include "kinDS/kinDS/Polynomial.hpp"
 #include "kinDS/kinDS/SegmentBuilder.hpp"
+#include "kinDS/kinDS/Statistics.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -883,13 +890,42 @@ glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group
 // }
 
 
+void DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(
+    const std::filesystem::path& base_csv_path,
+    const std::vector<std::pair<std::string, IntersectionRunStats>>& rows) {
+  if (rows.empty()) {
+    return;
+  }
+  const std::filesystem::path csv_path = kinDS::Statistics::timestampedCsvPath(base_csv_path);
+  std::ofstream out(csv_path);
+  if (!out) {
+    EVOENGINE_ERROR("Failed to write intersection statistics CSV " << csv_path.string());
+    return;
+  }
+  out << "name,inside_meshlets,intersecting_meshlets,outside_meshlets,input_poly_count,runtime_s\n";
+  out << std::setprecision(std::numeric_limits<double>::max_digits10);
+  size_t total_polys = 0;
+  double total_runtime = 0.0;
+  for (const auto& [name, stats] : rows) {
+    out << name << ',' << stats.inside_meshlets << ',' << stats.intersecting_meshlets << ',' << stats.outside_meshlets
+        << ',' << stats.input_poly_count << ',' << stats.runtime_seconds << '\n';
+    total_polys += stats.input_poly_count;
+    total_runtime += stats.runtime_seconds;
+  }
+  if (rows.size() > 1) {
+    out << "total,,,," << total_polys << ',' << total_runtime << '\n';
+  }
+  EVOENGINE_LOG("Wrote intersection statistics CSV to " << csv_path.string());
+}
+
 bool DsKineticVoronoiMeshing::HasMeshedSegmentMeshlets() const {
   return tree_mesher_ && !segment_meshlets_.empty();
 }
 
 bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
                                                              const GlobalTransform& boundary_world_transform,
-                                                             const GlobalTransform& tree_world_transform) {
+                                                             const GlobalTransform& tree_world_transform,
+                                                             IntersectionRunStats* stats) {
   if (!HasMeshedSegmentMeshlets()) {
     EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
     return false;
@@ -929,7 +965,17 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
   EVOENGINE_LOG("Intersecting meshlets with boundary (" << boundary_mesh.getTriangleCount() << " triangles)...");
-  const std::vector<size_t> outside_meshing_indices = tree_mesher_->truncateToBoundary(boundary_mesh);
+  const auto intersection_started = std::chrono::steady_clock::now();
+  const kinDS::TreeMesher::BoundaryTruncateResult truncate_result = tree_mesher_->truncateToBoundary(boundary_mesh);
+  const double intersection_seconds =
+      std::chrono::duration<double>(std::chrono::steady_clock::now() - intersection_started).count();
+  if (stats) {
+    stats->inside_meshlets = truncate_result.inside_count;
+    stats->intersecting_meshlets = truncate_result.intersecting_count;
+    stats->outside_meshlets = truncate_result.outside_count;
+    stats->input_poly_count = boundary_mesh.getTriangleCount();
+    stats->runtime_seconds = intersection_seconds;
+  }
   tree_mesher_->getSettings().fix_missing_meshes = previous_fix_missing_meshes;
   tree_mesher_->getSettings().keep_original_on_intersection_failure = previous_keep_original_on_failure;
   tree_mesher_->getSettings().intersection_prefer_meshlet_uv_on_seam = previous_prefer_meshlet_uv_on_seam;
@@ -943,7 +989,7 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   Upload();
   DownloadPhysicsSegmentsAndPairs();
   RestoreDeactivatedPhysicsSegments();
-  DeactivateOutsidePhysicsSegments(outside_meshing_indices);
+  DeactivateOutsidePhysicsSegments(truncate_result.outside_meshlet_indices);
   UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
   EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated (" << segment_meshlet_vertices.size()
@@ -1208,6 +1254,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   });
   tree_mesher_->getSettings().transform_mesh_at_construction = true;
   tree_mesher_->getSettings().mesh_cap_at_start = true;
+  tree_mesher_->getSettings().collect_meshing_statistics = meshing_settings.collect_meshing_statistics;
   tree_mesher_->getSettings().store_mesh_metadata = meshing_settings.store_mesh_metadata;
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
@@ -1866,6 +1913,13 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Export kinDS segment-builder debug SVGs during meshing.");
   }
+  ImGui::Checkbox("Collect meshing statistics", &meshing_settings.collect_meshing_statistics);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Enable kinDS runtime/event statistics collection and CSV export after meshing "
+        "(filename includes a timestamp so previous runs are kept). Also writes a per-mesh intersection "
+        "CSV for Intersect and for Intersect and export all.");
+  }
   ImGui::Checkbox("Debug export meshes", &meshing_settings.debug_export_meshes);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("After meshing, export per-segment meshlets and a combined OBJ for debugging.");
@@ -2111,6 +2165,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           return;
         }
         std::vector<MeshletObjExport::MeshGroup> export_groups;
+        std::vector<std::pair<std::string, IntersectionRunStats>> intersection_stats_rows;
+        const bool collect_intersection_stats = meshing_settings.collect_meshing_statistics;
         for (const auto& child : scene->GetChildren(group)) {
           if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
             continue;
@@ -2120,7 +2176,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
             continue;
           }
           const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(child);
-          if (!IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt)) {
+          IntersectionRunStats intersection_stats;
+          if (!IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt,
+                                             collect_intersection_stats ? &intersection_stats : nullptr)) {
             EVOENGINE_ERROR("Intersect and export all: intersection failed for entity "
                             << child.GetIndex() << ".");
             continue;
@@ -2132,6 +2190,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           }
           mesh_group.vertices = segment_meshlet_vertices;
           mesh_group.triangles = segment_meshlet_triangles;
+          if (collect_intersection_stats) {
+            intersection_stats_rows.emplace_back(mesh_group.name, intersection_stats);
+          }
           export_groups.push_back(std::move(mesh_group));
         }
         ResetMeshletsToGpu();
@@ -2146,6 +2207,11 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
             render_settings.segment_meshlet_render_parameters.fracture_distance);
         EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
                                                             << out_path.string() << ".");
+        if (collect_intersection_stats && !intersection_stats_rows.empty()) {
+          const std::filesystem::path stats_base =
+              out_path.parent_path() / (out_path.stem().string() + "_intersection_stats.csv");
+          WriteIntersectionStatisticsCsv(stats_base, intersection_stats_rows);
+        }
       },
       false);
   if (!can_intersect_all) {
@@ -2155,6 +2221,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip(
         "For each loaded intersection mesh, compute the intersection and export all results as a single OBJ "
         "(one object per boundary mesh) plus shared bark/interior materials and GPU metadata JSON. "
+        "When Collect meshing statistics is enabled, also writes a timestamped CSV with per-mesh "
+        "inside/intersect/outside counts, input poly count, and clip runtime. "
         "Restores pristine meshlets afterward. Requires a completed meshing run.");
   }
 
