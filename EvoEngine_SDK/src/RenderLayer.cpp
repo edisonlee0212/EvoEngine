@@ -621,7 +621,7 @@ struct DdgiProbeRayDiagnosticSource {
   float random_ray_backface_threshold = 0.1f;
   float fixed_ray_backface_threshold = 0.25f;
   float probe_variability_threshold = 0.03f;
-  int probe_variability_min_samples = 128;
+  int probe_variability_maximum_frames = 128;
   int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
   int variability_reset_trigger_conditions =
       DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
@@ -701,7 +701,8 @@ glm::ivec4 CreateDdgiProbeScrollPushConstant(const DdgiProbeRayDiagnosticSource&
 }
 
 DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(
-    const ResolvedEnvironmentalLighting::DdgiVolume& volume, const DdgiSettings& settings) {
+    const ResolvedEnvironmentalLighting::DdgiVolume& volume, const DdgiSettings& settings,
+    const RenderSettings& render_settings) {
   DdgiProbeRayDiagnosticSource source;
   source.probe_counts = volume.probe_counts;
   const auto counts = ClampDdgiProbeCounts(volume.probe_counts);
@@ -712,10 +713,10 @@ DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolum
   source.probe_step_y = TransformVector(volume.transform, {0.0f, spacing.y, 0.0f});
   source.probe_step_z = TransformVector(volume.transform, {0.0f, 0.0f, spacing.z});
   source.relocation_distance = glm::max(volume.relocation_distance, 0.0f);
-  source.random_ray_backface_threshold = glm::clamp(volume.random_ray_backface_threshold, 0.0f, 1.0f);
-  source.fixed_ray_backface_threshold = glm::clamp(volume.fixed_ray_backface_threshold, 0.0f, 1.0f);
-  source.probe_variability_threshold = glm::clamp(volume.probe_variability_threshold, 0.0f, 10.0f);
-  source.probe_variability_min_samples = glm::clamp(volume.probe_variability_min_samples, 0, 4096);
+  source.random_ray_backface_threshold = glm::clamp(render_settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
+  source.fixed_ray_backface_threshold = glm::clamp(render_settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
+  source.probe_variability_threshold = glm::clamp(render_settings.ddgi_probe_variability_threshold, 0.0f, 10.0f);
+  source.probe_variability_maximum_frames = glm::clamp(render_settings.ddgi_probe_variability_maximum_frames, 1, 4096);
   source.hysteresis_boost_trigger_conditions =
       volume.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll;
   source.variability_reset_trigger_conditions =
@@ -724,9 +725,9 @@ DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolum
                                     static_cast<int>(DdgiVolumeMovementType::Scrolling));
   source.enable_probe_relocation = volume.enable_probe_relocation;
   source.enable_probe_classification = volume.enable_probe_classification;
-  source.enable_probe_variability = volume.enable_probe_variability;
-  source.enable_probe_variability_gating = volume.enable_probe_variability_gating;
-  source.pause_probe_updates_after_convergence = volume.pause_probe_updates_after_convergence;
+  source.enable_probe_variability = render_settings.ddgi_enable_probe_variability;
+  source.enable_probe_variability_gating = render_settings.ddgi_enable_probe_variability_gating;
+  source.pause_probe_updates_after_convergence = render_settings.ddgi_pause_probe_updates_after_convergence;
   source.emissive_mesh_sampling_enabled = DdgiRuntime::ResolveEmissiveMeshSampling(
       settings.runtime.enable_emissive_mesh_sampling, volume.emissive_mesh_sampling_mode);
   return source;
@@ -3084,6 +3085,11 @@ std::vector<DdgiVolumeRuntimeStats> RenderLayer::BuildDdgiVolumeRuntimeStats() c
     volume_stats.warmup_frame_count = warmup_frame_count;
     volume_stats.warmup_active = state.frame_probe_warmup_active;
     volume_stats.converged = state.probe_variability_converged;
+    volume_stats.maximum_reached = state.probe_variability_maximum_reached;
+    volume_stats.sampling_complete = state.probe_variability_converged || state.probe_variability_maximum_reached;
+    volume_stats.variability_budget_frame_count = state.probe_variability_budget.completed_frame_count;
+    volume_stats.variability_maximum_frames =
+        static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1));
     volume_stats.pending_scene_changes = state.latched_scene_change_triggers != DdgiVolumeTriggerConditionNone;
     volume_stats.current_hysteresis = state.current_probe_hysteresis;
     volume_stats.hysteresis_boost_active = state.hysteresis_boost_active;
@@ -3114,6 +3120,7 @@ void RenderLayer::ResetDdgiRuntimeFrameState(DdgiVolumeRuntimeState& runtime_sta
   runtime_state.frame_probe_classification_reset = false;
   runtime_state.frame_probe_classification_enabled = false;
   runtime_state.frame_probe_variability_enabled = false;
+  runtime_state.frame_probe_variability_counts_toward_budget = false;
   runtime_state.frame_probe_warmup_frame_index = 0u;
   runtime_state.frame_probe_warmup_frame_count = 0u;
   runtime_state.frame_probe_warmup_active = false;
@@ -3419,7 +3426,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
   std::vector<DdgiVolumeRuntimeInfo> infos;
   infos.reserve(resolved_lighting.ddgi_volumes.size());
   for (const auto& volume : resolved_lighting.ddgi_volumes) {
-    const auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings);
+    const auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
     auto& info = infos.emplace_back();
     info.sorted_index = static_cast<uint32_t>(infos.size() - 1u);
     info.stable_entity_id = volume.stable_id;
@@ -3493,7 +3500,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       runtime->manual_reset_pending = false;
     }
 
-    auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings);
+    auto source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
     source.selected_volume_index = info.sorted_index;
     if (runtime->has_previous_ray_source) {
       source.probe_counts = runtime->previous_probe_counts;
@@ -3570,7 +3577,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   if (!render_instances) {
     return;
   }
-  auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings);
+  auto ddgi_ray_source = CreateDdgiProbeRayDiagnosticSourceFromResolvedVolume(volume, ddgi_settings, render_settings);
   ddgi_ray_source.selected_volume_index = sorted_index;
   runtime_state.emissive_mesh_sampling_enabled = ddgi_ray_source.emissive_mesh_sampling_enabled;
   runtime_state.probe_variability_gating_enabled =
@@ -3703,13 +3710,16 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
                                          glm::clamp(ddgi_settings.runtime.brightness_threshold, 0.0f, 1.0f)};
   const glm::vec4 probe_variability_parameters{
       glm::max(ddgi_ray_source.probe_variability_threshold, 0.0f),
-      static_cast<float>(glm::max(ddgi_ray_source.probe_variability_min_samples, 0)),
+      static_cast<float>(glm::max(ddgi_ray_source.probe_variability_maximum_frames, 1)),
       ddgi_ray_source.enable_probe_variability ? 1.0f : 0.0f,
       ddgi_ray_source.enable_probe_variability_gating ? 1.0f : 0.0f};
   const bool had_previous_ray_source = runtime_state.has_previous_ray_source;
   const bool ddgi_variability_policy_changed =
-      had_previous_ray_source && runtime_state.previous_probe_variability_parameters != probe_variability_parameters;
+      had_previous_ray_source && (runtime_state.previous_probe_variability_parameters != probe_variability_parameters ||
+                                  runtime_state.previous_pause_probe_updates_after_convergence !=
+                                      ddgi_ray_source.pause_probe_updates_after_convergence);
   runtime_state.previous_probe_variability_parameters = probe_variability_parameters;
+  runtime_state.previous_pause_probe_updates_after_convergence = ddgi_ray_source.pause_probe_updates_after_convergence;
   const bool ddgi_emissive_population_changed =
       had_previous_ray_source && runtime_state.previous_emissive_ray_count != emissive_ray_count;
   runtime_state.previous_emissive_ray_count = emissive_ray_count;
@@ -3831,8 +3841,8 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       probe_variability_enabled && ddgi_ray_source.enable_probe_variability_gating;
   const auto convergence_pause_enabled =
       probe_variability_gating_enabled && ddgi_ray_source.pause_probe_updates_after_convergence;
-  const auto probe_variability_min_samples =
-      static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_min_samples, 0));
+  const auto probe_variability_maximum_frames =
+      static_cast<uint32_t>(glm::max(ddgi_ray_source.probe_variability_maximum_frames, 1));
   runtime_state.frame_probe_variability_threshold = glm::max(ddgi_ray_source.probe_variability_threshold, 0.0f);
   const auto readback_generation = ddgi_variability_readback_ticket.generation;
   const bool has_unconsumed_variability_readback =
@@ -3850,12 +3860,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   if (has_fresh_variability_readback || discarded_variability_readback ||
       (has_unconsumed_variability_readback && ddgi_persistent_resource_changed)) {
     runtime_state.last_consumed_variability_generation = readback_generation;
-  }
-  if (discarded_variability_readback && runtime_state.probe_variability_refresh_waiting &&
-      readback_generation >= runtime_state.probe_variability_refresh_generation) {
-    runtime_state.probe_variability_refresh_waiting = false;
-    runtime_state.probe_variability_refresh_generation = 0u;
-    runtime_state.probe_variability_refresh_age = DdgiRuntime::kProbeRefreshInterval;
   }
   const bool hard_ddgi_refresh =
       ddgi_ray_source_changed || reset_probe_history || ddgi_persistent_resource_changed || ddgi_full_scroll_reset;
@@ -3881,17 +3885,17 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       contributor_triggers, ddgi_ray_source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll);
   const bool reset_ddgi_variability_state = hard_ddgi_refresh || ddgi_emissive_population_changed ||
                                             ddgi_variability_policy_changed || variability_trigger_refresh ||
-                                            ddgi_scroll_clear_this_frame;
-  if (!probe_variability_enabled || reset_ddgi_variability_state) {
+                                            ddgi_scroll_clear_this_frame || scene_change_response;
+  if (reset_ddgi_variability_state) {
     runtime_state.probe_variability_sample_count = 0;
     runtime_state.probe_variability_stable_sample_count = 0;
     runtime_state.probe_variability_average = 0.0f;
     runtime_state.probe_variability_maximum = 0.0f;
     runtime_state.probe_variability_unstable_fraction = 0.0f;
     runtime_state.probe_variability_converged = false;
-    runtime_state.probe_variability_refresh_age = 0u;
-    runtime_state.probe_variability_refresh_waiting = false;
-    runtime_state.probe_variability_refresh_generation = 0u;
+    runtime_state.probe_variability_maximum_reached = false;
+    runtime_state.probe_variability_budget =
+        DdgiRuntime::ResetProbeVariabilityBudget(runtime_state.probe_variability_budget);
     runtime_state.last_consumed_variability_generation = runtime_state.next_variability_generation;
   }
   if (reset_ddgi_warmup_state) {
@@ -3914,65 +3918,50 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     runtime_state.last_probe_update_reasons |= DdgiUpdateReasonHysteresisRestore;
   }
 
-  bool entered_convergence = false;
+  const bool readback_counts_toward_current_budget =
+      ddgi_variability_readback_ticket.counts_toward_variability_budget &&
+      ddgi_variability_readback_ticket.variability_budget_cycle == runtime_state.probe_variability_budget.cycle;
+  if (!reset_ddgi_variability_state && readback_counts_toward_current_budget &&
+      (has_fresh_variability_readback || discarded_variability_readback ||
+       (has_unconsumed_variability_readback && ddgi_persistent_resource_changed))) {
+    const auto budget_update = DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
+        runtime_state.probe_variability_budget, ddgi_variability_readback_ticket.variability_budget_cycle,
+        has_fresh_variability_readback && variability_observation.valid, probe_variability_maximum_frames);
+    runtime_state.probe_variability_budget = budget_update.state;
+  }
   if (!reset_ddgi_variability_state && has_fresh_variability_readback) {
-    const bool completed_periodic_refresh = runtime_state.probe_variability_refresh_waiting &&
-                                            readback_generation >= runtime_state.probe_variability_refresh_generation;
-    if (completed_periodic_refresh) {
-      runtime_state.probe_variability_refresh_waiting = false;
-      runtime_state.probe_variability_refresh_generation = 0u;
-      runtime_state.probe_variability_refresh_age = 0u;
-    }
     if (variability_observation.valid) {
       runtime_state.probe_variability_average = variability_observation.average;
       runtime_state.probe_variability_maximum = variability_observation.maximum;
       runtime_state.probe_variability_unstable_fraction = variability_observation.unstable_fraction;
     }
-    if (runtime_state.probe_variability_converged) {
+    if (probe_variability_gating_enabled) {
       const auto update = DdgiRuntime::AdvanceProbeConvergence(
           {runtime_state.probe_variability_sample_count, runtime_state.probe_variability_stable_sample_count,
            runtime_state.probe_variability_converged},
-          variability_observation, probe_variability_min_samples, ddgi_ray_source.probe_variability_threshold);
+          variability_observation, ddgi_ray_source.probe_variability_threshold);
       runtime_state.probe_variability_sample_count = update.state.sample_count;
       runtime_state.probe_variability_stable_sample_count = update.state.stable_sample_count;
       runtime_state.probe_variability_converged = update.state.converged;
-    } else if (!probe_variability_gating_enabled || runtime_state.frame_probe_warmup_active) {
+      if (update.state.converged) {
+        runtime_state.probe_variability_maximum_reached = false;
+      }
+    } else {
       if (variability_observation.valid) {
         ++runtime_state.probe_variability_sample_count;
       }
       runtime_state.probe_variability_stable_sample_count = 0u;
-    } else {
-      const auto update = DdgiRuntime::AdvanceProbeConvergence(
-          {runtime_state.probe_variability_sample_count, runtime_state.probe_variability_stable_sample_count, false},
-          variability_observation, probe_variability_min_samples, ddgi_ray_source.probe_variability_threshold);
-      runtime_state.probe_variability_sample_count = update.state.sample_count;
-      runtime_state.probe_variability_stable_sample_count = update.state.stable_sample_count;
-      runtime_state.probe_variability_converged = update.state.converged;
-      entered_convergence = update.entered_convergence;
-    }
-    if (completed_periodic_refresh && !variability_observation.valid) {
-      runtime_state.probe_variability_refresh_age = DdgiRuntime::kProbeRefreshInterval;
     }
   }
   if (!probe_variability_gating_enabled) {
     runtime_state.probe_variability_converged = false;
+    runtime_state.probe_variability_maximum_reached = false;
     runtime_state.probe_variability_stable_sample_count = 0u;
-    runtime_state.probe_variability_refresh_age = 0u;
-    runtime_state.probe_variability_refresh_waiting = false;
-    runtime_state.probe_variability_refresh_generation = 0u;
-  } else if (!convergence_pause_enabled) {
-    runtime_state.probe_variability_refresh_age = 0u;
-    runtime_state.probe_variability_refresh_waiting = false;
-    runtime_state.probe_variability_refresh_generation = 0u;
-  } else if (runtime_state.probe_variability_converged && !runtime_state.probe_variability_refresh_waiting) {
-    runtime_state.probe_variability_refresh_age =
-        entered_convergence
-            ? 0u
-            : glm::min(runtime_state.probe_variability_refresh_age + 1u, DdgiRuntime::kProbeRefreshInterval);
+  } else if (convergence_pause_enabled && !runtime_state.frame_probe_warmup_active &&
+             !hysteresis_boost_update.force_update && !runtime_state.probe_variability_converged &&
+             runtime_state.probe_variability_budget.completed_frame_count >= probe_variability_maximum_frames) {
+    runtime_state.probe_variability_maximum_reached = true;
   }
-  const bool periodic_refresh_due = DdgiRuntime::IsPeriodicRefreshDue(
-      convergence_pause_enabled, runtime_state.probe_variability_converged,
-      runtime_state.probe_variability_refresh_waiting, runtime_state.probe_variability_refresh_age);
 
   bool reset_probe_state = hard_ddgi_refresh || !runtime_state.probe_state_buffer ||
                            runtime_state.probe_state_buffer->GetSize() != layout.probe_state_byte_size;
@@ -3985,7 +3974,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     }
   }
 
-  const bool wait_for_periodic_observation = runtime_state.probe_variability_refresh_waiting;
   const bool relocation_requested =
       ddgi_ray_source.enable_probe_relocation && (hard_ddgi_refresh || runtime_state.frame_probe_warmup_active ||
                                                   geometry_relocation_requested || ddgi_scroll_clear_this_frame);
@@ -3995,14 +3983,19 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   const bool forced_probe_trace = scene_readiness_refresh || hysteresis_boost_update.force_update ||
                                   runtime_state.frame_probe_warmup_active || ddgi_variability_policy_changed ||
                                   relocation_requested;
-  const bool should_trace_probe_rays =
-      forced_probe_trace || !convergence_pause_enabled ||
-      (!wait_for_periodic_observation && (!runtime_state.probe_variability_converged || periodic_refresh_due));
+  const bool variability_sampling_complete =
+      runtime_state.probe_variability_converged || runtime_state.probe_variability_maximum_reached;
+  const auto reserved_variability_budget_frames = runtime_state.probe_variability_budget.completed_frame_count +
+                                                  runtime_state.probe_variability_budget.pending_frame_count;
+  const bool variability_budget_slot_available = reserved_variability_budget_frames < probe_variability_maximum_frames;
+  const bool should_trace_probe_rays = forced_probe_trace || !convergence_pause_enabled ||
+                                       (!variability_sampling_complete && variability_budget_slot_available);
   if (!should_trace_probe_rays) {
-    runtime_state.last_probe_update_reasons = DdgiUpdateReasonConverged;
-  } else if (periodic_refresh_due && !hysteresis_boost_update.force_update &&
-             full_refresh_reasons == DdgiUpdateReasonNone && !runtime_state.frame_probe_warmup_active) {
-    runtime_state.last_probe_update_reasons = DdgiUpdateReasonPeriodicRefresh;
+    if (runtime_state.probe_variability_maximum_reached) {
+      runtime_state.last_probe_update_reasons = DdgiUpdateReasonVariabilityMaximum;
+    } else if (runtime_state.probe_variability_converged) {
+      runtime_state.last_probe_update_reasons = DdgiUpdateReasonConverged;
+    }
   }
   if (!should_trace_probe_rays) {
     if (scene_change_triggers_pending) {
@@ -4075,13 +4068,19 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
   }
 
   if (probe_variability_enabled &&
-      (!runtime_state.probe_variability_converged || !convergence_pause_enabled || periodic_refresh_due)) {
+      (!variability_sampling_complete || !convergence_pause_enabled || forced_probe_trace)) {
     runtime_state.frame_probe_variability_enabled = true;
     const auto generation = ++runtime_state.next_variability_generation;
     runtime_state.frame_variability_readback_generation = generation;
-    if (periodic_refresh_due) {
-      runtime_state.probe_variability_refresh_waiting = true;
-      runtime_state.probe_variability_refresh_generation = generation;
+    const bool counts_toward_budget = convergence_pause_enabled && !runtime_state.frame_probe_warmup_active &&
+                                      !hysteresis_boost_update.force_update && !variability_sampling_complete &&
+                                      variability_budget_slot_available;
+    runtime_state.frame_probe_variability_counts_toward_budget = counts_toward_budget;
+    if (counts_toward_budget) {
+      const auto reservation = DdgiRuntime::ReserveProbeVariabilityBudgetFrame(runtime_state.probe_variability_budget,
+                                                                               probe_variability_maximum_frames);
+      runtime_state.probe_variability_budget = reservation.state;
+      runtime_state.frame_probe_variability_counts_toward_budget = reservation.accepted;
     }
   }
   if (runtime_state.frame_probe_warmup_active) {
@@ -4647,7 +4646,8 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
                     const auto& runtime = *found->second;
                     return !DdgiRuntime::IsReflectionProbeRuntimeReady(
                         runtime.has_valid_probe_history, runtime.last_performance_stats.lighting_descriptors_bound,
-                        runtime.probe_variability_gating_enabled, runtime.probe_variability_converged);
+                        runtime.probe_variability_gating_enabled,
+                        runtime.probe_variability_converged || runtime.probe_variability_maximum_reached);
                   });
   if (ddgi_capture_pending) {
     if (ddgi_session_state_.pause_updates) {
@@ -5711,10 +5711,13 @@ void RenderLayer::RenderAll() {
     aggregate.probe_variability_required_stable_sample_count =
         glm::max(aggregate.probe_variability_required_stable_sample_count,
                  volume_stats.probe_variability_required_stable_sample_count);
+    aggregate.probe_variability_budget_frame_count =
+        glm::max(aggregate.probe_variability_budget_frame_count, volume_stats.probe_variability_budget_frame_count);
+    aggregate.probe_variability_maximum_frames =
+        glm::max(aggregate.probe_variability_maximum_frames, volume_stats.probe_variability_maximum_frames);
     aggregate.probe_variability_converged &= volume_stats.probe_variability_converged;
-    aggregate.probe_variability_refresh_age =
-        glm::max(aggregate.probe_variability_refresh_age, volume_stats.probe_variability_refresh_age);
-    aggregate.probe_variability_refresh_waiting |= volume_stats.probe_variability_refresh_waiting;
+    aggregate.probe_variability_maximum_reached |= volume_stats.probe_variability_maximum_reached;
+    aggregate.probe_variability_sampling_complete &= volume_stats.probe_variability_sampling_complete;
     aggregate.probe_warmup_active |= volume_stats.probe_warmup_active;
     aggregate.hysteresis_boosted_volume_count += volume_stats.hysteresis_boosted_volume_count;
     aggregate.hysteresis_restoring_volume_count += volume_stats.hysteresis_restoring_volume_count;
@@ -5786,10 +5789,15 @@ void RenderLayer::RenderAll() {
         ddgi_runtime.probe_variability_stable_sample_count;
     ddgi_runtime.last_performance_stats.probe_variability_required_stable_sample_count =
         DdgiRuntime::kProbeVariabilityStableSampleCount;
+    ddgi_runtime.last_performance_stats.probe_variability_budget_frame_count =
+        ddgi_runtime.probe_variability_budget.completed_frame_count;
+    ddgi_runtime.last_performance_stats.probe_variability_maximum_frames =
+        static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1));
     ddgi_runtime.last_performance_stats.probe_variability_converged = ddgi_runtime.probe_variability_converged;
-    ddgi_runtime.last_performance_stats.probe_variability_refresh_age = ddgi_runtime.probe_variability_refresh_age;
-    ddgi_runtime.last_performance_stats.probe_variability_refresh_waiting =
-        ddgi_runtime.probe_variability_refresh_waiting;
+    ddgi_runtime.last_performance_stats.probe_variability_maximum_reached =
+        ddgi_runtime.probe_variability_maximum_reached;
+    ddgi_runtime.last_performance_stats.probe_variability_sampling_complete =
+        ddgi_runtime.probe_variability_converged || ddgi_runtime.probe_variability_maximum_reached;
     ddgi_runtime.last_performance_stats.probe_warmup_frame_index = ddgi_runtime.frame_probe_warmup_frame_index;
     ddgi_runtime.last_performance_stats.probe_warmup_frame_count = ddgi_runtime.frame_probe_warmup_frame_count;
     ddgi_runtime.last_performance_stats.probe_warmup_active = ddgi_runtime.frame_probe_warmup_active;
@@ -6080,14 +6088,17 @@ void RenderLayer::RenderAll() {
       ticket.byte_size = sizeof(glm::vec4);
       ticket.frame_index = current_frame_index;
       ticket.element_count = 1u;
+      ticket.variability_budget_cycle = ddgi_runtime.probe_variability_budget.cycle;
+      ticket.counts_toward_variability_budget = ddgi_runtime.frame_probe_variability_counts_toward_budget;
     } else if (ddgi_runtime.frame_variability_readback_generation != 0u) {
       ddgi_runtime.last_consumed_variability_generation = std::max(ddgi_runtime.last_consumed_variability_generation,
                                                                    ddgi_runtime.frame_variability_readback_generation);
-      if (ddgi_runtime.probe_variability_refresh_waiting &&
-          ddgi_runtime.frame_variability_readback_generation >= ddgi_runtime.probe_variability_refresh_generation) {
-        ddgi_runtime.probe_variability_refresh_waiting = false;
-        ddgi_runtime.probe_variability_refresh_generation = 0u;
-        ddgi_runtime.probe_variability_refresh_age = DdgiRuntime::kProbeRefreshInterval;
+      if (ddgi_runtime.frame_probe_variability_counts_toward_budget) {
+        ddgi_runtime.probe_variability_budget =
+            DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
+                ddgi_runtime.probe_variability_budget, ddgi_runtime.probe_variability_budget.cycle, false,
+                static_cast<uint32_t>(glm::max(render_settings.ddgi_probe_variability_maximum_frames, 1)))
+                .state;
       }
     }
     if (trace_ddgi_probe_rays && !reduce_ddgi_probe_variability && Platform::GpuTimestampCaptureEnabled()) {
@@ -6210,6 +6221,11 @@ void RenderLayer::RenderAll() {
   profiler.RecordCounter("Active Probes", ddgi_last_performance_stats_.active_probe_count, "DDGI", "probes");
   profiler.RecordCounter("Updated Probes", ddgi_last_performance_stats_.updated_probe_count, "DDGI", "probes");
   profiler.RecordCounter("Converged", ddgi_last_performance_stats_.probe_variability_converged ? 1.0 : 0.0, "DDGI");
+  profiler.RecordCounter("Maximum Reached", ddgi_last_performance_stats_.probe_variability_maximum_reached ? 1.0 : 0.0,
+                         "DDGI");
+  profiler.RecordCounter("Variability Budget Frames",
+                         static_cast<double>(ddgi_last_performance_stats_.probe_variability_budget_frame_count),
+                         "DDGI");
 
   external_render_resource_descriptors.clear();
   frame_render_pass_external_functions.clear();

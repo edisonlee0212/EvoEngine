@@ -1403,12 +1403,7 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
   if (!validation_lighting) {
     throw std::runtime_error("DDGI validation report requires asset-owned EnvironmentalLighting.");
   }
-  const auto& validation_volume_defaults = validation_lighting->ddgi_settings.volume_defaults;
-  const auto validation_ddgi_pack = validation_lighting->GetOrCreateDdgiVolumePack();
-  const bool pause_updates_after_convergence =
-      validation_ddgi_pack->volumes.empty()
-          ? validation_volume_defaults.pause_probe_updates_after_convergence
-          : validation_ddgi_pack->volumes.front().pause_probe_updates_after_convergence;
+  const auto& validation_render_settings = render_layer->render_settings;
   const auto fingerprint = Platform::GetGpuDeviceFingerprint();
   const auto memory = Platform::GetGpuMemorySnapshot();
   (void)render_layer->RefreshDdgiProbeDebugData();
@@ -1434,7 +1429,7 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
                                : fixture_id == "geometry-moving"  ? "translate-occluder-x"
                                                                   : "translate-x-one-spacing";
   output << std::setprecision(17);
-  output << "{\n  \"schema_version\": 7,\n"
+  output << "{\n  \"schema_version\": 8,\n"
          << "  \"fixture_id\": \"" << JsonEscape(fixture_id) << "\",\n"
          << "  \"fixture_definition\": {\"version\": 6, \"sha256\": "
             "\"0f1012c5000072ad7c6ecaf74727f3e34fc0bbec3cf5d69e0ba8ffb8705239ea\"},\n"
@@ -1475,9 +1470,11 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << ", \"deterministic_seed_enabled\": true, \"deterministic_seed\": " << seed
          << ", \"seed_sequence\": \"logical-ddgi-update-v1\", \"measure_frames\": " << measure_frames
          << ", \"warmup_frames\": " << warmup_frames
-         << ", \"probe_variability_threshold\": " << validation_volume_defaults.probe_variability_threshold
-         << ", \"probe_variability_min_samples\": " << validation_volume_defaults.probe_variability_min_samples
-         << ", \"pause_updates_after_convergence\": " << (pause_updates_after_convergence ? "true" : "false")
+         << ", \"probe_variability_threshold\": " << validation_render_settings.ddgi_probe_variability_threshold
+         << ", \"probe_variability_maximum_frames\": "
+         << validation_render_settings.ddgi_probe_variability_maximum_frames
+         << ", \"pause_updates_after_convergence\": "
+         << (validation_render_settings.ddgi_pause_probe_updates_after_convergence ? "true" : "false")
          << ", \"ddgi_enabled\": " << (ddgi_enabled ? "true" : "false") << "},\n"
          << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
          << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
@@ -1494,7 +1491,11 @@ void WriteDdgiValidationReport(const std::filesystem::path& report_path, const s
          << "  \"convergence\": {\"observed\": " << (convergence_observed ? "true" : "false")
          << ", \"frames\": " << convergence_frames << ", \"variability\": " << performance.probe_variability_average
          << ", \"variability_maximum\": " << performance.probe_variability_maximum
-         << ", \"unstable_fraction\": " << performance.probe_variability_unstable_fraction << "},\n"
+         << ", \"unstable_fraction\": " << performance.probe_variability_unstable_fraction
+         << ", \"budget_frames\": " << performance.probe_variability_budget_frame_count
+         << ", \"maximum_reached\": " << (performance.probe_variability_maximum_reached ? "true" : "false")
+         << ", \"sampling_complete\": " << (performance.probe_variability_sampling_complete ? "true" : "false")
+         << "},\n"
          << "  \"ddgi\": {\"active_probes\": " << performance.active_probe_count
          << ", \"storage_probes\": " << performance.storage_probe_count
          << ", \"updated_probes\": " << performance.updated_probe_count
@@ -2273,15 +2274,16 @@ void CaptureDemoPreview(
         }
         record_transition_response();
         ++ddgi_convergence_frames;
-        if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
-          ddgi_convergence_observed = true;
+        const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
+        if (performance.probe_variability_sampling_complete) {
+          ddgi_convergence_observed = performance.probe_variability_converged;
           break;
         }
       }
-      if (!ddgi_convergence_observed) {
-        const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
+      const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
+      if (!performance.probe_variability_sampling_complete) {
         std::ostringstream message;
-        message << "DDGI validation did not converge within " << max_convergence_frames
+        message << "DDGI validation sampling did not complete within " << max_convergence_frames
                 << " frames: variability=" << performance.probe_variability_average
                 << ", maximum=" << performance.probe_variability_maximum
                 << ", unstable_fraction=" << performance.probe_variability_unstable_fraction
@@ -2291,16 +2293,7 @@ void CaptureDemoPreview(
                 << ", update_reasons=" << render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons << ".";
         throw std::runtime_error(message.str());
       }
-      auto& ddgi_settings =
-          render_layer->GetScene()->environmental_lighting.Get<EnvironmentalLighting>()->ddgi_settings;
-      ddgi_settings.volume_defaults.pause_probe_updates_after_convergence = false;
-      if (const auto lighting = active_scene->environmental_lighting.Get<EnvironmentalLighting>()) {
-        for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-          volume.pause_probe_updates_after_convergence = false;
-        }
-      } else {
-        throw std::runtime_error("DDGI validation timing requires asset-owned EnvironmentalLighting volumes.");
-      }
+      render_layer->render_settings.ddgi_pause_probe_updates_after_convergence = false;
       for (size_t frame = 0; frame < 8; ++frame) {
         if (!ApplicationContext::Get().Loop()) {
           throw std::runtime_error("Application ended during DDGI timing preparation.");
@@ -2544,9 +2537,8 @@ int main(const int argc, char** argv) {
               ddgi.runtime.emissive_ray_count = *command_line.preview_ddgi_emissive_ray_count;
             }
             if (command_line.preview_ddgi_continuous_updates) {
-              ddgi.volume_defaults.pause_probe_updates_after_convergence = false;
-              for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-                volume.pause_probe_updates_after_convergence = false;
+              if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+                render_layer->render_settings.ddgi_pause_probe_updates_after_convergence = false;
               }
             }
             ddgi.runtime.enabled = !command_line.preview_ddgi_disabled && !command_line.preview_ddgi_reference;

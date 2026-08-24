@@ -36,20 +36,7 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "enable_probe_relocation" << YAML::Value << settings.volume_defaults.enable_probe_relocation;
   out << YAML::Key << "enable_probe_classification" << YAML::Value
       << settings.volume_defaults.enable_probe_classification;
-  out << YAML::Key << "enable_probe_variability" << YAML::Value << settings.volume_defaults.enable_probe_variability;
-  out << YAML::Key << "enable_probe_variability_gating" << YAML::Value
-      << settings.volume_defaults.enable_probe_variability_gating;
-  out << YAML::Key << "pause_probe_updates_after_convergence" << YAML::Value
-      << settings.volume_defaults.pause_probe_updates_after_convergence;
   out << YAML::Key << "relocation_distance" << YAML::Value << settings.volume_defaults.relocation_distance;
-  out << YAML::Key << "random_ray_backface_threshold" << YAML::Value
-      << settings.volume_defaults.random_ray_backface_threshold;
-  out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value
-      << settings.volume_defaults.fixed_ray_backface_threshold;
-  out << YAML::Key << "probe_variability_threshold" << YAML::Value
-      << settings.volume_defaults.probe_variability_threshold;
-  out << YAML::Key << "probe_variability_min_samples" << YAML::Value
-      << settings.volume_defaults.probe_variability_min_samples;
   out << YAML::EndMap;
 
   out << YAML::Key << "storage" << YAML::Value << YAML::BeginMap;
@@ -108,27 +95,8 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.volume_defaults.enable_probe_relocation = volume_defaults["enable_probe_relocation"].as<bool>();
     if (volume_defaults["enable_probe_classification"])
       settings.volume_defaults.enable_probe_classification = volume_defaults["enable_probe_classification"].as<bool>();
-    if (volume_defaults["enable_probe_variability"])
-      settings.volume_defaults.enable_probe_variability = volume_defaults["enable_probe_variability"].as<bool>();
-    if (volume_defaults["enable_probe_variability_gating"])
-      settings.volume_defaults.enable_probe_variability_gating =
-          volume_defaults["enable_probe_variability_gating"].as<bool>();
-    if (volume_defaults["pause_probe_updates_after_convergence"])
-      settings.volume_defaults.pause_probe_updates_after_convergence =
-          volume_defaults["pause_probe_updates_after_convergence"].as<bool>();
     if (volume_defaults["relocation_distance"])
       settings.volume_defaults.relocation_distance = volume_defaults["relocation_distance"].as<float>();
-    if (volume_defaults["random_ray_backface_threshold"])
-      settings.volume_defaults.random_ray_backface_threshold =
-          volume_defaults["random_ray_backface_threshold"].as<float>();
-    if (volume_defaults["fixed_ray_backface_threshold"])
-      settings.volume_defaults.fixed_ray_backface_threshold =
-          volume_defaults["fixed_ray_backface_threshold"].as<float>();
-    if (volume_defaults["probe_variability_threshold"])
-      settings.volume_defaults.probe_variability_threshold = volume_defaults["probe_variability_threshold"].as<float>();
-    if (volume_defaults["probe_variability_min_samples"])
-      settings.volume_defaults.probe_variability_min_samples =
-          volume_defaults["probe_variability_min_samples"].as<int>();
   }
   if (const auto storage = in["storage"]) {
     if (storage["max_probe_count"])
@@ -161,10 +129,6 @@ void evo_engine::DdgiSettings::ClampSettings() {
       glm::clamp(volume_defaults.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
                  static_cast<int>(DdgiVolumeMovementType::Scrolling));
   volume_defaults.relocation_distance = glm::clamp(volume_defaults.relocation_distance, 0.0f, 10000.0f);
-  volume_defaults.random_ray_backface_threshold = glm::clamp(volume_defaults.random_ray_backface_threshold, 0.0f, 1.0f);
-  volume_defaults.fixed_ray_backface_threshold = glm::clamp(volume_defaults.fixed_ray_backface_threshold, 0.0f, 1.0f);
-  volume_defaults.probe_variability_threshold = glm::clamp(volume_defaults.probe_variability_threshold, 0.0f, 10.0f);
-  volume_defaults.probe_variability_min_samples = glm::clamp(volume_defaults.probe_variability_min_samples, 0, 4096);
   storage.max_probe_count = glm::clamp(storage.max_probe_count, 1, 16777216);
   storage.irradiance_tile_resolution = glm::clamp(storage.irradiance_tile_resolution, 1, 128);
   storage.visibility_tile_resolution = glm::clamp(storage.visibility_tile_resolution, 1, 128);

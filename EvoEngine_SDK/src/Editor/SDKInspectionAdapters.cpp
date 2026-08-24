@@ -1672,9 +1672,13 @@ const char* GetDdgiSceneStatus(const RenderLayer::DdgiInspectorSnapshot& snapsho
       }))
     return "Warming up";
   if (snapshot.volumes.empty() || std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
-        return !volume.converged;
+        return !volume.sampling_complete;
       }))
     return "Updating";
+  if (std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
+        return volume.maximum_reached;
+      }))
+    return "Maximum reached";
   return "Converged";
 }
 
@@ -1687,6 +1691,8 @@ const char* GetDdgiVolumeStatus(const DdgiVolumeRuntimeStats& volume, const Rend
     return volume.pending_scene_changes ? "Paused / stale frozen" : "Paused / frozen";
   if (volume.warmup_active)
     return "Warming up";
+  if (volume.maximum_reached)
+    return "Maximum reached";
   if (volume.converged)
     return "Converged";
   return volume.has_valid_probe_history ? "Updating" : "Initializing";
@@ -1775,6 +1781,23 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     ImGui::TreePop();
   }
 
+  if (ImGui::TreeNodeEx("Variability and probe validity", ImGuiTreeNodeFlags_DefaultOpen)) {
+    auto& settings = render_layer.render_settings;
+    ImGui::Checkbox("Probe variability", &settings.ddgi_enable_probe_variability);
+    ImGui::Checkbox("Probe variability gating", &settings.ddgi_enable_probe_variability_gating);
+    ImGui::Checkbox("Pause updates after convergence", &settings.ddgi_pause_probe_updates_after_convergence);
+    ImGui::DragFloat("Random ray backface threshold", &settings.ddgi_random_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Fixed ray backface threshold", &settings.ddgi_fixed_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
+    ImGui::DragFloat("Variability threshold", &settings.ddgi_probe_variability_threshold, 0.01f, 0.0f, 10.0f);
+    ImGui::DragInt("Variability maximum frames", &settings.ddgi_probe_variability_maximum_frames, 1.0f, 1, 4096);
+    settings.ddgi_random_ray_backface_threshold = glm::clamp(settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
+    settings.ddgi_fixed_ray_backface_threshold = glm::clamp(settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
+    settings.ddgi_probe_variability_threshold = glm::clamp(settings.ddgi_probe_variability_threshold, 0.0f, 10.0f);
+    settings.ddgi_probe_variability_maximum_frames =
+        glm::clamp(settings.ddgi_probe_variability_maximum_frames, 1, 4096);
+    ImGui::TreePop();
+  }
+
   if (ImGui::TreeNodeEx("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
     const auto resident_probes = std::accumulate(snapshot.volumes.begin(), snapshot.volumes.end(), 0ull,
                                                  [](const uint64_t total, const auto& volume) {
@@ -1826,6 +1849,8 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         ImGui::TextDisabled(
             "Hysteresis %.3f (%s)", volume.current_hysteresis,
             volume.hysteresis_boost_restoring ? "restoring" : (volume.hysteresis_boost_active ? "boosted" : "normal"));
+        ImGui::TextDisabled("Variability budget %u / %u", volume.variability_budget_frame_count,
+                            volume.variability_maximum_frames);
         ImGui::TableNextColumn();
         if (session.selected_volume_id == volume.stable_entity_id) {
           ImGui::TextUnformatted("Selected");
@@ -2626,10 +2651,6 @@ bool InspectDdgiVolumePack(InspectorContext& context, DdgiVolumePack& pack) {
                 changed;
       changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
       changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-      changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
-      changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
-      changed =
-          ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) || changed;
       changed = ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
       changed =
           InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers", volume.hysteresis_boost_trigger_conditions) ||
@@ -2867,25 +2888,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               changed;
           changed = ImGui::Checkbox("Probe relocation", &defaults.enable_probe_relocation) || changed;
           changed = ImGui::Checkbox("Probe classification", &defaults.enable_probe_classification) || changed;
-          changed = ImGui::Checkbox("Probe variability", &defaults.enable_probe_variability) || changed;
-          changed = ImGui::Checkbox("Probe variability gating", &defaults.enable_probe_variability_gating) || changed;
-          changed =
-              ImGui::Checkbox("Pause updates after convergence", &defaults.pause_probe_updates_after_convergence) ||
-              changed;
           changed =
               ImGui::DragFloat("Relocation distance", &defaults.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-          changed = ImGui::DragFloat("Random ray backface threshold", &defaults.random_ray_backface_threshold, 0.01f,
-                                     0.0f, 1.0f) ||
-                    changed;
-          changed = ImGui::DragFloat("Fixed ray backface threshold", &defaults.fixed_ray_backface_threshold, 0.01f,
-                                     0.0f, 1.0f) ||
-                    changed;
-          changed =
-              ImGui::DragFloat("Variability threshold", &defaults.probe_variability_threshold, 0.01f, 0.0f, 10.0f) ||
-              changed;
-          changed =
-              ImGui::DragInt("Variability minimum samples", &defaults.probe_variability_min_samples, 1.0f, 0, 4096) ||
-              changed;
           ImGui::TreePop();
         }
         ImGui::TreePop();
@@ -2904,14 +2908,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           volume.movement_type = defaults.movement_type;
           volume.enable_probe_relocation = defaults.enable_probe_relocation;
           volume.enable_probe_classification = defaults.enable_probe_classification;
-          volume.enable_probe_variability = defaults.enable_probe_variability;
-          volume.enable_probe_variability_gating = defaults.enable_probe_variability_gating;
-          volume.pause_probe_updates_after_convergence = defaults.pause_probe_updates_after_convergence;
           volume.relocation_distance = defaults.relocation_distance;
-          volume.random_ray_backface_threshold = defaults.random_ray_backface_threshold;
-          volume.fixed_ray_backface_threshold = defaults.fixed_ray_backface_threshold;
-          volume.probe_variability_threshold = defaults.probe_variability_threshold;
-          volume.probe_variability_min_samples = defaults.probe_variability_min_samples;
           (void)ddgi_pack->RepairStableIds();
           changed = true;
         }
@@ -2950,25 +2947,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                       changed;
             changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
             changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-            changed = ImGui::Checkbox("Probe variability", &volume.enable_probe_variability) || changed;
-            changed = ImGui::Checkbox("Probe variability gating", &volume.enable_probe_variability_gating) || changed;
-            changed =
-                ImGui::Checkbox("Pause updates after convergence", &volume.pause_probe_updates_after_convergence) ||
-                changed;
             changed =
                 ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-            changed = ImGui::DragFloat("Random ray backface threshold", &volume.random_ray_backface_threshold, 0.01f,
-                                       0.0f, 1.0f) ||
-                      changed;
-            changed = ImGui::DragFloat("Fixed ray backface threshold", &volume.fixed_ray_backface_threshold, 0.01f,
-                                       0.0f, 1.0f) ||
-                      changed;
-            changed = ImGui::DragFloat("Probe variability threshold", &volume.probe_variability_threshold, 0.01f, 0.0f,
-                                       10000.0f) ||
-                      changed;
-            changed =
-                ImGui::DragInt("Probe variability min samples", &volume.probe_variability_min_samples, 1, 0, 1000000) ||
-                changed;
             changed = InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers",
                                                          volume.hysteresis_boost_trigger_conditions) ||
                       changed;

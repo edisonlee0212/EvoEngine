@@ -63,10 +63,18 @@ An update covers the complete probe volume. Irradiance history blends new observ
 settings. Cold-start warmup fills empty history quickly; compatible light, geometry, and material changes temporarily
 lower hysteresis without destroying otherwise useful probe data.
 
-Variability measurements determine when a stable volume can pause updates. Gating requires repeated complete-volume
-observations and considers average change, the unstable fraction, and severe outliers. A paused converged volume keeps
-lighting from its atlases and periodically performs a refresh observation. Changes that affect the authored variability
-policy restart convergence without clearing compatible irradiance.
+Variability measurements determine when stable volumes can pause updates. The render layer applies one variability,
+gating, pause, backface-threshold, and convergence-budget policy to every volume. Gating requires three consecutive
+complete-volume observations and considers average change, the unstable fraction, and severe outliers. Warmup and a
+temporary scene-change hysteresis boost always continue through the return to normal hysteresis, even if variability
+converges sooner. An unconverged volume then receives at most 128 additional valid full-volume updates before entering
+a distinct maximum-reached state. Both convergence and maximum exhaustion are sampling-complete and retain lighting
+from the existing atlases.
+
+There is no periodic refresh. Any scene change that activates the hysteresis boost starts a new convergence cycle;
+manual reset, incompatible source or layout changes, scrolling clears, emissive-population changes, and variability
+policy changes also restart it. These controls are live `RenderSettings` values and are not serialized into DDGI volume
+assets.
 
 Hard resets are reserved for incompatible layouts, source changes, manual reset, or scrolling movement that spans an
 entire probe-grid dimension. A compatible scrolling volume ring-maps its history and clears only newly exposed probe

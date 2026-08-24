@@ -109,6 +109,12 @@ TEST(DdgiVolume, SessionDebugStateIsTransient) {
   EXPECT_EQ(yaml.find("debug:"), std::string::npos);
   EXPECT_NE(yaml.find("ray_count: 192"), std::string::npos);
   EXPECT_NE(yaml.find("emissive_ray_count: 64"), std::string::npos);
+  EXPECT_EQ(yaml.find("enable_probe_variability"), std::string::npos);
+  EXPECT_EQ(yaml.find("pause_probe_updates_after_convergence"), std::string::npos);
+  EXPECT_EQ(yaml.find("random_ray_backface_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("fixed_ray_backface_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("probe_variability_threshold"), std::string::npos);
+  EXPECT_EQ(yaml.find("probe_variability_min_samples"), std::string::npos);
 
   RenderLayer::DdgiSessionState session;
   EXPECT_FALSE(session.pause_updates);
@@ -392,14 +398,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_EQ(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default));
   EXPECT_EQ(volume.emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit));
   EXPECT_TRUE(volume.enable_probe_relocation);
-  EXPECT_TRUE(volume.enable_probe_variability);
-  EXPECT_TRUE(volume.enable_probe_variability_gating);
-  EXPECT_TRUE(volume.pause_probe_updates_after_convergence);
   EXPECT_FLOAT_EQ(volume.relocation_distance, 0.25f);
-  EXPECT_FLOAT_EQ(volume.random_ray_backface_threshold, 0.1f);
-  EXPECT_FLOAT_EQ(volume.fixed_ray_backface_threshold, 0.25f);
-  EXPECT_FLOAT_EQ(volume.probe_variability_threshold, 0.03f);
-  EXPECT_EQ(volume.probe_variability_min_samples, 128);
   EXPECT_EQ(volume.hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
   EXPECT_EQ(volume.variability_reset_trigger_conditions,
             DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged);
@@ -416,6 +415,13 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_FLOAT_EQ(render_settings.ddgi_hysteresis, 0.97f);
   EXPECT_FLOAT_EQ(render_settings.ddgi_boosted_hysteresis, 0.85f);
   EXPECT_FLOAT_EQ(render_settings.ddgi_hysteresis_restore_speed, 0.001f);
+  EXPECT_TRUE(render_settings.ddgi_enable_probe_variability);
+  EXPECT_TRUE(render_settings.ddgi_enable_probe_variability_gating);
+  EXPECT_TRUE(render_settings.ddgi_pause_probe_updates_after_convergence);
+  EXPECT_FLOAT_EQ(render_settings.ddgi_random_ray_backface_threshold, 0.1f);
+  EXPECT_FLOAT_EQ(render_settings.ddgi_fixed_ray_backface_threshold, 0.25f);
+  EXPECT_FLOAT_EQ(render_settings.ddgi_probe_variability_threshold, 0.03f);
+  EXPECT_EQ(render_settings.ddgi_probe_variability_maximum_frames, 128);
   EXPECT_FLOAT_EQ(settings.runtime.max_ray_distance, 1e27f);
   EXPECT_FLOAT_EQ(settings.runtime.visibility_moment_bias, 0.02f);
   EXPECT_EQ(settings.runtime.warmup_frames, 16);
@@ -425,14 +431,7 @@ TEST(DdgiVolume, DefaultProbeGridMatchesSceneAuthoringDefaults) {
   EXPECT_TRUE(settings.runtime.enable_emissive_mesh_sampling);
   EXPECT_EQ(defaults.movement_type, static_cast<int>(DdgiVolumeMovementType::Default));
   EXPECT_TRUE(defaults.enable_probe_relocation);
-  EXPECT_TRUE(defaults.enable_probe_variability);
-  EXPECT_TRUE(defaults.enable_probe_variability_gating);
-  EXPECT_TRUE(defaults.pause_probe_updates_after_convergence);
   EXPECT_FLOAT_EQ(defaults.relocation_distance, 0.25f);
-  EXPECT_FLOAT_EQ(defaults.random_ray_backface_threshold, 0.1f);
-  EXPECT_FLOAT_EQ(defaults.fixed_ray_backface_threshold, 0.25f);
-  EXPECT_FLOAT_EQ(defaults.probe_variability_threshold, 0.03f);
-  EXPECT_EQ(defaults.probe_variability_min_samples, 128);
   EXPECT_EQ(DdgiRuntime::GetAllocatedProbeCount(settings), 960u);
 }
 
@@ -728,10 +727,6 @@ TEST(DdgiVolume, ClampSettingsPreservesRejectedProbeGridForDiagnostics) {
   volume.movement_type = 4;
   volume.emissive_mesh_sampling_mode = -4;
   volume.relocation_distance = -1.0f;
-  volume.random_ray_backface_threshold = -1.0f;
-  volume.fixed_ray_backface_threshold = 2.0f;
-  volume.probe_variability_threshold = 20.0f;
-  volume.probe_variability_min_samples = -4;
   volume.hysteresis_boost_trigger_conditions = 0xffff;
   volume.variability_reset_trigger_conditions = 0xffff;
   volume.ClampSettings();
@@ -742,10 +737,6 @@ TEST(DdgiVolume, ClampSettingsPreservesRejectedProbeGridForDiagnostics) {
   EXPECT_EQ(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
   EXPECT_EQ(volume.emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit));
   EXPECT_FLOAT_EQ(volume.relocation_distance, 0.0f);
-  EXPECT_FLOAT_EQ(volume.random_ray_backface_threshold, 0.0f);
-  EXPECT_FLOAT_EQ(volume.fixed_ray_backface_threshold, 1.0f);
-  EXPECT_FLOAT_EQ(volume.probe_variability_threshold, 10.0f);
-  EXPECT_EQ(volume.probe_variability_min_samples, 0);
   EXPECT_EQ(volume.hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
   EXPECT_EQ(volume.variability_reset_trigger_conditions, DdgiVolumeTriggerConditionAll);
   volume.emissive_mesh_sampling_mode = 4;
@@ -1739,7 +1730,7 @@ TEST(DdgiVolume, DdgiProbeVariabilityUsesSlangReductionWithoutHlslPath) {
   EXPECT_NE(render_layer_source.find("result.z > result.w"), std::string::npos);
   EXPECT_NE(render_layer_source.find("result.x / result.w, result.y, result.z / result.w"), std::string::npos);
   EXPECT_NE(render_layer_source.find("DdgiRuntime::AdvanceProbeConvergence"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("probe_variability_min_samples = 128"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("probe_variability_maximum_frames = 128"), std::string::npos);
   EXPECT_NE(render_layer_source.find("probe_variability_threshold = 0.03f"), std::string::npos);
   EXPECT_NE(render_layer_source.find("probe_variability_gating_enabled"), std::string::npos);
   EXPECT_NE(render_layer_source.find("ddgi_ray_source.enable_probe_variability_gating"), std::string::npos);
@@ -1750,8 +1741,9 @@ TEST(DdgiVolume, DdgiProbeVariabilityUsesSlangReductionWithoutHlslPath) {
   EXPECT_NE(render_layer_source.find("runtime_state.probe_variability_stable_sample_count = 0;"), std::string::npos);
   EXPECT_NE(render_layer_source.find("DdgiUpdateReasonConverged"), std::string::npos);
   EXPECT_NE(render_layer_source.find("runtime_state.frame_probe_warmup_active"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("DdgiRuntime::kProbeRefreshInterval"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("runtime_state.probe_variability_refresh_waiting"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("ReserveProbeVariabilityBudgetFrame"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("ResolveProbeVariabilityBudgetFrame"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("kProbeRefreshInterval"), std::string::npos);
   EXPECT_EQ(reduce_source.find(".hlsl"), std::string::npos);
   EXPECT_EQ(extra_reduce_source.find(".hlsl"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("DXC"), std::string::npos);
@@ -1764,7 +1756,7 @@ TEST(DdgiVolume, ContinuousUpdatesPreserveConvergenceGatingAndVariabilityObserva
                                          "runtime_state.frame_trace_probe_rays = true;");
   ASSERT_FALSE(scheduling.empty());
   EXPECT_NE(scheduling.find("forced_probe_trace || !convergence_pause_enabled"), std::string::npos);
-  EXPECT_NE(scheduling.find("!runtime_state.probe_variability_converged || !convergence_pause_enabled ||"),
+  EXPECT_NE(scheduling.find("!variability_sampling_complete || !convergence_pause_enabled || forced_probe_trace"),
             std::string::npos);
   EXPECT_NE(scheduling.find("probe_variability_gating_enabled"), std::string::npos);
 }
@@ -1772,35 +1764,35 @@ TEST(DdgiVolume, ContinuousUpdatesPreserveConvergenceGatingAndVariabilityObserva
 TEST(DdgiVolume, ProbeConvergenceRequiresConsecutiveValidSamplesAndUsesExitHysteresis) {
   DdgiProbeConvergenceState state{16u, 0u, false};
   const DdgiProbeVariabilityObservation stable{true, 0.19f, 4.0f, 0.15f, 1.0f};
-  auto update = DdgiRuntime::AdvanceProbeConvergence(state, stable, 16u, 0.2f);
+  auto update = DdgiRuntime::AdvanceProbeConvergence(state, stable, 0.2f);
   EXPECT_EQ(update.state.sample_count, 17u);
   EXPECT_EQ(update.state.stable_sample_count, 1u);
   EXPECT_FALSE(update.state.converged);
 
   state = update.state;
-  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.21f, 4.0f, 0.10f, 1.0f}, 16u, 0.2f);
+  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.21f, 4.0f, 0.10f, 1.0f}, 0.2f);
   EXPECT_EQ(update.state.stable_sample_count, 0u);
   EXPECT_FALSE(update.state.converged);
 
-  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.19f, 4.0f, 0.151f, 1.0f}, 16u, 0.2f);
+  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.19f, 4.0f, 0.151f, 1.0f}, 0.2f);
   EXPECT_EQ(update.state.stable_sample_count, 0u);
   EXPECT_FALSE(update.state.converged);
 
   state = {16u, 0u, false};
   for (uint32_t sample_index = 0; sample_index < DdgiRuntime::kProbeVariabilityStableSampleCount; ++sample_index) {
-    update = DdgiRuntime::AdvanceProbeConvergence(state, stable, 16u, 0.2f);
+    update = DdgiRuntime::AdvanceProbeConvergence(state, stable, 0.2f);
     state = update.state;
   }
   EXPECT_TRUE(update.entered_convergence);
   EXPECT_TRUE(state.converged);
   EXPECT_EQ(state.stable_sample_count, DdgiRuntime::kProbeVariabilityStableSampleCount);
 
-  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.24f, 8.0f, 0.15f, 1.0f}, 16u, 0.2f);
+  update = DdgiRuntime::AdvanceProbeConvergence(state, {true, 0.24f, 8.0f, 0.15f, 1.0f}, 0.2f);
   EXPECT_TRUE(update.state.converged);
-  update = DdgiRuntime::AdvanceProbeConvergence(update.state, {true, 0.251f, 8.0f, 0.15f, 1.0f}, 16u, 0.2f);
+  update = DdgiRuntime::AdvanceProbeConvergence(update.state, {true, 0.251f, 8.0f, 0.15f, 1.0f}, 0.2f);
   EXPECT_FALSE(update.state.converged);
 
-  const auto invalid = DdgiRuntime::AdvanceProbeConvergence(state, {false, 0.0f, 0.0f, 0.0f, 0.0f}, 16u, 0.2f);
+  const auto invalid = DdgiRuntime::AdvanceProbeConvergence(state, {false, 0.0f, 0.0f, 0.0f, 0.0f}, 0.2f);
   EXPECT_EQ(invalid.state.sample_count, state.sample_count);
   EXPECT_EQ(invalid.state.stable_sample_count, state.stable_sample_count);
   EXPECT_EQ(invalid.state.converged, state.converged);
@@ -1819,34 +1811,64 @@ TEST(DdgiVolume, ProbeConvergenceRequiresConsecutiveValidSamplesAndUsesExitHyste
       {true, 0.1f, 0.1f, 0.0f, -1.0f},
   };
   for (const auto& observation : invalid_observations) {
-    const auto interrupted = DdgiRuntime::AdvanceProbeConvergence(partial_streak, observation, 16u, 0.2f);
+    const auto interrupted = DdgiRuntime::AdvanceProbeConvergence(partial_streak, observation, 0.2f);
     EXPECT_EQ(interrupted.state.sample_count, partial_streak.sample_count);
     EXPECT_EQ(interrupted.state.stable_sample_count, 0u);
     EXPECT_FALSE(interrupted.state.converged);
   }
 
   const auto localized =
-      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.02f, 8.1f, 0.01f, 100.0f}, 16u, 0.2f);
+      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.02f, 8.1f, 0.01f, 100.0f}, 0.2f);
   EXPECT_EQ(localized.state.stable_sample_count, 0u);
   EXPECT_FALSE(localized.state.converged);
   const auto percentile =
-      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.1f, 3.0f, 0.151f, 100.0f}, 16u, 0.2f);
+      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.1f, 3.0f, 0.151f, 100.0f}, 0.2f);
   EXPECT_EQ(percentile.state.stable_sample_count, 0u);
   EXPECT_FALSE(percentile.state.converged);
   const auto exact_p85 =
-      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.1f, 3.0f, 0.15f, 100.0f}, 16u, 0.2f);
+      DdgiRuntime::AdvanceProbeConvergence({16u, 2u, false}, {true, 0.1f, 3.0f, 0.15f, 100.0f}, 0.2f);
   EXPECT_TRUE(exact_p85.state.converged);
   EXPECT_TRUE(exact_p85.entered_convergence);
   const auto localized_exit =
-      DdgiRuntime::AdvanceProbeConvergence(exact_p85.state, {true, 0.1f, 10.01f, 0.01f, 100.0f}, 16u, 0.2f);
+      DdgiRuntime::AdvanceProbeConvergence(exact_p85.state, {true, 0.1f, 10.01f, 0.01f, 100.0f}, 0.2f);
   EXPECT_FALSE(localized_exit.state.converged);
 }
 
-TEST(DdgiVolume, ProbeRefreshIsDeterministic) {
-  EXPECT_FALSE(DdgiRuntime::IsPeriodicRefreshDue(true, true, false, DdgiRuntime::kProbeRefreshInterval - 1u));
-  EXPECT_TRUE(DdgiRuntime::IsPeriodicRefreshDue(true, true, false, DdgiRuntime::kProbeRefreshInterval));
-  EXPECT_FALSE(DdgiRuntime::IsPeriodicRefreshDue(true, true, true, DdgiRuntime::kProbeRefreshInterval));
-  EXPECT_FALSE(DdgiRuntime::IsPeriodicRefreshDue(false, true, false, DdgiRuntime::kProbeRefreshInterval));
+TEST(DdgiVolume, ProbeVariabilityBudgetTracksPendingCompletedDiscardedAndStaleFrames) {
+  DdgiProbeVariabilityBudgetState state;
+  for (uint32_t frame = 0; frame < 128u; ++frame) {
+    const auto reservation = DdgiRuntime::ReserveProbeVariabilityBudgetFrame(state, 128u);
+    ASSERT_TRUE(reservation.accepted);
+    state = reservation.state;
+  }
+  EXPECT_EQ(state.pending_frame_count, 128u);
+  EXPECT_FALSE(DdgiRuntime::ReserveProbeVariabilityBudgetFrame(state, 128u).accepted);
+
+  const auto stale = DdgiRuntime::ResolveProbeVariabilityBudgetFrame(state, state.cycle + 1u, true, 128u);
+  EXPECT_FALSE(stale.accepted);
+  EXPECT_EQ(stale.state.pending_frame_count, 128u);
+
+  auto discarded = DdgiRuntime::ResolveProbeVariabilityBudgetFrame(state, state.cycle, false, 128u);
+  ASSERT_TRUE(discarded.accepted);
+  EXPECT_EQ(discarded.state.completed_frame_count, 0u);
+  EXPECT_EQ(discarded.state.pending_frame_count, 127u);
+  state = DdgiRuntime::ReserveProbeVariabilityBudgetFrame(discarded.state, 128u).state;
+
+  for (uint32_t frame = 0; frame < 128u; ++frame) {
+    const auto resolved = DdgiRuntime::ResolveProbeVariabilityBudgetFrame(state, state.cycle, true, 128u);
+    ASSERT_TRUE(resolved.accepted);
+    state = resolved.state;
+    if (frame + 1u == 128u) {
+      EXPECT_TRUE(resolved.maximum_reached);
+    }
+  }
+  EXPECT_EQ(state.completed_frame_count, 128u);
+  EXPECT_EQ(state.pending_frame_count, 0u);
+
+  const auto reset = DdgiRuntime::ResetProbeVariabilityBudget(state);
+  EXPECT_NE(reset.cycle, state.cycle);
+  EXPECT_EQ(reset.completed_frame_count, 0u);
+  EXPECT_EQ(reset.pending_frame_count, 0u);
 }
 
 TEST(DdgiVolume, ReflectionProbeBakeRequiresReadyDdgiRuntime) {
@@ -1857,7 +1879,7 @@ TEST(DdgiVolume, ReflectionProbeBakeRequiresReadyDdgiRuntime) {
   EXPECT_TRUE(DdgiRuntime::IsReflectionProbeRuntimeReady(true, true, true, true));
 }
 
-TEST(DdgiVolume, DdgiHysteresisIsOwnedByRenderLayerAndTriggerPolicyIsPerVolume) {
+TEST(DdgiVolume, DdgiRuntimePolicyIsGlobalAndTriggerPolicyIsPerVolume) {
   const auto settings_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
                                             "include" / "Rendering" / "PBR" / "DdgiSettings.hpp");
   const auto render_settings_source =
@@ -1886,6 +1908,20 @@ TEST(DdgiVolume, DdgiHysteresisIsOwnedByRenderLayerAndTriggerPolicyIsPerVolume) 
   EXPECT_NE(render_settings_source.find("float ddgi_hysteresis = 0.97f;"), std::string::npos);
   EXPECT_NE(render_settings_source.find("float ddgi_boosted_hysteresis = 0.85f;"), std::string::npos);
   EXPECT_NE(render_settings_source.find("float ddgi_hysteresis_restore_speed = 0.001f;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("bool ddgi_enable_probe_variability = true;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("bool ddgi_enable_probe_variability_gating = true;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("bool ddgi_pause_probe_updates_after_convergence = true;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("float ddgi_random_ray_backface_threshold = 0.1f;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("float ddgi_fixed_ray_backface_threshold = 0.25f;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("float ddgi_probe_variability_threshold = 0.03f;"), std::string::npos);
+  EXPECT_NE(render_settings_source.find("int ddgi_probe_variability_maximum_frames = 128;"), std::string::npos);
+  for (const auto* removed :
+       {"enable_probe_variability", "pause_probe_updates_after_convergence", "random_ray_backface_threshold",
+        "fixed_ray_backface_threshold", "probe_variability_threshold", "probe_variability_min_samples"}) {
+    EXPECT_EQ(settings_source.find(removed), std::string::npos) << removed;
+    EXPECT_EQ(volume_source.find(removed), std::string::npos) << removed;
+    EXPECT_EQ(ddgi_settings_source.find(removed), std::string::npos) << removed;
+  }
   EXPECT_NE(inspector_source.find("Normal hysteresis"), std::string::npos);
   EXPECT_NE(inspector_source.find("Boosted hysteresis"), std::string::npos);
   EXPECT_NE(inspector_source.find("Restore speed"), std::string::npos);
@@ -2147,8 +2183,8 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
       ExtractBetween(render_layer_source, "uint32_t full_refresh_reasons", "runtime_state.last_probe_update_reasons =");
   const auto hard_refresh_block =
       ExtractBetween(render_layer_source, "const bool hard_ddgi_refresh", "const bool scene_change_response");
-  const auto variability_reset_block =
-      ExtractBetween(render_layer_source, "const bool reset_ddgi_variability_state", "if (!probe_variability_enabled");
+  const auto variability_reset_block = ExtractBetween(render_layer_source, "const bool reset_ddgi_variability_state",
+                                                      "if (reset_ddgi_variability_state)");
   ASSERT_FALSE(policy_block.empty());
   ASSERT_FALSE(source_change_block.empty());
   ASSERT_FALSE(source_update_block.empty());
@@ -2157,7 +2193,7 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
   ASSERT_FALSE(hard_refresh_block.empty());
   ASSERT_FALSE(variability_reset_block.empty());
   EXPECT_NE(policy_block.find("probe_variability_threshold"), std::string::npos);
-  EXPECT_NE(policy_block.find("probe_variability_min_samples"), std::string::npos);
+  EXPECT_NE(policy_block.find("probe_variability_maximum_frames"), std::string::npos);
   EXPECT_NE(policy_block.find("enable_probe_variability"), std::string::npos);
   EXPECT_NE(policy_block.find("enable_probe_variability_gating"), std::string::npos);
   EXPECT_NE(policy_block.find("runtime_state.previous_probe_variability_parameters != probe_variability_parameters"),
@@ -2180,6 +2216,7 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
   EXPECT_NE(variability_reset_block.find("ddgi_variability_policy_changed"), std::string::npos);
   EXPECT_NE(variability_reset_block.find("variability_trigger_refresh"), std::string::npos);
   EXPECT_NE(variability_reset_block.find("ddgi_scroll_clear_this_frame"), std::string::npos);
+  EXPECT_NE(variability_reset_block.find("scene_change_response"), std::string::npos);
   EXPECT_EQ(atlas_clear_block.find("ddgi_variability_policy_changed"), std::string::npos);
   EXPECT_EQ(atlas_clear_block.find("scene_change_response"), std::string::npos);
   EXPECT_EQ(hard_refresh_block.find("ddgi_variability_policy_changed"), std::string::npos);
@@ -2190,9 +2227,10 @@ TEST(DdgiVolume, DdgiPolicyAndSceneChangesCannotLeaveConvergedHistoryStale) {
   EXPECT_NE(render_layer_source.find("const bool hysteresis_boost_triggered = DdgiTriggerConditionEnabled"),
             std::string::npos);
   EXPECT_EQ(render_layer_source.find("scene_transport_refresh"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("if (runtime_state.probe_variability_converged)"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("(!runtime_state.probe_variability_converged || periodic_refresh_due)"),
+  EXPECT_NE(render_layer_source.find("const bool variability_sampling_complete"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("(!variability_sampling_complete && variability_budget_slot_available)"),
             std::string::npos);
+  EXPECT_EQ(render_layer_source.find("periodic_refresh_due"), std::string::npos);
 }
 
 TEST(DdgiVolume, SceneChangesUseHysteresisBoostRecoveryWithoutWarmupOrHistoryClear) {
@@ -3332,15 +3370,15 @@ TEST(DdgiVolume, RenderLayerFormatsDdgiUpdateReasonsForDebugging) {
   EXPECT_EQ(DdgiUpdateReasonConverged, 1u << 3u);
   EXPECT_EQ(DdgiUpdateReasonWarmup, 1u << 4u);
   EXPECT_EQ(DdgiUpdateReasonSceneChange, 1u << 5u);
-  EXPECT_EQ(DdgiUpdateReasonPeriodicRefresh, 1u << 6u);
-  EXPECT_EQ(DdgiUpdateReasonVariabilityPolicy, 1u << 7u);
-  EXPECT_EQ(DdgiUpdateReasonHysteresisRestore, 1u << 8u);
+  EXPECT_EQ(DdgiUpdateReasonVariabilityPolicy, 1u << 6u);
+  EXPECT_EQ(DdgiUpdateReasonHysteresisRestore, 1u << 7u);
+  EXPECT_EQ(DdgiUpdateReasonVariabilityMaximum, 1u << 8u);
   EXPECT_EQ(DdgiRuntime::FormatUpdateReasons(DdgiUpdateReasonNone), "None");
   EXPECT_EQ(DdgiRuntime::FormatUpdateReasons(DdgiUpdateReasonSource | DdgiUpdateReasonManualReset |
                                              DdgiUpdateReasonSteadyState | DdgiUpdateReasonConverged |
                                              DdgiUpdateReasonWarmup | DdgiUpdateReasonSceneChange |
-                                             DdgiUpdateReasonPeriodicRefresh | DdgiUpdateReasonVariabilityPolicy |
-                                             DdgiUpdateReasonHysteresisRestore),
-            "DDGI source, Manual reset, Steady state, Converged, Warm up, Scene change, Periodic refresh, Variability "
-            "policy, Hysteresis restore");
+                                             DdgiUpdateReasonVariabilityPolicy | DdgiUpdateReasonHysteresisRestore |
+                                             DdgiUpdateReasonVariabilityMaximum),
+            "DDGI source, Manual reset, Steady state, Converged, Warm up, Scene change, Variability policy, "
+            "Hysteresis restore, Variability maximum");
 }

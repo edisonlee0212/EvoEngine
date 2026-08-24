@@ -90,7 +90,6 @@ constexpr float kBistroDirectionalLightSize = 0.01f;
 constexpr const char* kRenderingRegressionRootName = "M42 Rendering Regression Root";
 constexpr float kDdgiValidationNeutralProbeVariabilityThreshold = 0.2f;
 constexpr float kDdgiValidationHighContrastProbeVariabilityThreshold = 0.5f;
-constexpr int kDdgiValidationProbeVariabilityMinSamples = 16;
 constexpr float kDdgiValidationEmitterRadiance = 45.0f;
 constexpr float DdgiValidationBoxSurfaceArea(const float x, const float y, const float z) {
   return 2.0f * (x * y + x * z + y * z);
@@ -133,6 +132,18 @@ void DisableDdgiDebugVisualization() {
     session.show_selected_probe = false;
     session.show_selected_probe_state = false;
     session.show_rays = false;
+  }
+}
+
+void ConfigureDdgiGlobalVariability(const bool enabled, const bool gating, const float threshold,
+                                    const int maximum_frames = 128) {
+  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+    auto& settings = render_layer->render_settings;
+    settings.ddgi_enable_probe_variability = enabled;
+    settings.ddgi_enable_probe_variability_gating = gating;
+    settings.ddgi_pause_probe_updates_after_convergence = true;
+    settings.ddgi_probe_variability_threshold = threshold;
+    settings.ddgi_probe_variability_maximum_frames = maximum_frames;
   }
 }
 
@@ -1316,8 +1327,7 @@ void SyncTemporaryEnvironmentalLightingSettingsFromScene(const std::shared_ptr<S
   (void)GetOrCreateTemporaryEnvironmentalLighting(scene);
 }
 
-void ConfigureDdgiValidationVolume(EnvironmentalLighting::DdgiVolume& volume, const std::string& fixture_id,
-                                   const float probe_variability_threshold) {
+void ConfigureDdgiValidationVolume(EnvironmentalLighting::DdgiVolume& volume, const std::string& fixture_id) {
   volume.probe_counts = {8, 6, 8};
   volume.probe_spacing = glm::vec3(0.6f);
   volume.volume_origin = glm::vec3(0.0f);
@@ -1326,10 +1336,6 @@ void ConfigureDdgiValidationVolume(EnvironmentalLighting::DdgiVolume& volume, co
   volume.relocation_distance = 0.2f;
   volume.enable_probe_relocation = true;
   volume.enable_probe_classification = true;
-  volume.enable_probe_variability = true;
-  volume.enable_probe_variability_gating = true;
-  volume.probe_variability_threshold = probe_variability_threshold;
-  volume.probe_variability_min_samples = kDdgiValidationProbeVariabilityMinSamples;
 }
 
 EnvironmentalLighting::LocalReflectionProbe& AddEnvironmentalLightingLocalReflectionProbe(
@@ -2581,22 +2587,15 @@ void evo_engine::ConfigureEnvironmentLightingValidationScene(const std::shared_p
   ddgi.runtime.deterministic_ray_seed = 0x6d2b79f5u;
   ddgi.storage.max_probe_count = 64;
   DisableDdgiDebugVisualization();
+  ConfigureDdgiGlobalVariability(true, true, 1.0f);
   ddgi.volume_defaults.enable_probe_relocation = false;
   ddgi.volume_defaults.enable_probe_classification = false;
-  ddgi.volume_defaults.enable_probe_variability = true;
-  ddgi.volume_defaults.enable_probe_variability_gating = true;
-  ddgi.volume_defaults.probe_variability_threshold = 1.0f;
-  ddgi.volume_defaults.probe_variability_min_samples = 1;
   if (auto* volume = FindEnvironmentalLightingDdgiVolume(scene, "DDGI Validation Volume")) {
     volume->probe_counts = {3, 2, 3};
     volume->probe_spacing = glm::vec3(1.2f);
     volume->volume_origin = glm::vec3(0.0f);
     volume->enable_probe_relocation = false;
     volume->enable_probe_classification = false;
-    volume->enable_probe_variability = true;
-    volume->enable_probe_variability_gating = true;
-    volume->probe_variability_threshold = 1.0f;
-    volume->probe_variability_min_samples = 1;
   }
 
   const auto configure_camera = [](const std::shared_ptr<Camera>& camera) {
@@ -2890,12 +2889,12 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
     const bool volume_ready = runtime.size() == 1u && runtime[0].probe_count == 960u && runtime[0].resources_ready &&
                               runtime[0].has_valid_probe_history && runtime[0].contributes_lighting;
     const bool ready = volume_ready && performance.active_probe_count == 960u &&
-                       performance.lighting_descriptors_bound && performance.probe_variability_converged &&
+                       performance.lighting_descriptors_bound && performance.probe_variability_sampling_complete &&
                        !performance.probe_warmup_active;
     ready_ddgi_frames = ready ? ready_ddgi_frames + 1u : 0u;
   }
   if (ready_ddgi_frames < 4u) {
-    throw std::runtime_error("Sponza authoring DDGI convergence timed out.");
+    throw std::runtime_error("Sponza authoring DDGI sampling timed out.");
   }
   SetDdgiUpdatesPaused(true);
 
@@ -3072,12 +3071,9 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     ddgi.runtime.warmup_frames = 32;
     RequestDdgiHistoryReset();
     DisableDdgiDebugVisualization();
+    ConfigureDdgiGlobalVariability(true, true, probe_variability_threshold);
     ddgi.volume_defaults.enable_probe_relocation = true;
     ddgi.volume_defaults.enable_probe_classification = true;
-    ddgi.volume_defaults.enable_probe_variability = true;
-    ddgi.volume_defaults.enable_probe_variability_gating = true;
-    ddgi.volume_defaults.probe_variability_threshold = probe_variability_threshold;
-    ddgi.volume_defaults.probe_variability_min_samples = kDdgiValidationProbeVariabilityMinSamples;
   };
   configure_validation_ddgi_settings(128);
 
@@ -3087,10 +3083,6 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
       for (auto& volume : assigned_lighting->GetOrCreateDdgiVolumePack()->volumes) {
         volume.enable_probe_relocation = true;
         volume.enable_probe_classification = true;
-        volume.enable_probe_variability = true;
-        volume.enable_probe_variability_gating = true;
-        volume.probe_variability_threshold = probe_variability_threshold;
-        volume.probe_variability_min_samples = kDdgiValidationProbeVariabilityMinSamples;
       }
     }
   };
@@ -3131,7 +3123,7 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   lighting->GetOrCreateDdgiVolumePack()->volumes.clear();
   auto& volume = AddEnvironmentalLightingDdgiVolume(*lighting, "DDGI Validation Volume", volume_transform.value,
                                                     {8, 6, 8}, glm::vec3(0.6f), glm::vec3(0.0f));
-  ConfigureDdgiValidationVolume(volume, fixture_id, probe_variability_threshold);
+  ConfigureDdgiValidationVolume(volume, fixture_id);
 
   const glm::vec3 camera_position(0.0f, 1.25f, 5.0f);
   const glm::vec3 camera_target(0.0f, 0.8f, -2.4f);
@@ -4549,13 +4541,13 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended during environment lighting DDGI convergence.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
       ++convergence_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
-    throw std::runtime_error("Environment lighting DDGI invalidation fixture did not converge.");
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+    throw std::runtime_error("Environment lighting DDGI invalidation fixture did not finish sampling.");
   }
 
   struct RegionEvidence {
@@ -4787,20 +4779,17 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended during M15 Sponza DDGI convergence.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
       ++m15_sponza_convergence_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
-    throw std::runtime_error("M15 Sponza DDGI fixture did not converge.");
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+    throw std::runtime_error("M15 Sponza DDGI fixture did not finish sampling.");
   }
-  m15_sponza_ddgi.volume_defaults.enable_probe_variability_gating = false;
+  render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = m15_sponza_ddgi;
-    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-      volume.enable_probe_variability_gating = false;
-    }
   }
   SetDdgiUpdatesPaused(true);
   constexpr size_t m15_sponza_history_settle_frames = 4;
@@ -4947,20 +4936,17 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
     if (!ApplicationContext::Get().Loop()) {
       throw std::runtime_error("Application ended during canonical Sponza DDGI convergence.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
       ++sponza_convergence_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_converged) {
-    throw std::runtime_error("Canonical Sponza DDGI fixture did not converge.");
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+    throw std::runtime_error("Canonical Sponza DDGI fixture did not finish sampling.");
   }
-  canonical_sponza_ddgi.volume_defaults.enable_probe_variability_gating = false;
+  render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = canonical_sponza_ddgi;
-    for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-      volume.enable_probe_variability_gating = false;
-    }
   }
   SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
   constexpr size_t canonical_preparation_frames = 8;
@@ -5518,14 +5504,11 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     phase.requested_enabled = enabled;
     settings.runtime.enable_emissive_mesh_sampling = enabled;
     RequestDdgiHistoryReset();
-    settings.volume_defaults.enable_probe_variability = true;
-    settings.volume_defaults.enable_probe_variability_gating = true;
+    ConfigureDdgiGlobalVariability(true, true, render_layer->render_settings.ddgi_probe_variability_threshold);
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
       for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
         volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit);
-        volume.enable_probe_variability = true;
-        volume.enable_probe_variability_gating = true;
       }
     }
     SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
@@ -5540,7 +5523,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
       const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
       if (runtime.size() == 1u && runtime.front().emissive_mesh_sampling_enabled == enabled &&
           runtime.front().has_valid_probe_history && runtime.front().contributes_lighting &&
-          performance.probe_variability_converged) {
+          performance.probe_variability_sampling_complete) {
         ++phase.convergence_frames;
         converged = true;
         break;
@@ -5550,12 +5533,9 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
       throw std::runtime_error("DDGI emissive phase did not converge: " + name);
     }
 
-    settings.volume_defaults.enable_probe_variability_gating = false;
+    render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
-      for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
-        volume.enable_probe_variability_gating = false;
-      }
     }
     for (size_t frame = 0; frame < timing_prepare_frames; ++frame) {
       if (!ApplicationContext::Get().Loop()) {
@@ -5719,6 +5699,7 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   settings.runtime.deterministic_ray_seed = 0x4d37564fu;
   settings.storage.max_probe_count = static_cast<int>(DdgiRuntime::kMaxResidentProbeCount);
   DisableDdgiDebugVisualization();
+  ConfigureDdgiGlobalVariability(false, false, render_layer->render_settings.ddgi_probe_variability_threshold);
   Platform::SetGpuTimestampCaptureEnabled(true);
 
   const auto create_volume = [&](const char* name, const glm::ivec3 probe_counts, const float probe_spacing,
@@ -5729,8 +5710,6 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
     volume.movement_type = static_cast<int>(movement_type);
     volume.enable_probe_relocation = true;
     volume.enable_probe_classification = true;
-    volume.enable_probe_variability = false;
-    volume.enable_probe_variability_gating = false;
     return volume;
   };
 

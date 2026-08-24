@@ -450,6 +450,8 @@ class RenderLayer final : public ILayer {
     uint32_t element_count = 0;
     uint32_t logical_probe_index = 0;
     uint32_t physical_probe_index = 0;
+    uint64_t variability_budget_cycle = 0;
+    bool counts_toward_variability_budget = false;
   };
 
   struct DdgiVolumeRuntimeState {
@@ -499,6 +501,7 @@ class RenderLayer final : public ILayer {
     glm::vec4 previous_probe_state_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_blend_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_variability_parameters = glm::vec4(0.0f);
+    bool previous_pause_probe_updates_after_convergence = true;
     int previous_movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
     bool has_previous_environment_signature = false;
     uint64_t previous_environment_signature = 0;
@@ -522,11 +525,10 @@ class RenderLayer final : public ILayer {
     uint32_t probe_variability_sample_count = 0;
     uint32_t probe_variability_stable_sample_count = 0;
     bool probe_variability_converged = false;
-    uint32_t probe_variability_refresh_age = 0;
-    bool probe_variability_refresh_waiting = false;
+    bool probe_variability_maximum_reached = false;
+    DdgiProbeVariabilityBudgetState probe_variability_budget{};
     uint64_t next_variability_generation = 0;
     uint64_t last_consumed_variability_generation = 0;
-    uint64_t probe_variability_refresh_generation = 0;
     uint32_t probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_count = 0;
@@ -541,6 +543,7 @@ class RenderLayer final : public ILayer {
     bool frame_probe_classification_reset = false;
     bool frame_probe_classification_enabled = false;
     bool frame_probe_variability_enabled = false;
+    bool frame_probe_variability_counts_toward_budget = false;
     float frame_probe_variability_threshold = 0.0f;
     int latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
     uint32_t frame_selected_probe_ray_sample_count = 0;

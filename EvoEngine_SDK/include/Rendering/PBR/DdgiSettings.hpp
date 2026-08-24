@@ -48,14 +48,7 @@ struct DdgiSettings {
     int movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
     bool enable_probe_relocation = true;
     bool enable_probe_classification = false;
-    bool enable_probe_variability = true;
-    bool enable_probe_variability_gating = true;
-    bool pause_probe_updates_after_convergence = true;
     float relocation_distance = 0.25f;
-    float random_ray_backface_threshold = 0.1f;
-    float fixed_ray_backface_threshold = 0.25f;
-    float probe_variability_threshold = 0.03f;
-    int probe_variability_min_samples = 128;
   };
 
   struct StorageSettings {

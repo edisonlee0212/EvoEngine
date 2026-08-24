@@ -64,6 +64,13 @@ struct RenderSettings {
   float ddgi_hysteresis = 0.97f;                 ///< History weight used by normal DDGI probe updates.
   float ddgi_boosted_hysteresis = 0.85f;         ///< History weight used while a DDGI hysteresis boost is active.
   float ddgi_hysteresis_restore_speed = 0.001f;  ///< Hysteresis restored toward normal per unpaused frame.
+  bool ddgi_enable_probe_variability = true;
+  bool ddgi_enable_probe_variability_gating = true;
+  bool ddgi_pause_probe_updates_after_convergence = true;
+  float ddgi_random_ray_backface_threshold = 0.1f;
+  float ddgi_fixed_ray_backface_threshold = 0.25f;
+  float ddgi_probe_variability_threshold = 0.03f;
+  int ddgi_probe_variability_maximum_frames = 128;
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).

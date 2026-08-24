@@ -51,7 +51,6 @@ DdgiProbeUpdateVariant DdgiRuntime::ParseProbeUpdateVariant(const std::string_vi
 
 DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeConvergenceState& state,
                                                                 const DdgiProbeVariabilityObservation& observation,
-                                                                const uint32_t minimum_sample_count,
                                                                 const float entry_threshold) {
   DdgiProbeConvergenceUpdate update{state};
   if (!observation.valid || !std::isfinite(observation.average) || !std::isfinite(observation.maximum) ||
@@ -75,10 +74,6 @@ DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeC
     }
     return update;
   }
-  if (update.state.sample_count <= minimum_sample_count) {
-    update.state.stable_sample_count = 0u;
-    return update;
-  }
   const bool stable = observation.average <= enter &&
                       observation.maximum <= enter * kProbeVariabilityMaximumThresholdScale &&
                       observation.unstable_fraction <= kProbeVariabilityAllowedUnstableFraction;
@@ -91,15 +86,51 @@ DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeC
   return update;
 }
 
-bool DdgiRuntime::IsPeriodicRefreshDue(const bool gating_enabled, const bool converged,
-                                       const bool waiting_for_observation, const uint32_t refresh_age) {
-  return gating_enabled && converged && !waiting_for_observation && refresh_age >= kProbeRefreshInterval;
+DdgiProbeVariabilityBudgetState DdgiRuntime::ResetProbeVariabilityBudget(const DdgiProbeVariabilityBudgetState& state) {
+  DdgiProbeVariabilityBudgetState reset;
+  reset.cycle = state.cycle + 1u;
+  if (reset.cycle == 0u) {
+    reset.cycle = 1u;
+  }
+  return reset;
+}
+
+DdgiProbeVariabilityBudgetUpdate DdgiRuntime::ReserveProbeVariabilityBudgetFrame(
+    const DdgiProbeVariabilityBudgetState& state, const uint32_t maximum_frame_count) {
+  DdgiProbeVariabilityBudgetUpdate update{state};
+  const auto maximum = glm::max(maximum_frame_count, 1u);
+  if (state.completed_frame_count + state.pending_frame_count >= maximum) {
+    update.maximum_reached = state.completed_frame_count >= maximum;
+    return update;
+  }
+  ++update.state.pending_frame_count;
+  update.accepted = true;
+  return update;
+}
+
+DdgiProbeVariabilityBudgetUpdate DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
+    const DdgiProbeVariabilityBudgetState& state, const uint64_t ticket_cycle, const bool valid_observation,
+    const uint32_t maximum_frame_count) {
+  DdgiProbeVariabilityBudgetUpdate update{state};
+  const auto maximum = glm::max(maximum_frame_count, 1u);
+  if (ticket_cycle != state.cycle || state.pending_frame_count == 0u) {
+    update.maximum_reached = state.completed_frame_count >= maximum;
+    return update;
+  }
+  --update.state.pending_frame_count;
+  if (valid_observation) {
+    ++update.state.completed_frame_count;
+  }
+  update.accepted = true;
+  update.maximum_reached = update.state.completed_frame_count >= maximum;
+  return update;
 }
 
 bool DdgiRuntime::IsReflectionProbeRuntimeReady(const bool has_valid_history, const bool lighting_descriptors_bound,
                                                 const bool variability_gating_enabled,
-                                                const bool variability_converged) {
-  return has_valid_history && lighting_descriptors_bound && (!variability_gating_enabled || variability_converged);
+                                                const bool variability_sampling_complete) {
+  return has_valid_history && lighting_descriptors_bound &&
+         (!variability_gating_enabled || variability_sampling_complete);
 }
 
 DdgiProbeUpdateVariant DdgiRuntime::ResolveProbeUpdateVariant(const DdgiProbeUpdateVariant requested,
@@ -428,9 +459,9 @@ std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
   append_reason(DdgiUpdateReasonConverged, "Converged");
   append_reason(DdgiUpdateReasonWarmup, "Warm up");
   append_reason(DdgiUpdateReasonSceneChange, "Scene change");
-  append_reason(DdgiUpdateReasonPeriodicRefresh, "Periodic refresh");
   append_reason(DdgiUpdateReasonVariabilityPolicy, "Variability policy");
   append_reason(DdgiUpdateReasonHysteresisRestore, "Hysteresis restore");
+  append_reason(DdgiUpdateReasonVariabilityMaximum, "Variability maximum");
   return result.empty() ? "Unknown" : result;
 }
 
