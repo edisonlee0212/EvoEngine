@@ -887,9 +887,9 @@ class EditorLayer : public ILayer {
   [[nodiscard]] bool CanUseTransformModeHotkeys(const Scene& scene) const;
   glm::vec3 scene_orbit_pivot_ = glm::vec3(0.0f); /**< Current scene-camera orbit pivot. */
   bool scene_orbit_pivot_from_selection_ = false; /**< Whether the current orbit pivot comes from selection. */
-  bool local_position_selected_ = true;    /**< Indicates if the local position is selected. */
-  bool local_rotation_selected_ = false;   /**< Indicates if the local rotation is selected. */
-  bool local_scale_selected_ = false;      /**< Indicates if the local scale is selected. */
+  bool local_position_selected_ = true;           /**< Indicates if the local position is selected. */
+  bool local_rotation_selected_ = false;          /**< Indicates if the local rotation is selected. */
+  bool local_scale_selected_ = false;             /**< Indicates if the local scale is selected. */
 
   bool scene_camera_window_focused_ = false; /**< Indicates if the scene camera window is focused. */
   bool main_camera_window_focused_ = false;  /**< Indicates if the main camera window is focused. */

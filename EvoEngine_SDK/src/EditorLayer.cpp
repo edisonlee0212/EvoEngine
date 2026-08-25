@@ -964,7 +964,8 @@ void EditorLayer::SceneCameraWindow() {
               if (glm::length(right) > 1e-4f) {
                 const glm::vec3 candidate_offset =
                     glm::rotate(offset, glm::radians(-orbit_y_offset * sensitivity), right);
-                const glm::vec3 candidate_front = glm::normalize(scene_orbit_pivot_ - (scene_orbit_pivot_ + candidate_offset));
+                const glm::vec3 candidate_front =
+                    glm::normalize(scene_orbit_pivot_ - (scene_orbit_pivot_ + candidate_offset));
                 if ((candidate_front.y < 0.99f && orbit_y_offset < 0.0f) ||
                     (candidate_front.y > -0.99f && orbit_y_offset > 0.0f)) {
                   offset = candidate_offset;
