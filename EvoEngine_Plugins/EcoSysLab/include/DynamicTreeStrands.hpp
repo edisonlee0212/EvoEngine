@@ -26,10 +26,15 @@ class DynamicTreeStrands : public IPrivateComponent {
   /**
    * @brief Initializes dynamic tree strands based on a tree structure.
    * @param tree Shared pointer to the tree structure.
+   * @param meshing_buffer_description Optional free-form note for mesh-buffer YML metadata.
+   *        When empty, uses a generic InitializeFromTree description.
    */
-  void InitializeFromTree(const std::shared_ptr<Tree>& tree);
+  void InitializeFromTree(const std::shared_ptr<Tree>& tree, const std::string& meshing_buffer_description = {});
 
-  int seed = 0;                ///< Seed for procedural generation.
+  int seed = 0;                ///< Seed for procedural generation (used when fixed_subdivision_seed is true).
+  /// When true, random strand subdivisions use @ref seed so meshing-buffer hashes stay stable across attempts.
+  /// When false, a fresh non-deterministic seed is drawn each subdivide.
+  bool fixed_subdivision_seed = true;
   StrandModel strand_model{};  ///< Strand model.
 
   DynamicStrandsInitializeParameters initialize_parameters{};  ///< Initialization parameters for DynamicStrands.
@@ -151,6 +156,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool fungus_test = false;
     glm::vec3 initial_velocity = glm::vec3(0.f);          ///< Initial velocity of the structure.
     glm::vec3 initial_angular_velocity = glm::vec3(0.f);  ///< Initial angular velocity of the structure.
+    /// Free-form note written into mesh-buffer YML metadata (not hashed).
+    std::string meshing_buffer_description = "created from DynamicTreeStrands BoardExperimentSetup";
 
     /**
      * @brief Inspects board experiment settings in the editor.
@@ -184,6 +191,8 @@ class DynamicTreeStrands : public IPrivateComponent {
     bool internal_pattern = false;
     bool competition_setting = false;
     float t_cut_width = 0.7f;  ///< Width of the T-cut.
+    /// Free-form note written into mesh-buffer YML metadata (not hashed).
+    std::string meshing_buffer_description = "created from DynamicTreeStrands LogExperimentSetup";
 
     /**
      * @brief Inspects log experiment settings in the editor.
@@ -215,6 +224,13 @@ class DynamicTreeStrands : public IPrivateComponent {
    * @brief Clears existing strand particles.
    */
   void ClearStrandParticles() const;
+
+  /**
+   * @brief Clears strand/mesh GPU+CPU data, pivots, particles, and related child entities
+   *        so the component can be re-initialized without restarting the application.
+   *        Preserves materials and initialization/editor settings.
+   */
+  void Reset();
 
   /**
    * @brief Advances the interaction step in the simulation.

@@ -36,9 +36,6 @@ void main() {
       break;
 
     Segment segment = segments[segment_handle];
-    if (segment.particle0.disabled != 0)
-      continue;
-
     Particle particle0 = segment.particle0;
     Particle particle1 = segment.particle1;
 

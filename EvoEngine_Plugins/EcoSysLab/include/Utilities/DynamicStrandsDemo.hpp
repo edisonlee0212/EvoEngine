@@ -23,7 +23,7 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Target factor for simulation parameter 1.
   float target_factor1 = 1.f;
 
-  /// @brief Target growth time for the simulation.
+  /// @brief Target growth time for tree-growth demos, in years.
   float target_growth_time = 0.f;
 
   /// @brief Reference to a temporary entity.
@@ -67,7 +67,9 @@ class DynamicStrandsDemo : public IPrivateComponent {
     TreeCollision,    ///< Demonstrates tree collisions.
     TreeBreak,        ///< Demonstrates tree breaking physics.
     Fungus,           ///< Fungus / Woodstock demos.
-    SmallTrunk        ///< Grow Oak_trunk then run volumetric meshing.
+    SmallTrunk,       ///< Grow Oak_trunk then run volumetric meshing.
+    LogCut,           ///< Volumetric log mesh + log_cut intersection setup.
+    LogSpoon          ///< Volumetric log mesh + log_spoon intersection setup.
   };
 
   /**
@@ -95,6 +97,12 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Settings for board experiment setup.
   DynamicTreeStrands::BoardExperimentSetupSettings board_experiment_setup_settings{};
 
+  /// @brief Description applied when tree-growth demos call InitializeFromTree.
+  std::string pending_meshing_buffer_description;
+
+  /// @brief True after EcoSysLab auto-grow has been requested for the current tree-growth demo.
+  bool tree_auto_grow_started_ = false;
+
   /// @brief Current demo type being simulated.
   DemoType demo_type = DemoType::Empty;
 
@@ -112,5 +120,11 @@ class DynamicStrandsDemo : public IPrivateComponent {
    * @brief Updates the physics simulation and demo state.
    */
   void Update() override;
+
+ private:
+  /// Start EcoSysLab auto-grow for @ref target_growth_time years (async; advances in EcoSysLabLayer::Update).
+  void BeginTreeAutoGrow();
+  /// If auto-grow has finished, build strands/mesh and enter physics Simulation. Safe to call from OnInspect.
+  void TryFinishTreeGrowthAndStartMeshing();
 };
 }  // namespace eco_sys_lab_plugin

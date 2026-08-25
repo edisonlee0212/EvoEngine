@@ -32,7 +32,12 @@ void DynamicTreeStrands::UpdateDynamicStrands(DtsStrandGroup& randomly_subdivide
     }
   }
 
-  std::mt19937 random_engine(seed);
+  std::mt19937 random_engine;
+  if (fixed_subdivision_seed) {
+    random_engine = std::mt19937(static_cast<uint32_t>(seed));
+  } else {
+    random_engine = std::mt19937(std::random_device{}());
+  }
 
   transform_pivots.clear();
   const auto owner = GetOwner();
@@ -70,6 +75,7 @@ void DynamicTreeStrands::CreateStaticRoot() {
 
 void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "seed" << YAML::Value << seed;
+  out << YAML::Key << "fixed_subdivision_seed" << YAML::Value << fixed_subdivision_seed;
   out << YAML::Key << "enable_physics" << YAML::Value << enable_physics;
   out << YAML::Key << "limit_strand_length" << YAML::Value << limit_strand_length;
   out << YAML::Key << "max_strand_length" << YAML::Value << max_strand_length;
@@ -91,6 +97,8 @@ void DynamicTreeStrands::Serialize(YAML::Emitter& out) const {
 void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
   if (in["seed"])
     seed = in["seed"].as<int>();
+  if (in["fixed_subdivision_seed"])
+    fixed_subdivision_seed = in["fixed_subdivision_seed"].as<bool>();
   if (in["initialized_from_tree"])
     initialized_from_tree = in["initialized_from_tree"].as<bool>();
 
@@ -114,6 +122,15 @@ void DynamicTreeStrands::Deserialize(const YAML::Node& in) {
 }
 
 bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
+  if (ImGui::Button("Reset")) {
+    Reset();
+  }
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "Clear all strand/mesh buffers and related child entities (pivots, particles, intersection meshes) "
+        "without restarting. Materials and initialization settings are kept.");
+  }
+
   if (ImGui::TreeNode("Preset settings")) {
     if (ImGui::Button("Oak Trunk")) {
       initialize_parameters.min_segment_length = 0.005f;
@@ -146,7 +163,19 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   ImGui::SameLine();
   ImGui::RadioButton("Alpha Shape Meshing", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
                      static_cast<int>(MeshingType::AlphaShape));
+  ImGui::Checkbox("Fixed seed", &fixed_subdivision_seed);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, random strand subdivisions use the Seed value below so meshing-buffer hashes stay "
+        "stable across re-subdivide attempts. Disable to draw a fresh random seed each time.");
+  }
+  if (!fixed_subdivision_seed) {
+    ImGui::BeginDisabled();
+  }
   ImGui::DragInt("Seed", &seed, 1, 0, INT_MAX);
+  if (!fixed_subdivision_seed) {
+    ImGui::EndDisabled();
+  }
   editor_layer->DragAndDropButton<Material>(materials.bark_material_ref, "Bark Material");
   editor_layer->DragAndDropButton<Material>(materials.inner_wood_material_ref, "Inner wood Material");
   editor_layer->DragAndDropButton<Material>(materials.splinter_material_ref, "Splinter Material");
@@ -176,6 +205,8 @@ bool DynamicTreeStrands::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::Button("Re-subdivide")) {
     // initialize_parameters.min_segment_length = 0.005f;
     // initialize_parameters.max_segment_length = 0.01f;
+    DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+        "created manually through DynamicTreeStrands Re-subdivide";
 
     DtsStrandGroup randomly_subdivided_strand_group{}, uniformly_subdivided_strand_group{};
     UpdateDynamicStrands(randomly_subdivided_strand_group, uniformly_subdivided_strand_group);
@@ -444,6 +475,9 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
 }
 
 void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands BoardExperimentSetup"
+                                                   : settings.meshing_buffer_description;
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -746,6 +780,9 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
 
 void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& settings) {
   // TODO: move dynamic strands initialization here
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands LogExperimentSetup"
+                                                   : settings.meshing_buffer_description;
 
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
@@ -765,7 +802,12 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   }
   strand_model_skeleton.SortLists();
   strand_model_skeleton.CalculateRegulatedGlobalRotation();
-  std::mt19937 random_engine(seed);
+  std::mt19937 random_engine;
+  if (fixed_subdivision_seed) {
+    random_engine = std::mt19937(static_cast<uint32_t>(seed));
+  } else {
+    random_engine = std::mt19937(std::random_device{}());
+  }
 
   StrandModelProfile<CellParticlePhysicsData> profile;
   for (int i = 0; i < settings.rod_size; i++) {
@@ -1328,13 +1370,51 @@ void DynamicTreeStrands::ClearStrandParticles() const {
   }
 }
 
+void DynamicTreeStrands::Reset() {
+  const auto scene = GetScene();
+  const auto owner = GetOwner();
+  if (scene && scene->IsEntityValid(owner)) {
+    // Copy children first — DeleteEntity mutates the child list.
+    const auto children = scene->GetChildren(owner);
+    for (const auto& child : children) {
+      if (!scene->IsEntityValid(child)) {
+        continue;
+      }
+      const auto name = scene->GetEntityName(child);
+      if (name == "Branch Strand Particles" || name == "Left Pivot" || name == "Right Pivot" ||
+          name.rfind("Intersection Meshes", 0) == 0) {
+        scene->DeleteEntity(child);
+      }
+    }
+  }
+
+  point_pivots.clear();
+  axis_pivots.clear();
+  transform_pivots.clear();
+  strand_model = {};
+  initialized_from_tree = false;
+  foliage_rendering_instance_handle = Handle();
+
+  if (dynamic_strands) {
+    dynamic_strands->Clear();
+    dynamic_strands->Upload();
+    dynamic_strands->UpdateBindings();
+  }
+
+  EVOENGINE_LOG("DynamicTreeStrands reset: cleared strands, meshlets, pivots, and related child entities.");
+}
+
 void DynamicTreeStrands::InteractionStep() const {
   if (box_selection_operator->enabled) {
     box_selection_operator->Execute(dynamic_strands);
   }
 }
 
-void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree) {
+void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree,
+                                            const std::string& meshing_buffer_description) {
+  DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
+      meshing_buffer_description.empty() ? "created from DynamicTreeStrands InitializeFromTree"
+                                          : meshing_buffer_description;
   tree->BuildStrandModel();
   if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
     initialize_parameters.foliage_descriptor = td->foliage_descriptor;

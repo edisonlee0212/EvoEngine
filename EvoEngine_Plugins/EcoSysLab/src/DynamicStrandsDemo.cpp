@@ -36,6 +36,85 @@ void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& ph
 
 }  // namespace
 
+void DynamicStrandsDemo::BeginTreeAutoGrow() {
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  if (!eco_sys_lab_layer) {
+    EVOENGINE_ERROR("Tree growth demo: EcoSysLabLayer is missing.");
+    demo_type = DemoType::Empty;
+    demo_status = DemoStatus::Idle;
+    tree_auto_grow_started_ = false;
+    return;
+  }
+  tree_auto_grow_started_ = true;
+  // Continue meshing after EcoSysLab finishes async auto-grow (layer Update always runs;
+  // private-component Update only runs while the application is Playing).
+  eco_sys_lab_layer->SetOnAutoGrowFinished([this]() {
+    TryFinishTreeGrowthAndStartMeshing();
+  });
+  eco_sys_lab_layer->StartAutoGrow(target_growth_time);
+  EVOENGINE_LOG("Demo: waiting for EcoSysLab tree auto-grow (" << target_growth_time << " years)...");
+}
+
+void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
+  if (demo_status != DemoStatus::TreeGrowth) {
+    return;
+  }
+  const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
+  if (!eco_sys_lab_layer) {
+    EVOENGINE_ERROR("Tree growth demo: EcoSysLabLayer is missing.");
+    demo_type = DemoType::Empty;
+    demo_status = DemoStatus::Idle;
+    tree_auto_grow_started_ = false;
+    return;
+  }
+
+  // Still growing asynchronously in EcoSysLabLayer::Update — do not block the frame.
+  if (eco_sys_lab_layer->IsAutoGrowing()) {
+    return;
+  }
+  if (!tree_auto_grow_started_) {
+    BeginTreeAutoGrow();
+    return;
+  }
+
+  const float target_days = target_growth_time * 365.f;
+  if (eco_sys_lab_layer->GetSimulatedTime() + 1e-3f < target_days) {
+    EVOENGINE_ERROR("Tree auto-grow ended before reaching the target age ("
+                    << (eco_sys_lab_layer->GetSimulatedTime() / 365.f) << " / " << target_growth_time << " years).");
+    demo_type = DemoType::Empty;
+    demo_status = DemoStatus::Idle;
+    tree_auto_grow_started_ = false;
+    return;
+  }
+
+  const auto scene = GetScene();
+  const auto tree_entity = tree_entity_ref.Get();
+  if (!scene || !scene->IsEntityValid(tree_entity)) {
+    EVOENGINE_ERROR("Tree growth demo: tree entity is missing after auto-grow.");
+    demo_type = DemoType::Empty;
+    demo_status = DemoStatus::Idle;
+    tree_auto_grow_started_ = false;
+    return;
+  }
+
+  const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+  const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+  if (demo_type == DemoType::SmallTrunk) {
+    ApplyOakTrunkFullProcessTreePreset(tree);
+    ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+    tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+    tree_dts->initialize_parameters.min_segment_length = 0.005f;
+    tree_dts->initialize_parameters.max_segment_length = 0.01f;
+    EVOENGINE_LOG("Small Trunk: tree growth finished (" << target_growth_time
+                                                        << " years). Building strands and meshing...");
+  }
+  tree_dts->InitializeFromTree(tree, pending_meshing_buffer_description);
+  pending_meshing_buffer_description.clear();
+  tree_auto_grow_started_ = false;
+  demo_status = DemoStatus::Simulation;
+  simulated_time = 0.f;
+}
+
 void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto owner = GetOwner();
   const auto scene = GetScene();
@@ -95,6 +174,8 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
   const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
   eco_sys_lab_layer->ResetAllTrees(tree_entities);
+  tree_auto_grow_started_ = false;
+  pending_meshing_buffer_description.clear();
   physics_parameters.enable_structural_damage = true;
   physics_parameters.enable_segment_compression_disconnection = true;
   physics_parameters.segment_velocity_damping = 1.f;
@@ -109,9 +190,25 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
   if (demo_type != DemoType::Empty) {
     ImGui::Text("Demo started");
-    ImGui::Text(("Simulated time: " + std::to_string(simulated_time)).c_str());
-    ImGui::Text(("Target simulation time: " + std::to_string(target_simulation_time)).c_str());
+    if (demo_status == DemoStatus::TreeGrowth) {
+      float grown_years = 0.f;
+      if (const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>()) {
+        grown_years = eco_sys_lab_layer->GetSimulatedTime() / 365.f;
+      }
+      ImGui::Text("Tree growth: %.2f / %.2f years", grown_years, target_growth_time);
+      // Safety poll if Playing Update is off and the finish callback was missed.
+      TryFinishTreeGrowthAndStartMeshing();
+    } else {
+      ImGui::Text(("Simulated time: " + std::to_string(simulated_time)).c_str());
+      ImGui::Text(("Target simulation time: " + std::to_string(target_simulation_time)).c_str());
+    }
     if (ImGui::Button("Force stop")) {
+      if (demo_status == DemoStatus::TreeGrowth) {
+        if (const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>()) {
+          eco_sys_lab_layer->StopAutoGrow();
+        }
+        tree_auto_grow_started_ = false;
+      }
       demo_type = DemoType::Empty;
       demo_status = DemoStatus::Idle;
     }
@@ -178,6 +275,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-Equal]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -225,6 +324,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-Brown]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -271,6 +372,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-White]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -302,6 +405,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Internal]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -343,6 +448,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Cubical]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -379,6 +486,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.max_segment_length = 0.01f;
       dts->initialize_parameters.min_segment_length = 0.005f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Fungus [Non-Cubical]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -415,6 +524,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
       board_experiment_setup_settings.fungus_test = true;
 
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Board Fungus";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -443,6 +554,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       target_factor0 = 2.f;
       target_factor1 = 1.f;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log break [Diffuse]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -467,6 +580,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       target_factor1 = 1.f;
 
       physics_parameters.enable_segment_compression_disconnection = false;
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log break [Clean]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -489,6 +604,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       target_factor1 = 1.f;
       physics_parameters.enable_positional_breaking = false;
       physics_parameters.enable_segment_disconnection = false;
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log break [Transverse buckling]";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -505,6 +622,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Board break [Low]";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -520,6 +639,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetBundleStrength({100.f, 100.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Board break [Medium]";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -534,6 +655,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetBundleStrength({175.f, 175.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({250.f, 250.f});
 
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Board break [High]";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -556,6 +679,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Twisting break";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -581,6 +706,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.right_pivot_type =
           static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Bending break";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -602,6 +729,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Shearing break";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -623,6 +752,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       // noise.type = static_cast<unsigned>(NoiseType::Perlin);
 
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Stretching break";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -647,6 +778,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetTwistingStrength({750.f, 50.f});
       dts->initialize_parameters.strength_graph.SetBundleStrength({750.f, 50.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({750.f, 50.f});
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Sap/Heart Increase";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -669,6 +802,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetTwistingStrength({500.f, 500.f});
       dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 500.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({500.f, 500.f});
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Sap/Heart Equal";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -691,6 +826,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetTwistingStrength({50.f, 750.f});
       dts->initialize_parameters.strength_graph.SetBundleStrength({50.f, 750.f});
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({50.f, 750.f});
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Sap/Heart Decrease";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -735,6 +872,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
         scene->DeleteEntity(temp_entity);
       }
       temp_entity1_ref = sphere_entity;
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Short rod sphere Collision";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -770,6 +909,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       object_initial_pose.SetScale(glm::vec3(0.3f));
       scene->SetDataComponent(sphere_entity, object_initial_pose);
       temp_entity1_ref = sphere_entity;
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Long rod sphere Collision";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -807,6 +948,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       scene->SetDataComponent(cylinder_entity, object_initial_pose);
 
       temp_entity1_ref = cylinder_entity;
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Small cylinder Collision";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -843,6 +986,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       scene->SetDataComponent(cylinder_entity, object_initial_pose);
 
       temp_entity1_ref = cylinder_entity;
+      board_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Big cylinder Collision";
       dts->BoardExperimentSetup(board_experiment_setup_settings);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
@@ -852,6 +997,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       ResetEnvironment(editor_layer);
       demo_type = DemoType::TrunkStrength;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Trunk Strength [Low]";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -869,11 +1015,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       tree_dts->enable_physics = false;
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
     if (ImGui::Button("Trunk Strength [High]")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::TrunkStrength;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Trunk Strength [High]";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -891,12 +1039,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
 
     if (ImGui::Button("Wind [Low]")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::Wind;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Wind [Low]";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -911,11 +1061,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       physics_parameters.segment_angular_velocity_damping = 10.f;
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
     if (ImGui::Button("Wind [High]")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::Wind;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Wind [High]";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -930,12 +1082,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       physics_parameters.segment_angular_velocity_damping = 10.f;
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
 
     if (ImGui::Button("Tree Collision")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::TreeCollision;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Tree Collision";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -960,12 +1114,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       temp_entity1_ref = cylinder_entity;
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
 
     if (ImGui::Button("Tree Break")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::TreeBreak;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Tree Break";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -991,6 +1147,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       curve_values.emplace_back(-0.1, 0);
       curve_values.emplace_back(1, 0.5);
       curve_values.emplace_back(0.1, 0);
+      BeginTreeAutoGrow();
     }
     ImGui::TreePop();
   }
@@ -1017,14 +1174,16 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.min_segment_length = 0.005f;
       dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
 
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log cut";
       dts->LogExperimentSetup(log_experiment_setup_settings);
       const auto yaml_path = ProjectManager::GetAssetsFolderPath() / "IntersectionSetups" / "log_cut.yml";
       DsKineticVoronoiMeshing::LoadIntersectionSetup(scene, owner, yaml_path);
 
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
-      demo_type = DemoType::Empty;
-      demo_status = DemoStatus::Idle;
+      demo_type = DemoType::LogCut;
+      demo_status = DemoStatus::Simulation;
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
@@ -1032,10 +1191,49 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           "then load Assets/IntersectionSetups/log_cut.yml.");
     }
 
+    if (ImGui::Button("Log Spoon")) {
+      ResetEnvironment(editor_layer);
+      camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+      camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+      log_experiment_setup_settings.rod_segment_count = 20;
+      log_experiment_setup_settings.rod_size = 3200;
+      log_experiment_setup_settings.segment_length = 0.025f;
+      log_experiment_setup_settings.fungus_test = false;
+      log_experiment_setup_settings.cube_pattern = false;
+      log_experiment_setup_settings.internal_pattern = false;
+      log_experiment_setup_settings.competition_setting = false;
+      log_experiment_setup_settings.right_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+      log_experiment_setup_settings.left_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+      physics_parameters.enable_fungus = false;
+      physics_parameters.enable_segment_collision = false;
+      dts->initialize_parameters.max_segment_length = 0.01f;
+      dts->initialize_parameters.min_segment_length = 0.005f;
+      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log Spoon";
+      dts->LogExperimentSetup(log_experiment_setup_settings);
+      const auto yaml_path = ProjectManager::GetAssetsFolderPath() / "IntersectionSetups" / "log_spoon.yml";
+      DsKineticVoronoiMeshing::LoadIntersectionSetup(scene, owner, yaml_path);
+
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      demo_type = DemoType::LogSpoon;
+      demo_status = DemoStatus::Simulation;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Same log setup as Log cut (uses MeshBuffers cache when available), "
+          "then load Assets/IntersectionSetups/log_spoon.yml.");
+    }
+
     if (ImGui::Button("Small Trunk")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::SmallTrunk;
       demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Small Trunk";
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -1047,8 +1245,12 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
       tree_dts->enable_physics = false;
       tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      tree_dts->initialize_parameters.min_segment_length = 0.005f;
+      tree_dts->initialize_parameters.max_segment_length = 0.01f;
+      EVOENGINE_LOG("Small Trunk: growing Oak_trunk for " << target_growth_time << " years...");
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
@@ -1074,30 +1276,9 @@ void DynamicStrandsDemo::Update() {
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
   dts->dynamic_strands->UpdateBindings();
   if (demo_status == DemoStatus::TreeGrowth) {
-    const auto eco_sys_lab_layer = Application::GetLayer<EcoSysLabLayer>();
-    eco_sys_lab_layer->Simulate(simulation_settings, simulation_stats);
-    if (eco_sys_lab_layer->GetSimulatedTime() >= target_growth_time) {
-      const auto tree_entity = tree_entity_ref.Get();
-      if (scene->IsEntityValid(tree_entity)) {
-        const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-        const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
-        if (demo_type == DemoType::SmallTrunk) {
-          ApplyOakTrunkFullProcessTreePreset(tree);
-          ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
-          tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
-        }
-        tree_dts->InitializeFromTree(tree);
-        if (demo_type == DemoType::SmallTrunk) {
-          demo_type = DemoType::Empty;
-          demo_status = DemoStatus::Idle;
-          return;
-        }
-      } else {
-        demo_type = DemoType::Empty;
-        demo_status = DemoStatus::Idle;
-      }
-      demo_status = DemoStatus::Simulation;
-    }
+    // Growth advances in EcoSysLabLayer::Update; meshing is started by SetOnAutoGrowFinished.
+    // Keep a poll here for Playing mode / missed callbacks.
+    TryFinishTreeGrowthAndStartMeshing();
     return;
   }
 
@@ -1282,6 +1463,19 @@ void DynamicStrandsDemo::Update() {
     }
     case DemoType::Fungus: {
       dts->PhysicsStep(physics_parameters);
+      break;
+    }
+    case DemoType::LogCut:
+    case DemoType::LogSpoon: {
+      dts->PhysicsStep(physics_parameters);
+      break;
+    }
+    case DemoType::SmallTrunk: {
+      const auto tree_entity = tree_entity_ref.Get();
+      if (scene->IsEntityValid(tree_entity)) {
+        const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+        tree_dts->PhysicsStep(physics_parameters);
+      }
       break;
     }
     default:

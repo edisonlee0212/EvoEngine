@@ -38,8 +38,6 @@ void main() {
     if (segment_index >= segment_size)
       break;
     Segment segment = segments[segment_index];
-    if (segment.particle0.disabled != 0)
-      continue;
     if (segment.inv_mass == 0.0f)
       continue;
 

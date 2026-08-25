@@ -844,12 +844,15 @@ void DynamicStrands::Clear() {
   segments.clear();
   segment_pairs.clear();
   segment_data_list.clear();
+  foliage.clear();
 
   meshing->Clear();
 
   hashed_grid_elements.clear();
   hashed_grid_cell_starts.clear();
   constraints.clear();
+  simulated_time = 0.f;
+  frame_index = 0;
 }
 
 glm::vec3 DynamicStrands::ComputeInertiaTensorBox(const float mass, const float width, const float height,

@@ -37,8 +37,6 @@ void main() {
       break;
 
     Segment segment = segments[segment_index];
-    if (segment.particle0.disabled != 0)
-      continue;
 
     // Shift rotation values
     segment.last_q = segment.q;

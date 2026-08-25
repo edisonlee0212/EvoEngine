@@ -487,6 +487,9 @@ void EcoSysLabLayer::TreeVisualization(const std::shared_ptr<EditorLayer>& edito
 void EcoSysLabLayer::ResetAllTrees(const std::vector<Entity>* tree_entities) {
   const auto scene = Application::GetActiveScene();
   simulated_time_ = 0;
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = 0.0f;
+  on_auto_grow_finished_ = {};
   if (tree_entities) {
     for (const auto& i : *tree_entities) {
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(i).lock();

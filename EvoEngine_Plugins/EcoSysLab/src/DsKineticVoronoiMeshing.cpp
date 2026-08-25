@@ -21,6 +21,7 @@
 #include <vector>
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
+#include "DsConstraints.hpp"
 #include "DsIntersectionBoundaryMesh.hpp"
 #include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DynamicStrands.hpp"
@@ -124,13 +125,47 @@ std::string FormatRootTransformSummary(const GlobalTransform& root_transform) {
   return oss.str();
 }
 
-std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& support_points,
-                                    const std::vector<std::vector<double>>& subdivisions_by_strand,
-                                    const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
-                                    const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
-                                    const GlobalTransform& root_transform,
-                                    const std::vector<std::vector<size_t>>& branch_indices,
-                                    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
+struct MeshingInputHashStats {
+  std::string input_hash;
+  std::string settings_hash;
+  std::string root_hash;
+  std::string support_hash;
+  std::string subdiv_hash;
+  std::string physics_hash;
+  std::string transforms_hash;
+  std::string branch_hash;
+  std::string strands_by_branch_hash;
+  std::string root_transform_summary;
+  size_t support_strand_count = 0;
+  size_t support_point_count = 0;
+  size_t subdiv_strand_count = 0;
+  size_t subdiv_value_count = 0;
+  size_t physics_strand_count = 0;
+  size_t physics_segment_count = 0;
+  size_t transform_height_count = 0;
+  size_t transform_matrix_count = 0;
+  size_t branch_height_count = 0;
+  size_t branch_id_count = 0;
+  size_t strands_by_branch_outer_count = 0;
+  size_t strands_by_branch_id_count = 0;
+};
+
+std::string CurrentUtcTimestamp() {
+  const std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  std::tm utc{};
+  gmtime_s(&utc, &time);
+  std::ostringstream timestamp;
+  timestamp << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+  return timestamp.str();
+}
+
+MeshingInputHashStats ComputeMeshingInputHashStats(
+    const std::vector<std::vector<glm::dvec2>>& support_points,
+    const std::vector<std::vector<double>>& subdivisions_by_strand,
+    const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
+    const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
+    const std::vector<std::vector<size_t>>& branch_indices,
+    const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
   const auto mix_settings = [](Fnv64& hash) {
     hash.MixCString("DsKineticVoronoiMeshing.v1");
     hash.MixPod(kMeshingBufferVersion);
@@ -180,25 +215,152 @@ std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& 
     hash.MixNested(by_height);
   }
 
-  const std::string input_hash = HashToHex(hash.value);
+  MeshingInputHashStats stats;
+  stats.input_hash = HashToHex(hash.value);
+  stats.settings_hash = HashToHex(settings_hash.value);
+  stats.root_hash = HashToHex(root_hash.value);
+  stats.support_hash = HashToHex(support_hash.value);
+  stats.subdiv_hash = HashToHex(subdiv_hash.value);
+  stats.physics_hash = HashToHex(physics_hash.value);
+  stats.transforms_hash = HashToHex(transforms_hash.value);
+  stats.branch_hash = HashToHex(branch_hash.value);
+  stats.strands_by_branch_hash = HashToHex(strands_by_branch_hash.value);
+  stats.root_transform_summary = FormatRootTransformSummary(root_transform);
+  stats.support_strand_count = support_points.size();
+  stats.support_point_count = CountNestedElements(support_points);
+  stats.subdiv_strand_count = subdivisions_by_strand.size();
+  stats.subdiv_value_count = CountNestedElements(subdivisions_by_strand);
+  stats.physics_strand_count = physics_strand_to_segment_indices.size();
+  stats.physics_segment_count = CountNestedElements(physics_strand_to_segment_indices);
+  stats.transform_height_count = transforms_by_height_and_branch.size();
+  stats.transform_matrix_count = CountNestedElements(transforms_by_height_and_branch);
+  stats.branch_height_count = branch_indices.size();
+  stats.branch_id_count = CountNestedElements(branch_indices);
+  stats.strands_by_branch_outer_count = strands_by_branch_id.size();
+  stats.strands_by_branch_id_count = CountTripleNestedElements(strands_by_branch_id);
+  return stats;
+}
+
+void LogMeshingInputHashStats(const MeshingInputHashStats& stats) {
   EVOENGINE_LOG("Meshing buffer hash "
-                << input_hash << " | settings(v=" << kMeshingBufferVersion
+                << stats.input_hash << " | settings(v=" << kMeshingBufferVersion
                 << ", store_meta=" << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
                 << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
-                << ", cap_start=1, xform_at_construction=1)=" << HashToHex(settings_hash.value)
-                << " root=" << HashToHex(root_hash.value) << " [" << FormatRootTransformSummary(root_transform) << "]"
-                << " support(strands=" << support_points.size() << ", pts=" << CountNestedElements(support_points)
-                << ")=" << HashToHex(support_hash.value) << " subdiv(strands=" << subdivisions_by_strand.size()
-                << ", vals=" << CountNestedElements(subdivisions_by_strand) << ")=" << HashToHex(subdiv_hash.value)
-                << " physics(strands=" << physics_strand_to_segment_indices.size() << ", segs="
-                << CountNestedElements(physics_strand_to_segment_indices) << ")=" << HashToHex(physics_hash.value)
-                << " transforms(heights=" << transforms_by_height_and_branch.size() << ", mats="
-                << CountNestedElements(transforms_by_height_and_branch) << ")=" << HashToHex(transforms_hash.value)
-                << " branches(heights=" << branch_indices.size() << ", ids=" << CountNestedElements(branch_indices)
-                << ")=" << HashToHex(branch_hash.value) << " strands_by_branch(outer=" << strands_by_branch_id.size()
-                << ", ids=" << CountTripleNestedElements(strands_by_branch_id)
-                << ")=" << HashToHex(strands_by_branch_hash.value));
-  return input_hash;
+                << ", cap_start=1, xform_at_construction=1)=" << stats.settings_hash << " root=" << stats.root_hash
+                << " [" << stats.root_transform_summary << "]"
+                << " support(strands=" << stats.support_strand_count << ", pts=" << stats.support_point_count
+                << ")=" << stats.support_hash << " subdiv(strands=" << stats.subdiv_strand_count
+                << ", vals=" << stats.subdiv_value_count << ")=" << stats.subdiv_hash
+                << " physics(strands=" << stats.physics_strand_count << ", segs=" << stats.physics_segment_count
+                << ")=" << stats.physics_hash << " transforms(heights=" << stats.transform_height_count
+                << ", mats=" << stats.transform_matrix_count << ")=" << stats.transforms_hash
+                << " branches(heights=" << stats.branch_height_count << ", ids=" << stats.branch_id_count
+                << ")=" << stats.branch_hash << " strands_by_branch(outer=" << stats.strands_by_branch_outer_count
+                << ", ids=" << stats.strands_by_branch_id_count << ")=" << stats.strands_by_branch_hash);
+}
+
+YAML::Node BuildMeshingBufferStatisticsNode(const MeshingInputHashStats& stats) {
+  YAML::Node statistics;
+  statistics["input_hash"] = stats.input_hash;
+  statistics["recorded_utc"] = CurrentUtcTimestamp();
+  statistics["hash_inputs"]["settings"]["schema"] = "DsKineticVoronoiMeshing.v1";
+  statistics["hash_inputs"]["settings"]["buffer_version"] = kMeshingBufferVersion;
+  statistics["hash_inputs"]["settings"]["store_mesh_metadata"] =
+      DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
+  statistics["hash_inputs"]["settings"]["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+  statistics["hash_inputs"]["settings"]["mesh_cap_at_start"] = true;
+  statistics["hash_inputs"]["settings"]["transform_mesh_at_construction"] = true;
+  statistics["hash_inputs"]["settings"]["hash"] = stats.settings_hash;
+  statistics["hash_inputs"]["root_transform"]["summary"] = stats.root_transform_summary;
+  statistics["hash_inputs"]["root_transform"]["hash"] = stats.root_hash;
+  statistics["hash_inputs"]["support_points"]["strand_count"] = stats.support_strand_count;
+  statistics["hash_inputs"]["support_points"]["point_count"] = stats.support_point_count;
+  statistics["hash_inputs"]["support_points"]["hash"] = stats.support_hash;
+  statistics["hash_inputs"]["subdivisions"]["strand_count"] = stats.subdiv_strand_count;
+  statistics["hash_inputs"]["subdivisions"]["value_count"] = stats.subdiv_value_count;
+  statistics["hash_inputs"]["subdivisions"]["hash"] = stats.subdiv_hash;
+  statistics["hash_inputs"]["physics_segments"]["strand_count"] = stats.physics_strand_count;
+  statistics["hash_inputs"]["physics_segments"]["segment_count"] = stats.physics_segment_count;
+  statistics["hash_inputs"]["physics_segments"]["hash"] = stats.physics_hash;
+  statistics["hash_inputs"]["transforms"]["height_count"] = stats.transform_height_count;
+  statistics["hash_inputs"]["transforms"]["matrix_count"] = stats.transform_matrix_count;
+  statistics["hash_inputs"]["transforms"]["hash"] = stats.transforms_hash;
+  statistics["hash_inputs"]["branches"]["height_count"] = stats.branch_height_count;
+  statistics["hash_inputs"]["branches"]["id_count"] = stats.branch_id_count;
+  statistics["hash_inputs"]["branches"]["hash"] = stats.branch_hash;
+  statistics["hash_inputs"]["strands_by_branch"]["outer_count"] = stats.strands_by_branch_outer_count;
+  statistics["hash_inputs"]["strands_by_branch"]["id_count"] = stats.strands_by_branch_id_count;
+  statistics["hash_inputs"]["strands_by_branch"]["hash"] = stats.strands_by_branch_hash;
+  return statistics;
+}
+
+// Emit top-level keys in a stable order so description always appears below statistics.
+bool WriteMeshingBufferYml(const std::filesystem::path& yml_path, const YAML::Node& root) {
+  static constexpr const char* kOrderedKeys[] = {
+      "format",
+      "version",
+      "hash",
+      "created_utc",
+      "gpu_vertex_count",
+      "gpu_triangle_count",
+      "meshlet_count",
+      "vertex_stride",
+      "triangle_stride",
+      "spline_tension",
+      "store_mesh_metadata",
+      "mesh_cap_at_start",
+      "transform_mesh_at_construction",
+      "statistics",
+      "description",
+  };
+
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  std::unordered_set<std::string> emitted;
+  for (const char* key : kOrderedKeys) {
+    if (root[key]) {
+      out << YAML::Key << key << YAML::Value << root[key];
+      emitted.insert(key);
+    }
+  }
+  for (auto it = root.begin(); it != root.end(); ++it) {
+    const std::string key = it->first.as<std::string>();
+    if (emitted.count(key) != 0) {
+      continue;
+    }
+    out << YAML::Key << key << YAML::Value << it->second;
+  }
+  out << YAML::EndMap;
+
+  std::ofstream yaml_out(yml_path);
+  yaml_out << out.c_str();
+  return static_cast<bool>(yaml_out);
+}
+
+bool UpdateMeshingBufferYmlOnCacheHit(const std::filesystem::path& yml_path, const MeshingInputHashStats& stats,
+                                      const std::string& description) {
+  try {
+    YAML::Node root;
+    if (std::filesystem::exists(yml_path)) {
+      root = YAML::LoadFile(yml_path.string());
+    } else {
+      root["format"] = "KVMG";
+      root["version"] = kMeshingBufferVersion;
+      root["hash"] = stats.input_hash;
+    }
+    if (!root["statistics"] || !root["statistics"]["input_hash"]) {
+      root["statistics"] = BuildMeshingBufferStatisticsNode(stats);
+    }
+    root["description"] = description;
+    if (!WriteMeshingBufferYml(yml_path, root)) {
+      EVOENGINE_WARNING("Failed to update meshing buffer metadata " << yml_path.string());
+      return false;
+    }
+    return true;
+  } catch (const std::exception& exception) {
+    EVOENGINE_WARNING("Failed to update meshing buffer metadata " << yml_path.string() << ": " << exception.what());
+    return false;
+  }
 }
 
 class BinaryWriter {
@@ -452,7 +614,7 @@ kinDS::VoronoiMesh ReadVoronoiMesh(BinaryReader& reader) {
 }
 
 bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesystem::path& yml_path,
-                       const std::string& hash, const GlobalTransform& root_transform,
+                       const MeshingInputHashStats& hash_stats, const GlobalTransform& root_transform,
                        const std::vector<GpuMeshletVertex>& gpu_vertices,
                        const std::vector<GpuMeshletTriangle>& gpu_triangles,
                        const std::vector<kinDS::VoronoiMesh>& meshlets, const std::vector<std::vector<int>>& neighbors,
@@ -485,33 +647,24 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
     return false;
   }
 
-  std::time_t time = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-  std::tm utc{};
-  gmtime_s(&utc, &time);
-  std::ostringstream timestamp;
-  timestamp << std::put_time(&utc, "%Y-%m-%dT%H:%M:%SZ");
+  YAML::Node root;
+  root["format"] = "KVMG";
+  root["version"] = kMeshingBufferVersion;
+  root["hash"] = hash_stats.input_hash;
+  root["created_utc"] = CurrentUtcTimestamp();
+  root["gpu_vertex_count"] = gpu_vertices.size();
+  root["gpu_triangle_count"] = gpu_triangles.size();
+  root["meshlet_count"] = meshlets.size();
+  root["vertex_stride"] = sizeof(GpuMeshletVertex);
+  root["triangle_stride"] = sizeof(GpuMeshletTriangle);
+  root["spline_tension"] = DsKineticVoronoiMeshing::meshing_settings.spline_tension;
+  root["store_mesh_metadata"] = DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
+  root["mesh_cap_at_start"] = true;
+  root["transform_mesh_at_construction"] = true;
+  root["statistics"] = BuildMeshingBufferStatisticsNode(hash_stats);
+  root["description"] = DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description;
 
-  YAML::Emitter yaml;
-  yaml << YAML::BeginMap;
-  yaml << YAML::Key << "format" << YAML::Value << "KVMG";
-  yaml << YAML::Key << "version" << YAML::Value << kMeshingBufferVersion;
-  yaml << YAML::Key << "hash" << YAML::Value << hash;
-  yaml << YAML::Key << "created_utc" << YAML::Value << timestamp.str();
-  yaml << YAML::Key << "gpu_vertex_count" << YAML::Value << gpu_vertices.size();
-  yaml << YAML::Key << "gpu_triangle_count" << YAML::Value << gpu_triangles.size();
-  yaml << YAML::Key << "meshlet_count" << YAML::Value << meshlets.size();
-  yaml << YAML::Key << "vertex_stride" << YAML::Value << sizeof(GpuMeshletVertex);
-  yaml << YAML::Key << "triangle_stride" << YAML::Value << sizeof(GpuMeshletTriangle);
-  yaml << YAML::Key << "spline_tension" << YAML::Value << DsKineticVoronoiMeshing::meshing_settings.spline_tension;
-  yaml << YAML::Key << "store_mesh_metadata" << YAML::Value
-       << DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
-  yaml << YAML::Key << "mesh_cap_at_start" << YAML::Value << true;
-  yaml << YAML::Key << "transform_mesh_at_construction" << YAML::Value << true;
-  yaml << YAML::EndMap;
-
-  std::ofstream yaml_out(yml_path);
-  yaml_out << yaml.c_str();
-  if (!yaml_out) {
+  if (!WriteMeshingBufferYml(yml_path, root)) {
     EVOENGINE_WARNING("Wrote meshing buffer binary but failed to write metadata " << yml_path.string());
   }
   return true;
@@ -1467,20 +1620,8 @@ bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>
     return false;
   }
 
-  const auto find_group_entity = [](const std::shared_ptr<Scene>& s, const Entity& o) -> Entity {
-    for (const auto& child : s->GetChildren(o)) {
-      if (s->HasPrivateComponent<DsIntersectionBoundaryMeshGroup>(child)) {
-        return child;
-      }
-    }
-    return Entity{};
-  };
-  const auto ensure_group_entity = [&](const std::shared_ptr<Scene>& s, const Entity& o) -> Entity {
-    Entity group = find_group_entity(s, o);
-    if (s->IsEntityValid(group)) {
-      return group;
-    }
-    group = s->CreateEntity("Intersection Meshes");
+  const auto create_group_entity = [&](const std::shared_ptr<Scene>& s, const Entity& o) -> Entity {
+    const Entity group = s->CreateEntity("Intersection Meshes (" + yaml_path.stem().string() + ")");
     s->SetParent(group, o);
     GlobalTransform group_gt{};
     group_gt.value = glm::mat4(1.0f);
@@ -1509,7 +1650,7 @@ bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>
       EVOENGINE_ERROR("Load intersection setup: no 'intersection_meshes' key in file.");
       return false;
     }
-    const Entity group = ensure_group_entity(scene, owner);
+    const Entity group = create_group_entity(scene, owner);
     if (root["group_transform"]) {
       GlobalTransform group_gt{};
       group_gt.value = root["group_transform"].as<glm::mat4>();
@@ -1612,14 +1753,14 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
                             tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
   DownloadPhysicsSegmentsAndPairs();
-  RestoreDeactivatedPhysicsSegments();
-  DeactivateOutsidePhysicsSegments(truncate_result.outside_meshlet_indices);
+  CompactSurvivingPhysicsSegments(truncate_result.outside_meshlet_indices);
+  Upload();  // remapped meshlet segment / neighbor / pair indices
   UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
   EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated ("
                 << segment_meshlet_vertices.size() << " vertices, " << segment_meshlet_triangles.size()
-                << " triangles). Deactivated " << deactivated_physics_segment_indices_.size()
-                << " OUTSIDE physics segment(s).");
+                << " triangles). Physics segments after compact: " << dynamic_strands->segments.size()
+                << ", pairs: " << dynamic_strands->segment_pairs.size() << ".");
   return true;
 }
 
@@ -1642,12 +1783,11 @@ bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
                             tree_mesher_->getMeshingStrandToSegmentIndices(), meshing_neighbor_indices_,
                             tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   Upload();
-  DownloadPhysicsSegmentsAndPairs();
-  RestoreDeactivatedPhysicsSegments();
-  UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
-  EVOENGINE_LOG("Reset meshlets to GPU (no intersection). " << segment_meshlet_vertices.size() << " vertices, "
-                                                            << segment_meshlet_triangles.size() << " triangles.");
+  EVOENGINE_LOG("Reset meshlets to GPU (pristine visuals for remaining physics segments; "
+                << "OUTSIDE segments removed by intersection are not restored). "
+                << segment_meshlet_vertices.size() << " vertices, " << segment_meshlet_triangles.size()
+                << " triangles.");
   return true;
 }
 
@@ -1663,6 +1803,16 @@ void DsKineticVoronoiMeshing::DownloadPhysicsSegmentsAndPairs() {
     dynamic_strands->device_segment_pairs_buffer->DownloadVector(dynamic_strands->segment_pairs,
                                                                  dynamic_strands->segment_pairs.size());
   }
+  if (!dynamic_strands->segment_data_list.empty()) {
+    dynamic_strands->device_segment_data_list_buffer->DownloadVector(dynamic_strands->segment_data_list,
+                                                                     dynamic_strands->segment_data_list.size());
+  }
+  if (!dynamic_strands->strands.empty()) {
+    dynamic_strands->device_strands_buffer->DownloadVector(dynamic_strands->strands, dynamic_strands->strands.size());
+  }
+  if (!dynamic_strands->foliage.empty()) {
+    dynamic_strands->device_foliage_buffer->DownloadVector(dynamic_strands->foliage, dynamic_strands->foliage.size());
+  }
 }
 
 void DsKineticVoronoiMeshing::UploadPhysicsSegmentsAndPairs() {
@@ -1673,83 +1823,363 @@ void DsKineticVoronoiMeshing::UploadPhysicsSegmentsAndPairs() {
   dynamic_strands->device_segments_buffer->SetDebugName("Segments Buffer");
   dynamic_strands->device_segment_pairs_buffer->UploadVector(dynamic_strands->segment_pairs);
   dynamic_strands->device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
+  dynamic_strands->device_segment_data_list_buffer->UploadVector(dynamic_strands->segment_data_list);
+  dynamic_strands->device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
+  dynamic_strands->device_strands_buffer->UploadVector(dynamic_strands->strands);
+  dynamic_strands->device_strands_buffer->SetDebugName("Strands Buffer");
+  dynamic_strands->device_foliage_buffer->UploadVector(dynamic_strands->foliage);
+  dynamic_strands->device_foliage_buffer->SetDebugName("Foliage Buffer");
 }
 
-void DsKineticVoronoiMeshing::RestoreDeactivatedPhysicsSegments() {
-  if (!dynamic_strands) {
-    deactivated_physics_segment_indices_.clear();
-    deactivated_pair_integrities_.clear();
+void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices) {
+  if (!dynamic_strands || !tree_mesher_ || !strand_tree) {
     return;
   }
+
   auto& segments = dynamic_strands->segments;
-  for (const int segment_index : deactivated_physics_segment_indices_) {
-    if (segment_index < 0 || static_cast<size_t>(segment_index) >= segments.size()) {
-      continue;
-    }
-    segments[segment_index].particle0.disabled = 0;
-    segments[segment_index].particle1.disabled = 0;
-  }
+  auto& segment_data_list = dynamic_strands->segment_data_list;
   auto& segment_pairs = dynamic_strands->segment_pairs;
-  for (const auto& saved : deactivated_pair_integrities_) {
-    if (saved.pair_handle < 0 || static_cast<size_t>(saved.pair_handle) >= segment_pairs.size()) {
-      continue;
-    }
-    auto& pair = segment_pairs[saved.pair_handle];
-    pair.connectivity_integrity = saved.connectivity_integrity;
-    pair.bend_twist_bundle_integrity = saved.bend_twist_bundle_integrity;
-  }
-  deactivated_physics_segment_indices_.clear();
-  deactivated_pair_integrities_.clear();
-}
+  auto& strands = dynamic_strands->strands;
+  auto& foliage = dynamic_strands->foliage;
 
-void DsKineticVoronoiMeshing::DeactivateOutsidePhysicsSegments(const std::vector<size_t>& outside_meshing_indices) {
-  deactivated_physics_segment_indices_.clear();
-  deactivated_pair_integrities_.clear();
-  if (!dynamic_strands || !tree_mesher_ || outside_meshing_indices.empty()) {
+  if (segments.empty() || segment_data_list.size() != segments.size()) {
+    EVOENGINE_ERROR("CompactSurvivingPhysicsSegments: segments / segment_data_list size mismatch or empty.");
     return;
   }
 
+  const size_t old_segment_count = segments.size();
+  std::vector<int> old_to_new(old_segment_count, -1);
+
+  // Mark OUTSIDE physics IDs for removal.
+  std::vector<char> remove(old_segment_count, 0);
   const auto& meshing_to_physics = tree_mesher_->getMeshingToPhysicsSegmentIndices();
-  auto& segments = dynamic_strands->segments;
-  auto& segment_pairs = dynamic_strands->segment_pairs;
-  const auto& segment_data_list = dynamic_strands->segment_data_list;
-
-  std::unordered_set<int> seen_pairs;
-  seen_pairs.reserve(outside_meshing_indices.size() * 4);
-
+  size_t outside_physics_count = 0;
   for (const size_t meshing_index : outside_meshing_indices) {
     if (meshing_index >= meshing_to_physics.size()) {
       continue;
     }
     const size_t physics_id = meshing_to_physics[meshing_index];
-    if (physics_id == static_cast<size_t>(-1) || physics_id >= segments.size()) {
+    if (physics_id == static_cast<size_t>(-1) || physics_id >= old_segment_count) {
       continue;
     }
-    const int physics_segment_id = static_cast<int>(physics_id);
-    segments[physics_id].particle0.disabled = 1;
-    segments[physics_id].particle1.disabled = 1;
-    deactivated_physics_segment_indices_.push_back(physics_segment_id);
-
-    if (physics_id >= segment_data_list.size()) {
-      continue;
-    }
-    for (const int pair_handle : segment_data_list[physics_id].pair_handles) {
-      if (pair_handle < 0 || static_cast<size_t>(pair_handle) >= segment_pairs.size()) {
-        continue;
-      }
-      if (!seen_pairs.insert(pair_handle).second) {
-        continue;
-      }
-      auto& pair = segment_pairs[pair_handle];
-      DeactivatedPairIntegrity saved;
-      saved.pair_handle = pair_handle;
-      saved.connectivity_integrity = pair.connectivity_integrity;
-      saved.bend_twist_bundle_integrity = pair.bend_twist_bundle_integrity;
-      deactivated_pair_integrities_.push_back(saved);
-      pair.connectivity_integrity = 0.f;
-      pair.bend_twist_bundle_integrity = 0.f;
+    if (!remove[physics_id]) {
+      remove[physics_id] = 1;
+      ++outside_physics_count;
     }
   }
+
+  if (outside_physics_count == 0) {
+    EVOENGINE_LOG("CompactSurvivingPhysicsSegments: no OUTSIDE physics segments to remove.");
+    return;
+  }
+
+  // Build dense remap for survivors.
+  int next_new = 0;
+  for (size_t old_id = 0; old_id < old_segment_count; ++old_id) {
+    if (!remove[old_id]) {
+      old_to_new[old_id] = next_new++;
+    }
+  }
+  const size_t new_segment_count = static_cast<size_t>(next_new);
+
+  auto remap_segment = [&](int handle) -> int {
+    if (handle < 0 || static_cast<size_t>(handle) >= old_to_new.size()) {
+      return -1;
+    }
+    return old_to_new[static_cast<size_t>(handle)];
+  };
+
+  // Compact segments + segment_data in order.
+  std::vector<DynamicStrands::GpuSegment> new_segments;
+  std::vector<DynamicStrands::GpuSegmentData> new_segment_data;
+  new_segments.reserve(new_segment_count);
+  new_segment_data.reserve(new_segment_count);
+  for (size_t old_id = 0; old_id < old_segment_count; ++old_id) {
+    if (remove[old_id]) {
+      continue;
+    }
+    new_segments.push_back(segments[old_id]);
+    new_segment_data.push_back(segment_data_list[old_id]);
+  }
+
+  // Splice prev/next around removed neighbors, then remap.
+  for (size_t new_id = 0; new_id < new_segments.size(); ++new_id) {
+    auto& seg = new_segments[new_id];
+    // Walk prev until a survivor (or none).
+    int prev = seg.prev_handle;
+    while (prev >= 0 && static_cast<size_t>(prev) < remove.size() && remove[static_cast<size_t>(prev)]) {
+      prev = segments[static_cast<size_t>(prev)].prev_handle;
+    }
+    int next = seg.next_handle;
+    while (next >= 0 && static_cast<size_t>(next) < remove.size() && remove[static_cast<size_t>(next)]) {
+      next = segments[static_cast<size_t>(next)].next_handle;
+    }
+    seg.prev_handle = remap_segment(prev);
+    seg.next_handle = remap_segment(next);
+  }
+
+  // Compact pairs: keep only pairs whose both endpoints survive; preserve integrity/strain.
+  std::vector<DynamicStrands::GpuSegmentPair> new_pairs;
+  new_pairs.reserve(segment_pairs.size());
+
+  for (size_t old_pair = 0; old_pair < segment_pairs.size(); ++old_pair) {
+    const auto& pair = segment_pairs[old_pair];
+    const int s0 = remap_segment(pair.segment0_handle);
+    const int s1 = remap_segment(pair.segment1_handle);
+    if (s0 < 0 || s1 < 0) {
+      continue;
+    }
+    DynamicStrands::GpuSegmentPair kept = pair;
+    kept.segment0_handle = s0;
+    kept.segment1_handle = s1;
+    new_pairs.push_back(kept);
+  }
+
+  // Rebuild pair_handles from strand order for [0]/[1], then pack laterals into [2+].
+  // connection_segment_pair_size becomes the vertical prefix count after rebuild.
+
+  // Update strand segment maps: drop OUTSIDE slots, remap physics IDs.
+  auto& physics_strand_map = strand_tree->getPhysicsStrandToSegmentIndices();
+  auto meshing_strand_map = tree_mesher_->getMeshingStrandToSegmentIndices();
+  for (size_t strand_id = 0; strand_id < physics_strand_map.size(); ++strand_id) {
+    std::vector<int> new_physics_slots;
+    std::vector<size_t> new_meshing_slots;
+    const auto& old_physics_slots = physics_strand_map[strand_id];
+    const auto& old_meshing_slots =
+        strand_id < meshing_strand_map.size() ? meshing_strand_map[strand_id] : std::vector<size_t>{};
+    const size_t slot_count = std::min(old_physics_slots.size(), old_meshing_slots.size());
+    new_physics_slots.reserve(slot_count);
+    new_meshing_slots.reserve(slot_count);
+    for (size_t slot = 0; slot < slot_count; ++slot) {
+      const int old_physics = old_physics_slots[slot];
+      if (old_physics < 0 || static_cast<size_t>(old_physics) >= remove.size() ||
+          remove[static_cast<size_t>(old_physics)]) {
+        continue;
+      }
+      new_physics_slots.push_back(old_to_new[static_cast<size_t>(old_physics)]);
+      new_meshing_slots.push_back(old_meshing_slots[slot]);
+    }
+    // Also keep any trailing physics-only slots that survived (should be rare).
+    for (size_t slot = slot_count; slot < old_physics_slots.size(); ++slot) {
+      const int old_physics = old_physics_slots[slot];
+      if (old_physics < 0 || static_cast<size_t>(old_physics) >= remove.size() ||
+          remove[static_cast<size_t>(old_physics)]) {
+        continue;
+      }
+      new_physics_slots.push_back(old_to_new[static_cast<size_t>(old_physics)]);
+    }
+    physics_strand_map[strand_id] = std::move(new_physics_slots);
+    if (strand_id < meshing_strand_map.size()) {
+      meshing_strand_map[strand_id] = std::move(new_meshing_slots);
+    }
+  }
+  tree_mesher_->setMeshingStrandToSegmentIndices(std::move(meshing_strand_map));
+
+  // Remap meshing_to_physics; OUTSIDE -> -1.
+  auto new_meshing_to_physics = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+  for (size_t meshing_id = 0; meshing_id < new_meshing_to_physics.size(); ++meshing_id) {
+    const size_t old_physics = new_meshing_to_physics[meshing_id];
+    if (old_physics == static_cast<size_t>(-1) || old_physics >= old_to_new.size()) {
+      new_meshing_to_physics[meshing_id] = static_cast<size_t>(-1);
+      continue;
+    }
+    const int mapped = old_to_new[old_physics];
+    new_meshing_to_physics[meshing_id] = mapped < 0 ? static_cast<size_t>(-1) : static_cast<size_t>(mapped);
+  }
+  tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(new_meshing_to_physics));
+
+  // Rebuild pair_handles: [0]=below, [1]=above from strand order; laterals in [2+].
+  for (auto& data : new_segment_data) {
+    for (int& handle : data.pair_handles) {
+      handle = -1;
+    }
+  }
+
+  std::vector<DynamicStrands::GpuSegmentPair> ordered_pairs;
+  ordered_pairs.reserve(new_pairs.size());
+  uint32_t vertical_pair_count = 0;
+
+  // Pass 1: vertical pairs from remapped strand maps.
+  const auto& remapped_physics_strands = strand_tree->getPhysicsStrandToSegmentIndices();
+  for (size_t strand_id = 0; strand_id < remapped_physics_strands.size(); ++strand_id) {
+    if (strand_id >= strands.size()) {
+      continue;
+    }
+    auto& strand = strands[strand_id];
+    strand.begin_segment_pair_handle = -1;
+    strand.end_segment_pair_handle = -1;
+
+    const auto& physics_slots = remapped_physics_strands[strand_id];
+    if (physics_slots.empty()) {
+      strand.begin_segment_handle = -1;
+      strand.end_segment_handle = -1;
+      strand.front_propagate_begin_segment_handle = -1;
+      strand.back_propagate_begin_segment_handle = -1;
+      strand.alternative_front_propagate_begin_segment_handle = -1;
+      strand.alternative_back_propagate_begin_segment_handle = -1;
+      strand.front_propagate_begin_segment_pair_handle = -1;
+      strand.back_propagate_begin_segment_pair_handle = -1;
+      strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+      strand.alternative_back_propagate_begin_segment_pair_handle = -1;
+      continue;
+    }
+
+    strand.begin_segment_handle = physics_slots.front();
+    strand.end_segment_handle = physics_slots.back();
+    strand.front_propagate_begin_segment_handle = strand.begin_segment_handle;
+    strand.back_propagate_begin_segment_handle = strand.end_segment_handle;
+    strand.alternative_front_propagate_begin_segment_handle = strand.begin_segment_handle;
+    strand.alternative_back_propagate_begin_segment_handle = strand.end_segment_handle;
+
+    for (size_t slot = 0; slot + 1 < physics_slots.size(); ++slot) {
+      const int below = physics_slots[slot];
+      const int above = physics_slots[slot + 1];
+      if (below < 0 || above < 0 || static_cast<size_t>(below) >= new_segment_data.size() ||
+          static_cast<size_t>(above) >= new_segment_data.size()) {
+        continue;
+      }
+      // Prefer an existing surviving pair with matching endpoints (preserve integrity).
+      int found_old_pair = -1;
+      for (size_t p = 0; p < new_pairs.size(); ++p) {
+        const auto& cand = new_pairs[p];
+        if ((cand.segment0_handle == below && cand.segment1_handle == above) ||
+            (cand.segment0_handle == above && cand.segment1_handle == below)) {
+          found_old_pair = static_cast<int>(p);
+          break;
+        }
+      }
+      DynamicStrands::GpuSegmentPair vertical{};
+      if (found_old_pair >= 0) {
+        vertical = new_pairs[static_cast<size_t>(found_old_pair)];
+        vertical.segment0_handle = below;
+        vertical.segment1_handle = above;
+        // Mark consumed so lateral pass can skip.
+        new_pairs[static_cast<size_t>(found_old_pair)].segment0_handle = -1;
+        new_pairs[static_cast<size_t>(found_old_pair)].segment1_handle = -1;
+      } else {
+        vertical.segment0_handle = below;
+        vertical.segment1_handle = above;
+      }
+      const int pair_handle = static_cast<int>(ordered_pairs.size());
+      ordered_pairs.push_back(vertical);
+      new_segment_data[static_cast<size_t>(below)].pair_handles[1] = pair_handle;
+      new_segment_data[static_cast<size_t>(above)].pair_handles[0] = pair_handle;
+      if (strand.begin_segment_pair_handle == -1) {
+        strand.begin_segment_pair_handle = pair_handle;
+      }
+      strand.end_segment_pair_handle = pair_handle;
+      ++vertical_pair_count;
+    }
+
+    // Propagate pair bookkeeping (same as RecomputeSegmentPairs).
+    strand.front_propagate_begin_segment_pair_handle = -1;
+    strand.back_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_back_propagate_begin_segment_pair_handle = -1;
+    if (strand.begin_segment_handle == -1 || strand.begin_segment_pair_handle == -1) {
+      continue;
+    }
+    strand.front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+    if (strand.begin_segment_pair_handle == strand.end_segment_pair_handle) {
+      strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+      continue;
+    }
+    strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle + 1;
+    const int connection_size = strand.end_segment_pair_handle - strand.begin_segment_pair_handle + 1;
+    strand.back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? strand.end_segment_pair_handle : strand.end_segment_pair_handle - 1;
+    strand.alternative_back_propagate_begin_segment_pair_handle =
+        connection_size % 2 == 0 ? strand.end_segment_pair_handle - 1 : strand.end_segment_pair_handle;
+  }
+
+  // Pass 2: remaining pairs as laterals into slots >= 2.
+  std::vector<uint32_t> pair_slot_offsets(new_segment_data.size(), 2);
+  for (const auto& cand : new_pairs) {
+    if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
+      continue;  // consumed as vertical
+    }
+    const int a = cand.segment0_handle;
+    const int b = cand.segment1_handle;
+    if (static_cast<size_t>(a) >= new_segment_data.size() || static_cast<size_t>(b) >= new_segment_data.size()) {
+      continue;
+    }
+    auto& first_slot = pair_slot_offsets[static_cast<size_t>(a)];
+    auto& second_slot = pair_slot_offsets[static_cast<size_t>(b)];
+    if (first_slot >= BUNDLE_MAX_CONNECTION || second_slot >= BUNDLE_MAX_CONNECTION) {
+      continue;
+    }
+    const int pair_handle = static_cast<int>(ordered_pairs.size());
+    ordered_pairs.push_back(cand);
+    new_segment_data[static_cast<size_t>(a)].pair_handles[first_slot] = pair_handle;
+    new_segment_data[static_cast<size_t>(b)].pair_handles[second_slot] = pair_handle;
+    ++first_slot;
+    ++second_slot;
+  }
+
+  // Remap foliage.
+  std::vector<DynamicStrands::GpuLeaf> new_foliage;
+  new_foliage.reserve(foliage.size());
+  for (auto leaf : foliage) {
+    const int mapped = remap_segment(leaf.segment_handle);
+    if (mapped < 0) {
+      continue;
+    }
+    leaf.segment_handle = mapped;
+    new_foliage.push_back(leaf);
+  }
+
+  // Remap meshlet GPU buffers that still reference old physics IDs.
+  for (auto& vertex : segment_meshlet_vertices) {
+    const int mapped = remap_segment(static_cast<int>(vertex.segment_index));
+    vertex.segment_index = mapped < 0 ? 0u : static_cast<unsigned int>(mapped);
+  }
+  for (auto& triangle : segment_meshlet_triangles) {
+    if (triangle.neighbor_segment_index >= 0) {
+      triangle.neighbor_segment_index = remap_segment(triangle.neighbor_segment_index);
+    }
+    // Re-resolve segment_pair_index against remapped pair_handles.
+    triangle.segment_pair_index = -1;
+    if (triangle.neighbor_segment_index >= 0) {
+      // Find owning segment from first vertex.
+      if (triangle.vertex_index0 < segment_meshlet_vertices.size()) {
+        const int owner = static_cast<int>(segment_meshlet_vertices[triangle.vertex_index0].segment_index);
+        if (owner >= 0 && static_cast<size_t>(owner) < new_segment_data.size()) {
+          for (const int pair_handle : new_segment_data[static_cast<size_t>(owner)].pair_handles) {
+            if (pair_handle < 0 || static_cast<size_t>(pair_handle) >= ordered_pairs.size()) {
+              continue;
+            }
+            const auto& pair = ordered_pairs[static_cast<size_t>(pair_handle)];
+            if (pair.segment0_handle == triangle.neighbor_segment_index ||
+                pair.segment1_handle == triangle.neighbor_segment_index) {
+              triangle.segment_pair_index = pair_handle;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  segments = std::move(new_segments);
+  segment_data_list = std::move(new_segment_data);
+  segment_pairs = std::move(ordered_pairs);
+  foliage = std::move(new_foliage);
+  dynamic_strands->connection_segment_pair_size = vertical_pair_count;
+
+  // Pivot constraints cache segment indices from Initialize; remap or invalidate after compact.
+  for (const auto& constraint : dynamic_strands->constraints) {
+    if (const auto pivot_transform = std::dynamic_pointer_cast<DsPivotTransform>(constraint)) {
+      pivot_transform->RemapSegmentIndices(old_to_new);
+    } else if (const auto pivot_axis = std::dynamic_pointer_cast<DsPivotAxis>(constraint)) {
+      pivot_axis->RemapSegmentIndices(old_to_new);
+    } else if (const auto pivot_point = std::dynamic_pointer_cast<DsPivotPoint>(constraint)) {
+      pivot_point->RemapSegmentIndices(old_to_new);
+    }
+  }
+
+  EVOENGINE_LOG("CompactSurvivingPhysicsSegments: removed "
+                << outside_physics_count << " OUTSIDE segment(s); now " << segments.size() << " segments, "
+                << segment_pairs.size() << " pairs (" << vertical_pair_count << " vertical).");
 }
 
 void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
@@ -1992,9 +2422,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
 
-  const std::string input_hash =
-      ComputeMeshingInputHash(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
-                              transforms_by_height_and_branch, root_transform, branch_indices, strands_by_branch_id);
+  const MeshingInputHashStats hash_stats =
+      ComputeMeshingInputHashStats(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
+                                   transforms_by_height_and_branch, root_transform, branch_indices, strands_by_branch_id);
+  LogMeshingInputHashStats(hash_stats);
+  const std::string& input_hash = hash_stats.input_hash;
   const std::filesystem::path buffer_dir = MeshingBufferDirectory();
   const std::filesystem::path bin_path = buffer_dir / (input_hash + ".bin");
   const std::filesystem::path yml_path = buffer_dir / (input_hash + ".yml");
@@ -2050,6 +2482,10 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
       EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
                                                 << " vertices, " << segment_meshlet_triangles.size() << " triangles).");
+      if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats,
+                                           meshing_settings.meshing_buffer_description)) {
+        EVOENGINE_LOG("Updated meshing buffer metadata for " << input_hash << ".");
+      }
       loaded_from_cache = true;
     } else {
       EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
@@ -2107,7 +2543,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       }
     }
 
-    if (SaveMeshingBuffer(bin_path, yml_path, input_hash, root_transform, segment_meshlet_vertices,
+    if (SaveMeshingBuffer(bin_path, yml_path, hash_stats, root_transform, segment_meshlet_vertices,
                           segment_meshlet_triangles, segment_meshlets_, meshing_neighbor_indices_,
                           meshing_to_physics_segment_indices, meshing_strand_to_segment_indices)) {
       EVOENGINE_LOG("Saved Kinetic Voronoi mesh buffer " << input_hash << " to " << bin_path.string());
@@ -2684,10 +3120,10 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::Clear() {
   segment_meshlet_triangles.clear();
   segment_meshlets_.clear();
   meshing_neighbor_indices_.clear();
+  boundary_distances_by_vertex.clear();
+  strand_tree.reset();
   tree_mesher_.reset();
   meshlets_root_transform_ = {};
-  deactivated_physics_segment_indices_.clear();
-  deactivated_pair_integrities_.clear();
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::UpdateBindings() const {
@@ -2723,7 +3159,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip(
         "Enable kinDS runtime/event statistics collection and CSV export after meshing "
         "(filename includes a timestamp so previous runs are kept). Also writes a per-mesh intersection "
-        "CSV for Intersect and for Intersect and export all.");
+        "CSV for Intersect and for Intersect and export all on an Intersection Meshes group.");
   }
   ImGui::Checkbox("Debug export meshes", &meshing_settings.debug_export_meshes);
   if (ImGui::IsItemHovered()) {
@@ -2768,35 +3204,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     return Entity{};
   };
 
-  // Finds the group entity (has DsIntersectionBoundaryMeshGroup) under owner, or returns invalid Entity.
-  const auto find_group_entity = [](const std::shared_ptr<Scene>& scene, const Entity& owner) -> Entity {
-    if (!scene || !scene->IsEntityValid(owner)) {
-      return Entity{};
-    }
-    for (const auto& child : scene->GetChildren(owner)) {
-      if (scene->HasPrivateComponent<DsIntersectionBoundaryMeshGroup>(child)) {
-        return child;
-      }
-    }
-    return Entity{};
-  };
-
-  // Finds or creates the group entity under owner.
-  const auto ensure_group_entity = [&](const std::shared_ptr<Scene>& scene, const Entity& owner) -> Entity {
-    Entity group = find_group_entity(scene, owner);
-    if (scene->IsEntityValid(group)) {
-      return group;
-    }
-    group = scene->CreateEntity("Intersection Meshes");
-    scene->SetParent(group, owner);
-    GlobalTransform group_gt{};
-    group_gt.value = glm::mat4(1.0f);
-    scene->SetDataComponent(group, group_gt);
-    scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMeshGroup>(group);
-    return group;
-  };
-
-  // Open a file dialog; only create the child entity and load the mesh if the user picks a file.
+  // Create a new Intersection Meshes group that contains only the selected OBJ.
   FileUtils::OpenFile(
       "Add Intersection Boundary Mesh", "OBJ", {".obj"},
       [&](const std::filesystem::path& path) {
@@ -2813,7 +3221,13 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         }
         try {
           kinDS::VoronoiMesh loaded_mesh = kinDS::ObjExporter::readMesh(path);
-          const Entity group = ensure_group_entity(scene, owner);
+          const Entity group = scene->CreateEntity("Intersection Meshes (" + path.stem().string() + ")");
+          scene->SetParent(group, owner);
+          GlobalTransform group_gt{};
+          group_gt.value = glm::mat4(1.0f);
+          scene->SetDataComponent(group, group_gt);
+          scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMeshGroup>(group);
+
           const auto child = scene->CreateEntity("Intersection Mesh (" + path.stem().string() + ")");
           scene->SetParent(child, group);
           GlobalTransform child_gt{};
@@ -2823,7 +3237,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           if (ibm) {
             ibm->LoadMesh(std::move(loaded_mesh), path);
           }
-          EVOENGINE_LOG("Added intersection boundary mesh from " << path.string() << ".");
+          EVOENGINE_LOG("Created Intersection Meshes group with boundary mesh from " << path.string() << ".");
         } catch (const std::exception& ex) {
           EVOENGINE_ERROR("Failed to load intersection boundary OBJ: " << ex.what());
         }
@@ -2831,53 +3245,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       false);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
-        "Open a file dialog to pick an OBJ, then create a child entity under the Intersection Meshes group. "
-        "Move/rotate the child and click Intersect in its inspector.");
-  }
-
-  ImGui::SameLine();
-  FileUtils::SaveFile(
-      "Save intersection setup", "YAML", {".yml"},
-      [&](const std::filesystem::path& save_path) {
-        const auto scene = Application::GetActiveScene();
-        const Entity owner = find_owner_entity();
-        if (!scene || !scene->IsEntityValid(owner)) {
-          EVOENGINE_ERROR("Save intersection setup: could not find owner entity.");
-          return;
-        }
-        const Entity group = find_group_entity(scene, owner);
-        YAML::Emitter out;
-        out << YAML::BeginMap;
-        if (scene->IsEntityValid(group)) {
-          const auto group_gt = scene->GetDataComponent<GlobalTransform>(group);
-          out << YAML::Key << "group_transform" << YAML::Value << group_gt.value;
-          out << YAML::Key << "intersection_meshes" << YAML::Value << YAML::BeginSeq;
-          for (const auto& child : scene->GetChildren(group)) {
-            if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
-              continue;
-            }
-            const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
-            if (!ibm || ibm->GetMesh().getTriangleCount() == 0) {
-              continue;
-            }
-            const auto gt = scene->GetDataComponent<GlobalTransform>(child);
-            out << YAML::BeginMap;
-            out << YAML::Key << "obj_path" << YAML::Value << ibm->GetPath().string();
-            out << YAML::Key << "transform" << YAML::Value << gt.value;
-            out << YAML::EndMap;
-          }
-          out << YAML::EndSeq;
-        } else {
-          out << YAML::Key << "intersection_meshes" << YAML::Value << YAML::BeginSeq << YAML::EndSeq;
-        }
-        out << YAML::EndMap;
-        std::ofstream ofs(save_path.string(), std::ofstream::out | std::ofstream::trunc);
-        ofs << out.c_str();
-        EVOENGINE_LOG("Saved intersection setup to " << save_path.string() << ".");
-      },
-      false);
-  if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("Save the group transform and all boundary meshes to a YAML file.");
+        "Open a file dialog to pick an OBJ, then create a new Intersection Meshes group containing only that mesh. "
+        "To add more meshes to an existing group, use Add intersection boundary mesh on the group entity.");
   }
 
   ImGui::SameLine();
@@ -2894,7 +3263,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
       },
       false);
   if (ImGui::IsItemHovered()) {
-    ImGui::SetTooltip("Load an intersection setup YAML, recreating all boundary mesh entities under the group.");
+    ImGui::SetTooltip(
+        "Load an intersection setup YAML into a newly created Intersection Meshes group "
+        "(existing groups are left untouched).");
   }
 
   const bool can_reset_meshlets = HasMeshedSegmentMeshlets();
@@ -2911,85 +3282,6 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip(
         "Reload pristine meshlets (from the last meshing run) into GPU buffers without intersection. "
         "Requires a completed meshing run.");
-  }
-
-  const bool can_intersect_all = HasMeshedSegmentMeshlets();
-  if (!can_intersect_all) {
-    ImGui::BeginDisabled();
-  }
-  FileUtils::SaveFile(
-      "Intersect and export all", "OBJ", {".obj"},
-      [&](const std::filesystem::path& out_path) {
-        const auto scene = Application::GetActiveScene();
-        const Entity owner = find_owner_entity();
-        if (!scene || !scene->IsEntityValid(owner)) {
-          EVOENGINE_ERROR("Intersect and export all: could not find owner entity.");
-          return;
-        }
-        const auto tree_gt = scene->GetDataComponent<GlobalTransform>(owner);
-        const Entity group = find_group_entity(scene, owner);
-        if (!scene->IsEntityValid(group)) {
-          EVOENGINE_ERROR("Intersect and export all: no intersection mesh group found.");
-          return;
-        }
-        std::vector<MeshletObjExport::MeshGroup> export_groups;
-        std::vector<std::pair<std::string, IntersectionRunStats>> intersection_stats_rows;
-        const bool collect_intersection_stats = meshing_settings.collect_meshing_statistics;
-        for (const auto& child : scene->GetChildren(group)) {
-          if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
-            continue;
-          }
-          const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
-          if (!ibm || ibm->GetMesh().getTriangleCount() == 0) {
-            continue;
-          }
-          const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(child);
-          IntersectionRunStats intersection_stats;
-          if (!IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt,
-                                             collect_intersection_stats ? &intersection_stats : nullptr)) {
-            EVOENGINE_ERROR("Intersect and export all: intersection failed for entity " << child.GetIndex() << ".");
-            continue;
-          }
-          MeshletObjExport::MeshGroup mesh_group;
-          mesh_group.name = ibm->GetPath().stem().string();
-          if (mesh_group.name.empty()) {
-            mesh_group.name = "entity_" + std::to_string(child.GetIndex());
-          }
-          mesh_group.vertices = segment_meshlet_vertices;
-          mesh_group.triangles = segment_meshlet_triangles;
-          if (collect_intersection_stats) {
-            intersection_stats_rows.emplace_back(mesh_group.name, intersection_stats);
-          }
-          export_groups.push_back(std::move(mesh_group));
-        }
-        ResetMeshletsToGpu();
-        if (export_groups.empty()) {
-          EVOENGINE_ERROR("Intersect and export all: no intersection meshes exported.");
-          return;
-        }
-        MeshletObjExport::ExportObjCombined(out_path, export_groups, dynamic_strands->segments,
-                                            render_settings.segment_meshlet_render_parameters.uv_height_factor,
-                                            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                                            render_settings.segment_meshlet_render_parameters.fracture_distance);
-        EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
-                                                            << out_path.string() << ".");
-        if (collect_intersection_stats && !intersection_stats_rows.empty()) {
-          const std::filesystem::path stats_base =
-              out_path.parent_path() / (out_path.stem().string() + "_intersection_stats.csv");
-          WriteIntersectionStatisticsCsv(stats_base, intersection_stats_rows);
-        }
-      },
-      false);
-  if (!can_intersect_all) {
-    ImGui::EndDisabled();
-  }
-  if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-    ImGui::SetTooltip(
-        "For each loaded intersection mesh, compute the intersection and export all results as a single OBJ "
-        "(one object per boundary mesh) plus shared bark/interior materials and GPU metadata JSON. "
-        "When Collect meshing statistics is enabled, also writes a timestamped CSV with per-mesh "
-        "inside/intersect/outside counts, input poly count, and clip runtime. "
-        "Restores pristine meshlets afterward. Requires a completed meshing run.");
   }
 
   ImGui::Checkbox("Fix missing meshlets after intersection",

@@ -43,7 +43,7 @@ struct Particle {
   float dmin_external;
   float user_bound;
   float root_distance;
-  int disabled;
+  int padding2;
 };
 
 struct Segment {

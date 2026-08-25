@@ -67,6 +67,8 @@ class DsPivotPoint final : public IDsConstraint {
                   const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
                   const std::vector<std::pair<uint32_t, bool>>& segment_list);
   void Update(const GlobalTransform& new_global_transform);
+  /// Remap and compact @c commands after physics segment compaction (drop removed segments).
+  void RemapSegmentIndices(const std::vector<int>& old_to_new);
 
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
@@ -103,6 +105,8 @@ class DsPivotAxis final : public IDsConstraint {
                   const std::shared_ptr<DynamicStrands>& target_dynamic_strands,
                   const std::vector<std::pair<uint32_t, bool>>& segment_list);
   void Update(const GlobalTransform& new_global_transform);
+  /// Remap and compact @c commands after physics segment compaction (drop removed segments).
+  void RemapSegmentIndices(const std::vector<int>& old_to_new);
 
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
@@ -146,6 +150,8 @@ class DsPivotTransform final : public IDsConstraint {
                   const std::vector<std::pair<uint32_t, std::pair<bool, bool>>>& segment_list);
   void Update(const GlobalTransform& new_global_transform,
               const std::shared_ptr<DynamicStrands>& target_dynamic_strands);
+  /// Remap and compact @c commands after physics segment compaction (drop removed segments).
+  void RemapSegmentIndices(const std::vector<int>& old_to_new);
 
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;

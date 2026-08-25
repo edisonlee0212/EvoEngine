@@ -92,9 +92,6 @@ const std::vector<glm::vec3>& EcoSysLabLayer::RandomColors() {
 void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   auto scene = GetScene();
   bool simulate = false;
-  static bool auto_time_grow = false;
-  static float target_time = 0.0f;
-  static float extra_time = 4.f;
   visualization_camera_->Resize({visualization_camera_resolution_x, visualization_camera_resolution_y});
 
   ImGui::Checkbox("Show Trees", &tree_visualization_settings_.enable);
@@ -215,7 +212,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       } else {
         ImGui::Text("No trees in the scene!");
         ResetAllTrees(nullptr);
-        target_time = 0.0f;
+        auto_grow_target_time_ = 0.0f;
       }
       ImGui::TreePop();
     }
@@ -229,19 +226,17 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
           ResetAllTrees(tree_entities);
           ClearMeshes();
           ClearGroundFruitAndLeaf();
-          target_time = 0.0f;
+          auto_grow_target_time_ = 0.0f;
         }
         ImGui::Text(("Simulated time: " + std::to_string(simulated_time_ / 365.f) + " years").c_str());
-        ImGui::DragFloat("Target years", &extra_time, 0.1f, simulated_time_ / 365.f, 999);
-        if (auto_time_grow) {
+        ImGui::DragFloat("Target years", &auto_grow_extra_years_, 0.1f, simulated_time_ / 365.f, 999);
+        if (auto_time_grow_) {
           if (ImGui::Button("Force stop")) {
-            auto_time_grow = false;
-            target_time = simulated_time_;
+            StopAutoGrow();
           }
         } else {
-          if (ImGui::Button(("Grow " + std::to_string(extra_time) + " years").c_str())) {
-            auto_time_grow = true;
-            target_time += extra_time * 365.f;
+          if (ImGui::Button(("Grow " + std::to_string(auto_grow_extra_years_) + " years").c_str())) {
+            StartAutoGrow(auto_grow_extra_years_);
           }
         }
         if (ImGui::Button("Grow 1 iteration")) {
@@ -250,7 +245,7 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
       } else {
         ImGui::Text("No trees in the scene!");
         ResetAllTrees(nullptr);
-        target_time = 0.0f;
+        auto_grow_target_time_ = 0.0f;
       }
       ImGui::TreePop();
     }
@@ -293,30 +288,8 @@ void EcoSysLabLayer::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer)
     ImGui::TreePop();
   }
 
-  if (simulate || auto_time_grow) {
+  if (simulate) {
     Simulate();
-  }
-  if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
-      tree_entities && !tree_entities->empty()) {
-    if (target_time <= simulated_time_ && auto_time_grow) {
-      auto_time_grow = false;
-      for (const auto& tree_entity : *tree_entities) {
-        auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
-        if (auto_generate_mesh_after_editing_) {
-          tree->GenerateGeometryEntities(mesh_generator_settings, -1);
-        }
-        if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
-          tree->BuildStrandModel();
-          if (auto_generate_strands_after_editing_) {
-            auto strands = tree->GenerateStrands();
-            tree->InitializeStrandRenderer(strands);
-          }
-          if (auto_generate_strand_mesh_after_editing_) {
-            tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
-          }
-        }
-      }
-    }
   }
 #pragma region Internode debugging camera
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
@@ -810,16 +783,73 @@ float EcoSysLabLayer::GetSimulatedTime() const {
   return simulated_time_;
 }
 
+void EcoSysLabLayer::StartAutoGrow(const float years) {
+  if (years <= 0.f) {
+    return;
+  }
+  auto_time_grow_ = true;
+  auto_grow_target_time_ = simulated_time_ + years * 365.f;
+  EVOENGINE_LOG("Tree auto-grow started: +" << years << " years (target age "
+                                            << (auto_grow_target_time_ / 365.f) << " years).");
+}
+
+void EcoSysLabLayer::StopAutoGrow() {
+  auto_time_grow_ = false;
+  auto_grow_target_time_ = simulated_time_;
+  on_auto_grow_finished_ = {};
+}
+
+bool EcoSysLabLayer::IsAutoGrowing() const {
+  return auto_time_grow_;
+}
+
+void EcoSysLabLayer::SetOnAutoGrowFinished(std::function<void()> callback) {
+  on_auto_grow_finished_ = std::move(callback);
+}
+
 glm::vec2 EcoSysLabLayer::GetMouseSceneCameraPosition() const {
   return visualization_camera_mouse_position;
 }
 
 void EcoSysLabLayer::Update() {
-  if (const auto scene = GetScene(); !scene)
+  const auto scene = GetScene();
+  if (!scene)
     return;
   RegisterStrandRenderingProcedure();
   DynamicSkeletonPhysics();
   DynamicStrandSimulation();
+
+  if (auto_time_grow_) {
+    Simulate();
+    if (auto_grow_target_time_ <= simulated_time_) {
+      auto_time_grow_ = false;
+      EVOENGINE_LOG("Tree auto-grow finished at age " << (simulated_time_ / 365.f) << " years.");
+      if (const std::vector<Entity>* tree_entities = scene->UnsafeGetPrivateComponentOwnersList<Tree>();
+          tree_entities && !tree_entities->empty()) {
+        for (const auto& tree_entity : *tree_entities) {
+          auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+          if (auto_generate_mesh_after_editing_) {
+            tree->GenerateGeometryEntities(mesh_generator_settings, -1);
+          }
+          if (auto_generate_strands_after_editing_ || auto_generate_strand_mesh_after_editing_) {
+            tree->BuildStrandModel();
+            if (auto_generate_strands_after_editing_) {
+              auto strands = tree->GenerateStrands();
+              tree->InitializeStrandRenderer(strands);
+            }
+            if (auto_generate_strand_mesh_after_editing_) {
+              tree->InitializeStrandModelMeshRenderer(strand_mesh_generator_settings);
+            }
+          }
+        }
+      }
+      if (on_auto_grow_finished_) {
+        auto finished = std::move(on_auto_grow_finished_);
+        on_auto_grow_finished_ = {};
+        finished();
+      }
+    }
+  }
 }
 
 void EcoSysLabLayer::LateUpdate() {

@@ -36,12 +36,6 @@ void main() {
     if (segment_index >= segment_size)
       break;
 
-    if (segments[segment_index].particle0.disabled != 0) {
-      segment_data_list[segment_index].particle0_position_correction.xyz = vec3(0, 0, 0);
-      segment_data_list[segment_index].particle1_position_correction.xyz = vec3(0, 0, 0);
-      continue;
-    }
-
     segments[segment_index].particle0.x += segment_data_list[segment_index].particle0_position_correction.xyz;
     segments[segment_index].particle1.x += segment_data_list[segment_index].particle1_position_correction.xyz;
 

@@ -42,8 +42,6 @@ void main() {
       break;
 
     Segment segment = segments[segment_index];
-    if (segment.particle0.disabled != 0)
-      continue;
     update_inertia_w(segment.q, segment.inertia_tensor, segment.inv_inertia_tensor, segment.inertia_w,
                      segment.inv_inertia_w);
 

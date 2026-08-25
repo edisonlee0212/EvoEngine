@@ -66,6 +66,28 @@ void DsPivotPoint::Initialize(const GlobalTransform& target_base_global_transfor
   segment_update_commands_buffer->UploadVector(commands);
 }
 
+void DsPivotPoint::RemapSegmentIndices(const std::vector<int>& old_to_new) {
+  size_t write = 0;
+  for (size_t read = 0; read < commands.size(); ++read) {
+    auto& command = commands[read];
+    if (command.segment_index == UINT32_MAX) {
+      continue;
+    }
+    if (command.segment_index >= old_to_new.size() || old_to_new[command.segment_index] < 0) {
+      continue;
+    }
+    command.segment_index = static_cast<uint32_t>(old_to_new[command.segment_index]);
+    if (write != read) {
+      commands[write] = command;
+    }
+    ++write;
+  }
+  commands.resize(write);
+  if (!commands.empty()) {
+    segment_update_commands_buffer->UploadVector(commands);
+  }
+}
+
 void DsPivotPoint::Update(const GlobalTransform& new_global_transform) {
   push_constant.pivot_position = new_global_transform.GetPosition();
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -161,6 +183,28 @@ void DsPivotAxis::Initialize(const GlobalTransform& target_base_global_transform
     command.particle0_closer = segment_info.second;
   });
   segment_update_commands_buffer->UploadVector(commands);
+}
+
+void DsPivotAxis::RemapSegmentIndices(const std::vector<int>& old_to_new) {
+  size_t write = 0;
+  for (size_t read = 0; read < commands.size(); ++read) {
+    auto& command = commands[read];
+    if (command.segment_index == UINT32_MAX) {
+      continue;
+    }
+    if (command.segment_index >= old_to_new.size() || old_to_new[command.segment_index] < 0) {
+      continue;
+    }
+    command.segment_index = static_cast<uint32_t>(old_to_new[command.segment_index]);
+    if (write != read) {
+      commands[write] = command;
+    }
+    ++write;
+  }
+  commands.resize(write);
+  if (!commands.empty()) {
+    segment_update_commands_buffer->UploadVector(commands);
+  }
 }
 
 void DsPivotAxis::Update(const GlobalTransform& new_global_transform) {
@@ -261,6 +305,25 @@ void DsPivotTransform::Initialize(const GlobalTransform& target_base_global_tran
       command.fix_particle1 = segment_info.second.second ? 1 : 0;
     }
   });
+}
+
+void DsPivotTransform::RemapSegmentIndices(const std::vector<int>& old_to_new) {
+  size_t write = 0;
+  for (size_t read = 0; read < commands.size(); ++read) {
+    auto& command = commands[read];
+    if (command.segment_index == UINT32_MAX) {
+      continue;
+    }
+    if (command.segment_index >= old_to_new.size() || old_to_new[command.segment_index] < 0) {
+      continue;
+    }
+    command.segment_index = static_cast<uint32_t>(old_to_new[command.segment_index]);
+    if (write != read) {
+      commands[write] = command;
+    }
+    ++write;
+  }
+  commands.resize(write);
 }
 
 void DsPivotTransform::Update(const GlobalTransform& new_global_transform,

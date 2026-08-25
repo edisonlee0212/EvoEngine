@@ -1,5 +1,7 @@
 #pragma once
 
+#include <functional>
+
 #include "Climate.hpp"
 #include "DynamicSkeleton.hpp"
 #include "DynamicStrands.hpp"
@@ -139,6 +141,31 @@ class EcoSysLabLayer : public ILayer {
    * @param tree_entities The list of tree entities to reset.
    */
   void ResetAllTrees(const std::vector<Entity>* tree_entities);
+
+  /**
+   * @brief Start automatic tree growth for @p years years from the current simulated time
+   *        (same behavior as the "Grow N years" button in the Tree Simulation UI).
+   *        Growth advances each Update until the target age is reached.
+   */
+  void StartAutoGrow(float years);
+
+  /**
+   * @brief Stop automatic tree growth early (same as Force stop while growing).
+   */
+  void StopAutoGrow();
+
+  /**
+   * @brief Whether automatic multi-year tree growth is currently in progress.
+   */
+  [[nodiscard]] bool IsAutoGrowing() const;
+
+  /**
+   * @brief Optional one-shot callback invoked when auto-grow reaches its target age.
+   *        Cleared after invocation. Cleared without invoking on StopAutoGrow / ResetAllTrees.
+   *        Use this to continue async workflows (e.g. meshing) without blocking Update or relying
+   *        on private-component Update (which only runs while Playing).
+   */
+  void SetOnAutoGrowFinished(std::function<void()> callback);
 
   /**
    * @brief Finds and retrieves the climate settings.
@@ -378,7 +405,11 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;    ///< Stores data for shadow grid rendering.
   std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;  ///< Stores data for lighting grid rendering.
 
-  float simulated_time_;         ///< The current simulated time.
+  float simulated_time_;         ///< The current simulated time (days).
+  bool auto_time_grow_ = false;  ///< Automatic multi-year growth in progress.
+  float auto_grow_target_time_ = 0.0f;  ///< Target simulated time (days) for auto-grow.
+  float auto_grow_extra_years_ = 4.f;   ///< Default years requested from the Tree Simulation UI.
+  std::function<void()> on_auto_grow_finished_;  ///< One-shot callback when auto-grow ends.
   std::vector<Fruit> fruits_;    ///< Stores fruit entities.
   std::vector<Leaf> leaves_;     ///< Stores leaf entities.
   std::vector<Flower> flowers_;  ///< Stores leaf entities.

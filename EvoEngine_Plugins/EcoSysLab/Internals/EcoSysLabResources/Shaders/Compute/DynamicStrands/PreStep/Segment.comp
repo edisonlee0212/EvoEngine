@@ -39,8 +39,6 @@ void main() {
       break;
 
     Segment segment = segments[segment_index];
-    if (segment.particle0.disabled != 0)
-      continue;
     segment.torque = vec3(0.0, 0.0, 0.0);
     segment.inv_mass = 1.f / (segment.original_mass + segment.extra_mass);
 

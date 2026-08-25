@@ -80,6 +80,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float spline_tension = 0.5f;
     /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
     bool intersection_boundary_apply_inverse_root_transform = true;
+    /// Free-form note stored in mesh buffer YML metadata (not used for cache hashing).
+    std::string meshing_buffer_description = "created manually through DynamicTreeStrands";
     /// When true, attempt to repair empty meshlets after boundary intersection (@ref TreeMesher::fixFailedSegments).
     bool intersection_boundary_fix_missing_meshes = false;
     /// When true, failed intersections keep the uncut meshlet; when false, replace with an empty mesh.
@@ -164,14 +166,6 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
   GlobalTransform meshlets_root_transform_{};
 
-  struct DeactivatedPairIntegrity {
-    int pair_handle = -1;
-    float connectivity_integrity = 1.f;
-    float bend_twist_bundle_integrity = 1.f;
-  };
-  std::vector<int> deactivated_physics_segment_indices_;
-  std::vector<DeactivatedPairIntegrity> deactivated_pair_integrities_;
-
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,
                                              Entity& owner);
@@ -224,8 +218,9 @@ class DsKineticVoronoiMeshing : public DsMeshing {
                                      const GlobalTransform& boundary_world_transform,
                                      const GlobalTransform& tree_world_transform,
                                      IntersectionRunStats* stats = nullptr);
-  /// Load an intersection-setup YAML under @p owner (group transform + boundary mesh children).
-  /// Relative @c obj_path entries are resolved against the project assets folder, then the YAML directory.
+  /// Load an intersection-setup YAML under @p owner into a newly created Intersection Meshes group
+  /// (existing groups are left untouched). Relative @c obj_path entries are resolved against the
+  /// project assets folder, then the YAML directory.
   static bool LoadIntersectionSetup(const std::shared_ptr<Scene>& scene, const Entity& owner,
                                     const std::filesystem::path& yaml_path);
   /// Write a timestamped intersection statistics CSV. @p base_csv_path is the desired filename
@@ -237,8 +232,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   bool ResetMeshletsToGpu();
   void DownloadPhysicsSegmentsAndPairs();
   void UploadPhysicsSegmentsAndPairs();
-  void RestoreDeactivatedPhysicsSegments();
-  void DeactivateOutsidePhysicsSegments(const std::vector<size_t>& outside_meshing_indices);
+  /// Remove OUTSIDE physics segments and densely remap survivors after boundary intersection.
+  void CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices);
   void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,

@@ -16,8 +16,8 @@ using namespace evo_engine;
  * @class DsIntersectionBoundaryMesh
  * @brief A child-entity component that holds one OBJ boundary mesh for intersecting with DsKineticVoronoiMeshing.
  *
- * Attach any number of these to child entities under the DynamicTreeStrands entity.
- * Each one shows a "Load OBJ" / "Intersect" inspector so the user can trigger independent clips.
+ * Attach any number of these under a @c DsIntersectionBoundaryMeshGroup (itself under DynamicTreeStrands).
+ * Each one shows Duplicate / Intersect in its inspector so the user can trigger independent clips.
  */
 class DsIntersectionBoundaryMesh : public IPrivateComponent {
  public:
