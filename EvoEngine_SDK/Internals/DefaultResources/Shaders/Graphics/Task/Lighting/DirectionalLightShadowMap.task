@@ -6,8 +6,8 @@
 #extension GL_KHR_shader_subgroup_vote : require
 #extension GL_ARB_shading_language_include : enable
 
-#include "BasicConstants.glsl"
 #include "Basic.glsl"
+#include "BasicConstants.glsl"
 
 const uint WORKGROUP_SIZE = EXT_TASK_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -18,75 +18,72 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE) in;
 
-struct Task{
-	uint instanceIndex;
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct Task {
+  uint instanceIndex;
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
-#define BARRIER() \
-	memoryBarrierShared(); \
-	barrier();
+#define BARRIER()        \
+  memoryBarrierShared(); \
+  barrier();
 
 taskPayloadSharedEXT Task ts_out;
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	shared uint s_outMeshletsCount;
+shared uint s_outMeshletsCount;
 #endif
 
-void main()
-{
-	uint instanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
-	uint meshLetIndexOffset = EE_INSTANCES[instanceIndex].meshlet_offset;
-	uint meshlet_size = EE_INSTANCES[instanceIndex].meshlet_size;
+void main() {
+  uint instanceIndex = gl_DrawID + EE_INSTANCE_INDEX;
+  uint meshLetIndexOffset = EE_INSTANCES[instanceIndex].meshlet_offset;
+  uint meshlet_size = EE_INSTANCES[instanceIndex].meshlet_size;
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	if (laneID == 0) {
-		s_outMeshletsCount = 0;
-	}
-	BARRIER();
+  if (laneID == 0) {
+    s_outMeshletsCount = 0;
+  }
+  BARRIER();
 #endif
-	
-	baseID += meshLetIndexOffset;
 
-	uint outMeshletsCount = 0;
+  baseID += meshLetIndexOffset;
 
-	for (uint i = 0; i < TASK_MESHLET_ITERATIONS; i++)
-	{
-		uint meshletLocal  = laneID + i * WORKGROUP_SIZE;
-		uint meshletGlobal = baseID + meshletLocal;
+  uint outMeshletsCount = 0;
 
-		bool render = !(meshletGlobal > meshLetIndexOffset + meshlet_size - 1);
+  for (uint i = 0; i < TASK_MESHLET_ITERATIONS; i++) {
+    uint meshletLocal = laneID + i * WORKGROUP_SIZE;
+    uint meshletGlobal = baseID + meshletLocal;
 
-		uvec4 voteMeshlets = subgroupBallot(render);
-		uint numMeshlets  = subgroupBallotBitCount(voteMeshlets);
+    bool render = !(meshletGlobal > meshLetIndexOffset + meshlet_size - 1);
+
+    uvec4 voteMeshlets = subgroupBallot(render);
+    uint numMeshlets = subgroupBallotBitCount(voteMeshlets);
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-		if (gl_SubgroupInvocationID == 0) {
-			outMeshletsCount = atomicAdd(s_outMeshletsCount, numMeshlets);
-		}
-		outMeshletsCount = subgroupBroadcastFirst(outMeshletsCount);
+    if (gl_SubgroupInvocationID == 0) {
+      outMeshletsCount = atomicAdd(s_outMeshletsCount, numMeshlets);
+    }
+    outMeshletsCount = subgroupBroadcastFirst(outMeshletsCount);
 #endif
-		uint idxOffset  = subgroupBallotExclusiveBitCount(voteMeshlets) + outMeshletsCount;
-		if (render) 
-		{
-			ts_out.deltaIDs[idxOffset] = uint8_t(meshletLocal);
-		}
+    uint idxOffset = subgroupBallotExclusiveBitCount(voteMeshlets) + outMeshletsCount;
+    if (render) {
+      ts_out.deltaIDs[idxOffset] = uint8_t(meshletLocal);
+    }
 #if EXT_TASK_SUBGROUP_COUNT == 1
-		outMeshletsCount += numMeshlets;
+    outMeshletsCount += numMeshlets;
 #endif
-	}
+  }
 
 #if EXT_TASK_SUBGROUP_COUNT > 1
-	BARRIER();
-	outMeshletsCount = s_outMeshletsCount;
+  BARRIER();
+  outMeshletsCount = s_outMeshletsCount;
 #endif
 
-	if (laneID == 0) {
-		ts_out.baseID = baseID;
-		ts_out.instanceIndex = instanceIndex;
+  if (laneID == 0) {
+    ts_out.baseID = baseID;
+    ts_out.instanceIndex = instanceIndex;
 #if USE_STATS
-		atomicAdd(stats.tasksOutput, outMeshletsCount);
+    atomicAdd(stats.tasksOutput, outMeshletsCount);
 #endif
-	}
-	EmitMeshTasksEXT(outMeshletsCount, 1, 1);
+  }
+  EmitMeshTasksEXT(outMeshletsCount, 1, 1);
 }

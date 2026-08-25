@@ -4,8 +4,8 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_ARB_shading_language_include : enable
 
-#include "BasicConstants.glsl"
 #include "Basic.glsl"
+#include "BasicConstants.glsl"
 
 const uint WORKGROUP_SIZE = EXT_MESH_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -13,13 +13,13 @@ layout(local_size_x = WORKGROUP_SIZE) in;
 layout(triangles) out;
 layout(max_vertices = MESHLET_MAX_VERTICES_SIZE, max_primitives = MESHLET_MAX_TRIANGLES_SIZE) out;
 
-const uint MESHLET_VERTEX_ITERATIONS    = ((MESHLET_MAX_VERTICES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
-const uint MESHLET_PRIMITIVE_ITERATIONS = ((MESHLET_MAX_TRIANGLES_SIZE	+ WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint MESHLET_VERTEX_ITERATIONS = ((MESHLET_MAX_VERTICES_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
+const uint MESHLET_PRIMITIVE_ITERATIONS = ((MESHLET_MAX_TRIANGLES_SIZE + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE);
 
-struct Task{
-	uint	instanceIndex;
-	uint	baseID;
-	uint8_t	deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
+struct Task {
+  uint instanceIndex;
+  uint baseID;
+  uint8_t deltaIDs[EXT_TASK_WORK_GROUP_INVOCATIONS];
 };
 
 taskPayloadSharedEXT Task ts_in;
@@ -27,38 +27,33 @@ taskPayloadSharedEXT Task ts_in;
 uint meshletID = ts_in.baseID + ts_in.deltaIDs[gl_WorkGroupID.x];
 uint laneID = gl_LocalInvocationID.x;
 
-void main()
-{
-	uint instanceIndex = ts_in.instanceIndex;
-	
-	mat4 model = EE_INSTANCES[instanceIndex].model;
+void main() {
+  uint instanceIndex = ts_in.instanceIndex;
 
-	Meshlet meshlet = EE_MESHLETS[meshletID];
+  mat4 model = EE_INSTANCES[instanceIndex].model;
 
-	uint verticesSize = meshlet.verticesSize;
-	uint triangleSize = meshlet.triangleSize;
-	SetMeshOutputsEXT(verticesSize, triangleSize);
-	mat4 projectionView = EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * model;
-	[[unroll]]
-	for (uint i = 0; i < uint(MESHLET_VERTEX_ITERATIONS); ++i)
-	{
-		uint vert = laneID + i * WORKGROUP_SIZE;
+  Meshlet meshlet = EE_MESHLETS[meshletID];
 
-		if (vert >= verticesSize) break;
+  uint verticesSize = meshlet.verticesSize;
+  uint triangleSize = meshlet.triangleSize;
+  SetMeshOutputsEXT(verticesSize, triangleSize);
+  mat4 projectionView = EE_DIRECTIONAL_LIGHTS[EE_CAMERA_INDEX].light_space_matrix[EE_LIGHT_SPLIT_INDEX] * model;
+  [[unroll]]
+  for (uint i = 0; i < uint(MESHLET_VERTEX_ITERATIONS); ++i) {
+    uint vert = laneID + i * WORKGROUP_SIZE;
 
-		Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
-		gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(v.position.xyz, 1.0);
-	}
-	[[unroll]]
-	for (uint i = 0; i < uint(MESHLET_PRIMITIVE_ITERATIONS); ++i)
-	{
-		uint prim = laneID + i * WORKGROUP_SIZE;
-		if(prim <= triangleSize){
-			gl_PrimitiveTriangleIndicesEXT[prim] = 
-				uvec3(
-					meshlet.indices[prim * 3],
-					meshlet.indices[prim * 3 + 1],
-					meshlet.indices[prim * 3 + 2]);
-		}
-	}
+    if (vert >= verticesSize)
+      break;
+
+    Vertex v = EE_VERTEX_DATA_CHUNKS[meshletID].vertices[vert];
+    gl_MeshVerticesEXT[vert].gl_Position = projectionView * vec4(v.position.xyz, 1.0);
+  }
+  [[unroll]]
+  for (uint i = 0; i < uint(MESHLET_PRIMITIVE_ITERATIONS); ++i) {
+    uint prim = laneID + i * WORKGROUP_SIZE;
+    if (prim <= triangleSize) {
+      gl_PrimitiveTriangleIndicesEXT[prim] =
+          uvec3(meshlet.indices[prim * 3], meshlet.indices[prim * 3 + 1], meshlet.indices[prim * 3 + 2]);
+    }
+  }
 }
