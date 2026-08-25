@@ -84,9 +84,9 @@ uint32_t PackOctahedralDirection(const glm::vec3& input_direction) {
 
 glm::vec3 UnpackOctahedralDirection(const uint32_t packed_direction) {
   const auto unpack_snorm = [](const uint16_t value) {
-    return (std::max)(
-        static_cast<float>(static_cast<int16_t>(value)) / static_cast<float>((std::numeric_limits<int16_t>::max)()),
-        -1.0f);
+    return (std::max)(static_cast<float>(static_cast<int16_t>(value)) /
+                          static_cast<float>((std::numeric_limits<int16_t>::max)()),
+                      -1.0f);
   };
   const auto encoded =
       glm::vec2(unpack_snorm(static_cast<uint16_t>(packed_direction)), unpack_snorm(packed_direction >> 16u));
@@ -2522,11 +2522,7 @@ TEST(DdgiVolume, RasterShadowFilteringUsesEightSampleShaderConstant) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto lighting_source = ReadTextFile(shader_root / "Modules" / "EvoEngine" / "Lighting.slang");
-  const auto legacy_lighting_source =
-      ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Packages" / "EcoSysLab" / "Internals" /
-                   "EcoSysLabResources" / "Shaders" / "Includes" / "Lighting.glsl");
   ASSERT_FALSE(lighting_source.empty());
-  ASSERT_FALSE(legacy_lighting_source.empty());
 
   EXPECT_NE(lighting_source.find("float EE_FUNC_SPOT_SHADOW_DEPTH(SpotLight light, float2 lightUv)"),
             std::string::npos);
@@ -2540,12 +2536,6 @@ TEST(DdgiVolume, RasterShadowFilteringUsesEightSampleShaderConstant) {
             3u);
   EXPECT_EQ(lighting_source.find("shadow_sample_size"), std::string::npos);
   EXPECT_EQ(lighting_source.find("shadow_debug_parameters.w"), std::string::npos);
-  EXPECT_NE(legacy_lighting_source.find("const int EE_SHADOW_PCF_SAMPLE_COUNT = 8;"), std::string::npos);
-  EXPECT_EQ(CountOccurrences(legacy_lighting_source,
-                             "for (int sampleIndex = 0; sampleIndex < EE_SHADOW_PCF_SAMPLE_COUNT; sampleIndex++)"),
-            3u);
-  EXPECT_EQ(legacy_lighting_source.find("shadow_sample_size"), std::string::npos);
-  EXPECT_EQ(legacy_lighting_source.find("shadow_debug_parameters.w"), std::string::npos);
   EXPECT_EQ(lighting_source.find("BLOCKER_SEARCH"), std::string::npos);
   EXPECT_EQ(lighting_source.find("penumbraWidth"), std::string::npos);
   EXPECT_EQ(lighting_source.find("blockerDistance"), std::string::npos);

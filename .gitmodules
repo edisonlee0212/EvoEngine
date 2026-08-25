@@ -46,9 +46,6 @@
 [submodule "Extern/3rdParty/SPIRV-Tools/SPIRV-Tools"]
 	path = Extern/3rdParty/SPIRV-Tools/SPIRV-Tools
 	url = https://github.com/KhronosGroup/SPIRV-Tools.git
-[submodule "Extern/3rdParty/glslang/glslang"]
-	path = Extern/3rdParty/glslang/glslang
-	url = https://github.com/KhronosGroup/glslang
 [submodule "Extern/3rdParty/slang/slang"]
 	path = Extern/3rdParty/slang/slang
 	url = https://github.com/shader-slang/slang.git

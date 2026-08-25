@@ -17,10 +17,7 @@
 #include "PathUtils.hpp"
 #include "Platform.hpp"
 #include "ProjectManager.hpp"
-#include "ResourceLimits.h"
-#include "SPIRV/GlslangToSpv.h"
 #include "Serialization.hpp"
-#include "ShaderLang.h"
 #include "Utilities.hpp"
 #include "slang-com-ptr.h"
 #include "slang.h"
@@ -28,24 +25,17 @@
 using namespace evo_engine;
 
 namespace {
-constexpr uint32_t kShaderCacheSchema = 12;
+constexpr uint32_t kShaderCacheSchema = 13;
 constexpr uint32_t kSlangDependencyCacheSchema = 1;
 constexpr uint32_t kVulkanTarget = 13;
 constexpr uint32_t kSpirvTarget = 14;
 constexpr uint32_t kSpirvMagic = 0x07230203;
 constexpr const char* kDefaultShaderEntryPoint = "main";
-constexpr std::string_view kStrictNativeMarker = "@evoengine-dialect native";
+constexpr std::string_view kGlslUnsupportedDiagnostic = "GLSL is unsupported; migrate the shader to native Slang.";
 constexpr uint64_t kMaxSlangDependencyCount = 4096;
 constexpr uint64_t kMaxSlangDependencyPathBytes = 32768;
 
-struct ShaderCompileTarget {
-  uint32_t slang_input_language = SLANG_SOURCE_LANGUAGE_SLANG;
-};
-
 struct ShaderCompileRequest {
-  ShaderCompileTarget target = {};
-  ShaderSourceDialect source_dialect = ShaderSourceDialect::NativeSlang;
-  bool strict_native = false;
   ShaderType shader_type = ShaderType::Unknown;
   std::string entry_point = kDefaultShaderEntryPoint;
   std::string global_defines;
@@ -97,7 +87,6 @@ struct ShaderCompileEntry {
 std::mutex shader_compile_entries_mutex;
 std::unordered_map<ShaderCacheKey, std::shared_ptr<ShaderCompileEntry>, ShaderCacheKeyHasher> shader_compile_entries;
 std::mutex slang_mutex;
-std::mutex glslang_mutex;
 std::atomic<uint64_t> temporary_file_counter = 0;
 std::atomic<uint64_t> memory_hit_count = 0;
 std::atomic<uint64_t> disk_hit_count = 0;
@@ -107,8 +96,6 @@ std::atomic<uint64_t> coalesced_wait_count = 0;
 std::atomic<uint64_t> corrupt_entry_count = 0;
 std::atomic<uint64_t> failure_count = 0;
 std::atomic<uint64_t> native_slang_frontend_count = 0;
-std::atomic<uint64_t> compatibility_slang_frontend_count = 0;
-std::atomic<uint64_t> glslang_frontend_count = 0;
 
 std::string LowercaseExtension(const std::filesystem::path& path) {
   std::string extension = path.extension().string();
@@ -171,12 +158,9 @@ std::string StripShaderComments(const std::string& source) {
 }
 
 bool UsesCompatibilitySyntax(const std::string& source) {
-  const auto uncommented = StripShaderComments(source);
-  return uncommented.find("#extension GL_") != std::string::npos || uncommented.find("layout(") != std::string::npos ||
-         uncommented.find("layout (") != std::string::npos ||
-         uncommented.find("precision highp") != std::string::npos ||
-         uncommented.find("readonly buffer") != std::string::npos ||
-         uncommented.find("writeonly buffer") != std::string::npos;
+  return source.find("#extension GL_") != std::string::npos || source.find("layout(") != std::string::npos ||
+         source.find("layout (") != std::string::npos || source.find("precision highp") != std::string::npos ||
+         source.find("readonly buffer") != std::string::npos || source.find("writeonly buffer") != std::string::npos;
 }
 
 bool HasPreprocessorInclude(const std::string& source) {
@@ -199,67 +183,28 @@ bool HasPreprocessorInclude(const std::string& source) {
   return false;
 }
 
-bool HasStrictNativeMarker(const std::string& source) {
-  return source.find(kStrictNativeMarker) != std::string::npos;
+bool IsLegacyShaderExtension(const std::string& extension) {
+  return extension == ".glsl" || extension == ".vert" || extension == ".tesc" || extension == ".tese" ||
+         extension == ".geom" || extension == ".frag" || extension == ".comp" || extension == ".task" ||
+         extension == ".mesh" || extension == ".rgen" || extension == ".rmiss" || extension == ".rahit" ||
+         extension == ".rchit" || extension == ".rint" || extension == ".rcall";
 }
 
-bool ValidateStrictNativeSource(const ShaderCompileRequest& request, std::string& diagnostics) {
-  if (!request.strict_native) {
+bool ValidateNativeSlangSource(const ShaderCompileRequest& request, std::string& diagnostics) {
+  const auto uncommented = StripShaderComments(request.source);
+  if (!IsLegacyShaderExtension(LowercaseExtension(request.path)) && !HasPreprocessorInclude(uncommented) &&
+      !UsesCompatibilitySyntax(uncommented)) {
     return true;
   }
-  bool valid = true;
-  if (HasPreprocessorInclude(request.source)) {
-    diagnostics += "Strict native Slang source may not use #include; use import.\n";
-    valid = false;
-  }
-  if (UsesCompatibilitySyntax(request.source)) {
-    diagnostics += "Strict native Slang source contains GLSL compatibility syntax.\n";
-    valid = false;
-  }
-  return valid;
+  diagnostics = std::string(kGlslUnsupportedDiagnostic) + "\n";
+  return false;
 }
 
-bool IsSupportedSlangInputLanguage(const uint32_t input_language) {
-  return input_language == SLANG_SOURCE_LANGUAGE_SLANG || input_language == SLANG_SOURCE_LANGUAGE_GLSL;
-}
-
-const char* SlangInputDialectName(const uint32_t input_language) {
-  return input_language == SLANG_SOURCE_LANGUAGE_GLSL ? "compatibility" : "native";
-}
-
-bool IsGlslStageExtension(const std::string& extension) {
-  return extension == ".vert" || extension == ".tesc" || extension == ".tese" || extension == ".geom" ||
-         extension == ".frag" || extension == ".comp" || extension == ".task" || extension == ".mesh" ||
-         extension == ".rgen" || extension == ".rmiss" || extension == ".rahit" || extension == ".rchit" ||
-         extension == ".rint" || extension == ".rcall";
-}
-
-bool ShouldCompileWithGlslang(const ShaderCompileRequest& request) {
-  return request.target.slang_input_language == SLANG_SOURCE_LANGUAGE_GLSL &&
-         IsGlslStageExtension(LowercaseExtension(request.path));
-}
-
-const char* ShaderCompilerBackendName(const ShaderCompileRequest& request) {
-  return ShouldCompileWithGlslang(request) ? "glslang" : "slang";
-}
-
-ShaderCompileRequest MakeSlangCompileRequest(
-    const ShaderType shader_type, std::string source, const std::filesystem::path& path,
-    const ShaderSourceDialect requested_dialect = ShaderSourceDialect::Automatic) {
+ShaderCompileRequest MakeSlangCompileRequest(const ShaderType shader_type, std::string source,
+                                             const std::filesystem::path& path) {
   ShaderCompileRequest request;
   request.shader_type = shader_type;
   request.source = std::move(source);
-  request.source_dialect = requested_dialect;
-  if (request.source_dialect == ShaderSourceDialect::Automatic) {
-    request.source_dialect = UsesCompatibilitySyntax(request.source) ? ShaderSourceDialect::GlslCompatibility
-                                                                     : ShaderSourceDialect::NativeSlang;
-    request.strict_native = HasStrictNativeMarker(request.source);
-  } else {
-    request.strict_native = request.source_dialect == ShaderSourceDialect::NativeSlang;
-  }
-  if (request.source_dialect == ShaderSourceDialect::GlslCompatibility) {
-    request.target.slang_input_language = SLANG_SOURCE_LANGUAGE_GLSL;
-  }
   request.path = path;
   request.include_paths = MakeShaderIncludePaths(path);
   return request;
@@ -310,14 +255,11 @@ std::string MakeShaderTargetProfileString(const ShaderCompileRequest& request) {
   stream << "vulkan_" << (kVulkanTarget / 10) << "_" << (kVulkanTarget % 10) << ";spirv_" << (kSpirvTarget / 10) << "_"
          << (kSpirvTarget % 10)
          << ";entry=" << (request.entry_point.empty() ? kDefaultShaderEntryPoint : request.entry_point);
-  stream << ";compiler_backend=" << ShaderCompilerBackendName(request);
-  stream << ";emit_spirv_directly;matrix_layout=row_major;scalar_layout=true;slang_input_dialect="
-         << SlangInputDialectName(request.target.slang_input_language);
+  stream << ";compiler_backend=slang;emit_spirv_directly;matrix_layout=row_major;scalar_layout=true";
   stream << ";shader_invocation_reorder_ext="
          << (RequiresShaderInvocationReorderCapability(request) ? "true" : "false");
   stream << ";ray_tracing_linear_swept_spheres_nv="
          << (RequiresLinearSweptSphereCapability(request) ? "true" : "false");
-  stream << ";strict_native=" << (request.strict_native ? "true" : "false");
   return stream.str();
 }
 
@@ -338,8 +280,7 @@ std::string MakeIncludePathSignature(const ShaderCompileRequest& request) {
 ShaderCacheKey MakeShaderCacheKey(const ShaderCompileRequest& request, const std::string& compiler_version,
                                   const std::string& source_signature, const std::string& dependency_signature = {}) {
   ShaderCacheKey key{14695981039346656037ull, 1099511628211ull ^ 0xd6e8feb86659fd93ull};
-  const std::array<uint32_t, 3> descriptor = {kShaderCacheSchema, static_cast<uint32_t>(request.shader_type),
-                                              request.target.slang_input_language};
+  const std::array<uint32_t, 2> descriptor = {kShaderCacheSchema, static_cast<uint32_t>(request.shader_type)};
   HashKeyBytes(key, descriptor.data(), descriptor.size() * sizeof(uint32_t));
   HashKeyString(key, compiler_version);
   HashKeyString(key, MakeShaderTargetProfileString(request));
@@ -498,220 +439,6 @@ bool Shader::Compiled() const {
   return shader_module != nullptr;
 }
 
-class GlslShaderIncluder : public glslang::TShader::Includer {
- public:
-  explicit GlslShaderIncluder(std::set<std::filesystem::path> include_paths)
-      : include_paths_(std::move(include_paths)) {
-  }
-
-  IncludeResult* includeSystem(const char* header_name, const char*, size_t) override;
-  IncludeResult* includeLocal(const char* header_name, const char* includer_name, size_t inclusion_depth) override;
-  void releaseInclude(IncludeResult*) override;
-
- private:
-  std::set<std::filesystem::path> include_paths_;
-  IncludeResult fail_result_ = IncludeResult("", "Header does not exist!", 0, nullptr);
-  std::unordered_map<std::filesystem::path, std::shared_ptr<IncludeResult>> includes_;
-  std::unordered_map<std::filesystem::path, std::string> sources_;
-};
-
-glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeSystem(const char* header_name, const char*,
-                                                                             size_t) {
-  const std::filesystem::path requested_header(header_name);
-  std::filesystem::path resolved_header_path;
-  bool found = false;
-  for (const auto& include_path : include_paths_) {
-    const auto candidate = include_path / requested_header;
-    if (std::filesystem::exists(candidate)) {
-      resolved_header_path = std::filesystem::weakly_canonical(candidate);
-      found = true;
-      break;
-    }
-  }
-  if (!found && std::filesystem::exists(requested_header)) {
-    resolved_header_path = std::filesystem::weakly_canonical(requested_header);
-    found = true;
-  }
-  if (!found) {
-    return &fail_result_;
-  }
-  if (const auto existing = includes_.find(resolved_header_path); existing != includes_.end()) {
-    return existing->second.get();
-  }
-  sources_[resolved_header_path] = FileUtils::LoadFileAsString(resolved_header_path);
-  auto [inserted, success] = includes_.emplace(std::make_pair(
-      resolved_header_path,
-      std::make_shared<IncludeResult>(resolved_header_path.string(), sources_.at(resolved_header_path).data(),
-                                      sources_.at(resolved_header_path).size(), nullptr)));
-  if (!success) {
-    return &fail_result_;
-  }
-  return inserted->second.get();
-}
-
-glslang::TShader::Includer::IncludeResult* GlslShaderIncluder::includeLocal(const char* header_name,
-                                                                            const char* includer_name,
-                                                                            const size_t inclusion_depth) {
-  return includeSystem(header_name, includer_name, inclusion_depth);
-}
-
-void GlslShaderIncluder::releaseInclude(IncludeResult* result) {
-  if (result == &fail_result_) {
-    return;
-  }
-  std::filesystem::path resolved_header_path(result->headerName);
-  sources_.erase(resolved_header_path);
-  includes_.erase(resolved_header_path);
-}
-
-class GlslangProcessLifetime {
- public:
-  GlslangProcessLifetime() {
-    glslang::InitializeProcess();
-  }
-
-  ~GlslangProcessLifetime() {
-    glslang::FinalizeProcess();
-  }
-};
-
-void EnsureGlslangProcess() {
-  static GlslangProcessLifetime lifetime;
-  static_cast<void>(lifetime);
-}
-
-bool TryGetGlslangLanguage(const ShaderType shader_type, EShLanguage& language) {
-  switch (shader_type) {
-    case ShaderType::Task:
-      language = EShLangTask;
-      return true;
-    case ShaderType::Mesh:
-      language = EShLangMesh;
-      return true;
-    case ShaderType::Vertex:
-      language = EShLangVertex;
-      return true;
-    case ShaderType::TessellationControl:
-      language = EShLangTessControl;
-      return true;
-    case ShaderType::TessellationEvaluation:
-      language = EShLangTessEvaluation;
-      return true;
-    case ShaderType::Geometry:
-      language = EShLangGeometry;
-      return true;
-    case ShaderType::Fragment:
-      language = EShLangFragment;
-      return true;
-    case ShaderType::Compute:
-      language = EShLangCompute;
-      return true;
-    case ShaderType::RayGen:
-      language = EShLangRayGen;
-      return true;
-    case ShaderType::Miss:
-      language = EShLangMiss;
-      return true;
-    case ShaderType::AnyHit:
-      language = EShLangAnyHit;
-      return true;
-    case ShaderType::ClosestHit:
-      language = EShLangClosestHit;
-      return true;
-    case ShaderType::Intersection:
-      language = EShLangIntersect;
-      return true;
-    case ShaderType::Callable:
-      language = EShLangCallable;
-      return true;
-    case ShaderType::Unknown:
-      return false;
-  }
-  return false;
-}
-
-void ConfigureGlslShader(glslang::TShader& shader, const EShLanguage language) {
-  constexpr int default_version = 460;
-  shader.setEnvClient(glslang::EShClientVulkan, glslang::EShTargetVulkan_1_3);
-  shader.setEnvTarget(glslang::EshTargetSpv, glslang::EShTargetSpv_1_4);
-  shader.setEnvInput(glslang::EShSourceGlsl, language, glslang::EShClientVulkan, default_version);
-  shader.setEntryPoint(kDefaultShaderEntryPoint);
-}
-
-std::string MakeGlslangCompilerVersionString() {
-  const auto compiler_version = glslang::GetVersion();
-  std::ostringstream stream;
-  stream << "glslang-" << compiler_version.major << "." << compiler_version.minor << "." << compiler_version.patch;
-  if (compiler_version.flavor) {
-    stream << "-" << compiler_version.flavor;
-  }
-  return stream.str();
-}
-
-bool PreprocessGlsl(const ShaderCompileRequest& request, std::string& preprocessed_source) {
-  EShLanguage language;
-  if (!TryGetGlslangLanguage(request.shader_type, language)) {
-    EVOENGINE_ERROR("Unknown GLSL shader stage: " + request.path.string())
-    return false;
-  }
-  EnsureGlslangProcess();
-  const std::lock_guard glslang_lock(glslang_mutex);
-  glslang::TShader shader(language);
-  const std::string actual_code = std::string("#version 460\n") + request.source;
-  const char* sources[] = {actual_code.c_str()};
-  shader.setStrings(sources, 1);
-  ConfigureGlslShader(shader, language);
-  constexpr int default_version = 460;
-  constexpr bool forward_compatible = false;
-  constexpr auto message_flags = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
-  GlslShaderIncluder includer(request.include_paths);
-  if (!shader.preprocess(GetDefaultResources(), default_version, ECoreProfile, false, forward_compatible, message_flags,
-                         &preprocessed_source, includer)) {
-    EVOENGINE_ERROR("Failed to preprocess GLSL shader: " + request.path.string() + "\n" + shader.getInfoLog())
-    return false;
-  }
-  return true;
-}
-
-bool CompilePreprocessedGlsl(const ShaderCompileRequest& request, const std::string& preprocessed_source,
-                             std::vector<uint32_t>& binaries) {
-  EShLanguage language;
-  if (!TryGetGlslangLanguage(request.shader_type, language)) {
-    return false;
-  }
-  EnsureGlslangProcess();
-  const std::lock_guard glslang_lock(glslang_mutex);
-  glslang::TShader shader(language);
-  const char* sources[] = {preprocessed_source.c_str()};
-  shader.setStrings(sources, 1);
-  ConfigureGlslShader(shader, language);
-  constexpr int default_version = 460;
-  constexpr bool forward_compatible = false;
-  constexpr auto message_flags = static_cast<EShMessages>(EShMsgSpvRules | EShMsgVulkanRules);
-  GlslShaderIncluder includer(request.include_paths);
-  if (!shader.parse(GetDefaultResources(), default_version, ECoreProfile, false, forward_compatible, message_flags,
-                    includer)) {
-    EVOENGINE_ERROR("Failed to parse GLSL shader: " + request.path.string() + "\n" + shader.getInfoLog())
-    return false;
-  }
-  glslang::TProgram program;
-  program.addShader(&shader);
-  if (!program.link(message_flags)) {
-    EVOENGINE_ERROR("Failed to link GLSL shader: " + request.path.string() + "\n" + program.getInfoLog())
-    return false;
-  }
-  glslang::SpvOptions options{};
-  options.generateDebugInfo = true;
-  options.validate = true;
-  spv::SpvBuildLogger logger;
-  GlslangToSpv(*program.getIntermediate(language), binaries, &logger, &options);
-  if (binaries.empty() || binaries.front() != kSpirvMagic) {
-    EVOENGINE_ERROR("glslang produced invalid SPIR-V: " + request.path.string() + "\n" + logger.getAllMessages())
-    return false;
-  }
-  return true;
-}
-
 template <typename T>
 bool ReadBinaryValue(std::ifstream& stream, T& value) {
   stream.read(reinterpret_cast<char*>(&value), sizeof(T));
@@ -738,20 +465,18 @@ ShaderCacheLoadResult LoadShaderCacheEntry(const std::filesystem::path& cache_pa
     stream.read(magic.data(), magic.size());
     uint32_t schema = 0;
     uint32_t cached_shader_type = 0;
-    uint32_t slang_input_language = 0;
     ShaderCacheKey cached_key{};
     ShaderCacheKey checksum{};
     uint64_t word_count = 0;
     if (!stream || magic != expected_magic || !ReadBinaryValue(stream, schema) ||
-        !ReadBinaryValue(stream, cached_shader_type) || !ReadBinaryValue(stream, slang_input_language) ||
-        !ReadBinaryValue(stream, cached_key.low) || !ReadBinaryValue(stream, cached_key.high) ||
-        !ReadBinaryValue(stream, checksum.low) || !ReadBinaryValue(stream, checksum.high) ||
-        !ReadBinaryValue(stream, word_count) || schema != kShaderCacheSchema ||
-        cached_shader_type != static_cast<uint32_t>(request.shader_type) ||
-        slang_input_language != request.target.slang_input_language || !(cached_key == key) || word_count == 0) {
+        !ReadBinaryValue(stream, cached_shader_type) || !ReadBinaryValue(stream, cached_key.low) ||
+        !ReadBinaryValue(stream, cached_key.high) || !ReadBinaryValue(stream, checksum.low) ||
+        !ReadBinaryValue(stream, checksum.high) || !ReadBinaryValue(stream, word_count) ||
+        schema != kShaderCacheSchema || cached_shader_type != static_cast<uint32_t>(request.shader_type) ||
+        !(cached_key == key) || word_count == 0) {
       return ShaderCacheLoadResult::Corrupt;
     }
-    constexpr uint64_t header_size = 60;
+    constexpr uint64_t header_size = 56;
     const auto file_size = std::filesystem::file_size(cache_path);
     if (file_size < header_size || word_count > (file_size - header_size) / sizeof(uint32_t) ||
         file_size != header_size + word_count * sizeof(uint32_t)) {
@@ -784,7 +509,6 @@ bool PublishShaderCacheEntry(const std::filesystem::path& cache_path, const Shad
     WriteBinaryValue(stream, kShaderCacheSchema);
     const auto type_value = static_cast<uint32_t>(request.shader_type);
     WriteBinaryValue(stream, type_value);
-    WriteBinaryValue(stream, request.target.slang_input_language);
     WriteBinaryValue(stream, key.low);
     WriteBinaryValue(stream, key.high);
     const auto checksum = MakePayloadChecksum(binaries);
@@ -1150,57 +874,15 @@ bool TryGetSlangStage(const ShaderType shader_type, SlangStage& stage) {
   return false;
 }
 
-const char* CompatibilityStageExtension(const ShaderType shader_type) {
-  switch (shader_type) {
-    case ShaderType::Task:
-      return ".task";
-    case ShaderType::Mesh:
-      return ".mesh";
-    case ShaderType::Vertex:
-      return ".vert";
-    case ShaderType::TessellationControl:
-      return ".tesc";
-    case ShaderType::TessellationEvaluation:
-      return ".tese";
-    case ShaderType::Geometry:
-      return ".geom";
-    case ShaderType::Fragment:
-      return ".frag";
-    case ShaderType::Compute:
-      return ".comp";
-    case ShaderType::RayGen:
-      return ".rgen";
-    case ShaderType::Miss:
-      return ".rmiss";
-    case ShaderType::AnyHit:
-      return ".rahit";
-    case ShaderType::ClosestHit:
-      return ".rchit";
-    case ShaderType::Intersection:
-      return ".rint";
-    case ShaderType::Callable:
-      return ".rcall";
-    case ShaderType::Unknown:
-      return ".slang";
-  }
-  return ".slang";
-}
-
 std::string MakeSlangSourceDisplayPath(const ShaderCompileRequest& request, const std::string& module_name) {
-  auto display_path = request.path.empty() ? std::filesystem::path(module_name) : request.path;
-  if (request.target.slang_input_language == SLANG_SOURCE_LANGUAGE_GLSL) {
-    display_path.replace_extension(CompatibilityStageExtension(request.shader_type));
-  }
-  return display_path.string();
+  return (request.path.empty() ? std::filesystem::path(module_name) : request.path).string();
 }
 
 slang::IGlobalSession* GetSlangGlobalSession(std::string& diagnostics) {
   static Slang::ComPtr<slang::IGlobalSession> global_session;
   const std::lock_guard slang_lock(slang_mutex);
   if (!global_session) {
-    SlangGlobalSessionDesc session_desc = {};
-    session_desc.enableGLSL = true;
-    if (SLANG_FAILED(slang::createGlobalSession(&session_desc, global_session.writeRef()))) {
+    if (SLANG_FAILED(slang::createGlobalSession(global_session.writeRef()))) {
       diagnostics += "Failed to create Slang global session.\n";
       return nullptr;
     }
@@ -1221,8 +903,7 @@ std::string MakeSlangCompilerDiagnosticHeader(slang::IGlobalSession& global_sess
   stream << "Compiler backend: Slang";
   stream << " (" << MakeSlangCompilerVersionString(global_session) << ")";
   stream << ", Vulkan " << (kVulkanTarget / 10) << "." << (kVulkanTarget % 10) << ", SPIR-V " << (kSpirvTarget / 10)
-         << "." << (kSpirvTarget % 10) << ", matrix layout: row-major, scalar layout: on, Slang input dialect: "
-         << SlangInputDialectName(request.target.slang_input_language)
+         << "." << (kSpirvTarget % 10) << ", matrix layout: row-major, scalar layout: on"
          << ", shader invocation reorder EXT: " << (RequiresShaderInvocationReorderCapability(request) ? "on" : "off")
          << ", ray tracing linear swept spheres NV: " << (RequiresLinearSweptSphereCapability(request) ? "on" : "off")
          << "\n";
@@ -1283,9 +964,8 @@ std::string MakeSlangDependencySignature(slang::IModule& module) {
 bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSession& global_session,
                         Slang::ComPtr<slang::ISession>& session, std::string& diagnostics) {
   std::vector<slang::CompilerOptionEntry> session_options;
-  session_options.push_back(
-      {slang::CompilerOptionName::Language,
-       {slang::CompilerOptionValueKind::Int, static_cast<int32_t>(request.target.slang_input_language)}});
+  session_options.push_back({slang::CompilerOptionName::Language,
+                             {slang::CompilerOptionValueKind::Int, static_cast<int32_t>(SLANG_SOURCE_LANGUAGE_SLANG)}});
   if (RequiresShaderInvocationReorderCapability(request)) {
     session_options.push_back({slang::CompilerOptionName::Capability,
                                {slang::CompilerOptionValueKind::String, 0, 0, "spvShaderInvocationReorderEXT"}});
@@ -1320,7 +1000,6 @@ bool CreateSlangSession(const ShaderCompileRequest& request, slang::IGlobalSessi
   session_desc.targets = &target_desc;
   session_desc.targetCount = 1;
   session_desc.defaultMatrixLayoutMode = SLANG_MATRIX_LAYOUT_ROW_MAJOR;
-  session_desc.allowGLSLSyntax = request.source_dialect == ShaderSourceDialect::GlslCompatibility;
   session_desc.searchPaths = include_paths.empty() ? nullptr : include_paths.data();
   session_desc.searchPathCount = static_cast<SlangInt>(include_paths.size());
   const slang::PreprocessorMacroDesc preprocessor_macros[] = {
@@ -1646,11 +1325,7 @@ bool ReflectSlangRequest(const ShaderCompileRequest& request, ShaderReflectionIn
                          std::string& diagnostics) {
   reflection = {};
   diagnostics.clear();
-  if (!ValidateStrictNativeSource(request, diagnostics)) {
-    return false;
-  }
-  if (!IsSupportedSlangInputLanguage(request.target.slang_input_language)) {
-    diagnostics = "Unsupported Slang reflection request.";
+  if (!ValidateNativeSlangSource(request, diagnostics)) {
     return false;
   }
   SlangStage stage = SLANG_STAGE_NONE;
@@ -1813,12 +1488,7 @@ ShaderCacheKey MakeSlangBinaryCacheKey(const ShaderCompileRequest& request, cons
 
 ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   ShaderCompileResult result;
-  if (!ValidateStrictNativeSource(request, result.diagnostics)) {
-    failure_count.fetch_add(1);
-    return result;
-  }
-  if (!IsSupportedSlangInputLanguage(request.target.slang_input_language)) {
-    result.diagnostics = "Unsupported Slang compile request.";
+  if (!ValidateNativeSlangSource(request, result.diagnostics)) {
     failure_count.fetch_add(1);
     return result;
   }
@@ -1855,11 +1525,7 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   }
 
   std::string frontend_source;
-  if (request.source_dialect == ShaderSourceDialect::NativeSlang) {
-    native_slang_frontend_count.fetch_add(1);
-  } else {
-    compatibility_slang_frontend_count.fetch_add(1);
-  }
+  native_slang_frontend_count.fetch_add(1);
   Slang::ComPtr<slang::IModule> module = LoadSlangModule(request, *session, result.diagnostics, frontend_source);
   if (!module) {
     EVOENGINE_ERROR("Failed to load Slang module: " + request.path.string() + "\n" + result.diagnostics)
@@ -1878,25 +1544,7 @@ ShaderCompileResult CompileSlang(const ShaderCompileRequest& request) {
   return result;
 }
 
-ShaderCompileResult CompileGlsl(const ShaderCompileRequest& request) {
-  ShaderCompileResult result;
-  std::string preprocessed_source;
-  if (!PreprocessGlsl(request, preprocessed_source)) {
-    failure_count.fetch_add(1);
-    return result;
-  }
-  const auto key = MakeShaderCacheKey(request, MakeGlslangCompilerVersionString(), preprocessed_source);
-  CompileShaderWithCache(request, key, result, [&](std::vector<uint32_t>& binaries) {
-    glslang_frontend_count.fetch_add(1);
-    return CompilePreprocessedGlsl(request, preprocessed_source, binaries);
-  });
-  return result;
-}
-
 ShaderCompileResult CompileShaderToSpirv(const ShaderCompileRequest& request) {
-  if (ShouldCompileWithGlslang(request)) {
-    return CompileGlsl(request);
-  }
   return CompileSlang(request);
 }
 
@@ -1911,15 +1559,13 @@ bool CompileShaderToSpirv(const ShaderCompileRequest& request, std::vector<uint3
 }
 
 bool Shader::CompileToSpirv(const ShaderType shader_type, const std::string& source, std::vector<uint32_t>& binaries,
-                            const std::filesystem::path& path, const ShaderSourceDialect source_dialect) {
-  return CompileShaderToSpirv(MakeSlangCompileRequest(shader_type, source, path, source_dialect), binaries);
+                            const std::filesystem::path& path) {
+  return CompileShaderToSpirv(MakeSlangCompileRequest(shader_type, source, path), binaries);
 }
 
 bool Shader::ReflectSlang(const ShaderType shader_type, const std::string& source, ShaderReflectionInfo& reflection,
-                          std::string& diagnostics, const std::filesystem::path& path,
-                          const ShaderSourceDialect source_dialect) {
-  return ReflectSlangRequest(MakeSlangCompileRequest(shader_type, source, path, source_dialect), reflection,
-                             diagnostics);
+                          std::string& diagnostics, const std::filesystem::path& path) {
+  return ReflectSlangRequest(MakeSlangCompileRequest(shader_type, source, path), reflection, diagnostics);
 }
 
 ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
@@ -1983,16 +1629,10 @@ ShaderPipelineLayoutValidation Shader::ValidateSlangPipelineLayout(
 }
 
 ShaderCompileCacheStats Shader::GetCompileCacheStats() {
-  return {memory_hit_count.load(),
-          disk_hit_count.load(),
-          disk_miss_count.load(),
-          compilation_count.load(),
-          coalesced_wait_count.load(),
-          corrupt_entry_count.load(),
-          failure_count.load(),
-          native_slang_frontend_count.load(),
-          compatibility_slang_frontend_count.load(),
-          glslang_frontend_count.load()};
+  return {memory_hit_count.load(),     disk_hit_count.load(),
+          disk_miss_count.load(),      compilation_count.load(),
+          coalesced_wait_count.load(), corrupt_entry_count.load(),
+          failure_count.load(),        native_slang_frontend_count.load()};
 }
 
 void Shader::ResetCompileCacheStats() {
@@ -2004,8 +1644,6 @@ void Shader::ResetCompileCacheStats() {
   corrupt_entry_count.store(0);
   failure_count.store(0);
   native_slang_frontend_count.store(0);
-  compatibility_slang_frontend_count.store(0);
-  glslang_frontend_count.store(0);
 }
 
 void Shader::ClearInMemoryCompileCache() {

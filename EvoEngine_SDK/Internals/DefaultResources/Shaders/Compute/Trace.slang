@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.Trace;
 
 [[vk::binding(3, 0)]]

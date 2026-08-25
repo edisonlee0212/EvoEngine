@@ -1982,12 +1982,7 @@ void RenderLayer::OnCreate() {
            << " shader_disk_misses=" << (shader_stats.disk_misses - shader_stats_begin.disk_misses)
            << " shader_compilations=" << (shader_stats.compilations - shader_stats_begin.compilations)
            << " shader_native_slang_frontend="
-           << (shader_stats.native_slang_frontend_invocations - shader_stats_begin.native_slang_frontend_invocations)
-           << " shader_compatibility_slang_frontend="
-           << (shader_stats.compatibility_slang_frontend_invocations -
-               shader_stats_begin.compatibility_slang_frontend_invocations)
-           << " shader_glslang_frontend="
-           << (shader_stats.glslang_frontend_invocations - shader_stats_begin.glslang_frontend_invocations);
+           << (shader_stats.native_slang_frontend_invocations - shader_stats_begin.native_slang_frontend_invocations);
     EVOENGINE_WARNING(stream.str())
   };
   post_processing_renderer_resources_ = std::make_shared<PostProcessingRendererResources>();

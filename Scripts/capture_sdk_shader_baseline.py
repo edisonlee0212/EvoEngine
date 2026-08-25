@@ -18,7 +18,7 @@ import sys
 import time
 
 
-SHADER_EXTENSIONS = {".slang", ".slangh", ".glsl"}
+SHADER_EXTENSIONS = {".slang", ".slangh"}
 STAGE_PARTS = {
     "Compute": "compute",
     "Vertex": "vertex",
@@ -30,24 +30,6 @@ STAGE_PARTS = {
     "ClosestHit": "closest_hit",
     "AnyHit": "any_hit",
 }
-TRANSFER_FILES = (
-    "Cameras.glsl",
-    "DDGI.glsl",
-    "DDGIGather.glsl",
-    "Environment.glsl",
-    "GltfMaterial.glsl",
-    "GltfRasterMaterial.glsl",
-    "Instances.glsl",
-    "Kernel.glsl",
-    "Lighting.glsl",
-    "Lights.glsl",
-    "Math.glsl",
-    "Noise.glsl",
-    "PerFrame.glsl",
-    "RenderInfo.glsl",
-    "Textures.glsl",
-    "VogelDisk.glsl",
-)
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.MULTILINE)
 IMPORT_RE = re.compile(r"^\s*import\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;", re.MULTILINE)
 MACRO_RE = re.compile(r"^\s*#\s*(define|if|ifdef|ifndef|elif|else|endif)\b", re.MULTILINE)
@@ -93,13 +75,6 @@ def canonical_bytes(value: object) -> bytes:
 def strip_comments(source: str) -> str:
     source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
     return re.sub(r"//[^\n]*", "", source)
-
-
-def uses_compatibility_syntax(source: str) -> bool:
-    return any(
-        token in source
-        for token in ("#extension GL_", "layout(", "layout (", "precision highp", "readonly buffer", "writeonly buffer")
-    )
 
 
 def infer_stage(relative: Path) -> str | None:
@@ -161,14 +136,10 @@ def collect_source_inventory(root: Path) -> dict[str, object]:
         imports = IMPORT_RE.findall(uncommented)
         macros = MACRO_RE.findall(uncommented)
         preprocessor_directives = PREPROCESSOR_RE.findall(uncommented)
-        dialect = "glsl" if path.suffix == ".glsl" else (
-            "compatibility" if uses_compatibility_syntax(uncommented) else "native"
-        )
         stage = infer_stage(relative)
         cone = relative.parts[0]
         counts["files"] += 1
         counts[f"extension:{path.suffix}"] += 1
-        counts[f"dialect:{dialect}"] += 1
         counts[f"cone:{cone}"] += 1
         if stage:
             counts["entry_points"] += 1
@@ -181,8 +152,6 @@ def collect_source_inventory(root: Path) -> dict[str, object]:
             counts["files_with_macro_controls"] += 1
         if preprocessor_directives:
             counts["files_with_preprocessor_directives"] += 1
-        if dialect != "native":
-            counts["legacy_files"] += 1
         relative_text = relative.as_posix()
         graph[relative_text] = {
             "includes": [resolve_dependency(path, name, shader_root, by_name) for name in includes],
@@ -194,7 +163,6 @@ def collect_source_inventory(root: Path) -> dict[str, object]:
                 "extension": path.suffix,
                 "stage": stage,
                 "cone": cone,
-                "dialect": dialect,
                 "bytes": len(data),
                 "sha256": sha256_bytes(data),
                 "include_count": len(includes),
@@ -211,35 +179,6 @@ def collect_source_inventory(root: Path) -> dict[str, object]:
         "aggregate_source_sha256": sha256_bytes(canonical_bytes(files)),
         "files": files,
         "dependency_graph": {key: graph[key] for key in sorted(graph)},
-    }
-
-
-def collect_transfer_manifest(root: Path) -> dict[str, object]:
-    source_root = root / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders" / "Includes"
-    destination_root = (
-        root / "EvoEngine_Packages" / "EcoSysLab" / "Internals" / "EcoSysLabResources" / "Shaders" / "Includes"
-    )
-    source_files = [source_root / name for name in TRANSFER_FILES]
-    destination_files = [destination_root / name for name in TRANSFER_FILES]
-    if all(path.is_file() for path in source_files) and not any(path.exists() for path in destination_files):
-        current_root = source_root
-        current_owner = "EvoEngine_SDK"
-    elif not any(path.exists() for path in source_files) and all(path.is_file() for path in destination_files):
-        current_root = destination_root
-        current_owner = "EcoSysLab"
-    else:
-        raise RuntimeError("EcoSysLab GLSL ownership-transfer closure is split, duplicated, or incomplete.")
-    files = []
-    for name in TRANSFER_FILES:
-        path = current_root / name
-        data = path.read_bytes()
-        files.append({"name": name, "bytes": len(data), "sha256": sha256_bytes(data)})
-    return {
-        "source": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes",
-        "destination": "EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes",
-        "current_owner": current_owner,
-        "files": files,
-        "aggregate_sha256": sha256_bytes(canonical_bytes(files)),
     }
 
 
@@ -450,7 +389,6 @@ def main() -> int:
         "schema": 1,
         "scope": args.scope,
         "source_inventory": collect_source_inventory(root),
-        "ecosyslab_glsl_ownership_transfer": collect_transfer_manifest(root),
     }
     if not args.skip_compile:
         compiled, _ = collect_compile_evidence(

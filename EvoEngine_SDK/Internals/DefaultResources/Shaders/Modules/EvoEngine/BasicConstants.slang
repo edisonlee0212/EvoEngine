@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeBasicConstants {
   public int instance_index;
   public int camera_index;

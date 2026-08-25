@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct GaussianSplatFragmentInput {
   [[vk::location(0)]]
   float3 color : COLOR0;

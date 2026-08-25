@@ -1,5 +1,4 @@
 
-// @evoengine-dialect native
 __exported import EvoEngine.SMAAConstants;
 
 public interface ISmaaPreset {

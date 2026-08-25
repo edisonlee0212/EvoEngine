@@ -134,9 +134,7 @@ ShaderCompileCacheStats DeltaShaderCompileCacheStats(const ShaderCompileCacheSta
           after.coalesced_waits - before.coalesced_waits,
           after.corrupt_entries - before.corrupt_entries,
           after.failures - before.failures,
-          after.native_slang_frontend_invocations - before.native_slang_frontend_invocations,
-          after.compatibility_slang_frontend_invocations - before.compatibility_slang_frontend_invocations,
-          after.glslang_frontend_invocations - before.glslang_frontend_invocations};
+          after.native_slang_frontend_invocations - before.native_slang_frontend_invocations};
 }
 
 template <typename T>
@@ -2565,9 +2563,7 @@ void Application::Initialize(const ApplicationInitializationSettings& applicatio
               << " shader_disk_hits=" << shader_stats_delta.disk_hits
               << " shader_disk_misses=" << shader_stats_delta.disk_misses
               << " shader_compilations=" << shader_stats_delta.compilations
-              << " shader_native_slang_frontend=" << shader_stats_delta.native_slang_frontend_invocations
-              << " shader_compatibility_slang_frontend=" << shader_stats_delta.compatibility_slang_frontend_invocations
-              << " shader_glslang_frontend=" << shader_stats_delta.glslang_frontend_invocations;
+              << " shader_native_slang_frontend=" << shader_stats_delta.native_slang_frontend_invocations;
   EVOENGINE_WARNING(startup_log.str())
 
   if (!this->initialization_settings.project_path.empty()) {

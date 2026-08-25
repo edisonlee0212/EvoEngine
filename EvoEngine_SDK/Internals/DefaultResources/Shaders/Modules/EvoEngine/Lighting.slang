@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.PerFrame;
 __exported import EvoEngine.DDGIGatherMulti;
 __exported import EvoEngine.BasicConstants;

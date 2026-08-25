@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 // Struct layout mirrors Rendering/PBR/GltfMaterial.hpp with every material extension enabled.
 public
 static const int EE_GLTF_PBR_MODEL_METALLIC_ROUGHNESS = 0;

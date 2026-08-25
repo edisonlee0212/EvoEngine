@@ -183,7 +183,7 @@ void EcoSysLabLayer::RegisterTypes(Application& application) {
 }
 
 void EcoSysLabLayer::OnCreate() {
-  Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Includes"));
+  Shader::RegisterShaderIncludePath(std::filesystem::path("./EcoSysLabResources/Shaders/Modules"));
   if (random_colors_.empty()) {
     for (int i = 0; i < 20000; i++) {
       random_colors_.emplace_back(glm::linearRand(glm::vec3(0.0f), glm::vec3(1.0f)));

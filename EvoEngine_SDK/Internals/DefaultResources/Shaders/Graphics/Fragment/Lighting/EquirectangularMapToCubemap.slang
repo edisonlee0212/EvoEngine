@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct EeEquirectangularToCubemapConstants {
   float4x4 projection_view;
   float environment_pdf_scale;

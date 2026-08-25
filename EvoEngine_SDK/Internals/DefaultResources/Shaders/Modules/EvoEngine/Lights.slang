@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 // Lights
 public struct DirectionalLight {
   public float3 direction;

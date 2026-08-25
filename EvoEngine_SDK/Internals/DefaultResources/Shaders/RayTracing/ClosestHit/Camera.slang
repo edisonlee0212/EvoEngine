@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.CameraRayConstants;
 import EvoEngine.CameraRayGeometry;
 import EvoEngine.CameraRayTracingPayload;

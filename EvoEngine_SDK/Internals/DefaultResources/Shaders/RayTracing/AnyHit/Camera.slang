@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 #ifndef EE_GLTF_COMPILED_FEATURE_MASK
 #  define EE_GLTF_COMPILED_FEATURE_MASK 32767u
 #endif

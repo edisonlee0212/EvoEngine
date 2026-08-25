@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.GizmosConstants;
 import EvoEngine.PerFrame;
 import EvoEngine.StrandMeshlet;

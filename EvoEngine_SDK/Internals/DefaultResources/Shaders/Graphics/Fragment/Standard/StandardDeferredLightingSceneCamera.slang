@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.LightingFixedSet3;
 
 struct DeferredLightingInput {

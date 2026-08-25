@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct Vertex {
   public float3 position;
   public float vertex_info1;

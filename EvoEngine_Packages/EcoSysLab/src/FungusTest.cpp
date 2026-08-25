@@ -312,7 +312,7 @@ void FungusTest::InitializeGpuResources() {
   compute_shader = std::make_shared<Shader>();
   compute_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                              std::filesystem::path("./EcoSysLabResources") /
-                                 "Shaders/Compute/DynamicStrands/Fungus/FungusDiffusion_test.comp");
+                                 "Shaders/Compute/DynamicStrands/Fungus/FungusDiffusion_test.slang");
 
   gpu_resources.compute_pipeline = std::make_shared<ComputePipeline>();
   gpu_resources.compute_pipeline->compute_shader = compute_shader;

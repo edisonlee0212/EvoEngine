@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.PerFrame;
 
 [[vk::binding(17, 1)]]

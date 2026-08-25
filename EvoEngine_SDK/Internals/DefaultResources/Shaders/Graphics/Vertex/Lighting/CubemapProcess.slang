@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct CubemapVertexInput {
   [[vk::location(0)]] float3 position : POSITION;
 };

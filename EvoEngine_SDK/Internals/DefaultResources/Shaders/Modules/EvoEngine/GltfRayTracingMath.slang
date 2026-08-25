@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public static const float EE_GLTF_RT_MATH_PI = 3.14159265359f;
 
 public float3 EE_GLTF_RT_SAFE_NORMALIZE(const float3 value, const float3 fallback) {

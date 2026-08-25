@@ -81,6 +81,18 @@ bool HasFragmentOutputLocation(const std::string& source, const int location, co
          (HasSlangLocationAttribute(source, location) && source.find(slang_field) != std::string::npos);
 }
 
+std::string ExtractStructIgnoringWhitespace(const std::string& source, const std::string& name) {
+  const auto begin = source.find("struct " + name);
+  if (begin == std::string::npos) {
+    return {};
+  }
+  const auto end = source.find("};", begin);
+  if (end == std::string::npos) {
+    return {};
+  }
+  return RemoveAsciiWhitespace(source.substr(begin, end + 2 - begin));
+}
+
 TEST(GltfRasterMaterial, MeshTaskShadersBoundWorkgroupsToInstanceMeshlets) {
   const std::filesystem::path shader_paths[] = {
       ShaderPath("Graphics/Task/Standard/Standard.slang"),
@@ -918,15 +930,15 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
 TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
   const std::filesystem::path shader_paths[] = {
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
-               "Rendering/Foliage.frag"),
+               "Rendering/Foliage.slang"),
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
-               "Rendering/SmallSegments.frag"),
+               "Rendering/SmallSegments.slang"),
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
-               "Rendering/SmallSegmentsVisualization.frag"),
+               "Rendering/SmallSegmentsVisualization.slang"),
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
-               "Rendering/AlphaShapeMeshing/Branches.frag"),
+               "Rendering/AlphaShapeMeshing/Branches.slang"),
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
-               "Rendering/KineticVoronoiMeshing/Branches.frag"),
+               "Rendering/KineticVoronoiMeshing/Branches.slang"),
   };
 
   for (const auto& path : shader_paths) {
@@ -942,7 +954,8 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
     EXPECT_NE(source.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos) << path.string();
     EXPECT_NE(source.find("EE_GLTF_RASTER_COATED_EMISSION"), std::string::npos) << path.string();
     EXPECT_NE(source.find("encoded_specular_f90"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("outGBufferUtility = vec4(float(EE_INSTANCE_INDEX)"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("output.outGBufferUtility = float4(float(EE_INSTANCE_INDEX)"), std::string::npos)
+        << path.string();
   }
 
   const std::filesystem::path pipeline_paths[] = {
@@ -959,6 +972,93 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
     EXPECT_NE(source.find("Platform::Constants::g_buffer_attribute"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Platform::Constants::g_buffer_utility"), std::string::npos) << path.string();
   }
+}
+
+TEST(GltfRasterMaterial, EcoSysLabTaskMeshPayloadsAndGraphicsInterfacesMatch) {
+  const auto root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics");
+  struct PipelineFamily {
+    const char* task;
+    const char* mesh;
+  };
+  const PipelineFamily families[] = {
+      {"Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang",
+       "Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/Rendering.slang"},
+      {"Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.slang",
+       "Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/Rendering.slang"},
+      {"Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegmentsVisualization.slang",
+       "Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/VisualizationRendering.slang"},
+      {"Task/DynamicStrands/Rendering/Foliage.slang", "Mesh/DynamicStrands/Rendering/Foliage/Rendering.slang"},
+      {"Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.slang",
+       "Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/Rendering.slang"},
+      {"Task/DynamicStrands/Rendering/SegmentPairs.slang",
+       "Mesh/DynamicStrands/Rendering/SegmentPairs/Rendering.slang"},
+      {"Task/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.slang",
+       "Mesh/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.slang"},
+      {"Task/DynamicStrands/Visualization/Foliage.slang", "Mesh/DynamicStrands/Visualization/Foliage.slang"},
+      {"Task/DynamicStrands/Visualization/KineticVoronoiMeshing/Vertices.slang",
+       "Mesh/DynamicStrands/Visualization/KineticVoronoiMeshing/Vertices.slang"},
+      {"Task/DynamicStrands/Visualization/SegmentPairs.slang", "Mesh/DynamicStrands/Visualization/SegmentPairs.slang"},
+      {"Task/DynamicStrands/Visualization/Segments.slang", "Mesh/DynamicStrands/Visualization/Segments.slang"},
+  };
+
+  for (const auto& family : families) {
+    const auto task_path = root / family.task;
+    const auto mesh_path = root / family.mesh;
+    const auto task_source = ReadTextFile(task_path);
+    const auto mesh_source = ReadTextFile(mesh_path);
+    ASSERT_FALSE(task_source.empty()) << task_path.string();
+    ASSERT_FALSE(mesh_source.empty()) << mesh_path.string();
+    const auto task_payload = ExtractStructIgnoringWhitespace(task_source, "Task");
+    ASSERT_FALSE(task_payload.empty()) << task_path.string();
+    EXPECT_EQ(task_payload, ExtractStructIgnoringWhitespace(mesh_source, "Task"))
+        << task_path.string() << " -> " << mesh_path.string();
+    EXPECT_NE(task_source.find("DispatchMesh("), std::string::npos) << task_path.string();
+    EXPECT_NE(mesh_source.find("OutputVertices<"), std::string::npos) << mesh_path.string();
+    EXPECT_NE(mesh_source.find("OutputIndices<"), std::string::npos) << mesh_path.string();
+  }
+
+  size_t mesh_count = 0;
+  size_t directional_shadow_count = 0;
+  size_t point_shadow_count = 0;
+  size_t spot_shadow_count = 0;
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(root / "Mesh")) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".slang") {
+      continue;
+    }
+    const auto source = ReadTextFile(entry.path());
+    ASSERT_FALSE(source.empty()) << entry.path().string();
+    EXPECT_EQ(source.find("position = mul(transform, float4"), std::string::npos) << entry.path().string();
+    EXPECT_EQ(source.find("position = mul(instance_matrix, float4"), std::string::npos) << entry.path().string();
+    EXPECT_EQ(source.find("mul(mul(translate("), std::string::npos) << entry.path().string();
+    ++mesh_count;
+    const auto filename = entry.path().filename().string();
+    directional_shadow_count += filename == "DirectionalLightShadowMap.slang";
+    point_shadow_count += filename == "PointLightShadowMap.slang";
+    spot_shadow_count += filename == "SpotLightShadowMap.slang";
+  }
+  EXPECT_EQ(mesh_count, 23u);
+  EXPECT_EQ(directional_shadow_count, 4u);
+  EXPECT_EQ(point_shadow_count, 4u);
+  EXPECT_EQ(spot_shadow_count, 4u);
+
+  const auto alpha_mesh =
+      ReadTextFile(root / "Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/Rendering.slang");
+  const auto alpha_fragment = ReadTextFile(root / "Fragment/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
+  const auto kinetic_mesh =
+      ReadTextFile(root / "Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/Rendering.slang");
+  const auto kinetic_fragment =
+      ReadTextFile(root / "Fragment/DynamicStrands/Rendering/KineticVoronoiMeshing/Branches.slang");
+  for (const auto* source : {&alpha_mesh, &alpha_fragment, &kinetic_mesh, &kinetic_fragment}) {
+    EXPECT_NE(source->find("[[vk::location(5)]] nointerpolation int MaterialIndex"), std::string::npos);
+  }
+  EXPECT_NE(alpha_fragment.find("fs_in.MaterialIndex"), std::string::npos);
+  EXPECT_NE(kinetic_fragment.find("fs_in.MaterialIndex"), std::string::npos);
+  EXPECT_EQ(alpha_fragment.find("EcoSysLabPrimitiveInput"), std::string::npos);
+  EXPECT_EQ(kinetic_fragment.find("EcoSysLabPrimitiveInput"), std::string::npos);
+
+  const auto branch_renderer =
+      ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/DsAlphaShapeBranchesRendering.cpp"));
+  EXPECT_NE(branch_renderer.find("render_push_constant.bark_material_index = bark_material_index;"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {

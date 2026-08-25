@@ -4,21 +4,24 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 from pathlib import Path
 import re
 
+from check_first_party_shader_policy import (
+    INCLUDE_RE,
+    LEGACY_EXTENSIONS,
+    SHADER_EXTENSIONS,
+    first_party_repositories,
+    repo_root,
+    run_git,
+    strip_comments,
+    uses_compatibility_syntax,
+)
 
-SHADER_EXTENSIONS = {".slang", ".slangh"}
-INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^">]+)[">]', re.MULTILINE)
+
 IMPORT_RE = re.compile(r"^\s*(?:__exported\s+)?import\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;", re.MULTILINE)
 MACRO_RE = re.compile(r"^\s*#\s*(define|if|ifdef|ifndef|elif|else|endif)\b", re.MULTILINE)
-STRICT_NATIVE_MARKER = "@evoengine-dialect native"
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parents[1]
 
 
 def parse_args() -> argparse.Namespace:
@@ -31,18 +34,6 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--write", action="store_true", help="Write the policy from the current shader tree.")
     return parser.parse_args()
-
-
-def strip_comments(source: str) -> str:
-    source = re.sub(r"/\*.*?\*/", "", source, flags=re.DOTALL)
-    return re.sub(r"//[^\n]*", "", source)
-
-
-def uses_compatibility_syntax(source: str) -> bool:
-    return any(
-        token in source
-        for token in ("#extension GL_", "layout(", "layout (", "precision highp", "readonly buffer", "writeonly buffer")
-    )
 
 
 def module_name(relative: Path) -> str:
@@ -63,7 +54,6 @@ def collect_sources(root: Path) -> list[dict[str, object]]:
             {
                 "path": relative.as_posix(),
                 "module": module_name(relative),
-                "strict_native": STRICT_NATIVE_MARKER in source,
                 "compatibility": uses_compatibility_syntax(uncommented),
                 "includes": INCLUDE_RE.findall(uncommented),
                 "imports": IMPORT_RE.findall(uncommented),
@@ -93,24 +83,15 @@ def make_policy(root: Path) -> dict[str, object]:
     }
 
 
-def validate_transfer(root: Path, failures: list[str]) -> None:
-    baseline_path = (
-        root / "EvoEngine_Tests" / "ShaderPolicy" / "Baselines" / "sdk-shader-baseline.json"
-    )
-    baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
-    transfer = baseline["ecosyslab_glsl_ownership_transfer"]
-    source = root / transfer["source"]
-    destination = root / transfer["destination"]
-    for record in transfer["files"]:
-        source_path = source / record["name"]
-        destination_path = destination / record["name"]
-        if source_path.exists():
-            failures.append(f"SDK still owns relocated GLSL header: {source_path}")
-        if not destination_path.is_file():
-            failures.append(f"EcoSysLab is missing relocated GLSL header: {destination_path}")
-            continue
-        if hashlib.sha256(destination_path.read_bytes()).hexdigest() != record["sha256"]:
-            failures.append(f"Relocated GLSL header hash changed: {destination_path}")
+def validate_first_party_shader_extensions(root: Path, failures: list[str]) -> None:
+    for repository, path in first_party_repositories(root):
+        for tracked in run_git(path, "ls-files").splitlines():
+            normalized = tracked.replace("\\", "/")
+            if Path(normalized).suffix.lower() not in LEGACY_EXTENSIONS:
+                continue
+            if repository == "." and normalized.startswith("Extern/"):
+                continue
+            failures.append(f"First-party legacy shader source is forbidden: {repository}:{normalized}")
 
 
 def validate_policy(root: Path, policy: dict[str, object]) -> list[str]:
@@ -137,8 +118,6 @@ def validate_policy(root: Path, policy: dict[str, object]) -> list[str]:
 
     for record in records:
         path = record["path"]
-        if not record["strict_native"]:
-            failures.append(f"SDK source lacks the native dialect marker: {path}")
         if record["compatibility"]:
             failures.append(f"SDK source uses compatibility syntax: {path}")
         if record["includes"]:
@@ -149,11 +128,7 @@ def validate_policy(root: Path, policy: dict[str, object]) -> list[str]:
             elif imported not in modules:
                 failures.append(f"SDK import does not resolve uniquely: {path}: {imported}")
 
-    shader_root = root / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders"
-    glsl_files = sorted(shader_root.rglob("*.glsl"))
-    if glsl_files:
-        failures.append(f"SDK contains {len(glsl_files)} .glsl files.")
-    validate_transfer(root, failures)
+    validate_first_party_shader_extensions(root, failures)
     return failures
 
 

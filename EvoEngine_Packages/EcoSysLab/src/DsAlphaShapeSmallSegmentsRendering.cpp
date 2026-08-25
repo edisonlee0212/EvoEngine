@@ -344,14 +344,14 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   small_segments_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.slang");
   small_segments_point_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/PointLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/PointLightShadowMap.slang");
   small_segments_point_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   small_segments_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -369,14 +369,14 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   small_segments_spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.slang");
   small_segments_spot_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/SpotLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/SpotLightShadowMap.slang");
   small_segments_spot_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   small_segments_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -393,15 +393,15 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   small_segments_directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.slang");
   small_segments_directional_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/"
-                                  "DirectionalLightShadowMap.mesh");
+                                  "DirectionalLightShadowMap.slang");
   small_segments_directional_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   small_segments_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -419,15 +419,15 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   small_segments_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments.slang");
   small_segments_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/Rendering.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/Rendering.slang");
   small_segments_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegments.frag");
+                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegments.slang");
   small_segments_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -451,15 +451,16 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   small_segments_visualization_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegmentsVisualization.task");
-  small_segments_visualization_render_pipeline->mesh_shader = Shader::CreateTemporary(
-      ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/VisualizationRendering.mesh");
-  small_segments_visualization_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegmentsVisualization.slang");
+  small_segments_visualization_render_pipeline->mesh_shader =
+      Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegmentsVisualization.frag");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/SmallSegments/"
+                                  "VisualizationRendering.slang");
+  small_segments_visualization_render_pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Graphics/Fragment/DynamicStrands/Rendering/SmallSegmentsVisualization.slang");
   small_segments_visualization_render_pipeline->geometry_type = GeometryType::Mesh;
   small_segments_visualization_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

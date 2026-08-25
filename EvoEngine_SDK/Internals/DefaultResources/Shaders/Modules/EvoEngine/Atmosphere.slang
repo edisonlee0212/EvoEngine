@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct Atmosphere {
   public float earth_radius;       // In the paper this is usually Rg or Re (radius ground, eart)
   public float atmosphere_radius;  // In the paper this is usually R or Ra (radius atmosphere)

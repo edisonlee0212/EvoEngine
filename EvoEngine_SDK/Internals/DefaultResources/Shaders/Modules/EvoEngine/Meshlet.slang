@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.Vertex;
 
 public static const uint EE_MESHLET_MAX_VERTICES_SIZE = 64u;

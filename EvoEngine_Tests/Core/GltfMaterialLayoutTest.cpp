@@ -74,7 +74,6 @@ TEST(GltfMaterialLayout, NativeShaderModuleUsesTheFixedFullExtensionAbi) {
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto shader_source = ReadText(shader_root / "Modules" / "EvoEngine" / "GltfMaterial.slang");
 
-  EXPECT_NE(shader_source.find("// @evoengine-dialect native"), std::string::npos);
   EXPECT_EQ(shader_source.find('#'), std::string::npos);
   EXPECT_EQ(shader_source.find("MAT_EXT_"), std::string::npos);
   EXPECT_EQ(shader_source.find("EE_GLTF_USE_"), std::string::npos);

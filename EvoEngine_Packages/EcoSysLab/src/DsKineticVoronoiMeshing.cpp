@@ -994,7 +994,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   shader = std::make_shared<Shader>();
   shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                      std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Vertex.comp");
+                         "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Vertex.slang");
 
   branches_vertex_update_pipeline = std::make_shared<ComputePipeline>();
   branches_vertex_update_pipeline->compute_shader = shader;
@@ -1012,7 +1012,7 @@ void eco_sys_lab_package::DsKineticVoronoiMeshing::BuildRenderComputePipelines()
   branches_triangle_update_pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Triangle.comp");
+                                  "Shaders/Compute/DynamicStrands/Prediction/KineticVoronoiMeshing/Triangle.slang");
   branches_triangle_update_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
   auto& triangle_prediction_push_constant_range =
@@ -1233,15 +1233,15 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   segment_meshlet_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.slang");
   segment_meshlet_point_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/"
-                                  "PointLightShadowMap.mesh");
+                                  "PointLightShadowMap.slang");
   segment_meshlet_point_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   segment_meshlet_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   segment_meshlet_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -1259,16 +1259,16 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   segment_meshlet_spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.slang");
 
   segment_meshlet_spot_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/"
-                                  "SpotLightShadowMap.mesh");
+                                  "SpotLightShadowMap.slang");
   segment_meshlet_spot_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   segment_meshlet_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   segment_meshlet_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -1286,17 +1286,16 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   segment_meshlet_directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.slang");
 
-  // TODO: fix path
   segment_meshlet_directional_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
                                   "Shaders/Graphics/Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/"
-                                  "DirectionalLightShadowMap.mesh");
+                                  "DirectionalLightShadowMap.slang");
   segment_meshlet_directional_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   segment_meshlet_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   segment_meshlet_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -1315,15 +1314,15 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   segment_meshlet_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.task");
+          "Shaders/Graphics/Task/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet.slang");
   segment_meshlet_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/Rendering.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/KineticVoronoiMeshing/SegmentMeshlet/Rendering.slang");
   segment_meshlet_render_pipeline->fragment_shader = Shader::CreateTemporary(
       ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Fragment/DynamicStrands/Rendering/KineticVoronoiMeshing/Branches.frag");
+          "Shaders/Graphics/Fragment/DynamicStrands/Rendering/KineticVoronoiMeshing/Branches.slang");
   segment_meshlet_render_pipeline->geometry_type = GeometryType::Mesh;
   segment_meshlet_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

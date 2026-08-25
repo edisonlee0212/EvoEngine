@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.CameraRayOutputTypes;
 
 [[vk::binding(0, 2)]] public RWTexture2D<float4> result_image;

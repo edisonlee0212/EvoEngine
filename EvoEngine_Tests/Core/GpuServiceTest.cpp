@@ -22,6 +22,7 @@
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <cstring>
 #include <filesystem>
 #include <memory>
 #include <mutex>
@@ -485,7 +486,7 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   const auto probe_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
                           "Shaders" / "Compute" / "GltfRayTracingNumericalProbe.slang";
-  Shader::RegisterShaderIncludePath(shader_root / "Modules" / "EvoEngine");
+  Shader::RegisterShaderIncludePath(shader_root / "Modules");
 
   auto descriptor_layout = std::make_shared<DescriptorSetLayout>();
   descriptor_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -551,6 +552,474 @@ TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
     EXPECT_NEAR(values[offset], normal_fallback.x, 1.0e-6f);
     EXPECT_NEAR(values[offset + 1], normal_fallback.y, 1.0e-6f);
     EXPECT_NEAR(values[offset + 2], normal_fallback.z, 1.0e-6f);
+  }
+}
+
+TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
+  ScopedGpuPlatform platform;
+  const auto shader_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Packages" / "EcoSysLab" /
+                           "Internals" / "EcoSysLabResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Modules");
+
+  constexpr uint32_t segment_count = 4;
+  constexpr size_t segment_stride = 672;
+  constexpr size_t segment_group_offset = 316;
+  constexpr size_t particle0_position_offset = 496;
+  constexpr size_t particle1_position_offset = 592;
+  constexpr size_t segment_data_stride = 304;
+  constexpr size_t segment_data_pairs_offset = 48;
+  constexpr uint32_t cell_count = 2u << 15u;
+
+  auto make_buffer = [](const size_t size) {
+    VkBufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size = size;
+    info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    return std::make_shared<Buffer>(info, allocation);
+  };
+  const auto write = [](std::vector<std::byte>& bytes, const size_t offset, const auto& value) {
+    ASSERT_LE(offset + sizeof(value), bytes.size());
+    std::memcpy(bytes.data() + offset, &value, sizeof(value));
+  };
+  const auto read_int32 = [](const std::vector<std::byte>& bytes, const size_t offset) {
+    int32_t value{};
+    EXPECT_LE(offset + sizeof(value), bytes.size());
+    std::memcpy(&value, bytes.data() + offset, sizeof(value));
+    return value;
+  };
+  const auto read_float = [](const std::vector<std::byte>& bytes, const size_t offset) {
+    float value{};
+    EXPECT_LE(offset + sizeof(value), bytes.size());
+    std::memcpy(&value, bytes.data() + offset, sizeof(value));
+    return value;
+  };
+
+  const std::array<size_t, 10> buffer_sizes = {
+      48,
+      16,
+      segment_stride * segment_count,
+      144,
+      segment_data_stride * segment_count,
+      16 * segment_count,
+      16 * cell_count,
+      384,
+      160 * 4,
+      160,
+  };
+  std::array<std::shared_ptr<Buffer>, 10> buffers;
+  auto strands_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 0; binding < buffers.size(); ++binding) {
+    strands_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    buffers[binding] = make_buffer(buffer_sizes[binding]);
+    std::vector<std::byte> zero(buffer_sizes[binding]);
+    buffers[binding]->UploadData(zero.size(), zero.data());
+  }
+  strands_layout->Initialize();
+  auto strands_set = std::make_shared<DescriptorSet>(strands_layout);
+  for (uint32_t binding = 0; binding < buffers.size(); ++binding)
+    strands_set->UpdateBufferDescriptorBinding(binding, buffers[binding]);
+
+  auto make_auxiliary_set = [&](const uint32_t binding_count, const std::vector<size_t>& sizes,
+                                std::vector<std::shared_ptr<Buffer>>& auxiliary_buffers) {
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < binding_count; ++binding) {
+      layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+      auxiliary_buffers.emplace_back(make_buffer(sizes[binding]));
+      std::vector<std::byte> zero(sizes[binding]);
+      auxiliary_buffers.back()->UploadData(zero.size(), zero.data());
+    }
+    layout->Initialize();
+    auto set = std::make_shared<DescriptorSet>(layout);
+    for (uint32_t binding = 0; binding < binding_count; ++binding)
+      set->UpdateBufferDescriptorBinding(binding, auxiliary_buffers[binding]);
+    return std::pair{layout, set};
+  };
+
+  auto make_pipeline = [&](const std::filesystem::path& relative_path,
+                           std::vector<std::shared_ptr<DescriptorSetLayout>> layouts, const uint32_t push_size) {
+    auto shader = std::make_shared<Shader>();
+    const auto path = shader_root / relative_path;
+    EXPECT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), path)) << path.string();
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts = std::move(layouts);
+    pipeline->push_constant_ranges.emplace_back(VkPushConstantRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size});
+    pipeline->Initialize();
+    EXPECT_TRUE(pipeline->Initialized()) << path.string();
+    return pipeline;
+  };
+  const auto dispatch = [&](const std::shared_ptr<ComputePipeline>& pipeline, const auto& constants,
+                            const std::shared_ptr<DescriptorSet>& auxiliary_set = nullptr) {
+    Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+      pipeline->Bind(command_buffer);
+      pipeline->BindDescriptorSet(command_buffer, 0, strands_set->GetVkDescriptorSet());
+      if (auxiliary_set)
+        pipeline->BindDescriptorSet(command_buffer, 1, auxiliary_set->GetVkDescriptorSet());
+      pipeline->PushConstant(command_buffer, 0, constants);
+      pipeline->Dispatch(command_buffer, 1);
+      Platform::EverythingBarrier(command_buffer);
+    });
+  };
+
+  struct SegmentCountConstants {
+    uint32_t segment_size;
+  };
+  struct PartitionConstants {
+    uint32_t segment_size;
+    float cell_size;
+  };
+  struct SortConstants {
+    uint32_t segment_size;
+    uint32_t group_size;
+  };
+  struct HashedGridElement {
+    uint32_t cell_id;
+    uint32_t segment_handle;
+    uint32_t padding0;
+    uint32_t padding1;
+  };
+  struct CellRange {
+    uint32_t start_index;
+    uint32_t end_index;
+    uint32_t padding0;
+    uint32_t padding1;
+  };
+
+  std::vector<std::byte> segments(segment_stride * segment_count);
+  const std::array<int32_t, segment_count> initial_groups = {3, 1, 2, 0};
+  for (uint32_t index = 0; index < segment_count; ++index) {
+    write(segments, index * segment_stride + segment_group_offset, initial_groups[index]);
+    const glm::vec3 position(static_cast<float>(index), 0.0f, 0.0f);
+    write(segments, index * segment_stride + particle0_position_offset, position);
+    write(segments, index * segment_stride + particle1_position_offset, position);
+  }
+  buffers[2]->UploadData(segments.size(), segments.data());
+
+  const auto reset_pipeline = make_pipeline("Compute/DynamicStrands/Grouping/Reset.slang", {strands_layout}, 4);
+  dispatch(reset_pipeline, SegmentCountConstants{segment_count});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (uint32_t index = 0; index < segment_count; ++index)
+    EXPECT_EQ(read_int32(segments, index * segment_stride + segment_group_offset), index);
+
+  buffers[2]->UploadData(segments.size(), segments.data());
+  std::vector<std::byte> segment_pairs(144);
+  write(segment_pairs, 0, int32_t{0});
+  write(segment_pairs, 4, int32_t{1});
+  write(segment_pairs, 8, 1.0f);
+  write(segment_pairs, 12, 1.0f);
+  buffers[3]->UploadData(segment_pairs.size(), segment_pairs.data());
+  std::vector<std::byte> segment_data(segment_data_stride * segment_count, std::byte{0xff});
+  write(segment_data, segment_data_pairs_offset, int32_t{0});
+  write(segment_data, segment_data_stride + segment_data_pairs_offset, int32_t{0});
+  buffers[4]->UploadData(segment_data.size(), segment_data.data());
+
+  std::vector<std::shared_ptr<Buffer>> grouping_buffers;
+  auto [grouping_layout, grouping_set] =
+      make_auxiliary_set(2, {sizeof(int32_t) * segment_count, sizeof(uint32_t)}, grouping_buffers);
+  const auto dynamic_step_pipeline =
+      make_pipeline("Compute/DynamicStrands/Grouping/DynamicStep.slang", {strands_layout, grouping_layout}, 4);
+  dispatch(dynamic_step_pipeline, SegmentCountConstants{segment_count}, grouping_set);
+  std::array<int32_t, segment_count> new_groups{};
+  grouping_buffers[0]->Download(new_groups);
+  EXPECT_EQ(new_groups, (std::array<int32_t, segment_count>{0, 0, 2, 3}));
+  uint32_t workgroup_updated = 0;
+  grouping_buffers[1]->Download(workgroup_updated);
+  EXPECT_EQ(workgroup_updated, 1u);
+
+  const auto apply_pipeline =
+      make_pipeline("Compute/DynamicStrands/Grouping/Apply.slang", {strands_layout, grouping_layout}, 4);
+  dispatch(apply_pipeline, SegmentCountConstants{segment_count}, grouping_set);
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (uint32_t index = 0; index < segment_count; ++index)
+    EXPECT_EQ(read_int32(segments, index * segment_stride + segment_group_offset), new_groups[index]);
+
+  const auto& uniform_particles = buffers[8];
+  const auto& tetrahedrons = buffers[9];
+  std::vector<std::byte> uniform_particle(160 * 4);
+  write(uniform_particle, 120, int32_t{2});
+  uniform_particles->UploadData(uniform_particle.size(), uniform_particle.data());
+  std::array<std::byte, 160> empty_tetrahedron{};
+  tetrahedrons->Upload(empty_tetrahedron);
+  const auto normal_pipeline =
+      make_pipeline("Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Normal.slang", {strands_layout}, 4);
+  dispatch(normal_pipeline, SegmentCountConstants{1});
+  uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
+  EXPECT_EQ(read_int32(uniform_particle, 120), 0);
+  for (size_t offset = 16; offset < 32; offset += sizeof(float))
+    EXPECT_TRUE(std::isfinite(read_float(uniform_particle, offset)));
+
+  const auto partition_pipeline =
+      make_pipeline("Compute/DynamicStrands/DynamicHashedGrid/Partition.slang", {strands_layout}, 8);
+  dispatch(partition_pipeline, PartitionConstants{segment_count, 1.0f});
+  std::array<HashedGridElement, segment_count> hashed{};
+  buffers[5]->Download(hashed);
+  for (uint32_t index = 0; index < segment_count; ++index) {
+    const uint32_t expected_cell = (73856093u * index) % cell_count;
+    EXPECT_EQ(hashed[index].cell_id, expected_cell);
+    EXPECT_EQ(hashed[index].segment_handle, index);
+  }
+
+  hashed = {{{30, 0, 0, 0}, {10, 1, 0, 0}, {20, 2, 0, 0}, {0, 3, 0, 0}}};
+  buffers[5]->Upload(hashed);
+  const auto sort_pipeline =
+      make_pipeline("Compute/DynamicStrands/DynamicHashedGrid/Sort/LocalMergeSort.slang", {strands_layout}, 8);
+  dispatch(sort_pipeline,
+           SortConstants{segment_count, Platform::GetInstance().GetCapabilities().compute_work_group_invocations});
+  buffers[5]->Download(hashed);
+  EXPECT_EQ(
+      (std::array<uint32_t, segment_count>{hashed[0].cell_id, hashed[1].cell_id, hashed[2].cell_id, hashed[3].cell_id}),
+      (std::array<uint32_t, segment_count>{0, 10, 20, 30}));
+
+  hashed = {{{1, 0, 0, 0}, {1, 1, 0, 0}, {2, 2, 0, 0}, {2, 3, 0, 0}}};
+  buffers[5]->Upload(hashed);
+  std::vector<CellRange> cell_ranges(cell_count, CellRange{0xffffffffu, 0xffffffffu, 0xffffffffu, 0xffffffffu});
+  buffers[6]->UploadVector(cell_ranges);
+  const auto offset_pipeline =
+      make_pipeline("Compute/DynamicStrands/DynamicHashedGrid/Offset.slang", {strands_layout}, 4);
+  dispatch(offset_pipeline, SegmentCountConstants{segment_count});
+  buffers[6]->DownloadVector(cell_ranges, cell_ranges.size());
+  EXPECT_EQ(cell_ranges[1].start_index, 0u);
+  EXPECT_EQ(cell_ranges[1].end_index, 1u);
+  EXPECT_EQ(cell_ranges[2].start_index, 2u);
+  EXPECT_EQ(cell_ranges[2].end_index, 3u);
+
+  struct GroundConstants {
+    uint32_t segment_size;
+    float ground_height;
+    float ground_softness;
+    float ground_friction;
+  };
+  segments.assign(segment_stride * segment_count, std::byte{});
+  write(segments, 12, 0.0f);
+  write(segments, segment_stride + 12, 1.0f);
+  for (uint32_t index = 0; index < 2; ++index) {
+    write(segments, index * segment_stride + particle0_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
+    write(segments, index * segment_stride + particle1_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
+  }
+  buffers[2]->UploadData(segments.size(), segments.data());
+  const auto ground_pipeline = make_pipeline("Compute/DynamicStrands/Constraints/Position/SegmentGroundPlane.slang",
+                                             {strands_layout}, sizeof(GroundConstants));
+  dispatch(ground_pipeline, GroundConstants{2, 0.0f, 0.0f, 0.0f});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  EXPECT_FLOAT_EQ(read_float(segments, particle0_position_offset + sizeof(float)), -1.0f);
+  EXPECT_FLOAT_EQ(read_float(segments, segment_stride + particle0_position_offset + sizeof(float)), 0.0f);
+  EXPECT_FLOAT_EQ(read_float(segments, segment_stride + particle1_position_offset + sizeof(float)), 0.0f);
+
+  struct PreStepConstants {
+    glm::vec3 acceleration;
+    uint32_t segment_size;
+    float time_step;
+    float inv_time_step;
+  };
+  struct PredictionConstants {
+    uint32_t segment_size;
+    float time_step;
+    float inv_time_step;
+  };
+  for (uint32_t index = 0; index < 2; ++index) {
+    const size_t base = index * segment_stride;
+    write(segments, base + 48, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    write(segments, base + 64, glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
+    write(segments, base + 108, 1.0f);
+    write(segments, base + 120, 1.0f);
+    write(segments, base + 156, 1.0f);
+    write(segments, base + 312, 2.0f);
+    write(segments, base + 320, 1.0f);
+    write(segments, base + particle0_position_offset, glm::vec3(0.0f, 0.0f, 0.0f));
+    write(segments, base + particle1_position_offset, glm::vec3(0.0f, 1.0f, 0.0f));
+    write(segments, base + 528, glm::vec3(1.0f, 0.0f, 0.0f));
+    write(segments, base + 624, glm::vec3(1.0f, 0.0f, 0.0f));
+  }
+  buffers[2]->UploadData(segments.size(), segments.data());
+  const auto pre_step_pipeline =
+      make_pipeline("Compute/DynamicStrands/PreStep/Segment.slang", {strands_layout}, sizeof(PreStepConstants));
+  dispatch(pre_step_pipeline, PreStepConstants{glm::vec3(0.0f, -10.0f, 0.0f), 2, 0.5f, 2.0f});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  EXPECT_NEAR(read_float(segments, 12), 1.0f / 3.0f, 1.0e-6f);
+  EXPECT_FLOAT_EQ(read_float(segments, 320), 0.0f);
+  EXPECT_FLOAT_EQ(read_float(segments, 544 + sizeof(float)), -15.0f);
+
+  const auto prediction_pipeline =
+      make_pipeline("Compute/DynamicStrands/Prediction/Segment.slang", {strands_layout}, sizeof(PredictionConstants));
+  dispatch(prediction_pipeline, PredictionConstants{2, 0.5f, 2.0f});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  EXPECT_FLOAT_EQ(read_float(segments, 512), 0.0f);
+  EXPECT_FLOAT_EQ(read_float(segments, particle0_position_offset), 0.5f);
+  EXPECT_FLOAT_EQ(read_float(segments, particle1_position_offset), 0.5f);
+
+  struct VelocityConstants {
+    glm::vec3 max_angular_velocity;
+    float time_step;
+    glm::vec3 max_velocity;
+    float inv_time_step;
+    uint32_t segment_size;
+    float angular_velocity_damping;
+    float velocity_damping;
+  };
+  const auto velocity_pipeline =
+      make_pipeline("Compute/DynamicStrands/VelocityUpdate/Segment.slang", {strands_layout}, sizeof(VelocityConstants));
+  dispatch(velocity_pipeline, VelocityConstants{glm::vec3(100.0f), 0.5f, glm::vec3(100.0f), 2.0f, 2, 0.0f, 0.0f});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+    EXPECT_TRUE(std::isfinite(read_float(segments, offset))) << offset;
+
+  struct LeafBreakingConstants {
+    uint32_t leaf_size;
+    uint32_t leaf_break_from_moisture;
+    float leaf_break_threshold;
+  };
+  std::vector<std::byte> leaf(384);
+  write(leaf, 12, int32_t{0});
+  write(leaf, 28, 1.0f);
+  write(leaf, 140, 2.0f);
+  write(leaf, 220, 1.0f);
+  buffers[7]->UploadData(leaf.size(), leaf.data());
+  const auto breaking_pipeline =
+      make_pipeline("Compute/DynamicStrands/Breaking/Leaf.slang", {strands_layout}, sizeof(LeafBreakingConstants));
+  dispatch(breaking_pipeline, LeafBreakingConstants{1, 0, 0.5f});
+  buffers[7]->DownloadData(leaf.size(), leaf.data());
+  EXPECT_FLOAT_EQ(read_float(leaf, 28), 0.0f);
+
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+    write(segments, offset, 7.0f);
+  buffers[2]->UploadData(segments.size(), segments.data());
+  const auto stop_pipeline =
+      make_pipeline("Compute/DynamicStrands/Operators/SegmentStopAll.slang", {strands_layout}, 4);
+  dispatch(stop_pipeline, SegmentCountConstants{1});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+    EXPECT_FLOAT_EQ(read_float(segments, offset), 0.0f) << offset;
+
+  write(segments, 12, 0.5f);
+  for (const size_t offset : {544u, 548u, 552u, 640u, 644u, 648u})
+    write(segments, offset, 0.0f);
+  buffers[2]->UploadData(segments.size(), segments.data());
+  std::vector<std::shared_ptr<Buffer>> force_buffers;
+  auto [force_layout, force_set] = make_auxiliary_set(1, {sizeof(glm::vec4)}, force_buffers);
+  force_buffers[0]->Upload(glm::vec4(2.0f, 4.0f, 6.0f, 0.0f));
+  const auto force_pipeline =
+      make_pipeline("Compute/DynamicStrands/Operators/ExternalForce.slang", {strands_layout, force_layout}, 4);
+  dispatch(force_pipeline, SegmentCountConstants{1}, force_set);
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (const size_t base : {544u, 640u}) {
+    EXPECT_FLOAT_EQ(read_float(segments, base), 1.0f);
+    EXPECT_FLOAT_EQ(read_float(segments, base + 4), 2.0f);
+    EXPECT_FLOAT_EQ(read_float(segments, base + 8), 3.0f);
+  }
+
+  struct FungusNodeConstants {
+    uint32_t segment_size;
+    float dt;
+    float aw;
+    float ab;
+    float bw;
+    float bb;
+    float ycw;
+    float ycb;
+    float ylw;
+    float pc;
+    float pl;
+    float k;
+    float delta;
+    float ll;
+    float lc;
+    float bo;
+    float kc;
+    float brw;
+    float brb;
+    float msr;
+    float bd_offset;
+    float cpb;
+    float cpw;
+  };
+  static_assert(sizeof(FungusNodeConstants) == 92);
+  segments.assign(segment_stride * segment_count, std::byte{});
+  write(segments, 124, 1.0f);
+  write(segments, 356, 0.2f);
+  write(segments, 360, 1.0f);
+  write(segments, 364, 1.0f);
+  write(segments, 368, 0.0f);
+  write(segments, 372, 0.0f);
+  write(segments, 380, 3.0f);
+  write(segments, 384, 4.0f);
+  write(segments, 388, 5.0f);
+  write(segments, 392, int32_t{7});
+  write(segments, 400, 0.5f);
+  write(segments, 404, 6.0f);
+  buffers[2]->UploadData(segments.size(), segments.data());
+  const auto fungus_node_pipeline = make_pipeline("Compute/DynamicStrands/Fungus/FungusDiffusion_node.slang",
+                                                  {strands_layout}, sizeof(FungusNodeConstants));
+  dispatch(fungus_node_pipeline,
+           FungusNodeConstants{1,    0.1f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.2f,
+                               0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f});
+  buffers[2]->DownloadData(segments.size(), segments.data());
+  for (const size_t offset : {336u, 340u, 344u, 348u, 352u, 396u}) {
+    EXPECT_TRUE(std::isfinite(read_float(segments, offset))) << offset;
+    EXPECT_GE(read_float(segments, offset), 0.0f) << offset;
+    EXPECT_LE(read_float(segments, offset), 1.0f) << offset;
+  }
+  for (const size_t offset : {380u, 384u, 388u, 404u})
+    EXPECT_FLOAT_EQ(read_float(segments, offset), 0.0f) << offset;
+  EXPECT_EQ(read_int32(segments, 392), 0);
+
+  struct TetrahedronFilteringConstants {
+    uint32_t tetrahedron_size;
+    float alpha;
+    float bifurcation_alpha;
+    float max_dist_squared;
+    int32_t render_complex;
+    float degenerate_triangle_threshold;
+    float break_threshold;
+    int32_t persistent_damage;
+  };
+  static_assert(sizeof(TetrahedronFilteringConstants) == 32);
+  uniform_particle.assign(160 * 4, std::byte{});
+  const std::array<glm::vec3, 4> tetrahedron_positions = {glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(1.0f, 0.0f, 0.0f),
+                                                          glm::vec3(0.0f, 1.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f)};
+  for (uint32_t index = 0; index < tetrahedron_positions.size(); ++index) {
+    const size_t base = index * 160;
+    write(uniform_particle, base, tetrahedron_positions[index]);
+    write(uniform_particle, base + 80, int32_t{0});
+  }
+  uniform_particles->UploadData(uniform_particle.size(), uniform_particle.data());
+  std::vector<std::byte> tetrahedron(160, std::byte{});
+  for (uint32_t index = 0; index < 4; ++index) {
+    write(tetrahedron, index * sizeof(int32_t), static_cast<int32_t>(index));
+    write(tetrahedron, 16 + index * sizeof(int32_t), int32_t{-1});
+  }
+  write(tetrahedron, 88, int32_t{1});
+  for (uint32_t edge = 0; edge < 6; ++edge) {
+    write(tetrahedron, 96 + edge * sizeof(float), 2.0f);
+    write(tetrahedron, 128 + edge * sizeof(int32_t), int32_t{-1});
+  }
+  write(tetrahedron, 152, int32_t{1});
+  tetrahedrons->UploadData(tetrahedron.size(), tetrahedron.data());
+  const auto tetrahedron_filter_pipeline =
+      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.slang", {strands_layout},
+                    sizeof(TetrahedronFilteringConstants));
+  dispatch(tetrahedron_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0});
+  tetrahedrons->DownloadData(tetrahedron.size(), tetrahedron.data());
+  uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
+  EXPECT_EQ(read_int32(tetrahedron, 88), 1);
+  for (uint32_t index = 0; index < 4; ++index)
+    EXPECT_EQ(read_int32(uniform_particle, index * 160 + 112), 1);
+
+  const auto triangle_filter_pipeline =
+      make_pipeline("Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.slang", {strands_layout},
+                    sizeof(TetrahedronFilteringConstants));
+  dispatch(triangle_filter_pipeline, TetrahedronFilteringConstants{1, 0.1f, 0.1f, 4.0f, 1, 0.0f, 0.1f, 0});
+  tetrahedrons->DownloadData(tetrahedron.size(), tetrahedron.data());
+  uniform_particles->DownloadData(uniform_particle.size(), uniform_particle.data());
+  for (uint32_t index = 0; index < 4; ++index) {
+    EXPECT_EQ(read_int32(tetrahedron, 32 + index * sizeof(int32_t)), 1);
+    EXPECT_EQ(read_int32(uniform_particle, index * 160 + 112), 0);
+    for (uint32_t component = 0; component < 3; ++component)
+      EXPECT_TRUE(std::isfinite(read_float(uniform_particle, index * 160 + 16 + component * sizeof(float))));
   }
 }
 

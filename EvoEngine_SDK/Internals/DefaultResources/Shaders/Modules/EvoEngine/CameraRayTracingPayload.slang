@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct CameraRayTracingPayload {
   public float3 shadow_transmission;
   public uint seed;

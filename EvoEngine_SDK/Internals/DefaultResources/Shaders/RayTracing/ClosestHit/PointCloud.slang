@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.GltfRayTracingMaterial;
 import EvoEngine.PointCloudRayTracingPayload;
 import EvoEngine.RayTracingBasic;

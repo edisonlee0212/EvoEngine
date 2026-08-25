@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.SMAA;
 
 [[vk::binding(0, 0)]] Sampler2D<float4> edges_tex;

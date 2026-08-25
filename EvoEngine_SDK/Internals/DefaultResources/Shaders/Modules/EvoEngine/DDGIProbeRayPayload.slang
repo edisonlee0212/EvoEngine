@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 
 public static const float EE_DDGI_MIN_RAY_TRANSMISSION = 0.01f;
 

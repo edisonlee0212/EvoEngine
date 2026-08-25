@@ -34,15 +34,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Segments.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Segments.slang");
     const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Segments.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Segments.slang");
     const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.slang");
     // Descriptor set layout
     segment_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
     segment_visualization_render_pipeline->task_shader = task_shader;
@@ -81,15 +81,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrands/Visualization/SegmentPairs.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/SegmentPairs.slang");
     const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/SegmentPairs.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/SegmentPairs.slang");
     const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.slang");
     // Descriptor set layout
     segment_pairs_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
     segment_pairs_visualization_render_pipeline->task_shader = task_shader;
@@ -128,15 +128,15 @@ void DynamicStrands::Visualize(const std::shared_ptr<Camera>& target_camera,
     const auto task_shader = std::make_shared<Shader>();
     task_shader->TryCompile(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Foliage.task");
+                                "Shaders/Graphics/Task/DynamicStrands/Visualization/Foliage.slang");
     const auto mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                             std::filesystem::path("./EcoSysLabResources") /
-                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Foliage.mesh");
+                                "Shaders/Graphics/Mesh/DynamicStrands/Visualization/Foliage.slang");
     const auto frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.slang");
     // Descriptor set layout
     foliage_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
     foliage_visualization_render_pipeline->task_shader = task_shader;

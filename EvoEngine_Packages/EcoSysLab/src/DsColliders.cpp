@@ -34,7 +34,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBoxGround.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentBoxGround.slang");
 
     segment_position_pipeline = std::make_shared<ComputePipeline>();
     segment_position_pipeline->compute_shader = shader;
@@ -52,7 +52,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafBox.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafBox.slang");
 
     leaf_position_pipeline = std::make_shared<ComputePipeline>();
     leaf_position_pipeline->compute_shader = shader;
@@ -71,7 +71,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/SegmentBox.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/SegmentBox.slang");
 
     segment_velocity_pipeline = std::make_shared<ComputePipeline>();
     segment_velocity_pipeline->compute_shader = shader;
@@ -89,7 +89,7 @@ DsBoxCollider::DsBoxCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/LeafBox.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Velocity/Colliders/LeafBox.slang");
 
     leaf_velocity_pipeline = std::make_shared<ComputePipeline>();
     leaf_velocity_pipeline->compute_shader = shader;
@@ -295,7 +295,7 @@ DsCylinderCollider::DsCylinderCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinder.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentCylinder.slang");
 
     segment_position_pipeline = std::make_shared<ComputePipeline>();
     segment_position_pipeline->compute_shader = shader;
@@ -314,7 +314,7 @@ DsCylinderCollider::DsCylinderCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafCylinder.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafCylinder.slang");
 
     leaf_position_pipeline = std::make_shared<ComputePipeline>();
     leaf_position_pipeline->compute_shader = shader;
@@ -444,7 +444,7 @@ DsSphereCollider::DsSphereCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentSphere.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/SegmentSphere.slang");
 
     segment_position_pipeline = std::make_shared<ComputePipeline>();
     segment_position_pipeline->compute_shader = shader;
@@ -463,7 +463,7 @@ DsSphereCollider::DsSphereCollider() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafSphere.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Colliders/LeafSphere.slang");
 
     leaf_position_pipeline = std::make_shared<ComputePipeline>();
     leaf_position_pipeline->compute_shader = shader;

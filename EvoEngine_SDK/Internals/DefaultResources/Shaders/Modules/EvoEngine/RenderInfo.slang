@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public static const uint EE_DDGI_MAX_VOLUME_COUNT = 8u;
 public static const uint EE_REFLECTION_PROBE_MAX_COUNT = 32u;
 

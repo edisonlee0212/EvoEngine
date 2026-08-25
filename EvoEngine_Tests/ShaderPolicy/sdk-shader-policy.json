@@ -1,7 +1,7 @@
 {
   "counts": {
-    "files": 175,
-    "imports": 294,
+    "files": 176,
+    "imports": 295,
     "macro_control_files": 12
   },
   "macro_adapters": [
@@ -566,6 +566,10 @@
     {
       "module": "EvoEngine.GizmosConstants",
       "path": "Modules/EvoEngine/GizmosConstants.slang"
+    },
+    {
+      "module": "EvoEngine.GltfBindlessMaterial",
+      "path": "Modules/EvoEngine/GltfBindlessMaterial.slang"
     },
     {
       "module": "EvoEngine.GltfMaterial",

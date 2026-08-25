@@ -36,14 +36,14 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_point_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_point_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.slang");
   foliage_point_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/PointLightShadowMap.mesh");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/PointLightShadowMap.slang");
   foliage_point_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   foliage_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   foliage_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -59,14 +59,14 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_spot_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_spot_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.slang");
   foliage_spot_light_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/SpotLightShadowMap.mesh");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/SpotLightShadowMap.slang");
   foliage_spot_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   foliage_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   foliage_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -82,14 +82,14 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_directional_light_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_directional_light_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.slang");
   foliage_directional_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/DirectionalLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/DirectionalLightShadowMap.slang");
   foliage_directional_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   foliage_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   foliage_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -106,15 +106,15 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   foliage_render_pipeline = std::make_shared<GraphicsPipeline>();
   foliage_render_pipeline->task_shader = Shader::CreateTemporary(
       ShaderType::Task, Platform::GetShaderGlobalDefines(),
-      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.task");
+      std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Task/DynamicStrands/Rendering/Foliage.slang");
   foliage_render_pipeline->mesh_shader =
       Shader::CreateTemporary(ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/Rendering.mesh");
+                                  "Shaders/Graphics/Mesh/DynamicStrands/Rendering/Foliage/Rendering.slang");
   foliage_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/Foliage.frag");
+                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/Foliage.slang");
   foliage_render_pipeline->geometry_type = GeometryType::Mesh;
   foliage_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());

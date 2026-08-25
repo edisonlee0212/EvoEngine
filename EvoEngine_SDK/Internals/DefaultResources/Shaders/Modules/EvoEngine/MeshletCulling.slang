@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.BasicConstants;
 public static const uint EE_MESHLET_CULL_FRUSTUM = 1u;
 public static const uint EE_MESHLET_CULL_CONE_REQUESTED = 2u;

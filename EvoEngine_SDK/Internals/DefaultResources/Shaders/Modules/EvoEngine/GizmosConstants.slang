@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeGizmosConstants {
   public float4x4 model_matrix;
   public float4 color;

@@ -153,8 +153,6 @@ TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
 
   const auto native_cameras =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Cameras.slang"));
-  const auto compatibility_cameras = ReadTextFile(
-      SourcePath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes/Cameras.glsl"));
   const auto output_shader = ReadTextFile(
       SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/CameraRayOutputs.slang"));
   const std::array output_names{"ALBEDO", "NORMAL", "RAY_COUNT", "PATH_LENGTH", "TIME", "DEBUG"};
@@ -162,7 +160,6 @@ TEST(CameraRenderTechnique, RayOutputLayoutKeepsCpuAndShadersAligned) {
     const auto flag =
         std::string("EE_CAMERA_RAY_OUTPUT_") + output_names[index] + " = 1u << " + std::to_string(index) + "u";
     EXPECT_NE(native_cameras.find(flag), std::string::npos) << output_names[index];
-    EXPECT_NE(compatibility_cameras.find(flag), std::string::npos) << output_names[index];
     const auto binding =
         "[[vk::binding(" + std::to_string(kRayCameraOutputDescriptorBaseBindingCount + index) + ", 2)]]";
     EXPECT_NE(output_shader.find(binding), std::string::npos) << output_names[index];

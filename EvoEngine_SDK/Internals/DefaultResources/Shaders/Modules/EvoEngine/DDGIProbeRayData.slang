@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public
 static const float EE_DDGI_PROBE_RAY_MISS_DISTANCE = 1e27f;
 public

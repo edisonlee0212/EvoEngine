@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public static const float EE_CAMERA_PI = 3.14159265359f;
 public static const float EE_CAMERA_RAY_EPSILON = 1e-3f;
 public static const float EE_CAMERA_MAX_TRACE_DISTANCE = 1e20f;

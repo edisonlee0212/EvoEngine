@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 static const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
 
 [[vk::binding(1, 0)]]

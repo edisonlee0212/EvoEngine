@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct Camera {
   public float4x4 projection;
   public float4x4 view;

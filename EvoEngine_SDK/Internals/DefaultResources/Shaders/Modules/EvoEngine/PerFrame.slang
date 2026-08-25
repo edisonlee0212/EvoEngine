@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.RenderInfo;
 __exported import EvoEngine.Environment;
 __exported import EvoEngine.Cameras;

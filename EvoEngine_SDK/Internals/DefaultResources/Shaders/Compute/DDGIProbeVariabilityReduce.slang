@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct EeDdgiVariabilityConstants {
   uint4 input_output_extent;
   uint4 atlas_parameters;

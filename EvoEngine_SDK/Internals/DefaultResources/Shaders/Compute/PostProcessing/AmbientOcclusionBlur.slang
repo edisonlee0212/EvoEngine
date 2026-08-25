@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 [[vk::binding(17, 1)]]
 Sampler2D inDepth;
 

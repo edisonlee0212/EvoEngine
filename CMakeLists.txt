@@ -143,10 +143,6 @@ endfunction()
 function(evoengine_install_runtime_resources dst_dir)
 	install(DIRECTORY "${EVOENGINE_SDK_DIR}/Internals/"
 		DESTINATION "${dst_dir}")
-	install(CODE "
-		set(ROOT \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${dst_dir}\")
-		include(\"${CMAKE_SOURCE_DIR}/cmake/EvoEngineRemoveRelocatedSdkGlsl.cmake\")
-	")
 	foreach(folder_i IN LISTS EVOENGINE_RESOURCES)
 		if (EXISTS "${folder_i}")
 			install(DIRECTORY "${folder_i}/"

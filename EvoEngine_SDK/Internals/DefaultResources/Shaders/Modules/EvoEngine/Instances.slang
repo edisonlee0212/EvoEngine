@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct Instance {
   public float4x4 model;
   public int material_index;

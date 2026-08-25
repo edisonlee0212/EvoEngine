@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct BlurInput {
   [[vk::location(0)]]
   float2 tex_coord : TEXCOORD0;

@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeToneMappingConstants {
   public int camera_index;
   public int method;

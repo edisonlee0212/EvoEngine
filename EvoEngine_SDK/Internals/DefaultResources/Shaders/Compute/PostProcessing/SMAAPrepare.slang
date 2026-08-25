@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 [[vk::binding(0, 0)]]
 Sampler2D inputColor;
 

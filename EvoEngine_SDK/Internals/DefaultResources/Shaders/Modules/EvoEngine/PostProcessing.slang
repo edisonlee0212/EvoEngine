@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeResolutionPushConstant {
   public uint2 resolution;
 };

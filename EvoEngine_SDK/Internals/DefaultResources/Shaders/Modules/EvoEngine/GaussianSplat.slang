@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.PerFrame;
 
 public static const uint EE_GAUSSIAN_SPLAT_SORTED_INDICES_FLAG = 1u;

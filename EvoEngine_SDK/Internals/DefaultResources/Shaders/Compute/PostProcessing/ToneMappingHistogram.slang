@@ -2,7 +2,6 @@
 // SPDX-FileCopyrightText: Copyright (c) 2022-2025, NVIDIA CORPORATION.
 // SPDX-License-Identifier: Apache-2.0
 
-// @evoengine-dialect native
 import EvoEngine.ToneMapping;
 
 static const uint EE_TONEMAP_WORKGROUP_SIZE = 16u;

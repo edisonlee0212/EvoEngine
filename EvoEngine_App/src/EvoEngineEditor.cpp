@@ -1586,7 +1586,7 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
     throw std::runtime_error("Failed to open ray camera profile report: " + report_path.string());
   }
   output << std::setprecision(17);
-  output << "{\n  \"schema_version\": 1,\n"
+  output << "{\n  \"schema_version\": 2,\n"
          << "  \"image_file\": \"" << JsonEscape(image_path.filename().string()) << "\",\n"
          << "  \"hardware\": {\"device_name\": \"" << JsonEscape(fingerprint.device_name)
          << "\", \"vendor_id\": " << fingerprint.vendor_id << ", \"device_id\": " << fingerprint.device_id
@@ -1610,12 +1610,6 @@ void WriteRayCameraProfileReport(const std::filesystem::path& report_path, const
          << ", \"native_slang_frontend\": "
          << readiness_shader_stats_after.native_slang_frontend_invocations -
                 readiness_shader_stats_before.native_slang_frontend_invocations
-         << ", \"compatibility_slang_frontend\": "
-         << readiness_shader_stats_after.compatibility_slang_frontend_invocations -
-                readiness_shader_stats_before.compatibility_slang_frontend_invocations
-         << ", \"glslang_frontend\": "
-         << readiness_shader_stats_after.glslang_frontend_invocations -
-                readiness_shader_stats_before.glslang_frontend_invocations
          << "}},\n"
          << "  \"ray_history_memory\": {\"live_bytes\": " << history.live_byte_size
          << ", \"peak_live_bytes\": " << history.peak_live_byte_size << "},\n"

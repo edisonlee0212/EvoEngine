@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct GizmoColoredFragmentInput {
   [[vk::location(0)]]
   float4 color : COLOR0;

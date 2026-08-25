@@ -658,7 +658,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Reset.slang");
     reset_pipeline = std::make_shared<ComputePipeline>();
     reset_pipeline->compute_shader = shader;
     reset_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -690,7 +690,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Step.slang");
     step_pipeline = std::make_shared<ComputePipeline>();
     step_pipeline->compute_shader = shader;
     step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -707,7 +707,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/DynamicStep.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/DynamicStep.slang");
     dynamic_step_pipeline = std::make_shared<ComputePipeline>();
     dynamic_step_pipeline->compute_shader = shader;
     dynamic_step_pipeline->descriptor_set_layouts.emplace_back(strands_layout);
@@ -724,7 +724,7 @@ void DynamicStrands::CalculateGroups(const PhysicsParameters& physics_parameters
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Grouping/Apply.slang");
     apply_pipeline = std::make_shared<ComputePipeline>();
     apply_pipeline->compute_shader = shader;
     apply_pipeline->descriptor_set_layouts.emplace_back(strands_layout);

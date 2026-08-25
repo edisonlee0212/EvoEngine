@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public static const int EE_MAX_KERNEL_AMOUNT = 64;
 
 public struct EeKernelBlock {

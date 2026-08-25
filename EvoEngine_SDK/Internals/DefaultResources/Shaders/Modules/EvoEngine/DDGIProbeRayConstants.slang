@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct DdgiProbeRayConstants {
   public float4 first_probe;
   public float4 probe_step_x;

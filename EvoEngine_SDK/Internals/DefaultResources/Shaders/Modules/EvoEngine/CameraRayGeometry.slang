@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.RayTracingBasic;
 
 public float3 EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(const float3 value, const float3 fallback) {

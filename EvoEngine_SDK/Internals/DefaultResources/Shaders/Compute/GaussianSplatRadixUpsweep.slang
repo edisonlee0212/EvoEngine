@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 static const uint EE_GAUSSIAN_SPLAT_RADIX = 256u;
 static const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION = 8u;
 static const uint EE_GAUSSIAN_SPLAT_RADIX_PARTITION_SIZE = EE_GAUSSIAN_SPLAT_RADIX_PARTITION_DIVISION * 512u;

@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.RasterTypes;
 
 [[vk::binding(0, 1)]]

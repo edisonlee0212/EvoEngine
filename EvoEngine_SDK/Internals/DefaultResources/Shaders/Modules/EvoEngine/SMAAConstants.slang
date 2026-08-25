@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeSmaaConstants {
   public float4 metrics;
   public float4 subsample_indices;

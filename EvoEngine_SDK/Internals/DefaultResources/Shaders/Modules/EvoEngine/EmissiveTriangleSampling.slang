@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.RayTracingMaterial;
 __exported import EvoEngine.RayTracingBasic;
 public

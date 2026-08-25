@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.GltfRayTracingMaterial;
 __exported import EvoEngine.Vertex;
 import EvoEngine.Instances;

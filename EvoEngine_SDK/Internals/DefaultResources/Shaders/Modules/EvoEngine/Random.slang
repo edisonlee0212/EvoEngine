@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 // Adapted from https://github.com/Zielon/PBRVulkan and nvpro_core2/nvshaders/random.h.slang.
 
 public uint EE_ROTATE_LEFT(const uint value, const uint count) {

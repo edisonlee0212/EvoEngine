@@ -53,7 +53,7 @@ DsLeafDrop::DsLeafDrop() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafDrop.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafDrop.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -95,7 +95,7 @@ DsAttraction::DsAttraction() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Attraction.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Attraction.slang");
     drag_force_pipeline = std::make_shared<ComputePipeline>();
     drag_force_pipeline->compute_shader = shader;
 
@@ -167,7 +167,7 @@ DsBoxSelection::DsBoxSelection() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Operators/SegmentBoxSelection.comp");
+                           "Shaders/Compute/DynamicStrands/Operators/SegmentBoxSelection.slang");
     segment_pipeline = std::make_shared<ComputePipeline>();
     segment_pipeline->compute_shader = shader;
     segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -183,7 +183,7 @@ DsBoxSelection::DsBoxSelection() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Operators/LeafBoxSelection.comp");
+                           "Shaders/Compute/DynamicStrands/Operators/LeafBoxSelection.slang");
     leaf_pipeline = std::make_shared<ComputePipeline>();
     leaf_pipeline->compute_shader = shader;
     leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -246,7 +246,7 @@ DsDrag::DsDrag() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Drag.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Drag.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -289,7 +289,7 @@ DsLineCut::DsLineCut() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LineCut.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LineCut.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -334,7 +334,7 @@ DsPointCut::DsPointCut() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PointCut.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/PointCut.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -406,7 +406,7 @@ DsSaw::DsSaw() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Saw.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/Saw.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = shader;
     pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -464,7 +464,7 @@ DsSnow::DsSnow() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentSnow.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentSnow.slang");
     segment_pipeline = std::make_shared<ComputePipeline>();
     segment_pipeline->compute_shader = shader;
     segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -482,7 +482,7 @@ DsSnow::DsSnow() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafSnow.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafSnow.slang");
     leaf_pipeline = std::make_shared<ComputePipeline>();
     leaf_pipeline->compute_shader = shader;
     leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -555,7 +555,7 @@ DsWind::DsWind() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentWind.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentWind.slang");
     segment_pipeline = std::make_shared<ComputePipeline>();
     segment_pipeline->compute_shader = shader;
     segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -573,7 +573,7 @@ DsWind::DsWind() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafWind.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafWind.slang");
     leaf_pipeline = std::make_shared<ComputePipeline>();
     leaf_pipeline->compute_shader = shader;
     leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -656,9 +656,9 @@ DsStopAll::DsStopAll() {
   if (!segment_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/SegmentStopAll.comp");
+    shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                       std::filesystem::path("./EcoSysLabResources") /
+                           "Shaders/Compute/DynamicStrands/Operators/SegmentStopAll.slang");
     segment_pipeline = std::make_shared<ComputePipeline>();
     segment_pipeline->compute_shader = shader;
     segment_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -676,7 +676,7 @@ DsStopAll::DsStopAll() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafStopAll.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/LeafStopAll.slang");
     leaf_pipeline = std::make_shared<ComputePipeline>();
     leaf_pipeline->compute_shader = shader;
     leaf_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -735,7 +735,7 @@ DsFungusInjection::DsFungusInjection() {
     const auto reset_shader = std::make_shared<Shader>();
     reset_shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/MinDistReset.comp");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Compute/DynamicStrands/Operators/MinDistReset.slang");
     min_dist_reset_pipeline = std::make_shared<ComputePipeline>();
     min_dist_reset_pipeline->compute_shader = reset_shader;
     min_dist_reset_pipeline->descriptor_set_layouts.emplace_back(min_distance_layout);
@@ -747,7 +747,7 @@ DsFungusInjection::DsFungusInjection() {
     const auto find_closest_shader = std::make_shared<Shader>();
     find_closest_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                     std::filesystem::path("./EcoSysLabResources") /
-                                        "Shaders/Compute/DynamicStrands/Operators/FungusFindClosest.comp");
+                                        "Shaders/Compute/DynamicStrands/Operators/FungusFindClosest.slang");
     find_closest_pipeline = std::make_shared<ComputePipeline>();
     find_closest_pipeline->compute_shader = find_closest_shader;
     find_closest_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -764,7 +764,7 @@ DsFungusInjection::DsFungusInjection() {
     const auto injection_shader = std::make_shared<Shader>();
     injection_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                  std::filesystem::path("./EcoSysLabResources") /
-                                     "Shaders/Compute/DynamicStrands/Operators/FungusInjection.comp");
+                                     "Shaders/Compute/DynamicStrands/Operators/FungusInjection.slang");
     inject_pipeline = std::make_shared<ComputePipeline>();
     inject_pipeline->compute_shader = injection_shader;
     inject_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);

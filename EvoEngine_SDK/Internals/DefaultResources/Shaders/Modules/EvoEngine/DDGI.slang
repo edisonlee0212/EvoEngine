@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public static const float EE_DDGI_PI = 3.14159265359f;
 public static const float EE_DDGI_INACTIVE_RAY_ALPHA = -2.0f;
 public static const uint EE_DDGI_FIXED_RAY_PAYLOAD_FLAG = 1u;

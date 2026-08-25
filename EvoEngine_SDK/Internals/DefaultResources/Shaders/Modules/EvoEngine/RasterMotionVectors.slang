@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct PreviousInstance {
   public float4x4 previous_model;
   public uint4 flags;

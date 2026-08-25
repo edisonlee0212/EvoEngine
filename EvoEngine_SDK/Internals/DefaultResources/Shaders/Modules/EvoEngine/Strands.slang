@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.PerFrame;
 
 public int EE_STRANDS_SEGMENT_SUBDIVISION(int camera_index, float3 world_position_a, float3 world_position_b) {

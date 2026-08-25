@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.CameraRayTracingPayload;
 
 public interface ICameraRayTraversal {

@@ -303,7 +303,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Interior.comp");
+                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Interior.slang");
     interior_initialization_pipeline = std::make_shared<ComputePipeline>();
     interior_initialization_pipeline->compute_shader = shader;
     interior_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -320,7 +320,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/BarkFlag.comp");
+                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/BarkFlag.slang");
     bark_flag_initialization_pipeline = std::make_shared<ComputePipeline>();
     bark_flag_initialization_pipeline->compute_shader = shader;
     bark_flag_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -338,7 +338,7 @@ void DsAlphaShapeMeshing::InitializationGraphicsPipeline(
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Normal.comp");
+                           "Shaders/Compute/DynamicStrands/Initialization/AlphaShapeMeshing/Normal.slang");
     uniform_particle_initialization_pipeline = std::make_shared<ComputePipeline>();
     uniform_particle_initialization_pipeline->compute_shader = shader;
     uniform_particle_initialization_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -416,7 +416,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   shader = std::make_shared<Shader>();
   shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                      std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Compute/DynamicStrands/Prediction/AlphaShapeMeshing/UniformParticle.comp");
+                         "Shaders/Compute/DynamicStrands/Prediction/AlphaShapeMeshing/UniformParticle.slang");
 
   branches_uniform_particle_update_pipeline = std::make_shared<ComputePipeline>();
   branches_uniform_particle_update_pipeline->compute_shader = shader;
@@ -434,7 +434,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   branches_tetrahedron_filtering_pipeline->compute_shader = Shader::CreateTemporary(
       ShaderType::Compute, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.comp");
+          "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TetrahedronFiltering.slang");
   branches_tetrahedron_filtering_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
   auto& tetrahedron_filtering_push_constant_range =
@@ -450,7 +450,7 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::BuildRenderComputePipelines() {
   branches_triangle_filtering_pipeline->compute_shader =
       Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.comp");
+                                  "Shaders/Compute/DynamicStrands/Rendering/AlphaShapeMeshing/TriangleFiltering.slang");
   branches_triangle_filtering_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
 
   auto& triangle_filtering_push_constant_range =
@@ -622,17 +622,17 @@ void DsAlphaShapeMeshing::Visualize(const std::shared_ptr<Camera>& target_camera
     task_shader->TryCompile(
         ShaderType::Task, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Graphics/Task/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.task");
+            "Shaders/Graphics/Task/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.slang");
     mesh_shader = std::make_shared<Shader>();
     mesh_shader->TryCompile(
         ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Graphics/Mesh/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.mesh");
+            "Shaders/Graphics/Mesh/DynamicStrands/Visualization/AlphaShapeMeshing/UniformParticles.slang");
 
     frag_shader = std::make_shared<Shader>();
     frag_shader->TryCompile(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.frag");
+        std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/DynamicStrands/Visualization.slang");
     // Descriptor set layout
     uniform_particle_render_pipeline = std::make_shared<GraphicsPipeline>();
     uniform_particle_render_pipeline->task_shader = task_shader;

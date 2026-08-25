@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct SsrCombineInput {
   [[vk::location(0)]]
   float2 tex_coord : TEXCOORD0;

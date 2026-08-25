@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct DdgiProbeRayFragmentInput {
   [[vk::location(0)]]
   float4 color : COLOR0;

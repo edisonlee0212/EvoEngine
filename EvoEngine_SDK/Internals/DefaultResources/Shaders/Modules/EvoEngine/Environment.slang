@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct Environment {
   public float4 background_color;
   public float gamma;

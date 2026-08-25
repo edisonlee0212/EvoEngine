@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct BlurConstants {
   int horizontal;
   float weight0;

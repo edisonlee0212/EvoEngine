@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.DDGIGather;
 
 [[vk::binding(17, 2)]] public Sampler2D<float4> EE_DDGI_IRRADIANCE_ATLAS;

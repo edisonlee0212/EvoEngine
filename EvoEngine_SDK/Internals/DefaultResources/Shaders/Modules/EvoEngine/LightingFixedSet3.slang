@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.Lighting;
 
 [[vk::binding(0, 3)]] Sampler2D EE_RASTER_BRDF_LUT;

@@ -1,20 +1,18 @@
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-
-layout(set = 0, binding = 0) uniform sampler2DArrayShadow depth_step;
-layout(set = 0, binding = 1, std430) writeonly buffer ProbeOutput {
-  float values[];
-}
-probe_output;
+[[vk::binding(0, 0)]]
+Sampler2DArrayShadow depth_step;
+[[vk::binding(1, 0)]]
+RWStructuredBuffer<float> values;
 
 float SampleDepthStep(const float u, const float receiver_depth) {
-  return texture(depth_step, vec4(u, 0.5f, 0.0f, receiver_depth));
+  return depth_step.SampleCmpLevelZero(float3(u, 0.5f, 0.0f), receiver_depth);
 }
-void main() {
-  probe_output.values[0] = SampleDepthStep(0.25f, 0.5f);
-  probe_output.values[1] = SampleDepthStep(0.375f, 0.5f);
-  probe_output.values[2] = SampleDepthStep(0.5f, 0.5f);
-  probe_output.values[3] = SampleDepthStep(0.625f, 0.5f);
-  probe_output.values[4] = SampleDepthStep(0.75f, 0.5f);
-  probe_output.values[5] = SampleDepthStep(0.5f, 0.2f);
-  probe_output.values[6] = SampleDepthStep(0.5f, 0.8f);
+
+[numthreads(1, 1, 1)] void main() {
+  values[0] = SampleDepthStep(0.25f, 0.5f);
+  values[1] = SampleDepthStep(0.375f, 0.5f);
+  values[2] = SampleDepthStep(0.5f, 0.5f);
+  values[3] = SampleDepthStep(0.625f, 0.5f);
+  values[4] = SampleDepthStep(0.75f, 0.5f);
+  values[5] = SampleDepthStep(0.5f, 0.2f);
+  values[6] = SampleDepthStep(0.5f, 0.8f);
 }

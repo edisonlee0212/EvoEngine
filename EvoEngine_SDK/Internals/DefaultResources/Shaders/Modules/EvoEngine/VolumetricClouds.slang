@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 
 public static const float EE_VOLUMETRIC_CLOUD_PI = 3.14159265359f;
 public static const float EE_VOLUMETRIC_CLOUD_MIN_TRANSMITTANCE = 0.003f;

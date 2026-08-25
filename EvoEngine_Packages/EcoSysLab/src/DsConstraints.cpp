@@ -26,7 +26,7 @@ DsPivotPoint::DsPivotPoint() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotPoint.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotPoint.slang");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -117,7 +117,7 @@ DsPivotAxis::DsPivotAxis() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotAxis.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotAxis.slang");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -221,7 +221,7 @@ DsPivotTransform::DsPivotTransform() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotTransform.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/PivotTransform.slang");
 
     segment_update_pipeline = std::make_shared<ComputePipeline>();
     segment_update_pipeline->compute_shader = shader;
@@ -326,7 +326,7 @@ DsStiffRod::DsStiffRod() {
     stretch_shear_shader = std::make_shared<Shader>();
     stretch_shear_shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                                      std::filesystem::path("./EcoSysLabResources") /
-                                         "Shaders/Compute/DynamicStrands/Constraints/Position/StiffRod.comp");
+                                         "Shaders/Compute/DynamicStrands/Constraints/Position/StiffRod.slang");
     pipeline = std::make_shared<ComputePipeline>();
     pipeline->compute_shader = stretch_shear_shader;
 
@@ -391,7 +391,7 @@ DsBundle::DsBundle() {
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateShearStretchCorrections.comp");
+            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateShearStretchCorrections.slang");
     stretch_shear_pipeline = std::make_shared<ComputePipeline>();
     stretch_shear_pipeline->compute_shader = shader;
     stretch_shear_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -409,7 +409,7 @@ DsBundle::DsBundle() {
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBendTwistCorrections.comp");
+            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBendTwistCorrections.slang");
     bend_twist_pipeline = std::make_shared<ComputePipeline>();
     bend_twist_pipeline->compute_shader = shader;
     bend_twist_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -427,7 +427,7 @@ DsBundle::DsBundle() {
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundlePositionCorrections.comp");
+            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundlePositionCorrections.slang");
     bundle_position_pipeline = std::make_shared<ComputePipeline>();
     bundle_position_pipeline->compute_shader = shader;
     bundle_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -445,7 +445,7 @@ DsBundle::DsBundle() {
     shader->TryCompile(
         ShaderType::Compute, Platform::GetShaderGlobalDefines(),
         std::filesystem::path("./EcoSysLabResources") /
-            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundleRotationCorrections.comp");
+            "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundleRotationCorrections.slang");
     bundle_rotation_pipeline = std::make_shared<ComputePipeline>();
     bundle_rotation_pipeline->compute_shader = shader;
     bundle_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -462,7 +462,7 @@ DsBundle::DsBundle() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyRotationCorrections.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyRotationCorrections.slang");
 
     apply_rotation_pipeline = std::make_shared<ComputePipeline>();
     apply_rotation_pipeline->compute_shader = shader;
@@ -482,7 +482,7 @@ DsBundle::DsBundle() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyPositionCorrections.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyPositionCorrections.slang");
 
     apply_position_pipeline = std::make_shared<ComputePipeline>();
     apply_position_pipeline->compute_shader = shader;
@@ -502,7 +502,7 @@ DsBundle::DsBundle() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyCorrections.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyCorrections.slang");
 
     apply_position_rotation_pipeline = std::make_shared<ComputePipeline>();
     apply_position_rotation_pipeline->compute_shader = shader;
@@ -522,7 +522,7 @@ DsBundle::DsBundle() {
     shader = std::make_shared<Shader>();
     shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                        std::filesystem::path("./EcoSysLabResources") /
-                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ConnectionCorrections.comp");
+                           "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ConnectionCorrections.slang");
 
     connections_pipeline = std::make_shared<ComputePipeline>();
     connections_pipeline->compute_shader = shader;
@@ -752,7 +752,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateShearStretchCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateShearStretchCorrections.slang");
         stretch_shear_pipeline = std::make_shared<ComputePipeline>();
         stretch_shear_pipeline->compute_shader = shader;
         stretch_shear_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -770,7 +770,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBendTwistCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBendTwistCorrections.slang");
         bend_twist_pipeline = std::make_shared<ComputePipeline>();
         bend_twist_pipeline->compute_shader = shader;
         bend_twist_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -788,7 +788,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundlePositionCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundlePositionCorrections.slang");
         bundle_position_pipeline = std::make_shared<ComputePipeline>();
         bundle_position_pipeline->compute_shader = shader;
         bundle_position_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -806,7 +806,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundleRotationCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/CalculateBundleRotationCorrections.slang");
         bundle_rotation_pipeline = std::make_shared<ComputePipeline>();
         bundle_rotation_pipeline->compute_shader = shader;
         bundle_rotation_pipeline->descriptor_set_layouts.emplace_back(DynamicStrands::strands_layout);
@@ -824,7 +824,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyRotationCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyRotationCorrections.slang");
 
         apply_rotation_pipeline = std::make_shared<ComputePipeline>();
         apply_rotation_pipeline->compute_shader = shader;
@@ -845,7 +845,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader->TryCompile(
             ShaderType::Compute, Platform::GetShaderGlobalDefines(),
             std::filesystem::path("./EcoSysLabResources") /
-                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyPositionCorrections.comp");
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyPositionCorrections.slang");
 
         apply_position_pipeline = std::make_shared<ComputePipeline>();
         apply_position_pipeline->compute_shader = shader;
@@ -865,7 +865,7 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
         shader = std::make_shared<Shader>();
         shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                            std::filesystem::path("./EcoSysLabResources") /
-                               "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyCorrections.comp");
+                               "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ApplyCorrections.slang");
 
         apply_position_rotation_pipeline = std::make_shared<ComputePipeline>();
         apply_position_rotation_pipeline->compute_shader = shader;
@@ -883,9 +883,10 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
       {
         static std::shared_ptr<Shader> shader{};
         shader = std::make_shared<Shader>();
-        shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                           std::filesystem::path("./EcoSysLabResources") /
-                               "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ConnectionCorrections.comp");
+        shader->TryCompile(
+            ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+            std::filesystem::path("./EcoSysLabResources") /
+                "Shaders/Compute/DynamicStrands/Constraints/Position/Bundle/ConnectionCorrections.slang");
 
         connections_pipeline = std::make_shared<ComputePipeline>();
         connections_pipeline->compute_shader = shader;
@@ -907,7 +908,7 @@ DsLeafAttachment::DsLeafAttachment() {
   shader = std::make_shared<Shader>();
   shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
                      std::filesystem::path("./EcoSysLabResources") /
-                         "Shaders/Compute/DynamicStrands/Constraints/Position/LeafAttachment.comp");
+                         "Shaders/Compute/DynamicStrands/Constraints/Position/LeafAttachment.slang");
 
   pipeline = std::make_shared<ComputePipeline>();
   pipeline->compute_shader = shader;

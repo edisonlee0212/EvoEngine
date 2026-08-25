@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.AnimationBones;
 
 public float4x4 EE_SKINNING_MATRIX(int4 bone_ids, float4 weights, int4 bone_ids2, float4 weights2) {

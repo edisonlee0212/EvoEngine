@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public float EE_INTERLEAVED_GRADIENT_NOISE(float3 position) {
   const float3 magic = float3(0.06711056, 0.00583715, 52.9829189);
   return frac(dot(position, magic));

@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 struct CubemapFragmentInput {
   [[vk::location(0)]]
   float3 world_pos : TEXCOORD0;

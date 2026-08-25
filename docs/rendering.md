@@ -43,6 +43,12 @@ snapshot rather than reading mutable scene components while commands are being r
 a static scene root may reuse cached render-instance records while the frame-local snapshot, visibility, LOD selection,
 and draw lists are still rebuilt for the current cameras.
 
+## Shader Source Policy
+
+All first-party shaders use native Slang source in `.slang` or `.slangh` files. Use Slang modules and `import` for shared
+code; legacy shader extensions, GLSL compatibility syntax, and textual `#include` directives are rejected before the
+Slang frontend runs. `Extern/` is third-party scope and is exempt from this source policy.
+
 ## Frame Flow
 
 1. The application updates the project, scene, transforms, and layers.

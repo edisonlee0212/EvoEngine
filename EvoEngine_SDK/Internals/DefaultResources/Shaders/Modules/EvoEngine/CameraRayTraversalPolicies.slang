@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.CameraRayTraversal;
 import EvoEngine.CameraRayQueryTraversal;
 import EvoEngine.CameraRayTracingTraversal;

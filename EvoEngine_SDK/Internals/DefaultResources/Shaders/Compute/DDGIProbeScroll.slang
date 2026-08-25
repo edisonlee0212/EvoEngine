@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.DDGI;
 
 struct EeDdgiProbeScrollConstants {

@@ -145,7 +145,7 @@ class ShaderCacheScope {
   std::unique_ptr<Application> application_;
 };
 
-constexpr const char* kComputeShader = R"(
+constexpr const char* kGlslComputeShader = R"(
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 void main() {}
 )";
@@ -225,13 +225,12 @@ std::filesystem::path FirstCacheFile(const std::filesystem::path& root) {
 }
 
 void RegisterDefaultShaderIncludePath() {
-  Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes"));
   Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules"));
 }
 
 void RegisterEcoSysLabShaderIncludePath() {
   Shader::RegisterShaderIncludePath(
-      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes"));
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Modules"));
 }
 
 std::optional<ShaderType> InferSlangStageFromPath(const std::filesystem::path& path) {
@@ -263,46 +262,6 @@ std::vector<std::filesystem::path> CollectSlangStageFiles(const std::filesystem:
     if (!entry.is_regular_file() || entry.path().extension() != ".slang")
       continue;
     if (InferSlangStageFromPath(entry.path()))
-      shader_paths.emplace_back(entry.path());
-  }
-  std::sort(shader_paths.begin(), shader_paths.end());
-  return shader_paths;
-}
-
-std::optional<ShaderType> InferGlslStageFromPath(const std::filesystem::path& path) {
-  const auto extension = path.extension().string();
-  if (extension == ".comp")
-    return ShaderType::Compute;
-  if (extension == ".frag")
-    return ShaderType::Fragment;
-  if (extension == ".mesh")
-    return ShaderType::Mesh;
-  if (extension == ".task")
-    return ShaderType::Task;
-  if (extension == ".vert")
-    return ShaderType::Vertex;
-  return std::nullopt;
-}
-
-bool HasUncommentedGlslMain(const std::filesystem::path& path) {
-  std::ifstream file(path);
-  std::string line;
-  while (std::getline(file, line)) {
-    const auto start = line.find_first_not_of(" \t");
-    if (start != std::string::npos && line.compare(start, 2, "//") == 0)
-      continue;
-    if (line.find("main(") != std::string::npos || line.find("main (") != std::string::npos)
-      return true;
-  }
-  return false;
-}
-
-std::vector<std::filesystem::path> CollectGlslStageFiles(const std::filesystem::path& root) {
-  std::vector<std::filesystem::path> shader_paths;
-  for (const auto& entry : std::filesystem::recursive_directory_iterator(root)) {
-    if (!entry.is_regular_file())
-      continue;
-    if (InferGlslStageFromPath(entry.path()) && HasUncommentedGlslMain(entry.path()))
       shader_paths.emplace_back(entry.path());
   }
   std::sort(shader_paths.begin(), shader_paths.end());
@@ -393,74 +352,44 @@ void ExpectSlangStageFilesCompile(const std::filesystem::path& root, const std::
   }
 }
 
-void ExpectGlslStageFilesCompile(const std::filesystem::path& root, const std::string& defines = {}) {
-  const auto shader_paths = CollectGlslStageFiles(root);
-  ASSERT_FALSE(shader_paths.empty()) << root.string();
-  for (const auto& shader_path : shader_paths) {
-    const auto shader_type = InferGlslStageFromPath(shader_path);
-    ASSERT_TRUE(shader_type.has_value()) << shader_path.string();
-    const auto source = ShaderGlobalDefinesForTests() + defines + ReadTextFile(shader_path);
-    std::vector<uint32_t> binaries;
-    ASSERT_TRUE(Shader::CompileToSpirv(*shader_type, source, binaries, shader_path)) << shader_path.string();
-    ASSERT_FALSE(binaries.empty()) << shader_path.string();
-    EXPECT_EQ(binaries.front(), 0x07230203u) << shader_path.string();
-  }
-}
 }  // namespace
 
-TEST(ShaderCache, ExplicitDialectsAreObservableAndStrict) {
+TEST(ShaderCache, RejectsLegacyShaderInputsBeforeNativeFrontendInvocation) {
   ShaderCacheScope scope;
-  std::vector<uint32_t> binaries;
-  const auto native_path = scope.Root() / "NativeCanary.slang";
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, binaries, native_path,
-                                     ShaderSourceDialect::NativeSlang));
-  auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.native_slang_frontend_invocations, 1u);
-  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 0u);
-  EXPECT_EQ(stats.glslang_frontend_invocations, 0u);
+  constexpr std::string_view diagnostic = "GLSL is unsupported; migrate the shader to native Slang.";
+  const auto expect_rejected = [&](const std::string& source, const std::filesystem::path& path) {
+    Shader::ResetCompileCacheStats();
+    std::vector<uint32_t> binaries;
+    EXPECT_FALSE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, path));
+    EXPECT_TRUE(binaries.empty());
+    auto stats = Shader::GetCompileCacheStats();
+    EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
+    EXPECT_EQ(stats.failures, 1u);
+
+    Shader::ResetCompileCacheStats();
+    ShaderReflectionInfo reflection;
+    std::string diagnostics;
+    EXPECT_FALSE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics, path));
+    EXPECT_NE(diagnostics.find(diagnostic), std::string::npos) << diagnostics;
+    EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 0u);
+  };
+
+  expect_rejected(kSlangComputeShader, scope.Root() / "Legacy.comp");
+  expect_rejected(kGlslComputeShader, {});
+  expect_rejected(kGlslComputeShader, scope.Root() / "Serialized.eveshader");
+  expect_rejected("#include \"Legacy.slangh\"\n" + std::string(kSlangComputeShader),
+                  scope.Root() / "TextualInclude.slang");
+  expect_rejected("#extension GL_EXT_scalar_block_layout : require\n" + std::string(kSlangComputeShader),
+                  scope.Root() / "CompatibilitySyntax.slang");
 
   Shader::ResetCompileCacheStats();
+  std::vector<uint32_t> binaries;
   ASSERT_TRUE(Shader::CompileToSpirv(
       ShaderType::Compute,
-      "// layout(local_size_x = 99) is compatibility syntax only in comments.\n" + std::string(kSlangComputeShader),
-      binaries, scope.Root() / "CommentedCompatibilityToken.slang"));
-  stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.native_slang_frontend_invocations, 1u);
-  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 0u);
-
-  Shader::ResetCompileCacheStats();
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries, scope.Root() / "Compat.comp",
-                                     ShaderSourceDialect::GlslCompatibility));
-  stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.glslang_frontend_invocations, 1u);
-
-  Shader::ResetCompileCacheStats();
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries,
-                                     scope.Root() / "CompatThroughSlang.slang",
-                                     ShaderSourceDialect::GlslCompatibility));
-  stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.compatibility_slang_frontend_invocations, 1u);
-  EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
-
-  ShaderReflectionInfo reflection;
-  std::string diagnostics;
-  EXPECT_FALSE(Shader::ReflectSlang(ShaderType::Compute, kComputeShader, reflection, diagnostics, native_path,
-                                    ShaderSourceDialect::NativeSlang));
-  EXPECT_NE(diagnostics.find("GLSL compatibility syntax"), std::string::npos) << diagnostics;
-  diagnostics.clear();
-  EXPECT_FALSE(Shader::ReflectSlang(ShaderType::Compute,
-                                    "#include \"Legacy.slangh\"\n" + std::string(kSlangComputeShader), reflection,
-                                    diagnostics, native_path, ShaderSourceDialect::NativeSlang));
-  EXPECT_NE(diagnostics.find("may not use #include"), std::string::npos) << diagnostics;
-  diagnostics.clear();
-  EXPECT_FALSE(Shader::ReflectSlang(
-      ShaderType::Compute,
-      "// @evoengine-dialect native\nimport\tEvoEngine.ShaderMigration.Common;\n# include \"Legacy.slangh\"\n" +
-          std::string(kSlangComputeShader),
-      reflection, diagnostics, native_path));
-  EXPECT_NE(diagnostics.find("may not use #include"), std::string::npos) << diagnostics;
+      "// layout(local_size_x = 99) and #include \"Legacy.slangh\" are comments.\n" + std::string(kSlangComputeShader),
+      binaries, scope.Root() / "CommentedCompatibilityTokens.slang"));
+  EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 1u);
 }
-
 TEST(ShaderCache, NativeImportCanariesCompileReflectAndUseTypedConfiguration) {
   ShaderCacheScope scope;
   const auto module_root = RepoPath("EvoEngine_Tests/ShaderMigration/Modules");
@@ -538,15 +467,12 @@ void main(OutputVertices<MigrationVertex, 3> vertices, OutputIndices<uint3, 1> t
     const auto path = module_root / (std::string("Canary") + test_case.name + ".slang");
     const std::string source = std::string(import) + test_case.source;
     std::vector<uint32_t> binaries;
-    ASSERT_TRUE(Shader::CompileToSpirv(test_case.stage, source, binaries, path, ShaderSourceDialect::NativeSlang))
-        << test_case.name;
+    ASSERT_TRUE(Shader::CompileToSpirv(test_case.stage, source, binaries, path)) << test_case.name;
     ASSERT_FALSE(binaries.empty()) << test_case.name;
     ShaderReflectionInfo reflection;
     std::string diagnostics;
-    ASSERT_TRUE(
-        Shader::ReflectSlang(test_case.stage, source, reflection, diagnostics, path, ShaderSourceDialect::NativeSlang))
-        << test_case.name << '\n'
-        << diagnostics;
+    ASSERT_TRUE(Shader::ReflectSlang(test_case.stage, source, reflection, diagnostics, path)) << test_case.name << '\n'
+                                                                                              << diagnostics;
     EXPECT_EQ(reflection.shader_type, test_case.stage) << test_case.name;
     if (test_case.stage == ShaderType::Compute) {
       configured_compute = binaries;
@@ -561,7 +487,7 @@ void main(OutputVertices<MigrationVertex, 3> vertices, OutputIndices<uint3, 1> t
   alternate_source.replace(scale, std::string_view("value * 2.0").size(), "value * 3.0");
   std::vector<uint32_t> alternate_compute;
   ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, alternate_source, alternate_compute,
-                                     module_root / "CanaryComputeAlternate.slang", ShaderSourceDialect::NativeSlang));
+                                     module_root / "CanaryComputeAlternate.slang"));
   EXPECT_NE(configured_compute, alternate_compute);
 }
 
@@ -581,19 +507,18 @@ void main() { outputBuffer[0] = mutableValue(); }
 )";
 
   std::vector<uint32_t> first;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, first, entry_path, ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, first, entry_path));
   EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 1u);
 
   std::vector<uint32_t> memory;
-  ASSERT_TRUE(
-      Shader::CompileToSpirv(ShaderType::Compute, source, memory, entry_path, ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, memory, entry_path));
   EXPECT_EQ(first, memory);
   EXPECT_EQ(Shader::GetCompileCacheStats().memory_hits, 1u);
 
   Shader::ClearInMemoryCompileCache();
   Shader::ResetCompileCacheStats();
   std::vector<uint32_t> disk;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, disk, entry_path, ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, disk, entry_path));
   EXPECT_EQ(first, disk);
   EXPECT_EQ(Shader::GetCompileCacheStats().disk_hits, 1u);
 
@@ -601,8 +526,7 @@ void main() { outputBuffer[0] = mutableValue(); }
   Shader::ClearInMemoryCompileCache();
   Shader::ResetCompileCacheStats();
   std::vector<uint32_t> changed;
-  ASSERT_TRUE(
-      Shader::CompileToSpirv(ShaderType::Compute, source, changed, entry_path, ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, changed, entry_path));
   EXPECT_NE(first, changed);
   EXPECT_EQ(Shader::GetCompileCacheStats().native_slang_frontend_invocations, 1u);
   EXPECT_EQ(Shader::GetCompileCacheStats().disk_misses, 1u);
@@ -617,8 +541,7 @@ void main() { outputBuffer[0] = mutableValue(); }
     future = std::async(std::launch::async, [&, application] {
       ApplicationContextScope application_scope(*application);
       std::vector<uint32_t> binaries;
-      if (!Shader::CompileToSpirv(ShaderType::Compute, source, binaries, entry_path,
-                                  ShaderSourceDialect::NativeSlang)) {
+      if (!Shader::CompileToSpirv(ShaderType::Compute, source, binaries, entry_path)) {
         binaries.clear();
       }
       return binaries;
@@ -651,8 +574,7 @@ void main()
 }
 )";
   std::vector<uint32_t> binaries;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, module_root / "PureModuleProbe.slang",
-                                     ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries, module_root / "PureModuleProbe.slang"));
   ASSERT_FALSE(binaries.empty());
 
   uint32_t state = 1u;
@@ -707,7 +629,7 @@ void main()
   ShaderReflectionInfo reflection;
   std::string diagnostics;
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
-                                   module_root / "SharedGpuAbiProbe.slang", ShaderSourceDialect::NativeSlang))
+                                   module_root / "SharedGpuAbiProbe.slang"))
       << diagnostics;
   ASSERT_EQ(reflection.descriptor_bindings.size(), 14u);
 
@@ -739,6 +661,109 @@ void main()
   EXPECT_TRUE(reflection.push_constant_ranges.empty());
   EXPECT_TRUE(reflection.stage_inputs.empty());
   EXPECT_TRUE(reflection.stage_outputs.empty());
+}
+
+TEST(ShaderCache, EcoSysLabNativeModulesCompileAndReflectGpuAbi) {
+  ShaderCacheScope scope;
+  RegisterEcoSysLabShaderIncludePath();
+  RegisterDefaultShaderIncludePath();
+  const auto module_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Modules");
+  const std::string source = R"(
+import EcoSysLab.AlphaShape;
+import EcoSysLab.AlphaShapeMeshing;
+import EcoSysLab.AlphaShapeMeshingSet1;
+import EcoSysLab.DynamicStrands;
+import EcoSysLab.DynamicStrandsPhysics;
+import EcoSysLab.DynamicStrandsSet0;
+import EcoSysLab.KineticVoronoiMeshing;
+import EcoSysLab.KineticVoronoiMeshingSet0;
+import EcoSysLab.Math;
+import EcoSysLab.Noise;
+import EcoSysLab.SortCompare;
+import EcoSysLab.FloatOrderedInt;
+import EcoSysLab.LineCircleIntersect;
+
+[[vk::binding(0, 2)]] RWStructuredBuffer<float4> output_buffer;
+
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main()
+{
+    static_assert(sizeof(Strand, Std430DataLayout) == 48, "Strand layout");
+    static_assert(sizeof(Node, Std430DataLayout) == 16, "Node layout");
+    static_assert(sizeof(Particle, Std430DataLayout) == 96, "Particle layout");
+    static_assert(sizeof(Segment, Std430DataLayout) == 672, "Segment layout");
+    static_assert(sizeof(SegmentPair, Std430DataLayout) == 144, "SegmentPair layout");
+    static_assert(sizeof(SegmentData, Std430DataLayout) == 304, "SegmentData layout");
+    static_assert(sizeof(Leaf, Std430DataLayout) == 384, "Leaf layout");
+    static_assert(sizeof(HashedGridElement, Std430DataLayout) == 16, "HashedGridElement layout");
+    static_assert(sizeof(HashedGridCellStart, Std430DataLayout) == 16, "HashedGridCellStart layout");
+    static_assert(sizeof(UniformParticle, Std430DataLayout) == 160, "UniformParticle layout");
+    static_assert(sizeof(DelaunayTetrahedron, Std430DataLayout) == 160, "DelaunayTetrahedron layout");
+    static_assert(sizeof(SegmentMeshletVertex, Std430DataLayout) == 48, "SegmentMeshletVertex layout");
+    static_assert(sizeof(SegmentMeshletTriangle, Std430DataLayout) == 176, "SegmentMeshletTriangle layout");
+
+    float value = rand01(1u) + EE_SIMPLEX_NOISE(float2(0.25, 0.75));
+    value += orderedIntToFloat(floatToOrderedInt(value));
+    value += LineCircleIntersect(float2(-1.0, 0.0), float2(1.0, 0.0), float2(0.0), 0.5) ? 1.0 : 0.0;
+    value += is_larger(hashed_grid_elements[0], hashed_grid_elements[1]) ? 1.0 : 0.0;
+    output_buffer[0] = float4(value, uniform_particles[0].position_t.x,
+                              segment_meshlet_vertices[0].x.x, segments[0].radius);
+}
+)";
+
+  ShaderReflectionInfo reflection;
+  std::string diagnostics;
+  ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
+                                   module_root / "EcoSysLabGpuAbiProbe.slang"))
+      << diagnostics;
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 15u);
+  for (uint32_t binding = 0; binding < 8; ++binding) {
+    const auto entry = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+                                    [binding](const auto& candidate) {
+                                      return candidate.set == 0 && candidate.binding == binding;
+                                    });
+    ASSERT_NE(entry, reflection.descriptor_bindings.end()) << binding;
+    EXPECT_EQ(entry->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  }
+  for (uint32_t binding = 8; binding < 10; ++binding) {
+    const auto set0 = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+                                   [binding](const auto& candidate) {
+                                     return candidate.set == 0 && candidate.binding == binding;
+                                   });
+    const auto set1 = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+                                   [binding](const auto& candidate) {
+                                     return candidate.set == 1 && candidate.binding == binding;
+                                   });
+    ASSERT_NE(set0, reflection.descriptor_bindings.end()) << binding;
+    ASSERT_NE(set1, reflection.descriptor_bindings.end()) << binding;
+    EXPECT_EQ(set0->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+    EXPECT_EQ(set1->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  }
+  EXPECT_TRUE(reflection.push_constant_ranges.empty());
+  EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
+
+  const std::array<std::pair<const char*, uint32_t>, 5> push_constant_cases = {{
+      {"EcoSysLab.AlphaShapeRenderingConstants", 64},
+      {"EcoSysLab.DynamicStrandsFoliageRenderingConstants", 12},
+      {"EcoSysLab.DynamicStrandsSmallSegmentsRenderingConstants", 36},
+      {"EcoSysLab.DynamicStrandsSmallSegmentsRenderingVisualizationConstants", 76},
+      {"EcoSysLab.KineticVoronoiRenderingConstants", 40},
+  }};
+  for (const auto& [module, expected_size] : push_constant_cases) {
+    const std::string push_source = "import " + std::string(module) +
+                                    ";\n[shader(\"compute\")] [numthreads(1, 1, 1)]\n"
+                                    "void main() { int value = EE_INSTANCE_INDEX; }\n";
+    ShaderReflectionInfo push_reflection;
+    diagnostics.clear();
+    ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, push_source, push_reflection, diagnostics,
+                                     module_root / "EcoSysLabPushConstantProbe.slang"))
+        << module << "\n"
+        << diagnostics;
+    ASSERT_EQ(push_reflection.push_constant_ranges.size(), 1u) << module;
+    EXPECT_EQ(push_reflection.push_constant_ranges[0].offset, 0u) << module;
+    EXPECT_EQ(push_reflection.push_constant_ranges[0].size, expected_size) << module;
+  }
 }
 
 TEST(ShaderCache, RayTracingFoundationModulesCompileAndReflectBindings) {
@@ -777,64 +802,18 @@ void main()
   ShaderReflectionInfo reflection;
   std::string diagnostics;
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
-                                   module_root / "RayTracingFoundationProbe.slang", ShaderSourceDialect::NativeSlang))
+                                   module_root / "RayTracingFoundationProbe.slang"))
       << diagnostics;
   ASSERT_EQ(reflection.descriptor_bindings.size(), 30u);
   EXPECT_EQ(reflection.compute_thread_group_size, (std::array<uint32_t, 3>{1, 1, 1}));
 
   std::vector<uint32_t> binaries;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, binaries,
-                                     module_root / "RayTracingFoundationProbe.slang",
-                                     ShaderSourceDialect::NativeSlang));
+  ASSERT_TRUE(
+      Shader::CompileToSpirv(ShaderType::Compute, source, binaries, module_root / "RayTracingFoundationProbe.slang"));
   EXPECT_FALSE(binaries.empty());
 }
 
 TEST(ShaderCache, UsesMemoryThenValidatedDiskEntry) {
-  ShaderCacheScope scope;
-  std::vector<uint32_t> first;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, first));
-  ASSERT_FALSE(first.empty());
-  auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.compilations, 1u);
-  EXPECT_EQ(stats.disk_misses, 1u);
-
-  std::vector<uint32_t> second;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, second));
-  EXPECT_EQ(first, second);
-  EXPECT_EQ(Shader::GetCompileCacheStats().memory_hits, 1u);
-
-  Shader::ClearInMemoryCompileCache();
-  Shader::ResetCompileCacheStats();
-  std::vector<uint32_t> disk;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, disk));
-  EXPECT_EQ(first, disk);
-  stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.disk_hits, 1u);
-  EXPECT_EQ(stats.compilations, 0u);
-}
-
-TEST(ShaderCache, ColdCompileReplacesCallerOutput) {
-  ShaderCacheScope scope;
-  std::vector<uint32_t> binaries{0x07230203u, 0xdeadbeefu};
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries));
-  ASSERT_GT(binaries.size(), 2u);
-  EXPECT_EQ(binaries.front(), 0x07230203u);
-  EXPECT_NE(binaries[1], 0xdeadbeefu);
-}
-
-TEST(ShaderCache, SlangComputeShaderCompilesToSpirv) {
-  ShaderCacheScope scope;
-  std::vector<uint32_t> binaries;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, binaries));
-  ASSERT_FALSE(binaries.empty());
-  EXPECT_EQ(binaries.front(), 0x07230203u);
-  const auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.compilations, 1u);
-  EXPECT_EQ(stats.disk_misses, 1u);
-  EXPECT_EQ(CacheFileCount(scope.Root()), 1u);
-}
-
-TEST(ShaderCache, SlangUsesMemoryThenValidatedDiskEntry) {
   ShaderCacheScope scope;
   std::vector<uint32_t> first;
   ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, first));
@@ -856,6 +835,27 @@ TEST(ShaderCache, SlangUsesMemoryThenValidatedDiskEntry) {
   stats = Shader::GetCompileCacheStats();
   EXPECT_EQ(stats.disk_hits, 1u);
   EXPECT_EQ(stats.compilations, 0u);
+}
+
+TEST(ShaderCache, ColdCompileReplacesCallerOutput) {
+  ShaderCacheScope scope;
+  std::vector<uint32_t> binaries{0x07230203u, 0xdeadbeefu};
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, binaries));
+  ASSERT_GT(binaries.size(), 2u);
+  EXPECT_EQ(binaries.front(), 0x07230203u);
+  EXPECT_NE(binaries[1], 0xdeadbeefu);
+}
+
+TEST(ShaderCache, SlangComputeShaderCompilesToSpirv) {
+  ShaderCacheScope scope;
+  std::vector<uint32_t> binaries;
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, binaries));
+  ASSERT_FALSE(binaries.empty());
+  EXPECT_EQ(binaries.front(), 0x07230203u);
+  const auto stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.compilations, 1u);
+  EXPECT_EQ(stats.disk_misses, 1u);
+  EXPECT_EQ(CacheFileCount(scope.Root()), 1u);
 }
 
 TEST(ShaderCache, SlangDiskHitSkipsFrontendAfterDependencyIndexIsPublished) {
@@ -1122,7 +1122,6 @@ TEST(ShaderCache, ProductionSmaaSlangPresetVariantsCompileAndReflectInterfaces) 
       ASSERT_FALSE(binaries.empty());
     }
   }
-  EXPECT_EQ(Shader::GetCompileCacheStats().compatibility_slang_frontend_invocations, 0u);
 }
 
 TEST(ShaderCache, CameraRaygenSerCompileUsesExtInvocationReorder) {
@@ -1275,9 +1274,10 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
   }
 }
 
-TEST(ShaderCache, ProductionEcoSysLabGlslShaderInventoryCompiles) {
+TEST(ShaderCache, ProductionEcoSysLabNativeSlangInventoryCompiles) {
   ShaderCacheScope scope;
   RegisterEcoSysLabShaderIncludePath();
+  RegisterDefaultShaderIncludePath();
   const auto sdk_shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
   const auto sdk_glsl_count =
       static_cast<size_t>(std::count_if(std::filesystem::recursive_directory_iterator(sdk_shader_root),
@@ -1286,7 +1286,18 @@ TEST(ShaderCache, ProductionEcoSysLabGlslShaderInventoryCompiles) {
                                         }));
   EXPECT_EQ(sdk_glsl_count, 0u);
   const auto shader_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders");
-  ExpectGlslStageFilesCompile(shader_root);
+  EXPECT_EQ(CollectSlangStageFiles(shader_root).size(), 118u);
+  ExpectSlangStageFilesCompile(shader_root);
+  auto stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 118u);
+
+  Shader::ClearInMemoryCompileCache();
+  Shader::ResetCompileCacheStats();
+  ExpectSlangStageFilesCompile(shader_root);
+  stats = Shader::GetCompileCacheStats();
+  EXPECT_EQ(stats.disk_hits, 118u);
+  EXPECT_EQ(stats.compilations, 0u);
+  EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
 }
 
 TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
@@ -1614,7 +1625,7 @@ TEST(ShaderCache, SlangMatrixPushConstantReflectionMatchesGlmLayout) {
   EXPECT_EQ(matrix_decorations.row_major, 0u);
 }
 
-TEST(ShaderCache, SlangCompatibilityMatricesUseGlmStorageLayout) {
+TEST(ShaderCache, SlangScalarLayoutMatricesUseGlmStorageLayout) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
   const auto shader_path = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/RayQueryCamera.slang");
@@ -1667,11 +1678,11 @@ TEST(ShaderCache, SlangStageIoValidationFailsOnMismatch) {
   EXPECT_NE(invalid.diagnostics.find("stage input mismatch"), std::string::npos) << invalid.diagnostics;
 }
 
-TEST(ShaderCache, CoalescesConcurrentSlangRequests) {
+TEST(ShaderCache, CoalescesConcurrentNativeSlangRequests) {
   ShaderCacheScope scope;
   auto* application = ApplicationContext::TryGet();
   ASSERT_NE(application, nullptr);
-  constexpr size_t request_count = 8;
+  constexpr size_t request_count = 16;
   std::vector<std::future<std::vector<uint32_t>>> requests;
   requests.reserve(request_count);
   for (size_t i = 0; i < request_count; ++i) {
@@ -1692,55 +1703,33 @@ TEST(ShaderCache, CoalescesConcurrentSlangRequests) {
   EXPECT_EQ(stats.memory_hits + stats.coalesced_waits, request_count - 1u);
 }
 
-TEST(ShaderCache, CoalescesConcurrentRequests) {
-  ShaderCacheScope scope;
-  auto* application = ApplicationContext::TryGet();
-  ASSERT_NE(application, nullptr);
-  constexpr size_t request_count = 16;
-  std::vector<std::future<std::vector<uint32_t>>> requests;
-  requests.reserve(request_count);
-  for (size_t i = 0; i < request_count; ++i) {
-    requests.emplace_back(std::async(std::launch::async, [application]() {
-      ApplicationContextScope application_scope(*application);
-      std::vector<uint32_t> binaries;
-      if (!Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, binaries))
-        binaries.clear();
-      return binaries;
-    }));
-  }
-  const auto expected = requests.front().get();
-  ASSERT_FALSE(expected.empty());
-  for (size_t i = 1; i < requests.size(); ++i)
-    EXPECT_EQ(requests[i].get(), expected);
-  const auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.compilations, 1u);
-  EXPECT_EQ(stats.memory_hits + stats.coalesced_waits, request_count - 1u);
-}
-
 TEST(ShaderCache, StageAndSourceChangesCreateDistinctEntries) {
   ShaderCacheScope scope;
   std::vector<uint32_t> compute;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, compute));
+  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, compute));
   std::vector<uint32_t> fragment;
   ASSERT_TRUE(Shader::CompileToSpirv(
-      ShaderType::Fragment, "layout(location = 0) out float4 color; void main() { color = float4(1.0); }", fragment));
+      ShaderType::Fragment,
+      "struct Output { float4 color : SV_Target0; }; [shader(\"fragment\")] Output main() { Output output; "
+      "output.color = float4(1.0); return output; }",
+      fragment));
   std::vector<uint32_t> changed_source;
   ASSERT_TRUE(Shader::CompileToSpirv(
-      ShaderType::Compute, "layout(local_size_x = 1) in; void main() { uint value = gl_GlobalInvocationID.x + 1u; }",
+      ShaderType::Compute,
+      "[shader(\"compute\")] [numthreads(1, 1, 1)] void main(uint3 id : SV_DispatchThreadID) { uint value = "
+      "id.x + 1u; }",
       changed_source));
   EXPECT_EQ(CacheFileCount(scope.Root()), 3u);
   EXPECT_EQ(Shader::GetCompileCacheStats().compilations, 3u);
 }
 
-TEST(ShaderCache, EcoSysLabGlslPackedFungusEdgeShaderCompiles) {
+TEST(ShaderCache, EcoSysLabNativePackedFungusEdgeShaderCompiles) {
   ShaderCacheScope scope;
-  Shader::RegisterShaderIncludePath(
-      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Includes"));
-  Shader::RegisterShaderIncludePath(RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Includes"));
+  RegisterEcoSysLabShaderIncludePath();
 
   const auto shader_path = RepoPath(
       "EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Compute/DynamicStrands/Fungus/"
-      "FungusDiffusion_edge.comp");
+      "FungusDiffusion_edge.slang");
   const auto source = std::string(kComputeShaderGlobalDefines) + ReadTextFile(shader_path);
 
   std::vector<uint32_t> binaries;
@@ -1748,56 +1737,7 @@ TEST(ShaderCache, EcoSysLabGlslPackedFungusEdgeShaderCompiles) {
   EXPECT_FALSE(binaries.empty());
 }
 
-TEST(ShaderCache, IncludeContentInvalidatesDeterministicKey) {
-  ShaderCacheScope scope;
-  const auto include_path = scope.Root() / "m5_shader_cache_include.slangh";
-  {
-    std::ofstream file(include_path);
-    file << "float M5_INCLUDED_VALUE() { return 1.0; }\n";
-  }
-  Shader::RegisterShaderIncludePath(scope.Root());
-  const std::string source = R"(
-#extension GL_GOOGLE_include_directive : require
-#include "m5_shader_cache_include.slangh"
-layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
-void main() { float value = M5_INCLUDED_VALUE(); }
-)";
-  std::vector<uint32_t> first;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, first));
-  {
-    std::ofstream file(include_path, std::ios::trunc);
-    file << "float M5_INCLUDED_VALUE() { return 2.0; }\n";
-  }
-  Shader::ClearInMemoryCompileCache();
-  Shader::ResetCompileCacheStats();
-  std::vector<uint32_t> second;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, source, second));
-  EXPECT_FALSE(second.empty());
-  EXPECT_EQ(Shader::GetCompileCacheStats().compilations, 1u);
-  EXPECT_EQ(CacheFileCount(scope.Root()), 2u);
-}
-
-TEST(ShaderCache, CorruptEntryIsRecompiledWithoutThrowing) {
-  ShaderCacheScope scope;
-  std::vector<uint32_t> first;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, first));
-  const auto cache_file = FirstCacheFile(scope.Root());
-  ASSERT_FALSE(cache_file.empty());
-  {
-    std::ofstream file(cache_file, std::ios::binary | std::ios::trunc);
-    file << "truncated";
-  }
-  Shader::ClearInMemoryCompileCache();
-  Shader::ResetCompileCacheStats();
-  std::vector<uint32_t> repaired;
-  ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kComputeShader, repaired));
-  EXPECT_EQ(first, repaired);
-  const auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.corrupt_entries, 1u);
-  EXPECT_EQ(stats.compilations, 1u);
-}
-
-TEST(ShaderCache, SlangCorruptEntryIsRecompiledWithoutThrowing) {
+TEST(ShaderCache, CorruptNativeSlangEntryIsRecompiledWithoutThrowing) {
   ShaderCacheScope scope;
   std::vector<uint32_t> first;
   ASSERT_TRUE(Shader::CompileToSpirv(ShaderType::Compute, kSlangComputeShader, first));
@@ -1819,7 +1759,7 @@ TEST(ShaderCache, SlangCorruptEntryIsRecompiledWithoutThrowing) {
 
 TEST(ShaderCache, FailedCompilationIsNotPublishedAndCanRetry) {
   ShaderCacheScope scope;
-  constexpr const char* invalid_shader = "layout(local_size_x = 1) in; void main( {";
+  constexpr const char* invalid_shader = "[numthreads(1, 1, 1)] void main( {";
   std::vector<uint32_t> binaries;
   EXPECT_FALSE(Shader::CompileToSpirv(ShaderType::Compute, invalid_shader, binaries));
   EXPECT_EQ(CacheFileCount(scope.Root()), 0u);

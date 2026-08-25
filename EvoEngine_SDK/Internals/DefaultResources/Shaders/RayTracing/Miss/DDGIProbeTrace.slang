@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 import EvoEngine.DDGIProbeRayConstants;
 import EvoEngine.DDGIProbeRayPayload;
 import EvoEngine.RayTracingBasic;

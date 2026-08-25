@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 public struct EeSsrConstants {
   public int camera_index;
   public float max_distance;

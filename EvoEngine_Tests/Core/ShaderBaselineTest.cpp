@@ -163,47 +163,6 @@ const char* ShaderTypeName(const ShaderType shader_type) {
   }
 }
 
-std::string StripShaderComments(const std::string& source) {
-  std::string result = source;
-  bool line_comment = false;
-  bool block_comment = false;
-  for (size_t index = 0; index < result.size(); ++index) {
-    if (line_comment) {
-      if (result[index] == '\n') {
-        line_comment = false;
-      } else {
-        result[index] = ' ';
-      }
-    } else if (block_comment) {
-      if (index + 1 < result.size() && result[index] == '*' && result[index + 1] == '/') {
-        result[index++] = ' ';
-        result[index] = ' ';
-        block_comment = false;
-      } else if (result[index] != '\n') {
-        result[index] = ' ';
-      }
-    } else if (index + 1 < result.size() && result[index] == '/' && result[index + 1] == '/') {
-      result[index++] = ' ';
-      result[index] = ' ';
-      line_comment = true;
-    } else if (index + 1 < result.size() && result[index] == '/' && result[index + 1] == '*') {
-      result[index++] = ' ';
-      result[index] = ' ';
-      block_comment = true;
-    }
-  }
-  return result;
-}
-
-bool UsesCompatibilitySyntax(const std::string& source) {
-  const auto uncommented = StripShaderComments(source);
-  return uncommented.find("#extension GL_") != std::string::npos || uncommented.find("layout(") != std::string::npos ||
-         uncommented.find("layout (") != std::string::npos ||
-         uncommented.find("precision highp") != std::string::npos ||
-         uncommented.find("readonly buffer") != std::string::npos ||
-         uncommented.find("writeonly buffer") != std::string::npos;
-}
-
 bool EndsWith(const std::string_view value, const std::string_view suffix) {
   return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
 }
@@ -315,7 +274,6 @@ void CaptureArtifact(const std::filesystem::path& capture_root, const size_t ind
   nlohmann::ordered_json record;
   record["path"] = relative_path.generic_string();
   record["stage"] = ShaderTypeName(shader_type);
-  record["dialect"] = UsesCompatibilitySyntax(source) ? "compatibility" : "native";
   record["variant_defines"] = variant_defines;
   record["spirv"] = std::filesystem::relative(spirv_path, capture_root).generic_string();
   record["spirv_word_count"] = binaries.size();
@@ -329,7 +287,6 @@ void CaptureArtifact(const std::filesystem::path& capture_root, const size_t ind
 TEST(ShaderBaseline, ProductionSdkEntryPointInventoryCompilesAndReflects) {
   ShaderBaselineScope scope;
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
-  Shader::RegisterShaderIncludePath(shader_root / "Includes");
   Shader::RegisterShaderIncludePath(shader_root / "Modules");
   const auto shader_paths = CollectShaderEntryPoints(shader_root);
   ASSERT_FALSE(shader_paths.empty());
@@ -364,8 +321,6 @@ TEST(ShaderBaseline, ProductionSdkEntryPointInventoryCompilesAndReflects) {
       {"corrupt_entries", stats.corrupt_entries},
       {"failures", stats.failures},
       {"native_slang_frontend_invocations", stats.native_slang_frontend_invocations},
-      {"compatibility_slang_frontend_invocations", stats.compatibility_slang_frontend_invocations},
-      {"glslang_frontend_invocations", stats.glslang_frontend_invocations},
   };
   std::cout << "EVOENGINE_SHADER_BASELINE_STATS " << summary.dump() << std::endl;
 }

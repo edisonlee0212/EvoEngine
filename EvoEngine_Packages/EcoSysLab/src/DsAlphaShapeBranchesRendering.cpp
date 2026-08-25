@@ -123,14 +123,14 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   branches_point_light_render_pipeline->task_shader =
       Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.task");
+                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
   branches_point_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/PointLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/PointLightShadowMap.slang");
   branches_point_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   branches_point_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_point_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -147,14 +147,14 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   branches_spot_light_render_pipeline->task_shader =
       Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.task");
+                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
   branches_spot_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/SpotLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/SpotLightShadowMap.slang");
   branches_spot_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   branches_spot_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_spot_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -171,14 +171,14 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   branches_directional_light_render_pipeline->task_shader =
       Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.task");
+                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
   branches_directional_light_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/DirectionalLightShadowMap.mesh");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/DirectionalLightShadowMap.slang");
   branches_directional_light_render_pipeline->fragment_shader =
       Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.frag");
+                              std::filesystem::path("./EcoSysLabResources") / "Shaders/Graphics/Fragment/Empty.slang");
   branches_directional_light_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_directional_light_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -196,15 +196,15 @@ void DsAlphaShapeMeshing::BuildBranchesRenderingPipelines() {
   branches_render_pipeline->task_shader =
       Shader::CreateTemporary(ShaderType::Task, Platform::GetShaderGlobalDefines(),
                               std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.task");
+                                  "Shaders/Graphics/Task/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
   branches_render_pipeline->mesh_shader = Shader::CreateTemporary(
       ShaderType::Mesh, Platform::GetShaderGlobalDefines(),
       std::filesystem::path("./EcoSysLabResources") /
-          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/Rendering.mesh");
-  branches_render_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-                              std::filesystem::path("./EcoSysLabResources") /
-                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.frag");
+          "Shaders/Graphics/Mesh/DynamicStrands/Rendering/AlphaShapeMeshing/Branches/Rendering.slang");
+  branches_render_pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+      std::filesystem::path("./EcoSysLabResources") /
+          "Shaders/Graphics/Fragment/DynamicStrands/Rendering/AlphaShapeMeshing/Branches.slang");
   branches_render_pipeline->geometry_type = GeometryType::Mesh;
   branches_render_pipeline->descriptor_set_layouts.emplace_back(
       ApplicationContext::Get().GetLayer<RenderLayer>()->GetPerFrameDescriptorSetLayout());
@@ -369,6 +369,7 @@ uint32_t DsAlphaShapeMeshing::RenderBranchesToCameraDeferred(
   render_push_constant.global_extrusion_distance = render_parameters.global_extrusion_distance;
   render_push_constant.break_threshold = render_parameters.break_threshold;
   render_push_constant.use_polar_coordinates_for_uv = render_parameters.use_polar_coordinates_for_uv ? 1 : 0;
+  render_push_constant.bark_material_index = bark_material_index;
   branches_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
   branches_render_pipeline->states.SetViewportScissor(view.viewport);
   branches_render_pipeline->states.polygon_mode = polygon_mode;

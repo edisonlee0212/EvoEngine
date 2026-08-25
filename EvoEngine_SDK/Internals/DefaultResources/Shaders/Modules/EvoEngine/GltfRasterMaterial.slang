@@ -1,4 +1,3 @@
-// @evoengine-dialect native
 __exported import EvoEngine.GltfMaterial;
 [[vk::binding(0, 3)]] public
 Sampler2D<float4> EE_GLTF_RASTER_BASE_COLOR_TEXTURE;
