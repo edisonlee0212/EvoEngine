@@ -31,7 +31,7 @@ class DynamicTreeStrands : public IPrivateComponent {
    */
   void InitializeFromTree(const std::shared_ptr<Tree>& tree, const std::string& meshing_buffer_description = {});
 
-  int seed = 0;                ///< Seed for procedural generation (used when fixed_subdivision_seed is true).
+  int seed = 0;  ///< Seed for procedural generation (used when fixed_subdivision_seed is true).
   /// When true, random strand subdivisions use @ref seed so meshing-buffer hashes stay stable across attempts.
   /// When false, a fresh non-deterministic seed is drawn each subdivide.
   bool fixed_subdivision_seed = true;

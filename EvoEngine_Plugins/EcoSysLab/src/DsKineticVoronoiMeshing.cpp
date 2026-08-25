@@ -1785,9 +1785,8 @@ bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
   Upload();
   UpdateBindings();
   EVOENGINE_LOG("Reset meshlets to GPU (pristine visuals for remaining physics segments; "
-                << "OUTSIDE segments removed by intersection are not restored). "
-                << segment_meshlet_vertices.size() << " vertices, " << segment_meshlet_triangles.size()
-                << " triangles.");
+                << "OUTSIDE segments removed by intersection are not restored). " << segment_meshlet_vertices.size()
+                << " vertices, " << segment_meshlet_triangles.size() << " triangles.");
   return true;
 }
 
@@ -2177,9 +2176,9 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
     }
   }
 
-  EVOENGINE_LOG("CompactSurvivingPhysicsSegments: removed "
-                << outside_physics_count << " OUTSIDE segment(s); now " << segments.size() << " segments, "
-                << segment_pairs.size() << " pairs (" << vertical_pair_count << " vertical).");
+  EVOENGINE_LOG("CompactSurvivingPhysicsSegments: removed " << outside_physics_count << " OUTSIDE segment(s); now "
+                                                            << segments.size() << " segments, " << segment_pairs.size()
+                                                            << " pairs (" << vertical_pair_count << " vertical).");
 }
 
 void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher) {
@@ -2422,9 +2421,9 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
 
-  const MeshingInputHashStats hash_stats =
-      ComputeMeshingInputHashStats(support_points, subdivisions_by_strand, physics_strand_to_segment_indices,
-                                   transforms_by_height_and_branch, root_transform, branch_indices, strands_by_branch_id);
+  const MeshingInputHashStats hash_stats = ComputeMeshingInputHashStats(
+      support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
+      root_transform, branch_indices, strands_by_branch_id);
   LogMeshingInputHashStats(hash_stats);
   const std::string& input_hash = hash_stats.input_hash;
   const std::filesystem::path buffer_dir = MeshingBufferDirectory();
@@ -2482,8 +2481,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
       EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
                                                 << " vertices, " << segment_meshlet_triangles.size() << " triangles).");
-      if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats,
-                                           meshing_settings.meshing_buffer_description)) {
+      if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
         EVOENGINE_LOG("Updated meshing buffer metadata for " << input_hash << ".");
       }
       loaded_from_cache = true;

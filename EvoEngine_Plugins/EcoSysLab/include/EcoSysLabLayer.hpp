@@ -405,14 +405,14 @@ class EcoSysLabLayer : public ILayer {
   std::shared_ptr<ParticleInfoList> shadow_grid_particle_info_list_;    ///< Stores data for shadow grid rendering.
   std::shared_ptr<ParticleInfoList> lighting_grid_particle_info_list_;  ///< Stores data for lighting grid rendering.
 
-  float simulated_time_;         ///< The current simulated time (days).
-  bool auto_time_grow_ = false;  ///< Automatic multi-year growth in progress.
-  float auto_grow_target_time_ = 0.0f;  ///< Target simulated time (days) for auto-grow.
-  float auto_grow_extra_years_ = 4.f;   ///< Default years requested from the Tree Simulation UI.
+  float simulated_time_;                         ///< The current simulated time (days).
+  bool auto_time_grow_ = false;                  ///< Automatic multi-year growth in progress.
+  float auto_grow_target_time_ = 0.0f;           ///< Target simulated time (days) for auto-grow.
+  float auto_grow_extra_years_ = 4.f;            ///< Default years requested from the Tree Simulation UI.
   std::function<void()> on_auto_grow_finished_;  ///< One-shot callback when auto-grow ends.
-  std::vector<Fruit> fruits_;    ///< Stores fruit entities.
-  std::vector<Leaf> leaves_;     ///< Stores leaf entities.
-  std::vector<Flower> flowers_;  ///< Stores leaf entities.
+  std::vector<Fruit> fruits_;                    ///< Stores fruit entities.
+  std::vector<Leaf> leaves_;                     ///< Stores leaf entities.
+  std::vector<Flower> flowers_;                  ///< Stores leaf entities.
 
   std::shared_ptr<Camera> visualization_camera_;  ///< Camera used for visualization.
 

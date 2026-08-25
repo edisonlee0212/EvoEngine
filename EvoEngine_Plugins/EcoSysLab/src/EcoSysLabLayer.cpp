@@ -789,8 +789,8 @@ void EcoSysLabLayer::StartAutoGrow(const float years) {
   }
   auto_time_grow_ = true;
   auto_grow_target_time_ = simulated_time_ + years * 365.f;
-  EVOENGINE_LOG("Tree auto-grow started: +" << years << " years (target age "
-                                            << (auto_grow_target_time_ / 365.f) << " years).");
+  EVOENGINE_LOG("Tree auto-grow started: +" << years << " years (target age " << (auto_grow_target_time_ / 365.f)
+                                            << " years).");
 }
 
 void EcoSysLabLayer::StopAutoGrow() {

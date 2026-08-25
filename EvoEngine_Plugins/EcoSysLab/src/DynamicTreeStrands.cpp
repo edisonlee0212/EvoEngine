@@ -477,7 +477,7 @@ bool DynamicTreeStrands::LogExperimentSetupSettings::OnInspect(const std::shared
 void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings& settings) {
   DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
       settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands BoardExperimentSetup"
-                                                   : settings.meshing_buffer_description;
+                                                  : settings.meshing_buffer_description;
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
   auto& strand_group = strand_model_skeleton.data.strand_group;
@@ -782,7 +782,7 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
   // TODO: move dynamic strands initialization here
   DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
       settings.meshing_buffer_description.empty() ? "created from DynamicTreeStrands LogExperimentSetup"
-                                                   : settings.meshing_buffer_description;
+                                                  : settings.meshing_buffer_description;
 
   auto& strand_model_skeleton = strand_model.strand_model_skeleton;
   strand_model_skeleton = {1};
@@ -1414,7 +1414,7 @@ void DynamicTreeStrands::InitializeFromTree(const std::shared_ptr<Tree>& tree,
                                             const std::string& meshing_buffer_description) {
   DsKineticVoronoiMeshing::meshing_settings.meshing_buffer_description =
       meshing_buffer_description.empty() ? "created from DynamicTreeStrands InitializeFromTree"
-                                          : meshing_buffer_description;
+                                         : meshing_buffer_description;
   tree->BuildStrandModel();
   if (const auto td = tree->tree_descriptor_ref.Get<TreeDescriptor>()) {
     initialize_parameters.foliage_descriptor = td->foliage_descriptor;

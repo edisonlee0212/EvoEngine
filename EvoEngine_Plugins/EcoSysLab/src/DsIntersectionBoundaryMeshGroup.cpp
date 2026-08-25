@@ -117,8 +117,7 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
         const auto tree_gt = scene->GetDataComponent<GlobalTransform>(dts_owner);
         std::vector<MeshletObjExport::MeshGroup> export_groups;
         std::vector<std::pair<std::string, DsKineticVoronoiMeshing::IntersectionRunStats>> intersection_stats_rows;
-        const bool collect_intersection_stats =
-            DsKineticVoronoiMeshing::meshing_settings.collect_meshing_statistics;
+        const bool collect_intersection_stats = DsKineticVoronoiMeshing::meshing_settings.collect_meshing_statistics;
         for (const auto& child : scene->GetChildren(group)) {
           if (!scene->HasPrivateComponent<DsIntersectionBoundaryMesh>(child)) {
             continue;
