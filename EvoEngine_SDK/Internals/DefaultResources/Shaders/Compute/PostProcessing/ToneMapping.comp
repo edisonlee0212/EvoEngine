@@ -1,16 +1,16 @@
-// You need to have GL_ARB_shading_language_include extention enabled to use "#include" feature. You also need to put
-// your include shaders in the .../EvoEngine_SDK/Internals/Shaders/Include folder.
+//You need to have GL_ARB_shading_language_include extention enabled to use "#include" feature. You also need to put your include shaders in the .../EvoEngine_SDK/Internals/Shaders/Include folder.
 #extension GL_ARB_shading_language_include : enable
 #extension GL_EXT_nonuniform_qualifier : enable
 #extension GL_EXT_control_flow_attributes : require
 
 #include "PerFrame.glsl"
 
-layout(push_constant) uniform EE_SSAO_CONSTANTS {
-  int EE_CAMERA_INDEX;
-  float exposure;
-  float gamma;
+layout(push_constant) uniform EE_SSAO_CONSTANTS{
+	int EE_CAMERA_INDEX;
+	float exposure;
+	float gamma;
 };
+
 
 const uint WORKGROUP_SIZE = COMPUTE_SUBGROUP_COUNT * SUBGROUP_SIZE;
 
@@ -21,34 +21,35 @@ uint laneID = gl_LocalInvocationID.x;
 
 layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
+
 layout(set = 1, binding = 0, rgba32f) uniform image2D inColor;
 
 void Execute(uint pixel_index, uint resolution_x, uint resolution_y);
 
-void main() {
-  uint resolution_x = uint(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX));
-  uint resolution_y = uint(EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
+void main(){
+	uint resolution_x = uint(EE_CAMERA_RESOLUTION_X(EE_CAMERA_INDEX));
+	uint resolution_y = uint(EE_CAMERA_RESOLUTION_Y(EE_CAMERA_INDEX));
 
-  [[unroll]]
-  for (uint i = 0; i < ITERATIONS_PER_TASK; i++) {
-    uint local_index = laneID + i * WORKGROUP_SIZE;
-    uint pixel_index = baseID + local_index;
+	[[unroll]]
+	for (uint i = 0; i < ITERATIONS_PER_TASK; i++)
+	{
+		uint local_index  = laneID + i * WORKGROUP_SIZE;
+		uint pixel_index = baseID + local_index;
 
-    if (pixel_index >= resolution_x * resolution_y)
-      break;
-    Execute(pixel_index, resolution_x, resolution_y);
-  }
+		if(pixel_index >= resolution_x * resolution_y) break;
+		Execute(pixel_index, resolution_x, resolution_y);
+	}
 }
 
 void Execute(uint pixel_index, uint resolution_x, uint resolution_y) {
-  uint seed = pixel_index;
-  float x_coordinate = float(pixel_index % resolution_x);
-  float y_coordinate = float(pixel_index / resolution_x);
-  ivec2 texCoord = ivec2(x_coordinate, y_coordinate);
-  vec4 outputColor = imageLoad(inColor, texCoord);
+	uint seed = pixel_index;
+	float x_coordinate = float(pixel_index % resolution_x);
+	float y_coordinate = float(pixel_index / resolution_x);
+	ivec2 texCoord = ivec2(x_coordinate, y_coordinate);
+	vec4 outputColor = imageLoad(inColor, texCoord);
 
-  outputColor.xyz = vec3(1.0f) - exp(-outputColor.xyz * exposure);
-  outputColor.xyz = pow(outputColor.xyz, vec3(1.0f / gamma));
+	outputColor.xyz = vec3(1.0f) - exp(-outputColor.xyz * exposure);
+	outputColor.xyz = pow(outputColor.xyz, vec3(1.0f / gamma));
 
-  imageStore(inColor, texCoord, outputColor);
+	imageStore(inColor, texCoord, outputColor);
 }
