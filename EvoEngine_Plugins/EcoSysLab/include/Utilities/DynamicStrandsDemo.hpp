@@ -66,7 +66,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
     Wind,             ///< Simulates tree reaction to wind.
     TreeCollision,    ///< Demonstrates tree collisions.
     TreeBreak,        ///< Demonstrates tree breaking physics.
-    Fungus
+    Fungus,           ///< Fungus / Woodstock demos.
+    SmallTrunk        ///< Grow Oak_trunk then run volumetric meshing.
   };
 
   /**

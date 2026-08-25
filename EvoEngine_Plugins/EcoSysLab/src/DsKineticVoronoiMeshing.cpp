@@ -96,6 +96,32 @@ std::filesystem::path MeshingBufferDirectory() {
   return project_path.parent_path() / "MeshBuffers";
 }
 
+template <typename Nested>
+size_t CountNestedElements(const Nested& nested) {
+  size_t count = 0;
+  for (const auto& inner : nested) {
+    count += inner.size();
+  }
+  return count;
+}
+
+size_t CountTripleNestedElements(const std::vector<std::vector<std::vector<size_t>>>& nested) {
+  size_t count = 0;
+  for (const auto& by_height : nested) {
+    count += CountNestedElements(by_height);
+  }
+  return count;
+}
+
+std::string FormatRootTransformSummary(const GlobalTransform& root_transform) {
+  const glm::mat4& m = root_transform.value;
+  const glm::vec3 t = m[3];
+  std::ostringstream oss;
+  oss << std::fixed << std::setprecision(6) << "t=(" << t.x << "," << t.y << "," << t.z << ")"
+      << " m00=" << m[0][0] << " m11=" << m[1][1] << " m22=" << m[2][2];
+  return oss.str();
+}
+
 std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& support_points,
                                     const std::vector<std::vector<double>>& subdivisions_by_strand,
                                     const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
@@ -103,13 +129,44 @@ std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& 
                                     const GlobalTransform& root_transform,
                                     const std::vector<std::vector<size_t>>& branch_indices,
                                     const std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
+  const auto mix_settings = [](Fnv64& hash) {
+    hash.MixCString("DsKineticVoronoiMeshing.v1");
+    hash.MixPod(kMeshingBufferVersion);
+    hash.MixPod(static_cast<uint8_t>(1));  // mesh_cap_at_start
+    hash.MixPod(static_cast<uint8_t>(1));  // transform_mesh_at_construction
+    hash.MixPod(static_cast<uint8_t>(DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0));
+    hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.spline_tension);
+  };
+
+  Fnv64 settings_hash;
+  mix_settings(settings_hash);
+
+  Fnv64 root_hash;
+  root_hash.MixPod(root_transform.value);
+
+  Fnv64 support_hash;
+  support_hash.MixNested(support_points);
+
+  Fnv64 subdiv_hash;
+  subdiv_hash.MixNested(subdivisions_by_strand);
+
+  Fnv64 physics_hash;
+  physics_hash.MixNested(physics_strand_to_segment_indices);
+
+  Fnv64 transforms_hash;
+  transforms_hash.MixNested(transforms_by_height_and_branch);
+
+  Fnv64 branch_hash;
+  branch_hash.MixNested(branch_indices);
+
+  Fnv64 strands_by_branch_hash;
+  strands_by_branch_hash.MixPod(static_cast<uint64_t>(strands_by_branch_id.size()));
+  for (const auto& by_height : strands_by_branch_id) {
+    strands_by_branch_hash.MixNested(by_height);
+  }
+
   Fnv64 hash;
-  hash.MixCString("DsKineticVoronoiMeshing.v1");
-  hash.MixPod(kMeshingBufferVersion);
-  hash.MixPod(static_cast<uint8_t>(1));  // mesh_cap_at_start
-  hash.MixPod(static_cast<uint8_t>(1));  // transform_mesh_at_construction
-  hash.MixPod(static_cast<uint8_t>(DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0));
-  hash.MixPod(DsKineticVoronoiMeshing::meshing_settings.spline_tension);
+  mix_settings(hash);
   hash.MixPod(root_transform.value);
   hash.MixNested(support_points);
   hash.MixNested(subdivisions_by_strand);
@@ -120,7 +177,34 @@ std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& 
   for (const auto& by_height : strands_by_branch_id) {
     hash.MixNested(by_height);
   }
-  return HashToHex(hash.value);
+
+  const std::string input_hash = HashToHex(hash.value);
+  EVOENGINE_LOG("Meshing buffer hash " << input_hash
+                                       << " | settings(v=" << kMeshingBufferVersion << ", store_meta="
+                                       << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
+                                       << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
+                                       << ", cap_start=1, xform_at_construction=1)=" << HashToHex(settings_hash.value)
+                                       << " root=" << HashToHex(root_hash.value) << " ["
+                                       << FormatRootTransformSummary(root_transform) << "]"
+                                       << " support(strands=" << support_points.size()
+                                       << ", pts=" << CountNestedElements(support_points)
+                                       << ")=" << HashToHex(support_hash.value)
+                                       << " subdiv(strands=" << subdivisions_by_strand.size()
+                                       << ", vals=" << CountNestedElements(subdivisions_by_strand)
+                                       << ")=" << HashToHex(subdiv_hash.value)
+                                       << " physics(strands=" << physics_strand_to_segment_indices.size()
+                                       << ", segs=" << CountNestedElements(physics_strand_to_segment_indices)
+                                       << ")=" << HashToHex(physics_hash.value)
+                                       << " transforms(heights=" << transforms_by_height_and_branch.size()
+                                       << ", mats=" << CountNestedElements(transforms_by_height_and_branch)
+                                       << ")=" << HashToHex(transforms_hash.value)
+                                       << " branches(heights=" << branch_indices.size()
+                                       << ", ids=" << CountNestedElements(branch_indices)
+                                       << ")=" << HashToHex(branch_hash.value)
+                                       << " strands_by_branch(outer=" << strands_by_branch_id.size()
+                                       << ", ids=" << CountTripleNestedElements(strands_by_branch_id)
+                                       << ")=" << HashToHex(strands_by_branch_hash.value));
+  return input_hash;
 }
 
 class BinaryWriter {
@@ -1367,6 +1451,96 @@ bool DsKineticVoronoiMeshing::HasMeshedSegmentMeshlets() const {
   return tree_mesher_ && !segment_meshlets_.empty();
 }
 
+bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>& scene, const Entity& owner,
+                                                    const std::filesystem::path& yaml_path) {
+  if (!scene || !scene->IsEntityValid(owner)) {
+    EVOENGINE_ERROR("Load intersection setup: invalid owner entity.");
+    return false;
+  }
+  if (!std::filesystem::exists(yaml_path)) {
+    EVOENGINE_ERROR("Load intersection setup: file not found: " << yaml_path.string());
+    return false;
+  }
+
+  const auto find_group_entity = [](const std::shared_ptr<Scene>& s, const Entity& o) -> Entity {
+    for (const auto& child : s->GetChildren(o)) {
+      if (s->HasPrivateComponent<DsIntersectionBoundaryMeshGroup>(child)) {
+        return child;
+      }
+    }
+    return Entity{};
+  };
+  const auto ensure_group_entity = [&](const std::shared_ptr<Scene>& s, const Entity& o) -> Entity {
+    Entity group = find_group_entity(s, o);
+    if (s->IsEntityValid(group)) {
+      return group;
+    }
+    group = s->CreateEntity("Intersection Meshes");
+    s->SetParent(group, o);
+    GlobalTransform group_gt{};
+    group_gt.value = glm::mat4(1.0f);
+    s->SetDataComponent(group, group_gt);
+    s->GetOrSetPrivateComponent<DsIntersectionBoundaryMeshGroup>(group);
+    return group;
+  };
+  const auto resolve_obj_path = [&](const std::filesystem::path& obj_path) -> std::filesystem::path {
+    if (obj_path.is_absolute() && std::filesystem::exists(obj_path)) {
+      return obj_path;
+    }
+    const auto from_assets = ProjectManager::GetAssetsFolderPath() / obj_path;
+    if (std::filesystem::exists(from_assets)) {
+      return from_assets;
+    }
+    const auto from_yaml_dir = yaml_path.parent_path() / obj_path;
+    if (std::filesystem::exists(from_yaml_dir)) {
+      return from_yaml_dir;
+    }
+    return obj_path;
+  };
+
+  try {
+    const YAML::Node root = YAML::Load(FileUtils::LoadFileAsString(yaml_path));
+    if (!root["intersection_meshes"]) {
+      EVOENGINE_ERROR("Load intersection setup: no 'intersection_meshes' key in file.");
+      return false;
+    }
+    const Entity group = ensure_group_entity(scene, owner);
+    if (root["group_transform"]) {
+      GlobalTransform group_gt{};
+      group_gt.value = root["group_transform"].as<glm::mat4>();
+      scene->SetDataComponent(group, group_gt);
+    }
+    size_t loaded_count = 0;
+    for (const auto& entry : root["intersection_meshes"]) {
+      if (!entry["obj_path"] || !entry["transform"]) {
+        continue;
+      }
+      const std::filesystem::path obj_path = resolve_obj_path(entry["obj_path"].as<std::string>());
+      const glm::mat4 transform_value = entry["transform"].as<glm::mat4>();
+      try {
+        kinDS::VoronoiMesh loaded_mesh = kinDS::ObjExporter::readMesh(obj_path);
+        const auto child = scene->CreateEntity("Intersection Mesh (" + obj_path.stem().string() + ")");
+        scene->SetParent(child, group);
+        GlobalTransform child_gt{};
+        child_gt.value = transform_value;
+        scene->SetDataComponent(child, child_gt);
+        const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+        if (ibm) {
+          ibm->LoadMesh(std::move(loaded_mesh), obj_path);
+          ++loaded_count;
+        }
+      } catch (const std::exception& ex) {
+        EVOENGINE_ERROR("Failed to load OBJ '" << obj_path.string() << "': " << ex.what());
+      }
+    }
+    EVOENGINE_LOG("Loaded intersection setup from " << yaml_path.string() << " (" << loaded_count << " mesh(es)).");
+    return loaded_count > 0;
+  } catch (const std::exception& ex) {
+    EVOENGINE_ERROR("Failed to parse intersection setup YAML: " << ex.what());
+    return false;
+  }
+}
+
 bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
                                                              const GlobalTransform& boundary_world_transform,
                                                              const GlobalTransform& tree_world_transform,
@@ -1874,13 +2048,18 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       segment_meshlet_vertices = std::move(gpu_vertices);
       segment_meshlet_triangles = std::move(gpu_triangles);
       warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
-      EVOENGINE_LOG("Loaded Kinetic Voronoi mesh buffer " << input_hash << " (" << segment_meshlet_vertices.size()
-                                                          << " vertices, " << segment_meshlet_triangles.size()
-                                                          << " triangles).");
+      EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
+                                                << " vertices, " << segment_meshlet_triangles.size()
+                                                << " triangles).");
       loaded_from_cache = true;
     } else {
-      EVOENGINE_WARNING("Meshing buffer " << bin_path.string() << " exists but could not be loaded; remeshing.");
+      EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
+                                          << " exists but could not be loaded; remeshing (cache miss).");
     }
+  } else if (meshing_settings.override_meshing_buffer) {
+    EVOENGINE_LOG("Meshing buffer override enabled; remeshing for hash " << input_hash << ".");
+  } else {
+    EVOENGINE_LOG("Meshing buffer cache miss " << input_hash << " (no file at " << bin_path.string() << ").");
   }
 
   if (!loaded_from_cache) {
@@ -2714,44 +2893,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           EVOENGINE_ERROR("Load intersection setup: could not find owner entity.");
           return;
         }
-        try {
-          const YAML::Node root = YAML::Load(FileUtils::LoadFileAsString(load_path));
-          if (!root["intersection_meshes"]) {
-            EVOENGINE_ERROR("Load intersection setup: no 'intersection_meshes' key in file.");
-            return;
-          }
-          const Entity group = ensure_group_entity(scene, owner);
-          // Restore group transform if present (optional for backward compatibility).
-          if (root["group_transform"]) {
-            GlobalTransform group_gt{};
-            group_gt.value = root["group_transform"].as<glm::mat4>();
-            scene->SetDataComponent(group, group_gt);
-          }
-          for (const auto& entry : root["intersection_meshes"]) {
-            if (!entry["obj_path"] || !entry["transform"]) {
-              continue;
-            }
-            const std::filesystem::path obj_path = entry["obj_path"].as<std::string>();
-            const glm::mat4 transform_value = entry["transform"].as<glm::mat4>();
-            try {
-              kinDS::VoronoiMesh loaded_mesh = kinDS::ObjExporter::readMesh(obj_path);
-              const auto child = scene->CreateEntity("Intersection Mesh (" + obj_path.stem().string() + ")");
-              scene->SetParent(child, group);
-              GlobalTransform child_gt{};
-              child_gt.value = transform_value;
-              scene->SetDataComponent(child, child_gt);
-              const auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
-              if (ibm) {
-                ibm->LoadMesh(std::move(loaded_mesh), obj_path);
-              }
-            } catch (const std::exception& ex) {
-              EVOENGINE_ERROR("Failed to load OBJ '" << obj_path.string() << "': " << ex.what());
-            }
-          }
-          EVOENGINE_LOG("Loaded intersection setup from " << load_path.string() << ".");
-        } catch (const std::exception& ex) {
-          EVOENGINE_ERROR("Failed to parse intersection setup YAML: " << ex.what());
-        }
+        LoadIntersectionSetup(scene, owner, load_path);
       },
       false);
   if (ImGui::IsItemHovered()) {

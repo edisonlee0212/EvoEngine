@@ -4,6 +4,7 @@
 #include "Transform.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
+#include <filesystem>
 namespace kinDS {
 class StrandTree;
 }
@@ -222,6 +223,10 @@ class DsKineticVoronoiMeshing : public DsMeshing {
                                      const GlobalTransform& boundary_world_transform,
                                      const GlobalTransform& tree_world_transform,
                                      IntersectionRunStats* stats = nullptr);
+  /// Load an intersection-setup YAML under @p owner (group transform + boundary mesh children).
+  /// Relative @c obj_path entries are resolved against the project assets folder, then the YAML directory.
+  static bool LoadIntersectionSetup(const std::shared_ptr<Scene>& scene, const Entity& owner,
+                                    const std::filesystem::path& yaml_path);
   /// Write a timestamped intersection statistics CSV. @p base_csv_path is the desired filename
   /// (e.g. @c foo_intersection_stats.csv); a timestamp is inserted before the extension.
   /// A @c total row summing poly count and runtime is included when @p rows has more than one entry.

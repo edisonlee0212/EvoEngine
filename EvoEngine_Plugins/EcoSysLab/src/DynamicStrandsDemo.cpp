@@ -1,10 +1,40 @@
 #include "DynamicStrandsDemo.hpp"
 
 #include "DsColliders.hpp"
+#include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
+#include "ProjectManager.hpp"
+#include "Tree.hpp"
 
 using namespace eco_sys_lab_plugin;
+
+namespace {
+
+void ApplyOakTrunkFullProcessTreePreset(const std::shared_ptr<Tree>& tree) {
+  tree->strand_model_parameters.end_node_strands = 3200;
+  tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.004f;
+  tree->strand_model_parameters.strand_radius_distribution.mean.curve = Curve2D(1.0f, 0.6f, {0, 0}, {1, 1});
+  auto& values = tree->strand_model_parameters.strand_radius_distribution.mean.curve.UnsafeGetValues();
+  values[2] = glm::vec2(0.0f, -0.4f);
+  values[3] = glm::vec2(-0.1f, 0.0f);
+}
+
+void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& physics_parameters) {
+  physics_parameters.bundle_strength_factor = 1.0f;
+  physics_parameters.crack_bd_shrinkage_offset = 0.0f;
+  physics_parameters.crack_R_scale = 0.0f;
+  physics_parameters.crack_T_scale = 1.0f;
+  physics_parameters.boundary_strength_decay_factor = 6.0f;
+  physics_parameters.internal_pattern = 1;
+  physics_parameters.bd_offset = 0.06f;
+  physics_parameters.HL_threshold = 0.1f;
+  physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
+  physics_parameters.bb = 0.5f;
+  physics_parameters.be = 0.5f;
+}
+
+}  // namespace
 
 void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer) {
   const auto owner = GetOwner();
@@ -107,30 +137,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     ImGui::TreePop();
   }
 
-  if (ImGui::Button("Log break [Diffuse]")) {
-    ResetEnvironment(editor_layer);
-    camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
-    camera_pose.SetEulerRotation(glm::radians(glm::vec3(10, 0, 0)));
-    demo_type = DemoType::LogBreak;
-    demo_status = DemoStatus::Simulation;
-    log_experiment_setup_settings.center_damage = 0.95f;
-    log_experiment_setup_settings.center_distance_offset = 0.01f;
-    log_experiment_setup_settings.center_damage_transition = 0.02f;
-    log_experiment_setup_settings.fungus_test = false;
-
-    // TODO
-    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
-    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
-
-    log_experiment_setup_settings.t_cut = true;
-    log_experiment_setup_settings.t_cut_width = 0.f;
-    target_factor0 = 2.f;
-    target_factor1 = 1.f;
-
-    dts->LogExperimentSetup(log_experiment_setup_settings);
-    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
-    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
-  }
+  if (ImGui::TreeNodeEx("Woodstock", ImGuiTreeNodeFlags_DefaultOpen)) {
   if (ImGui::Button("Fungus [Competition-Equal]")) {
     ResetEnvironment(editor_layer);
     camera_pose.SetPosition(glm::vec3(0.25, 0.9, 0.6));
@@ -409,6 +416,34 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.fungus_test = true;
 
     dts->BoardExperimentSetup(board_experiment_setup_settings);
+    editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+    editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+  }
+  ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Stressful Trees", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::Button("Log break [Diffuse]")) {
+    ResetEnvironment(editor_layer);
+    camera_pose.SetPosition(glm::vec3(0.5, 0.7, 1));
+    camera_pose.SetEulerRotation(glm::radians(glm::vec3(10, 0, 0)));
+    demo_type = DemoType::LogBreak;
+    demo_status = DemoStatus::Simulation;
+    log_experiment_setup_settings.center_damage = 0.95f;
+    log_experiment_setup_settings.center_distance_offset = 0.01f;
+    log_experiment_setup_settings.center_damage_transition = 0.02f;
+    log_experiment_setup_settings.fungus_test = false;
+
+    // TODO
+    dts->initialize_parameters.strength_graph.SetBundleStrength({500.f, 50.f});
+    dts->initialize_parameters.strength_graph.SetConnectivityStrength({100.f, 100.f});
+
+    log_experiment_setup_settings.t_cut = true;
+    log_experiment_setup_settings.t_cut_width = 0.f;
+    target_factor0 = 2.f;
+    target_factor1 = 1.f;
+
+    dts->LogExperimentSetup(log_experiment_setup_settings);
     editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
     editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
   }
@@ -956,6 +991,71 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     curve_values.emplace_back(1, 0.5);
     curve_values.emplace_back(0.1, 0);
   }
+  ImGui::TreePop();
+  }
+
+  if (ImGui::TreeNodeEx("Volumetric Meshing", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::Button("Log cut")) {
+      ResetEnvironment(editor_layer);
+      camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+      camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+      log_experiment_setup_settings.rod_segment_count = 20;
+      log_experiment_setup_settings.rod_size = 3200;
+      log_experiment_setup_settings.segment_length = 0.025f;
+      log_experiment_setup_settings.fungus_test = false;
+      log_experiment_setup_settings.cube_pattern = false;
+      log_experiment_setup_settings.internal_pattern = false;
+      log_experiment_setup_settings.competition_setting = false;
+      log_experiment_setup_settings.right_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+      log_experiment_setup_settings.left_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+      physics_parameters.enable_fungus = false;
+      physics_parameters.enable_segment_collision = false;
+      dts->initialize_parameters.max_segment_length = 0.01f;
+      dts->initialize_parameters.min_segment_length = 0.005f;
+      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+
+      dts->LogExperimentSetup(log_experiment_setup_settings);
+      const auto yaml_path = ProjectManager::GetAssetsFolderPath() / "IntersectionSetups" / "log_cut.yml";
+      DsKineticVoronoiMeshing::LoadIntersectionSetup(scene, owner, yaml_path);
+
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      demo_type = DemoType::Empty;
+      demo_status = DemoStatus::Idle;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Build the Fungus [Cubical] log without fungus, mesh it (uses MeshBuffers cache when available), "
+          "then load Assets/IntersectionSetups/log_cut.yml.");
+    }
+
+    if (ImGui::Button("Small Trunk")) {
+      ResetEnvironment(editor_layer);
+      demo_type = DemoType::SmallTrunk;
+      demo_status = DemoStatus::TreeGrowth;
+      const auto tree_entity = scene->CreateEntity("Tree");
+      tree_entity_ref = tree_entity;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      scene->SetDataComponent(tree_entity, tree_initial_pose);
+      target_growth_time = 4.f;
+      tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Basic/Oak_trunk.tree");
+      ApplyOakTrunkFullProcessTreePreset(tree);
+      ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+      const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      tree_dts->enable_physics = false;
+      tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Grow Oak_trunk for 4 years, apply Oak Trunk Full Process presets, then mesh "
+          "(uses MeshBuffers cache when available).");
+    }
+    ImGui::TreePop();
+  }
 
   return changed;
 }
@@ -980,7 +1080,17 @@ void DynamicStrandsDemo::Update() {
       if (scene->IsEntityValid(tree_entity)) {
         const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+        if (demo_type == DemoType::SmallTrunk) {
+          ApplyOakTrunkFullProcessTreePreset(tree);
+          ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+          tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+        }
         tree_dts->InitializeFromTree(tree);
+        if (demo_type == DemoType::SmallTrunk) {
+          demo_type = DemoType::Empty;
+          demo_status = DemoStatus::Idle;
+          return;
+        }
       } else {
         demo_type = DemoType::Empty;
         demo_status = DemoStatus::Idle;
