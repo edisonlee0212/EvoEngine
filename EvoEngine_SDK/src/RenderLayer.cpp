@@ -6203,6 +6203,18 @@ void RenderLayer::RenderAll() {
     }
   }
 
+  std::shared_ptr<Camera> presentation_camera;
+  if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+    presentation_camera = editor_layer->GetSceneCamera();
+  }
+  if (!presentation_camera && scene) {
+    presentation_camera = scene->main_camera.Get<Camera>();
+  }
+  if (presentation_camera && presentation_camera->Rendered() &&
+      IsSceneLightingReadyForPresentation(scene, current_render_instances)) {
+    presented_scene_ = scene;
+  }
+
   auto& profiler = Profiler::GetInstance();
   if (const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>()) {
     if (const auto scene_camera = editor_layer->GetSceneCamera()) {
@@ -6394,6 +6406,59 @@ std::shared_ptr<RenderInstanceStorage> RenderLayer::GetPreviousRenderInstanceSto
   if (index >= render_instances_list_.size())
     return {};
   return render_instances_list_[index];
+}
+
+bool RenderLayer::HasPresentedScene(const std::shared_ptr<Scene>& scene) const {
+  return scene && presented_scene_.lock() == scene;
+}
+
+bool RenderLayer::IsSceneLightingReadyForPresentation(
+    const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
+  if (!scene || !render_instances || !ProjectManager::IsProjectIdle() ||
+      AssetManager::GetAssetLoadSnapshot().Active() || TextureStorage::HasPendingUploads() ||
+      GeometryStorage::HasPendingUploads()) {
+    return false;
+  }
+
+  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  if (const auto global_probe = scene->GetGlobalReflectionProbeFallback(false)) {
+    VkDescriptorImageInfo descriptor{};
+    const auto cubemap = global_probe->GetCubemap();
+    if (!global_probe->IsRuntimeReady() || !cubemap ||
+        !TextureStorage::TryGetCubemapDescriptorImageInfo(cubemap->GetTextureStorageIndex(), descriptor)) {
+      return false;
+    }
+  }
+
+  const auto reflection_probe_count = std::min(resolved_lighting.local_reflection_probes.size(),
+                                               static_cast<size_t>(RenderInstanceStorage::kReflectionProbeMaxCount));
+  if (render_instances->GetReflectionProbeCount() != reflection_probe_count) {
+    return false;
+  }
+  const auto& probe_infos = render_instances->GetReflectionProbeInfoBlocks();
+  for (size_t index = 0; index < reflection_probe_count; ++index) {
+    if (!resolved_lighting.local_reflection_probes[index].payload) {
+      continue;
+    }
+    VkDescriptorImageInfo descriptor{};
+    if (probe_infos[index].identity_and_flags.y == 0u ||
+        !TextureStorage::TryGetCubemapDescriptorImageInfo(probe_infos[index].identity_and_flags.x, descriptor)) {
+      return false;
+    }
+  }
+
+  if (resolved_lighting.ddgi_settings.runtime.enabled && !resolved_lighting.ddgi_volumes.empty()) {
+    const auto volumes = BuildDdgiVolumeRuntimeStats();
+    if (ddgi_runtime_scene_.lock() != scene || !ddgi_volume_set_validation_error_.empty() ||
+        volumes.size() != resolved_lighting.ddgi_volumes.size() ||
+        !ddgi_last_performance_stats_.lighting_descriptors_bound ||
+        std::any_of(volumes.begin(), volumes.end(), [](const auto& volume) {
+          return !volume.resources_ready || !volume.has_valid_probe_history || !volume.contributes_lighting;
+        })) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {

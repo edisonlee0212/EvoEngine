@@ -721,11 +721,11 @@ void ProjectManager::SetupDefaultScene() {
     }
   }
 
-  project_manager.loading_status_ = "Scene ready.";
+  project_manager.loading_status_ = project_manager.pending_assets.empty() ? "Initializing scene rendering..."
+                                                                           : "Loading remaining project assets...";
   LogLoadingDuration("Start scene setup", setup_start);
-  EVOENGINE_LOG("Scene is ready.")
+  EVOENGINE_LOG("Scene setup is complete.")
   project_manager.new_project_path_ = "";
-  project_manager.scene_loading_popup_visible_ = false;
 }
 
 bool ProjectManager::ArmSceneLoadingPopupBeforeSetup() {

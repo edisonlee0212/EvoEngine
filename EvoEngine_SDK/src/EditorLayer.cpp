@@ -3146,9 +3146,21 @@ void EditorLayer::DrawAssetInspectorWindows() {
 void EditorLayer::DrawProjectLoadingPopup() {
   auto& project_manager = ProjectManager::GetInstance();
   const auto asset_load_snapshot = AssetManager::GetAssetLoadSnapshot();
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const bool scene_ready = project_manager.start_scene_ != nullptr;
   const bool pending_scene_load = !project_manager.new_project_path_.empty() && !scene_ready &&
                                   ApplicationContext::Get().GetApplicationInfo().load_project_start_scene;
+  if (project_manager.scene_loading_popup_visible_ && scene_ready) {
+    if (const auto scene_camera = GetSceneCamera()) {
+      scene_camera->SetRequireRendering(true);
+    }
+    if (!render_layer || render_layer->HasPresentedScene(scene)) {
+      project_manager.scene_loading_popup_visible_ = false;
+      project_manager.loading_status_ = "Scene ready.";
+      EVOENGINE_LOG("Scene is ready.")
+    }
+  }
   constexpr ImGuiWindowFlags modal_flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings;
 
   if (project_manager.scan_assets_pending && !scene_ready) {
@@ -3169,7 +3181,7 @@ void EditorLayer::DrawProjectLoadingPopup() {
     ImGui::TextUnformatted("Scene is loading.");
     draw_loading_status();
     ImGui::SetItemDefaultFocus();
-    if ((!project_manager.scene_loading_popup_visible_ && !pending_scene_load) || scene_ready) {
+    if (!project_manager.scene_loading_popup_visible_ && !pending_scene_load) {
       ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

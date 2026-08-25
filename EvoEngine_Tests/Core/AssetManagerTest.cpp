@@ -1057,6 +1057,48 @@ TEST(EditorLayer, AssetInspectorsDrawAfterPanelsAndLayerInspectors) {
   EXPECT_LT(asset_inspectors, loading_popup);
 }
 
+TEST(EditorLayer, SceneLoadingPopupWaitsForFirstFullyLitFrame) {
+  const auto project_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/ProjectManager.cpp"));
+  const auto editor_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));
+  const auto render_source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+
+  const auto setup_begin = project_source.find("void ProjectManager::SetupDefaultScene()");
+  const auto setup_end = project_source.find("bool ProjectManager::ArmSceneLoadingPopupBeforeSetup()", setup_begin);
+  ASSERT_NE(setup_begin, std::string::npos);
+  ASSERT_NE(setup_end, std::string::npos);
+  const auto setup = project_source.substr(setup_begin, setup_end - setup_begin);
+  EXPECT_EQ(setup.find("scene_loading_popup_visible_ = false"), std::string::npos);
+  EXPECT_NE(setup.find("Initializing scene rendering..."), std::string::npos);
+
+  const auto popup_begin = editor_source.find("void EditorLayer::DrawProjectLoadingPopup()");
+  const auto popup_end = editor_source.find("void EditorLayer::RegisterEditorPanels()", popup_begin);
+  ASSERT_NE(popup_begin, std::string::npos);
+  ASSERT_NE(popup_end, std::string::npos);
+  const auto popup = editor_source.substr(popup_begin, popup_end - popup_begin);
+  EXPECT_NE(popup.find("scene_camera->SetRequireRendering(true)"), std::string::npos);
+  EXPECT_NE(popup.find("render_layer->HasPresentedScene(scene)"), std::string::npos);
+  const auto loading_scene_begin = popup.find("ImGui::BeginPopupModal(\"Loading Scene...\"");
+  const auto loading_project_begin = popup.find("ImGui::BeginPopupModal(\"Loading Project...\"");
+  ASSERT_NE(loading_scene_begin, std::string::npos);
+  ASSERT_NE(loading_project_begin, std::string::npos);
+  const auto loading_scene = popup.substr(loading_scene_begin, loading_project_begin - loading_scene_begin);
+  EXPECT_EQ(loading_scene.find("scene_ready"), std::string::npos);
+
+  const auto readiness_begin = render_source.find("bool RenderLayer::IsSceneLightingReadyForPresentation(");
+  const auto readiness_end =
+      render_source.find("bool RenderLayer::RequiresCameraWideTemporalHistoryRejection()", readiness_begin);
+  ASSERT_NE(readiness_begin, std::string::npos);
+  ASSERT_NE(readiness_end, std::string::npos);
+  const auto readiness = render_source.substr(readiness_begin, readiness_end - readiness_begin);
+  EXPECT_NE(readiness.find("ProjectManager::IsProjectIdle()"), std::string::npos);
+  EXPECT_NE(readiness.find("TextureStorage::HasPendingUploads()"), std::string::npos);
+  EXPECT_NE(readiness.find("GeometryStorage::HasPendingUploads()"), std::string::npos);
+  EXPECT_NE(readiness.find("GetReflectionProbeInfoBlocks()"), std::string::npos);
+  EXPECT_NE(readiness.find("if (!resolved_lighting.local_reflection_probes[index].payload)"), std::string::npos);
+  EXPECT_NE(readiness.find("resolved_lighting.ddgi_volumes.empty()"), std::string::npos);
+  EXPECT_NE(readiness.find("volume.contributes_lighting"), std::string::npos);
+}
+
 TEST(EditorLayer, AssetRefButtonsCaptureOpenRequestBeforeDragAndDropHelpers) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Layers/EditorLayer.hpp"));
   const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/EditorLayer.cpp"));

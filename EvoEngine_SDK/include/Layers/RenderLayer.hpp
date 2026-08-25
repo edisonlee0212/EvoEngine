@@ -61,6 +61,11 @@ class RenderLayer final : public ILayer {
    */
   [[nodiscard]] std::shared_ptr<RenderInstanceStorage> GetPreviousRenderInstanceStorage() const;
 
+  /**
+   * @brief Returns true after the active editor camera has rendered this scene with all configured lighting ready.
+   */
+  [[nodiscard]] bool HasPresentedScene(const std::shared_ptr<Scene>& scene) const;
+
   [[nodiscard]] bool RequiresCameraWideTemporalHistoryRejection() const;
   /**
    * \brief Notifies the renderer that a static entity or its descendants were modified directly.
@@ -673,6 +678,9 @@ class RenderLayer final : public ILayer {
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
+  std::weak_ptr<Scene> presented_scene_;
+  [[nodiscard]] bool IsSceneLightingReadyForPresentation(
+      const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
   std::vector<Entity> pending_static_entity_changes_;
   std::weak_ptr<Scene> selection_highlight_coverage_scene_;
