@@ -164,7 +164,8 @@ kinDS::ObjExportGpuAttributes MeshletObjExport::BuildGpuAttributes(
     const std::array<unsigned int, 3> v_idxs = {tri.vertex_index0, tri.vertex_index1, tri.vertex_index2};
     for (int c = 0; c < 3; ++c) {
       const glm::vec4& uv = tri.uv[c];
-      const double value = is_bark ? static_cast<double>(uv.y) * uv_height_factor : static_cast<double>(uv.z) * uv_height_factor;
+      const double value =
+          is_bark ? static_cast<double>(uv.y) * uv_height_factor : static_cast<double>(uv.z) * uv_height_factor;
       if (v_idxs[c] < attrs.uv_3.size()) {
         attrs.uv_3[v_idxs[c]] = value;
       }
@@ -176,7 +177,9 @@ kinDS::ObjExportGpuAttributes MeshletObjExport::BuildGpuAttributes(
 
 void MeshletObjExport::AppendGpuAttributes(kinDS::ObjExportGpuAttributes& dst,
                                            const kinDS::ObjExportGpuAttributes& src) {
-  auto append = [](auto& d, const auto& s) { d.insert(d.end(), s.begin(), s.end()); };
+  auto append = [](auto& d, const auto& s) {
+    d.insert(d.end(), s.begin(), s.end());
+  };
   append(dst.color, src.color);
   append(dst.boundary_distance, src.boundary_distance);
   append(dst.profile_position, src.profile_position);

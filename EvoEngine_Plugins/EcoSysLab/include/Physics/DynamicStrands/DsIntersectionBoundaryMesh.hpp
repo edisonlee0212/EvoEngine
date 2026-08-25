@@ -1,7 +1,7 @@
 #pragma once
+#include <filesystem>
 #include "IPrivateComponent.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
-#include <filesystem>
 
 namespace evo_engine {
 class Mesh;
@@ -25,8 +25,12 @@ class DsIntersectionBoundaryMesh : public IPrivateComponent {
   void OnCreate() override;
   void OnDestroy() override;
 
-  [[nodiscard]] const kinDS::VoronoiMesh& GetMesh() const { return mesh_; }
-  [[nodiscard]] const std::filesystem::path& GetPath() const { return path_; }
+  [[nodiscard]] const kinDS::VoronoiMesh& GetMesh() const {
+    return mesh_;
+  }
+  [[nodiscard]] const std::filesystem::path& GetPath() const {
+    return path_;
+  }
 
   void LoadMesh(kinDS::VoronoiMesh mesh, std::filesystem::path path);
 

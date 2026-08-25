@@ -95,8 +95,7 @@ void main() {
       // If the neighbor is on the same strand, set a shift for the vertex
       if (tri.neighbor_segment_index >= 0) {
         Segment neighbor_segment = segments[tri.neighbor_segment_index];
-        if (neighbor_segment.next_handle == vertex.segment_index ||
-          segment.next_handle == tri.neighbor_segment_index) {
+        if (neighbor_segment.next_handle == vertex.segment_index || segment.next_handle == tri.neighbor_segment_index) {
           SegmentPair segment_pair = segment_pairs[tri.segment_pair_index];
           if (segment_pair.connectivity_integrity == 0.0f && segment_pair.bend_twist_bundle_integrity == 0.0f) {
             segment_meshlet_vertices[vertex_index].shift = vec3(-tri.normal[j].x, tri.normal[j].y, tri.normal[j].z);

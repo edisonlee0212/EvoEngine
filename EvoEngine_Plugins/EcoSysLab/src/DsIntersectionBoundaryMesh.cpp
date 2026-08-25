@@ -1,11 +1,11 @@
 #include "DsIntersectionBoundaryMesh.hpp"
+#include "AssetManager.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicStrands.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EditorLayer.hpp"
 #include "MeshRenderer.hpp"
 #include "Transform.hpp"
-#include "AssetManager.hpp"
 
 using namespace eco_sys_lab_plugin;
 
@@ -149,15 +149,16 @@ bool DsIntersectionBoundaryMesh::OnInspect(const std::shared_ptr<EditorLayer>& e
                 std::filesystem::path stats_base = path_.empty()
                                                        ? std::filesystem::path(name + "_intersection_stats.csv")
                                                        : path_.parent_path() / (name + "_intersection_stats.csv");
-                DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(
-                    stats_base, {{std::move(name), intersection_stats}});
+                DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(stats_base,
+                                                                        {{std::move(name), intersection_stats}});
               }
               // Hide the preview after intersection (re-enable to reposition and intersect again).
               scene->SetEnable(owner, false);
               changed = true;
             }
           } else {
-            EVOENGINE_ERROR("DsIntersectionBoundaryMesh: parent DynamicTreeStrands does not use DsKineticVoronoiMeshing.");
+            EVOENGINE_ERROR(
+                "DsIntersectionBoundaryMesh: parent DynamicTreeStrands does not use DsKineticVoronoiMeshing.");
           }
         }
       } else {

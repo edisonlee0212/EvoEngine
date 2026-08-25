@@ -62,42 +62,39 @@ void main() {
     float shear_stretch_strain_limit_0 = segments[segment0_handle].shear_stretch_strain_limit;
     float shear_stretch_strain_limit_1 = segments[segment1_handle].shear_stretch_strain_limit;
     float bd = (segments[segment0_handle].boundary_distance + segments[segment1_handle].boundary_distance) / 2.0f;
-    vec3 pair_position = (segments[segment0_handle].particle0.x +
-                             segments[segment0_handle].particle1.x +
-                             segments[segment1_handle].particle0.x +
-                             segments[segment1_handle].particle1.x) *
+    vec3 pair_position = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x +
+                          segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) *
                          0.25f;
 
-    float scaling_factor = 1.0f; 
+    float scaling_factor = 1.0f;
     float bundle_scaling_factor = 1.0f;
     float moisture = (segments[segment0_handle].moisture + segments[segment1_handle].moisture) / 2.0;
     scaling_factor = 1.0f;
     if (moisture_breaking_rod == 1) {
       scaling_factor = moisture * moisture * moisture * moisture * moisture * moisture;
     }
-    //scaling_factor = 0.0004f + bd * 0.001; 
-    scaling_factor = max(0.0006f, scaling_factor); //currently disabled, for tree: 0.0003f to 0.001f elm: 0.0006f
-    //scaling_factor = 0.0006f; 
-    //if (pair_position.y <= 0.21f && pair_position.z <= 0.06f)
+    // scaling_factor = 0.0004f + bd * 0.001;
+    scaling_factor = max(0.0006f, scaling_factor);  // currently disabled, for tree: 0.0003f to 0.001f elm: 0.0006f
+    // scaling_factor = 0.0006f;
+    // if (pair_position.y <= 0.21f && pair_position.z <= 0.06f)
     //{
-    //   if (pull_cubical != 1)
-    //  {
-    //    scaling_factor *=
-    //        rod_strength_factor + max(pair_position.z - 0.05, 0) / (0.06 - 0.05) * (1.0 - rod_strength_factor);
-    //     bundle_scaling_factor *=
-    //         bundle_strength_factor + max(pair_position.z - 0.05, 0) / (0.06 - 0.05) * (1.0 - bundle_strength_factor);
-    //  } else if (segments[segment0_handle].color != segments[segment1_handle].color)
-    //  {
-    //    scaling_factor *= rod_strength_factor;
-    //    bundle_scaling_factor *= bundle_strength_factor;
-    //  }
-    // } //ZY: Hack for trunk infection case
-    if (pull_cubical != 1)
-    {
+    //    if (pull_cubical != 1)
+    //   {
+    //     scaling_factor *=
+    //         rod_strength_factor + max(pair_position.z - 0.05, 0) / (0.06 - 0.05) * (1.0 - rod_strength_factor);
+    //      bundle_scaling_factor *=
+    //          bundle_strength_factor + max(pair_position.z - 0.05, 0) / (0.06 - 0.05) * (1.0 -
+    //          bundle_strength_factor);
+    //   } else if (segments[segment0_handle].color != segments[segment1_handle].color)
+    //   {
+    //     scaling_factor *= rod_strength_factor;
+    //     bundle_scaling_factor *= bundle_strength_factor;
+    //   }
+    //  } //ZY: Hack for trunk infection case
+    if (pull_cubical != 1) {
       scaling_factor *= rod_strength_factor;
       bundle_scaling_factor *= bundle_strength_factor;
-    } else if (segments[segment0_handle].color != segments[segment1_handle].color)
-    {
+    } else if (segments[segment0_handle].color != segments[segment1_handle].color) {
       scaling_factor *= rod_strength_factor;
       bundle_scaling_factor *= bundle_strength_factor;
     }

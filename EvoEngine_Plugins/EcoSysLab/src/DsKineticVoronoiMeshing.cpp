@@ -1,7 +1,4 @@
 #include "DsKineticVoronoiMeshing.hpp"
-#include "DsIntersectionBoundaryMesh.hpp"
-#include "DsIntersectionBoundaryMeshGroup.hpp"
-#include "DynamicTreeStrands.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -10,21 +7,24 @@
 #include <ctime>
 #include <filesystem>
 #include <fstream>
-#include <iomanip>
-#include <limits>
-#include <sstream>
-#include <string>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
+#include <iomanip>
+#include <limits>
 #include <optional>
 #include <queue>
+#include <sstream>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 #include "BufferExporter.hpp"
 #include "ComputePipeline.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicTreeStrands.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform/Platform.hpp"
 #include "ProgressBar.hpp"
@@ -61,7 +61,9 @@ struct Fnv64 {
       value *= kFnvPrime;
     }
   }
-  void MixCString(const char* text) { MixBytes(text, std::strlen(text)); }
+  void MixCString(const char* text) {
+    MixBytes(text, std::strlen(text));
+  }
   template <typename T>
   void MixPod(const T& value_pod) {
     MixBytes(&value_pod, sizeof(T));
@@ -179,39 +181,33 @@ std::string ComputeMeshingInputHash(const std::vector<std::vector<glm::dvec2>>& 
   }
 
   const std::string input_hash = HashToHex(hash.value);
-  EVOENGINE_LOG("Meshing buffer hash " << input_hash
-                                       << " | settings(v=" << kMeshingBufferVersion << ", store_meta="
-                                       << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
-                                       << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
-                                       << ", cap_start=1, xform_at_construction=1)=" << HashToHex(settings_hash.value)
-                                       << " root=" << HashToHex(root_hash.value) << " ["
-                                       << FormatRootTransformSummary(root_transform) << "]"
-                                       << " support(strands=" << support_points.size()
-                                       << ", pts=" << CountNestedElements(support_points)
-                                       << ")=" << HashToHex(support_hash.value)
-                                       << " subdiv(strands=" << subdivisions_by_strand.size()
-                                       << ", vals=" << CountNestedElements(subdivisions_by_strand)
-                                       << ")=" << HashToHex(subdiv_hash.value)
-                                       << " physics(strands=" << physics_strand_to_segment_indices.size()
-                                       << ", segs=" << CountNestedElements(physics_strand_to_segment_indices)
-                                       << ")=" << HashToHex(physics_hash.value)
-                                       << " transforms(heights=" << transforms_by_height_and_branch.size()
-                                       << ", mats=" << CountNestedElements(transforms_by_height_and_branch)
-                                       << ")=" << HashToHex(transforms_hash.value)
-                                       << " branches(heights=" << branch_indices.size()
-                                       << ", ids=" << CountNestedElements(branch_indices)
-                                       << ")=" << HashToHex(branch_hash.value)
-                                       << " strands_by_branch(outer=" << strands_by_branch_id.size()
-                                       << ", ids=" << CountTripleNestedElements(strands_by_branch_id)
-                                       << ")=" << HashToHex(strands_by_branch_hash.value));
+  EVOENGINE_LOG("Meshing buffer hash "
+                << input_hash << " | settings(v=" << kMeshingBufferVersion
+                << ", store_meta=" << (DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata ? 1 : 0)
+                << ", spline_tension=" << DsKineticVoronoiMeshing::meshing_settings.spline_tension
+                << ", cap_start=1, xform_at_construction=1)=" << HashToHex(settings_hash.value)
+                << " root=" << HashToHex(root_hash.value) << " [" << FormatRootTransformSummary(root_transform) << "]"
+                << " support(strands=" << support_points.size() << ", pts=" << CountNestedElements(support_points)
+                << ")=" << HashToHex(support_hash.value) << " subdiv(strands=" << subdivisions_by_strand.size()
+                << ", vals=" << CountNestedElements(subdivisions_by_strand) << ")=" << HashToHex(subdiv_hash.value)
+                << " physics(strands=" << physics_strand_to_segment_indices.size() << ", segs="
+                << CountNestedElements(physics_strand_to_segment_indices) << ")=" << HashToHex(physics_hash.value)
+                << " transforms(heights=" << transforms_by_height_and_branch.size() << ", mats="
+                << CountNestedElements(transforms_by_height_and_branch) << ")=" << HashToHex(transforms_hash.value)
+                << " branches(heights=" << branch_indices.size() << ", ids=" << CountNestedElements(branch_indices)
+                << ")=" << HashToHex(branch_hash.value) << " strands_by_branch(outer=" << strands_by_branch_id.size()
+                << ", ids=" << CountTripleNestedElements(strands_by_branch_id)
+                << ")=" << HashToHex(strands_by_branch_hash.value));
   return input_hash;
 }
 
 class BinaryWriter {
  public:
-  explicit BinaryWriter(const std::filesystem::path& path)
-      : out_(path, std::ios::binary | std::ios::trunc) {}
-  bool Good() const { return static_cast<bool>(out_); }
+  explicit BinaryWriter(const std::filesystem::path& path) : out_(path, std::ios::binary | std::ios::trunc) {
+  }
+  bool Good() const {
+    return static_cast<bool>(out_);
+  }
   template <typename T>
   void WritePod(const T& value) {
     out_.write(reinterpret_cast<const char*>(&value), static_cast<std::streamsize>(sizeof(T)));
@@ -270,9 +266,14 @@ class BinaryWriter {
 
 class BinaryReader {
  public:
-  explicit BinaryReader(const std::filesystem::path& path) : in_(path, std::ios::binary) {}
-  bool Good() const { return !failed_ && static_cast<bool>(in_); }
-  void Fail() { failed_ = true; }
+  explicit BinaryReader(const std::filesystem::path& path) : in_(path, std::ios::binary) {
+  }
+  bool Good() const {
+    return !failed_ && static_cast<bool>(in_);
+  }
+  void Fail() {
+    failed_ = true;
+  }
   template <typename T>
   T ReadPod() {
     T value{};
@@ -454,8 +455,7 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
                        const std::string& hash, const GlobalTransform& root_transform,
                        const std::vector<GpuMeshletVertex>& gpu_vertices,
                        const std::vector<GpuMeshletTriangle>& gpu_triangles,
-                       const std::vector<kinDS::VoronoiMesh>& meshlets,
-                       const std::vector<std::vector<int>>& neighbors,
+                       const std::vector<kinDS::VoronoiMesh>& meshlets, const std::vector<std::vector<int>>& neighbors,
                        const std::vector<size_t>& meshing_to_physics,
                        const std::vector<std::vector<size_t>>& strand_to_segment) {
   std::error_code error;
@@ -503,8 +503,8 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
   yaml << YAML::Key << "vertex_stride" << YAML::Value << sizeof(GpuMeshletVertex);
   yaml << YAML::Key << "triangle_stride" << YAML::Value << sizeof(GpuMeshletTriangle);
   yaml << YAML::Key << "spline_tension" << YAML::Value << DsKineticVoronoiMeshing::meshing_settings.spline_tension;
-  yaml << YAML::Key << "store_mesh_metadata"
-       << YAML::Value << DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
+  yaml << YAML::Key << "store_mesh_metadata" << YAML::Value
+       << DsKineticVoronoiMeshing::meshing_settings.store_mesh_metadata;
   yaml << YAML::Key << "mesh_cap_at_start" << YAML::Value << true;
   yaml << YAML::Key << "transform_mesh_at_construction" << YAML::Value << true;
   yaml << YAML::EndMap;
@@ -520,8 +520,7 @@ bool SaveMeshingBuffer(const std::filesystem::path& bin_path, const std::filesys
 bool LoadMeshingBuffer(const std::filesystem::path& bin_path, const GlobalTransform& root_transform,
                        std::vector<GpuMeshletVertex>& gpu_vertices, std::vector<GpuMeshletTriangle>& gpu_triangles,
                        std::vector<kinDS::VoronoiMesh>& meshlets, std::vector<std::vector<int>>& neighbors,
-                       std::vector<size_t>& meshing_to_physics,
-                       std::vector<std::vector<size_t>>& strand_to_segment) {
+                       std::vector<size_t>& meshing_to_physics, std::vector<std::vector<size_t>>& strand_to_segment) {
   BinaryReader reader(bin_path);
   char magic[4]{};
   magic[0] = reader.ReadPod<char>();
@@ -760,7 +759,7 @@ namespace {
 
 /// Profile-plane to model-space transform for an internode cross-section at a given origin.
 glm::dmat4 BuildInternodeProfileTransformAtOrigin(const StrandModelSkeleton& skeleton, SkeletonNodeHandle node_handle,
-                                                    const glm::dvec3& origin) {
+                                                  const glm::dvec3& origin) {
   if (node_handle < 0 || node_handle >= static_cast<SkeletonNodeHandle>(skeleton.PeekRawNodes().size())) {
     return glm::dmat4(1.0);
   }
@@ -811,8 +810,9 @@ glm::dmat4 MixAffineTransforms(const glm::dmat4& lower, const glm::dmat4& upper,
   return result;
 }
 
-glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(
-    const StrandModelSkeleton& skeleton, const std::vector<StrandCrossSectionGuidePoint>& guide_points, size_t height) {
+glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(const StrandModelSkeleton& skeleton,
+                                                       const std::vector<StrandCrossSectionGuidePoint>& guide_points,
+                                                       size_t height) {
   if (guide_points.empty()) {
     return glm::dmat4(1.0);
   }
@@ -854,7 +854,8 @@ glm::dmat4 BuildInterpolatedInternodeTransformAtHeight(
     return current_internode_end_transform;
   }
 
-  const double fraction = (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
+  const double fraction =
+      (guide_points[clamped_height].root_distance - start_distance) / (end_distance - start_distance);
   return MixAffineTransforms(lower_transform, upper_transform, fraction);
 }
 
@@ -989,9 +990,9 @@ double NewtonPolishPlaneRoot(const glm::dvec3& c0, const glm::dvec3& c1, const g
 }
 
 std::optional<CubicPlaneHit> IntersectCubicSegmentWithPlane(const glm::dvec3& v0, const glm::dvec3& v1,
-                                                           const glm::dvec3& v2, const glm::dvec3& v3,
-                                                           const ProfilePlane& plane, int segment_index,
-                                                           double preferred_t = -1.0, double tension = 0.0) {
+                                                            const glm::dvec3& v2, const glm::dvec3& v3,
+                                                            const ProfilePlane& plane, int segment_index,
+                                                            double preferred_t = -1.0, double tension = 0.0) {
   glm::dvec3 c0, c1, c2, c3;
   StrandCubicPowerCoeffs(v0, v1, v2, v3, c0, c1, c2, c3, tension);
 
@@ -1051,9 +1052,10 @@ std::optional<CubicPlaneHit> IntersectCubicSegmentWithPlane(const glm::dvec3& v0
   return hit;
 }
 
-std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGroup& strand_group, StrandHandle strand_handle,
-                                                     const ProfilePlane& plane, int hint_segment_index,
-                                                     double preferred_t = -1.0, double tension = 0.0) {
+std::optional<CubicPlaneHit> IntersectStrandWithPlane(const StrandModelStrandGroup& strand_group,
+                                                      StrandHandle strand_handle, const ProfilePlane& plane,
+                                                      int hint_segment_index, double preferred_t = -1.0,
+                                                      double tension = 0.0) {
   const auto& strand = strand_group.PeekStrand(strand_handle);
   const auto& segment_handles = strand.PeekStrandSegmentHandles();
   if (segment_handles.empty()) {
@@ -1318,14 +1320,16 @@ glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group
       p1_profile = p0_profile + glm::vec3(1.0f, 0.0f, 0.0f);
     } else {
       const auto& pair = pair_opt.value();
-      const glm::vec2& p0_profile_2d = uniformly_subdivided_strand_group
-                                           .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[0]]][h].segment_handle)
-                                           .profile_position;
+      const glm::vec2& p0_profile_2d =
+          uniformly_subdivided_strand_group
+              .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[0]]][h].segment_handle)
+              .profile_position;
       p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
 
-      const glm::vec2& p1_profile_2d = uniformly_subdivided_strand_group
-                                           .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[1]]][h].segment_handle)
-                                           .profile_position;
+      const glm::vec2& p1_profile_2d =
+          uniformly_subdivided_strand_group
+              .PeekStrandSegmentData(strand_guide_points[strand_ids[pair[1]]][h].segment_handle)
+              .profile_position;
       p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
 
       if (h != 0) {
@@ -1359,19 +1363,22 @@ glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group
   } else {
     const auto& triple = triple_opt.value();
 
-    const glm::vec2 p0_profile_2d = uniformly_subdivided_strand_group
-                                        .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
-                                        .profile_position;
+    const glm::vec2 p0_profile_2d =
+        uniformly_subdivided_strand_group
+            .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[0]]][h].segment_handle)
+            .profile_position;
     p0_profile = glm::vec3(p0_profile_2d.x, 0.0f, p0_profile_2d.y);
 
-    const glm::vec2& p1_profile_2d = uniformly_subdivided_strand_group
-                                       .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
-                                       .profile_position;
+    const glm::vec2& p1_profile_2d =
+        uniformly_subdivided_strand_group
+            .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[1]]][h].segment_handle)
+            .profile_position;
     p1_profile = glm::vec3(p1_profile_2d.x, 0.0f, p1_profile_2d.y);
 
-    const glm::vec2& p2_profile_2d = uniformly_subdivided_strand_group
-                                       .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
-                                       .profile_position;
+    const glm::vec2& p2_profile_2d =
+        uniformly_subdivided_strand_group
+            .PeekStrandSegmentData(strand_guide_points[strand_ids[triple[2]]][h].segment_handle)
+            .profile_position;
     p2_profile = glm::vec3(p2_profile_2d.x, 0.0f, p2_profile_2d.y);
 
     if (h != 0) {
@@ -1418,10 +1425,8 @@ glm::dvec2 SampleStrandProfileAtPlane(const StrandModelStrandGroup& strand_group
 //   return {};
 // }
 
-
 void DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(
-    const std::filesystem::path& base_csv_path,
-    const std::vector<std::pair<std::string, IntersectionRunStats>>& rows) {
+    const std::filesystem::path& base_csv_path, const std::vector<std::pair<std::string, IntersectionRunStats>>& rows) {
   if (rows.empty()) {
     return;
   }
@@ -1542,9 +1547,9 @@ bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>
 }
 
 bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
-                                                             const GlobalTransform& boundary_world_transform,
-                                                             const GlobalTransform& tree_world_transform,
-                                                             IntersectionRunStats* stats) {
+                                                            const GlobalTransform& boundary_world_transform,
+                                                            const GlobalTransform& tree_world_transform,
+                                                            IntersectionRunStats* stats) {
   if (!HasMeshedSegmentMeshlets()) {
     EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
     return false;
@@ -1611,12 +1616,10 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   DeactivateOutsidePhysicsSegments(truncate_result.outside_meshlet_indices);
   UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
-  EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated (" << segment_meshlet_vertices.size()
-                                                                       << " vertices, "
-                                                                       << segment_meshlet_triangles.size()
-                                                                       << " triangles). Deactivated "
-                                                                       << deactivated_physics_segment_indices_.size()
-                                                                       << " OUTSIDE physics segment(s).");
+  EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated ("
+                << segment_meshlet_vertices.size() << " vertices, " << segment_meshlet_triangles.size()
+                << " triangles). Deactivated " << deactivated_physics_segment_indices_.size()
+                << " OUTSIDE physics segment(s).");
   return true;
 }
 
@@ -1658,7 +1661,7 @@ void DsKineticVoronoiMeshing::DownloadPhysicsSegmentsAndPairs() {
   }
   if (!dynamic_strands->segment_pairs.empty()) {
     dynamic_strands->device_segment_pairs_buffer->DownloadVector(dynamic_strands->segment_pairs,
-                                                                dynamic_strands->segment_pairs.size());
+                                                                 dynamic_strands->segment_pairs.size());
   }
 }
 
@@ -1699,8 +1702,7 @@ void DsKineticVoronoiMeshing::RestoreDeactivatedPhysicsSegments() {
   deactivated_pair_integrities_.clear();
 }
 
-void DsKineticVoronoiMeshing::DeactivateOutsidePhysicsSegments(
-    const std::vector<size_t>& outside_meshing_indices) {
+void DsKineticVoronoiMeshing::DeactivateOutsidePhysicsSegments(const std::vector<size_t>& outside_meshing_indices) {
   deactivated_physics_segment_indices_.clear();
   deactivated_pair_integrities_.clear();
   if (!dynamic_strands || !tree_mesher_ || outside_meshing_indices.empty()) {
@@ -1828,8 +1830,7 @@ void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tre
 
       const auto below_neighbors = collect_physics_neighbors(below_meshing_id);
       const auto above_neighbors = collect_physics_neighbors(above_meshing_id);
-      const bool adjacent =
-          below_neighbors.count(above_physics_id) > 0 || above_neighbors.count(below_physics_id) > 0;
+      const bool adjacent = below_neighbors.count(above_physics_id) > 0 || above_neighbors.count(below_physics_id) > 0;
       if (!adjacent) {
         continue;
       }
@@ -1890,8 +1891,7 @@ void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tre
         continue;
       }
       const int below_physics_id = segment_no > 0 ? physics_segments[segment_no - 1] : -1;
-      const int above_physics_id =
-          segment_no + 1 < segment_count ? physics_segments[segment_no + 1] : -1;
+      const int above_physics_id = segment_no + 1 < segment_count ? physics_segments[segment_no + 1] : -1;
 
       for (const int physics_neighbor_id : collect_physics_neighbors(meshing_segments[segment_no])) {
         if (physics_neighbor_id == physics_segment_id || physics_neighbor_id == below_physics_id ||
@@ -1926,10 +1926,10 @@ void DsKineticVoronoiMeshing::RecomputeSegmentPairs(const kinDS::TreeMesher& tre
     }
   }
 
-  EVOENGINE_LOG("Recomputed segment pairs from mesh: " << dynamic_strands->connection_segment_pair_size
-                                                       << " vertical, "
-                                                       << (segment_pairs.size() - dynamic_strands->connection_segment_pair_size)
-                                                       << " lateral (total " << segment_pairs.size() << ").");
+  EVOENGINE_LOG("Recomputed segment pairs from mesh: "
+                << dynamic_strands->connection_segment_pair_size << " vertical, "
+                << (segment_pairs.size() - dynamic_strands->connection_segment_pair_size) << " lateral (total "
+                << segment_pairs.size() << ").");
 }
 
 void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
@@ -2036,8 +2036,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     std::vector<std::vector<int>> neighbors;
     std::vector<size_t> meshing_to_physics;
     std::vector<std::vector<size_t>> strand_to_segment;
-    if (LoadMeshingBuffer(bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors, meshing_to_physics,
-                          strand_to_segment)) {
+    if (LoadMeshingBuffer(bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
+                          meshing_to_physics, strand_to_segment)) {
       tree_mesher_->getSegmentMeshlets() = std::move(meshlets);
       tree_mesher_->getMeshingNeighborIndices() = std::move(neighbors);
       tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
@@ -2049,8 +2049,7 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
       segment_meshlet_triangles = std::move(gpu_triangles);
       warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
       EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
-                                                << " vertices, " << segment_meshlet_triangles.size()
-                                                << " triangles).");
+                                                << " vertices, " << segment_meshlet_triangles.size() << " triangles).");
       loaded_from_cache = true;
     } else {
       EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
@@ -2157,7 +2156,8 @@ void DsKineticVoronoiMeshing::PopulateGpuMeshletBuffers(
         triangle.vertex_index1 = static_cast<unsigned int>(triangles[triangle_vertex_index + 1] + vertex_offset);
         triangle.vertex_index2 = static_cast<unsigned int>(triangles[triangle_vertex_index + 2] + vertex_offset);
 
-        const int meshing_neighbor_segment_index = meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
+        const int meshing_neighbor_segment_index =
+            meshing_neighbor_indices[meshing_segment_id][triangle_vertex_index / 3];
         if (meshing_neighbor_segment_index >= static_cast<long>(meshing_to_physics_segment_indices.size())) {
           EVOENGINE_ERROR("meshing_neighbor_segment_index out of bounds: " << meshing_neighbor_segment_index
                                                                            << "; upper bound is: "
@@ -2327,7 +2327,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     auto& uniformly_subdivided_strand = uniformly_subdivided_strand_group.PeekStrand(strand_index);
 
     size_t first_segment_handle = uniformly_subdivided_strand.PeekStrandSegmentHandles()[0];
-    const auto& first_uniform_segment_data = uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
+    const auto& first_uniform_segment_data =
+        uniformly_subdivided_strand_group.PeekStrandSegmentData(first_segment_handle);
 
     StrandCrossSectionGuidePoint first_guide_point;
     first_guide_point.profile_position =
@@ -2364,8 +2365,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
       if (!isnan(segment.end_t)) {
         random_subdivisions_by_strand[strand_index].push_back(
-            initialize_parameters.uniform_subdivision *
-            (segment.end_t + random_segment_data.original_segment_index));
+            initialize_parameters.uniform_subdivision * (segment.end_t + random_segment_data.original_segment_index));
       }
     }
   });
@@ -2501,8 +2501,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       }
 
       const size_t branch_index = branch_indices[strand_index][h];
-      if (h >= transforms_by_height_and_branch.size() ||
-          branch_index >= transforms_by_height_and_branch[h].size()) {
+      if (h >= transforms_by_height_and_branch.size() || branch_index >= transforms_by_height_and_branch[h].size()) {
         break;
       }
 
@@ -2520,9 +2519,9 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
 
       const glm::dmat4& transform = transforms_by_height_and_branch[h][branch_index];
       const glm::dvec2 fallback = guide_points[h].profile_position;
-      guide_points[h].profile_position = SampleStrandProfileAtPlane(
-          strand_model_strand_group, static_cast<StrandHandle>(strand_index), transform, hint_segment_index, fallback,
-          preferred_t, meshing_settings.spline_tension);
+      guide_points[h].profile_position =
+          SampleStrandProfileAtPlane(strand_model_strand_group, static_cast<StrandHandle>(strand_index), transform,
+                                     hint_segment_index, fallback, preferred_t, meshing_settings.spline_tension);
     }
   });
 
@@ -2537,8 +2536,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
           break;
         }
         const size_t branch_index = branch_indices[strand_index][h];
-        if (h >= transforms_by_height_and_branch.size() ||
-            branch_index >= transforms_by_height_and_branch[h].size()) {
+        if (h >= transforms_by_height_and_branch.size() || branch_index >= transforms_by_height_and_branch[h].size()) {
           break;
         }
         const glm::dmat4& transform = transforms_by_height_and_branch[h][branch_index];
@@ -2553,9 +2551,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
       }
     }
     if (residual_failures > 0) {
-      EVOENGINE_WARNING("Plane-spline profile sampling: " << residual_failures
-                                                          << " samples exceed residual tolerance; max residual = "
-                                                          << max_residual);
+      EVOENGINE_WARNING("Plane-spline profile sampling: "
+                        << residual_failures << " samples exceed residual tolerance; max residual = " << max_residual);
     }
   }
 #endif
@@ -2950,8 +2947,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           IntersectionRunStats intersection_stats;
           if (!IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt,
                                              collect_intersection_stats ? &intersection_stats : nullptr)) {
-            EVOENGINE_ERROR("Intersect and export all: intersection failed for entity "
-                            << child.GetIndex() << ".");
+            EVOENGINE_ERROR("Intersect and export all: intersection failed for entity " << child.GetIndex() << ".");
             continue;
           }
           MeshletObjExport::MeshGroup mesh_group;
@@ -2971,11 +2967,10 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
           EVOENGINE_ERROR("Intersect and export all: no intersection meshes exported.");
           return;
         }
-        MeshletObjExport::ExportObjCombined(
-            out_path, export_groups, dynamic_strands->segments,
-            render_settings.segment_meshlet_render_parameters.uv_height_factor,
-            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-            render_settings.segment_meshlet_render_parameters.fracture_distance);
+        MeshletObjExport::ExportObjCombined(out_path, export_groups, dynamic_strands->segments,
+                                            render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                            render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                                            render_settings.segment_meshlet_render_parameters.fracture_distance);
         EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
                                                             << out_path.string() << ".");
         if (collect_intersection_stats && !intersection_stats_rows.empty()) {
@@ -2997,7 +2992,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "Restores pristine meshlets afterward. Requires a completed meshing run.");
   }
 
-  ImGui::Checkbox("Fix missing meshlets after intersection", &meshing_settings.intersection_boundary_fix_missing_meshes);
+  ImGui::Checkbox("Fix missing meshlets after intersection",
+                  &meshing_settings.intersection_boundary_fix_missing_meshes);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip("Attempt to repair empty meshlets after boundary intersection using neighbor triangles.");
   }
@@ -3007,15 +3003,13 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     ImGui::SetTooltip(
         "If intersection fails (e.g. non-manifold), keep the uncut meshlet. Disable to replace it with an empty mesh.");
   }
-  ImGui::Checkbox("Prefer meshlet UVs on intersection seam",
-                  &meshing_settings.intersection_prefer_meshlet_uv_on_seam);
+  ImGui::Checkbox("Prefer meshlet UVs on intersection seam", &meshing_settings.intersection_prefer_meshlet_uv_on_seam);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Vertices lying on the original meshlet surface receive segment-meshlet UVs at the clip seam, even on "
         "boundary-origin faces.");
   }
-  ImGui::Checkbox("Interior UVs on clip-boundary faces",
-                  &meshing_settings.intersection_boundary_faces_interior_uv);
+  ImGui::Checkbox("Interior UVs on clip-boundary faces", &meshing_settings.intersection_boundary_faces_interior_uv);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Faces originating from the clip boundary use interior-style (a,b,h) UVs. Bark polar distance is treated as "

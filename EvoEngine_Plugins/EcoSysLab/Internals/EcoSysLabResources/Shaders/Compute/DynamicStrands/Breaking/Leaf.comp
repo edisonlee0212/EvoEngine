@@ -22,9 +22,9 @@ layout(local_size_x = WORKGROUP_SIZE, local_size_y = 1, local_size_z = 1) in;
   barrier();
 
 layout(push_constant) uniform PUSH_CONSTANTS {
-	uint leaf_size;
-        uint leaf_break_from_moisture;
-        float leaf_break_threshold;
+  uint leaf_size;
+  uint leaf_break_from_moisture;
+  float leaf_break_threshold;
 };
 
 void main() {
@@ -36,27 +36,26 @@ void main() {
     if (leaf_index >= leaf_size)
       break;
 
-		Leaf leaf = foliage[leaf_index];
-                Segment segment = segments[leaf.segment_handle];
-                float multiplier = 1.0f;
-                uint seed = leaf_index;
-                float r = rand_ab(seed, 0.0, 0.4);
-                if (leaf_break_from_moisture == 1) {
-                  multiplier = clamp(
-                      max(-r + segment.moisture_pre - leaf_break_threshold, 0.0) / (1.0 - leaf_break_threshold), 0.0f, 1.0f);
-                  leaf.health = multiplier;
-                }
+    Leaf leaf = foliage[leaf_index];
+    Segment segment = segments[leaf.segment_handle];
+    float multiplier = 1.0f;
+    uint seed = leaf_index;
+    float r = rand_ab(seed, 0.0, 0.4);
+    if (leaf_break_from_moisture == 1) {
+      multiplier =
+          clamp(max(-r + segment.moisture_pre - leaf_break_threshold, 0.0) / (1.0 - leaf_break_threshold), 0.0f, 1.0f);
+      leaf.health = multiplier;
+    }
 
-
-		if(leaf.position_strain > leaf.position_strain_limit * multiplier){
-			leaf.attachment_integrity = 0.0f;
-			foliage[leaf_index] = leaf;
-		}
-                //if (leaf_break_from_moisture == 1) {
-                //  if (segment.moisture_pre < leaf_break_threshold) {					  
-                //    leaf.attachment_integrity = 0.0f;
-                //    foliage[leaf_index] = leaf;
-                //  }
-                //}
-	}
+    if (leaf.position_strain > leaf.position_strain_limit * multiplier) {
+      leaf.attachment_integrity = 0.0f;
+      foliage[leaf_index] = leaf;
+    }
+    // if (leaf_break_from_moisture == 1) {
+    //   if (segment.moisture_pre < leaf_break_threshold) {
+    //     leaf.attachment_integrity = 0.0f;
+    //     foliage[leaf_index] = leaf;
+    //   }
+    // }
+  }
 }

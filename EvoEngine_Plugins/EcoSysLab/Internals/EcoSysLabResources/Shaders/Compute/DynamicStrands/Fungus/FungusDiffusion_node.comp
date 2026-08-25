@@ -46,7 +46,7 @@ layout(push_constant) uniform PUSH_CONSTANTS {
   float brw;
   float brb;
   float msr;  // moisture spread rate
-  
+
   float bd_offset;
   float cpb;
   float cpw;
@@ -63,18 +63,18 @@ void main() {
       break;
 
     // Calculate K based on boundary distance
-    //segments[segment_index].K = (0.2 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);d
-    //segments[segment_index].K = 5.0;
+    // segments[segment_index].K = (0.2 + bo) / (16.0 * bo * segments[segment_index].boundary_distance + 1.0);d
+    // segments[segment_index].K = 5.0;
     segments[segment_index].K = k;
-    //if (segments[segment_index].boundary_distance > 0.13) {
-    //  segments[segment_index].K = 0.0;
-    //}  // Inner fast decay
+    // if (segments[segment_index].boundary_distance > 0.13) {
+    //   segments[segment_index].K = 0.0;
+    // }  // Inner fast decay
     if (segments[segment_index].boundary_distance >
-             bd_offset + segments[segment_index].particle0.root_distance / 40.0 ) {
+        bd_offset + segments[segment_index].particle0.root_distance / 40.0) {
       segments[segment_index].K = 0.0;
     }  // Inner faster decay considering root distance for TREE ELM (0.02) SPRUCE (0.015) OAK (0.02)
-    //segments[segment_index].K = 1.0; // for board case
-    //segments[segment_index].K = k; // ZY: for competition(0.4) & log(0.2)
+    // segments[segment_index].K = 1.0; // for board case
+    // segments[segment_index].K = k; // ZY: for competition(0.4) & log(0.2)
 
     // Get diffusion values from the segment
     float diffusion_c = segments[segment_index].diffusion_c;
@@ -83,12 +83,13 @@ void main() {
     float diffusion_m = segments[segment_index].diffusion_m;
 
     // Update chemical protection (C)
-    segments[segment_index].C = segments[segment_index].C_pre +
-                                dt * (0.1 * diffusion_c +
-                                      segments[segment_index].K * (1.0 - segments[segment_index].C_pre) *
-                                      (cpw * segments[segment_index].RW_pre + cpb * segments[segment_index].RB_pre) *
-                                      segments[segment_index].HC_pre -
-                                      delta * segments[segment_index].C_pre);
+    segments[segment_index].C =
+        segments[segment_index].C_pre +
+        dt * (0.1 * diffusion_c +
+              segments[segment_index].K * (1.0 - segments[segment_index].C_pre) *
+                  (cpw * segments[segment_index].RW_pre + cpb * segments[segment_index].RB_pre) *
+                  segments[segment_index].HC_pre -
+              delta * segments[segment_index].C_pre);
 
     // Clamp to valid range
     segments[segment_index].C = clamp(segments[segment_index].C, 0.0, 1.0);

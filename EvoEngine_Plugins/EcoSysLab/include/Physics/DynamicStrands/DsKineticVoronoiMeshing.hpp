@@ -1,10 +1,10 @@
 #pragma once
+#include <filesystem>
 #include "DsMeshing.hpp"
 #include "Entity.hpp"
 #include "Transform.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
 #include "kinDS/kinDS/VoronoiMesh.hpp"
-#include <filesystem>
 namespace kinDS {
 class StrandTree;
 }
@@ -75,7 +75,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     bool export_separate_contributor_objects = true;
     /// When true, store JSON vertex/face metadata on meshlets (@ref TreeMesher::Settings::store_mesh_metadata).
     bool store_mesh_metadata = false;
-    /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through knots).
+    /// Blend for meshing-only plane-spline sampling. 0 = Strands cubic (away from knots), 1 = Catmull-Rom (through
+    /// knots).
     float spline_tension = 0.5f;
     /// When true, apply inverse root transform to a loaded intersection boundary OBJ before meshlet clipping.
     bool intersection_boundary_apply_inverse_root_transform = true;
@@ -230,9 +231,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   /// Write a timestamped intersection statistics CSV. @p base_csv_path is the desired filename
   /// (e.g. @c foo_intersection_stats.csv); a timestamp is inserted before the extension.
   /// A @c total row summing poly count and runtime is included when @p rows has more than one entry.
-  static void WriteIntersectionStatisticsCsv(
-      const std::filesystem::path& base_csv_path,
-      const std::vector<std::pair<std::string, IntersectionRunStats>>& rows);
+  static void WriteIntersectionStatisticsCsv(const std::filesystem::path& base_csv_path,
+                                             const std::vector<std::pair<std::string, IntersectionRunStats>>& rows);
   /// Reload pristine (pre-intersection) meshlets into GPU buffers.
   bool ResetMeshletsToGpu();
   void DownloadPhysicsSegmentsAndPairs();

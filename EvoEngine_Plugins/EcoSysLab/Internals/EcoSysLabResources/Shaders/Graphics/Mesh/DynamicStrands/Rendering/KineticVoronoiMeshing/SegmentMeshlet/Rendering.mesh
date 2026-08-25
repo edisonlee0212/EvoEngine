@@ -91,9 +91,8 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
       } else {
         ms_v_out[vertex_index].Color = vec4(1.0, 0.0, 0.0, 1.0);
       }
-        
-      break;
 
+      break;
   }
 
   gl_MeshVerticesEXT[vertex_index].gl_Position = transform * vec4(pos, 1.0);
