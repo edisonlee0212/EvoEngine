@@ -1,10 +1,14 @@
 #include "DynamicStrands.hpp"
+#include <cstring>
 #include <functional>
+#include <type_traits>
 #include "Application.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
 #include "DsPhysics.hpp"
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -15,6 +19,86 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
+
+namespace {
+constexpr size_t kGpuSegmentStride = offsetof(DynamicStrands::GpuSegment, particle0);
+constexpr size_t kGpuSegmentDataStride = offsetof(DynamicStrands::GpuSegmentData, pair_handles);
+
+static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegment>);
+static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegment>);
+static_assert(kGpuSegmentStride == 480);
+static_assert(offsetof(DynamicStrands::GpuSegment, particle1) ==
+              kGpuSegmentStride + sizeof(DynamicStrands::GpuParticle));
+static_assert(sizeof(DynamicStrands::GpuSegment) == kGpuSegmentStride + 2 * sizeof(DynamicStrands::GpuParticle));
+static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegmentData>);
+static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegmentData>);
+static_assert(kGpuSegmentDataStride == 48);
+static_assert(sizeof(DynamicStrands::GpuSegmentConnectionHandles) == BUNDLE_MAX_CONNECTION * sizeof(int));
+static_assert(sizeof(DynamicStrands::GpuSegmentData) ==
+              kGpuSegmentDataStride + sizeof(DynamicStrands::GpuSegmentConnectionHandles));
+
+struct PackedSegments {
+  std::vector<std::byte> segments;
+  std::vector<DynamicStrands::GpuParticle> particle0s;
+  std::vector<DynamicStrands::GpuParticle> particle1s;
+};
+
+PackedSegments MakePackedSegments(const size_t count) {
+  PackedSegments packed;
+  packed.segments.resize(kGpuSegmentStride * count);
+  packed.particle0s.resize(count);
+  packed.particle1s.resize(count);
+  return packed;
+}
+
+PackedSegments PackSegments(const std::vector<DynamicStrands::GpuSegment>& source) {
+  auto packed = MakePackedSegments(source.size());
+  for (size_t index = 0; index < source.size(); ++index) {
+    std::memcpy(packed.segments.data() + index * kGpuSegmentStride, &source[index], kGpuSegmentStride);
+    packed.particle0s[index] = source[index].particle0;
+    packed.particle1s[index] = source[index].particle1;
+  }
+  return packed;
+}
+
+void UnpackSegments(std::vector<DynamicStrands::GpuSegment>& destination, const PackedSegments& packed) {
+  for (size_t index = 0; index < destination.size(); ++index) {
+    std::memcpy(&destination[index], packed.segments.data() + index * kGpuSegmentStride, kGpuSegmentStride);
+    destination[index].particle0 = packed.particle0s[index];
+    destination[index].particle1 = packed.particle1s[index];
+  }
+}
+
+struct PackedSegmentData {
+  std::vector<std::byte> data;
+  std::vector<DynamicStrands::GpuSegmentConnectionHandles> connection_handles;
+};
+
+PackedSegmentData MakePackedSegmentData(const size_t count) {
+  PackedSegmentData packed;
+  packed.data.resize(kGpuSegmentDataStride * count);
+  packed.connection_handles.resize(count);
+  return packed;
+}
+
+PackedSegmentData PackSegmentData(const std::vector<DynamicStrands::GpuSegmentData>& source) {
+  auto packed = MakePackedSegmentData(source.size());
+  for (size_t index = 0; index < source.size(); ++index) {
+    std::memcpy(packed.data.data() + index * kGpuSegmentDataStride, &source[index], kGpuSegmentDataStride);
+    std::memcpy(packed.connection_handles[index].handles, source[index].pair_handles,
+                sizeof(packed.connection_handles[index].handles));
+  }
+  return packed;
+}
+
+void UnpackSegmentData(std::vector<DynamicStrands::GpuSegmentData>& destination, const PackedSegmentData& packed) {
+  for (size_t index = 0; index < destination.size(); ++index) {
+    std::memcpy(&destination[index], packed.data.data() + index * kGpuSegmentDataStride, kGpuSegmentDataStride);
+    std::memcpy(destination[index].pair_handles, packed.connection_handles[index].handles,
+                sizeof(packed.connection_handles[index].handles));
+  }
+}
+}  // namespace
 
 void DynamicStrands::ReleaseStaticGpuResources() {
   foliage_visualization_render_pipeline.reset();
@@ -31,76 +115,93 @@ void DynamicStrands::ReleaseStaticGpuResources() {
 
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
                              const std::function<void()>& pre_step_action) {
-  if (pre_step)
+  const auto& profiler_items = dynamic_strands_profiler::GetItems();
+  if (pre_step) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.pre_step);
     pre_step->Execute(physics_parameters, *this);
-  pre_step_action();
-  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
-    if (prediction)
-      prediction->Execute(physics_parameters, *this);
-    if (fungus && physics_parameters.enable_fungus)
-      fungus->Execute(physics_parameters, *this);
-    for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
-      for (const auto& c : constraints) {
-        if (c->enabled)
-          c->ProjectPositionConstraint(physics_parameters, *this);
+  }
+  {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.interaction);
+    pre_step_action();
+  }
+  {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.physics);
+    for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
+      if (prediction) {
+        prediction->Execute(physics_parameters, *this);
       }
-    }
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
-    const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
-    const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
-    const auto for_each_collider_entity =
-        [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
-          if (box_collider_entities && !box_collider_entities->empty()) {
-            for (const auto& i : *box_collider_entities) {
-              const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
-            }
-          }
-          if (sphere_collider_entities && !sphere_collider_entities->empty()) {
-            for (const auto& i : *sphere_collider_entities) {
-              const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
-            }
-          }
-          if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
-            for (const auto& i : *cylinder_collider_entities) {
-              const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
-            }
-          }
-        };
-    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
-      dts->ProjectPositionConstraint(physics_parameters, *this);
-    });
-    if (velocity_update)
-      velocity_update->Execute(physics_parameters, *this);
-
-    for (int iteration_i = 0; iteration_i < physics_parameters.velocity_constraint_iteration; iteration_i++) {
-      for (const auto& c : constraints) {
-        if (c->enabled)
-          c->ProjectVelocityConstraint(physics_parameters, *this);
+      if (fungus && physics_parameters.enable_fungus) {
+        fungus->Execute(physics_parameters, *this);
       }
-    }
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
+      const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
+      const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
+      const auto for_each_collider_entity =
+          [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
+            if (box_collider_entities && !box_collider_entities->empty()) {
+              for (const auto& i : *box_collider_entities) {
+                const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+              }
+            }
+            if (sphere_collider_entities && !sphere_collider_entities->empty()) {
+              for (const auto& i : *sphere_collider_entities) {
+                const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+              }
+            }
+            if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
+              for (const auto& i : *cylinder_collider_entities) {
+                const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+              }
+            }
+          };
+      {
+        for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
+          for (const auto& c : constraints) {
+            if (c->enabled)
+              c->ProjectPositionConstraint(physics_parameters, *this);
+          }
+        }
+        for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+          dts->ProjectPositionConstraint(physics_parameters, *this);
+        });
+      }
+      if (velocity_update) {
+        velocity_update->Execute(physics_parameters, *this);
+      }
 
-    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
-      dts->ProjectVelocityConstraint(physics_parameters, *this);
-    });
+      {
+        for (int iteration_i = 0; iteration_i < physics_parameters.velocity_constraint_iteration; iteration_i++) {
+          for (const auto& c : constraints) {
+            if (c->enabled)
+              c->ProjectVelocityConstraint(physics_parameters, *this);
+          }
+        }
+        for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+          dts->ProjectVelocityConstraint(physics_parameters, *this);
+        });
+      }
 
-    simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
-    if (physics_parameters.enable_structural_damage) {
-      structural_damage->Execute(physics_parameters, *this);
+      simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
+      if (physics_parameters.enable_structural_damage) {
+        structural_damage->Execute(physics_parameters, *this);
+      }
     }
   }
 
   if (physics_parameters.enable_segment_disconnection) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.dynamic_grouping);
     CalculateGroups(physics_parameters);
   }
 
   if (physics_parameters.enable_segment_collision) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.segment_collision);
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
     segment_collision->Execute(physics_parameters, *this);
     // collision_post_step->Execute(physics_parameters, *this);
@@ -159,6 +260,9 @@ void DynamicStrands::Init(MeshingType meshing_type) {
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   VkBufferCreateInfo buffer_create_info{};
@@ -173,8 +277,12 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_particle0_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_particle1_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_connection_handles_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
 
@@ -572,6 +680,9 @@ void DynamicStrands::UpdateBindings() const {
   descriptor_set->UpdateBufferDescriptorBinding(5, device_hashed_grid_elements_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(6, device_hashed_grid_cell_starts_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(10, device_segment_particle0_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(11, device_segment_particle1_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(12, device_segment_connection_handles_buffer, 0);
 
   meshing->UpdateBindings();
   for (const auto& c : constraints) {
@@ -588,12 +699,20 @@ void DynamicStrands::Upload() {
   device_strands_buffer->SetDebugName("Strands Buffer");
   device_nodes_buffer->UploadVector(nodes);
   device_nodes_buffer->SetDebugName("Nodes Buffer");
-  device_segments_buffer->UploadVector(segments);
+  const auto packed_segments = PackSegments(segments);
+  device_segments_buffer->UploadData(packed_segments.segments.size(), packed_segments.segments.data());
   device_segments_buffer->SetDebugName("Segments Buffer");
+  device_segment_particle0_buffer->UploadVector(packed_segments.particle0s);
+  device_segment_particle0_buffer->SetDebugName("Segment Particle 0 Buffer");
+  device_segment_particle1_buffer->UploadVector(packed_segments.particle1s);
+  device_segment_particle1_buffer->SetDebugName("Segment Particle 1 Buffer");
   device_segment_pairs_buffer->UploadVector(segment_pairs);
   device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
-  device_segment_data_list_buffer->UploadVector(segment_data_list);
+  const auto packed_segment_data = PackSegmentData(segment_data_list);
+  device_segment_data_list_buffer->UploadData(packed_segment_data.data.size(), packed_segment_data.data.data());
   device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
+  device_segment_connection_handles_buffer->UploadVector(packed_segment_data.connection_handles);
+  device_segment_connection_handles_buffer->SetDebugName("Segment Connection Handles Buffer");
 
   meshing->Upload();
 
@@ -615,12 +734,22 @@ void DynamicStrands::Download() {
     device_strands_buffer->DownloadVector(strands, strands.size());
   if (!nodes.empty())
     device_nodes_buffer->DownloadVector(nodes, nodes.size());
-  if (!segments.empty())
-    device_segments_buffer->DownloadVector(segments, segments.size());
+  if (!segments.empty()) {
+    auto packed_segments = MakePackedSegments(segments.size());
+    device_segments_buffer->DownloadData(packed_segments.segments.size(), packed_segments.segments.data());
+    device_segment_particle0_buffer->DownloadVector(packed_segments.particle0s, packed_segments.particle0s.size());
+    device_segment_particle1_buffer->DownloadVector(packed_segments.particle1s, packed_segments.particle1s.size());
+    UnpackSegments(segments, packed_segments);
+  }
   if (!segment_pairs.empty())
     device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
-  if (!segment_data_list.empty())
-    device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
+  if (!segment_data_list.empty()) {
+    auto packed_segment_data = MakePackedSegmentData(segment_data_list.size());
+    device_segment_data_list_buffer->DownloadData(packed_segment_data.data.size(), packed_segment_data.data.data());
+    device_segment_connection_handles_buffer->DownloadVector(packed_segment_data.connection_handles,
+                                                             packed_segment_data.connection_handles.size());
+    UnpackSegmentData(segment_data_list, packed_segment_data);
+  }
 
   meshing->Download();
 

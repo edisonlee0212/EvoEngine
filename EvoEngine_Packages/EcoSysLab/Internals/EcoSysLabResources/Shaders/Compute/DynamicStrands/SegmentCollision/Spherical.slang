@@ -26,6 +26,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     SegmentData segment_data = segment_data_list[segment_handle];
 
     Segment segment = segments[segment_handle];
+    Particle segment_particle0 = segment_particle0s[segment_handle];
+    Particle segment_particle1 = segment_particle1s[segment_handle];
     float ground_damping = segment.ground_damping;
     float quasi_damping = segment.quasi_damping;
     if (segment.reach_ground == 1) {
@@ -34,8 +36,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (segment.quasi_stable == 1) {
       segments[segment_handle].quasi_damping *= 0.995;
     }
-    Particle particle0 = segment.particle0;
-    Particle particle1 = segment.particle1;
+    Particle particle0 = segment_particle0;
+    Particle particle1 = segment_particle1;
 
     int exert_fricton_0 = 0;
     int exert_fricton_1 = 0;
@@ -78,9 +80,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
           while (begin < end) {
             uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
             Segment neighbor_segment = segments[neighbor_segment_handle];
+            Particle neighbor_segment_particle0 = segment_particle0s[neighbor_segment_handle];
+            Particle neighbor_segment_particle1 = segment_particle1s[neighbor_segment_handle];
             if (neighbor_segment.group_index != group_index) {
-              Particle neighbor_particle0 = neighbor_segment.particle0;
-              Particle neighbor_particle1 = neighbor_segment.particle1;
+              Particle neighbor_particle0 = neighbor_segment_particle0;
+              Particle neighbor_particle1 = neighbor_segment_particle1;
 
               float4 neighbor_color = neighbor_segment.color;
               float3 neighbor_p0 = neighbor_particle0.x;
@@ -124,14 +128,14 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                   position_offset += direction * max(0.0f, 0.05 - diff_length) * max(0.0f, 0.05 - diff_length);
                   position_offset_length += max(0.0f, 0.05 - diff_length) * max(0.0f, 0.05 - diff_length);
                   if (diff_length < 0.02) {
-                    segments[segment_handle].particle0.v =
-                        scaleAlongDirectional(segments[segment_handle].particle0.v, -direction, 50 * diff_length);
-                    segments[segment_handle].particle1.v =
-                        scaleAlongDirectional(segments[segment_handle].particle1.v, -direction, 50 * diff_length);
+                    segment_particle0s[segment_handle].v =
+                        scaleAlongDirectional(segment_particle0s[segment_handle].v, -direction, 50 * diff_length);
+                    segment_particle1s[segment_handle].v =
+                        scaleAlongDirectional(segment_particle1s[segment_handle].v, -direction, 50 * diff_length);
                   }
                 }
                 if (diff_length0 < 0.02) {
-                  // segments[segment_handle].particle0.v = scaleAlongDirectional(segments[segment_handle].particle0.v,
+                  // segment_particle0s[segment_handle].v = scaleAlongDirectional(segment_particle0s[segment_handle].v,
                   //                                                              -direction0, 50 * diff_length);  //
                   //                                                              0.01, 0.1
                   if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
@@ -140,8 +144,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                   }
                 }
                 if (diff_length1 < 0.02) {
-                  // segments[segment_handle].particle1.v =
-                  //     scaleAlongDirectional(segments[segment_handle].particle1.v, -direction1, 50 * diff_length);
+                  // segment_particle1s[segment_handle].v =
+                  //     scaleAlongDirectional(segment_particle1s[segment_handle].v, -direction1, 50 * diff_length);
                   if (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 &&
                       diff_length1 < 0.001) {
                     exert_fricton_1 = 1;
@@ -166,53 +170,53 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       float3 dv1 = float3(0.0);
       if (segments[segment_handle].quasi_stable == 1) {
         // if (false){
-        // segments[segment_handle].particle0.x += 0.6 * position_offset * ground_damping;
-        // segments[segment_handle].particle1.x += 0.6 * position_offset * ground_damping;
+        // segment_particle0s[segment_handle].x += 0.6 * position_offset * ground_damping;
+        // segment_particle1s[segment_handle].x += 0.6 * position_offset * ground_damping;
 
         float3 up = float3(0.0, 1.0, 0.0);
-        // segments[segment_handle].particle0.v += scaleAlong(position_offset * 20.f, up, 0.05);
-        // segments[segment_handle].particle1.v += scaleAlong(position_offset * 20.f, up, 0.05);
+        // segment_particle0s[segment_handle].v += scaleAlong(position_offset * 20.f, up, 0.05);
+        // segment_particle1s[segment_handle].v += scaleAlong(position_offset * 20.f, up, 0.05);
 
-        // segments[segment_handle].particle0.v += position_offset * 30.f;
-        // segments[segment_handle].particle1.v += position_offset * 30.f;
-        // segments[segment_handle].particle0.v *= 0.2 * ground_damping;
-        // segments[segment_handle].particle1.v *= 0.2 * ground_damping;
+        // segment_particle0s[segment_handle].v += position_offset * 30.f;
+        // segment_particle1s[segment_handle].v += position_offset * 30.f;
+        // segment_particle0s[segment_handle].v *= 0.2 * ground_damping;
+        // segment_particle1s[segment_handle].v *= 0.2 * ground_damping;
 
-        // segments[segment_handle].particle0.v =
-        //     scaleAlongDirectional(segments[segment_handle].particle0.v, -position_offset, 0.0);
-        // segments[segment_handle].particle1.v =
-        //     scaleAlongDirectional(segments[segment_handle].particle1.v, -position_offset, 0.0);
+        // segment_particle0s[segment_handle].v =
+        //     scaleAlongDirectional(segment_particle0s[segment_handle].v, -position_offset, 0.0);
+        // segment_particle1s[segment_handle].v =
+        //     scaleAlongDirectional(segment_particle1s[segment_handle].v, -position_offset, 0.0);
         if (exert_fricton_0 == 1) {
           float friction = 0.8 * 9.8;
           friction = position_offset_length * 0.8f;
-          dv0 += length(float3(segments[segment_handle].particle0.v)) > friction
-                     ? normalize(segments[segment_handle].particle0.v) * friction
-                     : segments[segment_handle].particle0.v;
-          segments[segment_handle].particle0.v -= dv0;
+          dv0 += length(float3(segment_particle0s[segment_handle].v)) > friction
+                     ? normalize(segment_particle0s[segment_handle].v) * friction
+                     : segment_particle0s[segment_handle].v;
+          segment_particle0s[segment_handle].v -= dv0;
 
-          // segments[segment_handle].particle0.v = float3(0.0);
-          //  segments[segment_handle].particle0.v = scaleAlong(
-          //      segments[segment_handle].particle0.v, segment_direction, 0.2);
+          // segment_particle0s[segment_handle].v = float3(0.0);
+          //  segment_particle0s[segment_handle].v = scaleAlong(
+          //      segment_particle0s[segment_handle].v, segment_direction, 0.2);
         }
         if (exert_fricton_1 == 1) {
           float friction = 0.8 * 9.8;
           friction = position_offset_length * 0.8f;
-          dv1 += length(float3(segments[segment_handle].particle1.v)) > friction
-                     ? normalize(segments[segment_handle].particle1.v) * friction
-                     : segments[segment_handle].particle1.v;
-          segments[segment_handle].particle1.v -= dv1;
+          dv1 += length(float3(segment_particle1s[segment_handle].v)) > friction
+                     ? normalize(segment_particle1s[segment_handle].v) * friction
+                     : segment_particle1s[segment_handle].v;
+          segment_particle1s[segment_handle].v -= dv1;
 
-          // segments[segment_handle].particle1.v = float3(0.0);
-          //  segments[segment_handle].particle1.v =
-          //      scaleAlong(segments[segment_handle].particle1.v, segment_direction, 0.2);
+          // segment_particle1s[segment_handle].v = float3(0.0);
+          //  segment_particle1s[segment_handle].v =
+          //      scaleAlong(segment_particle1s[segment_handle].v, segment_direction, 0.2);
         }
 
         // if (exert_fricton_0 == 1 || exert_fricton_1 == 1)
         //{
         //   float3 J0 = dv0 / 2.0 / segments[segment_handle].inv_mass;
         //   float3 J1 = dv1 / 2.0 / segments[segment_handle].inv_mass;
-        //   float3 r0 = -segments[segment_handle].particle0.x + segment_center_position;
-        //   float3 r1 = -segments[segment_handle].particle1.x + segment_center_position;
+        //   float3 r0 = -segment_particle0s[segment_handle].x + segment_center_position;
+        //   float3 r1 = -segment_particle1s[segment_handle].x + segment_center_position;
         //   float3 dL = cross(r0, J0) + cross(r1, J1);
         //   segments[segment_handle].angular_v =
         //       (segments[segment_handle].inv_inertia_w *
@@ -223,15 +227,15 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       } else {
         dv0 += position_offset * 30.f;
         dv1 += position_offset * 30.f;
-        segments[segment_handle].particle0.v += position_offset * 30.f;  // 30.0f;
-        segments[segment_handle].particle1.v += position_offset * 30.f;
-        // segments[segment_handle].particle0.x += position_offset;
-        // segments[segment_handle].particle1.x += position_offset;
+        segment_particle0s[segment_handle].v += position_offset * 30.f;  // 30.0f;
+        segment_particle1s[segment_handle].v += position_offset * 30.f;
+        // segment_particle0s[segment_handle].x += position_offset;
+        // segment_particle1s[segment_handle].x += position_offset;
 
-        // segments[segment_handle].particle0.v =
-        //    scaleAlongDirectional(segments[segment_handle].particle0.v, -position_offset, 0.0);
-        // segments[segment_handle].particle1.v =
-        //    scaleAlongDirectional(segments[segment_handle].particle1.v, -position_offset, 0.0);
+        // segment_particle0s[segment_handle].v =
+        //    scaleAlongDirectional(segment_particle0s[segment_handle].v, -position_offset, 0.0);
+        // segment_particle1s[segment_handle].v =
+        //    scaleAlongDirectional(segment_particle1s[segment_handle].v, -position_offset, 0.0);
       }
     }
   }
@@ -240,9 +244,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 /*while (begin < segment_size) {
  uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
  Segment neighbor_segment = segments[neighbor_segment_handle];
+ Particle neighbor_segment_particle0 = segment_particle0s[neighbor_segment_handle];
+ Particle neighbor_segment_particle1 = segment_particle1s[neighbor_segment_handle];
  if (neighbor_segment.group_index != group_index) {
-   Particle neighbor_particle0 = neighbor_segment.particle0;
-   Particle neighbor_particle1 = neighbor_segment.particle1;
+   Particle neighbor_particle0 = neighbor_segment_particle0;
+   Particle neighbor_particle1 = neighbor_segment_particle1;
 
    float4 neighbor_color = neighbor_segment.color;
    float3 neighbor_p0 = neighbor_particle0.x;
@@ -266,16 +272,18 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 }
 if (sum != 0) {
  position_offset /= sum;
- segments[segment_handle].particle0.x += position_offset;
- segments[segment_handle].particle1.x += position_offset;
+ segment_particle0s[segment_handle].x += position_offset;
+ segment_particle1s[segment_handle].x += position_offset;
 }*/
 
 /*while (begin < segment_size) {  // TODO: Fix the bug with end index
       uint neighbor_segment_handle = hashed_grid_elements[begin].segment_handle;
       Segment neighbor_segment = segments[neighbor_segment_handle];
+      Particle neighbor_segment_particle0 = segment_particle0s[neighbor_segment_handle];
+      Particle neighbor_segment_particle1 = segment_particle1s[neighbor_segment_handle];
       if (neighbor_segment.group_index != group_index) {
-        Particle neighbor_particle0 = neighbor_segment.particle0;
-        Particle neighbor_particle1 = neighbor_segment.particle1;
+        Particle neighbor_particle0 = neighbor_segment_particle0;
+        Particle neighbor_particle1 = neighbor_segment_particle1;
 
         float4 neighbor_color = neighbor_segment.color;
         float3 neighbor_p0 = neighbor_particle0.x;
@@ -303,10 +311,10 @@ if (sum != 0) {
             //position_offset += direction * max(0.0f, 0.05 - diff_length) * max(0.0f, 0.05 - diff_length) * max(0.0f,
    0.05 - diff_length) * 200.0; position_offset += direction * max(0.0f, 0.05 - diff_length); if
    (segments[segment_handle].quasi_stable == 1 && neighbor_segment.quasi_stable == 1 && diff_length < 0.01) {
-              segments[segment_handle].particle0.v =
-                  scaleAlongDirectional(segments[segment_handle].particle0.v, -direction, 0.1);
-              segments[segment_handle].particle1.v =
-                  scaleAlongDirectional(segments[segment_handle].particle1.v, -direction, 0.1);
+              segment_particle0s[segment_handle].v =
+                  scaleAlongDirectional(segment_particle0s[segment_handle].v, -direction, 0.1);
+              segment_particle1s[segment_handle].v =
+                  scaleAlongDirectional(segment_particle1s[segment_handle].v, -direction, 0.1);
             }
           }
           sum++;

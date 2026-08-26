@@ -1,5 +1,6 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
+#include "GpuProfiler.hpp"
 #include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
@@ -152,6 +153,59 @@ TEST(RenderGraph, ProfilerBreakdownUsesSharedCpuAndGpuHistoryModels) {
   EXPECT_NE(editor_layer.find("ProfilerBreakdownCpuPlot"), std::string::npos);
   EXPECT_NE(editor_layer.find("ProfilerBreakdownGpuPlot"), std::string::npos);
   EXPECT_NE(editor_layer.find("pass.duration.duty_cycle"), std::string::npos);
+}
+
+TEST(RenderGraph, RegisteredGpuPassOccurrencesAggregateAndSummaryScopesDoNotDoubleCount) {
+  GpuTimestampFrameSnapshot frame;
+  frame.results_available = true;
+  const GpuTimestampScopeMetadata stage{"EcoSysLab.DynamicStrands.Prediction",
+                                        "Prediction",
+                                        "DynamicStrands",
+                                        GpuTimestampQueue::Compute,
+                                        0,
+                                        0,
+                                        true,
+                                        "EcoSysLab"};
+  const GpuTimestampScopeMetadata summary{"EcoSysLab.DynamicStrands.Simulation",
+                                          "DynamicStrands Simulation",
+                                          "DynamicStrands",
+                                          GpuTimestampQueue::Compute,
+                                          0,
+                                          0,
+                                          false,
+                                          "EcoSysLab"};
+  frame.samples = {{summary, 0, 0, 1, 0.0, 3.0, 3.0}, {stage, 1, 2, 3, 0.2, 1.2, 1.0}, {stage, 2, 4, 5, 1.4, 2.9, 1.5}};
+
+  const auto aggregates = BuildGpuTimestampPassAggregates(frame);
+  ASSERT_EQ(aggregates.size(), 2);
+  const auto stage_aggregate = std::find_if(aggregates.begin(), aggregates.end(), [](const auto& aggregate) {
+    return aggregate.metadata.stable_pass_id == "EcoSysLab.DynamicStrands.Prediction";
+  });
+  ASSERT_NE(stage_aggregate, aggregates.end());
+  EXPECT_EQ(stage_aggregate->call_count, 2);
+  EXPECT_DOUBLE_EQ(stage_aggregate->total_milliseconds, 2.5);
+  EXPECT_EQ(stage_aggregate->metadata.instance_id, 0);
+
+  const auto history = BuildGpuTimestampHistoryStats({frame}, 1);
+  EXPECT_DOUBLE_EQ(history.summed_work.selected_milliseconds, 2.5);
+}
+
+TEST(RenderGraph, RegisteredGpuProfilerItemsMapToTimestampMetadata) {
+  RegisteredProfilerItem item;
+  item.owner_name = "EcoSysLab";
+  item.stable_id = "EcoSysLab.DynamicStrands.Physics";
+  item.descriptor.display_name = "Physics";
+  item.descriptor.gpu_group = "DynamicStrands";
+  item.descriptor.gpu_queue = ProfilerGpuQueue::Compute;
+  item.descriptor.gpu_contributes_to_frame_total = true;
+
+  const auto metadata = MakeGpuTimestampScopeMetadata(item);
+  EXPECT_EQ(metadata.stable_pass_id, item.stable_id);
+  EXPECT_EQ(metadata.display_name, item.descriptor.display_name);
+  EXPECT_EQ(metadata.group, item.descriptor.gpu_group);
+  EXPECT_EQ(metadata.queue, GpuTimestampQueue::Compute);
+  EXPECT_TRUE(metadata.contributes_to_frame_total);
+  EXPECT_EQ(metadata.owner_name, item.owner_name);
 }
 
 TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {

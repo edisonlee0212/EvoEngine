@@ -9,6 +9,7 @@
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GpuProfiler.hpp"
 #include "ILayer.hpp"
 #include "InspectorRegistry.hpp"
 #include "Material.hpp"
@@ -86,6 +87,7 @@ struct ProfilerPanelState {
   std::vector<CpuThread> cpu_threads;
   std::vector<GpuGroup> gpu_groups;
   std::vector<GpuTimestampFrameSnapshot> gpu_frames;
+  uint64_t registration_revision = 0;
   std::unordered_set<std::string> cataloged_cpu_frames;
   std::unordered_set<std::string> cataloged_gpu_frames;
   std::unordered_set<std::string> pinned_gpu_passes;
@@ -778,6 +780,28 @@ void UpdateGpuProfilerCatalog(const std::vector<GpuTimestampFrameSnapshot>& fram
           },
           ProfilerPanelState::GpuPass{key, aggregate.metadata});
     }
+  }
+}
+
+void UpdateRegisteredGpuProfilerCatalog(const std::vector<RegisteredProfilerItem>& items, ProfilerPanelState& state) {
+  for (const auto& item : items) {
+    if (!item.descriptor.gpu)
+      continue;
+    const std::string group_name = item.descriptor.gpu_group.empty() ? item.owner_name : item.descriptor.gpu_group;
+    auto& group = profiler_panel_detail::AppendFirstSeen(
+        state.gpu_groups, group_name,
+        [](const auto& entry) -> const std::string& {
+          return entry.name;
+        },
+        ProfilerPanelState::GpuGroup{group_name});
+    auto metadata = MakeGpuTimestampScopeMetadata(item);
+    const auto key = GpuProfilerPassKey(metadata);
+    profiler_panel_detail::AppendFirstSeen(
+        group.passes, key,
+        [](const auto& pass) -> const std::string& {
+          return pass.key;
+        },
+        ProfilerPanelState::GpuPass{key, std::move(metadata)});
   }
 }
 
@@ -4764,8 +4788,50 @@ void EditorLayer::DrawProfilerWindow() {
     }
   }
 
+  const auto registered_items = profiler.GetRegisteredItemsSnapshot();
+  const auto registration_revision = profiler.GetRegistrationRevision();
+  if (panel_state.registration_revision != registration_revision) {
+    panel_state.cpu_threads.clear();
+    panel_state.gpu_groups.clear();
+    panel_state.cataloged_cpu_frames.clear();
+    panel_state.cataloged_gpu_frames.clear();
+    panel_state.registration_revision = registration_revision;
+  }
   UpdateProfilerCpuCatalog(profiler_panel_frames_, panel_state);
+  UpdateRegisteredGpuProfilerCatalog(registered_items, panel_state);
   UpdateGpuProfilerCatalog(panel_state.gpu_frames, panel_state);
+
+  if (ImGui::CollapsingHeader("Registered package items")) {
+    if (registered_items.empty()) {
+      ImGui::TextDisabled("No package profiler items are registered.");
+    } else if (ImGui::BeginTable("RegisteredPackageProfilerItems", 5,
+                                 ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_Resizable)) {
+      ImGui::TableSetupColumn("Package");
+      ImGui::TableSetupColumn("Item");
+      ImGui::TableSetupColumn("CPU category");
+      ImGui::TableSetupColumn("GPU group");
+      ImGui::TableSetupColumn("GPU kind");
+      ImGui::TableHeadersRow();
+      for (const auto& item : registered_items) {
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(item.owner_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(item.descriptor.display_name.c_str());
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(item.descriptor.cpu ? item.descriptor.cpu_category.c_str() : "-");
+        ImGui::TableNextColumn();
+        ImGui::TextUnformatted(
+            item.descriptor.gpu
+                ? (item.descriptor.gpu_group.empty() ? item.owner_name.c_str() : item.descriptor.gpu_group.c_str())
+                : "-");
+        ImGui::TableNextColumn();
+        const auto metadata = MakeGpuTimestampScopeMetadata(item);
+        ImGui::TextUnformatted(item.descriptor.gpu ? GpuTimestampQueueName(metadata.queue) : "-");
+      }
+      ImGui::EndTable();
+    }
+  }
 
   if (profiler_panel_frames_.empty()) {
     ImGui::TextUnformatted(capture_enabled ? "Waiting for the first complete profiler frame."
@@ -5222,7 +5288,7 @@ void EditorLayer::DrawProfilerWindow() {
   }
 
   if (ImGui::BeginTabItem("GPU")) {
-    ImGui::SeparatorText("GPU render passes");
+    ImGui::SeparatorText("GPU passes");
     std::unordered_map<std::string, const GpuTimestampFrameSnapshot*> gpu_by_frame;
     for (const auto& frame : panel_state.gpu_frames) {
       gpu_by_frame[GpuProfilerFrameKey(frame.capture_session_index, frame.application_frame_index)] = &frame;

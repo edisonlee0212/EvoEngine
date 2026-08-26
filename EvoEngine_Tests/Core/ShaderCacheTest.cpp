@@ -692,9 +692,10 @@ void main()
     static_assert(sizeof(Strand, Std430DataLayout) == 48, "Strand layout");
     static_assert(sizeof(Node, Std430DataLayout) == 16, "Node layout");
     static_assert(sizeof(Particle, Std430DataLayout) == 96, "Particle layout");
-    static_assert(sizeof(Segment, Std430DataLayout) == 672, "Segment layout");
+    static_assert(sizeof(Segment, Std430DataLayout) == 480, "Segment layout");
     static_assert(sizeof(SegmentPair, Std430DataLayout) == 144, "SegmentPair layout");
-    static_assert(sizeof(SegmentData, Std430DataLayout) == 304, "SegmentData layout");
+    static_assert(sizeof(SegmentData, Std430DataLayout) == 48, "SegmentData layout");
+    static_assert(sizeof(SegmentConnectionHandles, Std430DataLayout) == 256, "SegmentConnectionHandles layout");
     static_assert(sizeof(Leaf, Std430DataLayout) == 384, "Leaf layout");
     static_assert(sizeof(HashedGridElement, Std430DataLayout) == 16, "HashedGridElement layout");
     static_assert(sizeof(HashedGridCellStart, Std430DataLayout) == 16, "HashedGridCellStart layout");
@@ -717,8 +718,16 @@ void main()
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Compute, source, reflection, diagnostics,
                                    module_root / "EcoSysLabGpuAbiProbe.slang"))
       << diagnostics;
-  ASSERT_EQ(reflection.descriptor_bindings.size(), 15u);
+  ASSERT_EQ(reflection.descriptor_bindings.size(), 18u);
   for (uint32_t binding = 0; binding < 8; ++binding) {
+    const auto entry = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
+                                    [binding](const auto& candidate) {
+                                      return candidate.set == 0 && candidate.binding == binding;
+                                    });
+    ASSERT_NE(entry, reflection.descriptor_bindings.end()) << binding;
+    EXPECT_EQ(entry->descriptor_type, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+  }
+  for (uint32_t binding = 10; binding < 13; ++binding) {
     const auto entry = std::find_if(reflection.descriptor_bindings.begin(), reflection.descriptor_bindings.end(),
                                     [binding](const auto& candidate) {
                                       return candidate.set == 0 && candidate.binding == binding;

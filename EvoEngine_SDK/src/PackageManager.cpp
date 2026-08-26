@@ -4,6 +4,7 @@
 #include "AssetManager.hpp"
 #include "InspectorRegistry.hpp"
 #include "PathUtils.hpp"
+#include "Platform.hpp"
 #include "ProjectManager.hpp"
 #include "Scene.hpp"
 
@@ -27,6 +28,10 @@ PackageRegistrar::PackageRegistrar(std::string package_name,
       registered_data_component_names_(&registered_data_component_names),
       registered_system_names_(&registered_system_names),
       registered_layer_names_(&registered_layer_names) {
+}
+
+ProfilerItemHandle PackageRegistrar::RegisterProfilerItem(const ProfilerItemDescriptor& descriptor) {
+  return Profiler::GetInstance().RegisterItem(package_name_, descriptor);
 }
 
 bool PackageManager::IsRuntimeBusy() {
@@ -456,6 +461,8 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
     EVOENGINE_ERROR("Runtime package type registration failed: " + package_name)
     Serialization::UnregisterPackageOwnedTypes(package_name);
     InspectorRegistry::GetInstance().UnregisterOwner(package_name);
+    Platform::RemoveGpuTimestampOwnerHistory(package_name);
+    Profiler::GetInstance().UnregisterOwner(package_name);
     {
       auto& manager = GetInstance();
       std::lock_guard lock(manager.mutex_);
@@ -469,6 +476,8 @@ bool PackageManager::Load(const std::filesystem::path& package_path) {
     EVOENGINE_ERROR("Runtime package load callback failed: " + package_name)
     Serialization::UnregisterPackageOwnedTypes(package_name);
     InspectorRegistry::GetInstance().UnregisterOwner(package_name);
+    Platform::RemoveGpuTimestampOwnerHistory(package_name);
+    Profiler::GetInstance().UnregisterOwner(package_name);
     {
       auto& manager = GetInstance();
       std::lock_guard lock(manager.mutex_);
@@ -627,6 +636,8 @@ bool PackageManager::Unload(const std::string& package_name) {
   package.unload(&registrar);
   Serialization::UnregisterPackageOwnedTypes(package_name);
   InspectorRegistry::GetInstance().UnregisterOwner(package_name);
+  Platform::RemoveGpuTimestampOwnerHistory(package_name);
+  Profiler::GetInstance().UnregisterOwner(package_name);
   CloseLibrary(package.library_handle);
 
 #if defined(_WIN32)

@@ -4,10 +4,51 @@
 #include <cstdint>
 #include <filesystem>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace evo_engine {
+
+enum class ProfilerGpuQueue : uint8_t { Graphics, Compute, Transfer, RayTracing, Immediate };
+
+class ProfilerItemHandle final {
+ public:
+  ProfilerItemHandle() = default;
+
+  [[nodiscard]] explicit operator bool() const {
+    return value_ != 0;
+  }
+  [[nodiscard]] bool operator==(const ProfilerItemHandle& other) const {
+    return value_ == other.value_;
+  }
+
+ private:
+  explicit ProfilerItemHandle(const uint64_t value) : value_(value) {
+  }
+
+  uint64_t value_ = 0;
+
+  friend class Profiler;
+};
+
+struct ProfilerItemDescriptor {
+  std::string local_id;
+  std::string display_name;
+  std::string cpu_category = "Package";
+  std::string gpu_group;
+  ProfilerGpuQueue gpu_queue = ProfilerGpuQueue::Graphics;
+  bool cpu = false;
+  bool gpu = false;
+  bool gpu_contributes_to_frame_total = true;
+};
+
+struct RegisteredProfilerItem {
+  ProfilerItemHandle handle{};
+  std::string owner_name;
+  std::string stable_id;
+  ProfilerItemDescriptor descriptor{};
+};
 
 struct ProfilerScopeEvent {
   uint64_t frame_index = 0;
@@ -18,6 +59,8 @@ struct ProfilerScopeEvent {
   uint32_t depth = 0;
   double start_ms = 0.0;
   double duration_ms = 0.0;
+  std::string stable_id;
+  std::string owner_name;
 };
 
 struct ProfilerCounter {
@@ -45,6 +88,8 @@ struct ProfilerHierarchyNode {
   double self_ms = 0.0;
   double max_ms = 0.0;
   std::vector<ProfilerHierarchyNode> children;
+  std::string stable_id;
+  std::string owner_name;
 };
 
 struct ProfilerAggregateTotal {
@@ -151,9 +196,16 @@ class Profiler final {
   void SetMaxFrameHistory(size_t max_frame_history);
 
   void RegisterThread(const std::string& name);
+  [[nodiscard]] ProfilerItemHandle RegisterItem(const std::string& owner_name,
+                                                const ProfilerItemDescriptor& descriptor);
+  void UnregisterOwner(const std::string& owner_name);
+  [[nodiscard]] std::optional<RegisteredProfilerItem> FindRegisteredItem(ProfilerItemHandle handle) const;
+  [[nodiscard]] std::vector<RegisteredProfilerItem> GetRegisteredItemsSnapshot() const;
+  [[nodiscard]] uint64_t GetRegistrationRevision() const;
   uint64_t BeginFrame(uint64_t application_frame_index = 0);
   void EndFrame();
   [[nodiscard]] ProfilerScopeToken BeginScope(const std::string& name, const std::string& category = "CPU");
+  [[nodiscard]] ProfilerScopeToken BeginScope(ProfilerItemHandle handle);
   void EndScope(ProfilerScopeToken& token);
   void RecordCounter(const std::string& name, double value, const std::string& category = "Frame",
                      const std::string& unit = {});
@@ -170,6 +222,7 @@ class ProfilerScope final {
 
  public:
   explicit ProfilerScope(const std::string& name, const std::string& category = "CPU");
+  explicit ProfilerScope(ProfilerItemHandle handle);
   ~ProfilerScope();
   ProfilerScope(const ProfilerScope&) = delete;
   ProfilerScope& operator=(const ProfilerScope&) = delete;

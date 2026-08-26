@@ -24,11 +24,13 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       break;
 
     Segment segment = segments[segment_index];
-    if (segment.particle0.selected == 1) {
-      segments[segment_index].particle0.acceleration.xyz += acceleration.xyz;
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
+    if (segment_particle0.selected == 1) {
+      segment_particle0s[segment_index].acceleration.xyz += acceleration.xyz;
     }
-    if (segment.particle1.selected == 1) {
-      segments[segment_index].particle1.acceleration.xyz += acceleration.xyz;
+    if (segment_particle1.selected == 1) {
+      segment_particle1s[segment_index].acceleration.xyz += acceleration.xyz;
     }
   }
 }

@@ -13,6 +13,7 @@
 #include "DsColliders.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrandsDemo.hpp"
+#include "DynamicStrandsProfiler.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrandGraph.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -287,8 +288,8 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
   return registered;
 }
 
-EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar*) {
-  return true;
+EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageLoad(PackageRegistrar* registrar) {
+  return registrar && dynamic_strands_profiler::RegisterItems(*registrar);
 }
 
 EVOENGINE_PACKAGE_EXPORT void EvoEnginePackageUnload(PackageRegistrar*) {

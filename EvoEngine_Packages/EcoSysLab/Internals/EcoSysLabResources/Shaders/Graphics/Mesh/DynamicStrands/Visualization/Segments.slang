@@ -98,9 +98,11 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
   SetMeshOutputCounts(SEGMENT_VERTICES_SIZE, SEGMENT_TRIANGLE_SIZE);
 
   Segment segment = segments[segment_id];
+  Particle segment_particle0 = segment_particle0s[segment_id];
+  Particle segment_particle1 = segment_particle1s[segment_id];
 
-  Particle particle0 = segment.particle0;
-  Particle particle1 = segment.particle1;
+  Particle particle0 = segment_particle0;
+  Particle particle1 = segment_particle1;
 
   float3 start_position = particle0.x;
   float3 end_position = particle1.x;
@@ -154,9 +156,9 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
     color = float4(clamp(segments[segment_id].HL, 0.0, 1.0), clamp(segments[segment_id].HL, 0.0, 1.0), 0.0, 1.0);
     //color = float4(0.0, clamp(segments[segment_id].RB, 0.0, 1.0), clamp(segments[segment_id].RB, 0.0, 1.0), 1.0);
     //color = float4(0.2, 0.2, 0.2, 1.0) * float(segments[segment_id].reach_ground);
-    //color = float4(clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
-                  //clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0),
-                  //clamp(segments[segment_id].particle0.root_distance, 0.0, 1.0), 1.0);
+    //color = float4(clamp(segment_particle0s[segment_id].root_distance, 0.0, 1.0),
+                  //clamp(segment_particle0s[segment_id].root_distance, 0.0, 1.0),
+                  //clamp(segment_particle0s[segment_id].root_distance, 0.0, 1.0), 1.0);
     //color = float4(float3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].profile_position.y / 80.0, -0.5, 0.5) + 0.5), 1.0);
     //color = float4(float3(1.0, 1.0, 1.0) * (clamp(segments[segment_id].boundary_distance / 0.3, 0.0, 1.0)), 1.0);
   } else if (color_mode == 11) {  // fungus moisture

@@ -46,9 +46,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       continue;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
 
-    float3 particle0_position = segment.particle0.x;
-    float3 particle1_position = segment.particle1.x;
+    float3 particle0_position = segment_particle0.x;
+    float3 particle1_position = segment_particle1.x;
 
     float4 particle0_screen_space_coord = mul(projection_view, float4(particle0_position, 1.0f));
     float3 particle0_screen_space_position = particle0_screen_space_coord.xyz / particle0_screen_space_coord.w;

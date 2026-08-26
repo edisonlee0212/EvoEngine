@@ -35,10 +35,12 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     SegmentUpdate segment_update = segment_updates[global_index];
     uint segment_index = segment_update.segment_index;
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
     float3 front_direction = normalize(rotate_vec3(segment.q, float3(0, 0, -1)));
 
-    float current_segment_length = distance(segment.particle0.x, segment.particle1.x);
-    float3 segment_center_position = (segment.particle0.x + segment.particle1.x) * 0.5f;
+    float current_segment_length = distance(segment_particle0.x, segment_particle1.x);
+    float3 segment_center_position = (segment_particle0.x + segment_particle1.x) * 0.5f;
 
     float3 diff = segment_center_position - pivot_position;
     float3 direction = length(diff) == 0.0f ? front_direction : normalize(diff);
@@ -46,8 +48,10 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     float3 desired_segment_center_position = pivot_position + segment_update.point_distance * direction;
 
     float3 offset = front_direction * 0.5f * current_segment_length;
-    segment.particle0.x = segment.particle0.last_x = desired_segment_center_position - offset;
-    segment.particle1.x = segment.particle1.last_x = desired_segment_center_position + offset;
+    segment_particle0.x = segment_particle0.last_x = desired_segment_center_position - offset;
+    segment_particle1.x = segment_particle1.last_x = desired_segment_center_position + offset;
     segments[segment_index] = segment;
+    segment_particle0s[segment_index] = segment_particle0;
+    segment_particle1s[segment_index] = segment_particle1;
   }
 }

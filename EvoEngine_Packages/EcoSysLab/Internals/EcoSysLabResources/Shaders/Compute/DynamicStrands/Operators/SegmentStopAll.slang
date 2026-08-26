@@ -23,7 +23,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       break;
 
     segments[segment_index].angular_v = float3(0, 0, 0);
-    segments[segment_index].particle0.v = float3(0, 0, 0);
-    segments[segment_index].particle1.v = float3(0, 0, 0);
+    segment_particle0s[segment_index].v = float3(0, 0, 0);
+    segment_particle1s[segment_index].v = float3(0, 0, 0);
   }
 }

@@ -25,8 +25,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (segment_index >= segment_size)
       break;
 
-    segments[segment_index].particle0.x += segment_data_list[segment_index].particle0_position_correction.xyz;
-    segments[segment_index].particle1.x += segment_data_list[segment_index].particle1_position_correction.xyz;
+    segment_particle0s[segment_index].x += segment_data_list[segment_index].particle0_position_correction.xyz;
+    segment_particle1s[segment_index].x += segment_data_list[segment_index].particle1_position_correction.xyz;
     segments[segment_index].q = normalize(segment_data_list[segment_index].q_correction + segments[segment_index].q);
 
     segment_data_list[segment_index].particle0_position_correction.xyz = float3(0, 0, 0);

@@ -7,11 +7,12 @@ and GPU validation remains local because it requires a Vulkan-capable device and
 
 ## Format, Build, And Test
 
-Use LLVM clang-format 19.1.7, matching CI, then build the tests and editor. Pass its executable explicitly when another
-version is first on `PATH`:
+Install the exact clang-format release recorded in `.clang-format-version`, then build the tests and editor. The format
+script selects the pinned Python package and rejects a mismatched executable:
 
 ```powershell
-python Scripts\format_cpp.py --clang-format C:\path\to\clang-format.exe --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests --root PythonBinding
+python -m pip install clang-format==22.1.8
+python Scripts\format_cpp.py --check --root EvoEngine_SDK --root EvoEngine_App --root EvoEngine_Tests --root PythonBinding
 cmake --build out\build\vs2026-x64\EvoEngine_Tests --config RelWithDebInfo --target EvoEngine_Tests --parallel 4
 cmake --build out\build\vs2026-x64 --config RelWithDebInfo --target EvoEngineEditor --parallel 4
 ```

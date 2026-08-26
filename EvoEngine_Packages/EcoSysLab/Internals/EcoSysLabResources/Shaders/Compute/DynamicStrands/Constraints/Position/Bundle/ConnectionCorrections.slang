@@ -31,9 +31,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     float inv_mass0 = segments[segment0_handle].inv_mass;
     float inv_mass1 = segments[segment1_handle].inv_mass;
     float3 new_position =
-        (segments[segment0_handle].particle1.x * inv_mass1 + segments[segment1_handle].particle0.x * inv_mass0) /
+        (segment_particle1s[segment0_handle].x * inv_mass1 + segment_particle0s[segment1_handle].x * inv_mass0) /
         (inv_mass0 + inv_mass1);
-    segments[segment0_handle].particle1.x = new_position;
-    segments[segment1_handle].particle0.x = new_position;
+    segment_particle1s[segment0_handle].x = new_position;
+    segment_particle0s[segment1_handle].x = new_position;
   }
 }

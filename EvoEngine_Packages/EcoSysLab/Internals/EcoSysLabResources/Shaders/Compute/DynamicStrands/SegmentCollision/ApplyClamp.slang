@@ -35,13 +35,17 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment s = segments[si];
+    Particle s_particle0 = segment_particle0s[si];
+    Particle s_particle1 = segment_particle1s[si];
 
     float scale = (s.quasi_stable == 1) ? s.ground_damping : 1.0;
 
-    clamp_and_apply(s.particle0.x, s.particle0.last_x, s.particle0.v, s.particle0.user_bound, dt, scale);
+    clamp_and_apply(s_particle0.x, s_particle0.last_x, s_particle0.v, s_particle0.user_bound, dt, scale);
 
-    clamp_and_apply(s.particle1.x, s.particle1.last_x, s.particle1.v, s.particle1.user_bound, dt, scale);
+    clamp_and_apply(s_particle1.x, s_particle1.last_x, s_particle1.v, s_particle1.user_bound, dt, scale);
 
     segments[si] = s;
+    segment_particle0s[si] = s_particle0;
+    segment_particle1s[si] = s_particle1;
   }
 }

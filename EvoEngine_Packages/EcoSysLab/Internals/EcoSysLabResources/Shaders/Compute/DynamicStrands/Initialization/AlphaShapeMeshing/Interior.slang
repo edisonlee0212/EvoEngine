@@ -41,11 +41,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       const uint segment_handle1 = uniform_particles[tetrahedron.indices[k]].segment_handle;
 
       [[unroll]] for (uint l = 0; l < BUNDLE_MAX_CONNECTION; ++l) {
-        const int pair_index0 = segment_data_list[segment_handle0].pair_handles[l];
+        const int pair_index0 = segment_connection_handles[segment_handle0].handles[l];
         if (pair_index0 == -1 || tetrahedron.segment_pair_index[edge] != -1)
           break;
         [[unroll]] for (uint m = 0; m < BUNDLE_MAX_CONNECTION; ++m) {
-          const int pair_index1 = segment_data_list[segment_handle1].pair_handles[m];
+          const int pair_index1 = segment_connection_handles[segment_handle1].handles[m];
           if (pair_index1 == -1)
             break;
           if (pair_index0 == pair_index1) {

@@ -562,12 +562,15 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   Shader::RegisterShaderIncludePath(shader_root / "Modules");
 
   constexpr uint32_t segment_count = 4;
-  constexpr size_t segment_stride = 672;
+  constexpr size_t segment_stride = 480;
   constexpr size_t segment_group_offset = 316;
-  constexpr size_t particle0_position_offset = 496;
-  constexpr size_t particle1_position_offset = 592;
-  constexpr size_t segment_data_stride = 304;
-  constexpr size_t segment_data_pairs_offset = 48;
+  constexpr size_t particle_stride = 96;
+  constexpr size_t particle_position_offset = 16;
+  constexpr size_t particle_last_position_offset = 32;
+  constexpr size_t particle_velocity_offset = 48;
+  constexpr size_t particle_acceleration_offset = 64;
+  constexpr size_t segment_data_stride = 48;
+  constexpr size_t segment_connection_handles_stride = 256;
   constexpr uint32_t cell_count = 2u << 15u;
 
   auto make_buffer = [](const size_t size) {
@@ -598,7 +601,7 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
     return value;
   };
 
-  const std::array<size_t, 10> buffer_sizes = {
+  const std::array<size_t, 13> buffer_sizes = {
       48,
       16,
       segment_stride * segment_count,
@@ -609,8 +612,11 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
       384,
       160 * 4,
       160,
+      particle_stride * segment_count,
+      particle_stride * segment_count,
+      segment_connection_handles_stride * segment_count,
   };
-  std::array<std::shared_ptr<Buffer>, 10> buffers;
+  std::array<std::shared_ptr<Buffer>, 13> buffers;
   auto strands_layout = std::make_shared<DescriptorSetLayout>();
   for (uint32_t binding = 0; binding < buffers.size(); ++binding) {
     strands_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -690,14 +696,26 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   };
 
   std::vector<std::byte> segments(segment_stride * segment_count);
+  std::vector<std::byte> particle0s(particle_stride * segment_count);
+  std::vector<std::byte> particle1s(particle_stride * segment_count);
+  const auto upload_strands = [&] {
+    buffers[2]->UploadData(segments.size(), segments.data());
+    buffers[10]->UploadData(particle0s.size(), particle0s.data());
+    buffers[11]->UploadData(particle1s.size(), particle1s.data());
+  };
+  const auto download_strands = [&] {
+    buffers[2]->DownloadData(segments.size(), segments.data());
+    buffers[10]->DownloadData(particle0s.size(), particle0s.data());
+    buffers[11]->DownloadData(particle1s.size(), particle1s.data());
+  };
   const std::array<int32_t, segment_count> initial_groups = {3, 1, 2, 0};
   for (uint32_t index = 0; index < segment_count; ++index) {
     write(segments, index * segment_stride + segment_group_offset, initial_groups[index]);
     const glm::vec3 position(static_cast<float>(index), 0.0f, 0.0f);
-    write(segments, index * segment_stride + particle0_position_offset, position);
-    write(segments, index * segment_stride + particle1_position_offset, position);
+    write(particle0s, index * particle_stride + particle_position_offset, position);
+    write(particle1s, index * particle_stride + particle_position_offset, position);
   }
-  buffers[2]->UploadData(segments.size(), segments.data());
+  upload_strands();
 
   const auto reset_pipeline = make_pipeline("Compute/DynamicStrands/Grouping/Reset.slang", {strands_layout}, 4);
   dispatch(reset_pipeline, SegmentCountConstants{segment_count});
@@ -712,10 +730,12 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   write(segment_pairs, 8, 1.0f);
   write(segment_pairs, 12, 1.0f);
   buffers[3]->UploadData(segment_pairs.size(), segment_pairs.data());
-  std::vector<std::byte> segment_data(segment_data_stride * segment_count, std::byte{0xff});
-  write(segment_data, segment_data_pairs_offset, int32_t{0});
-  write(segment_data, segment_data_stride + segment_data_pairs_offset, int32_t{0});
+  std::vector<std::byte> segment_data(segment_data_stride * segment_count);
+  std::vector<std::byte> segment_connection_handles(segment_connection_handles_stride * segment_count, std::byte{0xff});
+  write(segment_connection_handles, 0, int32_t{0});
+  write(segment_connection_handles, segment_connection_handles_stride, int32_t{0});
   buffers[4]->UploadData(segment_data.size(), segment_data.data());
+  buffers[12]->UploadData(segment_connection_handles.size(), segment_connection_handles.data());
 
   std::vector<std::shared_ptr<Buffer>> grouping_buffers;
   auto [grouping_layout, grouping_set] =
@@ -794,20 +814,22 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
     float ground_friction;
   };
   segments.assign(segment_stride * segment_count, std::byte{});
+  particle0s.assign(particle_stride * segment_count, std::byte{});
+  particle1s.assign(particle_stride * segment_count, std::byte{});
   write(segments, 12, 0.0f);
   write(segments, segment_stride + 12, 1.0f);
   for (uint32_t index = 0; index < 2; ++index) {
-    write(segments, index * segment_stride + particle0_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
-    write(segments, index * segment_stride + particle1_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
+    write(particle0s, index * particle_stride + particle_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
+    write(particle1s, index * particle_stride + particle_position_offset, glm::vec3(0.0f, -1.0f, 0.0f));
   }
-  buffers[2]->UploadData(segments.size(), segments.data());
+  upload_strands();
   const auto ground_pipeline = make_pipeline("Compute/DynamicStrands/Constraints/Position/SegmentGroundPlane.slang",
                                              {strands_layout}, sizeof(GroundConstants));
   dispatch(ground_pipeline, GroundConstants{2, 0.0f, 0.0f, 0.0f});
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  EXPECT_FLOAT_EQ(read_float(segments, particle0_position_offset + sizeof(float)), -1.0f);
-  EXPECT_FLOAT_EQ(read_float(segments, segment_stride + particle0_position_offset + sizeof(float)), 0.0f);
-  EXPECT_FLOAT_EQ(read_float(segments, segment_stride + particle1_position_offset + sizeof(float)), 0.0f);
+  download_strands();
+  EXPECT_FLOAT_EQ(read_float(particle0s, particle_position_offset + sizeof(float)), -1.0f);
+  EXPECT_FLOAT_EQ(read_float(particle0s, particle_stride + particle_position_offset + sizeof(float)), 0.0f);
+  EXPECT_FLOAT_EQ(read_float(particle1s, particle_stride + particle_position_offset + sizeof(float)), 0.0f);
 
   struct PreStepConstants {
     glm::vec3 acceleration;
@@ -829,27 +851,28 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
     write(segments, base + 156, 1.0f);
     write(segments, base + 312, 2.0f);
     write(segments, base + 320, 1.0f);
-    write(segments, base + particle0_position_offset, glm::vec3(0.0f, 0.0f, 0.0f));
-    write(segments, base + particle1_position_offset, glm::vec3(0.0f, 1.0f, 0.0f));
-    write(segments, base + 528, glm::vec3(1.0f, 0.0f, 0.0f));
-    write(segments, base + 624, glm::vec3(1.0f, 0.0f, 0.0f));
+    const size_t particle_base = index * particle_stride;
+    write(particle0s, particle_base + particle_position_offset, glm::vec3(0.0f, 0.0f, 0.0f));
+    write(particle1s, particle_base + particle_position_offset, glm::vec3(0.0f, 1.0f, 0.0f));
+    write(particle0s, particle_base + particle_velocity_offset, glm::vec3(1.0f, 0.0f, 0.0f));
+    write(particle1s, particle_base + particle_velocity_offset, glm::vec3(1.0f, 0.0f, 0.0f));
   }
-  buffers[2]->UploadData(segments.size(), segments.data());
+  upload_strands();
   const auto pre_step_pipeline =
       make_pipeline("Compute/DynamicStrands/PreStep/Segment.slang", {strands_layout}, sizeof(PreStepConstants));
   dispatch(pre_step_pipeline, PreStepConstants{glm::vec3(0.0f, -10.0f, 0.0f), 2, 0.5f, 2.0f});
-  buffers[2]->DownloadData(segments.size(), segments.data());
+  download_strands();
   EXPECT_NEAR(read_float(segments, 12), 1.0f / 3.0f, 1.0e-6f);
   EXPECT_FLOAT_EQ(read_float(segments, 320), 0.0f);
-  EXPECT_FLOAT_EQ(read_float(segments, 544 + sizeof(float)), -15.0f);
+  EXPECT_FLOAT_EQ(read_float(particle0s, particle_acceleration_offset + sizeof(float)), -15.0f);
 
   const auto prediction_pipeline =
       make_pipeline("Compute/DynamicStrands/Prediction/Segment.slang", {strands_layout}, sizeof(PredictionConstants));
   dispatch(prediction_pipeline, PredictionConstants{2, 0.5f, 2.0f});
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  EXPECT_FLOAT_EQ(read_float(segments, 512), 0.0f);
-  EXPECT_FLOAT_EQ(read_float(segments, particle0_position_offset), 0.5f);
-  EXPECT_FLOAT_EQ(read_float(segments, particle1_position_offset), 0.5f);
+  download_strands();
+  EXPECT_FLOAT_EQ(read_float(particle0s, particle_last_position_offset), 0.0f);
+  EXPECT_FLOAT_EQ(read_float(particle0s, particle_position_offset), 0.5f);
+  EXPECT_FLOAT_EQ(read_float(particle1s, particle_position_offset), 0.5f);
 
   struct VelocityConstants {
     glm::vec3 max_angular_velocity;
@@ -863,9 +886,12 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   const auto velocity_pipeline =
       make_pipeline("Compute/DynamicStrands/VelocityUpdate/Segment.slang", {strands_layout}, sizeof(VelocityConstants));
   dispatch(velocity_pipeline, VelocityConstants{glm::vec3(100.0f), 0.5f, glm::vec3(100.0f), 2.0f, 2, 0.0f, 0.0f});
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+  download_strands();
+  for (const size_t offset : {80u, 84u, 88u})
     EXPECT_TRUE(std::isfinite(read_float(segments, offset))) << offset;
+  for (const auto* particles : {&particle0s, &particle1s})
+    for (const size_t offset : {particle_velocity_offset, particle_velocity_offset + 4, particle_velocity_offset + 8})
+      EXPECT_TRUE(std::isfinite(read_float(*particles, offset))) << offset;
 
   struct LeafBreakingConstants {
     uint32_t leaf_size;
@@ -884,32 +910,40 @@ TEST(GpuService, EcoSysLabComputeMigrationMatchesDeterministicContracts) {
   buffers[7]->DownloadData(leaf.size(), leaf.data());
   EXPECT_FLOAT_EQ(read_float(leaf, 28), 0.0f);
 
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+  download_strands();
+  for (const size_t offset : {80u, 84u, 88u})
     write(segments, offset, 7.0f);
-  buffers[2]->UploadData(segments.size(), segments.data());
+  for (auto* particles : {&particle0s, &particle1s})
+    for (const size_t offset : {particle_velocity_offset, particle_velocity_offset + 4, particle_velocity_offset + 8})
+      write(*particles, offset, 7.0f);
+  upload_strands();
   const auto stop_pipeline =
       make_pipeline("Compute/DynamicStrands/Operators/SegmentStopAll.slang", {strands_layout}, 4);
   dispatch(stop_pipeline, SegmentCountConstants{1});
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  for (const size_t offset : {80u, 84u, 88u, 528u, 532u, 536u, 624u, 628u, 632u})
+  download_strands();
+  for (const size_t offset : {80u, 84u, 88u})
     EXPECT_FLOAT_EQ(read_float(segments, offset), 0.0f) << offset;
+  for (const auto* particles : {&particle0s, &particle1s})
+    for (const size_t offset : {particle_velocity_offset, particle_velocity_offset + 4, particle_velocity_offset + 8})
+      EXPECT_FLOAT_EQ(read_float(*particles, offset), 0.0f) << offset;
 
   write(segments, 12, 0.5f);
-  for (const size_t offset : {544u, 548u, 552u, 640u, 644u, 648u})
-    write(segments, offset, 0.0f);
-  buffers[2]->UploadData(segments.size(), segments.data());
+  for (auto* particles : {&particle0s, &particle1s})
+    for (const size_t offset :
+         {particle_acceleration_offset, particle_acceleration_offset + 4, particle_acceleration_offset + 8})
+      write(*particles, offset, 0.0f);
+  upload_strands();
   std::vector<std::shared_ptr<Buffer>> force_buffers;
   auto [force_layout, force_set] = make_auxiliary_set(1, {sizeof(glm::vec4)}, force_buffers);
   force_buffers[0]->Upload(glm::vec4(2.0f, 4.0f, 6.0f, 0.0f));
   const auto force_pipeline =
       make_pipeline("Compute/DynamicStrands/Operators/ExternalForce.slang", {strands_layout, force_layout}, 4);
   dispatch(force_pipeline, SegmentCountConstants{1}, force_set);
-  buffers[2]->DownloadData(segments.size(), segments.data());
-  for (const size_t base : {544u, 640u}) {
-    EXPECT_FLOAT_EQ(read_float(segments, base), 1.0f);
-    EXPECT_FLOAT_EQ(read_float(segments, base + 4), 2.0f);
-    EXPECT_FLOAT_EQ(read_float(segments, base + 8), 3.0f);
+  download_strands();
+  for (const auto* particles : {&particle0s, &particle1s}) {
+    EXPECT_FLOAT_EQ(read_float(*particles, particle_acceleration_offset), 1.0f);
+    EXPECT_FLOAT_EQ(read_float(*particles, particle_acceleration_offset + 4), 2.0f);
+    EXPECT_FLOAT_EQ(read_float(*particles, particle_acceleration_offset + 8), 3.0f);
   }
 
   struct FungusNodeConstants {

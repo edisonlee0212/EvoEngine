@@ -26,18 +26,22 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
     segment.torque = float3(0.0, 0.0, 0.0);
     segment.inv_mass = 1.f / (segment.original_mass + segment.extra_mass);
 
     segment.shear_stretch_strain = 0.0f;
-    segment.particle0.acceleration =
+    segment_particle0.acceleration =
         segment.inv_mass != 0.0f ? acceleration * (segment.original_mass + segment.extra_mass) / segment.original_mass
                                  : float3(0.0, 0.0, 0.0);
-    segment.particle1.acceleration =
+    segment_particle1.acceleration =
         segment.inv_mass != 0.0f ? acceleration * (segment.original_mass + segment.extra_mass) / segment.original_mass
                                  : float3(0.0, 0.0, 0.0);
 
     segment.extra_mass = 0.f;
     segments[segment_index] = segment;
+    segment_particle0s[segment_index] = segment_particle0;
+    segment_particle1s[segment_index] = segment_particle1;
   }
 }

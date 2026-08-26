@@ -69,12 +69,14 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
 
-    process_velocity(segment.particle0.x, segment.particle0.v, segment.angular_v);
-    process_velocity(segment.particle1.x, segment.particle1.v, segment.angular_v);
+    process_velocity(segment_particle0.x, segment_particle0.v, segment.angular_v);
+    process_velocity(segment_particle1.x, segment_particle1.v, segment.angular_v);
 
-    segments[segment_index].particle0.v = segment.particle0.v;
-    segments[segment_index].particle1.v = segment.particle1.v;
+    segment_particle0s[segment_index].v = segment_particle0.v;
+    segment_particle1s[segment_index].v = segment_particle1.v;
     segments[segment_index].angular_v = segment.angular_v;
   }
 }

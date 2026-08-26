@@ -6,8 +6,11 @@
 
 #include "ClassRegistry.hpp"
 #include "DsColliders.hpp"
+#include "DynamicStrandsProfiler.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
+#include "GpuProfiler.hpp"
+#include "Profiler.hpp"
 #include "RenderLayer.hpp"
 #include "Soil.hpp"
 #include "Tree.hpp"
@@ -17,6 +20,11 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
     const auto scene = GetScene();
     const std::vector<Entity>* dts_entities = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+    if (!dts_entities || dts_entities->empty())
+      return;
+    const auto& profiler_items = dynamic_strands_profiler::GetItems();
+    const ProfilerScope simulation_cpu_scope(profiler_items.simulation_cpu);
+    const RecordedGpuProfilerScope simulation_gpu_scope(profiler_items.simulation_gpu);
     const auto for_each_dts_entity =
         [&](const std::function<void(const std::shared_ptr<DynamicTreeStrands>& dts)>& action) {
           if (dts_entities && !dts_entities->empty()) {
@@ -29,10 +37,15 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
     for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
       dts->dynamic_strands->UpdateBindings();
     });
-    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      dts->InteractionStep();
-    });
+    {
+      const ProfilerScope cpu_scope(profiler_items.interaction);
+      const RecordedGpuProfilerScope gpu_scope(profiler_items.interaction);
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+        dts->InteractionStep();
+      });
+    }
     if (dynamic_strands_settings_.enable_physics || dynamic_strands_settings_.remaining_step > 0) {
+      const ProfilerScope cpu_scope(profiler_items.physics);
       for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
         if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled() && dts->enable_physics)
           dts->PhysicsStep(dynamic_strands_settings_.physics_parameters);
@@ -40,11 +53,15 @@ void EcoSysLabLayer::DynamicStrandSimulation() {
       if (dynamic_strands_settings_.remaining_step > 0)
         dynamic_strands_settings_.remaining_step--;
     }
-    for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
-      if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
-        dts->dynamic_strands->RenderCompute();
-      }
-    });
+    {
+      const ProfilerScope cpu_scope(profiler_items.render_compute);
+      const RecordedGpuProfilerScope gpu_scope(profiler_items.render_compute);
+      for_each_dts_entity([&](const std::shared_ptr<DynamicTreeStrands>& dts) {
+        if (scene->IsEntityEnabled(dts->GetOwner()) && dts->IsEnabled()) {
+          dts->dynamic_strands->RenderCompute();
+        }
+      });
+    }
   }
 }
 

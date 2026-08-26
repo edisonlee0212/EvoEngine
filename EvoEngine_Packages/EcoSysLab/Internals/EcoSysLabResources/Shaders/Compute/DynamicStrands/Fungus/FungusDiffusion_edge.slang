@@ -259,14 +259,14 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     InterlockedAdd(segments[segment1_handle].pairs_count, 1);
 
     // Get segment positions and boundary distances
-    float3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2.0;
-    float3 segment1_pos = (segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) / 2.0;
+    float3 segment0_pos = (segment_particle0s[segment0_handle].x + segment_particle1s[segment0_handle].x) / 2.0;
+    float3 segment1_pos = (segment_particle0s[segment1_handle].x + segment_particle1s[segment1_handle].x) / 2.0;
     float segment0_distance = segments[segment0_handle].boundary_distance;
     float segment1_distance = segments[segment1_handle].boundary_distance;
     float max_b = max(segments[segment0_handle].RB_pre, segments[segment1_handle].RB_pre);
     float max_w = max(segments[segment0_handle].RW_pre, segments[segment1_handle].RW_pre);
-    float3 l_dir = (segments[segment0_handle].particle1.x - segments[segment0_handle].particle0.x +
-                  segments[segment1_handle].particle1.x - segments[segment1_handle].particle0.x) /
+    float3 l_dir = (segment_particle1s[segment0_handle].x - segment_particle0s[segment0_handle].x +
+                  segment_particle1s[segment1_handle].x - segment_particle0s[segment1_handle].x) /
                  2.0;
     float2 source_profile = segments[segment0_handle].profile_position;
     float2 target_profile = segments[segment1_handle].profile_position;
@@ -376,27 +376,27 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     // }
 
     /*if ((segments[segment1_handle].boundary_distance >
-             0.01 + segments[segment1_handle].particle0.root_distance / 40.0 ||
+             0.01 + segment_particle0s[segment1_handle].root_distance / 40.0 ||
          segments[segment0_handle].boundary_distance >
-             0.01 + segments[segment0_handle].particle0.root_distance / 40.0)) {
+             0.01 + segment_particle0s[segment0_handle].root_distance / 40.0)) {
       segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
       segment_pairs[pair_index].connectivity_integrity = 0.0;
 
     }*/  // Test: Force break if different color near surface(Spruce)
 
     //  if ((segments[segment1_handle].boundary_distance >
-    //         0.02 + segments[segment1_handle].particle0.root_distance / 40.0 ||
+    //         0.02 + segment_particle0s[segment1_handle].root_distance / 40.0 ||
     //     segments[segment0_handle].boundary_distance >
-    //         0.02 + segments[segment0_handle].particle0.root_distance / 40.0)) {
+    //         0.02 + segment_particle0s[segment0_handle].root_distance / 40.0)) {
     //  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
     //  segment_pairs[pair_index].connectivity_integrity = 0.0;
 
     //}  // Test: Force break if different color near surface(Elm)
 
         //if ((segments[segment1_handle].boundary_distance >
-        //      0.06 + segments[segment1_handle].particle0.root_distance / 40.0 ||
+        //      0.06 + segment_particle0s[segment1_handle].root_distance / 40.0 ||
         //     segments[segment0_handle].boundary_distance >
-        //      0.06 + segments[segment0_handle].particle0.root_distance / 40.0)) {
+        //      0.06 + segment_particle0s[segment0_handle].root_distance / 40.0)) {
         //  segment_pairs[pair_index].bend_twist_bundle_integrity = 0.0;
         //  segment_pairs[pair_index].connectivity_integrity = 0.0;
         //}  // Test: Force break if different color near surface(Oak Trunk)

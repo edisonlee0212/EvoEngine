@@ -52,8 +52,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
     UniformParticle uniform_particle = uniform_particles[uniform_particle_index];
 
-    float3 p0 = segments[uniform_particle.segment_handle].particle0.x;
-    float3 p1 = segments[uniform_particle.segment_handle].particle1.x;
+    float3 p0 = segment_particle0s[uniform_particle.segment_handle].x;
+    float3 p1 = segment_particle1s[uniform_particle.segment_handle].x;
 
     float3 normal = normalize(uniform_particle.normal_deg.xyz);
     float local_extrusion_distance = uniform_particle.local_extrusion_distance;
@@ -75,11 +75,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (prev_segment_handle == -1) {
       // start point tangent
       M0 = 0.5 * (p1 - p0);
-    } else if (distance(segments[prev_segment_handle].particle1.x, p0) > EPSILON) {
+    } else if (distance(segment_particle1s[prev_segment_handle].x, p0) > EPSILON) {
       // strand is broken here
       M0 = 0.5 * (p1 - p0);
     } else {
-      float3 p_prev = segments[prev_segment_handle].particle0.x;
+      float3 p_prev = segment_particle0s[prev_segment_handle].x;
       M0 = 0.5 * (p1 - p_prev);
     }
 
@@ -89,11 +89,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (next_segment_handle == -1) {
       // end point tangent
       M1 = 0.5 * (p1 - p0);
-    } else if (distance(segments[next_segment_handle].particle0.x, p1) > EPSILON) {
+    } else if (distance(segment_particle0s[next_segment_handle].x, p1) > EPSILON) {
       // strand is broken here
       M1 = 0.5 * (p1 - p0);
     } else {
-      float3 p_next = segments[next_segment_handle].particle1.x;
+      float3 p_next = segment_particle1s[next_segment_handle].x;
       M1 = 0.5 * (p_next - p0);
     }
 

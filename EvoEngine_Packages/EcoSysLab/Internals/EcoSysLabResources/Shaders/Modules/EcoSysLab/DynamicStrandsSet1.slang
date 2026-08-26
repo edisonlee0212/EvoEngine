@@ -8,3 +8,7 @@ import EcoSysLab.DynamicStrands;
 [[vk::binding(5, 1)]] public RWStructuredBuffer<HashedGridElement, Std430DataLayout> hashed_grid_elements;
 [[vk::binding(6, 1)]] public RWStructuredBuffer<HashedGridCellStart, Std430DataLayout> hashed_grid_cell_starts;
 [[vk::binding(7, 1)]] public RWStructuredBuffer<Leaf, Std430DataLayout> foliage;
+[[vk::binding(10, 1)]] public RWStructuredBuffer<Particle, Std430DataLayout> segment_particle0s;
+[[vk::binding(11, 1)]] public RWStructuredBuffer<Particle, Std430DataLayout> segment_particle1s;
+[[vk::binding(12, 1)]] public RWStructuredBuffer<SegmentConnectionHandles, Std430DataLayout>
+    segment_connection_handles;

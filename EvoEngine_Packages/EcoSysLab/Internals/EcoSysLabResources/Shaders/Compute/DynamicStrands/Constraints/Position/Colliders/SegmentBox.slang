@@ -130,12 +130,14 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
-    process_point(segment.particle0.x, segment.particle1.x, segment.q, segment.particle0.v, segment.particle1.v,
-                  segment.torque, segment.particle0.acceleration, segment.particle1.acceleration);
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
+    process_point(segment_particle0.x, segment_particle1.x, segment.q, segment_particle0.v, segment_particle1.v,
+                  segment.torque, segment_particle0.acceleration, segment_particle1.acceleration);
     segments[segment_index].torque = segment.torque;
-    segments[segment_index].particle0.x = segment.particle0.x;
-    segments[segment_index].particle1.x = segment.particle1.x;
-    segments[segment_index].particle0.acceleration = segment.particle0.acceleration;
-    segments[segment_index].particle1.acceleration = segment.particle1.acceleration;
+    segment_particle0s[segment_index].x = segment_particle0.x;
+    segment_particle1s[segment_index].x = segment_particle1.x;
+    segment_particle0s[segment_index].acceleration = segment_particle0.acceleration;
+    segment_particle1s[segment_index].acceleration = segment_particle1.acceleration;
   }
 }

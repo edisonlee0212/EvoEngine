@@ -47,6 +47,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                 if (segment_index == 4294967295u)
                         continue;
 		Segment segment = segments[segment_index];
+		Particle segment_particle0 = segment_particle0s[segment_index];
+		Particle segment_particle1 = segment_particle1s[segment_index];
                 if (segment.boundary_distance > ring_radius || segment.unlink_constraint == 1)
                         continue;
                 if (segment.HC < HC_threshold || segment.HL < HL_threshold)
@@ -56,13 +58,15 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 		segment.torque = float3(0, 0, 0);
 		segment.inv_mass = 0.0f;
 		if(segment_update.fix_particle0 == 1){
-			segment.particle0.x = segment.particle0.last_x = segment_update.new_particle0_position;
-			segment.particle0.acceleration.xyz = float3(0, 0, 0);
+			segment_particle0.x = segment_particle0.last_x = segment_update.new_particle0_position;
+			segment_particle0.acceleration.xyz = float3(0, 0, 0);
 		}
 		if(segment_update.fix_particle1 == 1){
-			segment.particle1.x = segment.particle1.last_x = segment_update.new_particle1_position;
-			segment.particle1.acceleration.xyz = float3(0, 0, 0);
+			segment_particle1.x = segment_particle1.last_x = segment_update.new_particle1_position;
+			segment_particle1.acceleration.xyz = float3(0, 0, 0);
 		}
 		segments[segment_index] = segment;
+		segment_particle0s[segment_index] = segment_particle0;
+		segment_particle1s[segment_index] = segment_particle1;
 	}
 }

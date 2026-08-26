@@ -24,7 +24,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     Leaf leaf = foliage[leaf_index];
     if (leaf.attachment_integrity != 0.0f) {
       Segment segment = segments[leaf.segment_handle];
-      float3 segment_center_position = (segment.particle0.x + segment.particle1.x) * 0.5f;
+      Particle segment_particle0 = segment_particle0s[leaf.segment_handle];
+      Particle segment_particle1 = segment_particle1s[leaf.segment_handle];
+      float3 segment_center_position = (segment_particle0.x + segment_particle1.x) * 0.5f;
       float3 position_correction = segment_center_position + rotate_vec3(segment.q, leaf.position_offset) - leaf.x;
       position_correction /= 1.f + leaf.position_alpha;
       leaf.x += position_correction;

@@ -25,6 +25,8 @@ using ProfilerClock = std::chrono::steady_clock;
 struct ActiveProfilerScope {
   std::string name;
   std::string category;
+  std::string stable_id;
+  std::string owner_name;
   ProfilerClock::time_point start_time;
   ProfilerClock::time_point frame_start_time;
   uint64_t frame_index = 0;
@@ -129,7 +131,9 @@ void SortTotals(std::vector<ProfilerAggregateTotal>& totals) {
 ProfilerHierarchyNode& FindOrAddHierarchyNode(std::vector<ProfilerHierarchyNode>& nodes,
                                               const ProfilerScopeEvent& event) {
   const auto search = std::find_if(nodes.begin(), nodes.end(), [&](const ProfilerHierarchyNode& node) {
-    return node.name == event.name && node.category == event.category;
+    return event.stable_id.empty()
+               ? node.stable_id.empty() && node.name == event.name && node.category == event.category
+               : node.stable_id == event.stable_id;
   });
   if (search != nodes.end()) {
     return *search;
@@ -137,6 +141,8 @@ ProfilerHierarchyNode& FindOrAddHierarchyNode(std::vector<ProfilerHierarchyNode>
   auto& node = nodes.emplace_back();
   node.name = event.name;
   node.category = event.category;
+  node.stable_id = event.stable_id;
+  node.owner_name = event.owner_name;
   return node;
 }
 
@@ -188,6 +194,10 @@ class ProfilerState {
   uint32_t dropped_event_count = 0;
   std::deque<ProfilerFrameSnapshot> frame_history;
   std::unordered_map<uint64_t, std::string> thread_names;
+  std::unordered_map<uint64_t, RegisteredProfilerItem> registered_items;
+  std::unordered_map<std::string, uint64_t> registered_item_ids;
+  uint64_t next_registered_item_handle = 1;
+  uint64_t registration_revision = 0;
   size_t max_frame_history = 240;
   size_t max_completed_event_size = 65536;
 };
@@ -639,6 +649,81 @@ void Profiler::RegisterThread(const std::string& name) {
   state.thread_names[CurrentThreadId()] = name;
 }
 
+ProfilerItemHandle Profiler::RegisterItem(const std::string& owner_name, const ProfilerItemDescriptor& descriptor) {
+  if (owner_name.empty() || descriptor.local_id.empty() || descriptor.display_name.empty() ||
+      (!descriptor.cpu && !descriptor.gpu)) {
+    return {};
+  }
+  const std::string stable_id = owner_name + "." + descriptor.local_id;
+  auto& state = State();
+  std::lock_guard lock(state.mutex);
+  if (state.registered_item_ids.find(stable_id) != state.registered_item_ids.end()) {
+    return {};
+  }
+  const ProfilerItemHandle handle{state.next_registered_item_handle++};
+  state.registered_items.emplace(handle.value_, RegisteredProfilerItem{handle, owner_name, stable_id, descriptor});
+  state.registered_item_ids.emplace(stable_id, handle.value_);
+  ++state.registration_revision;
+  return handle;
+}
+
+void Profiler::UnregisterOwner(const std::string& owner_name) {
+  if (owner_name.empty())
+    return;
+  auto& state = State();
+  std::lock_guard lock(state.mutex);
+  bool removed = false;
+  for (auto iterator = state.registered_items.begin(); iterator != state.registered_items.end();) {
+    if (iterator->second.owner_name == owner_name) {
+      state.registered_item_ids.erase(iterator->second.stable_id);
+      iterator = state.registered_items.erase(iterator);
+      removed = true;
+    } else {
+      ++iterator;
+    }
+  }
+  const auto remove_owner_events = [&](auto& events) {
+    events.erase(std::remove_if(events.begin(), events.end(),
+                                [&](const auto& event) {
+                                  return event.owner_name == owner_name;
+                                }),
+                 events.end());
+  };
+  remove_owner_events(state.completed_events);
+  for (auto& frame : state.frame_history)
+    remove_owner_events(frame.events);
+  if (removed)
+    ++state.registration_revision;
+}
+
+std::optional<RegisteredProfilerItem> Profiler::FindRegisteredItem(const ProfilerItemHandle handle) const {
+  if (!handle)
+    return std::nullopt;
+  const auto& state = State();
+  std::lock_guard lock(state.mutex);
+  const auto search = state.registered_items.find(handle.value_);
+  return search == state.registered_items.end() ? std::nullopt : std::optional<RegisteredProfilerItem>{search->second};
+}
+
+std::vector<RegisteredProfilerItem> Profiler::GetRegisteredItemsSnapshot() const {
+  const auto& state = State();
+  std::lock_guard lock(state.mutex);
+  std::vector<RegisteredProfilerItem> items;
+  items.reserve(state.registered_items.size());
+  for (const auto& [handle, item] : state.registered_items)
+    items.emplace_back(item);
+  std::sort(items.begin(), items.end(), [](const auto& left, const auto& right) {
+    return std::tie(left.owner_name, left.stable_id) < std::tie(right.owner_name, right.stable_id);
+  });
+  return items;
+}
+
+uint64_t Profiler::GetRegistrationRevision() const {
+  const auto& state = State();
+  std::lock_guard lock(state.mutex);
+  return state.registration_revision;
+}
+
 uint64_t Profiler::BeginFrame(const uint64_t application_frame_index) {
   if (!IsEnabled()) {
     return 0;
@@ -731,6 +816,20 @@ ProfilerScopeToken Profiler::BeginScope(const std::string& name, const std::stri
   return {true, capture_session_index};
 }
 
+ProfilerScopeToken Profiler::BeginScope(const ProfilerItemHandle handle) {
+  if (!IsEnabled())
+    return {};
+  const auto item = FindRegisteredItem(handle);
+  if (!item || !item->descriptor.cpu)
+    return {};
+  auto token = BeginScope(item->descriptor.display_name, item->descriptor.cpu_category);
+  if (token.active && !g_active_scopes.empty()) {
+    g_active_scopes.back().stable_id = item->stable_id;
+    g_active_scopes.back().owner_name = item->owner_name;
+  }
+  return token;
+}
+
 void Profiler::EndScope(ProfilerScopeToken& token) {
   if (!token.active) {
     return;
@@ -750,6 +849,8 @@ void Profiler::EndScope(ProfilerScopeToken& token) {
   event.thread_id = scope.thread_id;
   event.name = std::move(scope.name);
   event.category = std::move(scope.category);
+  event.stable_id = std::move(scope.stable_id);
+  event.owner_name = std::move(scope.owner_name);
   event.depth = scope.depth;
   const auto end_time = ProfilerClock::now();
   event.start_ms = MillisecondsBetween(scope.frame_start_time, scope.start_time);
@@ -811,6 +912,9 @@ bool Profiler::ExportChromeTrace(const std::filesystem::path& path, std::string*
 
 ProfilerScope::ProfilerScope(const std::string& name, const std::string& category)
     : token_(Profiler::GetInstance().BeginScope(name, category)) {
+}
+
+ProfilerScope::ProfilerScope(const ProfilerItemHandle handle) : token_(Profiler::GetInstance().BeginScope(handle)) {
 }
 
 ProfilerScope::~ProfilerScope() {

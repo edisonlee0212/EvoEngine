@@ -1139,6 +1139,47 @@ void Platform::ResetGpuTimestampStats() {
   }
 }
 
+void Platform::RemoveGpuTimestampOwnerHistory(const std::string& owner_name) {
+  if (owner_name.empty())
+    return;
+  WaitForFrameSubmissions("Package Profiler Cleanup Fence Wait");
+  auto& graphics = GetInstance();
+  for (auto& frame : graphics.gpu_timestamp_frames_) {
+    frame.scopes.erase(std::remove_if(frame.scopes.begin(), frame.scopes.end(),
+                                      [&](const auto& scope) {
+                                        return scope.query_sample.metadata.owner_name == owner_name;
+                                      }),
+                       frame.scopes.end());
+  }
+  const std::scoped_lock stats_lock(graphics.gpu_timestamp_stats_mutex_);
+  for (auto& frame : graphics.gpu_timestamp_frame_history_) {
+    frame.samples.erase(std::remove_if(frame.samples.begin(), frame.samples.end(),
+                                       [&](const auto& sample) {
+                                         return sample.metadata.owner_name == owner_name;
+                                       }),
+                        frame.samples.end());
+    if (frame.samples.empty()) {
+      frame.span_milliseconds = 0.0;
+      continue;
+    }
+    double first = frame.samples.front().begin_offset_milliseconds;
+    double last = frame.samples.front().end_offset_milliseconds;
+    for (const auto& sample : frame.samples) {
+      first = std::min(first, sample.begin_offset_milliseconds);
+      last = std::max(last, sample.end_offset_milliseconds);
+    }
+    frame.span_milliseconds = std::max(0.0, last - first);
+  }
+  graphics.gpu_timestamp_stats_.clear();
+  for (const auto& frame : graphics.gpu_timestamp_frame_history_) {
+    for (const auto& sample : frame.samples) {
+      auto& stats = graphics.gpu_timestamp_stats_[sample.metadata.display_name];
+      stats.name = sample.metadata.display_name;
+      stats.AddSample(sample.duration_milliseconds);
+    }
+  }
+}
+
 std::vector<GpuTimestampStats> Platform::GetGpuTimestampStats() {
   auto& graphics = GetInstance();
   std::vector<GpuTimestampStats> result;
