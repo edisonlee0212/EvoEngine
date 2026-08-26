@@ -12,15 +12,24 @@ namespace evo_engine {
 
 enum class ProfilerGpuQueue : uint8_t { Graphics, Compute, Transfer, RayTracing, Immediate };
 
-struct ProfilerItemHandle {
-  uint64_t value = 0;
+class ProfilerItemHandle final {
+ public:
+  ProfilerItemHandle() = default;
 
   [[nodiscard]] explicit operator bool() const {
-    return value != 0;
+    return value_ != 0;
   }
   [[nodiscard]] bool operator==(const ProfilerItemHandle& other) const {
-    return value == other.value;
+    return value_ == other.value_;
   }
+
+ private:
+  explicit ProfilerItemHandle(const uint64_t value) : value_(value) {
+  }
+
+  uint64_t value_ = 0;
+
+  friend class Profiler;
 };
 
 struct ProfilerItemDescriptor {

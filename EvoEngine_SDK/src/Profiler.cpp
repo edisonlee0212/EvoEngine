@@ -661,8 +661,8 @@ ProfilerItemHandle Profiler::RegisterItem(const std::string& owner_name, const P
     return {};
   }
   const ProfilerItemHandle handle{state.next_registered_item_handle++};
-  state.registered_items.emplace(handle.value, RegisteredProfilerItem{handle, owner_name, stable_id, descriptor});
-  state.registered_item_ids.emplace(stable_id, handle.value);
+  state.registered_items.emplace(handle.value_, RegisteredProfilerItem{handle, owner_name, stable_id, descriptor});
+  state.registered_item_ids.emplace(stable_id, handle.value_);
   ++state.registration_revision;
   return handle;
 }
@@ -701,7 +701,7 @@ std::optional<RegisteredProfilerItem> Profiler::FindRegisteredItem(const Profile
     return std::nullopt;
   const auto& state = State();
   std::lock_guard lock(state.mutex);
-  const auto search = state.registered_items.find(handle.value);
+  const auto search = state.registered_items.find(handle.value_);
   return search == state.registered_items.end() ? std::nullopt : std::optional<RegisteredProfilerItem>{search->second};
 }
 

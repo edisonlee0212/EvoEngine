@@ -45,7 +45,8 @@ Use `ProfilerScope` with the returned handle for CPU work. It remains in the rea
 than a package-declared synthetic tree. Use `GpuProfilerCommandScope` when a pass is contained in one command buffer, or
 `RecordedGpuProfilerScope` to bracket an ordered sequence of command buffers recorded on the main or compute queue. Both
 GPU helpers omit timestamp commands while capture is disabled. Repeated executions of the same handle aggregate into one
-logical pass; use distinct handles for meaningful stages instead of generating per-object names.
+logical pass; use distinct handles for meaningful stages instead of generating per-object names. Handles are opaque and
+remain valid only while their owning package is loaded, so packages reacquire them during every load or reload.
 
 GPU descriptors marked additive contribute to Breakdown, stacked plots and summed pass work. A non-additive descriptor
 is appropriate for an encompassing summary whose additive child stages would otherwise be counted twice.

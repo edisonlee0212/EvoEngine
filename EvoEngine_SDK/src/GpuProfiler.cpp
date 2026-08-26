@@ -2,35 +2,40 @@
 
 using namespace evo_engine;
 
-namespace {
-GpuTimestampQueue ToTimestampQueue(const ProfilerGpuQueue queue) {
-  switch (queue) {
+GpuTimestampScopeMetadata evo_engine::MakeGpuTimestampScopeMetadata(const RegisteredProfilerItem& item) {
+  GpuTimestampQueue queue = GpuTimestampQueue::Graphics;
+  switch (item.descriptor.gpu_queue) {
     case ProfilerGpuQueue::Compute:
-      return GpuTimestampQueue::Compute;
+      queue = GpuTimestampQueue::Compute;
+      break;
     case ProfilerGpuQueue::Transfer:
-      return GpuTimestampQueue::Transfer;
+      queue = GpuTimestampQueue::Transfer;
+      break;
     case ProfilerGpuQueue::RayTracing:
-      return GpuTimestampQueue::RayTracing;
+      queue = GpuTimestampQueue::RayTracing;
+      break;
     case ProfilerGpuQueue::Immediate:
-      return GpuTimestampQueue::Immediate;
+      queue = GpuTimestampQueue::Immediate;
+      break;
     case ProfilerGpuQueue::Graphics:
-      return GpuTimestampQueue::Graphics;
+      break;
   }
-  return GpuTimestampQueue::Graphics;
+  return {item.stable_id,
+          item.descriptor.display_name,
+          item.descriptor.gpu_group.empty() ? item.owner_name : item.descriptor.gpu_group,
+          queue,
+          0,
+          0,
+          item.descriptor.gpu_contributes_to_frame_total,
+          item.owner_name};
 }
 
-GpuTimestampScopeMetadata ResolveMetadata(const ProfilerItemHandle handle) {
+namespace {
+std::optional<GpuTimestampScopeMetadata> ResolveMetadata(const ProfilerItemHandle handle) {
   const auto item = Profiler::GetInstance().FindRegisteredItem(handle);
   if (!item || !item->descriptor.gpu)
-    return {};
-  return {item->stable_id,
-          item->descriptor.display_name,
-          item->descriptor.gpu_group.empty() ? item->owner_name : item->descriptor.gpu_group,
-          ToTimestampQueue(item->descriptor.gpu_queue),
-          0,
-          0,
-          item->descriptor.gpu_contributes_to_frame_total,
-          item->owner_name};
+    return std::nullopt;
+  return MakeGpuTimestampScopeMetadata(*item);
 }
 
 void Record(const GpuProfilerRecordedQueue queue, const std::function<void(VkCommandBuffer)>& action) {
@@ -45,9 +50,8 @@ GpuProfilerCommandScope::GpuProfilerCommandScope(const VkCommandBuffer command_b
     : command_buffer_(command_buffer) {
   if (!Platform::GpuTimestampCaptureEnabled())
     return;
-  const auto metadata = ResolveMetadata(handle);
-  if (!metadata.stable_pass_id.empty())
-    token_ = Platform::BeginGpuTimestampScope(command_buffer_, metadata);
+  if (const auto metadata = ResolveMetadata(handle))
+    token_ = Platform::BeginGpuTimestampScope(command_buffer_, *metadata);
 }
 
 GpuProfilerCommandScope::~GpuProfilerCommandScope() {
@@ -59,10 +63,9 @@ RecordedGpuProfilerScope::RecordedGpuProfilerScope(const ProfilerItemHandle hand
     : queue_(queue) {
   if (!Platform::GpuTimestampCaptureEnabled())
     return;
-  const auto metadata = ResolveMetadata(handle);
-  if (!metadata.stable_pass_id.empty())
+  if (const auto metadata = ResolveMetadata(handle))
     Record(queue_, [&](const VkCommandBuffer command_buffer) {
-      token_ = Platform::BeginGpuTimestampScope(command_buffer, metadata);
+      token_ = Platform::BeginGpuTimestampScope(command_buffer, *metadata);
     });
 }
 

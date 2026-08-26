@@ -81,6 +81,18 @@ TEST(Profiler, RegistersNamespacedPackageItemsAndRejectsDuplicates) {
   descriptor.gpu_queue = ProfilerGpuQueue::Compute;
   descriptor.cpu = true;
   descriptor.gpu = true;
+  EXPECT_FALSE(profiler.RegisterItem("", descriptor));
+  auto invalid_descriptor = descriptor;
+  invalid_descriptor.local_id.clear();
+  EXPECT_FALSE(profiler.RegisterItem("ProfilerRegistryTest", invalid_descriptor));
+  invalid_descriptor = descriptor;
+  invalid_descriptor.display_name.clear();
+  EXPECT_FALSE(profiler.RegisterItem("ProfilerRegistryTest", invalid_descriptor));
+  invalid_descriptor = descriptor;
+  invalid_descriptor.cpu = false;
+  invalid_descriptor.gpu = false;
+  EXPECT_FALSE(profiler.RegisterItem("ProfilerRegistryTest", invalid_descriptor));
+
   const auto handle = profiler.RegisterItem("ProfilerRegistryTest", descriptor);
   ASSERT_TRUE(handle);
   EXPECT_FALSE(profiler.RegisterItem("ProfilerRegistryTest", descriptor));
@@ -100,6 +112,10 @@ TEST(Profiler, RegistersNamespacedPackageItemsAndRejectsDuplicates) {
 
   profiler.UnregisterOwner("ProfilerRegistryTest");
   EXPECT_FALSE(profiler.FindRegisteredItem(handle).has_value());
+  const auto reloaded_handle = profiler.RegisterItem("ProfilerRegistryTest", descriptor);
+  ASSERT_TRUE(reloaded_handle);
+  EXPECT_FALSE(reloaded_handle == handle);
+  profiler.UnregisterOwner("ProfilerRegistryTest");
 }
 
 TEST(Profiler, RegisteredCpuScopesKeepActualHierarchyAndOwnerCleanupRemovesHistory) {

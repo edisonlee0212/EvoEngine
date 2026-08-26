@@ -1,5 +1,6 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
+#include "GpuProfiler.hpp"
 #include "Platform.hpp"
 #include "RenderGraph.hpp"
 #include "RenderLayer.hpp"
@@ -187,6 +188,24 @@ TEST(RenderGraph, RegisteredGpuPassOccurrencesAggregateAndSummaryScopesDoNotDoub
 
   const auto history = BuildGpuTimestampHistoryStats({frame}, 1);
   EXPECT_DOUBLE_EQ(history.summed_work.selected_milliseconds, 2.5);
+}
+
+TEST(RenderGraph, RegisteredGpuProfilerItemsMapToTimestampMetadata) {
+  RegisteredProfilerItem item;
+  item.owner_name = "EcoSysLab";
+  item.stable_id = "EcoSysLab.DynamicStrands.Physics";
+  item.descriptor.display_name = "Physics";
+  item.descriptor.gpu_group = "DynamicStrands";
+  item.descriptor.gpu_queue = ProfilerGpuQueue::Compute;
+  item.descriptor.gpu_contributes_to_frame_total = true;
+
+  const auto metadata = MakeGpuTimestampScopeMetadata(item);
+  EXPECT_EQ(metadata.stable_pass_id, item.stable_id);
+  EXPECT_EQ(metadata.display_name, item.descriptor.display_name);
+  EXPECT_EQ(metadata.group, item.descriptor.gpu_group);
+  EXPECT_EQ(metadata.queue, GpuTimestampQueue::Compute);
+  EXPECT_TRUE(metadata.contributes_to_frame_total);
+  EXPECT_EQ(metadata.owner_name, item.owner_name);
 }
 
 TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {

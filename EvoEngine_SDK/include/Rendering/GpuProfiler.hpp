@@ -7,6 +7,8 @@ namespace evo_engine {
 
 enum class GpuProfilerRecordedQueue : uint8_t { Main, Compute };
 
+[[nodiscard]] GpuTimestampScopeMetadata MakeGpuTimestampScopeMetadata(const RegisteredProfilerItem& item);
+
 class GpuProfilerCommandScope final {
  public:
   GpuProfilerCommandScope(VkCommandBuffer command_buffer, ProfilerItemHandle handle);

@@ -1,6 +1,7 @@
 #include "DynamicStrands.hpp"
 #include <cstring>
 #include <functional>
+#include <type_traits>
 #include "Application.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DsColliders.hpp"
@@ -18,6 +19,86 @@ inline glm::vec3 cgal_to_glm(const Point_CGAL& p) {
   return {p.x(), p.y(), p.z()};
 }
 #endif
+
+namespace {
+constexpr size_t kGpuSegmentStride = offsetof(DynamicStrands::GpuSegment, particle0);
+constexpr size_t kGpuSegmentDataStride = offsetof(DynamicStrands::GpuSegmentData, pair_handles);
+
+static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegment>);
+static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegment>);
+static_assert(kGpuSegmentStride == 480);
+static_assert(offsetof(DynamicStrands::GpuSegment, particle1) ==
+              kGpuSegmentStride + sizeof(DynamicStrands::GpuParticle));
+static_assert(sizeof(DynamicStrands::GpuSegment) == kGpuSegmentStride + 2 * sizeof(DynamicStrands::GpuParticle));
+static_assert(std::is_standard_layout_v<DynamicStrands::GpuSegmentData>);
+static_assert(std::is_trivially_copyable_v<DynamicStrands::GpuSegmentData>);
+static_assert(kGpuSegmentDataStride == 48);
+static_assert(sizeof(DynamicStrands::GpuSegmentConnectionHandles) == BUNDLE_MAX_CONNECTION * sizeof(int));
+static_assert(sizeof(DynamicStrands::GpuSegmentData) ==
+              kGpuSegmentDataStride + sizeof(DynamicStrands::GpuSegmentConnectionHandles));
+
+struct PackedSegments {
+  std::vector<std::byte> segments;
+  std::vector<DynamicStrands::GpuParticle> particle0s;
+  std::vector<DynamicStrands::GpuParticle> particle1s;
+};
+
+PackedSegments MakePackedSegments(const size_t count) {
+  PackedSegments packed;
+  packed.segments.resize(kGpuSegmentStride * count);
+  packed.particle0s.resize(count);
+  packed.particle1s.resize(count);
+  return packed;
+}
+
+PackedSegments PackSegments(const std::vector<DynamicStrands::GpuSegment>& source) {
+  auto packed = MakePackedSegments(source.size());
+  for (size_t index = 0; index < source.size(); ++index) {
+    std::memcpy(packed.segments.data() + index * kGpuSegmentStride, &source[index], kGpuSegmentStride);
+    packed.particle0s[index] = source[index].particle0;
+    packed.particle1s[index] = source[index].particle1;
+  }
+  return packed;
+}
+
+void UnpackSegments(std::vector<DynamicStrands::GpuSegment>& destination, const PackedSegments& packed) {
+  for (size_t index = 0; index < destination.size(); ++index) {
+    std::memcpy(&destination[index], packed.segments.data() + index * kGpuSegmentStride, kGpuSegmentStride);
+    destination[index].particle0 = packed.particle0s[index];
+    destination[index].particle1 = packed.particle1s[index];
+  }
+}
+
+struct PackedSegmentData {
+  std::vector<std::byte> data;
+  std::vector<DynamicStrands::GpuSegmentConnectionHandles> connection_handles;
+};
+
+PackedSegmentData MakePackedSegmentData(const size_t count) {
+  PackedSegmentData packed;
+  packed.data.resize(kGpuSegmentDataStride * count);
+  packed.connection_handles.resize(count);
+  return packed;
+}
+
+PackedSegmentData PackSegmentData(const std::vector<DynamicStrands::GpuSegmentData>& source) {
+  auto packed = MakePackedSegmentData(source.size());
+  for (size_t index = 0; index < source.size(); ++index) {
+    std::memcpy(packed.data.data() + index * kGpuSegmentDataStride, &source[index], kGpuSegmentDataStride);
+    std::memcpy(packed.connection_handles[index].handles, source[index].pair_handles,
+                sizeof(packed.connection_handles[index].handles));
+  }
+  return packed;
+}
+
+void UnpackSegmentData(std::vector<DynamicStrands::GpuSegmentData>& destination, const PackedSegmentData& packed) {
+  for (size_t index = 0; index < destination.size(); ++index) {
+    std::memcpy(&destination[index], packed.data.data() + index * kGpuSegmentDataStride, kGpuSegmentDataStride);
+    std::memcpy(destination[index].pair_handles, packed.connection_handles[index].handles,
+                sizeof(packed.connection_handles[index].handles));
+  }
+}
+}  // namespace
 
 void DynamicStrands::ReleaseStaticGpuResources() {
   foliage_visualization_render_pipeline.reset();
@@ -618,41 +699,19 @@ void DynamicStrands::Upload() {
   device_strands_buffer->SetDebugName("Strands Buffer");
   device_nodes_buffer->UploadVector(nodes);
   device_nodes_buffer->SetDebugName("Nodes Buffer");
-  constexpr size_t gpu_segment_stride = offsetof(GpuSegment, particle0);
-  static_assert(gpu_segment_stride == 480);
-  static_assert(offsetof(GpuSegment, particle1) == gpu_segment_stride + sizeof(GpuParticle));
-  static_assert(sizeof(GpuSegment) == gpu_segment_stride + 2 * sizeof(GpuParticle));
-  std::vector<std::byte> gpu_segments(gpu_segment_stride * segments.size());
-  std::vector<GpuParticle> particle0s(segments.size());
-  std::vector<GpuParticle> particle1s(segments.size());
-  for (size_t index = 0; index < segments.size(); ++index) {
-    std::memcpy(gpu_segments.data() + index * gpu_segment_stride, &segments[index], gpu_segment_stride);
-    particle0s[index] = segments[index].particle0;
-    particle1s[index] = segments[index].particle1;
-  }
-  device_segments_buffer->UploadData(gpu_segments.size(), gpu_segments.data());
+  const auto packed_segments = PackSegments(segments);
+  device_segments_buffer->UploadData(packed_segments.segments.size(), packed_segments.segments.data());
   device_segments_buffer->SetDebugName("Segments Buffer");
-  device_segment_particle0_buffer->UploadVector(particle0s);
+  device_segment_particle0_buffer->UploadVector(packed_segments.particle0s);
   device_segment_particle0_buffer->SetDebugName("Segment Particle 0 Buffer");
-  device_segment_particle1_buffer->UploadVector(particle1s);
+  device_segment_particle1_buffer->UploadVector(packed_segments.particle1s);
   device_segment_particle1_buffer->SetDebugName("Segment Particle 1 Buffer");
   device_segment_pairs_buffer->UploadVector(segment_pairs);
   device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
-  constexpr size_t gpu_segment_data_stride = offsetof(GpuSegmentData, pair_handles);
-  static_assert(gpu_segment_data_stride == 48);
-  static_assert(sizeof(GpuSegmentConnectionHandles) == BUNDLE_MAX_CONNECTION * sizeof(int));
-  static_assert(sizeof(GpuSegmentData) == gpu_segment_data_stride + sizeof(GpuSegmentConnectionHandles));
-  std::vector<std::byte> gpu_segment_data(gpu_segment_data_stride * segment_data_list.size());
-  std::vector<GpuSegmentConnectionHandles> segment_connection_handles(segment_data_list.size());
-  for (size_t index = 0; index < segment_data_list.size(); ++index) {
-    std::memcpy(gpu_segment_data.data() + index * gpu_segment_data_stride, &segment_data_list[index],
-                gpu_segment_data_stride);
-    std::memcpy(segment_connection_handles[index].handles, segment_data_list[index].pair_handles,
-                sizeof(segment_connection_handles[index].handles));
-  }
-  device_segment_data_list_buffer->UploadData(gpu_segment_data.size(), gpu_segment_data.data());
+  const auto packed_segment_data = PackSegmentData(segment_data_list);
+  device_segment_data_list_buffer->UploadData(packed_segment_data.data.size(), packed_segment_data.data.data());
   device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
-  device_segment_connection_handles_buffer->UploadVector(segment_connection_handles);
+  device_segment_connection_handles_buffer->UploadVector(packed_segment_data.connection_handles);
   device_segment_connection_handles_buffer->SetDebugName("Segment Connection Handles Buffer");
 
   meshing->Upload();
@@ -676,34 +735,20 @@ void DynamicStrands::Download() {
   if (!nodes.empty())
     device_nodes_buffer->DownloadVector(nodes, nodes.size());
   if (!segments.empty()) {
-    constexpr size_t gpu_segment_stride = offsetof(GpuSegment, particle0);
-    std::vector<std::byte> gpu_segments(gpu_segment_stride * segments.size());
-    std::vector<GpuParticle> particle0s(segments.size());
-    std::vector<GpuParticle> particle1s(segments.size());
-    device_segments_buffer->DownloadData(gpu_segments.size(), gpu_segments.data());
-    device_segment_particle0_buffer->DownloadVector(particle0s, particle0s.size());
-    device_segment_particle1_buffer->DownloadVector(particle1s, particle1s.size());
-    for (size_t index = 0; index < segments.size(); ++index) {
-      std::memcpy(&segments[index], gpu_segments.data() + index * gpu_segment_stride, gpu_segment_stride);
-      segments[index].particle0 = particle0s[index];
-      segments[index].particle1 = particle1s[index];
-    }
+    auto packed_segments = MakePackedSegments(segments.size());
+    device_segments_buffer->DownloadData(packed_segments.segments.size(), packed_segments.segments.data());
+    device_segment_particle0_buffer->DownloadVector(packed_segments.particle0s, packed_segments.particle0s.size());
+    device_segment_particle1_buffer->DownloadVector(packed_segments.particle1s, packed_segments.particle1s.size());
+    UnpackSegments(segments, packed_segments);
   }
   if (!segment_pairs.empty())
     device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
   if (!segment_data_list.empty()) {
-    constexpr size_t gpu_segment_data_stride = offsetof(GpuSegmentData, pair_handles);
-    std::vector<std::byte> gpu_segment_data(gpu_segment_data_stride * segment_data_list.size());
-    std::vector<GpuSegmentConnectionHandles> segment_connection_handles(segment_data_list.size());
-    device_segment_data_list_buffer->DownloadData(gpu_segment_data.size(), gpu_segment_data.data());
-    device_segment_connection_handles_buffer->DownloadVector(segment_connection_handles,
-                                                             segment_connection_handles.size());
-    for (size_t index = 0; index < segment_data_list.size(); ++index) {
-      std::memcpy(&segment_data_list[index], gpu_segment_data.data() + index * gpu_segment_data_stride,
-                  gpu_segment_data_stride);
-      std::memcpy(segment_data_list[index].pair_handles, segment_connection_handles[index].handles,
-                  sizeof(segment_connection_handles[index].handles));
-    }
+    auto packed_segment_data = MakePackedSegmentData(segment_data_list.size());
+    device_segment_data_list_buffer->DownloadData(packed_segment_data.data.size(), packed_segment_data.data.data());
+    device_segment_connection_handles_buffer->DownloadVector(packed_segment_data.connection_handles,
+                                                             packed_segment_data.connection_handles.size());
+    UnpackSegmentData(segment_data_list, packed_segment_data);
   }
 
   meshing->Download();

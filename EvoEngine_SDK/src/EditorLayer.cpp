@@ -9,6 +9,7 @@
 #include "FileManager.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "GpuProfiler.hpp"
 #include "ILayer.hpp"
 #include "InspectorRegistry.hpp"
 #include "Material.hpp"
@@ -782,22 +783,6 @@ void UpdateGpuProfilerCatalog(const std::vector<GpuTimestampFrameSnapshot>& fram
   }
 }
 
-GpuTimestampQueue RegisteredProfilerQueue(const ProfilerGpuQueue queue) {
-  switch (queue) {
-    case ProfilerGpuQueue::Compute:
-      return GpuTimestampQueue::Compute;
-    case ProfilerGpuQueue::Transfer:
-      return GpuTimestampQueue::Transfer;
-    case ProfilerGpuQueue::RayTracing:
-      return GpuTimestampQueue::RayTracing;
-    case ProfilerGpuQueue::Immediate:
-      return GpuTimestampQueue::Immediate;
-    case ProfilerGpuQueue::Graphics:
-      return GpuTimestampQueue::Graphics;
-  }
-  return GpuTimestampQueue::Graphics;
-}
-
 void UpdateRegisteredGpuProfilerCatalog(const std::vector<RegisteredProfilerItem>& items, ProfilerPanelState& state) {
   for (const auto& item : items) {
     if (!item.descriptor.gpu)
@@ -809,14 +794,7 @@ void UpdateRegisteredGpuProfilerCatalog(const std::vector<RegisteredProfilerItem
           return entry.name;
         },
         ProfilerPanelState::GpuGroup{group_name});
-    GpuTimestampScopeMetadata metadata{item.stable_id,
-                                       item.descriptor.display_name,
-                                       group_name,
-                                       RegisteredProfilerQueue(item.descriptor.gpu_queue),
-                                       0,
-                                       0,
-                                       item.descriptor.gpu_contributes_to_frame_total,
-                                       item.owner_name};
+    auto metadata = MakeGpuTimestampScopeMetadata(item);
     const auto key = GpuProfilerPassKey(metadata);
     profiler_panel_detail::AppendFirstSeen(
         group.passes, key,
@@ -4848,8 +4826,8 @@ void EditorLayer::DrawProfilerWindow() {
                 ? (item.descriptor.gpu_group.empty() ? item.owner_name.c_str() : item.descriptor.gpu_group.c_str())
                 : "-");
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(
-            item.descriptor.gpu ? GpuTimestampQueueName(RegisteredProfilerQueue(item.descriptor.gpu_queue)) : "-");
+        const auto metadata = MakeGpuTimestampScopeMetadata(item);
+        ImGui::TextUnformatted(item.descriptor.gpu ? GpuTimestampQueueName(metadata.queue) : "-");
       }
       ImGui::EndTable();
     }
