@@ -125,6 +125,12 @@ cmake --build out/build/vs2026-x64 --config Debug
 
 ## Useful Commands
 
+Local and CI formatting use the exact release recorded in `.clang-format-version`. Install it once with:
+
+```bat
+python -m pip install clang-format==22.1.8
+```
+
 ```bat
 python Scripts\test.py
 python Scripts\test.py --all

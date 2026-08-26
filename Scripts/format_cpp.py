@@ -11,11 +11,14 @@ from __future__ import annotations
 import argparse
 import concurrent.futures
 import os
+import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+
+CLANG_FORMAT_VERSION = (Path(__file__).resolve().parents[1] / ".clang-format-version").read_text().strip()
 
 DEFAULT_ROOTS = (
     "EvoEngine_SDK",
@@ -45,8 +48,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--clang-format",
-        default="clang-format",
-        help="clang-format executable to use. Defaults to clang-format on PATH.",
+        help=(
+            "clang-format executable to use. It must be version "
+            f"{CLANG_FORMAT_VERSION}. Defaults to the pinned Python package or a matching system executable."
+        ),
     )
     parser.add_argument(
         "--root",
@@ -119,19 +124,54 @@ def discover_files(repo_root: Path, roots: list[str] | None, extensions: set[str
     return sorted(set(files))
 
 
-def find_clang_format(executable: str) -> str | None:
-    explicit_path = Path(executable)
-    if explicit_path.exists():
-        return str(explicit_path.resolve())
+def clang_format_version(executable: Path) -> str | None:
+    try:
+        result = subprocess.run(
+            [str(executable), "--version"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except OSError:
+        return None
+    if result.returncode != 0:
+        return None
+    match = re.search(r"clang-format version ([^\s]+)", result.stdout)
+    return match.group(1) if match else None
 
-    path_match = shutil.which(executable)
-    if path_match:
-        return path_match
 
-    candidate_paths = [
-        Path(os.environ.get("ProgramFiles", "")) / "LLVM" / "bin" / "clang-format.exe",
-        Path(os.environ.get("ProgramFiles(x86)", "")) / "LLVM" / "bin" / "clang-format.exe",
-    ]
+def bundled_clang_format() -> Path | None:
+    try:
+        import clang_format  # type: ignore[import-not-found]
+    except ImportError:
+        return None
+    executable_name = "clang-format.exe" if os.name == "nt" else "clang-format"
+    executable = Path(clang_format.__file__).resolve().parent / "data" / "bin" / executable_name
+    return executable if executable.is_file() else None
+
+
+def find_clang_format(executable: str | None) -> str | None:
+    if executable:
+        explicit_path = Path(executable)
+        resolved = explicit_path.resolve() if explicit_path.exists() else shutil.which(executable)
+        return str(Path(resolved).resolve()) if resolved else None
+
+    bundled = bundled_clang_format()
+    if bundled:
+        return str(bundled.resolve())
+    for name in (f"clang-format-{CLANG_FORMAT_VERSION.split('.', maxsplit=1)[0]}", "clang-format"):
+        path_match = shutil.which(name)
+        if path_match:
+            return str(Path(path_match).resolve())
+
+    candidate_paths: list[Path] = []
+    if os.name == "nt":
+        candidate_paths.extend(
+            [
+                Path(os.environ.get("ProgramFiles", "")) / "LLVM" / "bin" / "clang-format.exe",
+                Path(os.environ.get("ProgramFiles(x86)", "")) / "LLVM" / "bin" / "clang-format.exe",
+            ]
+        )
 
     vswhere = (
         Path(os.environ.get("ProgramFiles(x86)", ""))
@@ -164,7 +204,7 @@ def find_clang_format(executable: str) -> str | None:
             )
 
     for candidate_path in candidate_paths:
-        if candidate_path.exists():
+        if candidate_path.is_file():
             return str(candidate_path.resolve())
     return None
 
@@ -222,11 +262,28 @@ def main() -> int:
 
     clang_format = find_clang_format(args.clang_format)
     if clang_format is None:
+        requested = f"'{args.clang_format}'" if args.clang_format else f"clang-format {CLANG_FORMAT_VERSION}"
+        print(f"Could not find {requested}.", file=sys.stderr)
         print(
-            f"Could not find '{args.clang_format}'. Install clang-format or pass --clang-format <path>.",
+            f"Install the pinned formatter with: {sys.executable} -m pip install clang-format=={CLANG_FORMAT_VERSION}",
             file=sys.stderr,
         )
         return 1
+
+    actual_version = clang_format_version(Path(clang_format))
+    if actual_version != CLANG_FORMAT_VERSION:
+        print(
+            f"Expected clang-format {CLANG_FORMAT_VERSION}, but {clang_format} reports "
+            f"{actual_version or 'an unknown version'}.",
+            file=sys.stderr,
+        )
+        print(
+            f"Install the pinned formatter with: {sys.executable} -m pip install clang-format=={CLANG_FORMAT_VERSION}",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Using clang-format {CLANG_FORMAT_VERSION}: {clang_format}")
 
     if not files:
         print("No matching files found.")
