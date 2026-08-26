@@ -36,8 +36,8 @@ public void project_shear_stretch_constraint(in float inv_time_step, in int segm
   float3 x0_correction, x1_correction;
   float4 q_correction;
 
-  float3 p0 = segments[segment_handle].particle0.x;
-  float3 p1 = segments[segment_handle].particle1.x;
+  float3 p0 = segment_particle0s[segment_handle].x;
+  float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
   float HC = segments[segment_handle].HC;
@@ -60,31 +60,31 @@ public void project_shear_stretch_constraint(in float inv_time_step, in int segm
   float3 particle1_new_position = p1 + x1_correction;
 
   if (prev_handle != -1 &&
-      segment_pairs[segment_data_list[segment_handle].pair_handles[0]].connectivity_integrity > 0.f) {
+      segment_pairs[segment_connection_handles[segment_handle].handles[0]].connectivity_integrity > 0.f) {
     float neighbor_inv_mass = segments[prev_handle].inv_mass;
     particle0_new_position =
-        (particle0_new_position * neighbor_inv_mass + segments[prev_handle].particle1.x * inv_mass_q) /
+        (particle0_new_position * neighbor_inv_mass + segment_particle1s[prev_handle].x * inv_mass_q) /
         (inv_mass_q + neighbor_inv_mass);
-    segments[prev_handle].particle1.x = particle0_new_position;
+    segment_particle1s[prev_handle].x = particle0_new_position;
   }
   if (next_handle != -1 &&
-      segment_pairs[segment_data_list[segment_handle].pair_handles[1]].connectivity_integrity > 0.f) {
+      segment_pairs[segment_connection_handles[segment_handle].handles[1]].connectivity_integrity > 0.f) {
     float neighbor_inv_mass = segments[next_handle].inv_mass;
     particle1_new_position =
-        (particle1_new_position * neighbor_inv_mass + segments[next_handle].particle0.x * inv_mass_q) /
+        (particle1_new_position * neighbor_inv_mass + segment_particle0s[next_handle].x * inv_mass_q) /
         (inv_mass_q + neighbor_inv_mass);
-    segments[next_handle].particle0.x = particle1_new_position;
+    segment_particle0s[next_handle].x = particle1_new_position;
   }
 
-  segments[segment_handle].particle0.x = particle0_new_position;
-  segments[segment_handle].particle1.x = particle1_new_position;
+  segment_particle0s[segment_handle].x = particle0_new_position;
+  segment_particle1s[segment_handle].x = particle1_new_position;
   segments[segment_handle].q = normalize(q_correction + q);
 }
 
 public void project_shear_stretch_constraint(in float inv_time_step, in int segment_handle, out float3 x0_correction,
                                       out float3 x1_correction, out float4 q_correction) {
-  float3 p0 = segments[segment_handle].particle0.x;
-  float3 p1 = segments[segment_handle].particle1.x;
+  float3 p0 = segment_particle0s[segment_handle].x;
+  float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
   float HC = segments[segment_handle].HC;
@@ -256,8 +256,8 @@ public void BundleSegmentPosition(in uint segment_handle, in float inv_time_step
   float sum = 0.f;
   float bundle_alpha_sum = 0.0f;
 
-  float3 segment0_particle0_position = segments[segment_handle].particle0.x;
-  float3 segment0_particle1_position = segments[segment_handle].particle1.x;
+  float3 segment0_particle0_position = segment_particle0s[segment_handle].x;
+  float3 segment0_particle1_position = segment_particle1s[segment_handle].x;
   float3 segment0_center_position = (segment0_particle0_position + segment0_particle1_position) * 0.5f;
 
   float bd = segments[segment_handle].boundary_distance;
@@ -278,7 +278,7 @@ public void BundleSegmentPosition(in uint segment_handle, in float inv_time_step
   //float3 L_normal_world = float3(1.0, 0.0, 0.0);  //for lying log
 
 
-  float3 L_normal_world = normalize(segments[segment_handle].particle1.x - segments[segment_handle].particle0.x);// for tree (For log case, localX and localY need to be inverse)
+  float3 L_normal_world = normalize(segment_particle1s[segment_handle].x - segment_particle0s[segment_handle].x);// for tree (For log case, localX and localY need to be inverse)
   float3 up = float3(0.0, 0.0, 1.0);
   if (length(dot(L_normal_world, up)) > 0.99) {
     up = float3(0.0, -1.0, 0.0);
@@ -302,7 +302,7 @@ public void BundleSegmentPosition(in uint segment_handle, in float inv_time_step
 
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
-    int pair_handle = segment_data_list[segment_handle].pair_handles[i];
+    int pair_handle = segment_connection_handles[segment_handle].handles[i];
     if (pair_handle < 0)
       continue;
     if (segment_pairs[pair_handle].bend_twist_bundle_integrity <= 0.f)
@@ -310,8 +310,8 @@ public void BundleSegmentPosition(in uint segment_handle, in float inv_time_step
     bool is_segment0 = segment_handle == segment_pairs[pair_handle].segment0_handle;
     int neighbor_segment_handle =
         is_segment0 ? segment_pairs[pair_handle].segment1_handle : segment_pairs[pair_handle].segment0_handle;
-    float3 neighbor_segment_particle0_position = segments[neighbor_segment_handle].particle0.x;
-    float3 neighbor_segment_particle1_position = segments[neighbor_segment_handle].particle1.x;
+    float3 neighbor_segment_particle0_position = segment_particle0s[neighbor_segment_handle].x;
+    float3 neighbor_segment_particle1_position = segment_particle1s[neighbor_segment_handle].x;
     float3 neighbor_segment_center_position =
         (neighbor_segment_particle0_position + neighbor_segment_particle1_position) * 0.5f;
 
@@ -429,9 +429,9 @@ public void BundleSegmentRotation(in uint segment_handle, in float inv_time_step
   float4 q = segments[segment_handle].q;
   float inv_mass = segments[segment_handle].inv_mass;
 
-  float3 segment0_center_position = (segments[segment_handle].particle0.x + segments[segment_handle].particle1.x) * 0.5f;
+  float3 segment0_center_position = (segment_particle0s[segment_handle].x + segment_particle1s[segment_handle].x) * 0.5f;
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
-    int pair_handle = segment_data_list[segment_handle].pair_handles[i];
+    int pair_handle = segment_connection_handles[segment_handle].handles[i];
     if (pair_handle < 0)
       continue;
     if (segment_pairs[pair_handle].bend_twist_bundle_integrity <= 0.f)
@@ -442,7 +442,7 @@ public void BundleSegmentRotation(in uint segment_handle, in float inv_time_step
     bool is_segment0 = segment_handle == segment0_handle;
     int neighbor_segment_handle = is_segment0 ? segment1_handle : segment0_handle;
     float3 segment1_center_position =
-        (segments[neighbor_segment_handle].particle0.x + segments[neighbor_segment_handle].particle1.x) * 0.5f;
+        (segment_particle0s[neighbor_segment_handle].x + segment_particle1s[neighbor_segment_handle].x) * 0.5f;
 
     float t2 = inv_time_step * inv_time_step;
     float bending_alpha = segment_pairs[pair_handle].bending_alpha;
@@ -489,7 +489,7 @@ public void BundleSegmentBendTwist(in uint segment_handle, in float inv_time_ste
   float t2 = inv_time_step * inv_time_step;
 
   [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; i++) {
-    int pair_handle = segment_data_list[segment_handle].pair_handles[i];
+    int pair_handle = segment_connection_handles[segment_handle].handles[i];
     if (pair_handle < 0)
       continue;
     if (segment_pairs[pair_handle].bend_twist_bundle_integrity <= 0.f)
@@ -539,8 +539,8 @@ public void BundleSegmentShearStretch(in uint segment_handle, in float inv_time_
   int prev_handle = segments[segment_handle].prev_handle;
   int next_handle = segments[segment_handle].next_handle;
 
-  float3 p0 = segments[segment_handle].particle0.x;
-  float3 p1 = segments[segment_handle].particle1.x;
+  float3 p0 = segment_particle0s[segment_handle].x;
+  float3 p1 = segment_particle1s[segment_handle].x;
 
   float bd = segments[segment_handle].boundary_distance;
   float HC = segments[segment_handle].HC;

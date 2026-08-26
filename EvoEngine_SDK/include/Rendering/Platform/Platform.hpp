@@ -105,6 +105,7 @@ struct GpuTimestampScopeMetadata {
   uint64_t view_id = 0;
   uint64_t instance_id = 0;
   bool contributes_to_frame_total = true;
+  std::string owner_name{};
 };
 
 struct GpuTimestampQuerySample {
@@ -944,6 +945,7 @@ class Platform final {
   [[nodiscard]] static bool GpuTimestampCaptureEnabled();
   [[nodiscard]] static bool GpuTimestampCaptureAvailable();
   static void ResetGpuTimestampStats();
+  static void RemoveGpuTimestampOwnerHistory(const std::string& owner_name);
   [[nodiscard]] static std::vector<GpuTimestampStats> GetGpuTimestampStats();
   [[nodiscard]] static std::vector<GpuTimestampFrameSnapshot> GetGpuTimestampFrameHistory();
   [[nodiscard]] static std::vector<GpuTimestampStats> GetCpuTimingStats();

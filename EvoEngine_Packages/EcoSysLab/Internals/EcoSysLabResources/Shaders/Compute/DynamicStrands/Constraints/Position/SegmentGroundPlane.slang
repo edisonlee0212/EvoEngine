@@ -25,10 +25,12 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (segment_index >= segment_size)
       break;
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
     if (segment.inv_mass == 0.0f)
       return;
 
-    segments[segment_index].particle0.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle0.x.y);
-    segments[segment_index].particle1.x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment.particle1.x.y);
+    segment_particle0s[segment_index].x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment_particle0.x.y);
+    segment_particle1s[segment_index].x.y += (1.f + ground_softness) * max(0.0f, ground_height - segment_particle1.x.y);
   }
 }

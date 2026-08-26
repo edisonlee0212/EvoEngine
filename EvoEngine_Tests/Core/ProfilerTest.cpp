@@ -68,6 +68,105 @@ class TempProfilerDirectory {
 };
 }  // namespace
 
+TEST(Profiler, RegistersNamespacedPackageItemsAndRejectsDuplicates) {
+  auto& profiler = Profiler::GetInstance();
+  profiler.UnregisterOwner("ProfilerRegistryTest");
+  const auto initial_revision = profiler.GetRegistrationRevision();
+
+  ProfilerItemDescriptor descriptor;
+  descriptor.local_id = "Simulation.Step";
+  descriptor.display_name = "Simulation Step";
+  descriptor.cpu_category = "Test Package";
+  descriptor.gpu_group = "Simulation";
+  descriptor.gpu_queue = ProfilerGpuQueue::Compute;
+  descriptor.cpu = true;
+  descriptor.gpu = true;
+  const auto handle = profiler.RegisterItem("ProfilerRegistryTest", descriptor);
+  ASSERT_TRUE(handle);
+  EXPECT_FALSE(profiler.RegisterItem("ProfilerRegistryTest", descriptor));
+  EXPECT_GT(profiler.GetRegistrationRevision(), initial_revision);
+
+  const auto item = profiler.FindRegisteredItem(handle);
+  ASSERT_TRUE(item.has_value());
+  EXPECT_EQ(item->stable_id, "ProfilerRegistryTest.Simulation.Step");
+  EXPECT_EQ(item->owner_name, "ProfilerRegistryTest");
+  EXPECT_EQ(item->descriptor.gpu_queue, ProfilerGpuQueue::Compute);
+  const auto items = profiler.GetRegisteredItemsSnapshot();
+  EXPECT_NE(std::find_if(items.begin(), items.end(),
+                         [&](const auto& candidate) {
+                           return candidate.handle == handle;
+                         }),
+            items.end());
+
+  profiler.UnregisterOwner("ProfilerRegistryTest");
+  EXPECT_FALSE(profiler.FindRegisteredItem(handle).has_value());
+}
+
+TEST(Profiler, RegisteredCpuScopesKeepActualHierarchyAndOwnerCleanupRemovesHistory) {
+  auto& profiler = Profiler::GetInstance();
+  profiler.SetEnabled(false);
+  profiler.Reset();
+  profiler.UnregisterOwner("ProfilerScopeRegistryTest");
+  ProfilerItemDescriptor descriptor;
+  descriptor.local_id = "Child";
+  descriptor.display_name = "Registered Child";
+  descriptor.cpu_category = "Package";
+  descriptor.cpu = true;
+  const auto handle = profiler.RegisterItem("ProfilerScopeRegistryTest", descriptor);
+  ASSERT_TRUE(handle);
+
+  profiler.SetEnabled(true);
+  {
+    const ProfilerFrameScope frame;
+    const ProfilerScope parent("Actual Parent", "Unit");
+    const ProfilerScope child(handle);
+  }
+  profiler.SetEnabled(false);
+
+  const auto snapshot = profiler.GetLatestFrameSnapshot();
+  ASSERT_EQ(snapshot.events.size(), 2);
+  const auto child_event = std::find_if(snapshot.events.begin(), snapshot.events.end(), [](const auto& event) {
+    return event.name == "Registered Child";
+  });
+  ASSERT_NE(child_event, snapshot.events.end());
+  EXPECT_EQ(child_event->stable_id, "ProfilerScopeRegistryTest.Child");
+  EXPECT_EQ(child_event->owner_name, "ProfilerScopeRegistryTest");
+  const auto stats = BuildProfilerFrameStats(snapshot);
+  ASSERT_EQ(stats.thread_lanes.size(), 1);
+  const auto* parent = FindHierarchyNode(stats.thread_lanes.front().hierarchy, "Actual Parent");
+  ASSERT_NE(parent, nullptr);
+  const auto* child = FindHierarchyNode(parent->children, "Registered Child");
+  ASSERT_NE(child, nullptr);
+  EXPECT_EQ(child->stable_id, "ProfilerScopeRegistryTest.Child");
+
+  profiler.UnregisterOwner("ProfilerScopeRegistryTest");
+  const auto cleaned_snapshot = profiler.GetLatestFrameSnapshot();
+  EXPECT_EQ(cleaned_snapshot.events.size(), 1);
+  EXPECT_EQ(cleaned_snapshot.events.front().name, "Actual Parent");
+  EXPECT_TRUE(std::none_of(cleaned_snapshot.events.begin(), cleaned_snapshot.events.end(), [](const auto& event) {
+    return event.owner_name == "ProfilerScopeRegistryTest";
+  }));
+}
+
+TEST(Profiler, RegisteredCpuScopeIsNoOpWhenCaptureIsDisabled) {
+  auto& profiler = Profiler::GetInstance();
+  profiler.SetEnabled(false);
+  profiler.Reset();
+  profiler.UnregisterOwner("ProfilerDisabledRegistryTest");
+  ProfilerItemDescriptor descriptor;
+  descriptor.local_id = "Disabled";
+  descriptor.display_name = "Disabled Registered Scope";
+  descriptor.cpu = true;
+  const auto handle = profiler.RegisterItem("ProfilerDisabledRegistryTest", descriptor);
+  ASSERT_TRUE(handle);
+  {
+    const ProfilerFrameScope frame;
+    const ProfilerScope scope(handle);
+  }
+  EXPECT_TRUE(profiler.GetFrameHistorySnapshot().empty());
+  profiler.UnregisterOwner("ProfilerDisabledRegistryTest");
+}
+
 TEST(Profiler, CapturesScopedEventsInFrame) {
   auto& profiler = Profiler::GetInstance();
   profiler.SetEnabled(true);

@@ -1,10 +1,13 @@
 #include "DynamicStrands.hpp"
+#include <cstring>
 #include <functional>
 #include "Application.hpp"
 #include "DsAlphaShapeUtils.hpp"
 #include "DsColliders.hpp"
 #include "DsConstraints.hpp"
 #include "DsPhysics.hpp"
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 #include "UVMapUtils.hpp"
 #include "glm/gtx/quaternion.hpp"
@@ -31,76 +34,93 @@ void DynamicStrands::ReleaseStaticGpuResources() {
 
 void DynamicStrands::Physics(const PhysicsParameters& physics_parameters,
                              const std::function<void()>& pre_step_action) {
-  if (pre_step)
+  const auto& profiler_items = dynamic_strands_profiler::GetItems();
+  if (pre_step) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.pre_step);
     pre_step->Execute(physics_parameters, *this);
-  pre_step_action();
-  for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
-    if (prediction)
-      prediction->Execute(physics_parameters, *this);
-    if (fungus && physics_parameters.enable_fungus)
-      fungus->Execute(physics_parameters, *this);
-    for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
-      for (const auto& c : constraints) {
-        if (c->enabled)
-          c->ProjectPositionConstraint(physics_parameters, *this);
+  }
+  {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.interaction);
+    pre_step_action();
+  }
+  {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.physics);
+    for (int sub_step_index = 0; sub_step_index < physics_parameters.sub_step; sub_step_index++) {
+      if (prediction) {
+        prediction->Execute(physics_parameters, *this);
       }
-    }
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
-    const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
-    const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
-    const auto for_each_collider_entity =
-        [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
-          if (box_collider_entities && !box_collider_entities->empty()) {
-            for (const auto& i : *box_collider_entities) {
-              const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
-            }
-          }
-          if (sphere_collider_entities && !sphere_collider_entities->empty()) {
-            for (const auto& i : *sphere_collider_entities) {
-              const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
-            }
-          }
-          if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
-            for (const auto& i : *cylinder_collider_entities) {
-              const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
-              if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
-                action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
-            }
-          }
-        };
-    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
-      dts->ProjectPositionConstraint(physics_parameters, *this);
-    });
-    if (velocity_update)
-      velocity_update->Execute(physics_parameters, *this);
-
-    for (int iteration_i = 0; iteration_i < physics_parameters.velocity_constraint_iteration; iteration_i++) {
-      for (const auto& c : constraints) {
-        if (c->enabled)
-          c->ProjectVelocityConstraint(physics_parameters, *this);
+      if (fungus && physics_parameters.enable_fungus) {
+        fungus->Execute(physics_parameters, *this);
       }
-    }
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      const auto* box_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsBoxCollider>();
+      const auto* sphere_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsSphereCollider>();
+      const auto* cylinder_collider_entities = scene->UnsafeGetPrivateComponentOwnersList<DsCylinderCollider>();
+      const auto for_each_collider_entity =
+          [&](const std::function<void(const std::shared_ptr<IDsCollider>& dts)>& action) {
+            if (box_collider_entities && !box_collider_entities->empty()) {
+              for (const auto& i : *box_collider_entities) {
+                const auto box_collider = scene->GetOrSetPrivateComponent<DsBoxCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && box_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(box_collider));
+              }
+            }
+            if (sphere_collider_entities && !sphere_collider_entities->empty()) {
+              for (const auto& i : *sphere_collider_entities) {
+                const auto sphere_collider = scene->GetOrSetPrivateComponent<DsSphereCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && sphere_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(sphere_collider));
+              }
+            }
+            if (cylinder_collider_entities && !cylinder_collider_entities->empty()) {
+              for (const auto& i : *cylinder_collider_entities) {
+                const auto cylinder_collider = scene->GetOrSetPrivateComponent<DsCylinderCollider>(i).lock();
+                if (scene->IsEntityEnabled(i) && cylinder_collider->IsEnabled())
+                  action(std::dynamic_pointer_cast<IDsCollider>(cylinder_collider));
+              }
+            }
+          };
+      {
+        for (int iteration_i = 0; iteration_i < physics_parameters.position_constraint_iteration; iteration_i++) {
+          for (const auto& c : constraints) {
+            if (c->enabled)
+              c->ProjectPositionConstraint(physics_parameters, *this);
+          }
+        }
+        for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+          dts->ProjectPositionConstraint(physics_parameters, *this);
+        });
+      }
+      if (velocity_update) {
+        velocity_update->Execute(physics_parameters, *this);
+      }
 
-    for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
-      dts->ProjectVelocityConstraint(physics_parameters, *this);
-    });
+      {
+        for (int iteration_i = 0; iteration_i < physics_parameters.velocity_constraint_iteration; iteration_i++) {
+          for (const auto& c : constraints) {
+            if (c->enabled)
+              c->ProjectVelocityConstraint(physics_parameters, *this);
+          }
+        }
+        for_each_collider_entity([&](const std::shared_ptr<IDsCollider>& dts) {
+          dts->ProjectVelocityConstraint(physics_parameters, *this);
+        });
+      }
 
-    simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
-    if (physics_parameters.enable_structural_damage) {
-      structural_damage->Execute(physics_parameters, *this);
+      simulated_time += physics_parameters.time_step / static_cast<float>(physics_parameters.sub_step);
+      if (physics_parameters.enable_structural_damage) {
+        structural_damage->Execute(physics_parameters, *this);
+      }
     }
   }
 
   if (physics_parameters.enable_segment_disconnection) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.dynamic_grouping);
     CalculateGroups(physics_parameters);
   }
 
   if (physics_parameters.enable_segment_collision) {
+    const RecordedGpuProfilerScope gpu_scope(profiler_items.segment_collision);
     dynamic_hashed_grid->BuildGrid(physics_parameters, *this);
     segment_collision->Execute(physics_parameters, *this);
     // collision_post_step->Execute(physics_parameters, *this);
@@ -159,6 +179,9 @@ void DynamicStrands::Init(MeshingType meshing_type) {
     strands_layout->PushDescriptorBinding(7, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+    strands_layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
     strands_layout->Initialize();
   }
   VkBufferCreateInfo buffer_create_info{};
@@ -173,8 +196,12 @@ void DynamicStrands::Init(MeshingType meshing_type) {
   device_strands_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_nodes_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segments_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_particle0_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_particle1_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_pairs_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   device_segment_data_list_buffer = std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
+  device_segment_connection_handles_buffer =
+      std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
   meshing->InitBuffer(buffer_create_info, buffer_vma_allocation_create_info);
 
@@ -572,6 +599,9 @@ void DynamicStrands::UpdateBindings() const {
   descriptor_set->UpdateBufferDescriptorBinding(5, device_hashed_grid_elements_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(6, device_hashed_grid_cell_starts_buffer, 0);
   descriptor_set->UpdateBufferDescriptorBinding(7, device_foliage_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(10, device_segment_particle0_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(11, device_segment_particle1_buffer, 0);
+  descriptor_set->UpdateBufferDescriptorBinding(12, device_segment_connection_handles_buffer, 0);
 
   meshing->UpdateBindings();
   for (const auto& c : constraints) {
@@ -588,12 +618,42 @@ void DynamicStrands::Upload() {
   device_strands_buffer->SetDebugName("Strands Buffer");
   device_nodes_buffer->UploadVector(nodes);
   device_nodes_buffer->SetDebugName("Nodes Buffer");
-  device_segments_buffer->UploadVector(segments);
+  constexpr size_t gpu_segment_stride = offsetof(GpuSegment, particle0);
+  static_assert(gpu_segment_stride == 480);
+  static_assert(offsetof(GpuSegment, particle1) == gpu_segment_stride + sizeof(GpuParticle));
+  static_assert(sizeof(GpuSegment) == gpu_segment_stride + 2 * sizeof(GpuParticle));
+  std::vector<std::byte> gpu_segments(gpu_segment_stride * segments.size());
+  std::vector<GpuParticle> particle0s(segments.size());
+  std::vector<GpuParticle> particle1s(segments.size());
+  for (size_t index = 0; index < segments.size(); ++index) {
+    std::memcpy(gpu_segments.data() + index * gpu_segment_stride, &segments[index], gpu_segment_stride);
+    particle0s[index] = segments[index].particle0;
+    particle1s[index] = segments[index].particle1;
+  }
+  device_segments_buffer->UploadData(gpu_segments.size(), gpu_segments.data());
   device_segments_buffer->SetDebugName("Segments Buffer");
+  device_segment_particle0_buffer->UploadVector(particle0s);
+  device_segment_particle0_buffer->SetDebugName("Segment Particle 0 Buffer");
+  device_segment_particle1_buffer->UploadVector(particle1s);
+  device_segment_particle1_buffer->SetDebugName("Segment Particle 1 Buffer");
   device_segment_pairs_buffer->UploadVector(segment_pairs);
   device_segment_pairs_buffer->SetDebugName("Segment Pairs Buffer");
-  device_segment_data_list_buffer->UploadVector(segment_data_list);
+  constexpr size_t gpu_segment_data_stride = offsetof(GpuSegmentData, pair_handles);
+  static_assert(gpu_segment_data_stride == 48);
+  static_assert(sizeof(GpuSegmentConnectionHandles) == BUNDLE_MAX_CONNECTION * sizeof(int));
+  static_assert(sizeof(GpuSegmentData) == gpu_segment_data_stride + sizeof(GpuSegmentConnectionHandles));
+  std::vector<std::byte> gpu_segment_data(gpu_segment_data_stride * segment_data_list.size());
+  std::vector<GpuSegmentConnectionHandles> segment_connection_handles(segment_data_list.size());
+  for (size_t index = 0; index < segment_data_list.size(); ++index) {
+    std::memcpy(gpu_segment_data.data() + index * gpu_segment_data_stride, &segment_data_list[index],
+                gpu_segment_data_stride);
+    std::memcpy(segment_connection_handles[index].handles, segment_data_list[index].pair_handles,
+                sizeof(segment_connection_handles[index].handles));
+  }
+  device_segment_data_list_buffer->UploadData(gpu_segment_data.size(), gpu_segment_data.data());
   device_segment_data_list_buffer->SetDebugName("Segment Data List Buffer");
+  device_segment_connection_handles_buffer->UploadVector(segment_connection_handles);
+  device_segment_connection_handles_buffer->SetDebugName("Segment Connection Handles Buffer");
 
   meshing->Upload();
 
@@ -615,12 +675,36 @@ void DynamicStrands::Download() {
     device_strands_buffer->DownloadVector(strands, strands.size());
   if (!nodes.empty())
     device_nodes_buffer->DownloadVector(nodes, nodes.size());
-  if (!segments.empty())
-    device_segments_buffer->DownloadVector(segments, segments.size());
+  if (!segments.empty()) {
+    constexpr size_t gpu_segment_stride = offsetof(GpuSegment, particle0);
+    std::vector<std::byte> gpu_segments(gpu_segment_stride * segments.size());
+    std::vector<GpuParticle> particle0s(segments.size());
+    std::vector<GpuParticle> particle1s(segments.size());
+    device_segments_buffer->DownloadData(gpu_segments.size(), gpu_segments.data());
+    device_segment_particle0_buffer->DownloadVector(particle0s, particle0s.size());
+    device_segment_particle1_buffer->DownloadVector(particle1s, particle1s.size());
+    for (size_t index = 0; index < segments.size(); ++index) {
+      std::memcpy(&segments[index], gpu_segments.data() + index * gpu_segment_stride, gpu_segment_stride);
+      segments[index].particle0 = particle0s[index];
+      segments[index].particle1 = particle1s[index];
+    }
+  }
   if (!segment_pairs.empty())
     device_segment_pairs_buffer->DownloadVector(segment_pairs, segment_pairs.size());
-  if (!segment_data_list.empty())
-    device_segment_data_list_buffer->DownloadVector(segment_data_list, segment_data_list.size());
+  if (!segment_data_list.empty()) {
+    constexpr size_t gpu_segment_data_stride = offsetof(GpuSegmentData, pair_handles);
+    std::vector<std::byte> gpu_segment_data(gpu_segment_data_stride * segment_data_list.size());
+    std::vector<GpuSegmentConnectionHandles> segment_connection_handles(segment_data_list.size());
+    device_segment_data_list_buffer->DownloadData(gpu_segment_data.size(), gpu_segment_data.data());
+    device_segment_connection_handles_buffer->DownloadVector(segment_connection_handles,
+                                                             segment_connection_handles.size());
+    for (size_t index = 0; index < segment_data_list.size(); ++index) {
+      std::memcpy(&segment_data_list[index], gpu_segment_data.data() + index * gpu_segment_data_stride,
+                  gpu_segment_data_stride);
+      std::memcpy(segment_data_list[index].pair_handles, segment_connection_handles[index].handles,
+                  sizeof(segment_connection_handles[index].handles));
+    }
+  }
 
   meshing->Download();
 

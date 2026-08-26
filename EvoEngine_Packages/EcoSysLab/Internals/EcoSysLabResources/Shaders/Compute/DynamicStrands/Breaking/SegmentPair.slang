@@ -51,10 +51,10 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     float shear_stretch_strain_limit_0 = segments[segment0_handle].shear_stretch_strain_limit;
     float shear_stretch_strain_limit_1 = segments[segment1_handle].shear_stretch_strain_limit;
     float bd = (segments[segment0_handle].boundary_distance + segments[segment1_handle].boundary_distance) / 2.0f;
-    float3 pair_position = (segments[segment0_handle].particle0.x +
-                             segments[segment0_handle].particle1.x +
-                             segments[segment1_handle].particle0.x +
-                             segments[segment1_handle].particle1.x) *
+    float3 pair_position = (segment_particle0s[segment0_handle].x +
+                             segment_particle1s[segment0_handle].x +
+                             segment_particle0s[segment1_handle].x +
+                             segment_particle1s[segment1_handle].x) *
                          0.25f;
 
     float scaling_factor = 1.0f;
@@ -102,7 +102,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       // connectivity_strain_limit *= 0.0005f;
       connectivity_strain_limit *= max(5.f * scaling_factor / 6.f, 0.0004f);
       bending_twist_bundle_strain_limit.x *= 0.4f * scaling_factor;
-      // if (segments[segment0_handle].particle0.x[1] > 0.1)
+      // if (segment_particle0s[segment0_handle].x[1] > 0.1)
       //{
       //   bending_twist_bundle_strain_limit.x *= 0.45f;
       // } //Disabled hacking for spruce case (0.25) and oak case (0.4 - 0.48)

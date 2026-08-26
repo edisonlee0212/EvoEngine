@@ -78,8 +78,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       continue;
 
     // Get segment positions and boundary distances
-    float3 segment0_pos = (segments[segment0_handle].particle0.x + segments[segment0_handle].particle1.x) / 2;
-    float3 segment1_pos = (segments[segment1_handle].particle0.x + segments[segment1_handle].particle1.x) / 2;
+    float3 segment0_pos = (segment_particle0s[segment0_handle].x + segment_particle1s[segment0_handle].x) / 2;
+    float3 segment1_pos = (segment_particle0s[segment1_handle].x + segment_particle1s[segment1_handle].x) / 2;
     float segment0_distance = segments[segment0_handle].boundary_distance;
     float segment1_distance = segments[segment1_handle].boundary_distance;
 

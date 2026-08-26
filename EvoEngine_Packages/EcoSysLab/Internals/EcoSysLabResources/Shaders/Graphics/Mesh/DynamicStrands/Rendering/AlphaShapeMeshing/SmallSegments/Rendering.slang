@@ -75,22 +75,22 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
   bool highlight2 = false;
   bool selected = false;
 
-  if (segments[uniform_particle.segment_handle].particle0.highlighted == 1) {
+  if (segment_particle0s[uniform_particle.segment_handle].highlighted == 1) {
     highlight1 = true;
   }
-  if (segments[uniform_particle.segment_handle].particle0.highlighted == 2) {
+  if (segment_particle0s[uniform_particle.segment_handle].highlighted == 2) {
     highlight2 = true;
   }
-  if (segments[uniform_particle.segment_handle].particle0.selected == 1) {
+  if (segment_particle0s[uniform_particle.segment_handle].selected == 1) {
     selected = true;
   }
-  if (segments[uniform_particle.segment_handle].particle1.highlighted == 1) {
+  if (segment_particle1s[uniform_particle.segment_handle].highlighted == 1) {
     highlight1 = true;
   }
-  if (segments[uniform_particle.segment_handle].particle1.highlighted == 2) {
+  if (segment_particle1s[uniform_particle.segment_handle].highlighted == 2) {
     highlight2 = true;
   }
-  if (segments[uniform_particle.segment_handle].particle1.selected == 1) {
+  if (segment_particle1s[uniform_particle.segment_handle].selected == 1) {
     selected = true;
   }
 

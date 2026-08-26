@@ -47,10 +47,10 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
 
     float strength = (segments[segment0_handle].strength + segments[segment1_handle].strength) * .5f;
 
-    float3 s0p0 = segments[segment0_handle].particle0.x;
-    float3 s0p1 = segments[segment0_handle].particle1.x;
-    float3 s1p0 = segments[segment1_handle].particle0.x;
-    float3 s1p1 = segments[segment1_handle].particle1.x;
+    float3 s0p0 = segment_particle0s[segment0_handle].x;
+    float3 s0p1 = segment_particle1s[segment0_handle].x;
+    float3 s1p0 = segment_particle0s[segment1_handle].x;
+    float3 s1p1 = segment_particle1s[segment1_handle].x;
     float l0 = segments[segment0_handle].rest_length;
     float l1 = segments[segment1_handle].rest_length;
 
@@ -58,9 +58,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     float3 segment1_center_position = (s1p0 + s1p1) * .5f;
     float current_distance = distance(segment0_center_position, segment1_center_position);
     float3 orginal_segment0_center_position =
-        (segments[segment0_handle].particle0.x0 + segments[segment0_handle].particle1.x0) * .5f;
+        (segment_particle0s[segment0_handle].x0 + segment_particle1s[segment0_handle].x0) * .5f;
     float3 orginal_segment1_center_position =
-        (segments[segment1_handle].particle0.x0 + segments[segment1_handle].particle1.x0) * .5f;
+        (segment_particle0s[segment1_handle].x0 + segment_particle1s[segment1_handle].x0) * .5f;
     float orginal_distance = distance(orginal_segment0_center_position, orginal_segment1_center_position);
     float bundle_strain = (current_distance - orginal_distance) / (l0 + l1) * 2.0f;
 

@@ -51,15 +51,15 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       float3 start_position = prev_uniform_particle.position_t.xyz;
       float3 end_position = uniform_particle.position_t.xyz;
 
-      float3 p0 = segments[uniform_particle.segment_handle].particle0.x0;
-      float3 p1 = segments[uniform_particle.segment_handle].particle1.x0;
+      float3 p0 = segment_particle0s[uniform_particle.segment_handle].x0;
+      float3 p1 = segment_particle1s[uniform_particle.segment_handle].x0;
 
       float3 uniform_particle_p0 =
-          lerp(segments[uniform_particle.segment_handle].particle0.x0,
-              segments[uniform_particle.segment_handle].particle1.x0, uniform_particle.position_t.w);
+          lerp(segment_particle0s[uniform_particle.segment_handle].x0,
+              segment_particle1s[uniform_particle.segment_handle].x0, uniform_particle.position_t.w);
       float3 prev_uniform_particle_p0 =
-          lerp(segments[prev_uniform_particle.segment_handle].particle0.x0,
-              segments[prev_uniform_particle.segment_handle].particle1.x0, prev_uniform_particle.position_t.w);
+          lerp(segment_particle0s[prev_uniform_particle.segment_handle].x0,
+              segment_particle1s[prev_uniform_particle.segment_handle].x0, prev_uniform_particle.position_t.w);
 
       float current_length = distance(start_position, end_position);
       float original_length = distance(uniform_particle_p0, prev_uniform_particle_p0);

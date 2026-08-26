@@ -22,10 +22,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
-    SegmentData segment_data = segment_data_list[segment_index];
     int min_group_index = segment.group_index;
     [[unroll]] for (uint i = 0; i < BUNDLE_MAX_CONNECTION; ++i) {
-      const int pair_handle = segment_data.pair_handles[i];
+      const int pair_handle = segment_connection_handles[segment_index].handles[i];
       if (pair_handle < 0)
         continue;
       SegmentPair segment_pair = segment_pairs[pair_handle];

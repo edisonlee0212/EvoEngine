@@ -82,22 +82,22 @@ void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICE
   bool highlight2 = false;
   bool selected = false;
 
-  if (segments[segment_handle].particle0.highlighted == 1) {
+  if (segment_particle0s[segment_handle].highlighted == 1) {
     highlight1 = true;
   }
-  if (segments[segment_handle].particle0.highlighted == 2) {
+  if (segment_particle0s[segment_handle].highlighted == 2) {
     highlight2 = true;
   }
-  if (segments[segment_handle].particle0.selected == 1) {
+  if (segment_particle0s[segment_handle].selected == 1) {
     selected = true;
   }
-  if (segments[segment_handle].particle1.highlighted == 1) {
+  if (segment_particle1s[segment_handle].highlighted == 1) {
     highlight1 = true;
   }
-  if (segments[segment_handle].particle1.highlighted == 2) {
+  if (segment_particle1s[segment_handle].highlighted == 2) {
     highlight2 = true;
   }
-  if (segments[segment_handle].particle1.selected == 1) {
+  if (segment_particle1s[segment_handle].selected == 1) {
     selected = true;
   }
 
@@ -129,20 +129,30 @@ void SetUpTriangleVertex(OutputVertices<EcoSysLabMeshVertex, TETRAHEDRON_VERTICE
     vertices[vertex_index].Color = 0.5 * (float4(1, 1, 1, 1) + uniform_particle.normal_q);  // normal quaternion
   } else if (vertex_colors == 7) {
     Segment segment = segments[uniform_particle.segment_handle];
+    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q, float3(0, 1, 0))), 1.0);  // up
   } else if (vertex_colors == 8) {
     Segment segment = segments[uniform_particle.segment_handle];
+    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q0, float3(0, 1, 0))), 1.0);  // initial up
   } else if (vertex_colors == 9) {
     Segment segment = segments[uniform_particle.segment_handle];
+    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     float3 up = rotate_vec3(segment.q, float3(0, 1, 0));
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q, float3(0, 0, 1))), 1.0);  // axis
   } else if (vertex_colors == 10) {
     Segment segment = segments[uniform_particle.segment_handle];
+    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     float3 up = rotate_vec3(segment.q0, float3(0, 1, 0));
     vertices[vertex_index].Color = float4(abs(rotate_vec3(segment.q0, float3(0, 0, 1))), 1.0);  // initial axis
   } else if (vertex_colors == 11) {
     Segment segment = segments[uniform_particle.segment_handle];
+    Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+    Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
     float3 up = rotate_vec3(segment.q0, float3(0, 1, 0));
     // Compute the angle between the two vectors
     float angle = uniform_particle.normal_deg.w;
@@ -184,6 +194,8 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
 
           if (uniform_particle.is_on_surface == 1) {
             Segment segment = segments[uniform_particle.segment_handle];
+            Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+            Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
             // basis vectors of segment space
             float3 right = rotate_vec3(segment.q, float3(1, 0, 0));
             float3 up = rotate_vec3(segment.q, float3(0, 1, 0));

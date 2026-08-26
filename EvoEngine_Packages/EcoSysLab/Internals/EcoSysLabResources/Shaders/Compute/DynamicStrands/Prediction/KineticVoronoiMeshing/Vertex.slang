@@ -50,8 +50,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     SegmentMeshletVertex vertex = segment_meshlet_vertices[vertex_index];
 
     Segment segment = segments[vertex.segment_index];
+    Particle segment_particle0 = segment_particle0s[vertex.segment_index];
 
-    vertex.x = boneApply(float3(vertex.x0), segment.particle0.x0, segment.particle0.x, segment.q0, segment.q);
+    vertex.x = boneApply(float3(vertex.x0), segment_particle0.x0, segment_particle0.x, segment.q0, segment.q);
 
     segment_meshlet_vertices[vertex_index] = vertex;
   }

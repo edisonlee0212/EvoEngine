@@ -26,6 +26,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
 
     // Shift rotation values
     segment.last_q = segment.q;
@@ -40,26 +42,26 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                      segment.inv_inertia_w);
 
     // Shift position values
-    segment.particle0.last_x = segment.particle0.x;
+    segment_particle0.last_x = segment_particle0.x;
     // Apply velocity
-    segment.particle0.x += time_step * segment.particle0.v;
+    segment_particle0.x += time_step * segment_particle0.v;
 
-    if (segment.quasi_stable == 1 && length(segment.particle0.v) < 5e-3) {
-      segment.particle0.x = segment.particle0.last_x;
+    if (segment.quasi_stable == 1 && length(segment_particle0.v) < 5e-3) {
+      segment_particle0.x = segment_particle0.last_x;
     }
 
     // Shift position values
-    segment.particle1.last_x = segment.particle1.x;
+    segment_particle1.last_x = segment_particle1.x;
     // Apply velocity
-    segment.particle1.x += time_step * segment.particle1.v;
+    segment_particle1.x += time_step * segment_particle1.v;
 
-    if (segment.quasi_stable == 1 && length(segment.particle1.v) < 5e-3)  // 5e-3
+    if (segment.quasi_stable == 1 && length(segment_particle1.v) < 5e-3)  // 5e-3
     {
-      segment.particle1.x = segment.particle1.last_x;
+      segment_particle1.x = segment_particle1.last_x;
     }
 
     float shear_stretch_strain =
-        shear_stretch_strain(segment.particle0.x, segment.particle1.x, segment.q, segment.rest_length);
+        shear_stretch_strain(segment_particle0.x, segment_particle1.x, segment.q, segment.rest_length);
 
     segment.shear_stretch_strain = shear_stretch_strain * inv_time_step;
     // Update moisture content.
@@ -67,5 +69,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     // Update shear_stretch_strain_limit
     segment.shear_stretch_strain_limit = segment.max_shear_stretch_strain * segment.strength;
     segments[segment_index] = segment;
+    segment_particle0s[segment_index] = segment_particle0;
+    segment_particle1s[segment_index] = segment_particle1;
   }
 }

@@ -68,6 +68,8 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
 
   UniformParticle uniform_particle = uniform_particles[uniform_particle_id];
   Segment segment = segments[uniform_particle.segment_handle];
+  Particle segment_particle0 = segment_particle0s[uniform_particle.segment_handle];
+  Particle segment_particle1 = segment_particle1s[uniform_particle.segment_handle];
   float3 center_position = uniform_particle.position_t.xyz;
   float center_thickness = segment.radius * 3.0;
   float3 uniform_particle_size = float3(center_thickness * multiplier, center_thickness * multiplier, segment.radius);
@@ -89,8 +91,8 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
   float4x4 instance_matrix = mul(mul(scale(uniform_particle_size), mat4_cast(rotation)), translate(center_position));
   float4x4 transform = mul(instance_matrix, EE_CAMERAS[camera_index].projection_view);
 
-  Particle particle0 = segment.particle0;
-  Particle particle1 = segment.particle1;
+  Particle particle0 = segment_particle0;
+  Particle particle1 = segment_particle1;
 
   float highlight1_ratio = 0.0f;
   float highlight2_ratio = 0.0f;

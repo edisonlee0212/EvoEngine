@@ -34,8 +34,10 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
-    Particle particle0 = segment.particle0;
-    Particle particle1 = segment.particle1;
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
+    Particle particle0 = segment_particle0;
+    Particle particle1 = segment_particle1;
 
     float3 p0 = particle0.x;
     float3 p1 = particle1.x;
@@ -43,7 +45,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     p0 = process_point(p0);
     p1 = process_point(p1);
 
-    segments[segment_index].particle0.x = p0;
-    segments[segment_index].particle1.x = p1;
+    segment_particle0s[segment_index].x = p0;
+    segment_particle1s[segment_index].x = p1;
   }
 }

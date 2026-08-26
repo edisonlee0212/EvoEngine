@@ -71,11 +71,15 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
 
   SegmentPair segment_pair = segment_pairs[segment_pair_id];
   Segment segment0 = segments[segment_pair.segment0_handle];
+  Particle segment0_particle0 = segment_particle0s[segment_pair.segment0_handle];
+  Particle segment0_particle1 = segment_particle1s[segment_pair.segment0_handle];
   Segment segment1 = segments[segment_pair.segment1_handle];
+  Particle segment1_particle0 = segment_particle0s[segment_pair.segment1_handle];
+  Particle segment1_particle1 = segment_particle1s[segment_pair.segment1_handle];
 
-  float3 start_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+  float3 start_position = (segment0_particle0.x + segment0_particle1.x) * 0.5f;
 
-  float3 end_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+  float3 end_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
   start_position *= position_scale.xyz;
   end_position *= position_scale.xyz;
 
@@ -128,14 +132,14 @@ void main(in payload Task ts_in, uint3 group_id : SV_GroupID, uint lane_id : SV_
     color = lerp(color0, color1, clamp(abs(segment_pair.connectivity_strain_limit) / factor, 0.0, 1.0));
   }
 
-  if (segment0.particle0.highlighted == 1 || segment0.particle1.highlighted == 1 ||
-      segment1.particle0.highlighted == 1 || segment1.particle1.highlighted == 1) {
+  if (segment0_particle0.highlighted == 1 || segment0_particle1.highlighted == 1 ||
+      segment1_particle0.highlighted == 1 || segment1_particle1.highlighted == 1) {
     color = lerp(color, float4(0, 1, 0, 1), 0.8f);
-  } else if (segment0.particle0.highlighted == 2 || segment0.particle1.highlighted == 2 ||
-             segment1.particle0.highlighted == 2 || segment1.particle1.highlighted == 2) {
+  } else if (segment0_particle0.highlighted == 2 || segment0_particle1.highlighted == 2 ||
+             segment1_particle0.highlighted == 2 || segment1_particle1.highlighted == 2) {
     color = lerp(color, float4(1, 0, 0, 1), 0.8f);
-  } else if (segment0.particle0.selected == 1 || segment0.particle1.selected == 1 || segment1.particle0.selected == 1 ||
-             segment1.particle1.selected == 1) {
+  } else if (segment0_particle0.selected == 1 || segment0_particle1.selected == 1 || segment1_particle0.selected == 1 ||
+             segment1_particle1.selected == 1) {
     color = lerp(color, float4(1, 1, 1, 1), 0.8f);
   }
 

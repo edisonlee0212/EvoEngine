@@ -26,10 +26,12 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       break;
     uint segment_index = uint(segment_indices[global_index]);
     Segment segment = segments[segment_index];
-    float3 force0 = (target_position_multiplier.xyz - segment.particle0.x) * target_position_multiplier.w;
-    float3 force1 = (target_position_multiplier.xyz - segment.particle1.x) * target_position_multiplier.w;
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
+    float3 force0 = (target_position_multiplier.xyz - segment_particle0.x) * target_position_multiplier.w;
+    float3 force1 = (target_position_multiplier.xyz - segment_particle1.x) * target_position_multiplier.w;
 
-    segments[segment_index].particle0.acceleration.xyz += force0 * segment.inv_mass;
-    segments[segment_index].particle1.acceleration.xyz += force1 * segment.inv_mass;
+    segment_particle0s[segment_index].acceleration.xyz += force0 * segment.inv_mass;
+    segment_particle1s[segment_index].acceleration.xyz += force1 * segment.inv_mass;
   }
 }

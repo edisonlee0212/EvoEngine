@@ -22,7 +22,9 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_handle];
-    const float3 center = (segment.particle0.x + segment.particle1.x) * 0.5f;
+    Particle segment_particle0 = segment_particle0s[segment_handle];
+    Particle segment_particle1 = segment_particle1s[segment_handle];
+    const float3 center = (segment_particle0.x + segment_particle1.x) * 0.5f;
     const int3 coordinate = int3(center / constants.cell_size);
 
     HashedGridElement element;

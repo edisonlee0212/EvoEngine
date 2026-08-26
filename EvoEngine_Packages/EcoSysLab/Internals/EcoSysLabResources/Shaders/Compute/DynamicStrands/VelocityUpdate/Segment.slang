@@ -31,6 +31,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
       break;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
     update_inertia_w(segment.q, segment.inertia_tensor, segment.inv_inertia_tensor, segment.inertia_w,
                      segment.inv_inertia_w);
 
@@ -41,8 +43,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
     if (segment.inv_mass != 0.0f) {
       float4 rot = quat_mul(segment.q, conjugate(segment.last_q));
       angular_velocity = rot.xyz * 2.0f * inv_time_step;
-      p0_velocity = inv_time_step * (segment.particle0.x - segment.particle0.last_x);
-      p1_velocity = inv_time_step * (segment.particle1.x - segment.particle1.last_x);
+      p0_velocity = inv_time_step * (segment_particle0.x - segment_particle0.last_x);
+      p1_velocity = inv_time_step * (segment_particle1.x - segment_particle1.last_x);
 
       angular_velocity *= max(0.f, 1.f - angular_velocity_damping * length(angular_velocity) * time_step);
       angular_velocity += time_step *
@@ -51,49 +53,49 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                                   cross(angular_velocity, mul(float3x3(segment.inertia_w), angular_velocity)));
 
       p0_velocity *= max(0.f, 1.f - velocity_damping * length(p0_velocity) * time_step);
-      p0_velocity += segment.particle0.acceleration.xyz * time_step;
+      p0_velocity += segment_particle0.acceleration.xyz * time_step;
 
       p1_velocity *= max(0.f, 1.f - velocity_damping * length(p1_velocity) * time_step);
-      p1_velocity += segment.particle1.acceleration.xyz * time_step;
+      p1_velocity += segment_particle1.acceleration.xyz * time_step;
     }
 
     segments[segment_index].angular_v = min(max_angular_velocity, angular_velocity);
-    segments[segment_index].particle0.v = min(max_velocity, p0_velocity);
-    segments[segment_index].particle1.v = min(max_velocity, p1_velocity);
+    segment_particle0s[segment_index].v = min(max_velocity, p0_velocity);
+    segment_particle1s[segment_index].v = min(max_velocity, p1_velocity);
 
     float3 up = float3(0.0, 1.0, 0.0);
     float3 down = float3(0.0, -1.0, 0.0);
     float friction = 0.8 * 9.8;
     if (segments[segment_index].reach_ground == 1) {  // Todo: Enhanced Friction Model
-      segments[segment_index].particle0.v = scaleAlongDirectional(segments[segment_index].particle0.v, up, 0.1);
-      segments[segment_index].particle1.v = scaleAlongDirectional(segments[segment_index].particle1.v, up, 0.1);
+      segment_particle0s[segment_index].v = scaleAlongDirectional(segment_particle0s[segment_index].v, up, 0.1);
+      segment_particle1s[segment_index].v = scaleAlongDirectional(segment_particle1s[segment_index].v, up, 0.1);
 
-      // if (segments[segment_index].particle0.padding1 == 0)
+      // if (segment_particle0s[segment_index].padding1 == 0)
       //       {
-      //                  segments[segment_index].particle0.v =
-      //                      scaleAlongDirectional(segments[segment_index].particle0.v, up, 0.02);
-      //    segments[segment_index].particle0.padding1 = 1;
+      //                  segment_particle0s[segment_index].v =
+      //                      scaleAlongDirectional(segment_particle0s[segment_index].v, up, 0.02);
+      //    segment_particle0s[segment_index].padding1 = 1;
       //}
-      //              if (segments[segment_index].particle1.padding1 == 0)
+      //              if (segment_particle1s[segment_index].padding1 == 0)
       //{
-      //    segments[segment_index].particle1.v =
-      //                    scaleAlongDirectional(segments[segment_index].particle1.v, up, 0.02);
-      //                  segments[segment_index].particle1.padding1 = 1;
+      //    segment_particle1s[segment_index].v =
+      //                    scaleAlongDirectional(segment_particle1s[segment_index].v, up, 0.02);
+      //                  segment_particle1s[segment_index].padding1 = 1;
       //}
-      segments[segment_index].particle1.acceleration -=
-          length(float3(segments[segment_index].particle1.v.x, segments[segment_index].particle1.v.y, 0.f)) > 1e-9f
-              ? normalize(segments[segment_index].particle1.v) * friction
+      segment_particle1s[segment_index].acceleration -=
+          length(float3(segment_particle1s[segment_index].v.x, segment_particle1s[segment_index].v.y, 0.f)) > 1e-9f
+              ? normalize(segment_particle1s[segment_index].v) * friction
               : float3(0.0);
-      segments[segment_index].particle0.acceleration -=
-          length(float3(segments[segment_index].particle0.v.x, segments[segment_index].particle0.v.y, 0.f)) > 1e-9f
-              ? normalize(segments[segment_index].particle0.v) * friction
+      segment_particle0s[segment_index].acceleration -=
+          length(float3(segment_particle0s[segment_index].v.x, segment_particle0s[segment_index].v.y, 0.f)) > 1e-9f
+              ? normalize(segment_particle0s[segment_index].v) * friction
               : float3(0.0);
     }
     /*if (segments[segment_index].quasi_stable == 1) {
-      segments[segment_index].particle0.v =
-          scaleAlongDirectional(segments[segment_index].particle0.v, down, 0.2);
-      segments[segment_index].particle1.v =
-          scaleAlongDirectional(segments[segment_index].particle1.v, down, 0.2);
+      segment_particle0s[segment_index].v =
+          scaleAlongDirectional(segment_particle0s[segment_index].v, down, 0.2);
+      segment_particle1s[segment_index].v =
+          scaleAlongDirectional(segment_particle1s[segment_index].v, down, 0.2);
     }*/
   }
 }

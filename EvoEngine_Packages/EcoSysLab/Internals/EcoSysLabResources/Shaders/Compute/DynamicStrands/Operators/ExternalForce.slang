@@ -32,7 +32,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     uint segment_index = asuint(external_force.force_index.w);
     float3 force = external_force.force_index.xyz;
     Segment segment = segments[segment_index];
-    segments[segment_index].particle0.acceleration.xyz += force * segment.inv_mass;
-    segments[segment_index].particle1.acceleration.xyz += force * segment.inv_mass;
+    segment_particle0s[segment_index].acceleration.xyz += force * segment.inv_mass;
+    segment_particle1s[segment_index].acceleration.xyz += force * segment.inv_mass;
   }
 }

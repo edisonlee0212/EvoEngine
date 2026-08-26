@@ -23,6 +23,33 @@ Global capture controls stay above five views. **Overview** contains aligned CPU
 **Breakdown** contains rolling CPU/GPU budgets; **CPU** and **GPU** contain detailed timing views; and **Diagnostics**
 contains pinned-frame CPU/GPU timelines, stable detail tables and trace export.
 
+## Package profiling
+
+Runtime packages can declare stable CPU items and GPU passes through `PackageRegistrar::RegisterProfilerItem()` during
+their load callback. The registrar namespaces each local ID with the package name, rejects duplicates and automatically
+removes the definitions and their captured history when the package unloads. Loaded definitions are listed under
+**Registered package items** even before they execute.
+
+```cpp
+ProfilerItemDescriptor descriptor;
+descriptor.local_id = "Simulation.Step";
+descriptor.display_name = "Simulation Step";
+descriptor.cpu_category = "My Package";
+descriptor.gpu_group = "Simulation";
+descriptor.gpu_queue = ProfilerGpuQueue::Compute;
+descriptor.cpu = descriptor.gpu = true;
+simulation_step = registrar->RegisterProfilerItem(descriptor);
+```
+
+Use `ProfilerScope` with the returned handle for CPU work. It remains in the real thread and call-stack hierarchy rather
+than a package-declared synthetic tree. Use `GpuProfilerCommandScope` when a pass is contained in one command buffer, or
+`RecordedGpuProfilerScope` to bracket an ordered sequence of command buffers recorded on the main or compute queue. Both
+GPU helpers omit timestamp commands while capture is disabled. Repeated executions of the same handle aggregate into one
+logical pass; use distinct handles for meaningful stages instead of generating per-object names.
+
+GPU descriptors marked additive contribute to Breakdown, stacked plots and summed pass work. A non-additive descriptor
+is appropriate for an encompassing summary whose additive child stages would otherwise be counted twice.
+
 ## Frame overview
 
 The Overview separates main-thread CPU activity from explicitly instrumented synchronization. Synchronization includes
@@ -68,7 +95,8 @@ the physical device's `timestampPeriod` and graphics-queue valid-bit width. Resu
 frame slot is recycled, so GPU data normally trails CPU capture by the frames-in-flight delay. The live panel selects the
 newest CPU frame with a resolved matching GPU snapshot.
 
-The table is grouped as render group, logical pass, then instance. A logical pass can contain repeated cameras, reflection
+The table is grouped as GPU group, logical pass, then instance. A logical pass can contain graphics, compute, transfer,
+ray-tracing or immediate work, including repeated cameras, reflection
 probe faces, shadow cascades or light faces. Expand it to inspect view, instance and queue identity. Logical-pass rows show
 total duration, percentage of their group, percentage of summed additive work, call count, average, median, maximum and
 p95. Non-additive summary scopes remain inspectable but are excluded from summed work and stacked composition.

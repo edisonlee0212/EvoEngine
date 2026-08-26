@@ -1,6 +1,7 @@
 #pragma once
 #include "Application.hpp"
 #include "InspectorRegistry.hpp"
+#include "Profiler.hpp"
 #include "Serialization.hpp"
 
 namespace evo_engine {
@@ -45,6 +46,8 @@ class PackageRegistrar {
 
   template <typename T>
   bool RegisterLayer(const std::string& name);
+
+  [[nodiscard]] ProfilerItemHandle RegisterProfilerItem(const ProfilerItemDescriptor& descriptor);
 };
 
 using EvoEnginePackageGetDescriptorFn = const PackageDescriptor* (*)();

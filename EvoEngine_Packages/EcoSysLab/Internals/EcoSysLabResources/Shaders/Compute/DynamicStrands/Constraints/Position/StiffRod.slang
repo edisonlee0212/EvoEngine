@@ -31,7 +31,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
                                                      : strand.alternative_back_propagate_begin_segment_handle;
 
     while (front_propagate_handle != -1 || back_propagate_handle != -1) {
-      int prev_segment_pair_handle = segment_data_list[front_propagate_handle].pair_handles[0];
+      int prev_segment_pair_handle = segment_connection_handles[front_propagate_handle].handles[0];
       if (prev_segment_pair_handle != -1) {
         project_bend_twist_constraint(inv_time_step, prev_segment_pair_handle);
       }
@@ -42,7 +42,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex) {
           front_propagate_handle = segments[front_propagate_handle].next_handle;
       }
 
-      int next_segment_pair_handle = segment_data_list[back_propagate_handle].pair_handles[1];
+      int next_segment_pair_handle = segment_connection_handles[back_propagate_handle].handles[1];
       if (next_segment_pair_handle != -1) {
         project_bend_twist_constraint(inv_time_step, next_segment_pair_handle);
       }

@@ -52,10 +52,14 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     SegmentPair segment_pair = segment_pairs[segment_pair_index];
 
     Segment segment0 = segments[segment_pair.segment0_handle];
+    Particle segment0_particle0 = segment_particle0s[segment_pair.segment0_handle];
+    Particle segment0_particle1 = segment_particle1s[segment_pair.segment0_handle];
     Segment segment1 = segments[segment_pair.segment1_handle];
+    Particle segment1_particle0 = segment_particle0s[segment_pair.segment1_handle];
+    Particle segment1_particle1 = segment_particle1s[segment_pair.segment1_handle];
 
-    float3 segment0_center_position = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
-    float3 segment1_center_position = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+    float3 segment0_center_position = (segment0_particle0.x + segment0_particle1.x) * 0.5f;
+    float3 segment1_center_position = (segment1_particle0.x + segment1_particle1.x) * 0.5f;
 
     float4 segment0_screen_space_coord = mul(projection_view, float4(segment0_center_position, 1.0f));
     float3 segment0_screen_space_position = segment0_screen_space_coord.xyz / segment0_screen_space_coord.w;

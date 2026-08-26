@@ -30,9 +30,11 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
       break;
 
     Segment segment = segments[segment_index];
+    Particle segment_particle0 = segment_particle0s[segment_index];
+    Particle segment_particle1 = segment_particle1s[segment_index];
     float3 front = rotate_vec3(segment.q, float3(0, 0, 1));
 
-    float3 position = (segment.particle0.x + segment.particle1.x) * .5f;
+    float3 position = (segment_particle0.x + segment_particle1.x) * .5f;
 
     float3 turbulence_direction;
     turbulence_direction.x =
@@ -59,7 +61,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
 
     float directional_scale = max(0.05f, 1.f - abs(dot(front, normalize(wind_force))));
 
-    segments[segment_index].particle0.acceleration += wind_force * directional_scale * segment.inv_mass;
-    segments[segment_index].particle1.acceleration += wind_force * directional_scale * segment.inv_mass;
+    segment_particle0s[segment_index].acceleration += wind_force * directional_scale * segment.inv_mass;
+    segment_particle1s[segment_index].acceleration += wind_force * directional_scale * segment.inv_mass;
   }
 }

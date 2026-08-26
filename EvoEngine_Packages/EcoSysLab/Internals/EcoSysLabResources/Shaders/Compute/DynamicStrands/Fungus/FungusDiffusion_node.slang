@@ -59,7 +59,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //  segments[segment_index].K = 0.0;
     //}  // Inner fast decay
     if (segments[segment_index].boundary_distance >
-             bd_offset + segments[segment_index].particle0.root_distance / 40.0 ) {
+             bd_offset + segment_particle0s[segment_index].root_distance / 40.0 ) {
       segments[segment_index].K = 0.0;
     }  // Inner faster decay considering root distance for TREE ELM (0.02) SPRUCE (0.015) OAK (0.02)
     //segments[segment_index].K = 1.0; // for board case
@@ -136,7 +136,7 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //   segments[segment_index].moisture -= dt * segments[segment_index].moisture_pre * 0.1 *
     //                                       (1.0 - segments[segment_index].HL_pre + 0.1);
     // }
-    // if (segments[segment_index].particle0.x[0] < 0.03 || segments[segment_index].particle0.x[0] > 0.47) {
+    // if (segment_particle0s[segment_index].x[0] < 0.03 || segment_particle0s[segment_index].x[0] > 0.47) {
     //   segments[segment_index].moisture -= 50.0 * dt * (segments[segment_index].moisture_pre + 0.2) *
     //                                       (1.0 - segments[segment_index].HL_pre + 0.05) *
     //                                       (segments[segment_index].boundary_distance + 0.03);
@@ -164,8 +164,8 @@ void main(uint3 group_id : SV_GroupID, uint lane_id : SV_GroupIndex, uint3 dispa
     //
     // if (segments[segment_index].quasi_stable == 1)
     //{
-    //   segments[segment_index].particle0.v = float3(0.0);
-    //   segments[segment_index].particle1.v = float3(0.0);
+    //   segment_particle0s[segment_index].v = float3(0.0);
+    //   segment_particle1s[segment_index].v = float3(0.0);
     // }
   }
 }

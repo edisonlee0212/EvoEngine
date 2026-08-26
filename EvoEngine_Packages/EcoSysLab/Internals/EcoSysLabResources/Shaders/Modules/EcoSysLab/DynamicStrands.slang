@@ -125,8 +125,6 @@ public struct Segment {
   public float3 Obstruction_m;
   public float quasi_damping;
 
-  public Particle particle0;
-  public Particle particle1;
 };
 
 public struct SegmentPair {
@@ -163,7 +161,10 @@ public struct SegmentData {
   public float4 particle0_position_correction;
   public float4 particle1_position_correction;
   public float4 q_correction;
-  public int pair_handles[BUNDLE_MAX_CONNECTION];
+};
+
+public struct SegmentConnectionHandles {
+  public int handles[BUNDLE_MAX_CONNECTION];
 };
 
 public struct HashedGridElement {

@@ -154,6 +154,41 @@ TEST(RenderGraph, ProfilerBreakdownUsesSharedCpuAndGpuHistoryModels) {
   EXPECT_NE(editor_layer.find("pass.duration.duty_cycle"), std::string::npos);
 }
 
+TEST(RenderGraph, RegisteredGpuPassOccurrencesAggregateAndSummaryScopesDoNotDoubleCount) {
+  GpuTimestampFrameSnapshot frame;
+  frame.results_available = true;
+  const GpuTimestampScopeMetadata stage{"EcoSysLab.DynamicStrands.Prediction",
+                                        "Prediction",
+                                        "DynamicStrands",
+                                        GpuTimestampQueue::Compute,
+                                        0,
+                                        0,
+                                        true,
+                                        "EcoSysLab"};
+  const GpuTimestampScopeMetadata summary{"EcoSysLab.DynamicStrands.Simulation",
+                                          "DynamicStrands Simulation",
+                                          "DynamicStrands",
+                                          GpuTimestampQueue::Compute,
+                                          0,
+                                          0,
+                                          false,
+                                          "EcoSysLab"};
+  frame.samples = {{summary, 0, 0, 1, 0.0, 3.0, 3.0}, {stage, 1, 2, 3, 0.2, 1.2, 1.0}, {stage, 2, 4, 5, 1.4, 2.9, 1.5}};
+
+  const auto aggregates = BuildGpuTimestampPassAggregates(frame);
+  ASSERT_EQ(aggregates.size(), 2);
+  const auto stage_aggregate = std::find_if(aggregates.begin(), aggregates.end(), [](const auto& aggregate) {
+    return aggregate.metadata.stable_pass_id == "EcoSysLab.DynamicStrands.Prediction";
+  });
+  ASSERT_NE(stage_aggregate, aggregates.end());
+  EXPECT_EQ(stage_aggregate->call_count, 2);
+  EXPECT_DOUBLE_EQ(stage_aggregate->total_milliseconds, 2.5);
+  EXPECT_EQ(stage_aggregate->metadata.instance_id, 0);
+
+  const auto history = BuildGpuTimestampHistoryStats({frame}, 1);
+  EXPECT_DOUBLE_EQ(history.summed_work.selected_milliseconds, 2.5);
+}
+
 TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
   const std::vector<RenderPassDescriptor> descriptors = {
       DdgiAtlasPreparePass::CreateDescriptor(),

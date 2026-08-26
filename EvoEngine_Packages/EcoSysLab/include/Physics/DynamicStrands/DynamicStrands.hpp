@@ -399,6 +399,10 @@ class DynamicStrands {
     int pair_handles[BUNDLE_MAX_CONNECTION];
   };
 
+  struct GpuSegmentConnectionHandles {
+    int handles[BUNDLE_MAX_CONNECTION];
+  };
+
   struct GpuLeaf {
     glm::vec3 x0;
     int segment_handle;
@@ -465,8 +469,11 @@ class DynamicStrands {
   uint32_t connection_segment_pair_size = 0;
   std::shared_ptr<Buffer> device_strands_buffer;
   std::shared_ptr<Buffer> device_segments_buffer;
+  std::shared_ptr<Buffer> device_segment_particle0_buffer;
+  std::shared_ptr<Buffer> device_segment_particle1_buffer;
   std::shared_ptr<Buffer> device_segment_pairs_buffer;
   std::shared_ptr<Buffer> device_segment_data_list_buffer;
+  std::shared_ptr<Buffer> device_segment_connection_handles_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_elements_buffer;
   std::shared_ptr<Buffer> device_hashed_grid_cell_starts_buffer;
   std::shared_ptr<Buffer> device_foliage_buffer;
