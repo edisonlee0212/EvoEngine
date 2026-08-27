@@ -57,13 +57,14 @@ TEST(EditorConsole, PersistsClearOnPlayAndTracksBottomFollowing) {
 
 TEST(EditorConsole, DefaultsToInfoOnlyAndUsesTwoProjectReadyMessages) {
   const auto header = ReadSource("EvoEngine_SDK/include/Layers/EditorLayer.hpp");
+  const auto editor = ReadSource("EvoEngine_SDK/src/EditorLayer.cpp");
   const auto project = ReadSource("EvoEngine_SDK/src/ProjectManager.cpp");
 
   EXPECT_NE(header.find("bool enable_console_logs_ = true"), std::string::npos);
   EXPECT_NE(header.find("bool enable_console_errors_ = false"), std::string::npos);
   EXPECT_NE(header.find("bool enable_console_warnings_ = false"), std::string::npos);
   EXPECT_NE(project.find("EVOENGINE_LOG(\"Scanned all assets.\")"), std::string::npos);
-  EXPECT_NE(project.find("EVOENGINE_LOG(\"Scene is ready.\")"), std::string::npos);
+  EXPECT_NE(editor.find("EVOENGINE_LOG(\"Scene is ready.\")"), std::string::npos);
   EXPECT_EQ(project.find("Found and loaded project"), std::string::npos);
   EXPECT_EQ(project.find("Created new start scene!"), std::string::npos);
 }
@@ -83,11 +84,31 @@ TEST(EditorConsole, ClearsAtNewRuntimeAndProjectBoundaries) {
   EXPECT_LT(project_clear, project_metadata);
 }
 
-TEST(EditorConsole, RecordsHazelDesignAttributionWithoutCopyingConsoleAssets) {
-  const auto attribution =
-      ReadSource("EvoEngine_SDK/Internals/DefaultResources/Editor/ThirdParty/Hazel-ATTRIBUTION.txt");
+TEST(EditorConsole, UsesGearIconForProjectBrowserSettings) {
+  const auto browser = ReadSource("EvoEngine_SDK/src/ProjectContentBrowserPanel.cpp");
 
-  EXPECT_NE(attribution.find("Console panel design reference"), std::string::npos);
-  EXPECT_NE(attribution.find("d16adf54a8c60b9c43e500123e5ee3f984b56ee9"), std::string::npos);
-  EXPECT_NE(attribution.find("No Console assets were copied"), std::string::npos);
+  EXPECT_NE(browser.find("draw_icon_button(\"ProjectBrowserSettings\", EditorLayer::FindIcon(\"SceneSettings\")"),
+            std::string::npos);
+  EXPECT_EQ(browser.find("ImGui::Button(\"...##ProjectBrowserSettings\""), std::string::npos);
+}
+
+TEST(EditorConsole, GivesEachPostProcessingEffectItsOwnDefaultButton) {
+  const auto inspector = ReadSource("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp");
+
+  EXPECT_NE(inspector.find("Apply default settings##AmbientOcclusion"), std::string::npos);
+  EXPECT_NE(inspector.find("Apply default settings##ScreenSpaceReflection"), std::string::npos);
+  EXPECT_NE(inspector.find("Apply default settings##AntiAliasing"), std::string::npos);
+  EXPECT_NE(inspector.find("Apply default settings##Bloom"), std::string::npos);
+  EXPECT_NE(inspector.find("Apply default settings##ToneMapping"), std::string::npos);
+  EXPECT_EQ(inspector.find("ImGui::Button(\"Apply default settings\")"), std::string::npos);
+}
+
+TEST(EditorConsole, SharesAssetContextMenuBetweenThumbnailAndHierarchyViews) {
+  const auto browser = ReadSource("EvoEngine_SDK/src/ProjectContentBrowserPanel.cpp");
+
+  EXPECT_NE(browser.find("DrawAssetContextMenu(i.second, icon_tag)"), std::string::npos);
+  EXPECT_NE(browser.find("DrawAssetContextMenu(i.second, tag)"), std::string::npos);
+  EXPECT_NE(browser.find("ProjectContentBrowserPanel::DrawAssetContextMenu"), std::string::npos);
+  EXPECT_NE(browser.find("ImGui::Button(\"Duplicate\")"), std::string::npos);
+  EXPECT_NE(browser.find("ProjectManager::DeleteAsset(file->GetAssetHandle())"), std::string::npos);
 }

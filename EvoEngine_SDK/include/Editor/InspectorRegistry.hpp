@@ -16,15 +16,15 @@
 #include <vector>
 
 namespace evo_engine {
-class EditorLayer;
-class Scene;
+class EVOENGINE_API EditorLayer;
+class EVOENGINE_API Scene;
 
 struct InspectorContext {
   std::shared_ptr<EditorLayer> editor_layer;
   std::shared_ptr<Scene> scene;
 };
 
-class InspectorRegistry final {
+class EVOENGINE_API InspectorRegistry final {
  public:
   using Handler = std::function<bool(InspectorContext&, void*)>;
   using BatchHandler = std::function<bool(InspectorContext&, const std::vector<void*>&)>;
@@ -35,7 +35,7 @@ class InspectorRegistry final {
     std::string owner_name;
   };
 
-  static EVOENGINE_API InspectorRegistry& GetInstance();
+  static InspectorRegistry& GetInstance();
 
   void Clear();
 

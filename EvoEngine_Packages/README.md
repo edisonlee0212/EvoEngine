@@ -11,9 +11,6 @@ This directory is reserved for runtime packages. These are shared-library module
 | DigitalAgriculture | [DigitalAgriculture/README.md](DigitalAgriculture/README.md) |
 | DatasetGeneration | [DatasetGeneration/README.md](DatasetGeneration/README.md) |
 | Universe | [Universe/README.md](Universe/README.md) |
-| Gpr | [Gpr/README.md](Gpr/README.md) |
-| LogGrading | [LogGrading/README.md](LogGrading/README.md) |
-| LogScanning | [LogScanning/README.md](LogScanning/README.md) |
 | MeshRepair | [MeshRepair/README.md](MeshRepair/README.md) |
 | TextureBaking | [TextureBaking/README.md](TextureBaking/README.md) |
 

@@ -2,9 +2,9 @@
 #include "RenderGraph.hpp"
 
 namespace evo_engine {
-class Camera;
+class EVOENGINE_API Camera;
 
-class AmbientOcclusionPass final {
+class EVOENGINE_API AmbientOcclusionPass final {
  public:
   struct Parameters {
     std::shared_ptr<Camera> camera;
@@ -15,7 +15,7 @@ class AmbientOcclusionPass final {
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
-class PostProcessingPass final {
+class EVOENGINE_API PostProcessingPass final {
  public:
   struct Parameters {
     std::shared_ptr<Camera> camera;

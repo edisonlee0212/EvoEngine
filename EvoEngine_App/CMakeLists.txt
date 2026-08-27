@@ -3,13 +3,6 @@ message("=========Checking Apps=========")
 add_custom_target(AppResourceCopy)
 add_dependencies(AppResourceCopy EvoEngine_SDK)
 
-string (FIND "${EVOENGINE_DEFS}" "CUDA" CUDA_SUBSTRING_INDEX)
-if(NOT CUDA_SUBSTRING_INDEX EQUAL -1)
-    mark_as_advanced(CUDA_SDK_ROOT_DIR)
-	enable_language(CUDA)
-	message("CUDA enabled.")
-endif()
-
 set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR})
 if(CMAKE_CONFIGURATION_TYPES)
 	set(EVOENGINE_APP_BUILD_RUNTIME_DIR ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>)

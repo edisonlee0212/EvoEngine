@@ -6,14 +6,14 @@
 #include <sstream>
 
 namespace evo_engine {
-class EditorLayer;
+class EVOENGINE_API EditorLayer;
 enum class ConsoleMessageType;
 
 /**
  * \class Console
  * \brief A final class for logging different levels of console messages (log, error, warning).
  */
-class Console final {
+class EVOENGINE_API Console final {
   struct StreamRedirectState;
   std::unique_ptr<StreamRedirectState> stream_redirect_state_;
 

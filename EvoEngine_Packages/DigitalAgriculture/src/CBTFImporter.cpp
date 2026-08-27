@@ -3,10 +3,8 @@
 //
 
 #include "CBTFImporter.hpp"
+#include "BtfMaterial.hpp"
 #include "DigitalAgricultureInspectionAdapters.hpp"
-#ifdef CUDA_MODULE_SERVICE
-#  include "BtfMaterial.hpp"
-#endif
 
 using namespace digital_agriculture_package;
 
@@ -67,9 +65,7 @@ void digital_agriculture_package::CBTFImporter::Update() {
   }
   auto path = m_importFolders.back();
   m_importFolders.pop_back();
-#ifdef CUDA_MODULE_SERVICE
   auto asset = AssetManager::CreateTemporaryAsset<BtfMaterial>();
   asset->ImportFromFolder(path);
-  asset->Export(m_currentExportFolder.string() + "\\" + path.filename().string() + ".cbtf");
-#endif
+  asset->Export(m_currentExportFolder.string() + "\\" + path.filename().string() + ".btf");
 }

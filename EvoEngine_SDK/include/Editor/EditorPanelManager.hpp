@@ -16,7 +16,7 @@ namespace evo_engine {
 
 enum class EditorPanelCategory { View };
 
-class EditorPanelManager {
+class EVOENGINE_API EditorPanelManager {
  public:
   ~EditorPanelManager();
 

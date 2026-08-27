@@ -20,7 +20,7 @@ using JobCancellationSource = CancellationSource;
  *
  * Existing code can keep using JobSystem and Jobs while new code targets the generic TaskRuntime executor model.
  */
-class JobSystem : public TaskRuntime {
+class EVOENGINE_API JobSystem : public TaskRuntime {
  public:
   void StopAllWorkers();
   [[nodiscard]] size_t IdleWorkerSize() const;

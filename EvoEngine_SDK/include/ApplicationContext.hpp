@@ -1,16 +1,16 @@
 #pragma once
 
 namespace evo_engine {
-class Application;
+class EVOENGINE_API Application;
 
-class ApplicationContext final {
+class EVOENGINE_API ApplicationContext final {
  public:
   static void Set(Application* application);
   static Application* TryGet();
   static Application& Get();
 };
 
-class ApplicationContextScope final {
+class EVOENGINE_API ApplicationContextScope final {
   Application* previous_application_ = nullptr;
 
  public:

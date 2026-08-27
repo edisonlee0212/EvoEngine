@@ -80,9 +80,6 @@ int main(const int argc, char** argv) {
     camera_settings.background_source = Camera::BackgroundSource::ClearColor;
     camera_settings.clear_color = glm::vec4(1.f);
     camera_settings.background_intensity = 3.f;
-    const auto post_processing_stack =
-        editor_layer->GetSceneCamera()->post_processing_stack_ref.Get<PostProcessingStack>();
-    post_processing_stack->enable_bloom = false;
   }
 #pragma region Engine Loop
   ApplicationContext::Get().Start();

@@ -9,7 +9,7 @@ namespace evo_engine {
  * @class AssetRef
  * @brief A class representing a reference to an asset in the system.
  */
-class AssetRef final : public ISerializable {
+class EVOENGINE_API AssetRef final : public ISerializable {
   friend class Prefab;
   friend class EditorLayer;
 

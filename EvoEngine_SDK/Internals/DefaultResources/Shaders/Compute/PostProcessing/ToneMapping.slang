@@ -59,7 +59,7 @@ float3 EE_TONE_MAPPING_UNCHARTED2(float3 color) {
 float3 EE_TONE_MAPPING_ACES(float3 color) {
   const float3x3 input_matrix =
       float3x3(0.59719f, 0.35458f, 0.04823f, 0.07600f, 0.90834f, 0.01566f, 0.02840f, 0.13383f, 0.83777f);
-  color = mul(color, input_matrix);
+  color = mul(input_matrix, color);
 
   float3 a = color * (color + float3(0.0245786f)) - float3(0.000090537f);
   float3 b = color * (float3(0.983729f) * color + float3(0.4329510f)) + float3(0.238081f);
@@ -67,7 +67,7 @@ float3 EE_TONE_MAPPING_ACES(float3 color) {
 
   const float3x3 output_matrix =
       float3x3(1.60475f, -0.53108f, -0.07367f, -0.10208f, 1.10813f, -0.00605f, -0.00327f, -0.07276f, 1.07602f);
-  return EE_TONE_MAPPING_TO_SRGB(mul(color, output_matrix));
+  return EE_TONE_MAPPING_TO_SRGB(mul(output_matrix, color));
 }
 
 float3 EE_TONE_MAPPING_AGX(float3 color) {
@@ -166,8 +166,9 @@ void Execute(uint pixel_index, uint resolution_x, uint resolution_y);
 
 [shader("compute")][numthreads(WORKGROUP_SIZE, 1, 1)] void main(uint3 groupId : SV_GroupID,
                                                                uint3 groupThreadId : SV_GroupThreadID) {
-  uint resolution_x = uint(EE_CAMERA_RESOLUTION_X(EE_TONE_MAPPING_CONSTANTS.camera_index));
-  uint resolution_y = uint(EE_CAMERA_RESOLUTION_Y(EE_TONE_MAPPING_CONSTANTS.camera_index));
+  uint resolution_x = 0;
+  uint resolution_y = 0;
+  inColor.GetDimensions(resolution_x, resolution_y);
   uint base_id = groupId.x * COMPUTE_WORK_GROUP_INVOCATIONS;
   uint lane_id = groupThreadId.x;
 

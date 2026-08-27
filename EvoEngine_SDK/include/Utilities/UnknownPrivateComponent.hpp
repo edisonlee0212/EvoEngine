@@ -9,7 +9,7 @@
 
 namespace evo_engine {
 
-class UnknownRuntimePayload {
+class EVOENGINE_API UnknownRuntimePayload {
  protected:
   std::string original_type_name_{};
   YAML::Node serialized_node_{};
@@ -56,7 +56,7 @@ class UnknownSystem : public ISystem, public UnknownRuntimePayload {
  public:
 };
 
-class UnknownLayer : public ILayer {
+class EVOENGINE_API UnknownLayer : public ILayer {
   std::string original_type_name_{};
 
  public:

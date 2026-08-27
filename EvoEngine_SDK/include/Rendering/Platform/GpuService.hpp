@@ -14,7 +14,7 @@
 
 namespace evo_engine {
 
-class Application;
+class EVOENGINE_API Application;
 
 using GpuWorkHandle = JobHandle;
 
@@ -30,7 +30,7 @@ struct GpuStagingBuffer {
   bool random_access = false;
 };
 
-class GpuService final {
+class EVOENGINE_API GpuService final {
  public:
   enum class LifecycleState { Uninitialized, Running, Draining, Stopped };
 

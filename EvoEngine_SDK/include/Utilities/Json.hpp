@@ -10,7 +10,7 @@ void RegisterJsonHandlers();
  * @class Json
  * @brief A class representing a JSON asset that extends the IAsset interface.
  */
-class Json : public IAsset {
+class EVOENGINE_API Json : public IAsset {
  protected:
   /**
    * @brief Saves the asset to the specified path.

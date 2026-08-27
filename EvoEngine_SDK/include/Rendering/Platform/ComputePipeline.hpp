@@ -12,8 +12,8 @@ namespace evo_engine {
  * This class manages resources and functionality for a Vulkan compute pipeline,
  * including descriptor sets, push constants, and shader configurations.
  */
-class Shader;
-class ComputePipeline final : public IGraphicsResource {
+class EVOENGINE_API Shader;
+class EVOENGINE_API ComputePipeline final : public IGraphicsResource {
   friend class Platform;
 
   /// Unique pointer to the pipeline layout.

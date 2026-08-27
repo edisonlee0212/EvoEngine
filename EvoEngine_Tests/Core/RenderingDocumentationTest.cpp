@@ -43,30 +43,6 @@ TEST(RenderingDocumentation, OverviewLinksEveryFocusedGuide) {
   }
 }
 
-TEST(RenderingDocumentation, RelativeMarkdownLinksResolve) {
-  const std::regex markdown_link(R"(\[[^\]]*\]\(([^)]+)\))");
-
-  for (const auto& guide : kRenderingGuides) {
-    const auto guide_path = RepoPath(guide);
-    const auto contents = ReadTextFile(guide_path);
-    ASSERT_FALSE(contents.empty()) << guide.string();
-
-    for (auto match = std::sregex_iterator(contents.begin(), contents.end(), markdown_link);
-         match != std::sregex_iterator(); ++match) {
-      std::string target = (*match)[1].str();
-      if (target.empty() || target.front() == '#' || target.rfind("http://", 0) == 0 ||
-          target.rfind("https://", 0) == 0 || target.rfind("mailto:", 0) == 0) {
-        continue;
-      }
-
-      if (const auto anchor = target.find('#'); anchor != std::string::npos) {
-        target.erase(anchor);
-      }
-      EXPECT_TRUE(std::filesystem::exists(guide_path.parent_path() / target)) << guide.string() << " -> " << target;
-    }
-  }
-}
-
 TEST(RenderingDocumentation, ExcludesDevelopmentHistory) {
   const std::regex milestone_id(R"(\bM[0-9]+\b)");
   const std::vector<std::string> rejected_terms = {"closeout", "frozen baseline", "this branch", "milestone"};

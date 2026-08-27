@@ -5,12 +5,12 @@
 #include <glm/glm.hpp>
 
 namespace evo_engine {
-class Camera;
-class ComputePipeline;
-class DescriptorSet;
-class DescriptorSetLayout;
-class GraphicsPipeline;
-class RenderInstanceStorage;
+class EVOENGINE_API Camera;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API RenderInstanceStorage;
 
 struct GaussianSplatCullPushConstant {
   glm::uvec4 camera_instance_count_flags = glm::uvec4(0u);
@@ -27,7 +27,7 @@ struct GaussianSplatPushConstant {
   glm::vec4 opacity_extent_min_max = glm::vec4(1.0f, 2.8284271f, 1.0f, 192.0f);
 };
 
-class GaussianSplatCullPass final {
+class EVOENGINE_API GaussianSplatCullPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 
@@ -46,7 +46,7 @@ class GaussianSplatCullPass final {
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
-class GaussianSplatSortPass final {
+class EVOENGINE_API GaussianSplatSortPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 
@@ -65,7 +65,7 @@ class GaussianSplatSortPass final {
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
-class GaussianSplatPass final {
+class EVOENGINE_API GaussianSplatPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 

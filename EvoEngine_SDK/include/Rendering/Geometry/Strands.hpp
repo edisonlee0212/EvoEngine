@@ -16,7 +16,7 @@ struct StrandRayTracingGeometry {
 /**
  * @brief Struct representing the attributes of a strand point.
  */
-struct StrandPointAttributes {
+struct EVOENGINE_API StrandPointAttributes {
   bool normal = false;     ///< Indicates if normal is enabled.
   bool tex_coord = false;  ///< Indicates if texture coordinates are enabled.
   bool color = false;      ///< Indicates if color is enabled.
@@ -37,7 +37,7 @@ struct StrandPointAttributes {
 /**
  * @brief Represents a collection of hair strands.
  */
-class Strands final : public IAsset {
+class EVOENGINE_API Strands final : public IAsset {
  public:
   /**
    * @brief Provides unsafe access to the segments vector.

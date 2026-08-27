@@ -12,7 +12,7 @@
 
 namespace evo_engine {
 
-class Shader;
+class EVOENGINE_API Shader;
 
 #pragma region Pipeline Data
 
@@ -20,7 +20,7 @@ class Shader;
  * @struct PipelineShaderStage
  * @brief Represents a single shader stage in a graphics pipeline.
  */
-struct PipelineShaderStage {
+struct EVOENGINE_API PipelineShaderStage {
   VkPipelineShaderStageCreateFlags flags;                   ///< Shader stage creation flags.
   VkShaderStageFlagBits stage;                              ///< Type of shader stage (e.g., vertex, fragment).
   VkShaderModule module;                                    ///< Vulkan shader module handle.
@@ -38,7 +38,7 @@ struct PipelineShaderStage {
  * @struct PipelineVertexInputState
  * @brief Represents the vertex input state in a graphics pipeline.
  */
-struct PipelineVertexInputState {
+struct EVOENGINE_API PipelineVertexInputState {
   VkPipelineVertexInputStateCreateFlags flags;                                   ///< Vertex input state creation flags.
   std::vector<VkVertexInputBindingDescription> vertex_binding_descriptions;      ///< Vertex binding descriptions.
   std::vector<VkVertexInputAttributeDescription> vertex_attribute_descriptions;  ///< Vertex attribute descriptions.
@@ -55,7 +55,7 @@ struct PipelineVertexInputState {
  * @struct PipelineInputAssemblyState
  * @brief Describes the input assembly state of the graphics pipeline.
  */
-struct PipelineInputAssemblyState {
+struct EVOENGINE_API PipelineInputAssemblyState {
   VkPipelineInputAssemblyStateCreateFlags flags;  ///< Input assembly state creation flags.
   VkPrimitiveTopology topology;                   ///< Topology of the primitives (e.g., triangle list, line list).
   VkBool32 primitive_restart_enable;              ///< Enables primitive restart.
@@ -72,7 +72,7 @@ struct PipelineInputAssemblyState {
  * @struct PipelineTessellationState
  * @brief Represents the tessellation state of a graphics pipeline.
  */
-struct PipelineTessellationState {
+struct EVOENGINE_API PipelineTessellationState {
   VkPipelineTessellationStateCreateFlags flags;  ///< Tessellation state creation flags.
   uint32_t patch_control_points;                 ///< Number of control points per patch.
 
@@ -88,7 +88,7 @@ struct PipelineTessellationState {
  * @struct PipelineViewportState
  * @brief Defines the viewport and scissor state of a graphics pipeline.
  */
-struct PipelineViewportState {
+struct EVOENGINE_API PipelineViewportState {
   VkPipelineViewportStateCreateFlags flags;  ///< Viewport state creation flags.
   std::vector<VkViewport> viewports;         ///< List of viewports.
   std::vector<VkRect2D> scissors;            ///< List of scissor rectangles.
@@ -104,7 +104,7 @@ struct PipelineViewportState {
  * @struct PipelineRasterizationState
  * @brief Represents the rasterization state in a graphics pipeline.
  */
-struct PipelineRasterizationState {
+struct EVOENGINE_API PipelineRasterizationState {
   VkPipelineRasterizationStateCreateFlags flags;  ///< Rasterization state creation flags.
   VkBool32 depth_clamp_enable;                    ///< Enables depth clamping.
   VkBool32 rasterizer_discard_enable;             ///< Disables rasterization (no primitives are produced).
@@ -129,7 +129,7 @@ struct PipelineRasterizationState {
  * @struct PipelineMultisampleState
  * @brief Describes the multi-sampling state of the graphics pipeline.
  */
-struct PipelineMultisampleState {
+struct EVOENGINE_API PipelineMultisampleState {
   VkPipelineMultisampleStateCreateFlags flags;  ///< Multisample state creation flags.
   VkSampleCountFlagBits rasterization_samples;  ///< Number of rasterization samples.
   VkBool32 sample_shading_enable;               ///< Enables sample shading.
@@ -150,7 +150,7 @@ struct PipelineMultisampleState {
  * @struct PipelineDepthStencilState
  * @brief Represents the depth and stencil test state of the graphics pipeline.
  */
-struct PipelineDepthStencilState {
+struct EVOENGINE_API PipelineDepthStencilState {
   VkPipelineDepthStencilStateCreateFlags flags;  ///< Depth-stencil state creation flags.
   VkBool32 depth_test_enable;                    ///< Enables depth testing.
   VkBool32 depth_write_enable;                   ///< Enables depth writing.
@@ -174,7 +174,7 @@ struct PipelineDepthStencilState {
  * @struct PipelineColorBlendState
  * @brief Describes the color blending state of the graphics pipeline.
  */
-struct PipelineColorBlendState {
+struct EVOENGINE_API PipelineColorBlendState {
   VkPipelineColorBlendStateCreateFlags flags;                    ///< Color blend state creation flags.
   VkBool32 logic_op_enable;                                      ///< Enables logical operations.
   VkLogicOp logic_op;                                            ///< Logical operation to apply.
@@ -193,7 +193,7 @@ struct PipelineColorBlendState {
  * @struct PipelineDynamicState
  * @brief Configures dynamic states for the graphics pipeline.
  */
-struct PipelineDynamicState {
+struct EVOENGINE_API PipelineDynamicState {
   VkPipelineDynamicStateCreateFlags flags;     ///< Dynamic state creation flags.
   std::vector<VkDynamicState> dynamic_states;  ///< List of dynamic states.
 
@@ -210,7 +210,7 @@ struct PipelineDynamicState {
  * @class GraphicsPipeline
  * @brief Manages a Vulkan graphics pipeline and its associated resources.
  */
-class GraphicsPipeline final : public IGraphicsResource {
+class EVOENGINE_API GraphicsPipeline final : public IGraphicsResource {
   friend class Platform;
   friend class RenderLayer;
   friend class GraphicsPipelineStates;

@@ -5,7 +5,7 @@
 #include "Vertex.hpp"
 
 namespace evo_engine {
-class GraphicsPipelineStates;
+class EVOENGINE_API GraphicsPipelineStates;
 
 /**
  * @brief Specifies the type of geometry.
@@ -31,7 +31,7 @@ enum class VertexInputAttributeSet {
 /**
  * @brief Interface for geometry objects in the engine.
  */
-class IGeometry {
+class EVOENGINE_API IGeometry {
  public:
   /**
    * @brief Virtual destructor for IGeometry.

@@ -18,7 +18,7 @@ namespace evo_engine {
  * @struct SkinnedVertexAttributes
  * @brief Represents the attributes of a skinned vertex.
  */
-struct SkinnedVertexAttributes {
+struct EVOENGINE_API SkinnedVertexAttributes {
   bool normal = false;      /**< Whether the normal attribute is enabled. */
   bool tangent = false;     /**< Whether the tangent attribute is enabled. */
   bool tex_coord = false;   /**< Whether the texture coordinate attribute is enabled. */
@@ -55,8 +55,8 @@ class BoneMatrices {
   /**
    * @brief Uploads bone matrix data to the GPU or relevant buffers.
    */
-  void UploadData();
-  void UploadPreviousData(const std::vector<glm::mat4>& matrices);
+  EVOENGINE_API void UploadData();
+  EVOENGINE_API void UploadPreviousData(const std::vector<glm::mat4>& matrices);
 
  public:
   std::vector<glm::mat4> value; /**< Bone matrix values. */
@@ -65,38 +65,38 @@ class BoneMatrices {
    * @brief Retrieves the descriptor set.
    * @return A shared pointer to the descriptor set.
    */
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const;
+  [[nodiscard]] EVOENGINE_API const std::shared_ptr<DescriptorSet>& GetDescriptorSet() const;
 
-  [[nodiscard]] VkDescriptorBufferInfo GetPreviousBufferInfo() const;
+  [[nodiscard]] EVOENGINE_API VkDescriptorBufferInfo GetPreviousBufferInfo() const;
 
   /**
    * @brief Constructor for BoneMatrices.
    */
-  BoneMatrices();
+  EVOENGINE_API BoneMatrices();
 
   /**
    * @brief Gets the current version of the bone matrices.
    * @return The version number.
    */
-  [[nodiscard]] uint32_t GetVersion() const;
+  [[nodiscard]] EVOENGINE_API uint32_t GetVersion() const;
 };
 
-[[nodiscard]] Vertex BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_vertex,
-                                                  const std::vector<glm::mat4>& bone_matrices);
+[[nodiscard]] EVOENGINE_API Vertex BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_vertex,
+                                                                const std::vector<glm::mat4>& bone_matrices);
 
-[[nodiscard]] std::vector<Vertex> BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
-                                                                 const std::vector<glm::mat4>& bone_matrices);
+[[nodiscard]] EVOENGINE_API std::vector<Vertex> BuildSkinnedRayTracingVertices(
+    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::mat4>& bone_matrices);
 
-[[nodiscard]] std::vector<Vertex> BuildSkinnedRayTracingVertices(const std::vector<SkinnedVertex>& skinned_vertices,
-                                                                 const std::vector<glm::mat4>& bone_matrices,
-                                                                 const std::vector<uint32_t>& source_vertex_indices);
+[[nodiscard]] EVOENGINE_API std::vector<Vertex> BuildSkinnedRayTracingVertices(
+    const std::vector<SkinnedVertex>& skinned_vertices, const std::vector<glm::mat4>& bone_matrices,
+    const std::vector<uint32_t>& source_vertex_indices);
 
 /**
  * @class SkinnedMesh
  * @brief Represents a skinned mesh used for skeletal animation and rendering.
  * Inherits from IAsset and IGeometry.
  */
-class SkinnedMesh : public IAsset, public IGeometry {
+class EVOENGINE_API SkinnedMesh : public IAsset, public IGeometry {
   Bound bound_; /**< The bounding box of the skinned mesh. */
   friend class SkinnedMeshRenderer;
   friend class Particles;

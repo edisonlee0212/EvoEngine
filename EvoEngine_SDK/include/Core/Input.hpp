@@ -7,7 +7,7 @@ namespace evo_engine {
  * @class Input
  * @brief A final class responsible for handling input events such as keyboard and mouse actions in the engine.
  */
-class Input final {
+class EVOENGINE_API Input final {
  public:
   static Input& GetInstance();
 

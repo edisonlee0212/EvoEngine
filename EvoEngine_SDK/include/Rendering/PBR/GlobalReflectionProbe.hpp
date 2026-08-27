@@ -4,7 +4,7 @@
 
 namespace evo_engine {
 
-class GlobalReflectionProbe final : public IAsset {
+class EVOENGINE_API GlobalReflectionProbe final : public IAsset {
  public:
   enum class SourceKind : uint32_t { Empty = 0, Imported = 1, Baked = 2 };
 

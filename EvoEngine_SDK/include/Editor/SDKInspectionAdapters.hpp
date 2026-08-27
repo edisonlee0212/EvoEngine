@@ -5,9 +5,9 @@
 #include <string>
 
 namespace evo_engine {
-class Camera;
-class EditorLayer;
-struct DrawSettings;
+class EVOENGINE_API Camera;
+class EVOENGINE_API EditorLayer;
+struct EVOENGINE_API DrawSettings;
 namespace procedural_noise {
 class IProceduralNoise;
 }

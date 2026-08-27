@@ -13,7 +13,7 @@ namespace evo_engine {
  * @class CpuRayTracer
  * @brief This class provides CPU-based ray tracing support for 3D rendering.
  */
-class CpuRayTracer final {
+class EVOENGINE_API CpuRayTracer final {
  public:
   /**
    * @enum TraceFlags
@@ -185,7 +185,7 @@ class CpuRayTracer final {
    * @struct AggregatedScene
    * @brief Holds aggregated data for the entire scene, optimized for GPU acceleration.
    */
-  struct AggregatedScene {
+  struct EVOENGINE_API AggregatedScene {
     /**
      * @brief Trace a ray within the scene. This function is thread-safe.
      * @param ray_descriptor Configuration for the ray.
@@ -314,7 +314,7 @@ class CpuRayTracer final {
    * @struct GeometryInstance
    * @brief Represents an instance of geometry with its BVH and associated data.
    */
-  struct GeometryInstance {
+  struct EVOENGINE_API GeometryInstance {
     /**
      * @brief Axis-Aligned Bounding Box (AABB) of the geometry.
      */
@@ -348,7 +348,7 @@ class CpuRayTracer final {
    * @struct NodeInstance
    * @brief Represents an instance of a scene node, containing its data and relationships.
    */
-  struct NodeInstance {
+  struct EVOENGINE_API NodeInstance {
     /**
      * @brief Axis-Aligned Bounding Box (AABB) of the node.
      */
@@ -436,7 +436,7 @@ class CpuRayTracer final {
    * @struct BucketBound
    * @brief Represents the bounding volume of a bucket used in BVH splitting.
    */
-  struct BucketBound {
+  struct EVOENGINE_API BucketBound {
     /**
      * @brief Minimum corner of the bounding box.
      */

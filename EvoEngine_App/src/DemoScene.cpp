@@ -1134,7 +1134,6 @@ void ConfigureBistroCameraPostProcessing(const std::shared_ptr<Camera>& camera) 
     post_processing_stack = AssetManager::CreateTemporaryAsset<PostProcessingStack>();
     camera->post_processing_stack_ref = post_processing_stack;
   }
-  post_processing_stack->enable_bloom = false;
   post_processing_stack->enable_screen_space_reflection = false;
 }
 

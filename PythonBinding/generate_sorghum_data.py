@@ -36,8 +36,7 @@ if not os.path.isdir(output_root):
 use_gpu = True
 
 #Start the framework without editor and window.
-if use_gpu:
-	sorghum_framework.PushRayTracerLayer()
+sorghum_framework.PushRenderLayer()
 sorghum_framework.RegisterClasses()
 sorghum_framework.PushSorghumLayer()
 sorghum_framework.Run(project_path)

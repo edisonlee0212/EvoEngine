@@ -11,7 +11,7 @@ namespace evo_engine {
  * This class allows the control of animations, with features such as auto-play
  * and adjustable playback speed.
  */
-class AnimationPlayer : public IPrivateComponent {
+class EVOENGINE_API AnimationPlayer : public IPrivateComponent {
  public:
   /**
    * @brief Indicates whether the animation should auto-play on start.

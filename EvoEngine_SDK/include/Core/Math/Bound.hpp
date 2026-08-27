@@ -8,7 +8,7 @@ struct Vertex;
 /**
  * @brief Represents an axis-aligned bounding box.
  */
-struct Bound {
+struct EVOENGINE_API Bound {
   glm::vec3 min = glm::vec3(FLT_MAX);  /**< The minimum point of the bounding box. */
   glm::vec3 max = glm::vec3(-FLT_MAX); /**< The maximum point of the bounding box. */
 
@@ -47,7 +47,7 @@ struct Bound {
 /**
  * @brief Represents a 3D ray.
  */
-struct Ray : IDataComponent {
+struct EVOENGINE_API Ray : IDataComponent {
   glm::vec3 start;     /**< The starting point of the ray. */
   glm::vec3 direction; /**< The direction vector of the ray. */
   float length;        /**< The length of the ray. */
@@ -107,7 +107,7 @@ struct Ray : IDataComponent {
 /**
  * @brief Represents a plane in 3D space.
  */
-struct Plane {
+struct EVOENGINE_API Plane {
   /**
    * @brief Constructs a plane from a parameter vector.
    * @param param A `glm::vec4` containing the plane parameters.

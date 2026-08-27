@@ -35,7 +35,7 @@ inline bool ComponentTypeComparator(const DataComponentType &a, const DataCompon
 /**
  * @brief Manages and operates on entities within the engine framework.
  */
-class Entities final {
+class EVOENGINE_API Entities final {
  public:
   static Entities &GetInstance();
 

@@ -4,13 +4,13 @@
 
 namespace YAML {
 class Emitter;
-class Node;
+class EVOENGINE_API Node;
 }  // namespace YAML
 
 namespace evo_engine {
-class Application;
-class File;
-class Folder;
+class EVOENGINE_API Application;
+class EVOENGINE_API File;
+class EVOENGINE_API Folder;
 /**
  * @class ISerializable
  * @brief Represents an abstract class for serializable objects in the engine.
@@ -19,7 +19,7 @@ class Folder;
  * and deserialization logic. It provides functionality to save
  * and load data using YAML emitters and nodes.
  */
-class ISerializable : public IHandle {
+class EVOENGINE_API ISerializable : public IHandle {
   friend class Serialization;    ///< Grants access to the Serialization class.
   friend class IAsset;           ///< Grants access to the IAsset class.
   friend class Entities;         ///< Grants access to the Entities class.

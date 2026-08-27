@@ -4,9 +4,9 @@
 
 namespace evo_engine {
 
-class EntitySelectionHighlight final {
+class EVOENGINE_API EntitySelectionHighlight final {
  public:
-  struct Snapshot {
+  struct EVOENGINE_API Snapshot {
     glm::vec4 outline_color{1.0f, 0.75f, 0.0f, 1.0f};
     float radius = 3.0f;
     float focus_strength = 0.5f;

@@ -105,7 +105,7 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   const auto resolution = target_camera->GetSize();
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
+  const auto process = [&](const VkCommandBuffer vk_command_buffer) {
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     if (camera.luminance_reset_pending) {
       constexpr float initial_luminance = 0.18f;
@@ -120,8 +120,7 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
     }
 
     PushConstant push_constant;
-    push_constant.camera_index =
-        render_layer->GetCurrentRenderInstanceStorage()->GetCameraIndex(target_camera->GetHandle());
+    push_constant.camera_index = 0;
     push_constant.method = ToneMapMethodToInt(method);
     push_constant.is_active = 1;
     push_constant.auto_exposure = auto_exposure ? 1 : 0;
@@ -190,7 +189,12 @@ void ToneMapping::Process(const PostProcessingStack& post_processing_stack,
      * CPU.
      */
     Platform::EverythingBarrier(vk_command_buffer);
-  });
+  };
+  if (context.record_commands) {
+    context.record_commands(process);
+  } else {
+    Platform::RecordCommandsMainQueue(process);
+  }
 }
 
 void ToneMapping::BuildPipelines(PostProcessingRendererResources& resources, const bool) const {

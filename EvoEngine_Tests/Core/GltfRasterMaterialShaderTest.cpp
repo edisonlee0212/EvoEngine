@@ -683,9 +683,23 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
 TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
   const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
   const auto offscreen_preview = ReadTextFile(SdkPath("src/OffscreenPreviewRenderer.cpp"));
+  const auto post_processing = ReadTextFile(SdkPath("src/PostProcessingStack.cpp"));
+  const auto bloom_copy = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomCopy.slang"));
+  const auto bloom_downsampling = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomDownsampling.slang"));
+  const auto bloom_upsampling = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomUpsampling.slang"));
+  const auto bloom_mix = ReadTextFile(ShaderPath("Compute/PostProcessing/BloomMix.slang"));
+  const auto tone_mapping = ReadTextFile(ShaderPath("Compute/PostProcessing/ToneMapping.slang"));
+  const auto studio_generator = ReadTextFile(RepoPath("Scripts/generate_material_preview_hdr.py"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   ASSERT_FALSE(thumbnail_provider.empty());
   ASSERT_FALSE(offscreen_preview.empty());
+  ASSERT_FALSE(post_processing.empty());
+  ASSERT_FALSE(bloom_copy.empty());
+  ASSERT_FALSE(bloom_downsampling.empty());
+  ASSERT_FALSE(bloom_upsampling.empty());
+  ASSERT_FALSE(bloom_mix.empty());
+  ASSERT_FALSE(tone_mapping.empty());
+  ASSERT_FALSE(studio_generator.empty());
   ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(thumbnail_provider.find("RegisterAssetPreviewHandler<Material>"), std::string::npos);
@@ -702,6 +716,50 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
             std::string::npos);
   EXPECT_NE(offscreen_preview.find("render_layer->RenderSceneToCameraImmediately(scene, camera_transform, camera)"),
             std::string::npos);
+  EXPECT_NE(offscreen_preview.find("std::unique_ptr<PreviewContext> preview_context"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("Textures/MaterialPreview/neutral_studio.hdr"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("Camera::BackgroundSource::InheritEnvironmentalLighting"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("context->studio_environment ? 0.45f"), std::string::npos);
+  EXPECT_NE(studio_generator.find("0.35 * base"), std::string::npos);
+  EXPECT_NE(studio_generator.find("0.70 * base"), std::string::npos);
+  EXPECT_NE(studio_generator.find("1.20 * base"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("kMaterialPresentationZoom = 1.32f"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("material_settings.camera_zoom *= kMaterialPresentationZoom"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("mesh->GetBound(), material_settings, true"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("mesh->GetBound(), settings, false"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("kMaterialBloomThreshold = 1.25f"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("kMaterialBloomIntensity = 0.5f"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("ProcessBloomAndToneMappingImmediately(camera)"), std::string::npos);
+  EXPECT_LT(offscreen_preview.find("RenderSceneToCameraImmediately(scene, camera_transform, camera)"),
+            offscreen_preview.find("ProcessBloomAndToneMappingImmediately(camera)"));
+  EXPECT_LT(offscreen_preview.find("ProcessBloomAndToneMappingImmediately(camera)"),
+            offscreen_preview.find("return CopyColorTexture(camera, settings)"));
+  EXPECT_NE(post_processing.find("void PostProcessingStack::ProcessBloomAndToneMappingImmediately"), std::string::npos);
+  EXPECT_NE(post_processing.find("context.record_commands(action)"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("brightness = max(color.x, max(color.y, color.z))"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("float knee = max(constants.knee"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("(g + h + i + a) * 0.125f"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("(a + i + j + k) * 0.125f"), std::string::npos);
+  EXPECT_NE(bloom_copy.find("(m + a + k + l) * 0.125f"), std::string::npos);
+  EXPECT_NE(bloom_downsampling.find("constants.source_resolution"), std::string::npos);
+  EXPECT_NE(bloom_downsampling.find("constants.target_resolution"), std::string::npos);
+  EXPECT_NE(bloom_upsampling.find("current + upsample"), std::string::npos);
+  EXPECT_NE(bloom_mix.find("color.xyz + constants.intensity * bloom"), std::string::npos);
+  EXPECT_EQ(bloom_mix.find("clamp(color.xyz"), std::string::npos);
+  EXPECT_NE(post_processing.find("processed_mip_count = mip_levels > 2 ? mip_levels - 2 : 1"), std::string::npos);
+  EXPECT_NE(post_processing.find("processed_mip_count > 1 ? camera.upsample_texture : camera.downsample_texture_a"),
+            std::string::npos);
+  EXPECT_NE(post_processing.find("VK_FORMAT_R16G16B16A16_SFLOAT"), std::string::npos);
+  EXPECT_NE(post_processing.find("VK_FORMAT_R32G32B32A32_SFLOAT"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("ToneMapping::ToneMapMethod::Aces"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("tone_mapping.exposure = 1.0f"), std::string::npos);
+  EXPECT_NE(tone_mapping.find("mul(input_matrix, color)"), std::string::npos);
+  EXPECT_NE(tone_mapping.find("mul(output_matrix, color)"), std::string::npos);
+  EXPECT_NE(tone_mapping.find("inColor.GetDimensions(resolution_x, resolution_y)"), std::string::npos);
+  EXPECT_NE(tone_mapping.find("float4 output_color = inColor.Load(tex_coord)"), std::string::npos);
+  EXPECT_NE(tone_mapping.find("inColor[tex_coord] = output_color"), std::string::npos);
+  EXPECT_NE(offscreen_preview.find("vkCmdCopyImage"), std::string::npos);
+  EXPECT_EQ(offscreen_preview.find("Buffer image_buffer"), std::string::npos);
   EXPECT_EQ(offscreen_preview.find("GltfRasterMaterial.slangh"), std::string::npos);
   EXPECT_EQ(offscreen_preview.find("StandardDeferred.slang"), std::string::npos);
   EXPECT_EQ(offscreen_preview.find("StandardTransparent.slang"), std::string::npos);
@@ -718,6 +776,30 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
       immediate_render.find("RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture)"),
       std::string::npos);
   EXPECT_NE(immediate_render.find("BindRenderInstanceStorage(current_frame_index, previous_render_instances)"),
+            std::string::npos);
+}
+
+TEST(GltfRasterMaterial, ProjectThumbnailCacheTracksMaterialDependenciesAndStaysOutsideAssets) {
+  const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
+  const auto file_manager = ReadTextFile(SdkPath("src/FileManager.cpp"));
+  const auto asset_manager = ReadTextFile(SdkPath("src/AssetManager.cpp"));
+  ASSERT_FALSE(thumbnail_provider.empty());
+  ASSERT_FALSE(file_manager.empty());
+  ASSERT_FALSE(asset_manager.empty());
+
+  EXPECT_NE(thumbnail_provider.find("project_folder / \"Cache/Thumbnail\""), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("kThumbnailCacheVersion = 3"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("512ull * 1024ull * 1024ull"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("material->PeekTextureRefs()"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("std::filesystem::last_write_time"), std::string::npos);
+  EXPECT_NE(thumbnail_provider.find("PruneThumbnailCache"), std::string::npos);
+  EXPECT_NE(file_manager.find("kProjectThumbnailResolution = {256, 256}"), std::string::npos);
+  EXPECT_NE(file_manager.find("kThumbnailGenerationBudget = std::chrono::milliseconds(8)"), std::string::npos);
+  EXPECT_NE(asset_manager.find("OffscreenPreviewRenderer::Reset()"), std::string::npos);
+  EXPECT_GT(
+      std::filesystem::file_size(SdkPath("Internals/DefaultResources/Textures/MaterialPreview/neutral_studio.hdr")),
+      1024u);
+  EXPECT_NE(ReadTextFile(SdkPath("Internals/DefaultResources/Textures/MaterialPreview/LICENSE.txt")).find("CC0 1.0"),
             std::string::npos);
 }
 

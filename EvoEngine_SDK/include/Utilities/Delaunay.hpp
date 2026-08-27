@@ -7,7 +7,7 @@ namespace evo_engine {
 /**
  * @brief A class for performing 3D Delaunay tetrahedralization and related geometric operations.
  */
-class Delaunay3D {
+class EVOENGINE_API Delaunay3D {
  public:
   /**
    * @brief A structure representing a single tetrahedron in 3D space.

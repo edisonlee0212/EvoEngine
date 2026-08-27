@@ -3,21 +3,21 @@
 #include "Input.hpp"
 
 namespace evo_engine {
-class Application;
+class EVOENGINE_API Application;
 
 /**
  * @class Scene
  * @brief Forward declaration of the Scene class.
  * This class is used in the ILayer class as a weak pointer.
  */
-class Scene;
+class EVOENGINE_API Scene;
 
 /**
  * @class EditorLayer
  * @brief Forward declaration of the EditorLayer class.
  * This class is used in the ILayer class as a friend class and shared pointer.
  */
-class EditorLayer;
+class EVOENGINE_API EditorLayer;
 
 /**
  * @class ILayer
@@ -26,7 +26,7 @@ class EditorLayer;
  * Provides an interface for creating, updating, and destroying layers within a Scene.
  * Layers can handle various events and operations such as updates, input events, and editor inspection.
  */
-class ILayer {
+class EVOENGINE_API ILayer {
   /**
    * @brief The name of the layer, defaults to "Unknown Layer".
    */

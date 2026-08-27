@@ -190,9 +190,9 @@ TEST(EnvironmentalLightingContract, BakeBackgroundAndLocalProbeMasterAreAssetOwn
   ASSERT_FALSE(resolver.empty());
   ASSERT_FALSE(inspector.empty());
   ASSERT_FALSE(render_layer.empty());
-  EXPECT_NE(header.find("struct ReflectionProbeBakeBackground"), std::string::npos);
+  EXPECT_NE(header.find("struct EVOENGINE_API ReflectionProbeBakeBackground"), std::string::npos);
   EXPECT_NE(header.find("CameraSettings::BackgroundSource::InheritEnvironmentalLighting"), std::string::npos);
-  const auto background_begin = header.find("struct ReflectionProbeBakeBackground");
+  const auto background_begin = header.find("struct EVOENGINE_API ReflectionProbeBakeBackground");
   const auto background_end = header.find("};", background_begin);
   ASSERT_NE(background_begin, std::string::npos);
   ASSERT_NE(background_end, std::string::npos);

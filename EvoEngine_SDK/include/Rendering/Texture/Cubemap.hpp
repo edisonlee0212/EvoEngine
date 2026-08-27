@@ -10,7 +10,7 @@ namespace evo_engine {
 /**
  * Forward declaration of the CubemapStorage class.
  */
-class CubemapStorage;
+class EVOENGINE_API CubemapStorage;
 
 /**
  * Forward declaration of the TextureStorageHandle struct.
@@ -25,7 +25,7 @@ struct TextureStorageHandle;
  * converting equirectangular textures to cubemaps, building sky illumination,
  * and more. It inherits from the IAsset interface.
  */
-class Cubemap final : public IAsset {
+class EVOENGINE_API Cubemap final : public IAsset {
   friend class RenderLayer;
   friend class LightProbe;
   friend class GlobalReflectionProbe;

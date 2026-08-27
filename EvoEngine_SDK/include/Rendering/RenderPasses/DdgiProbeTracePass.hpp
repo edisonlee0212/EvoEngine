@@ -3,13 +3,13 @@
 #include "RenderInstanceStorage.hpp"
 
 namespace evo_engine {
-class DescriptorSet;
-class DescriptorSetLayout;
-class Buffer;
-class RayTracingPipeline;
-class Sampler;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API RayTracingPipeline;
+class EVOENGINE_API Sampler;
 
-class DdgiProbeTracePass final {
+class EVOENGINE_API DdgiProbeTracePass final {
  public:
   struct Parameters {
     std::shared_ptr<RayTracingPipeline> pipeline;

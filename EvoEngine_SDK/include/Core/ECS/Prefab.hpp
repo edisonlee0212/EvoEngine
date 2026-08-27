@@ -11,7 +11,7 @@ namespace evo_engine {
  * @brief Represents a holder for data components, which includes
  * a specific DataComponentType and its associated data component.
  */
-struct DataComponentHolder {
+struct EVOENGINE_API DataComponentHolder {
   /// The type of the data component.
   DataComponentType data_component_type;
   /// Shared pointer to the data component.
@@ -35,7 +35,7 @@ struct DataComponentHolder {
  * @brief Represents a holder for private components, which includes
  * an enable flag and the private component itself.
  */
-struct PrivateComponentHolder {
+struct EVOENGINE_API PrivateComponentHolder {
   /// Indicates whether the private component is enabled.
   bool enabled;
   /// Shared pointer to the private component.
@@ -63,7 +63,7 @@ struct PrefabModelImportOptions {
  * components, children, and other asset operations like loading, saving,
  * and serialization.
  */
-class Prefab : public IAsset {
+class EVOENGINE_API Prefab : public IAsset {
   /// The enabled state of the prefab.
   bool enabled_ = true;
 

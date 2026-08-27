@@ -14,7 +14,7 @@ namespace evo_engine {
 /**
  * @brief Structure representing vertex attributes.
  */
-struct VertexAttributes {
+struct EVOENGINE_API VertexAttributes {
   bool normal = false;      /**< Indicates if normals are enabled. */
   bool tangent = false;     /**< Indicates if tangents are enabled. */
   bool tex_coord = false;   /**< Indicates if texture coordinates are enabled. */
@@ -41,7 +41,7 @@ struct VertexAttributes {
 /**
  * @brief A class for managing particle information lists.
  */
-class ParticleInfoList final : public IAsset {
+class EVOENGINE_API ParticleInfoList final : public IAsset {
   std::shared_ptr<RangeDescriptor> range_descriptor_; /**< Shared pointer to the range descriptor. */
 
  public:
@@ -135,7 +135,7 @@ class ParticleInfoList final : public IAsset {
 /**
  * @brief A class representing a 3D mesh.
  */
-class Mesh final : public IAsset, public IGeometry {
+class EVOENGINE_API Mesh final : public IAsset, public IGeometry {
   Bound bound_ = {}; /**< The bounding box of the mesh. */
 
   std::vector<Vertex> vertices_;      /**< The vertices of the mesh. */

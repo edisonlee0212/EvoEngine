@@ -6,7 +6,7 @@ EvoEngine separates build-time Services from runtime packages.
 
 | Extension type | Folder | Build/runtime model | Use for |
 | --- | --- | --- | --- |
-| Service | `EvoEngine_Services/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_CudaModule_SERVICE` | Build-time modules that apps or packages link against directly. |
+| Service | `EvoEngine_Services/<Name>` | Static library selected by CMake options such as `EVOENGINE_ENABLE_PhysXPhysics_SERVICE` | Build-time modules that apps or packages link against directly. |
 | Runtime package | `EvoEngine_Packages/<Name>` | DLL/shared library selected by CMake options such as `EVOENGINE_ENABLE_<Name>_PACKAGE` and loaded from a `Packages` runtime folder | Domain features that can be rebuilt, loaded, unloaded, or reloaded independently from the app. |
 
 Package documentation is indexed in [EvoEngine_Packages/README.md](../EvoEngine_Packages/README.md). Service documentation is indexed in [EvoEngine_Services/README.md](../EvoEngine_Services/README.md).

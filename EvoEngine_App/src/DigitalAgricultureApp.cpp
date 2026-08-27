@@ -3,10 +3,6 @@
 //
 #include <Application.hpp>
 
-#ifdef CUDA_MODULE_SERVICE
-#  include <CUDAModule.hpp>
-#  include <RayTracerLayer.hpp>
-#endif
 #include "AppBootstrap.hpp"
 #include "ClassRegistry.hpp"
 #include "PathUtils.hpp"
@@ -58,9 +54,6 @@ int main(const int argc, char** argv) {
 
   if (application_mode != ApplicationMode::Headless) {
     ApplicationContext::Get().PushLayer<RenderLayer>("Render Layer");
-#ifdef CUDA_MODULE_SERVICE
-    ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
     PushWindowAndUiLayers(application_mode);
   }
 

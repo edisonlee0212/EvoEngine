@@ -20,7 +20,7 @@ struct RenderTextureCreateInfo {
 /**
  * @brief A class representing a render texture with color and depth attachments.
  */
-class RenderTexture {
+class EVOENGINE_API RenderTexture {
   friend class Platform;
   friend class RenderLayer;
   friend class WindowLayer;

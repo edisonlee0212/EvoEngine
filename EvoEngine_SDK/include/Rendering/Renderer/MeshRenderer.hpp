@@ -8,7 +8,7 @@ namespace evo_engine {
 /**
  * @brief A class responsible for rendering meshes with materials in the engine.
  */
-class MeshRenderer final : public IPrivateComponent {
+class EVOENGINE_API MeshRenderer final : public IPrivateComponent {
   friend class RenderInstanceStorage;
 
   std::shared_ptr<RangeDescriptor> ray_tracing_meshlet_range_;

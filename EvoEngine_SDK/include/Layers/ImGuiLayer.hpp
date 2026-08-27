@@ -3,7 +3,7 @@
 #include "ILayer.hpp"
 
 namespace evo_engine {
-class ImGuiLayer final : public ILayer {
+class EVOENGINE_API ImGuiLayer final : public ILayer {
  protected:
   void OnDestroy() override;
   void PreUpdate() override;

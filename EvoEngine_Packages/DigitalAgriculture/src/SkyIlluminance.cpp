@@ -4,9 +4,6 @@
 #include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
 #include "rapidcsv.h"
-#ifdef CUDA_MODULE_SERVICE
-#  include "RayTracerLayer.hpp"
-#endif
 
 using namespace digital_agriculture_package;
 SkyIlluminanceSnapshot SkyIlluminanceSnapshotLerp(const SkyIlluminanceSnapshot& l, const SkyIlluminanceSnapshot& r,
@@ -79,17 +76,8 @@ bool digital_agriculture_package::InspectSkyIlluminance(InspectorContext& contex
       false);
   static float time;
   static SkyIlluminanceSnapshot snapshot;
-  static bool auto_apply = false;
-  ImGui::Checkbox("Auto Apply", &auto_apply);
   if (ImGui::SliderFloat("Time", &time, illuminance.min_time, illuminance.max_time)) {
     snapshot = illuminance.Get(time);
-#ifdef CUDA_MODULE_SERVICE
-    if (auto_apply) {
-      auto& env_prop = ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties;
-      env_prop.sun_direction = snapshot.GetSunDirection();
-      env_prop.skylight_intensity = snapshot.GetSunIntensity();
-    }
-#endif
   }
   ImGui::Text("Ghi: %.3f", snapshot.m_ghi);
   ImGui::Text("Azimuth: %.3f", snapshot.m_azimuth);

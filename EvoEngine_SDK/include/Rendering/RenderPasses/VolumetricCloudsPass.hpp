@@ -5,10 +5,10 @@
 #include <functional>
 
 namespace evo_engine {
-class Camera;
-class ComputePipeline;
-class DescriptorSet;
-class DescriptorSetLayout;
+class EVOENGINE_API Camera;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
 
 struct VolumetricCloudsPushConstant {
   glm::vec4 altitude_coverage_density = glm::vec4(0.0f);
@@ -21,7 +21,7 @@ struct VolumetricCloudsPushConstant {
   glm::ivec4 flags = glm::ivec4(0);
 };
 
-class VolumetricCloudsPass final {
+class EVOENGINE_API VolumetricCloudsPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 

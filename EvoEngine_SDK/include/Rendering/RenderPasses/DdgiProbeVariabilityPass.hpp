@@ -3,11 +3,11 @@
 #include "RenderInstanceStorage.hpp"
 
 namespace evo_engine {
-class Buffer;
-class ComputePipeline;
-class DescriptorSetLayout;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSetLayout;
 
-class DdgiProbeVariabilityPass final {
+class EVOENGINE_API DdgiProbeVariabilityPass final {
  public:
   struct DdgiAtlasLayout {
     uint32_t probe_count = 1;

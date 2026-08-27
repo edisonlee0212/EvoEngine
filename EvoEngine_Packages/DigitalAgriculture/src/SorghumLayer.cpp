@@ -1,10 +1,8 @@
-#ifdef CUDA_MODULE_SERVICE
-#  include <TriangleIlluminationEstimator.hpp>
-#  include "BtfMeshRenderer.hpp"
-#  include "RayTracerLayer.hpp"
-#endif
 #include <SorghumLayer.hpp>
 #include "Application.hpp"
+#include "BtfMaterial.hpp"
+#include "BtfMeshRenderer.hpp"
+#include "CBTFImporter.hpp"
 #include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
 #include "Platform.hpp"
@@ -13,14 +11,12 @@
 #include "SorghumGenerator.hpp"
 #include "Times.hpp"
 
+#include "CBTFGroup.hpp"
 #include "Material.hpp"
+#include "PARSensorGroup.hpp"
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
 #include "SorghumDescriptor.hpp"
-#ifdef CUDA_MODULE_SERVICE
-#  include "CBTFGroup.hpp"
-#  include "PARSensorGroup.hpp"
-#endif
 using namespace digital_agriculture_package;
 using namespace evo_engine;
 
@@ -54,11 +50,13 @@ void RegisterDigitalAgricultureSerializationHandlers() {
                                                                 {}, "SorghumGenerator");
   Serialization::RegisterSerializationHandler<SorghumField>(SerializeSorghumField, DeserializeSorghumField, {},
                                                             "SorghumField");
-#ifdef CUDA_MODULE_SERVICE
   Serialization::RegisterSerializationHandler<PARSensorGroup>(SerializePARSensorGroup, DeserializePARSensorGroup, {},
                                                               "PARSensorGroup");
   Serialization::RegisterSerializationHandler<CBTFGroup>(SerializeCBTFGroup, DeserializeCBTFGroup, {}, "CBTFGroup");
-#endif
+  Serialization::RegisterSerializationHandler<BtfMeshRenderer>(SerializeBtfMeshRenderer, DeserializeBtfMeshRenderer, {},
+                                                               "BtfMeshRenderer");
+  Serialization::RegisterSerializationHandler<BtfMaterial>(SerializeBtfMaterial, DeserializeBtfMaterial, {},
+                                                           "BtfMaterial");
   Serialization::RegisterSerializationHandler<SkyIlluminance>(SerializeSkyIlluminance, DeserializeSkyIlluminance, {},
                                                               "SkyIlluminance");
   Serialization::RegisterSerializationHandler<SorghumCoordinates>(
@@ -73,10 +71,11 @@ void SorghumLayer::RegisterTypes(Application& application) {
   application.RegisterAsset<SorghumState>("SorghumState", {".ss"});
   application.RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"});
   application.RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
-#ifdef CUDA_MODULE_SERVICE
   application.RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"});
   application.RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
-#endif
+  application.RegisterAsset<BtfMaterial>("BtfMaterial", {".btf"});
+  application.RegisterPrivateComponent<BtfMeshRenderer>("BtfMeshRenderer");
+  application.RegisterPrivateComponent<CBTFImporter>("CBTFImporter");
   application.RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"});
   application.RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"});
   RegisterDigitalAgricultureSerializationHandlers();
@@ -146,16 +145,7 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
   auto& horizontal_subdivision_step = layer.horizontal_subdivision_step;
   auto& skeleton_width = layer.skeleton_width;
   auto& skeleton_color = layer.skeleton_color;
-#ifdef CUDA_MODULE_SERVICE
-  auto& m_seed = layer.m_seed;
-  auto& push_distance = layer.push_distance;
-  auto& ray_properties = layer.ray_properties;
   auto& leaf_cbtf_group = layer.leaf_cbtf_group;
-  auto& processing = layer.processing;
-  auto& processing_index = layer.processing_index;
-  auto& processing_entities = layer.processing_entities;
-  auto& per_plant_calculation_time = layer.per_plant_calculation_time;
-#endif
   const auto window_title = layer.GetLayerName();
   bool open = layer.enable_inspection;
   if (!ImGui::Begin(window_title.c_str(), &open)) {
@@ -164,69 +154,10 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
     return false;
   }
   const auto scene = layer.GetScene();
-#ifdef CUDA_MODULE_SERVICE
-  if (ImGui::TreeNodeEx("Illumination Estimation")) {
-    ImGui::DragInt("Seed", &m_seed);
-    ImGui::DragFloat("Push distance along normal", &push_distance, 0.0001f, -1.0f, 1.0f, "%.5f");
-    ray_properties.DrawGui();
-
-    if (ImGui::Button("Calculate illumination")) {
-      layer.CalculateIlluminationFrameByFrame();
-    }
-    if (ImGui::Button("Calculate illumination instantly")) {
-      layer.CalculateIllumination();
-    }
-
-    static bool show_probes = false;
-
-    ImGui::Checkbox("Show probes", &show_probes);
-
-    if (show_probes) {
-      static bool depth_test = true;
-      static std::shared_ptr<ParticleInfoList> probe_debug_info_list;
-      static float node_render_size = .01f;
-      static float energy_scale_factor = 1.f;
-      if (!probe_debug_info_list)
-        probe_debug_info_list = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-      if (ImGui::TreeNode("Debug settings")) {
-        ImGui::DragFloat("Probe size", &node_render_size, 0.001f, 0.0f, 1.f);
-        ImGui::DragFloat("Energy scale factor", &energy_scale_factor, 0.01f, 0.0f, 100.f);
-        if (ImGui::Button("Refresh debug info")) {
-          if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>()) {
-            std::vector<ParticleInfo> particle_infos;
-            for (const auto sorghum_entity : *owners) {
-              if (const auto tie =
-                      scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(sorghum_entity).lock()) {
-                const auto start_index = particle_infos.size();
-                particle_infos.resize(start_index + tie->PeekProbes().light_probes.size());
-                for (int i = 0; i < tie->PeekProbes().light_probes.size(); i++) {
-                  const auto& probe = tie->PeekProbes().light_probes.at(i);
-                  auto& matrix = particle_infos[start_index + i].instance_matrix;
-                  matrix.value = glm::translate(probe.GetCenter()) * glm::scale(glm::vec3(node_render_size));
-                  particle_infos[start_index + i].instance_color =
-                      glm::vec4(glm::vec3(glm::length(probe.energy) * energy_scale_factor), 1.0f);
-                }
-              }
-            }
-            probe_debug_info_list->SetParticleInfos(particle_infos);
-          }
-        }
-        ImGui::Checkbox("Depth test", &depth_test);
-        ImGui::TreePop();
-      }
-
-      GizmoSettings gizmo_settings{};
-      gizmo_settings.depth_test = depth_test;
-      editor_layer->DrawGizmoCubes(probe_debug_info_list, glm::mat4(1), 1, gizmo_settings);
-    }
-
-    ImGui::TreePop();
-  }
   ImGui::Checkbox("Enable BTF", &enable_compressed_btf);
   if (enable_compressed_btf) {
     editor_layer->DragAndDropButton<CBTFGroup>(leaf_cbtf_group, "Leaf CBTFGroup");
   }
-#endif
   ImGui::Separator();
   DrawSorghumMeshGeneratorSettingsGui(sorghum_mesh_generator_settings);
   if (ImGui::Button("Generate mesh for all sorghums")) {
@@ -289,29 +220,6 @@ bool digital_agriculture_package::InspectSorghumLayer(InspectorContext& context,
       },
       false);
 
-  static bool opened = false;
-#ifdef CUDA_MODULE_SERVICE
-  if (processing && !opened) {
-    ImGui::OpenPopup("Illumination Estimation");
-    opened = true;
-  }
-  if (ImGui::BeginPopupModal("Illumination Estimation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-    ImGui::Text("Progress: ");
-    const float fraction = 1.0f - static_cast<float>(processing_index) / processing_entities.size();
-    const std::string text = std::to_string(static_cast<int>(fraction * 100.0f)) + "% - " +
-                             std::to_string(processing_entities.size() - processing_index) + "/" +
-                             std::to_string(processing_entities.size());
-    ImGui::ProgressBar(fraction, ImVec2(240, 0), text.c_str());
-    ImGui::SetItemDefaultFocus();
-    ImGui::Text(("Estimation time for 1 plant: " + std::to_string(per_plant_calculation_time) + " seconds").c_str());
-    if (ImGui::Button("Cancel") || processing == false) {
-      processing = false;
-      opened = false;
-      ImGui::CloseCurrentPopup();
-    }
-    ImGui::EndPopup();
-  }
-#endif
   ImGui::End();
   layer.enable_inspection = open;
   return false;
@@ -405,58 +313,4 @@ void SorghumLayer::ExportAllSorghumsModel(const std::string& filename) const {
   } else {
     EVOENGINE_ERROR("Can't open file!");
   }
-}
-
-#ifdef CUDA_MODULE_SERVICE
-void SorghumLayer::CalculateIlluminationFrameByFrame() {
-  const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-  if (!owners)
-    return;
-  processing_entities.clear();
-
-  processing_entities.insert(processing_entities.begin(), owners->begin(), owners->end());
-  processing_index = processing_entities.size();
-  processing = true;
-}
-void SorghumLayer::CalculateIllumination() {
-  const auto scene = GetScene();
-  const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<Sorghum>();
-  if (!owners)
-    return;
-  processing_entities.clear();
-
-  processing_entities.insert(processing_entities.begin(), owners->begin(), owners->end());
-  processing_index = processing_entities.size();
-  while (processing) {
-    processing_index--;
-    if (processing_index == -1) {
-      processing = false;
-    } else {
-      const float timer = ApplicationContext::Get().GetTimes().Now();
-      const auto estimator =
-          scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
-      estimator->PrepareLightProbeGroup();
-      estimator->SampleLightProbeGroup(ray_properties, m_seed, push_distance);
-    }
-  }
-}
-#endif
-void SorghumLayer::Update() {
-  const auto scene = GetScene();
-#ifdef CUDA_MODULE_SERVICE
-  if (processing) {
-    processing_index--;
-    if (processing_index == -1) {
-      processing = false;
-    } else {
-      const float timer = ApplicationContext::Get().GetTimes().Now();
-      const auto estimator =
-          scene->GetOrSetPrivateComponent<TriangleIlluminationEstimator>(processing_entities[processing_index]).lock();
-      estimator->PrepareLightProbeGroup();
-      estimator->SampleLightProbeGroup(ray_properties, m_seed, push_distance);
-      per_plant_calculation_time = ApplicationContext::Get().GetTimes().Now() - timer;
-    }
-  }
-#endif
 }

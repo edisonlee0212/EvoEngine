@@ -753,7 +753,7 @@ TEST(ProjectManager, SaveLaunchMetadataPreservesExistingStartSceneHandle) {
   ProjectLaunchMetadata metadata;
   metadata.application_name = "Template Project";
   metadata.preferred_editor = "EvoEngineEditor";
-  metadata.startup_runtime_packages = {"LogGrading"};
+  metadata.startup_runtime_packages = {"ExamplePackage"};
   ProjectManager::SaveProjectLaunchMetadata(project.ProjectPath(), metadata);
 
   const auto project_yaml = YAML::LoadFile(project.ProjectPath().string());
@@ -761,7 +761,7 @@ TEST(ProjectManager, SaveLaunchMetadataPreservesExistingStartSceneHandle) {
   const auto loaded_metadata = ProjectManager::LoadProjectLaunchMetadata(project.ProjectPath());
   EXPECT_EQ(loaded_metadata.application_name, "Template Project");
   ASSERT_EQ(loaded_metadata.startup_runtime_packages.size(), 1);
-  EXPECT_EQ(loaded_metadata.startup_runtime_packages[0], "LogGrading");
+  EXPECT_EQ(loaded_metadata.startup_runtime_packages[0], "ExamplePackage");
 }
 
 TEST(ProjectManager, MergesProjectLaunchMetadataIntoApplicationSettings) {

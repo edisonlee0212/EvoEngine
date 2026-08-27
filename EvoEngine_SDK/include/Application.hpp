@@ -10,25 +10,25 @@
 #include "InspectorRegistry.hpp"
 #include "Serialization.hpp"
 namespace evo_engine {
-class AssetManager;
-class Console;
-class Entities;
-class FileManager;
-class GeometryStorage;
-class Input;
-class Jobs;
-class PackageManager;
-class Platform;
-class ProjectManager;
-class Resources;
-class TextureStorage;
-class Times;
-class TransformGraph;
+class EVOENGINE_API AssetManager;
+class EVOENGINE_API Console;
+class EVOENGINE_API Entities;
+class EVOENGINE_API FileManager;
+class EVOENGINE_API GeometryStorage;
+class EVOENGINE_API Input;
+class EVOENGINE_API Jobs;
+class EVOENGINE_API PackageManager;
+class EVOENGINE_API Platform;
+class EVOENGINE_API ProjectManager;
+class EVOENGINE_API Resources;
+class EVOENGINE_API TextureStorage;
+class EVOENGINE_API Times;
+class EVOENGINE_API TransformGraph;
 
 /**
  * @brief The main application class responsible for managing the entire engine lifecycle.
  */
-class Application final {
+class EVOENGINE_API Application final {
   friend class Serialization;
   friend class ProjectManager;
 

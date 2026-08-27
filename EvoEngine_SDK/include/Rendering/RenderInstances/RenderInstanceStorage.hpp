@@ -19,22 +19,22 @@ namespace evo_engine {
 
 using EntitySelectionHighlightCoverage = std::unordered_set<Entity, Entity>;
 
-class BottomLevelAccelerationStructure;
-class DescriptorSet;
-class DescriptorSetLayout;
-class DeferredGeometryPass;
-class DirectionalLightShadowPass;
-class GaussianSplatCullPass;
-class GaussianSplatSortPass;
-class GaussianSplatPass;
-class MotionCoveragePass;
-class Scene;
-class TransparentGeometryPass;
+class EVOENGINE_API BottomLevelAccelerationStructure;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API DeferredGeometryPass;
+class EVOENGINE_API DirectionalLightShadowPass;
+class EVOENGINE_API GaussianSplatCullPass;
+class EVOENGINE_API GaussianSplatSortPass;
+class EVOENGINE_API GaussianSplatPass;
+class EVOENGINE_API MotionCoveragePass;
+class EVOENGINE_API Scene;
+class EVOENGINE_API TransparentGeometryPass;
 
 /**
  * @brief Struct containing various render settings for the engine.
  */
-struct RenderSettings {
+struct EVOENGINE_API RenderSettings {
   enum class ShadowCascadeFitMode {
     StableSphere,
     TightLightSpaceAabb,
@@ -189,9 +189,9 @@ enum class RenderInstanceType {
 /**
  * @brief Class for managing render instance storage.
  */
-class RenderInstanceStorage {
+class EVOENGINE_API RenderInstanceStorage {
  public:
-  struct EntitySelectionRenderSnapshot {
+  struct EVOENGINE_API EntitySelectionRenderSnapshot {
     std::weak_ptr<Scene> scene;
     uint64_t selection_revision = 0;
     uint64_t hierarchy_revision = 0;
@@ -273,7 +273,7 @@ class RenderInstanceStorage {
      * @brief Applies the settings from the target RenderSettings.
      * @param target_render_settings Render settings to be applied.
      */
-    void Apply(const RenderSettings& target_render_settings);
+    EVOENGINE_API void Apply(const RenderSettings& target_render_settings);
 
     /**
      * @brief Compares two RenderInfoBlock objects for inequality.
@@ -374,7 +374,7 @@ class RenderInstanceStorage {
      * @param other The other EnvironmentInfoBlock object to compare.
      * @return True if the objects are not equal.
      */
-    bool operator!=(const EnvironmentInfoBlock& other) const;
+    EVOENGINE_API bool operator!=(const EnvironmentInfoBlock& other) const;
   };
 
   /**
@@ -399,7 +399,7 @@ class RenderInstanceStorage {
      * @param other The other InstanceInfoBlock object to compare.
      * @return True if the objects are not equal.
      */
-    bool operator!=(const InstanceInfoBlock& other) const;
+    EVOENGINE_API bool operator!=(const InstanceInfoBlock& other) const;
   };
   static_assert(sizeof(InstanceInfoBlock) == 144);
 
@@ -411,7 +411,7 @@ class RenderInstanceStorage {
   /**
    * @brief Abstract struct defining an interface for render instances.
    */
-  struct IRenderInstance {
+  struct EVOENGINE_API IRenderInstance {
     int32_t instance_index = 0;                                     ///< Index of the render instance.
     int32_t material_index = 0;                                     ///< Material index used by the render instance.
     RenderInstanceType command_type = RenderInstanceType::Unknown;  ///< Type of the render instance.
@@ -450,7 +450,7 @@ class RenderInstanceStorage {
   /**
    * @brief Struct for external render instance functionality.
    */
-  struct ExternalRenderInstance : IRenderInstance {
+  struct EVOENGINE_API ExternalRenderInstance : IRenderInstance {
     DdgiExternalGeometry ddgi_geometry{};  ///< Optional standard-payload geometry for DDGI ray tracing.
 
     /**
@@ -482,7 +482,7 @@ class RenderInstanceStorage {
   /**
    * @brief Struct for mesh render instance functionality.
    */
-  struct MeshRenderInstance : IRenderInstance {
+  struct EVOENGINE_API MeshRenderInstance : IRenderInstance {
     uint32_t ray_tracing_geometry_version = 0;
     uint32_t morph_weights_version = 0;
     std::shared_ptr<Mesh> mesh;  ///< Shared pointer to the mesh rendered.
@@ -516,7 +516,7 @@ class RenderInstanceStorage {
   /**
    * @brief Struct for skinned mesh render instance functionality.
    */
-  struct SkinnedMeshRenderInstance : IRenderInstance {
+  struct EVOENGINE_API SkinnedMeshRenderInstance : IRenderInstance {
     uint32_t bone_matrices_version;  ///< Version of the bone matrices for the skinned mesh.
     uint32_t ray_tracing_geometry_version = 0;
     uint32_t morph_weights_version = 0;
@@ -553,7 +553,7 @@ class RenderInstanceStorage {
   /**
    * @brief Struct for instanced render instance functionality.
    */
-  struct InstancedRenderInstance : IRenderInstance {
+  struct EVOENGINE_API InstancedRenderInstance : IRenderInstance {
     uint32_t particle_info_list_version;                 ///< Version of the particle information list.
     std::shared_ptr<Mesh> mesh;                          ///< Shared pointer to the mesh.
     std::shared_ptr<ParticleInfoList> particle_infos;    ///< Shared pointer to the particle information list.
@@ -586,7 +586,7 @@ class RenderInstanceStorage {
   /**
    * @brief Struct for strands render instance functionality.
    */
-  struct StrandsRenderInstance : IRenderInstance {
+  struct EVOENGINE_API StrandsRenderInstance : IRenderInstance {
     std::shared_ptr<Strands> strands;  ///< Shared pointer to the strands to be rendered.
 
     /**
@@ -613,7 +613,7 @@ class RenderInstanceStorage {
                     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline) const override;
   };
 
-  struct GaussianSplatRenderInstance : IRenderInstance {
+  struct EVOENGINE_API GaussianSplatRenderInstance : IRenderInstance {
     std::shared_ptr<GaussianSplat> gaussian_splat;
     float opacity_scale = 1.0f;
     int sh_degree = 0;
@@ -654,7 +654,7 @@ class RenderInstanceStorage {
   /**
    * @brief Collection of external render instances.
    */
-  class ExternalRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API ExternalRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<ExternalRenderInstance>> render_commands;  ///< Commands for external rendering.
 
    public:
@@ -693,7 +693,7 @@ class RenderInstanceStorage {
   /**
    * @brief Collection of mesh render instances.
    */
-  class MeshRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API MeshRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<MeshRenderInstance>> render_commands;  ///< Commands for mesh rendering.
 
    public:
@@ -729,7 +729,7 @@ class RenderInstanceStorage {
   /**
    * @brief Collection of skinned mesh render instances.
    */
-  class SkinnedMeshRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API SkinnedMeshRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<SkinnedMeshRenderInstance>> render_commands;  ///< Commands for skinned mesh rendering.
 
    public:
@@ -766,7 +766,7 @@ class RenderInstanceStorage {
   /**
    * @brief Collection of strands render instances.
    */
-  class StrandsRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API StrandsRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<StrandsRenderInstance>> render_commands;  ///< Commands for strands rendering.
 
    public:
@@ -800,7 +800,7 @@ class RenderInstanceStorage {
         const std::function<void(const std::shared_ptr<StrandsRenderInstance>&)>& action) const;
   };
 
-  class GaussianSplatRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API GaussianSplatRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<GaussianSplatRenderInstance>> render_commands;
 
    public:
@@ -817,7 +817,7 @@ class RenderInstanceStorage {
   /**
    * @brief Collection of instanced render instances.
    */
-  class InstancedRenderInstanceCollection : public IRenderInstanceCollection {
+  class EVOENGINE_API InstancedRenderInstanceCollection : public IRenderInstanceCollection {
     std::vector<std::shared_ptr<InstancedRenderInstance>> render_commands;  ///< Commands for instanced rendering.
 
    public:
@@ -942,7 +942,7 @@ class RenderInstanceStorage {
     VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;
   };
 
-  class RasterSpatialIndex {
+  class EVOENGINE_API RasterSpatialIndex {
    public:
     struct UpdateStats {
       uint32_t leaf_count = 0;
@@ -968,7 +968,7 @@ class RenderInstanceStorage {
     [[nodiscard]] const UpdateStats& GetUpdateStats() const;
 
    private:
-    struct Node {
+    struct EVOENGINE_API Node {
       Bound bound{};
       Bound exact_bound{};
       Handle handle = 0;

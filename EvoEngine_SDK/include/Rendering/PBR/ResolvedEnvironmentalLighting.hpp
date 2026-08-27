@@ -38,7 +38,7 @@ struct ResolvedEnvironmentalLighting {
   static constexpr float kDefaultDiffuseFallbackIntensity = 1.0f;
   static constexpr float kDefaultSpecularFallbackIntensity = 1.0f;
 
-  struct IndirectEnvironmentSource {
+  struct EVOENGINE_API IndirectEnvironmentSource {
     IndirectEnvironmentSourceKind kind = IndirectEnvironmentSourceKind::EngineDefault;
     AssetRef environmental_map;
     glm::vec3 color = glm::vec3(0.0f);
@@ -60,7 +60,7 @@ struct ResolvedEnvironmentalLighting {
     bool enabled = true;
   };
 
-  struct DynamicReflectionProbeSettings {
+  struct EVOENGINE_API DynamicReflectionProbeSettings {
     uint32_t faces_per_frame = 6u;
     bool enabled = true;
   };

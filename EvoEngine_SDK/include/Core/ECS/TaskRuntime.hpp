@@ -33,7 +33,7 @@ enum class ThreadAffinity { Any, MainThread, Worker, AssetIo, Gpu, Render, Backg
 /**
  * @brief Read-only cancellation view checked before a task starts execution.
  */
-class CancellationToken {
+class EVOENGINE_API CancellationToken {
   std::shared_ptr<std::atomic<bool>> state_;
 
   explicit CancellationToken(std::shared_ptr<std::atomic<bool>> state);
@@ -48,7 +48,7 @@ class CancellationToken {
 /**
  * @brief Owns cancellation state that can be shared with scheduled tasks.
  */
-class CancellationSource {
+class EVOENGINE_API CancellationSource {
   std::shared_ptr<std::atomic<bool>> state_ = std::make_shared<std::atomic<bool>>(false);
 
  public:
@@ -60,7 +60,7 @@ class CancellationSource {
 /**
  * @brief Generation-checked handle for a scheduled task.
  */
-class TaskHandle {
+class EVOENGINE_API TaskHandle {
   int index_ = -1;
   uint32_t generation_ = 0;
 
@@ -75,7 +75,7 @@ class TaskHandle {
 /**
  * @brief Small dependency collection used when building task graphs incrementally.
  */
-class TaskGroup {
+class EVOENGINE_API TaskGroup {
   std::vector<TaskHandle> handles_;
 
  public:
@@ -129,7 +129,7 @@ struct TaskRuntimeStats {
  * TaskRuntime is intentionally the stable abstraction boundary for the engine. Higher-level systems should depend on
  * this API instead of a third-party scheduler directly; the backend can be replaced later after focused bake-offs.
  */
-class TaskRuntime {
+class EVOENGINE_API TaskRuntime {
   enum class TaskState { Pending, Queued, Running, Completed, Recycled };
 
   struct TaskRecord {

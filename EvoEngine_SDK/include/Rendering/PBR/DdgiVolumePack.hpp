@@ -9,9 +9,9 @@
 
 namespace evo_engine {
 
-class DdgiVolumePack final : public IAsset {
+class EVOENGINE_API DdgiVolumePack final : public IAsset {
  public:
-  struct Volume {
+  struct EVOENGINE_API Volume {
     std::string name = "DDGI Volume";
     uint64_t stable_id = 0;
     glm::mat4 transform = glm::mat4(1.0f);
@@ -40,7 +40,7 @@ class DdgiVolumePack final : public IAsset {
   [[nodiscard]] bool RepairStableIds();
 };
 
-void SerializeDdgiVolumePack(YAML::Emitter& out, const DdgiVolumePack& pack);
-void DeserializeDdgiVolumePack(const YAML::Node& in, DdgiVolumePack& pack);
+EVOENGINE_API void SerializeDdgiVolumePack(YAML::Emitter& out, const DdgiVolumePack& pack);
+EVOENGINE_API void DeserializeDdgiVolumePack(const YAML::Node& in, DdgiVolumePack& pack);
 
 }  // namespace evo_engine

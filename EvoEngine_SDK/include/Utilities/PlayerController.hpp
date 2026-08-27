@@ -8,7 +8,7 @@ namespace evo_engine {
  * @class PlayerController
  * @brief A component responsible for managing player input and interaction for controlling a scene camera.
  */
-class PlayerController : public IPrivateComponent {
+class EVOENGINE_API PlayerController : public IPrivateComponent {
   float last_x_ = 0;                    ///< Last recorded mouse X position.
   float last_y_ = 0;                    ///< Last recorded mouse Y position.
   float last_scroll_y_ = 0;             ///< Last recorded scroll value on the Y-axis.

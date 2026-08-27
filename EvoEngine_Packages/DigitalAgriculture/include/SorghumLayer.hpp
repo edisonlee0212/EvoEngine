@@ -1,8 +1,5 @@
 
 #pragma once
-#ifdef CUDA_MODULE_SERVICE
-#  include <CUDAModule.hpp>
-#endif
 #include "ILayer.hpp"
 #include "PointCloud.hpp"
 #include "SorghumDescriptor.hpp"
@@ -29,41 +26,6 @@ class SorghumLayer : public ILayer {
  public:
   /** @brief Flag to enable or disable compressed BTF (Bidirectional Texture Function). */
   bool enable_compressed_btf = false;
-
-#ifdef CUDA_MODULE_SERVICE
-#  pragma region Illumination
-  /** @brief Random seed for illumination calculations. */
-  int m_seed = 0;
-
-  /** @brief Distance used in push operations for light interaction. */
-  float push_distance = 0.001f;
-
-  /** @brief Properties defining ray tracing behavior. */
-  RayProperties ray_properties{4, 4};
-
-  /** @brief List of entities currently being processed for illumination. */
-  std::vector<Entity> processing_entities;
-
-  /** @brief Index of the entity currently being processed. */
-  int processing_index;
-
-  /** @brief Flag indicating whether illumination calculations are in progress. */
-  bool processing = false;
-
-  /** @brief Size of light probes used in calculations. */
-  float light_probe_size = 0.05f;
-
-  /** @brief Time taken per plant for illumination calculations. */
-  float per_plant_calculation_time = 0.0f;
-
-  /** @brief Performs illumination calculations in a frame-by-frame manner. */
-  void CalculateIlluminationFrameByFrame();
-
-  /** @brief Computes illumination effects on the models. */
-  void CalculateIllumination();
-
-#  pragma endregion
-#endif
 
   /** @brief Settings for the sorghum mesh generation process. */
   SorghumMeshGeneratorSettings sorghum_mesh_generator_settings;
@@ -112,11 +74,6 @@ class SorghumLayer : public ILayer {
    * @param sorghum_mesh_generator_settings The settings to use for generating the meshes.
    */
   void GenerateMeshForAllSorghums(const SorghumMeshGeneratorSettings& sorghum_mesh_generator_settings) const;
-
-  /**
-   * @brief Called every frame to update the layer.
-   */
-  void Update() override;
 
   /**
    * @brief Exports a single sorghum entity to an external file.

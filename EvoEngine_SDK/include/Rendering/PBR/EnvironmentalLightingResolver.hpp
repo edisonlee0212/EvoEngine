@@ -9,10 +9,11 @@
 
 namespace evo_engine {
 
-class Scene;
+class EVOENGINE_API Scene;
 
-[[nodiscard]] ResolvedEnvironmentalLighting ResolveEnvironmentalLighting(const std::shared_ptr<Scene>& scene);
-[[nodiscard]] std::vector<DdgiVolumeRuntimeInfo> CollectDdgiVolumeRuntimeInfos(
+[[nodiscard]] EVOENGINE_API ResolvedEnvironmentalLighting
+ResolveEnvironmentalLighting(const std::shared_ptr<Scene>& scene);
+[[nodiscard]] EVOENGINE_API std::vector<DdgiVolumeRuntimeInfo> CollectDdgiVolumeRuntimeInfos(
     const ResolvedEnvironmentalLighting& lighting);
 
 }  // namespace evo_engine

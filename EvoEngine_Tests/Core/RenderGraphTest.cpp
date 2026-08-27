@@ -2553,11 +2553,11 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto ddgi_variability_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeVariabilityPass.cpp"));
 
   EXPECT_NE(lighting_header.find("lighting_descriptor_sets_"), std::string::npos);
-  EXPECT_NE(post_processing_header.find("class PerFrameDescriptorSet"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("class EVOENGINE_API PerFrameDescriptorSet"), std::string::npos);
   EXPECT_NE(post_processing_header.find("duplicate_descriptor_sets"), std::string::npos);
   EXPECT_NE(post_processing_header.find("duplicate_descriptor_set_lists"), std::string::npos);
   EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_sets"), std::string::npos);
-  EXPECT_NE(post_processing_header.find("struct PostProcessingCameraResources"), std::string::npos);
+  EXPECT_NE(post_processing_header.find("struct EVOENGINE_API PostProcessingCameraResources"), std::string::npos);
   EXPECT_NE(render_layer_header.find("struct DdgiReadbackTicket"), std::string::npos);
   EXPECT_NE(render_layer_header.find("variability_readback_tickets"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("Required DDGI"), std::string::npos);

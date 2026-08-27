@@ -6,9 +6,8 @@ This directory documents EvoEngine Services separately from the SDK overview. Ea
 
 | Service | Documentation |
 | --- | --- |
-| CudaModule | [CudaModule/README.md](CudaModule/README.md) |
 | PhysXPhysics | [PhysXPhysics/README.md](PhysXPhysics/README.md) |
 
 Services are registered from `EvoEngine_Services/CMakeLists.txt`. Default registration is not the same as directory presence: some Service directories are present but disabled or gated by platform/optional SDKs.
 
-Runtime packages such as EcoSysLab, DigitalAgriculture, DatasetGeneration, Universe, BillboardClouds, TextureBaking, MeshRepair, Gpr, LogGrading, and LogScanning are documented under [EvoEngine_Packages](../EvoEngine_Packages/README.md).
+Runtime packages such as EcoSysLab, DigitalAgriculture, DatasetGeneration, Universe, BillboardClouds, TextureBaking, and MeshRepair are documented under [EvoEngine_Packages](../EvoEngine_Packages/README.md).

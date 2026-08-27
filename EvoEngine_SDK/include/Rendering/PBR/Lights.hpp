@@ -8,7 +8,7 @@ namespace evo_engine {
  * @struct DirectionalLightInfoBlock
  * @brief A data structure containing information for a directional light.
  */
-struct DirectionalLightInfoBlock {
+struct EVOENGINE_API DirectionalLightInfoBlock {
   glm::vec4 direction;              /**< The direction of the light. */
   glm::vec4 diffuse;                /**< The diffuse color of the light. */
   glm::vec4 specular;               /**< The specular color of the light. */
@@ -33,7 +33,7 @@ struct DirectionalLightInfoBlock {
  * @class DirectionalLight
  * @brief A class representing a directional light component.
  */
-class DirectionalLight : public IPrivateComponent {
+class EVOENGINE_API DirectionalLight : public IPrivateComponent {
  public:
   bool cast_shadow;         /**< Whether the light casts shadows. */
   glm::vec3 diffuse;        /**< Diffuse color of the light. */
@@ -80,7 +80,7 @@ struct PointLightInfoBlock {
  * @class PointLight
  * @brief A class representing a point light component.
  */
-class PointLight : public IPrivateComponent {
+class EVOENGINE_API PointLight : public IPrivateComponent {
  public:
   bool cast_shadow;         /**< Whether the light casts shadows. */
   float constant;           /**< Constant attenuation factor. */
@@ -137,7 +137,7 @@ struct SpotLightInfoBlock {
  * @class SpotLight
  * @brief A class representing a spot light component.
  */
-class SpotLight : public IPrivateComponent {
+class EVOENGINE_API SpotLight : public IPrivateComponent {
  public:
   bool cast_shadow;         /**< Whether the light casts shadows. */
   float inner_degrees;      /**< Inner cutoff angle in degrees. */
@@ -174,7 +174,7 @@ class SpotLight : public IPrivateComponent {
  * @class Lighting
  * @brief A system managing all light components and shadow maps.
  */
-class Lighting {
+class EVOENGINE_API Lighting {
   std::shared_ptr<Image> directional_light_shadow_map_ = {};          /**< Shadow map for directional lights. */
   std::shared_ptr<ImageView> directional_light_shadow_map_view_ = {}; /**< View for directional light shadow map. */
   std::vector<std::shared_ptr<ImageView>> directional_light_shadow_map_layered_views_ =

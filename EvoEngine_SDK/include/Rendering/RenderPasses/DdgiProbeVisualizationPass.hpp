@@ -5,20 +5,20 @@
 #include <glm/glm.hpp>
 
 namespace evo_engine {
-class Camera;
-class Buffer;
-class DescriptorSet;
-class DescriptorSetLayout;
-class GraphicsPipeline;
-class Image;
-class Sampler;
+class EVOENGINE_API Camera;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API Image;
+class EVOENGINE_API Sampler;
 
 struct DdgiProbeVisualizationPushConstant {
   glm::uvec4 camera_selected_mode = glm::uvec4(0);
   glm::vec4 radius_intensity_alpha_selected_scale = glm::vec4(0.08f, 1.0f, 0.95f, 2.0f);
 };
 
-class DdgiProbeVisualizationPass final {
+class EVOENGINE_API DdgiProbeVisualizationPass final {
  public:
   struct Parameters {
     std::shared_ptr<GraphicsPipeline> pipeline;

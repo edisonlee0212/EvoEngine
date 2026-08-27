@@ -6,7 +6,7 @@
 
 namespace evo_engine {
 
-class Buffer;
+class EVOENGINE_API Buffer;
 
 struct GaussianSplatGpuData {
   glm::vec4 position_opacity = glm::vec4(0.0f);
@@ -62,20 +62,20 @@ class GaussianSplat final : public IAsset {
   mutable bool spherical_harmonics_rest_buffer_dirty_ = true;
   mutable uint32_t gpu_data_revision_ = 0;
 
-  void BuildGpuData() const;
+  EVOENGINE_API void BuildGpuData() const;
 
  protected:
-  bool LoadInternal(const std::filesystem::path& path);
-  [[nodiscard]] bool SupportsStagedLoading(const std::filesystem::path& path) const;
-  [[nodiscard]] std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
+  EVOENGINE_API bool LoadInternal(const std::filesystem::path& path);
+  [[nodiscard]] EVOENGINE_API bool SupportsStagedLoading(const std::filesystem::path& path) const;
+  [[nodiscard]] EVOENGINE_API std::shared_ptr<StagedAssetLoadPayload> LoadStagedPayloadInternal(
       const std::filesystem::path& path) const;
-  bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
-                                  const std::shared_ptr<StagedAssetLoadPayload>& payload);
-  bool SaveInternal(const std::filesystem::path& path) const;
+  EVOENGINE_API bool ApplyStagedPayloadInternal(const std::filesystem::path& path,
+                                                const std::shared_ptr<StagedAssetLoadPayload>& payload);
+  EVOENGINE_API bool SaveInternal(const std::filesystem::path& path) const;
 
  public:
-  static bool RegisterAssetIoHandlers(const std::string& owner_name = {},
-                                      const std::string& type_name = "GaussianSplat");
+  static EVOENGINE_API bool RegisterAssetIoHandlers(const std::string& owner_name = {},
+                                                    const std::string& type_name = "GaussianSplat");
 
   std::vector<glm::vec3> positions;
   std::vector<glm::vec3> scales;
@@ -85,35 +85,36 @@ class GaussianSplat final : public IAsset {
   std::vector<float> spherical_harmonics_rest;
   uint32_t spherical_harmonics_rest_float_count = 0;
 
-  void OnCreate() override;
-  [[nodiscard]] size_t GetSplatCount() const;
-  [[nodiscard]] bool Empty() const;
-  [[nodiscard]] glm::vec3 GetMinBound() const;
-  [[nodiscard]] glm::vec3 GetMaxBound() const;
-  void SetBounds(const glm::vec3& min_bound, const glm::vec3& max_bound);
-  void RecalculateBoundingBox();
-  void InvalidateGpuCaches();
-  [[nodiscard]] const std::vector<GaussianSplatGpuData>& EnsureGpuData() const;
-  [[nodiscard]] const std::shared_ptr<Buffer>& GetGpuDataBuffer() const;
-  [[nodiscard]] const std::shared_ptr<Buffer>& GetSphericalHarmonicsRestBuffer() const;
-  [[nodiscard]] uint32_t GetSphericalHarmonicsRestFloatCount() const;
-  [[nodiscard]] uint32_t GetSphericalHarmonicsDegree() const;
-  [[nodiscard]] uint32_t GetGpuDataRevision() const;
-  [[nodiscard]] const GaussianSplatSortCache& EnsureSortedIndices(const Handle& camera_handle,
-                                                                  const Handle& sort_owner_handle,
-                                                                  const glm::mat4& model, const glm::mat4& view) const;
-  [[nodiscard]] const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle,
-                                                            const Handle& sort_owner_handle) const;
-  [[nodiscard]] const GaussianSplatGpuPrepassCache& EnsureGpuPrepassCache(const Handle& camera_handle,
+  EVOENGINE_API void OnCreate() override;
+  [[nodiscard]] EVOENGINE_API size_t GetSplatCount() const;
+  [[nodiscard]] EVOENGINE_API bool Empty() const;
+  [[nodiscard]] EVOENGINE_API glm::vec3 GetMinBound() const;
+  [[nodiscard]] EVOENGINE_API glm::vec3 GetMaxBound() const;
+  EVOENGINE_API void SetBounds(const glm::vec3& min_bound, const glm::vec3& max_bound);
+  EVOENGINE_API void RecalculateBoundingBox();
+  EVOENGINE_API void InvalidateGpuCaches();
+  [[nodiscard]] EVOENGINE_API const std::vector<GaussianSplatGpuData>& EnsureGpuData() const;
+  [[nodiscard]] EVOENGINE_API const std::shared_ptr<Buffer>& GetGpuDataBuffer() const;
+  [[nodiscard]] EVOENGINE_API const std::shared_ptr<Buffer>& GetSphericalHarmonicsRestBuffer() const;
+  [[nodiscard]] EVOENGINE_API uint32_t GetSphericalHarmonicsRestFloatCount() const;
+  [[nodiscard]] EVOENGINE_API uint32_t GetSphericalHarmonicsDegree() const;
+  [[nodiscard]] EVOENGINE_API uint32_t GetGpuDataRevision() const;
+  [[nodiscard]] EVOENGINE_API const GaussianSplatSortCache& EnsureSortedIndices(const Handle& camera_handle,
+                                                                                const Handle& sort_owner_handle,
+                                                                                const glm::mat4& model,
+                                                                                const glm::mat4& view) const;
+  [[nodiscard]] EVOENGINE_API const GaussianSplatSortCache* FindSortCache(const Handle& camera_handle,
                                                                           const Handle& sort_owner_handle) const;
-  [[nodiscard]] const GaussianSplatGpuPrepassCache* FindGpuPrepassCache(const Handle& camera_handle,
-                                                                        const Handle& sort_owner_handle) const;
-  bool LoadPly(const std::filesystem::path& path);
-  bool SavePly(const std::filesystem::path& path) const;
-  bool LoadSplat(const std::filesystem::path& path);
-  bool SaveSplat(const std::filesystem::path& path) const;
-  bool LoadKSplat(const std::filesystem::path& path);
-  bool SaveKSplat(const std::filesystem::path& path) const;
+  [[nodiscard]] EVOENGINE_API const GaussianSplatGpuPrepassCache& EnsureGpuPrepassCache(
+      const Handle& camera_handle, const Handle& sort_owner_handle) const;
+  [[nodiscard]] EVOENGINE_API const GaussianSplatGpuPrepassCache* FindGpuPrepassCache(
+      const Handle& camera_handle, const Handle& sort_owner_handle) const;
+  EVOENGINE_API bool LoadPly(const std::filesystem::path& path);
+  EVOENGINE_API bool SavePly(const std::filesystem::path& path) const;
+  EVOENGINE_API bool LoadSplat(const std::filesystem::path& path);
+  EVOENGINE_API bool SaveSplat(const std::filesystem::path& path) const;
+  EVOENGINE_API bool LoadKSplat(const std::filesystem::path& path);
+  EVOENGINE_API bool SaveKSplat(const std::filesystem::path& path) const;
 };
 
 }  // namespace evo_engine

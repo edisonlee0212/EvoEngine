@@ -4,14 +4,14 @@
 #include <functional>
 
 namespace evo_engine {
-class Camera;
-class ComputePipeline;
-class DescriptorSet;
-class DescriptorSetLayout;
+class EVOENGINE_API Camera;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
 struct RayCameraHistoryResources;
-class RayTracingPipeline;
+class EVOENGINE_API RayTracingPipeline;
 
-class RayTracingCameraPass final {
+class EVOENGINE_API RayTracingCameraPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 
@@ -32,7 +32,7 @@ class RayTracingCameraPass final {
   static void Execute(const RenderGraphExecutionContext& context, const Parameters& parameters);
 };
 
-class RayQueryCameraPass final {
+class EVOENGINE_API RayQueryCameraPass final {
  public:
   using RecordCommands = RayTracingCameraPass::RecordCommands;
 

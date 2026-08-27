@@ -3,9 +3,9 @@
 namespace evo_engine::editor_theme {
 enum class Theme { Dark, Light };
 
-void Apply(Theme theme);
-void ApplyDefault();
-Theme GetCurrentTheme();
-void ApplyEvoEngineDark();
-void ApplyEvoEngineLight();
+EVOENGINE_API void Apply(Theme theme);
+EVOENGINE_API void ApplyDefault();
+EVOENGINE_API Theme GetCurrentTheme();
+EVOENGINE_API void ApplyEvoEngineDark();
+EVOENGINE_API void ApplyEvoEngineLight();
 }  // namespace evo_engine::editor_theme

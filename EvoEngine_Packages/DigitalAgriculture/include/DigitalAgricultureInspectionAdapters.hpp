@@ -44,7 +44,5 @@ bool InspectSorghumState(evo_engine::InspectorContext& context, SorghumState& st
 bool InspectCBTFGroup(evo_engine::InspectorContext& context, CBTFGroup& group);
 bool InspectCBTFImporter(evo_engine::InspectorContext& context, CBTFImporter& importer);
 
-#ifdef CUDA_MODULE_SERVICE
 bool InspectPARSensorGroup(evo_engine::InspectorContext& context, PARSensorGroup& group);
-#endif
 }  // namespace digital_agriculture_package

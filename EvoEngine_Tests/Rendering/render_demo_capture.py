@@ -33,12 +33,16 @@ def parse_args() -> argparse.Namespace:
 def copy_rendering_assets(source_resources_root: Path, test_resources_root: Path) -> None:
     source_assets = source_resources_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets"
     target_assets = test_resources_root / "EvoEngine-DemoProjects" / "Rendering" / "Assets"
+    fixture_scene = Path(__file__).resolve().parent / "Fixtures" / "Rendering" / "Assets" / "New Scene.evescene"
     if not source_assets.exists():
         raise FileNotFoundError(f"Rendering demo assets not found: {source_assets}")
+    if not fixture_scene.is_file():
+        raise FileNotFoundError(f"Rendering test scene not found: {fixture_scene}")
     if target_assets.exists():
         shutil.rmtree(target_assets)
     target_assets.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(source_assets, target_assets)
+    shutil.copy2(fixture_scene, target_assets / fixture_scene.name)
 
 
 def main() -> int:
@@ -64,6 +68,9 @@ def main() -> int:
             raise RuntimeError("RunDemoWindowless failed")
         if not evoengine.IsCurrentSceneDdgiEnabled():
             raise RuntimeError("Rendering demo capture requires DDGI to be enabled")
+        for _ in range(2):
+            if not evoengine.Loop():
+                raise RuntimeError("Rendering demo ended during frame-slot warmup")
         if not evoengine.ConfigureCurrentSceneCameraForCapture(
             args.render_mode, args.samples_per_frame, args.bounces
         ):

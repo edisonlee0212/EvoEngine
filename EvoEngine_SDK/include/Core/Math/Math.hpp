@@ -20,7 +20,7 @@ namespace evo_engine {
 /**
  * @brief A utility class for generating random values.
  */
-class Random {
+class EVOENGINE_API Random {
  public:
   /**
    * @brief Generates a uniform random float value within the given range.
@@ -52,7 +52,7 @@ class Random {
 /**
  * @brief A collection of mathematical activation functions.
  */
-class ActivationFunction {
+class EVOENGINE_API ActivationFunction {
  public:
   /**
    * @brief Computes the Sigmoid activation function.

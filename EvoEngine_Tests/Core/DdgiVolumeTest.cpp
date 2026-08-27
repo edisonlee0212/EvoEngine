@@ -2445,22 +2445,23 @@ TEST(DdgiVolume, OffscreenPreviewRenderingDoesNotTouchSceneDdgiTracking) {
   EXPECT_LT(camera_render, restore_call);
 }
 
-TEST(DdgiVolume, OffscreenPreviewThumbnailUploadCompletesBeforeReturn) {
+TEST(DdgiVolume, OffscreenPreviewThumbnailGpuCopyCompletesBeforeReturn) {
   const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
   const auto preview_source = ReadTextFile(source_root / "src" / "OffscreenPreviewRenderer.cpp");
   ASSERT_FALSE(preview_source.empty());
 
-  const auto read_texture =
-      preview_source.find("std::shared_ptr<Texture2D> OffscreenPreviewRenderer::ReadColorTexture");
-  const auto set_data = preview_source.find("texture->SetRgbaChannelData(pixels, resolution, false);", read_texture);
-  const auto upload = preview_source.find("texture->UnsafeUploadDataImmediately();", set_data);
-  const auto return_texture = preview_source.find("return texture;", set_data);
-  ASSERT_NE(read_texture, std::string::npos);
-  ASSERT_NE(set_data, std::string::npos);
-  ASSERT_NE(upload, std::string::npos);
+  const auto copy_texture =
+      preview_source.find("std::shared_ptr<Texture2D> OffscreenPreviewRenderer::CopyColorTexture");
+  const auto submit = preview_source.find("Platform::ImmediateSubmit", copy_texture);
+  const auto copy = preview_source.find("vkCmdCopyImage", submit);
+  const auto return_texture = preview_source.find("return texture;", copy);
+  ASSERT_NE(copy_texture, std::string::npos);
+  ASSERT_NE(submit, std::string::npos);
+  ASSERT_NE(copy, std::string::npos);
   ASSERT_NE(return_texture, std::string::npos);
-  EXPECT_LT(set_data, upload);
-  EXPECT_LT(upload, return_texture);
+  EXPECT_LT(submit, copy);
+  EXPECT_LT(copy, return_texture);
+  EXPECT_EQ(preview_source.find("texture->UnsafeUploadDataImmediately();", copy_texture), std::string::npos);
 }
 
 TEST(DdgiVolume, OffscreenPreviewCreatesDirectionalLightWhenSceneHasNone) {

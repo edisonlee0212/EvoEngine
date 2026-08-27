@@ -14,9 +14,9 @@ struct PackageDescriptor {
   const char* description = nullptr;
 };
 
-class PackageManager;
+class EVOENGINE_API PackageManager;
 
-class PackageRegistrar {
+class EVOENGINE_API PackageRegistrar {
   friend class PackageManager;
 
   std::string package_name_;
@@ -87,7 +87,7 @@ struct AvailablePackageInfo {
   bool loaded = false;
 };
 
-class PackageManager final {
+class EVOENGINE_API PackageManager final {
  public:
   static PackageManager& GetInstance();
 

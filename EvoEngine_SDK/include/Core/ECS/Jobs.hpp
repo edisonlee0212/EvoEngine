@@ -8,7 +8,7 @@ namespace evo_engine {
  * @class Jobs
  * @brief A singleton class for managing job system operations such as parallel execution and scheduling.
  */
-class Jobs final {
+class EVOENGINE_API Jobs final {
  public:
   static Jobs& GetInstance();
 

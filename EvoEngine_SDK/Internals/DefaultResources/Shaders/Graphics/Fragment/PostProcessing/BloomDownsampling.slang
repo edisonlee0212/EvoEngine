@@ -43,7 +43,7 @@ float4 main(BloomDownsamplingInput input) : SV_Target {
 
   float3 result = e * 0.125f + (a + c + g + i) * 0.03125f + (b + d + f + h) * 0.0625f +
                   (j + k + l + m) * 0.125f;
-  if (constants.mip_level == 0) {
+  if (constants.apply_karis != 0) {
     float3 groups[5];
     groups[0] = (a + b + d + e) * (0.125f / 4.0f);
     groups[1] = (b + c + e + f) * (0.125f / 4.0f);

@@ -1,6 +1,7 @@
 #include "AppBootstrap.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "AssetThumbnailProvider.hpp"
 #include "Camera.hpp"
 #include "DemoProfiles.hpp"
 #include "DemoScene.hpp"
@@ -9,6 +10,7 @@
 #include "GeometryStorage.hpp"
 #include "GraphicsPipeline.hpp"
 #include "Lights.hpp"
+#include "Material.hpp"
 #include "Mesh.hpp"
 #include "PathUtils.hpp"
 #include "Platform.hpp"
@@ -57,6 +59,8 @@ struct EditorCommandLine {
   std::optional<std::filesystem::path> project_path;
   std::optional<DemoProfileId> demo_profile_id;
   std::optional<std::filesystem::path> demo_preview_capture_path;
+  std::optional<std::filesystem::path> material_thumbnail_asset_path;
+  std::optional<std::filesystem::path> material_thumbnail_output_path;
   std::optional<GraphicsInitializationSettings::ShadowMapResolutionQuality> shadow_map_resolution_quality;
   ApplicationMode application_mode = ApplicationMode::Editor;
   bool application_mode_explicit = false;
@@ -544,6 +548,13 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
         throw std::invalid_argument("--capture-demo-preview requires an output PNG or HDR path.");
       }
       command_line.demo_preview_capture_path = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--capture-material-thumbnail") {
+      if (arg_index + 2 >= argc) {
+        throw std::invalid_argument(
+            "--capture-material-thumbnail requires an Assets-relative material path and output PNG path.");
+      }
+      command_line.material_thumbnail_asset_path = argv[++arg_index];
+      command_line.material_thumbnail_output_path = std::filesystem::absolute(argv[++arg_index]);
     } else if (argument == "--preview-width") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument("--preview-width requires a positive integer.");
@@ -1197,10 +1208,6 @@ void ApplyDemoEditorDefaults(const DemoProfileId profile_id) {
       camera_settings.background_source = Camera::BackgroundSource::ClearColor;
       camera_settings.clear_color = glm::vec4(1.f);
       camera_settings.background_intensity = 3.f;
-      const auto post_processing_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
-      if (post_processing_stack) {
-        post_processing_stack->enable_bloom = false;
-      }
       break;
     }
     case DemoProfileId::DigitalAgriculture:
@@ -2467,6 +2474,37 @@ void RunBistroSmoke(const int width, const int height) {
   }
   editor_layer->SetSceneCameraResolutionOverride(std::nullopt);
 }
+
+void CaptureMaterialThumbnail(const std::filesystem::path& asset_path, const std::filesystem::path& output_path,
+                              const glm::uvec2 resolution) {
+  const auto asset = ProjectManager::GetOrCreateAsset(asset_path);
+  const auto material = std::dynamic_pointer_cast<Material>(asset);
+  if (!material) {
+    throw std::runtime_error("Material thumbnail capture could not load: " + asset_path.string());
+  }
+  if (!material->Load()) {
+    throw std::runtime_error("Material thumbnail capture could not deserialize: " + asset_path.string());
+  }
+  for (auto& texture_ref : material->RefTextureRefs()) {
+    [[maybe_unused]] const auto texture = texture_ref.Get<Texture2D>();
+  }
+  WaitForDemoPreviewSceneInputsReady();
+  OffscreenPreviewSettings settings;
+  settings.resolution = resolution;
+  const auto thumbnail = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
+  if (!thumbnail) {
+    throw std::runtime_error("Material thumbnail capture failed to render: " + asset_path.string());
+  }
+  if (!output_path.parent_path().empty()) {
+    std::filesystem::create_directories(output_path.parent_path());
+  }
+  thumbnail->StoreToPng(output_path, -1, -1, 4);
+  if (!std::filesystem::exists(output_path)) {
+    throw std::runtime_error("Material thumbnail capture failed to save: " + output_path.string());
+  }
+  std::cout << "Material thumbnail capture: asset=\"" << asset_path.string() << "\" output=\"" << output_path.string()
+            << "\"" << std::endl;
+}
 }  // namespace
 
 int main(const int argc, char** argv) {
@@ -2475,7 +2513,8 @@ int main(const int argc, char** argv) {
   bool automated_capture = false;
   try {
     const auto command_line = ParseCommandLine(argc, argv);
-    automated_capture = command_line.demo_preview_capture_path.has_value() || command_line.bistro_smoke;
+    automated_capture = command_line.demo_preview_capture_path.has_value() ||
+                        command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke;
     const auto& project_path = command_line.project_path;
     if (!project_path) {
       if (command_line.demo_profile_id) {
@@ -2681,6 +2720,16 @@ int main(const int argc, char** argv) {
     initialized = true;
 
     ApplicationContext::Get().Start();
+    if (command_line.material_thumbnail_output_path) {
+      WaitForDemoPreviewSceneInputsReady();
+      CaptureMaterialThumbnail(*command_line.material_thumbnail_asset_path,
+                               *command_line.material_thumbnail_output_path,
+                               {command_line.preview_capture_width, command_line.preview_capture_height});
+      ApplicationContext::Get().Terminate();
+      std::cout.flush();
+      std::cerr.flush();
+      std::_Exit(0);
+    }
     ApplicationContext::Get().Run();
     ApplicationContext::Get().Terminate();
     return 0;

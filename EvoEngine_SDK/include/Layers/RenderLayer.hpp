@@ -25,12 +25,12 @@
 
 namespace evo_engine {
 struct ApplicationInitializationSettings;
-class ComputePipeline;
-class GlobalReflectionProbe;
-class ReflectionProbePack;
-class OffscreenPreviewRenderer;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API GlobalReflectionProbe;
+class EVOENGINE_API ReflectionProbePack;
+class EVOENGINE_API OffscreenPreviewRenderer;
 class ReflectionProbe;
-class Sampler;
+class EVOENGINE_API Sampler;
 struct FrameSubmissionState;
 struct PostProcessingRendererResources;
 
@@ -41,7 +41,7 @@ struct PostProcessingRendererResources;
  * Handles various rendering tasks, such as camera iteration, shadow map rendering,
  * deferred rendering, forward rendering, and more.
  */
-class RenderLayer final : public ILayer {
+class EVOENGINE_API RenderLayer final : public ILayer {
  public:
   /**
    * \brief Iterates through all collected cameras and applies the specified action.

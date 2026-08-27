@@ -10,7 +10,7 @@
 #include <vector>
 
 namespace evo_engine {
-class Scene;
+class EVOENGINE_API Scene;
 
 struct EntityBatchComponent final {
   size_t type_index = 0;
@@ -45,7 +45,7 @@ struct EntityBatchValue final {
   std::array<bool, 3> mixed_axes{};
 };
 
-class EntityBatchInspector final {
+class EVOENGINE_API EntityBatchInspector final {
  public:
   [[nodiscard]] static EntityInspectorDispatch ResolveInspectorDispatch(size_t target_count,
                                                                         bool single_inspector_available,

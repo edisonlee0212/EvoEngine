@@ -3,16 +3,16 @@
 #include "RenderGraph.hpp"
 
 namespace evo_engine {
-class GraphicsPipeline;
-class Image;
-class ImageView;
-class RenderInstanceStorage;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API Image;
+class EVOENGINE_API ImageView;
+class EVOENGINE_API RenderInstanceStorage;
 
 [[nodiscard]] GpuTimestampScopeToken BeginRenderPassGpuTimestamp(VkCommandBuffer vk_command_buffer,
                                                                  const RenderGraphExecutionContext& context,
                                                                  uint64_t view_id = 0, uint64_t instance_id = 0);
 
-class RenderPassGpuTimestampScope final {
+class EVOENGINE_API RenderPassGpuTimestampScope final {
  public:
   RenderPassGpuTimestampScope(VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                               uint64_t view_id = 0, uint64_t instance_id = 0);

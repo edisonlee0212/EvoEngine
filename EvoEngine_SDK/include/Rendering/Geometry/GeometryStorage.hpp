@@ -218,7 +218,7 @@ struct ParticleInfoListData {
   std::shared_ptr<RangeDescriptor> range_descriptor;
 };
 
-class GeometryStorage final {
+class EVOENGINE_API GeometryStorage final {
  public:
   static GeometryStorage& GetInstance();
 
@@ -238,7 +238,7 @@ class GeometryStorage final {
     std::vector<RangeCommit> index_commits;
   };
 
-  struct DirtyRange {
+  struct EVOENGINE_API DirtyRange {
     bool dirty = false;
     size_t begin = 0;
     size_t end = 0;

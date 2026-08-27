@@ -5,16 +5,21 @@
 #include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "EnvironmentalLighting.hpp"
+#include "EnvironmentalMap.hpp"
 #include "GeometryStorage.hpp"
+#include "GlobalReflectionProbe.hpp"
 #include "Lights.hpp"
 #include "Material.hpp"
 #include "Mesh.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
+#include "PostProcessingStack.hpp"
+#include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "RenderTexture.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "Serialization.hpp"
 #include "Texture2D.hpp"
 
 #include <algorithm>
@@ -28,9 +33,27 @@ namespace {
 constexpr uint32_t kMinPreviewResolution = 16;
 constexpr uint32_t kMaxPreviewResolution = 512;
 constexpr float kPreviewCameraFov = 120.0f;
+constexpr float kMaterialPresentationZoom = 1.32f;
+constexpr float kMaterialBloomThreshold = 1.25f;
+constexpr float kMaterialBloomIntensity = 0.5f;
 constexpr float kMinCameraDistance = 0.05f;
 constexpr float kDegenerateBoundHalfExtentRatio = 0.01f;
 constexpr float kMinDegenerateBoundHalfExtent = 0.001f;
+
+struct PreviewContext {
+  std::filesystem::path project_path;
+  std::shared_ptr<Scene> scene;
+  std::shared_ptr<EnvironmentalLighting> lighting;
+  std::shared_ptr<Texture2D> studio_texture;
+  std::shared_ptr<EnvironmentalMap> studio_environment;
+  std::shared_ptr<GlobalReflectionProbe> studio_reflection_probe;
+  Entity subject;
+  std::shared_ptr<MeshRenderer> mesh_renderer;
+  std::shared_ptr<Camera> camera;
+  std::shared_ptr<PostProcessingStack> post_processing_stack;
+};
+
+std::unique_ptr<PreviewContext> preview_context;
 
 glm::uvec2 ClampResolution(const glm::uvec2& resolution) {
   return {std::clamp(resolution.x, kMinPreviewResolution, kMaxPreviewResolution),
@@ -117,6 +140,69 @@ void ConfigurePreviewLighting(const std::shared_ptr<Scene>& scene) {
   }
 }
 
+PreviewContext* GetPreviewContext() {
+  const auto project_path = ProjectManager::GetProjectPath();
+  if (preview_context && preview_context->project_path == project_path) {
+    return preview_context.get();
+  }
+
+  auto context = std::make_unique<PreviewContext>();
+  context->project_path = project_path;
+  context->scene = AssetManager::CreateTemporaryAsset<Scene>();
+  context->lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  if (!context->scene || !context->lighting) {
+    return nullptr;
+  }
+
+  context->studio_texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  const auto studio_path = Resources::GetDefaultResourcePath("Textures/MaterialPreview/neutral_studio.hdr");
+  if (context->studio_texture && Serialization::LoadAsset(*context->studio_texture, studio_path)) {
+    context->studio_environment = AssetManager::CreateTemporaryAsset<EnvironmentalMap>();
+    context->studio_environment->ConstructFromTexture2D(context->studio_texture);
+    context->lighting->indirect_environment_source.kind =
+        EnvironmentalLighting::IndirectEnvironmentSourceKind::EnvironmentalMap;
+    context->lighting->indirect_environment_source.environmental_map = context->studio_environment;
+    context->lighting->indirect_environment_source.rotation = 0.0f;
+    if (auto cubemap_ref = context->studio_environment->environment_cubemap;
+        const auto cubemap = cubemap_ref.Get<Cubemap>()) {
+      context->studio_reflection_probe = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
+      if (context->studio_reflection_probe->ConstructFromCubemap(cubemap)) {
+        context->scene->global_reflection_probe_fallback = context->studio_reflection_probe;
+      }
+    }
+  } else {
+    context->studio_texture.reset();
+    context->lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  }
+  context->lighting->environment_lighting_intensity = 1.0f;
+  context->lighting->diffuse_fallback_intensity = 1.0f;
+  context->lighting->ddgi_settings.runtime.enabled = false;
+  context->scene->environmental_lighting = context->lighting;
+  ConfigurePreviewLighting(context->scene);
+
+  context->subject = context->scene->CreateEntity("Preview Subject");
+  context->mesh_renderer = context->scene->GetOrSetPrivateComponent<MeshRenderer>(context->subject).lock();
+  context->camera = context->scene->main_camera.Get<Camera>();
+  if (!context->mesh_renderer || !context->camera || !context->scene->IsEntityValid(context->camera->GetOwner())) {
+    return nullptr;
+  }
+  context->post_processing_stack = context->camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  if (context->post_processing_stack && context->post_processing_stack->bloom) {
+    context->post_processing_stack->bloom->threshold = kMaterialBloomThreshold;
+    context->post_processing_stack->bloom->intensity = kMaterialBloomIntensity;
+  }
+  if (context->post_processing_stack && context->post_processing_stack->tone_mapping) {
+    auto& tone_mapping = *context->post_processing_stack->tone_mapping;
+    tone_mapping.method = ToneMapping::ToneMapMethod::Aces;
+    tone_mapping.exposure = 1.0f;
+    tone_mapping.auto_exposure = false;
+    tone_mapping.dither = false;
+  }
+  context->mesh_renderer->cast_shadow = false;
+  preview_context = std::move(context);
+  return preview_context.get();
+}
+
 void UploadPreviewResources(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material) {
   if (!mesh || !material) {
     return;
@@ -161,6 +247,10 @@ glm::quat CreateSubjectRotation(const OffscreenPreviewSettings& settings) {
 }
 }  // namespace
 
+void OffscreenPreviewRenderer::Reset() {
+  preview_context.reset();
+}
+
 std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMaterial(const std::shared_ptr<Material>& material,
                                                                     const OffscreenPreviewSettings& settings) {
   if (!material) {
@@ -171,7 +261,9 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMaterial(const std::s
   if (!mesh) {
     return {};
   }
-  return RenderMeshWithMaterial(mesh, material, mesh->GetBound(), settings);
+  auto material_settings = settings;
+  material_settings.camera_zoom *= kMaterialPresentationZoom;
+  return RenderMeshWithMaterial(mesh, material, mesh->GetBound(), material_settings, true);
 }
 
 std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMesh(const std::shared_ptr<Mesh>& mesh,
@@ -184,13 +276,14 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMesh(const std::share
   if (!preview_material) {
     return {};
   }
-  return RenderMeshWithMaterial(mesh, preview_material, mesh->GetBound(), settings);
+  return RenderMeshWithMaterial(mesh, preview_material, mesh->GetBound(), settings, false);
 }
 
 std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(const std::shared_ptr<Mesh>& mesh,
                                                                             const std::shared_ptr<Material>& material,
                                                                             const Bound& focus_bound,
-                                                                            const OffscreenPreviewSettings& settings) {
+                                                                            const OffscreenPreviewSettings& settings,
+                                                                            const bool material_presentation) {
   const auto application = ApplicationContext::TryGet();
   if (!application || !Platform::Initialized() || !Platform::TryGetGpuService() || !mesh || !material) {
     return {};
@@ -201,42 +294,30 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
     return {};
   }
 
-  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
-  if (!scene) {
+  const auto context = GetPreviewContext();
+  if (!context) {
     return {};
   }
-  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
-  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
-  lighting->indirect_environment_source.color = glm::vec3(settings.clear_color);
-  lighting->environment_lighting_intensity = 1.1f;
-  lighting->diffuse_fallback_intensity = 1.0f;
-  lighting->ddgi_settings.runtime.enabled = false;
-  scene->environmental_lighting = lighting;
-  ConfigurePreviewLighting(scene);
-
-  const auto subject = scene->CreateEntity("Preview Subject");
-  const auto mesh_renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(subject).lock();
-  if (!mesh_renderer) {
-    return {};
+  const auto& scene = context->scene;
+  const auto& mesh_renderer = context->mesh_renderer;
+  const auto& camera = context->camera;
+  if (!context->studio_environment) {
+    context->lighting->indirect_environment_source.color = glm::vec3(settings.clear_color);
   }
   mesh_renderer->mesh.Set(mesh);
   mesh_renderer->material.Set(material);
-  mesh_renderer->cast_shadow = false;
   UploadPreviewResources(mesh, material);
 
   const auto subject_rotation = CreateSubjectRotation(settings);
   GlobalTransform subject_transform;
   subject_transform.SetValue(glm::vec3(0.0f), subject_rotation, glm::vec3(1.0f));
-  SetEntityTransform(scene, subject, subject_transform);
-
-  const auto camera = scene->main_camera.Get<Camera>();
-  if (!camera || !scene->IsEntityValid(camera->GetOwner())) {
-    return {};
-  }
+  SetEntityTransform(scene, context->subject, subject_transform);
   camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
-  camera->camera_settings.background_source = Camera::BackgroundSource::ClearColor;
+  camera->camera_settings.background_source = context->studio_environment
+                                                  ? Camera::BackgroundSource::InheritEnvironmentalLighting
+                                                  : Camera::BackgroundSource::ClearColor;
   camera->camera_settings.clear_color = settings.clear_color;
-  camera->camera_settings.background_intensity = settings.clear_color.a;
+  camera->camera_settings.background_intensity = context->studio_environment ? 0.45f : settings.clear_color.a;
   camera->camera_settings.fov = kPreviewCameraFov;
   camera->camera_settings.near_distance = 0.01f;
   camera->camera_settings.far_distance = 1000.0f;
@@ -251,31 +332,51 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::RenderMeshWithMaterial(cons
   camera->SetRequireRendering(true);
 
   render_layer->RenderSceneToCameraImmediately(scene, camera_transform, camera);
-  return ReadColorTexture(camera, settings);
+  if (material_presentation && context->post_processing_stack) {
+    context->post_processing_stack->ProcessBloomAndToneMappingImmediately(camera);
+  }
+  return CopyColorTexture(camera, settings);
 }
 
-std::shared_ptr<Texture2D> OffscreenPreviewRenderer::ReadColorTexture(const std::shared_ptr<Camera>& camera,
+std::shared_ptr<Texture2D> OffscreenPreviewRenderer::CopyColorTexture(const std::shared_ptr<Camera>& camera,
                                                                       const OffscreenPreviewSettings& settings) {
   if (!camera || !camera->GetRenderTexture() || !camera->GetRenderTexture()->GetColorImage()) {
     return {};
   }
 
   const auto resolution = ClampResolution(settings.resolution);
-  std::vector<glm::vec4> pixels;
-  Buffer image_buffer(sizeof(glm::vec4) * resolution.x * resolution.y);
-  image_buffer.CopyFromImage(*camera->GetRenderTexture()->GetColorImage());
-  image_buffer.DownloadVector(pixels, resolution.x * resolution.y);
-
   const auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
   if (!texture) {
     return {};
   }
-  for (auto& pixel : pixels) {
-    pixel = glm::clamp(pixel, glm::vec4(0.0f), glm::vec4(1.0f));
-    pixel.a = 1.0f;
+
+  const auto source = camera->GetRenderTexture()->GetColorImage();
+  auto& target_storage = texture->RefTexture2DStorage();
+  target_storage.Initialize(resolution, source->GetFormat(), true, 1);
+  const auto target = target_storage.GetImage();
+  if (!target) {
+    return {};
   }
-  texture->SetRgbaChannelData(pixels, resolution, false);
-  texture->UnsafeUploadDataImmediately();
+
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    const auto source_layout = source->GetLayout();
+    source->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy copy_region{};
+    copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy_region.srcSubresource.layerCount = 1;
+    copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy_region.dstSubresource.layerCount = 1;
+    copy_region.extent = {resolution.x, resolution.y, 1};
+    vkCmdCopyImage(command_buffer, source->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target->GetVkImage(),
+                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+    source->TransitImageLayout(command_buffer, source_layout);
+    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  });
+  texture->red_channel = true;
+  texture->green_channel = true;
+  texture->blue_channel = true;
+  texture->alpha_channel = true;
   return texture;
 }
 

@@ -3,9 +3,6 @@
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
 #include "TextureStorage.hpp"
-#ifdef CUDA_MODULE_SERVICE
-#  include "RayTracerLayer.hpp"
-#endif
 using namespace py_evo_engine;
 namespace py = pybind11;
 
@@ -283,7 +280,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("PushRenderLayer", &PushRenderLayer);
   m.def("PushWindowLayer", &PushWindowLayer);
   m.def("PushEditorLayer", &PushEditorLayer);
-  m.def("PushRayTracerLayer", &PushRayTracerLayer);
 
   m.def("RunWindowless", &RunWindowless);
   m.def("RunDemoWindowless", &RunDemoWindowless, py::arg("demo_setup_name"), py::arg("resource_folder_path"),
@@ -385,12 +381,6 @@ void PyEvoEngine::PushEditorLayer() {
     ApplicationContext::Get().PushLayer<EditorLayer>("Editor Layer");
   }
 }
-void PyEvoEngine::PushRayTracerLayer() {
-#ifdef CUDA_MODULE_SERVICE
-  ApplicationContext::Get().PushLayer<RayTracerLayer>("Ray Tracer Layer");
-#endif
-}
-
 bool PyEvoEngine::RunWindowless(const std::filesystem::path& project_path) {
   if (std::filesystem::path(project_path).extension().string() != ".eveproj") {
     EVOENGINE_ERROR("Project path doesn't point to a EvoEngine project!");

@@ -10,9 +10,9 @@
 
 namespace evo_engine {
 
-class ReflectionProbePack final : public IAsset {
+class EVOENGINE_API ReflectionProbePack final : public IAsset {
  public:
-  struct Probe {
+  struct EVOENGINE_API Probe {
     std::string name = "Local Reflection Probe";
     uint64_t stable_id = 0;
     glm::mat4 transform = glm::mat4(1.0f);

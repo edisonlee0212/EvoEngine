@@ -2095,59 +2095,15 @@ TEST(GltfRayTracingMaterial, PointCloudSamplingHasNoDeadRecursiveEnvironmentPath
   EXPECT_EQ(point_cloud_source.find("ray_tracing_point_cloud_pipeline->PushConstant"), std::string::npos);
 }
 
-TEST(GltfRayTracingMaterial, EnvironmentControlBridgesUseDefinedLobeOwnership) {
+TEST(GltfRayTracingMaterial, EnvironmentControlsUseDefinedLobeOwnership) {
   const auto camera_integrator = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayIntegrator.slang"));
-  const auto cuda_bridge = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                        "EvoEngine_Services/CudaModule/src/RayTracerLayer.cpp");
-  const auto cuda_module = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                        "EvoEngine_Services/CudaModule/src/CUDAModule.cpp");
-  const auto cuda_environment = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                             "EvoEngine_Services/CudaModule/include/RayTracer/Environment.cuh");
-  const auto cuda_ray_tracer = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                            "EvoEngine_Services/CudaModule/include/RayTracer/OptiXRayTracer.hpp");
-  const auto cuda_ray_functions = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                               "EvoEngine_Services/CudaModule/include/RayTracer/RayFunctions.cuh");
-  const auto cuda_camera = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                        "EvoEngine_Services/CudaModule/src/ptx/CameraRendering.cu");
-  const auto cuda_estimator = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
-                                           "EvoEngine_Services/CudaModule/src/ptx/IlluminationEstimation.cu");
   const auto python_binding =
       ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "PythonBinding/src/PyEcoSysLabModule.cpp");
   const auto inspector = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
   ASSERT_FALSE(camera_integrator.empty());
-  ASSERT_FALSE(cuda_bridge.empty());
-  ASSERT_FALSE(cuda_module.empty());
-  ASSERT_FALSE(cuda_environment.empty());
-  ASSERT_FALSE(cuda_ray_tracer.empty());
-  ASSERT_FALSE(cuda_ray_functions.empty());
-  ASSERT_FALSE(cuda_camera.empty());
-  ASSERT_FALSE(cuda_estimator.empty());
   ASSERT_FALSE(python_binding.empty());
   ASSERT_FALSE(inspector.empty());
 
-  EXPECT_NE(cuda_bridge.find("env_settings.sky_light_intensity_scale"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("env_settings.indirect_lighting_intensity"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("env_settings.environment_rotation"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("global_reflection_probe_payload_hash != requested_payload_hash"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("scene->GetGlobalReflectionProbeFallback(false)"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("Resources::GetInstance().GetDefaultGlobalReflectionProbe()"), std::string::npos);
-  EXPECT_NE(cuda_module.find("!cubemap || !cubemap->GetImage()"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("environment_properties.environmental_map = 0"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("environmental_map_image.reset()"), std::string::npos);
-  EXPECT_NE(cuda_bridge.find("reflection_probe->IsRuntimeReady()"), std::string::npos);
-  EXPECT_EQ(cuda_bridge.find("env_settings.specular_reflection_intensity"), std::string::npos);
-  EXPECT_NE(cuda_environment.find("CalculateEnvironmentSourceRadiance"), std::string::npos);
-  EXPECT_NE(cuda_environment.find("const bool diffuseIndirectPath"), std::string::npos);
-  EXPECT_NE(cuda_environment.find("diffuseIndirectPath ? environment.indirect_lighting_intensity : 1.0f"),
-            std::string::npos);
-  EXPECT_NE(cuda_environment.find("EnvironmentLocalDirection(rayDir, environment.environment_rotation)"),
-            std::string::npos);
-  EXPECT_NE(cuda_ray_tracer.find("float environment_rotation = 0.0f"), std::string::npos);
-  EXPECT_NE(cuda_ray_tracer.find("properties.environment_rotation != environment_rotation"), std::string::npos);
-  EXPECT_NE(cuda_ray_functions.find("primaryBackground ? CalculateEnvironmentSourceRadiance"), std::string::npos);
-  EXPECT_EQ(cuda_ray_functions.find("metallic < 1.0f - 1.0e-4f"), std::string::npos);
-  EXPECT_EQ(cuda_ray_functions.find("glossyProbability"), std::string::npos);
-  EXPECT_EQ(cuda_ray_functions.find("ambient_light_intensity"), std::string::npos);
   const auto volume_nee_offset = camera_integrator.find("float3 EE_CAMERA_VOLUME_SCATTER_NEE");
   const auto volume_emissive_offset = camera_integrator.find("float3 EE_CAMERA_VOLUME_EMISSIVE_NEE");
   ASSERT_NE(volume_nee_offset, std::string::npos);
@@ -2158,10 +2114,6 @@ TEST(GltfRayTracingMaterial, EnvironmentControlBridgesUseDefinedLobeOwnership) {
   EXPECT_EQ(surface_nee.find("EE_CAMERA_PATH_ENVIRONMENT_RADIANCE(direct_light.direction) *"), std::string::npos);
   EXPECT_NE(volume_nee.find("EE_CAMERA_PATH_ENVIRONMENT_RADIANCE(direct_light.direction) *"), std::string::npos);
   EXPECT_NE(volume_nee.find("max(EE_ENVIRONMENT.diffuse_sky_intensity, 0.0f)"), std::string::npos);
-  EXPECT_NE(cuda_camera.find("camera_ray_data.primary_background_visible = true"), std::string::npos);
-  EXPECT_NE(cuda_camera.find("camera_ray_data.diffuse_indirect_path = false"), std::string::npos);
-  EXPECT_NE(cuda_estimator.find("perRayData.primary_background_visible = false"), std::string::npos);
-  EXPECT_NE(cuda_estimator.find("perRayData.diffuse_indirect_path = true"), std::string::npos);
   EXPECT_NE(python_binding.find("lighting->environment_lighting_intensity = std::max(sky_light_intensity_scale, 0.0f)"),
             std::string::npos);
   EXPECT_NE(python_binding.find("lighting->diffuse_fallback_intensity = std::max(indirect_lighting_intensity, 0.0f)"),

@@ -14,7 +14,7 @@
 
 namespace evo_engine {
 
-class EnvironmentalLighting final : public IAsset {
+class EVOENGINE_API EnvironmentalLighting final : public IAsset {
  public:
   enum class IndirectEnvironmentSourceKind : uint32_t {
     EngineDefault = 0,
@@ -36,7 +36,7 @@ class EnvironmentalLighting final : public IAsset {
   static constexpr float kSpecularVisibilityGrazingOcclusionCap = 0.04f;
   static constexpr float kSpecularVisibilityFullTrustStart = 0.8f;
 
-  struct IndirectEnvironmentSource {
+  struct EVOENGINE_API IndirectEnvironmentSource {
     IndirectEnvironmentSourceKind kind = IndirectEnvironmentSourceKind::EngineDefault;
     AssetRef environmental_map;
     glm::vec3 color = glm::vec3(0.0f);
@@ -46,7 +46,7 @@ class EnvironmentalLighting final : public IAsset {
     void CollectAssetRef(std::vector<AssetRef>& list);
   };
 
-  struct ReflectionProbeBakeBackground {
+  struct EVOENGINE_API ReflectionProbeBakeBackground {
     CameraSettings::BackgroundSource source = CameraSettings::BackgroundSource::InheritEnvironmentalLighting;
     AssetRef cubemap;
     AssetRef environmental_map;
@@ -55,7 +55,7 @@ class EnvironmentalLighting final : public IAsset {
     void CollectAssetRef(std::vector<AssetRef>& list);
   };
 
-  struct DynamicReflectionProbeSettings {
+  struct EVOENGINE_API DynamicReflectionProbeSettings {
     int faces_per_frame = 6;
     bool enabled = true;
 
@@ -87,7 +87,7 @@ class EnvironmentalLighting final : public IAsset {
                                                              float normal_dot_view);
 };
 
-void SerializeEnvironmentalLighting(YAML::Emitter& out, const EnvironmentalLighting& lighting);
-void DeserializeEnvironmentalLighting(const YAML::Node& in, EnvironmentalLighting& lighting);
+EVOENGINE_API void SerializeEnvironmentalLighting(YAML::Emitter& out, const EnvironmentalLighting& lighting);
+EVOENGINE_API void DeserializeEnvironmentalLighting(const YAML::Node& in, EnvironmentalLighting& lighting);
 
 }  // namespace evo_engine

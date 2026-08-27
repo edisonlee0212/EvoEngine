@@ -19,7 +19,7 @@ struct TextureStorageHandle {
  * @class Texture2DStorage
  * @brief Responsible for managing 2D textures and their associated GPU resources.
  */
-class Texture2DStorage {
+class EVOENGINE_API Texture2DStorage {
   friend class TextureStorage;
   friend class Texture2D;
   friend class Cubemap;
@@ -164,7 +164,7 @@ class Texture2DStorage {
  * @class CubemapStorage
  * @brief Responsible for managing cubemap textures and their associated GPU resources.
  */
-class CubemapStorage {
+class EVOENGINE_API CubemapStorage {
  public:
   bool pending_delete = false;  ///< Indicates whether the storage is pending deletion.
 
@@ -225,7 +225,7 @@ class CubemapStorage {
  * @class TextureStorage
  * @brief A singleton class that manages storage and access for all textures and cubemaps in the engine.
  */
-class TextureStorage final {
+class EVOENGINE_API TextureStorage final {
  public:
   static TextureStorage& GetInstance();
 

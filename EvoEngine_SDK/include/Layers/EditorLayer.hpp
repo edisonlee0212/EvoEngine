@@ -30,8 +30,8 @@
 
 namespace evo_engine {
 
-class EnvironmentalLighting;
-class ProjectContentBrowserPanel;
+class EVOENGINE_API EnvironmentalLighting;
+class EVOENGINE_API ProjectContentBrowserPanel;
 struct ProfilerPanelState;
 struct EntityBatchInspectionContext;
 struct EntityBatchSelectionBound;
@@ -111,7 +111,7 @@ struct ConsoleMessage {
 /**
  * @brief Structure representing the settings for drawing gizmos.
  */
-struct GizmoSettings {
+struct EVOENGINE_API GizmoSettings {
   DrawSettings draw_settings; /**< The draw settings for the gizmo. */
 
   /**
@@ -213,7 +213,7 @@ struct GizmoStrandsTask {
 /**
  * @brief The main layer for the editor functionalities.
  */
-class EditorLayer : public ILayer {
+class EVOENGINE_API EditorLayer : public ILayer {
  public:
   enum class EntityGizmoPivotMode : uint8_t { Pivot, Center };
   enum class EntityGizmoOrientationMode : uint8_t { Local, Global };

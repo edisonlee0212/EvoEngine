@@ -11,12 +11,12 @@
 #include "Transform.hpp"
 
 namespace evo_engine {
-class Buffer;
-class DescriptorSet;
-class DescriptorSetLayout;
-class PostProcessingStack;
-class RenderGraphTransientResourceStore;
-struct PostProcessingCameraResources;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API PostProcessingStack;
+class EVOENGINE_API RenderGraphTransientResourceStore;
+struct EVOENGINE_API PostProcessingCameraResources;
 
 enum class RayCameraHistoryTechnique : uint32_t { RayTracing, RayQuery };
 
@@ -93,7 +93,7 @@ struct RayCameraHistoryStats {
 /**
  * @brief Represents the camera information block with matrices and settings used for rendering.
  */
-struct CameraInfoBlock {
+struct EVOENGINE_API CameraInfoBlock {
   static constexpr uint32_t kRasterLightingGtaoVisibility = 1u << 0u;
 
   glm::mat4 projection = {};                           ///< The projection matrix of the camera.
@@ -155,7 +155,7 @@ struct CameraInfoBlock {
 /**
  * @brief Camera class for managing rendering and view functionality.
  */
-class Camera final : public IPrivateComponent {
+class EVOENGINE_API Camera final : public IPrivateComponent {
  public:
   using BackgroundSource = CameraSettings::BackgroundSource;
 

@@ -15,24 +15,34 @@ using namespace evo_engine;
 
 namespace {
 constexpr uint32_t kMaxThumbnailGenerationsPerFrame = 2;
+constexpr auto kThumbnailGenerationBudget = std::chrono::milliseconds(8);
+constexpr glm::uvec2 kProjectThumbnailResolution = {256, 256};
+
+uint32_t thumbnail_generation_frame = 0;
+uint32_t thumbnail_generation_count = 0;
+std::chrono::steady_clock::duration thumbnail_generation_duration{};
 
 bool CanGenerateThumbnailThisFrame() {
   if (!Platform::Initialized()) {
     return true;
   }
 
-  static uint32_t frame_index = 0;
-  static uint32_t generated_thumbnail_count = 0;
   const auto current_frame_index = Platform::GetFrameCount();
-  if (frame_index != current_frame_index) {
-    frame_index = current_frame_index;
-    generated_thumbnail_count = 0;
+  if (thumbnail_generation_frame != current_frame_index) {
+    thumbnail_generation_frame = current_frame_index;
+    thumbnail_generation_count = 0;
+    thumbnail_generation_duration = {};
   }
-  if (generated_thumbnail_count >= kMaxThumbnailGenerationsPerFrame) {
+  if (thumbnail_generation_count >= kMaxThumbnailGenerationsPerFrame ||
+      thumbnail_generation_duration >= kThumbnailGenerationBudget) {
     return false;
   }
-  ++generated_thumbnail_count;
+  ++thumbnail_generation_count;
   return true;
+}
+
+void RecordThumbnailGenerationDuration(const std::chrono::steady_clock::duration duration) {
+  thumbnail_generation_duration += duration;
 }
 
 bool SupportsGeneratedThumbnail(const File& file) {
@@ -260,7 +270,11 @@ std::shared_ptr<Texture2D> File::GetThumbnail(const bool allow_asset_load) {
       }
     }
 
-    thumbnail_ = AssetThumbnailProvider::GenerateThumbnail(asset);
+    const auto generation_start = std::chrono::steady_clock::now();
+    OffscreenPreviewSettings settings;
+    settings.resolution = kProjectThumbnailResolution;
+    thumbnail_ = AssetThumbnailProvider::GenerateThumbnail(asset, settings);
+    RecordThumbnailGenerationDuration(std::chrono::steady_clock::now() - generation_start);
   } catch (const std::exception& e) {
     EVOENGINE_ERROR("Failed to generate thumbnail: " + std::string(e.what()))
     thumbnail_future_ = {};

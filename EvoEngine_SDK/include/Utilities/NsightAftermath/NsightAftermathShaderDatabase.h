@@ -37,7 +37,7 @@
 // In a real world scenario this would be part of an offline
 // analysis tool. This is for demonstration purposes only!
 //
-class ShaderDatabase {
+class EVOENGINE_API ShaderDatabase {
  public:
   ShaderDatabase();
   ~ShaderDatabase();

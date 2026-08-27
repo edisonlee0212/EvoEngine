@@ -12,7 +12,7 @@ namespace evo_engine {
  * @brief Represents a point cloud asset with associated properties and functionality for loading, saving, and
  * processing.
  */
-class PointCloud : public IAsset {
+class EVOENGINE_API PointCloud : public IAsset {
   glm::dvec3 min_ = glm::dvec3(FLT_MAX);   ///< Minimum bound of the point cloud.
   glm::dvec3 max_ = glm::dvec3(-FLT_MAX);  ///< Maximum bound of the point cloud.
 

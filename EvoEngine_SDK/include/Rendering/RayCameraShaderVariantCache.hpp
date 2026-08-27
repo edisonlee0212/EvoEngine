@@ -13,9 +13,9 @@
 
 namespace evo_engine {
 
-class ComputePipeline;
+class EVOENGINE_API ComputePipeline;
 struct FrameSubmissionState;
-class RayTracingPipeline;
+class EVOENGINE_API RayTracingPipeline;
 
 enum class RayCameraShaderTechnique { RayTracing, RayQuery };
 
@@ -46,7 +46,7 @@ struct RayCameraShaderVariantUpdate {
   bool ray_query_activated = false;
 };
 
-class RayCameraShaderVariantCache final {
+class EVOENGINE_API RayCameraShaderVariantCache final {
  public:
   using RayTracingFactory = std::function<std::shared_ptr<RayTracingPipeline>(uint32_t feature_mask)>;
   using RayQueryFactory = std::function<std::shared_ptr<ComputePipeline>(uint32_t feature_mask)>;

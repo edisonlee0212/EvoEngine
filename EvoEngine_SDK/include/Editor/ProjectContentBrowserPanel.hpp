@@ -11,10 +11,10 @@
 #include <vector>
 
 namespace evo_engine {
-class File;
-class Folder;
+class EVOENGINE_API File;
+class EVOENGINE_API Folder;
 
-class ProjectContentBrowserPanel final : public EditorPanel {
+class EVOENGINE_API ProjectContentBrowserPanel final : public EditorPanel {
  public:
   void Draw(const std::shared_ptr<EditorLayer>& editor_layer) override;
   void RevealAsset(const Handle& asset_handle);
@@ -40,6 +40,7 @@ class ProjectContentBrowserPanel final : public EditorPanel {
                                float cell_size, bool& updated);
   void DrawProjectFolderContents(float cell_size, bool& updated);
   void DrawSearchResults(const std::shared_ptr<EditorLayer>& editor_layer, bool& updated);
+  bool DrawAssetContextMenu(const std::shared_ptr<File>& file, const std::string& tag);
   void NavigateToFolder(const std::shared_ptr<Folder>& folder, bool add_history = true);
   void NavigateToProjectRoot(bool add_history = true);
   void NavigateToProjectFolder(const std::filesystem::path& folder, bool add_history = true);

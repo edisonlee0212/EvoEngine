@@ -8,7 +8,7 @@ namespace evo_engine {
 /**
  * @brief Forward declaration of the Shader class.
  */
-class Shader;
+class EVOENGINE_API Shader;
 
 /**
  * @brief A class that represents a Ray Tracing Pipeline in Vulkan.
@@ -16,7 +16,7 @@ class Shader;
  * The RayTracingPipeline class is responsible for managing the Vulkan ray tracing pipeline,
  * including its layout, shader binding tables, and various shaders used during ray tracing.
  */
-class RayTracingPipeline final : public IGraphicsResource {
+class EVOENGINE_API RayTracingPipeline final : public IGraphicsResource {
   friend class Platform;
 
   /**
