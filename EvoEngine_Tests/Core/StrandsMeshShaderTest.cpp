@@ -282,8 +282,7 @@ TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndGenericAccounti
   const auto mesh = ReadRepoFile(ShaderPath("Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang"));
   const auto render_layer = ReadRepoFile("EvoEngine_SDK/src/RenderLayer.cpp");
   const auto pass = ReadRepoFile("EvoEngine_SDK/src/RenderPasses/DirectionalLightShadowPass.cpp");
-  EXPECT_NE(task.find("DispatchMesh(EE_STRAND_MESHLETS[meshlet_index].segment_size, 1, 1, strand_shadow_task)"),
-            std::string::npos);
+  EXPECT_NE(task.find("DispatchMesh(meshlet.segment_size, 1, 1, strand_shadow_task)"), std::string::npos);
   EXPECT_NE(mesh.find("SetMeshOutputCounts(10u, 8u)"), std::string::npos);
   EXPECT_NE(mesh.find("const uint STRAND_SHADOW_RING_SIZE = 4u"), std::string::npos);
   EXPECT_NE(mesh.find("OutputVertices<EEStrandShadowOutput, 10>"), std::string::npos);

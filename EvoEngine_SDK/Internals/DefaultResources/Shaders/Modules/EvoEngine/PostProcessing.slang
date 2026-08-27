@@ -3,15 +3,17 @@ public struct EeResolutionPushConstant {
 };
 
 public struct EeBloomDownsamplingPushConstant {
-  public float2 source_resolution;
-  public int mip_level;
-  public int padding;
+  public uint2 source_resolution;
+  public uint2 target_resolution;
+  public int apply_karis;
+  public int3 padding;
 };
 
 public struct EeBloomUpsamplingPushConstant {
+  public uint2 source_resolution;
   public uint2 target_resolution;
   public float filter_radius;
-  public float padding;
+  public float3 padding;
 };
 
 public bool EePixelInBounds(uint2 pixel, uint2 resolution) {

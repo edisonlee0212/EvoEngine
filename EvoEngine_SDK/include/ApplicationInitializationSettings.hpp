@@ -10,7 +10,7 @@ enum class ApplicationMode {
 /**
  * @brief Utility class for graphics settings.
  */
-class GraphicsInitializationSettings {
+class EVOENGINE_API GraphicsInitializationSettings {
  public:
   /**
    * @brief Named quality levels for shadow map resolution.

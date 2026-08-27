@@ -7,7 +7,11 @@ ConstantBuffer<EeBloomDownsamplingPushConstant> constants;
 Sampler2D srcTexture;
 
 [[vk::binding(1, 0)]]
+#if defined(EE_BLOOM_STORAGE_FORMAT_RGBA16F)
+[vk::image_format("rgba16f")]
+#else
 [vk::image_format("rgba32f")]
+#endif
 RWTexture2D<float4> outTexture;
 
 float3 PowVec3(float3 value, float power) {
@@ -31,13 +35,12 @@ float KarisAverage(float3 color) {
 [numthreads(16, 16, 1)]
 void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   uint2 pixel = dispatch_thread_id.xy;
-  uint2 resolution = uint2(constants.source_resolution);
-  if (!EePixelInBounds(pixel, resolution)) {
+  if (!EePixelInBounds(pixel, constants.target_resolution)) {
     return;
   }
 
-  float2 tex_coord = (float2(pixel) + float2(0.5f)) / constants.source_resolution;
-  float2 src_texel_size = 1.0f / constants.source_resolution;
+  float2 tex_coord = (float2(pixel) + float2(0.5f)) / float2(constants.target_resolution);
+  float2 src_texel_size = 1.0f / float2(constants.source_resolution);
   float x = src_texel_size.x;
   float y = src_texel_size.y;
 
@@ -63,7 +66,7 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   result += (b + d + f + h) * 0.0625f;
   result += (j + k + l + m) * 0.125f;
 
-  if (constants.mip_level == 0) {
+  if (constants.apply_karis != 0) {
     float3 groups[5];
     groups[0] = (a + b + d + e) * (0.125f / 4.0f);
     groups[1] = (b + c + e + f) * (0.125f / 4.0f);

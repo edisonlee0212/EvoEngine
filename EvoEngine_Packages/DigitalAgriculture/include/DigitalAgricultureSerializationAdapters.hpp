@@ -1,9 +1,9 @@
 #pragma once
 
-#ifdef CUDA_MODULE_SERVICE
-#  include "CBTFGroup.hpp"
-#  include "PARSensorGroup.hpp"
-#endif
+#include "BtfMaterial.hpp"
+#include "BtfMeshRenderer.hpp"
+#include "CBTFGroup.hpp"
+#include "PARSensorGroup.hpp"
 #include "SkyIlluminance.hpp"
 #include "Sorghum.hpp"
 #include "SorghumCoordinates.hpp"
@@ -26,14 +26,19 @@ void SerializeSorghumGenerator(YAML::Emitter& out, const SorghumGenerator& targe
 void DeserializeSorghumGenerator(const YAML::Node& in, SorghumGenerator& target);
 void SerializeSorghumField(YAML::Emitter& out, const SorghumField& target);
 void DeserializeSorghumField(const YAML::Node& in, SorghumField& target);
-#ifdef CUDA_MODULE_SERVICE
 void SerializePARSensorGroup(YAML::Emitter& out, const PARSensorGroup& target);
 void DeserializePARSensorGroup(const YAML::Node& in, PARSensorGroup& target);
 void SerializeCBTFGroup(YAML::Emitter& out, const CBTFGroup& target);
 void DeserializeCBTFGroup(const YAML::Node& in, CBTFGroup& target);
-#endif
 void SerializeSkyIlluminance(YAML::Emitter& out, const SkyIlluminance& target);
 void DeserializeSkyIlluminance(const YAML::Node& in, SkyIlluminance& target);
 void SerializeSorghumCoordinates(YAML::Emitter& out, const SorghumCoordinates& target);
 void DeserializeSorghumCoordinates(const YAML::Node& in, SorghumCoordinates& target);
 }  // namespace digital_agriculture_package
+
+namespace evo_engine {
+void SerializeBtfMeshRenderer(YAML::Emitter& out, const BtfMeshRenderer& target);
+void DeserializeBtfMeshRenderer(const YAML::Node& in, BtfMeshRenderer& target);
+void SerializeBtfMaterial(YAML::Emitter& out, const BtfMaterial& target);
+void DeserializeBtfMaterial(const YAML::Node& in, BtfMaterial& target);
+}  // namespace evo_engine

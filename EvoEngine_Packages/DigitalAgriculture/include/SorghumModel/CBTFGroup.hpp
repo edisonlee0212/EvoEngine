@@ -1,8 +1,6 @@
 
 #pragma once
-#ifdef CUDA_MODULE_SERVICE
-#  include "BtfMaterial.hpp"
-#endif
+#include "BtfMaterial.hpp"
 
 namespace digital_agriculture_package {
 using namespace evo_engine;
@@ -11,8 +9,7 @@ using namespace evo_engine;
  * @brief Represents a collection of Compressed Bidirectional Texture Function (CBTF) assets.
  *
  * This class provides functionality for managing and manipulating a group of CBTF assets,
- * including inspection, serialization, and deserialization. It also supports CUDA-specific
- * operations when compiled with the CUDA module.
+ * including inspection, serialization, and deserialization.
  */
 class CBTFGroup : public IAsset {
  public:
@@ -30,16 +27,14 @@ class CBTFGroup : public IAsset {
    */
   void CollectAssetRef(std::vector<AssetRef> &list);
 
-#ifdef CUDA_MODULE_SERVICE
   /**
    * @brief Retrieves a randomly selected CBTF asset.
    *
    * This function returns a shared pointer to a randomly chosen BtfMaterial
-   * asset from the group. Available only when compiled with CUDA support.
+   * asset from the group.
    *
    * @return A shared pointer to a randomly selected CompressedBTF asset.
    */
   std::shared_ptr<BtfMaterial> GetRandom();
-#endif
 };
 }  // namespace digital_agriculture_package

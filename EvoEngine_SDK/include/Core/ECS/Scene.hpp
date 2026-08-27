@@ -28,7 +28,7 @@ enum SystemGroup {
 /**
  * @brief Structure for storing scene data, including entities, metadata, and components.
  */
-struct SceneDataStorage {
+struct EVOENGINE_API SceneDataStorage {
   /// List of entities in the scene.
   std::vector<Entity> entities;
 
@@ -63,7 +63,7 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
 /**
  * @brief Represents a scene in the engine, including entities, systems, and environmental properties.
  */
-class Scene final : public IAsset {
+class EVOENGINE_API Scene final : public IAsset {
  public:
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 

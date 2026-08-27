@@ -1,10 +1,33 @@
 
 #pragma once
-#ifdef CUDA_MODULE_SERVICE
+#include "IAsset.hpp"
+#include "Vertex.hpp"
 
-#  include <CUDAModule.hpp>
 namespace digital_agriculture_package {
 using namespace evo_engine;
+
+template <typename T>
+struct IlluminationSampler {
+  Vertex v_0;
+  Vertex v_1;
+  Vertex v_2;
+  glm::vec3 direction{};
+  T energy{};
+  bool front_face = true;
+  bool back_face = true;
+
+  [[nodiscard]] float GetArea() const {
+    const float a = glm::distance(v_0.position, v_1.position);
+    const float b = glm::distance(v_1.position, v_2.position);
+    const float c = glm::distance(v_2.position, v_0.position);
+    const float p = (a + b + c) * 0.5f;
+    return glm::sqrt(p * (p - a) * (p - b) * (p - c));
+  }
+
+  [[nodiscard]] glm::vec3 GetCenter() const {
+    return (v_0.position + v_1.position + v_2.position) / 3.0f;
+  }
+};
 
 /**
  * @class PARSensorGroup
@@ -18,17 +41,6 @@ class PARSensorGroup : public IAsset {
    * @brief A collection of illumination samplers that measure light properties.
    */
   std::vector<IlluminationSampler<glm::vec3>> samplers;
-
-  /**
-   * @brief Calculates the illumination based on the given ray properties.
-   *
-   * @param ray_properties The properties of the rays used for illumination calculation.
-   * @param seed A seed value for randomization in the calculation.
-   * @param push_normal_distance A small distance to push along the normal to avoid self-intersections.
-   */
-  void CalculateIllumination(const RayProperties& ray_properties, int seed, float push_normal_distance);
 };
 
 }  // namespace digital_agriculture_package
-
-#endif

@@ -3,9 +3,9 @@
 #include <memory>
 
 namespace evo_engine {
-class EditorLayer;
+class EVOENGINE_API EditorLayer;
 
-class EditorPanel {
+class EVOENGINE_API EditorPanel {
  public:
   virtual ~EditorPanel() = default;
   virtual void Draw(const std::shared_ptr<EditorLayer>& editor_layer) = 0;

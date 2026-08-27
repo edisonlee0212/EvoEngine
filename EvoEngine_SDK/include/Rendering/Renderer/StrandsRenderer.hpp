@@ -10,7 +10,7 @@ namespace evo_engine {
  * @class StrandsRenderer
  * @brief Responsible for rendering strands and managing associated properties.
  */
-class StrandsRenderer : public IPrivateComponent {
+class EVOENGINE_API StrandsRenderer : public IPrivateComponent {
  public:
   /**
    * @brief Determines whether the strands cast shadows.

@@ -13,18 +13,18 @@ class ThreadPool;
 /**
  * @brief Scene class declaration.
  */
-class Scene;
+class EVOENGINE_API Scene;
 
 /**
  * @brief EditorLayer class declaration.
  */
-class EditorLayer;
+class EVOENGINE_API EditorLayer;
 
 /**
  * @brief Base class for all systems in the engine. Provides functionality for
  * enabling, disabling, and managing system-related operations.
  */
-class ISystem : public ISerializable {
+class EVOENGINE_API ISystem : public ISerializable {
   friend class Scene;
   friend void DeserializeScene(const YAML::Node& in, Scene& scene);
   friend class Entities;
@@ -145,7 +145,7 @@ class ISystem : public ISerializable {
 /**
  * @brief Wrapper class for managing system references.
  */
-class SystemRef : public ISerializable {
+class EVOENGINE_API SystemRef : public ISerializable {
   friend class Prefab;
 
   /**

@@ -13,7 +13,7 @@ namespace evo_engine {
  * managing bones, transforms, and offset matrices. It is designed as a final
  * class and cannot be inherited from.
  */
-class Animator final : public IPrivateComponent {
+class EVOENGINE_API Animator final : public IPrivateComponent {
   /**
    * @brief A collection of bones used in the skeletal animation.
    */

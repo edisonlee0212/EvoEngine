@@ -440,3 +440,10 @@ void RayCameraShaderVariantCache::WaitForJobs() {
   for (const auto& job : jobs)
     Jobs::Wait(job);
 }
+
+template EVOENGINE_API void RayCameraShaderVariantCache::PruneEntries(TechniqueState<ComputePipeline>& state,
+                                                                      uint32_t requested_mask);
+template EVOENGINE_API void RayCameraShaderVariantCache::ReleaseCompletedSubmissions(
+    TechniqueState<ComputePipeline>& state);
+template EVOENGINE_API void RayCameraShaderVariantCache::TouchEntry(
+    const std::shared_ptr<Entry<ComputePipeline>>& entry);

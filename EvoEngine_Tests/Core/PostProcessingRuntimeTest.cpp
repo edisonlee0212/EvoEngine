@@ -143,3 +143,33 @@ TEST_F(PostProcessingRuntime, CameraCloneSharesSettingsButNotRuntime) {
   EXPECT_NE(&source_resources, &clone_resources);
   EXPECT_FALSE(clone_resources.stack.source_color_texture);
 }
+
+TEST_F(PostProcessingRuntime, ApplyDefaultSettingsRestoresEffectsAndEnableFlags) {
+  PostProcessingStack stack;
+  stack.ApplyDefaultSettings();
+  const auto previous_bloom = stack.bloom;
+  stack.bloom->threshold = 7.0f;
+  stack.tone_mapping->exposure = 3.0f;
+  stack.enable_ambient_occlusion = false;
+  stack.enable_bloom = true;
+  stack.enable_screen_space_reflection = true;
+  stack.enable_anti_aliasing = false;
+  stack.enable_tone_mapping = false;
+
+  stack.ApplyDefaultSettings();
+
+  ASSERT_TRUE(stack.ambient_occlusion);
+  ASSERT_TRUE(stack.bloom);
+  ASSERT_TRUE(stack.screen_space_reflection);
+  ASSERT_TRUE(stack.anti_aliasing);
+  ASSERT_TRUE(stack.tone_mapping);
+  EXPECT_NE(stack.bloom, previous_bloom);
+  EXPECT_FLOAT_EQ(stack.bloom->threshold, Bloom{}.threshold);
+  EXPECT_FLOAT_EQ(stack.bloom->intensity, 0.2f);
+  EXPECT_FLOAT_EQ(stack.tone_mapping->exposure, ToneMapping{}.exposure);
+  EXPECT_TRUE(stack.enable_ambient_occlusion);
+  EXPECT_TRUE(stack.enable_bloom);
+  EXPECT_FALSE(stack.enable_screen_space_reflection);
+  EXPECT_TRUE(stack.enable_anti_aliasing);
+  EXPECT_TRUE(stack.enable_tone_mapping);
+}

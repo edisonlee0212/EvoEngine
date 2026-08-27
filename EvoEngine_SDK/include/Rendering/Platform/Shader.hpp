@@ -88,7 +88,7 @@ struct ShaderPipelineLayoutValidation {
  * The Shader class manages the lifecycle of shaders, including compilation,
  * serialization, deserialization, and inspection through the editor layer.
  */
-class Shader final : public IAsset {
+class EVOENGINE_API Shader final : public IAsset {
   std::unique_ptr<ShaderModule> shader_module = {};                  /**< Pointer to the compiled shader module */
   std::string shader_code = {};                                      /**< Source code of the shader */
   unsigned shader_type = static_cast<unsigned>(ShaderType::Unknown); /**< Type of the shader (as enum value) */

@@ -5,11 +5,11 @@
 #include <glm/glm.hpp>
 
 namespace evo_engine {
-class Camera;
-class DescriptorSet;
-class GraphicsPipeline;
+class EVOENGINE_API Camera;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API GraphicsPipeline;
 
-class DeferredLightingPass final {
+class EVOENGINE_API DeferredLightingPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
   using ExternalForwardRendering = std::function<void(VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport)>;

@@ -9,7 +9,7 @@ namespace evo_engine {
  * @brief A reference to a private component, managing serialization, deserialization,
  *        and dynamic linking to scenes and entities.
  */
-class PrivateComponentRef final : public ISerializable {
+class EVOENGINE_API PrivateComponentRef final : public ISerializable {
   friend class Prefab;  ///< Allow Prefab to access private members.
   friend class Scene;   ///< Allow Scene to access private members.
 

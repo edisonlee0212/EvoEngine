@@ -2,8 +2,8 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
 namespace evo_engine {
-class Buffer;
-class Image;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API Image;
 
 [[nodiscard]] VkDescriptorImageInfo CreateDdgiFallbackImageInfo();
 [[nodiscard]] bool IsValidDescriptorImageInfo(const VkDescriptorImageInfo& image_info);

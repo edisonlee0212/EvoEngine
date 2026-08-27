@@ -1,12 +1,13 @@
 #include "PackageManager.hpp"
 
-#ifdef CUDA_MODULE_SERVICE
-#  include "CBTFGroup.hpp"
-#  include "PARSensorGroup.hpp"
-#endif
+#include "BtfMaterial.hpp"
+#include "BtfMeshRenderer.hpp"
+#include "CBTFGroup.hpp"
+#include "CBTFImporter.hpp"
 #include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
 #include "InspectorRegistry.hpp"
+#include "PARSensorGroup.hpp"
 #include "Serialization.hpp"
 #include "SkyIlluminance.hpp"
 #include "Sorghum.hpp"
@@ -54,12 +55,14 @@ void RegisterDigitalAgricultureSerializationHandlers(const std::string& owner_na
                                                                 owner_name, "SorghumGenerator");
   Serialization::RegisterSerializationHandler<SorghumField>(SerializeSorghumField, DeserializeSorghumField, owner_name,
                                                             "SorghumField");
-#ifdef CUDA_MODULE_SERVICE
   Serialization::RegisterSerializationHandler<PARSensorGroup>(SerializePARSensorGroup, DeserializePARSensorGroup,
                                                               owner_name, "PARSensorGroup");
   Serialization::RegisterSerializationHandler<CBTFGroup>(SerializeCBTFGroup, DeserializeCBTFGroup, owner_name,
                                                          "CBTFGroup");
-#endif
+  Serialization::RegisterSerializationHandler<BtfMeshRenderer>(SerializeBtfMeshRenderer, DeserializeBtfMeshRenderer,
+                                                               owner_name, "BtfMeshRenderer");
+  Serialization::RegisterSerializationHandler<BtfMaterial>(SerializeBtfMaterial, DeserializeBtfMaterial, owner_name,
+                                                           "BtfMaterial");
   Serialization::RegisterSerializationHandler<SkyIlluminance>(SerializeSkyIlluminance, DeserializeSkyIlluminance,
                                                               owner_name, "SkyIlluminance");
   Serialization::RegisterSerializationHandler<SorghumCoordinates>(
@@ -76,11 +79,20 @@ void RegisterDigitalAgricultureInspectors(const std::string& owner_name) {
   InspectorRegistry::GetInstance().RegisterInspector<SorghumGenerator>(InspectSorghumGenerator, owner_name,
                                                                        "SorghumGenerator");
   InspectorRegistry::GetInstance().RegisterInspector<SorghumField>(InspectSorghumField, owner_name, "SorghumField");
-#ifdef CUDA_MODULE_SERVICE
   InspectorRegistry::GetInstance().RegisterInspector<PARSensorGroup>(InspectPARSensorGroup, owner_name,
                                                                      "PARSensorGroup");
   InspectorRegistry::GetInstance().RegisterInspector<CBTFGroup>(InspectCBTFGroup, owner_name, "CBTFGroup");
-#endif
+  InspectorRegistry::GetInstance().RegisterInspector<CBTFImporter>(InspectCBTFImporter, owner_name, "CBTFImporter");
+  InspectorRegistry::GetInstance().RegisterInspector<BtfMeshRenderer>(
+      [](InspectorContext& context, BtfMeshRenderer& renderer) {
+        return renderer.DrawGui(context.editor_layer);
+      },
+      owner_name, "BtfMeshRenderer");
+  InspectorRegistry::GetInstance().RegisterInspector<BtfMaterial>(
+      [](InspectorContext& context, BtfMaterial& material) {
+        return material.DrawGui(context.editor_layer);
+      },
+      owner_name, "BtfMaterial");
   InspectorRegistry::GetInstance().RegisterInspector<SkyIlluminance>(InspectSkyIlluminance, owner_name,
                                                                      "SkyIlluminance");
   InspectorRegistry::GetInstance().RegisterInspector<SorghumCoordinates>(InspectSorghumCoordinates, owner_name,
@@ -104,10 +116,11 @@ EVOENGINE_PACKAGE_EXPORT bool EvoEnginePackageRegisterTypes(PackageRegistrar* re
                     registrar->RegisterAsset<SorghumState>("SorghumState", {".ss"}) &&
                     registrar->RegisterAsset<SorghumGenerator>("SorghumGenerator", {".sg"}) &&
                     registrar->RegisterAsset<SorghumField>("SorghumField", {".sorghumfield"});
-#ifdef CUDA_MODULE_SERVICE
   registered = registered && registrar->RegisterAsset<PARSensorGroup>("PARSensorGroup", {".parsensorgroup"}) &&
-               registrar->RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"});
-#endif
+               registrar->RegisterAsset<CBTFGroup>("CBTFGroup", {".cbtfgroup"}) &&
+               registrar->RegisterAsset<BtfMaterial>("BtfMaterial", {".btf"}) &&
+               registrar->RegisterPrivateComponent<BtfMeshRenderer>("BtfMeshRenderer") &&
+               registrar->RegisterPrivateComponent<CBTFImporter>("CBTFImporter");
   registered = registered && registrar->RegisterAsset<SkyIlluminance>("SkyIlluminance", {".skyilluminance"}) &&
                registrar->RegisterAsset<SorghumCoordinates>("SorghumCoordinates", {".sorghumcoords"}) &&
                registrar->RegisterLayer<SorghumLayer>("Sorghum Layer");

@@ -9,21 +9,21 @@
 #include <limits>
 
 namespace evo_engine {
-class ToneMapping;
-class ScreenSpaceReflection;
-class Bloom;
-class AmbientOcclusion;
-class AntiAliasing;
-class Camera;
-class Image;
-class ImageView;
-class RenderGraphTransientResourceStore;
-class Sampler;
-struct PostProcessingCameraResources;
+class EVOENGINE_API ToneMapping;
+class EVOENGINE_API ScreenSpaceReflection;
+class EVOENGINE_API Bloom;
+class EVOENGINE_API AmbientOcclusion;
+class EVOENGINE_API AntiAliasing;
+class EVOENGINE_API Camera;
+class EVOENGINE_API Image;
+class EVOENGINE_API ImageView;
+class EVOENGINE_API RenderGraphTransientResourceStore;
+class EVOENGINE_API Sampler;
+struct EVOENGINE_API PostProcessingCameraResources;
 struct PostProcessingExecutionContext;
 struct PostProcessingRendererResources;
 
-class PerFrameDescriptorSet {
+class EVOENGINE_API PerFrameDescriptorSet {
  public:
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetOrCreate(const std::shared_ptr<DescriptorSetLayout>& layout) const;
   void Retain(RenderGraphTransientResourceStore& transient_resources) const;
@@ -39,7 +39,7 @@ class PerFrameDescriptorSet {
   mutable std::vector<Slot> slots_;
 };
 
-class PerFrameDescriptorSetList {
+class EVOENGINE_API PerFrameDescriptorSetList {
  public:
   [[nodiscard]] std::vector<std::shared_ptr<DescriptorSet>>& Get();
   void Retain(RenderGraphTransientResourceStore& transient_resources) const;
@@ -55,7 +55,7 @@ class PerFrameDescriptorSetList {
   std::vector<Slot> slots_;
 };
 
-class PostProcessingStack : public IAsset {
+class EVOENGINE_API PostProcessingStack : public IAsset {
   void Resize(PostProcessingCameraResources& resources, const glm::uvec2& size) const;
   bool BuildNextPipeline(PostProcessingRendererResources& resources) const;
 
@@ -65,8 +65,10 @@ class PostProcessingStack : public IAsset {
   }
 
   void OnCreate() override;
+  void ApplyDefaultSettings();
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
+  void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
                                const std::shared_ptr<ImageView>& scratch_image_view,
@@ -89,7 +91,7 @@ class PostProcessingStack : public IAsset {
                         const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
 
   bool enable_ambient_occlusion = true;
-  bool enable_bloom = false;
+  bool enable_bloom = true;
   bool enable_screen_space_reflection = false;
   bool enable_anti_aliasing = true;
   bool enable_tone_mapping = true;
@@ -102,7 +104,7 @@ class IPostProcessing {
   virtual void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const = 0;
 };
 
-class AmbientOcclusion : public IPostProcessing {
+class EVOENGINE_API AmbientOcclusion : public IPostProcessing {
  public:
   struct BlurPushConstant {
     int horizontal = false;
@@ -138,7 +140,7 @@ class AmbientOcclusion : public IPostProcessing {
   void Deserialize(const YAML::Node& in);
 };
 
-class AntiAliasing final : public IPostProcessing {
+class EVOENGINE_API AntiAliasing final : public IPostProcessing {
  public:
   enum class Preset : int32_t { Low = 0, Medium = 1, High = 2, Ultra = 3 };
   enum class DebugMode : int32_t { None = 0, Edges = 1, BlendWeights = 2 };
@@ -167,7 +169,7 @@ class AntiAliasing final : public IPostProcessing {
   void EnsureSmaaLookupTextures(PostProcessingRendererResources& resources) const;
 };
 
-class ScreenSpaceReflection : public IPostProcessing {
+class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
  public:
   float max_distance = 100.f;
   float distance_confidence = 0.2f;
@@ -192,26 +194,41 @@ class ScreenSpaceReflection : public IPostProcessing {
   void Deserialize(const YAML::Node& in);
 };
 
-class Bloom : public IPostProcessing {
+class EVOENGINE_API Bloom : public IPostProcessing {
  public:
+  struct PrefilterPushConstant {
+    glm::uvec2 source_resolution = glm::uvec2(1);
+    glm::uvec2 target_resolution = glm::uvec2(1);
+    float threshold = 1.0f;
+    float knee = 0.1f;
+    glm::vec2 padding = glm::vec2(0.0f);
+  };
+
   struct DownsamplingPushConstant {
-    glm::vec2 source_resolution;
-    int mip_level;
-    int padding;
+    glm::uvec2 source_resolution = glm::uvec2(1);
+    glm::uvec2 target_resolution = glm::uvec2(1);
+    int apply_karis = 0;
+    glm::ivec3 padding = glm::ivec3(0);
   };
 
   struct UpsamplingPushConstant {
+    glm::uvec2 source_resolution = glm::uvec2(1);
     glm::uvec2 target_resolution = glm::uvec2(1);
-    float filter_radius = 0.001f;
-    float padding = 0.0f;
+    float filter_radius = 1.0f;
+    glm::vec3 padding = glm::vec3(0.0f);
   };
 
-  struct ComputePushConstant {
+  struct MixPushConstant {
     glm::uvec2 resolution = glm::uvec2(1);
+    glm::uvec2 bloom_resolution = glm::uvec2(1);
+    float intensity = 1.0f;
+    glm::vec3 padding = glm::vec3(0.0f);
   };
 
-  float filter_radius = 0.001f;
-  int bloom_chain_length = 2;
+  float filter_radius = 1.0f;
+  float threshold = 1.0f;
+  float knee = 0.1f;
+  float intensity = 0.2f;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
   void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
@@ -219,7 +236,7 @@ class Bloom : public IPostProcessing {
   void Deserialize(const YAML::Node& in);
 };
 
-class ToneMapping : public IPostProcessing {
+class EVOENGINE_API ToneMapping : public IPostProcessing {
  public:
   enum class ToneMapMethod : int32_t {
     Filmic = 0,
@@ -272,7 +289,7 @@ class ToneMapping : public IPostProcessing {
   void Deserialize(const YAML::Node& in);
 };
 
-struct PostProcessingCameraResources {
+struct EVOENGINE_API PostProcessingCameraResources {
   struct StackResources {
     glm::uvec2 size = glm::uvec2(0);
     uint64_t generation = 0;
@@ -305,6 +322,11 @@ struct PostProcessingCameraResources {
   } screen_space_reflection;
 
   struct BloomResources {
+    glm::uvec2 size = glm::uvec2(0);
+    VkFormat format = VK_FORMAT_UNDEFINED;
+    std::shared_ptr<RenderTexture> downsample_texture_a;
+    std::shared_ptr<RenderTexture> downsample_texture_b;
+    std::shared_ptr<RenderTexture> upsample_texture;
     PerFrameDescriptorSet mix_descriptor_set;
     PerFrameDescriptorSet copy_descriptor_set;
     PerFrameDescriptorSetList downsampling_descriptor_sets;
@@ -381,9 +403,11 @@ struct PostProcessingRendererResources {
   } screen_space_reflection;
 
   struct BloomResources {
+    VkFormat format = VK_FORMAT_UNDEFINED;
     std::shared_ptr<DescriptorSetLayout> mix_layout;
     std::shared_ptr<DescriptorSetLayout> copy_layout;
     std::shared_ptr<DescriptorSetLayout> sampling_layout;
+    std::shared_ptr<DescriptorSetLayout> upsampling_layout;
     std::shared_ptr<ComputePipeline> downsampling_pipeline;
     std::shared_ptr<ComputePipeline> upsampling_pipeline;
     std::shared_ptr<ComputePipeline> copy_pipeline;
@@ -403,6 +427,7 @@ struct PostProcessingExecutionContext {
   PostProcessingRendererResources& renderer;
   std::shared_ptr<ImageView> ambient_occlusion_image_view;
   std::shared_ptr<ImageView> ambient_occlusion_scratch_image_view;
+  std::function<void(const std::function<void(VkCommandBuffer)>&)> record_commands;
 };
 
 }  // namespace evo_engine

@@ -476,10 +476,10 @@ void ProjectContentBrowserPanel::DrawToolbar() {
   SetLastItemTooltip(recursive_search_ ? "Searches nested folders and files" : "Searches current folder only");
 
   ImGui::SameLine();
-  if (ImGui::Button("...##ProjectBrowserSettings", {28, 24})) {
+  if (draw_icon_button("ProjectBrowserSettings", EditorLayer::FindIcon("SceneSettings"), "...##ProjectBrowserSettings",
+                       "Browser settings", true)) {
     ImGui::OpenPopup("ProjectBrowserSettings");
   }
-  SetLastItemTooltip("Browser settings");
   if (ImGui::BeginPopup("ProjectBrowserSettings")) {
     ImGui::Checkbox("Show extensions", &show_extension_);
     ImGui::Checkbox("Recursive search", &recursive_search_);
@@ -550,6 +550,58 @@ void ProjectContentBrowserPanel::DrawBreadcrumbs() {
     ImGui::TextUnformatted(">");
     ImGui::SameLine();
   }
+}
+
+bool ProjectContentBrowserPanel::DrawAssetContextMenu(const std::shared_ptr<File>& file, const std::string& tag) {
+  if (!ImGui::BeginPopupContextItem(tag.c_str())) {
+    return false;
+  }
+  if (ImGui::Button("Duplicate")) {
+    file->GetFolder().lock()->Duplicate(file->GetAssetHandle());
+  }
+  if (file->GetAssetTypeName() == "GaussianSplat") {
+    if (auto asset = AssetManager::GetAssetImpl(file->asset_handle_)) {
+      if (ImGui::BeginMenu(("Export" + tag).c_str())) {
+        FileUtils::SaveFile(
+            "Export PLY...", "GaussianSplat PLY", {".ply"},
+            [asset](const std::filesystem::path& path) {
+              return asset->Export(path);
+            },
+            false);
+        FileUtils::SaveFile(
+            "Export SPLAT...", "GaussianSplat SPLAT", {".splat"},
+            [asset](const std::filesystem::path& path) {
+              return asset->Export(path);
+            },
+            false);
+        FileUtils::SaveFile(
+            "Export KSPLAT...", "GaussianSplat KSPLAT", {".ksplat"},
+            [asset](const std::filesystem::path& path) {
+              return asset->Export(path);
+            },
+            false);
+        ImGui::EndMenu();
+      }
+    }
+  }
+  if (file->GetAssetTypeName() != "Binary" && ImGui::BeginMenu(("Rename" + tag).c_str())) {
+    static char new_name[256] = {};
+    ImGui::InputText(("New name" + tag).c_str(), new_name, 256);
+    if (ImGui::Button(("Confirm" + tag).c_str())) {
+      auto asset = AssetManager::GetAssetImpl(file->asset_handle_);
+      asset->SetPathAndSave(asset->GetAssetsFolderRelativePath().replace_filename(
+          std::string(new_name) + asset->GetFileRecord().lock()->GetAssetExtension()));
+      memset(new_name, 0, 256);
+    }
+    ImGui::EndMenu();
+  }
+  if (ImGui::Button(("Delete" + tag).c_str())) {
+    (void)ProjectManager::DeleteAsset(file->GetAssetHandle());
+    ImGui::EndPopup();
+    return true;
+  }
+  ImGui::EndPopup();
+  return false;
 }
 
 void ProjectContentBrowserPanel::DrawAssetFolderContents(const std::shared_ptr<EditorLayer>& editor_layer,
@@ -661,53 +713,8 @@ void ProjectContentBrowserPanel::DrawAssetFolderContents(const std::shared_ptr<E
         ImGui::EndDragDropSource();
       }
 
-      if (ImGui::BeginPopupContextItem(icon_tag.c_str())) {
-        if (ImGui::Button("Duplicate")) {
-          i.second->GetFolder().lock()->Duplicate(i.second->GetAssetHandle());
-        }
-        if (i.second->GetAssetTypeName() == "GaussianSplat") {
-          if (auto asset = AssetManager::GetAssetImpl(i.second->asset_handle_)) {
-            if (ImGui::BeginMenu(("Export" + icon_tag).c_str())) {
-              FileUtils::SaveFile(
-                  "Export PLY...", "GaussianSplat PLY", {".ply"},
-                  [asset](const std::filesystem::path& path) {
-                    return asset->Export(path);
-                  },
-                  false);
-              FileUtils::SaveFile(
-                  "Export SPLAT...", "GaussianSplat SPLAT", {".splat"},
-                  [asset](const std::filesystem::path& path) {
-                    return asset->Export(path);
-                  },
-                  false);
-              FileUtils::SaveFile(
-                  "Export KSPLAT...", "GaussianSplat KSPLAT", {".ksplat"},
-                  [asset](const std::filesystem::path& path) {
-                    return asset->Export(path);
-                  },
-                  false);
-              ImGui::EndMenu();
-            }
-          }
-        }
-        if (i.second->GetAssetTypeName() != "Binary" && ImGui::BeginMenu(("Rename" + icon_tag).c_str())) {
-          static char new_name[256] = {};
-          ImGui::InputText(("New name" + icon_tag).c_str(), new_name, 256);
-          if (ImGui::Button(("Confirm" + icon_tag).c_str())) {
-            auto ptr = AssetManager::GetAssetImpl(i.second->asset_handle_);
-            ptr->SetPathAndSave(ptr->GetAssetsFolderRelativePath().replace_filename(
-                std::string(new_name) + ptr->GetFileRecord().lock()->GetAssetExtension()));
-            memset(new_name, 0, 256);
-          }
-          ImGui::EndMenu();
-        }
-        if (ImGui::Button(("Delete" + icon_tag).c_str())) {
-          (void)ProjectManager::DeleteAsset(i.first);
-          ImGui::EndPopup();
-          break;
-        }
-
-        ImGui::EndPopup();
+      if (DrawAssetContextMenu(i.second, icon_tag)) {
+        break;
       }
 
       if (interaction.double_clicked && i.second->GetAssetTypeName() != "Binary") {
@@ -1216,6 +1223,7 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
       FolderHierarchyHelper(editor_layer, i.second, reveal_folder);
     }
     for (const auto& i : folder->files) {
+      const std::string tag = "##HierarchyAsset" + std::to_string(i.first.GetValue());
       if (ImGui::TreeNodeEx((i.second->GetAssetFileName() + i.second->GetAssetExtension()).c_str(),
                             ImGuiTreeNodeFlags_Bullet)) {
         ImGui::TreePop();
@@ -1231,6 +1239,9 @@ void ProjectContentBrowserPanel::FolderHierarchyHelper(const std::shared_ptr<Edi
         ImGui::SetDragDropPayload("Asset", &i.first, sizeof(Handle));
         ImGui::TextColored(BrowserAccentTextColor(), i.second->GetAssetFileName().c_str());
         ImGui::EndDragDropSource();
+      }
+      if (DrawAssetContextMenu(i.second, tag)) {
+        return;
       }
     }
     ImGui::TreePop();

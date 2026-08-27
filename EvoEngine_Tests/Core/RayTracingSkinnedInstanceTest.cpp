@@ -217,11 +217,9 @@ TEST(RayTracingSkinned, StaticMorphRendererReusesPersistentRayTracingGeometry) {
   const auto header = ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/Renderer/MeshRenderer.hpp"));
   const auto renderer = ReadTextFile(SourcePath("EvoEngine_SDK/src/MeshRenderer.cpp"));
   const auto storage = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
-  const auto graphics = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
   ASSERT_FALSE(header.empty());
   ASSERT_FALSE(renderer.empty());
   ASSERT_FALSE(storage.empty());
-  ASSERT_FALSE(graphics.empty());
 
   EXPECT_NE(header.find("void SetMorphWeights"), std::string::npos);
   EXPECT_NE(header.find("ray_tracing_packed_source_vertex_indices_"), std::string::npos);
@@ -244,7 +242,7 @@ TEST(RayTracingSkinned, StaticMorphRendererReusesPersistentRayTracingGeometry) {
             std::string::npos);
   EXPECT_NE(storage.find("ray_tracing_triangle_range && ray_tracing_triangle_range->prev_frame_index_count"),
             std::string::npos);
-  EXPECT_NE(graphics.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"), std::string::npos);
+  EXPECT_NE(storage.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"), std::string::npos);
 }
 
 TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
@@ -265,7 +263,7 @@ TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
   EXPECT_NE(source.find("build_info.srcAccelerationStructure = vk_acceleration_structure_khr_"), std::string::npos);
   EXPECT_NE(source.find("build_info.dstAccelerationStructure = vk_acceleration_structure_khr_"), std::string::npos);
   EXPECT_NE(source.find("Platform::RecordCommandsMainQueue"), std::string::npos);
-  EXPECT_NE(source.find("BeginGpuTimestampScope(vk_command_buffer, \"BLAS Update\")"), std::string::npos);
+  EXPECT_NE(source.find("{\"BlasUpdate\", \"BLAS Update\", \"Ray Tracing\""), std::string::npos);
   EXPECT_NE(source.find("pending_content_version_ = content_version_ + 1"), std::string::npos);
   EXPECT_NE(source.find("pending_submission_state_ = Platform::TrackCurrentFrameSubmission()"), std::string::npos);
   EXPECT_NE(source.find("previous_blas_content_versions != current_blas_content_versions"), std::string::npos);
@@ -274,13 +272,12 @@ TEST(RayTracingSkinned, DynamicBlasUsesPersistentMainQueueUpdates) {
 }
 
 TEST(RayTracingSkinned, TopLevelAccelerationStructureRegistersSkinnedCollections) {
-  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/GraphicsResources.cpp"));
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderInstanceStorage.cpp"));
   ASSERT_FALSE(source.empty());
 
-  EXPECT_NE(source.find("#include \"SkinnedMesh.hpp\""), std::string::npos);
-  const auto register_static = source.find("const auto register_mesh");
-  const auto register_skinned = source.find("const auto register_skinned");
-  const auto register_instanced = source.find("const auto register_instanced");
+  const auto register_static = source.find("const auto register_mesh_tlas_input");
+  const auto register_skinned = source.find("const auto register_skinned_tlas_input");
+  const auto register_instanced = source.find("const auto register_strands_tlas_input");
   ASSERT_NE(register_static, std::string::npos);
   ASSERT_NE(register_skinned, std::string::npos);
   ASSERT_NE(register_instanced, std::string::npos);
@@ -289,15 +286,11 @@ TEST(RayTracingSkinned, TopLevelAccelerationStructureRegistersSkinnedCollections
 
   EXPECT_NE(source.find("render_instance->ray_tracing_blas ? render_instance->ray_tracing_blas"), std::string::npos);
   EXPECT_NE(source.find("render_instance->skinned_mesh->blas_"), std::string::npos);
-  EXPECT_NE(source.find("blas->GetDeviceAddress()"), std::string::npos);
+  EXPECT_NE(source.find("top_level_acceleration_structure_inputs_.push_back"), std::string::npos);
   EXPECT_NE(source.find("render_instance->model.value"), std::string::npos);
-  EXPECT_NE(source.find("render_instance_storage.deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
-            std::string::npos);
-  EXPECT_NE(source.find("render_instance_storage.forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
-            std::string::npos);
-  EXPECT_NE(
-      source.find("render_instance_storage.transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance"),
-      std::string::npos);
+  EXPECT_NE(source.find("deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance"), std::string::npos);
+  EXPECT_NE(source.find("forward_skinned_render_instances->ForEachSkinnedMeshRenderInstance"), std::string::npos);
+  EXPECT_NE(source.find("transparent_skinned_render_instances->ForEachSkinnedMeshRenderInstance"), std::string::npos);
 }
 
 TEST(RayTracingSkinned, RenderInstanceStorageBuildsTlasForSkinnedOnlyScenes) {

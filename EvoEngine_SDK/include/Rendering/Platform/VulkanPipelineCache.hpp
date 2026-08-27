@@ -41,7 +41,7 @@ struct PipelineCreationFeedback {
   std::string fallback_reason;
 };
 
-class VulkanPipelineCache final {
+class EVOENGINE_API VulkanPipelineCache final {
  public:
   static constexpr size_t kMaxCacheFileBytes = 512ull * 1024ull * 1024ull;
 

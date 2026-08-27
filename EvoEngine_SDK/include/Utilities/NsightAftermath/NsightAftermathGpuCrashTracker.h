@@ -34,7 +34,7 @@
 // Implements GPU crash dump tracking using the Nsight
 // Aftermath API.
 //
-class GpuCrashTracker {
+class EVOENGINE_API GpuCrashTracker {
  public:
   // keep four frames worth of marker history
   const static unsigned int c_markerFrameHistory = 4;

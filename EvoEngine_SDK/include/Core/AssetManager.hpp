@@ -12,17 +12,17 @@
 #include "Serialization.hpp"
 
 namespace evo_engine {
-class EditorLayer;
-class File;
-class Folder;
-class IAsset;
-class ProjectContentBrowserPanel;
+class EVOENGINE_API EditorLayer;
+class EVOENGINE_API File;
+class EVOENGINE_API Folder;
+class EVOENGINE_API IAsset;
+class EVOENGINE_API ProjectContentBrowserPanel;
 
 /**
  * @class AssetManager
  * @brief Manages the loading, retrieval, and creation of assets in the engine.
  */
-class AssetManager {
+class EVOENGINE_API AssetManager {
  public:
   enum class AssetLoadState {
     Discovered,
@@ -35,7 +35,7 @@ class AssetManager {
     Cancelled
   };
 
-  struct AssetLoadSnapshot {
+  struct EVOENGINE_API AssetLoadSnapshot {
     size_t total = 0;
     size_t completed = 0;
     size_t failed = 0;

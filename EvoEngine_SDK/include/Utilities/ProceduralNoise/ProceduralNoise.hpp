@@ -45,7 +45,7 @@ enum class NodeType {
 
 };
 
-class INode;
+class EVOENGINE_API INode;
 
 struct NodeData {
   NodeType type{};
@@ -58,7 +58,7 @@ struct OutputPinData {
   std::string name = "Output";
 };
 
-class INode {
+class EVOENGINE_API INode {
  public:
   static void PrepareInputs(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph,
                             NodeGraphNodeHandle node_handle,
@@ -68,18 +68,18 @@ class INode {
                        std::unordered_map<NodeGraphOutputPinHandle, float>& results) const = 0;
 };
 
-class InputNode : public INode {
+class EVOENGINE_API InputNode : public INode {
  public:
   void Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph, NodeGraphNodeHandle node_handle,
                std::unordered_map<NodeGraphOutputPinHandle, float>& results) const override;
 };
 
-class OutputNode : public INode {
+class EVOENGINE_API OutputNode : public INode {
   void Process(const NodeGraph<InputPinData, OutputPinData, NodeData, int>& graph, NodeGraphNodeHandle node_handle,
                std::unordered_map<NodeGraphOutputPinHandle, float>& results) const override;
 };
 
-class IProceduralNoise {
+class EVOENGINE_API IProceduralNoise {
  public:
   virtual void Reset() = 0;
   NodeGraph<InputPinData, OutputPinData, NodeData, int> node_graph{};
@@ -88,7 +88,7 @@ class IProceduralNoise {
 void SaveProceduralNoiseGraph(YAML::Emitter& out, const IProceduralNoise& noise);
 void LoadProceduralNoiseGraph(const YAML::Node& in, IProceduralNoise& noise);
 
-class ProceduralNoise2D : public IAsset, public IProceduralNoise {
+class EVOENGINE_API ProceduralNoise2D : public IAsset, public IProceduralNoise {
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
@@ -100,7 +100,7 @@ class ProceduralNoise2D : public IAsset, public IProceduralNoise {
   void OnCreate() override;
 };
 
-class ProceduralNoise3D : public IAsset, public IProceduralNoise {
+class EVOENGINE_API ProceduralNoise3D : public IAsset, public IProceduralNoise {
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;
@@ -112,7 +112,7 @@ class ProceduralNoise3D : public IAsset, public IProceduralNoise {
   void OnCreate() override;
 };
 
-class ProceduralNoise4D : public IAsset, public IProceduralNoise {
+class EVOENGINE_API ProceduralNoise4D : public IAsset, public IProceduralNoise {
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;

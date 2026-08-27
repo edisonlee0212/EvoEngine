@@ -10,7 +10,7 @@ namespace evo_engine {
 /**
  * @brief A structure to define various draw settings for rendering.
  */
-struct DrawSettings {
+struct EVOENGINE_API DrawSettings {
   float line_width = 1.0f;                            ///< Line width for rendering.
   VkCullModeFlags cull_mode = VK_CULL_MODE_NONE;      ///< Culling mode for rendering.
   VkPolygonMode polygon_mode = VK_POLYGON_MODE_FILL;  ///< Polygon fill mode.
@@ -46,7 +46,7 @@ struct DrawSettings {
  * @class Material
  * @brief Manages material properties and settings for rendering, including textures and shaders.
  */
-class Material final : public IAsset {
+class EVOENGINE_API Material final : public IAsset {
   friend class RenderLayer;
 
   bool need_update_ = true;  ///< Indicates if the material needs to be updated.

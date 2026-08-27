@@ -8,7 +8,7 @@ namespace evo_engine {
  * @class GraphicsPipelineStates
  * @brief Manages and applies the graphics pipeline states for rendering.
  */
-class GraphicsPipelineStates {
+class EVOENGINE_API GraphicsPipelineStates {
   friend class Platform;  ///< Platform has access to private members for management purposes.
 
   VkViewport view_port_applied_ = {};  ///< Applied viewport configuration.

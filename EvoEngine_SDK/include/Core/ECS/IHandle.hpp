@@ -2,13 +2,13 @@
 #pragma once
 
 namespace evo_engine {
-class File;
-class Folder;
+class EVOENGINE_API File;
+class EVOENGINE_API Folder;
 
 /**
  * The "GUID" for all instances in evo_engine that requires a unique identifier for hashing/serialization.
  */
-struct Handle {
+struct EVOENGINE_API Handle {
   friend class IAsset;
   friend struct EntityMetadata;
   friend class Resources;
@@ -65,7 +65,7 @@ struct Handle {
 /**
  * An interface for managing handles associated with objects in evo_engine.
  */
-class IHandle {
+class EVOENGINE_API IHandle {
   friend class Prefab;
   friend class Entities;
   friend struct EntityMetadata;

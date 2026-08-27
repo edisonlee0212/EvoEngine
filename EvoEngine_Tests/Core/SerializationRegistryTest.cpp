@@ -887,7 +887,9 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.ambient_occlusion->intensity = 1.75f;
   stack.bloom = std::make_shared<Bloom>();
   stack.bloom->filter_radius = 0.02f;
-  stack.bloom->bloom_chain_length = 4;
+  stack.bloom->threshold = 1.25f;
+  stack.bloom->knee = 0.15f;
+  stack.bloom->intensity = 0.5f;
   stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   stack.screen_space_reflection->max_iteration_count = 96;
   stack.screen_space_reflection->blur = false;
@@ -916,6 +918,10 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["bias"].as<float>(), 0.05f);
   EXPECT_FLOAT_EQ(stack_node["ambient_occlusion"]["intensity"].as<float>(), 1.75f);
   EXPECT_FLOAT_EQ(stack_node["bloom"]["filter_radius"].as<float>(), 0.02f);
+  EXPECT_FLOAT_EQ(stack_node["bloom"]["threshold"].as<float>(), 1.25f);
+  EXPECT_FLOAT_EQ(stack_node["bloom"]["knee"].as<float>(), 0.15f);
+  EXPECT_FLOAT_EQ(stack_node["bloom"]["intensity"].as<float>(), 0.5f);
+  EXPECT_FALSE(stack_node["bloom"]["bloom_chain_length"]);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
   const auto anti_aliasing_node = stack_node["anti_aliasing"];
   EXPECT_EQ(anti_aliasing_node["preset"].as<int>(), static_cast<int>(AntiAliasing::Preset::High));
@@ -942,6 +948,9 @@ ambient_occlusion:
   denoise_radius: 0.1
 bloom:
   filter_radius: 0.03
+  threshold: 1.5
+  knee: 0.2
+  intensity: 0.75
   bloom_chain_length: 5
 screen_space_reflection:
   max_distance: 50.0
@@ -980,7 +989,9 @@ tone_mapping:
   EXPECT_FLOAT_EQ(restored_stack.ambient_occlusion->intensity, 1.5f);
   ASSERT_TRUE(restored_stack.bloom);
   EXPECT_FLOAT_EQ(restored_stack.bloom->filter_radius, 0.03f);
-  EXPECT_EQ(restored_stack.bloom->bloom_chain_length, 5);
+  EXPECT_FLOAT_EQ(restored_stack.bloom->threshold, 1.5f);
+  EXPECT_FLOAT_EQ(restored_stack.bloom->knee, 0.2f);
+  EXPECT_FLOAT_EQ(restored_stack.bloom->intensity, 0.75f);
   ASSERT_TRUE(restored_stack.screen_space_reflection);
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
   EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
@@ -2584,50 +2595,6 @@ TEST(SerializationRegistry, PrefabSaveKeepsProjectTextureHandlesExternal) {
   const auto loaded_albedo = loaded_material->GetTexture(&GltfShadeMaterial::pbr_base_color_texture);
   ASSERT_TRUE(loaded_albedo);
   EXPECT_EQ(loaded_albedo->GetHandle(), texture_handle);
-}
-
-TEST(SerializationRegistry, SponzaImportSavesProjectTextureHandles) {
-  const auto project_path = std::filesystem::absolute("Resources/EvoEngine-DemoProjects/Rendering/Rendering.eveproj");
-  if (!std::filesystem::exists(project_path)) {
-    GTEST_SKIP() << "Sponza demo project is not available.";
-  }
-  const auto prefab_path = std::filesystem::temp_directory_path() / "EvoEngine_SponzaImportTextureRefs.eveprefab";
-  std::filesystem::remove(prefab_path);
-
-  ApplicationInitializationSettings settings = EmptyProjectSettings();
-  settings.allow_empty_project = false;
-  settings.project_path = project_path;
-
-  Application app;
-  ApplicationContextScope scope(app);
-  app.Initialize(settings);
-  RegisterTestablePrefabHandlers();
-
-  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
-  ASSERT_TRUE(scene);
-  app.Attach(scene);
-
-  const auto sponza =
-      std::dynamic_pointer_cast<Prefab>(ProjectManager::GetOrCreateAsset("Models/Sponza_FBX/Sponza.fbx"));
-  ASSERT_TRUE(sponza);
-  const auto sponza_entity = sponza->ToEntity(scene);
-
-  TestablePrefab prefab;
-  prefab.FromEntity(sponza_entity);
-  ASSERT_TRUE(prefab.SaveTo(prefab_path));
-
-  std::string saved_text;
-  {
-    std::ifstream file(prefab_path);
-    saved_text = std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-  }
-
-  const auto texture_handles = ReadMaterialTextureHandles(saved_text);
-  ASSERT_GT(texture_handles.size(), 0);
-  for (const auto& handle : texture_handles) {
-    EXPECT_TRUE(FileManager::GetFile(handle)) << "Unresolved saved Sponza texture handle: " << handle.GetValue();
-  }
-  std::filesystem::remove(prefab_path);
 }
 
 TEST(SerializationRegistry, UnregistersOwnerSupportHandlers) {

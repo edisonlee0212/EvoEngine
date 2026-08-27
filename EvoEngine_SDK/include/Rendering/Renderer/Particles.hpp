@@ -11,7 +11,7 @@ namespace evo_engine {
  * @brief Represents a particle system for use in the engine. Handles particle information,
  *        bounding box calculation, and interaction with the editor and assets.
  */
-class Particles : public IPrivateComponent {
+class EVOENGINE_API Particles : public IPrivateComponent {
  public:
   /**
    * @brief Called when the component is created.

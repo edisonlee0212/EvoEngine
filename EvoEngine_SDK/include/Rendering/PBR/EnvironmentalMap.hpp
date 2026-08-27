@@ -16,7 +16,7 @@ namespace evo_engine {
  * This class provides functionalities for constructing and managing environmental maps,
  * including sky illumination, cubemaps, and render texture-based maps.
  */
-class EnvironmentalMap final : public IAsset {
+class EVOENGINE_API EnvironmentalMap final : public IAsset {
   // Declare friend classes to allow access to private and protected members
   friend class Platform;
   friend class Camera;

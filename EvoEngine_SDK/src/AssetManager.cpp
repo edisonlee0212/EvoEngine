@@ -6,6 +6,7 @@
 #include "FileManager.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
+#include "OffscreenPreviewRenderer.hpp"
 #include "Profiler.hpp"
 #include "ProjectManager.hpp"
 #include "Resources.hpp"
@@ -369,6 +370,7 @@ void AssetManager::Clear() {
     }
   }
   ClearInspectorPreviewState();
+  OffscreenPreviewRenderer::Reset();
   struct LoadingFutureSnapshot {
     std::thread::id owner_thread_id;
     std::shared_future<std::shared_ptr<IAsset>> future;

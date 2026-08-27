@@ -176,16 +176,16 @@ struct ProfilerScopeToken {
   uint64_t capture_session_index = 0;
 };
 
-[[nodiscard]] ProfilerFrameStats BuildProfilerFrameStats(const ProfilerFrameSnapshot& snapshot);
-[[nodiscard]] std::vector<ProfilerFrameStats> BuildProfilerFrameStatsHistory(
+[[nodiscard]] EVOENGINE_API ProfilerFrameStats BuildProfilerFrameStats(const ProfilerFrameSnapshot& snapshot);
+[[nodiscard]] EVOENGINE_API std::vector<ProfilerFrameStats> BuildProfilerFrameStatsHistory(
     const std::vector<ProfilerFrameSnapshot>& snapshots);
-[[nodiscard]] ProfilerHistoryStats BuildProfilerHistoryStats(
+[[nodiscard]] EVOENGINE_API ProfilerHistoryStats BuildProfilerHistoryStats(
     const std::vector<ProfilerFrameStats>& frames, size_t selected_frame_index = (std::numeric_limits<size_t>::max)());
-[[nodiscard]] bool ExportProfilerChromeTrace(const std::filesystem::path& path,
-                                             const std::vector<ProfilerFrameSnapshot>& snapshots,
-                                             std::string* error = nullptr);
+[[nodiscard]] EVOENGINE_API bool ExportProfilerChromeTrace(const std::filesystem::path& path,
+                                                           const std::vector<ProfilerFrameSnapshot>& snapshots,
+                                                           std::string* error = nullptr);
 
-class Profiler final {
+class EVOENGINE_API Profiler final {
  public:
   static Profiler& GetInstance();
 
@@ -217,7 +217,7 @@ class Profiler final {
   [[nodiscard]] bool ExportChromeTrace(const std::filesystem::path& path, std::string* error = nullptr) const;
 };
 
-class ProfilerScope final {
+class EVOENGINE_API ProfilerScope final {
   ProfilerScopeToken token_;
 
  public:
@@ -228,7 +228,7 @@ class ProfilerScope final {
   ProfilerScope& operator=(const ProfilerScope&) = delete;
 };
 
-class ProfilerFrameScope final {
+class EVOENGINE_API ProfilerFrameScope final {
  public:
   explicit ProfilerFrameScope(uint64_t application_frame_index = 0);
   ~ProfilerFrameScope();

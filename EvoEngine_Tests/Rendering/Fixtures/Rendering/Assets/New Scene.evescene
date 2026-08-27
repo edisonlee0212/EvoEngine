@@ -1,0 +1,201 @@
+global_reflection_probe_fallback:
+  asset_handle_: 0
+  type_name_: ""
+environmental_lighting:
+  asset_handle_: 15876542362712797061
+  type_name_: EnvironmentalLighting
+main_camera:
+  entity_handle_: 14590412522603762238
+  private_component_type_name_: Camera
+entity_metadata_list:
+  - n: Main Camera
+    h: 14590412522603762238
+    e: true
+    s: false
+    r: 14590412522603762238
+    pc:
+      - tn: Camera
+        e: true
+        x: 1
+        y: 1
+        render_mode: Rasterization
+        background_source: Cubemap
+        clear_color: [0, 0, 0, 1]
+        near_distance: 0.1
+        far_distance: 200
+        fov: 120
+        background_intensity: 1
+        fade_ratio: 0.8
+        fade_factor: 1
+        sample_size: 1
+        bounce: 4
+        gamma: 2.2
+        firefly_clamp_threshold: 10
+        ray_debug_view: Beauty
+        ray_outputs:
+          albedo: false
+          normal: false
+          ray_count: false
+          path_length: false
+          time: false
+          debug: false
+        auto_spp_enabled: false
+        auto_spp_min_samples: 16
+        auto_spp_max_samples: 256
+        auto_spp_convergence_threshold: 0.01
+        shader_execution_reordering_mode: Automatic
+        skybox:
+          asset_handle_: 14
+          type_name_: Cubemap
+        background_environment:
+          asset_handle_: 0
+          type_name_: ""
+        post_processing_stack_ref:
+          asset_handle_: 12838370667989589858
+          type_name_: PostProcessingStack
+systems_: []
+LocalAssets:
+  - type_name: EnvironmentalLighting
+    handle: 15876542362712797061
+    indirect_environment_source:
+      kind: 0
+      environmental_map:
+        asset_handle_: 0
+        type_name_: ""
+      color: [0, 0, 0]
+      gamma: 2.2
+      rotation: 0
+    environment_lighting_intensity: 1
+    diffuse_fallback_intensity: 1
+    specular_fallback_intensity: 1
+    ddgi_settings:
+      runtime:
+        enabled: false
+        enable_emissive_mesh_sampling: true
+        ray_count: 256
+        guided_ray_count: 0
+        guided_emitter_count: 4
+        warmup_frames: 16
+        hysteresis: 0.97
+        normal_bias: 0.1
+        view_bias: 0.1
+        max_ray_distance: 1e+27
+        distance_exponent: 50
+        irradiance_gamma: 5
+        visibility_moment_bias: 0.02
+        irradiance_threshold: 0.25
+        brightness_threshold: 0.1
+        deterministic_ray_seed_enabled: false
+        deterministic_ray_seed: 0
+      volume_defaults:
+        probe_counts: [10, 6, 16]
+        probe_spacing: [1.5, 1.5, 1.5]
+        volume_origin: [0, 3, 3]
+        movement_type: 0
+        enable_probe_relocation: true
+        enable_probe_classification: false
+        enable_probe_variability: true
+        enable_probe_variability_gating: true
+        relocation_distance: 0.25
+        random_ray_backface_threshold: 0.1
+        fixed_ray_backface_threshold: 0.25
+        probe_variability_threshold: 0.03
+        probe_variability_min_samples: 128
+      storage:
+        max_probe_count: 8192
+        irradiance_tile_resolution: 8
+        visibility_tile_resolution: 16
+        atlas_probe_columns: 16
+    local_reflection_probes: []
+    ddgi_volumes: []
+  - type_name: PostProcessingStack
+    handle: 12838370667989589858
+    enable_ambient_occlusion: true
+    enable_bloom: true
+    enable_screen_space_reflection: false
+    enable_anti_aliasing: true
+    enable_tone_mapping: true
+    ambient_occlusion:
+      algorithm: 1
+      avoid_distance: 0.1
+      kernel_size: 64
+      radius: 0.15
+      bias: 0.01
+      factor: 0
+      intensity: 1
+      gtao_radius: 0.4
+      gtao_bias: 0.02
+      gtao_intensity: 1
+      thickness: 1
+      slice_count: 8
+      steps_per_slice: 6
+      denoise_radius: 0.1
+    bloom:
+      filter_radius: 1
+      threshold: 1
+      knee: 0.1
+      intensity: 1
+    screen_space_reflection:
+      max_distance: 100
+      distance_confidence: 0.2
+      max_iteration_count: 128
+      initial_steps: 32
+      thickness: 0.5
+      blur: true
+    anti_aliasing:
+      algorithm: 1
+      taa:
+        preset: 0
+        variance_clipping_mode: 2
+        history_color_mode: 0
+        variance_sample_count: 9
+        longest_velocity_sample_count: 9
+        use_ycocg: true
+        use_neighborhood_sampling: true
+        use_bicubic_filter: true
+        use_longest_velocity: true
+        use_depth_threshold: true
+        use_tgsm: true
+        use_fp16: false
+        min_variance_gamma: 0.75
+        max_variance_gamma: 2
+        velocity_rejection_threshold: 128
+        depth_threshold: 0.002
+        sharpen: 0
+      smaa:
+        preset: 3
+    tone_mapping:
+      method: 0
+      exposure: 1
+      brightness: 1
+      contrast: 1
+      saturation: 1
+      vignette: 0
+      auto_exposure: true
+      auto_exposure_speed: 5
+      ev_min_value: -5
+      ev_max_value: 10
+      enable_center_metering: false
+      center_metering_size: 0.5
+      average_mode: 1
+      dither: true
+data_component_storage_list:
+  - entity_size: 130
+    chunk_capacity: 126
+    entity_alive_count: 1
+    data_component_types:
+      - type_name: Transform
+        type_size: 64
+        type_offset: 0
+      - type_name: GlobalTransform
+        type_size: 64
+        type_offset: 64
+      - type_name: TransformUpdateFlag
+        type_size: 2
+        type_offset: 128
+    chunk_array:
+      - h: 14590412522603762238
+        dc:
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAoEAAACBBAACAPw=="
+          - d: !!binary "AACAPwAAAAAAAAAAAAAAAAAAAAAAAIA/AAAAAAAAAAAAAAAAAAAAAAAAgD8AAAAAAAAAAAAAAAAAAAAAAACAPw=="
+          - d: !!binary "AAE="

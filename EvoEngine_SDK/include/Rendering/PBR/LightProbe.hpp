@@ -12,7 +12,7 @@ namespace evo_engine {
  * which include functionality for initializing, constructing from a cubemap,
  * and interacting with the editor layer.
  */
-class LightProbe final : public IAsset {
+class EVOENGINE_API LightProbe final : public IAsset {
   /**
    * @brief The cubemap associated with this light probe.
    */

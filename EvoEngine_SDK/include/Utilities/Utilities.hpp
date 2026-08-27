@@ -7,7 +7,7 @@ namespace evo_engine {
  * @class FileUtils
  * @brief A utility class for file handling operations such as loading, opening, and saving files.
  */
-class FileUtils {
+class EVOENGINE_API FileUtils {
  public:
   /**
    * @brief Loads the contents of a file as a string.
@@ -57,7 +57,7 @@ class FileUtils {
  * @class SphereMeshGenerator
  * @brief A utility class for generating mesh data for 3D spheres.
  */
-class SphereMeshGenerator {
+class EVOENGINE_API SphereMeshGenerator {
  public:
   /**
    * @brief Generates an icosahedron mesh.

@@ -38,7 +38,7 @@ struct BoneScale {
  * @brief Encapsulates all keyframes (position, rotation, scale) for a bone
  *        and provides utilities for interpolation.
  */
-struct BoneKeyFrames {
+struct EVOENGINE_API BoneKeyFrames {
   std::vector<BonePosition> positions;  ///< List of position keyframes.
   std::vector<BoneRotation> rotations;  ///< List of rotation keyframes.
   std::vector<BoneScale> scales;        ///< List of scaling keyframes.
@@ -116,7 +116,7 @@ struct BoneKeyFrames {
  * @brief Defines a single bone in the skeleton hierarchy,
  *        along with its animations and transformations.
  */
-struct Bone {
+struct EVOENGINE_API Bone {
   std::map<std::string, BoneKeyFrames> animations;  ///< Map of animation names to their keyframes.
   std::string name;                                 ///< Name of the bone.
   Transform offset_matrix = Transform();            ///< Offset matrix for the bone.
@@ -153,7 +153,7 @@ struct Bone {
  * @class Animation
  * @brief Represents an animation asset containing skeleton and animation details.
  */
-class Animation : public IAsset {
+class EVOENGINE_API Animation : public IAsset {
  public:
   [[nodiscard]] bool SupportsStagedLoading() const {
     return true;

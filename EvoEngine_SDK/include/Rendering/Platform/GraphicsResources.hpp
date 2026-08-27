@@ -10,7 +10,7 @@ namespace evo_engine {
  * @class RenderInstanceStorage
  * @brief Forward declaration for RenderInstanceStorage class.
  */
-class RenderInstanceStorage;
+class EVOENGINE_API RenderInstanceStorage;
 class RangeDescriptor;
 
 struct FrameSubmissionState;
@@ -31,7 +31,7 @@ struct StaticBlasBuildPassPlan {
   bool oversized_singleton = false;
 };
 
-[[nodiscard]] std::vector<StaticBlasBuildPassPlan> PlanStaticBlasBuildPasses(
+[[nodiscard]] EVOENGINE_API std::vector<StaticBlasBuildPassPlan> PlanStaticBlasBuildPasses(
     const std::vector<StaticBlasBuildSize>& build_sizes, VkDeviceSize scratch_alignment,
     VkDeviceSize budget = kStaticBlasBuildBudgetBytes);
 
@@ -63,13 +63,13 @@ struct StaticBlasBuildTelemetry {
  * @class CommandBuffer
  * @brief Forward declaration for CommandBuffer class.
  */
-class CommandBuffer;
+class EVOENGINE_API CommandBuffer;
 
 /**
  * @class IGraphicsResource
  * @brief Base class for graphics resources in the engine.
  */
-class IGraphicsResource {
+class EVOENGINE_API IGraphicsResource {
  protected:
   /**
    * @brief Default protected constructor for IGraphicsResource.
@@ -115,7 +115,7 @@ void IGraphicsResource::ApplyVector(std::vector<T>& target, uint32_t size, const
  * @class Fence
  * @brief Represents a Vulkan fence resource.
  */
-class Fence final : public IGraphicsResource {
+class EVOENGINE_API Fence final : public IGraphicsResource {
   VkFence vk_fence_ = VK_NULL_HANDLE; /**< Vulkan fence handle. */
   VkFenceCreateFlags flags_ = {};     /**< Vulkan fence creation flags. */
 
@@ -142,7 +142,7 @@ class Fence final : public IGraphicsResource {
  * @class Semaphore
  * @brief Represents a Vulkan semaphore resource.
  */
-class Semaphore final : public IGraphicsResource {
+class EVOENGINE_API Semaphore final : public IGraphicsResource {
   VkSemaphore vk_semaphore_ = VK_NULL_HANDLE; /**< Vulkan semaphore handle. */
   VkSemaphoreCreateFlags flags_ = {};         /**< Vulkan semaphore creation flags. */
 
@@ -185,7 +185,7 @@ class Semaphore final : public IGraphicsResource {
  * @class Image
  * @brief Represents a Vulkan image resource.
  */
-class Image final : public IGraphicsResource {
+class EVOENGINE_API Image final : public IGraphicsResource {
   VkImage vk_image_ = VK_NULL_HANDLE;             /**< Vulkan image handle. */
   VmaAllocation vma_allocation_ = VK_NULL_HANDLE; /**< VMA allocation handle for the image. */
   VmaAllocationInfo vma_allocation_info_ = {};    /**< VMA allocation information. */
@@ -315,7 +315,7 @@ class Image final : public IGraphicsResource {
  * @class ImageView
  * @brief Represents a Vulkan image view resource.
  */
-class ImageView final : public IGraphicsResource {
+class EVOENGINE_API ImageView final : public IGraphicsResource {
   VkImageView vk_image_view_ = VK_NULL_HANDLE; /**< Vulkan image view handle. */
 
   VkImageViewCreateFlags flags_;              /**< Vulkan image view creation flags. */
@@ -363,7 +363,7 @@ class ImageView final : public IGraphicsResource {
  * @class Swapchain
  * @brief Represents a Vulkan swapchain resource.
  */
-class Swapchain final : public IGraphicsResource {
+class EVOENGINE_API Swapchain final : public IGraphicsResource {
   VkSwapchainKHR vk_swapchain_ = VK_NULL_HANDLE; /**< Vulkan swapchain handle. */
   std::vector<VkImage> vk_images_;               /**< List of Vulkan images in the swapchain. */
 
@@ -443,7 +443,7 @@ class Swapchain final : public IGraphicsResource {
  * @class ShaderModule
  * @brief Represents a Vulkan shader module resource.
  */
-class ShaderModule final : public IGraphicsResource {
+class EVOENGINE_API ShaderModule final : public IGraphicsResource {
   VkShaderModule vk_shader_module_ = VK_NULL_HANDLE; /**< Vulkan shader module handle. */
 
  public:
@@ -469,7 +469,7 @@ class ShaderModule final : public IGraphicsResource {
  * @class PipelineLayout
  * @brief Represents a Vulkan pipeline layout resource.
  */
-class PipelineLayout final : public IGraphicsResource {
+class EVOENGINE_API PipelineLayout final : public IGraphicsResource {
   VkPipelineLayout vk_pipeline_layout_ = VK_NULL_HANDLE; /**< Vulkan pipeline layout handle. */
 
   VkPipelineLayoutCreateFlags flags_;                     /**< Vulkan pipeline layout creation flags. */
@@ -499,7 +499,7 @@ class PipelineLayout final : public IGraphicsResource {
  * @class CommandPool
  * @brief Represents a Vulkan command pool resource.
  */
-class CommandPool final : public IGraphicsResource {
+class EVOENGINE_API CommandPool final : public IGraphicsResource {
   VkCommandPool vk_command_pool_ = VK_NULL_HANDLE; /**< Vulkan command pool handle. */
 
  public:
@@ -525,7 +525,7 @@ class CommandPool final : public IGraphicsResource {
  * @class Buffer
  * @brief Represents a Vulkan buffer resource.
  */
-class Buffer final : public IGraphicsResource {
+class EVOENGINE_API Buffer final : public IGraphicsResource {
   friend class BufferUploadBatch;
 
   struct GpuState;
@@ -776,7 +776,7 @@ struct BufferUploadOptions {
 /**
  * @brief Append-only staging storage whose mapped blocks remain alive until the owning frame slot is recycled.
  */
-class BufferUploadArena final {
+class EVOENGINE_API BufferUploadArena final {
   friend class BufferUploadBatch;
   struct State;
   std::unique_ptr<State> state_;
@@ -796,7 +796,7 @@ class BufferUploadArena final {
  * destination buffer. The batch does not wait for prior destination-buffer users. Synchronization covers later
  * consumers on the main queue; cross-queue use requires external synchronization.
  */
-class BufferUploadBatch final {
+class EVOENGINE_API BufferUploadBatch final {
   struct Entry {
     std::shared_ptr<Buffer> destination;
     const void* source = nullptr;
@@ -876,7 +876,7 @@ void Buffer::Download(T& data) {
  * @class Sampler
  * @brief Represents a Vulkan sampler resource.
  */
-class Sampler final : public IGraphicsResource {
+class EVOENGINE_API Sampler final : public IGraphicsResource {
   VkSampler vk_sampler_; /**< Vulkan sampler handle. */
 
  public:
@@ -911,7 +911,7 @@ struct DescriptorBinding {
  * @class DescriptorSetLayout
  * @brief Represents a Vulkan descriptor set layout resource.
  */
-class DescriptorSetLayout final : public IGraphicsResource {
+class EVOENGINE_API DescriptorSetLayout final : public IGraphicsResource {
   friend class DescriptorSet;
 
   std::unordered_map<uint32_t, DescriptorBinding> descriptor_set_layout_bindings_; /**< Descriptor bindings. */
@@ -952,7 +952,7 @@ class DescriptorSetLayout final : public IGraphicsResource {
  * @class DescriptorPool
  * @brief Represents a Vulkan descriptor pool resource.
  */
-class DescriptorPool final : public IGraphicsResource {
+class EVOENGINE_API DescriptorPool final : public IGraphicsResource {
   VkDescriptorPool vk_descriptor_pool_ = VK_NULL_HANDLE; /**< Vulkan descriptor pool handle. */
 
  public:
@@ -978,7 +978,7 @@ class DescriptorPool final : public IGraphicsResource {
  * @class ShaderExt
  * @brief Represents an extended Vulkan shader resource.
  */
-class ShaderExt final : public IGraphicsResource {
+class EVOENGINE_API ShaderExt final : public IGraphicsResource {
   VkShaderEXT shader_ext_ = VK_NULL_HANDLE; /**< Vulkan extended shader handle. */
 
   VkShaderCreateFlagsEXT flags_;                            /**< Vulkan shader creation flags. */
@@ -1019,7 +1019,7 @@ enum class CommandBufferStatus { Ready, Recording, Recorded, Invalid };
  * @class CommandBuffer
  * @brief Represents a Vulkan command buffer resource.
  */
-class CommandBuffer final : public IGraphicsResource {
+class EVOENGINE_API CommandBuffer final : public IGraphicsResource {
   friend class Platform;
 
   CommandBufferStatus status_ = CommandBufferStatus::Invalid; /**< Current status of the command buffer. */
@@ -1086,7 +1086,7 @@ class CommandBuffer final : public IGraphicsResource {
  * @class CommandQueue
  * @brief Represents a Vulkan command queue resource.
  */
-class CommandQueue final : public IGraphicsResource {
+class EVOENGINE_API CommandQueue final : public IGraphicsResource {
   friend class Platform;
 
   VkQueue vk_queue_ = VK_NULL_HANDLE; /**< Vulkan command queue handle. */
@@ -1163,7 +1163,7 @@ class CommandQueue final : public IGraphicsResource {
  * @class BottomLevelAccelerationStructure
  * @brief Represents a Vulkan bottom-level acceleration structure resource.
  */
-class BottomLevelAccelerationStructure final : public IGraphicsResource {
+class EVOENGINE_API BottomLevelAccelerationStructure final : public IGraphicsResource {
   VkAccelerationStructureKHR vk_acceleration_structure_khr_ =
       VK_NULL_HANDLE;                                       /**< Vulkan bottom-level acceleration structure handle. */
   std::shared_ptr<Buffer> acceleration_structure_buffer_{}; /**< Buffer associated with the acceleration structure. */
@@ -1243,7 +1243,7 @@ class BottomLevelAccelerationStructure final : public IGraphicsResource {
  * @class TopLevelAccelerationStructure
  * @brief Represents a Vulkan top-level acceleration structure resource.
  */
-class TopLevelAccelerationStructure final : public IGraphicsResource {
+class EVOENGINE_API TopLevelAccelerationStructure final : public IGraphicsResource {
  public:
   enum class UpdateMode { NoOp, Build, Update };
 
@@ -1334,7 +1334,7 @@ class TopLevelAccelerationStructure final : public IGraphicsResource {
  * @class DescriptorSet
  * @brief Represents a Vulkan descriptor set resource.
  */
-class DescriptorSet final : public IGraphicsResource {
+class EVOENGINE_API DescriptorSet final : public IGraphicsResource {
   std::shared_ptr<DescriptorSetLayout> descriptor_set_layout_; /**< Associated descriptor set layout. */
   VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;            /**< Vulkan descriptor set handle. */
 

@@ -8,7 +8,7 @@ namespace evo_engine {
  * @class Times
  * @brief A class that manages and provides time-related functionality for the engine.
  */
-class Times {
+class EVOENGINE_API Times {
   friend class Scene;        ///< Grant access to private members for the `Scene` class.
   friend class Application;  ///< Grant access to private members for the `Application` class.
 

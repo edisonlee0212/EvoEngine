@@ -12,7 +12,7 @@ DigitalAgriculture provides EvoEngine's sorghum and agriculture modeling workflo
 - Defines `DIGITAL_AGRICULTURE_PACKAGE`.
 - Copies resources from `EvoEngine_Packages/DigitalAgriculture/Internals`.
 - Emits `DigitalAgriculture.evepackage` beside the package binary for runtime dependency discovery.
-- Optional illumination functionality is compiled when `CUDA_MODULE_SERVICE` is available.
+- Does not require an accelerator-specific compute SDK.
 
 ## Main Responsibilities
 
@@ -20,14 +20,15 @@ DigitalAgriculture provides EvoEngine's sorghum and agriculture modeling workflo
 - Sorghum field/grid workflows.
 - Mesh generation for sorghum plants.
 - OBJ export for generated sorghum geometry.
-- Sensor and illumination-oriented data structures.
-- Optional CUDA/OptiX illumination estimation through `CudaModule`.
+- PAR sensor samples and imported sky-illumination datasets.
+- CBTF/BTF import, asset storage, references, and inspection.
+- A data-only `BtfMeshRenderer` component reserved for a future Vulkan backend.
 
 ## Main Entry Points
 
 | Source | Role |
 | --- | --- |
-| `SorghumLayer` | Main package layer, material setup, mesh generation, export, and illumination UI. |
+| `SorghumLayer` | Main package layer, material setup, mesh generation, and export. |
 | `Sorghum` | Private component representing an instance of a sorghum plant in a scene. |
 | `SorghumDescriptor` | Asset describing plant structure and mesh generation settings. |
 | `SorghumGrowthStages` | Asset for staged growth data. |
@@ -49,15 +50,17 @@ DigitalAgriculture provides EvoEngine's sorghum and agriculture modeling workflo
 - `SorghumField` with `.sorghumfield`
 - `SkyIlluminance` with `.skyilluminance`
 - `SorghumCoordinates` with `.sorghumcoords`
-
-When CUDA support is enabled, it also registers:
-
 - `PARSensorGroup` with `.parsensorgroup`
 - `CBTFGroup` with `.cbtfgroup`
+- `BtfMaterial` with `.btf`
+- `BtfMeshRenderer`
+- `CBTFImporter`
 
 ## SDK Integration
 
 DigitalAgriculture primarily uses private components, assets, editor inspection, asset references, and generated mesh/material workflows. It is consumed by DatasetGeneration through a runtime package dependency.
+
+PAR/CBTF data remains loadable and editable, but illumination estimation, BTF rendering, and device upload are intentionally unavailable until a Vulkan implementation replaces the removed backend.
 
 ## Future Work Notes
 

@@ -8,13 +8,13 @@
 #include "CameraSettings.hpp"
 
 namespace evo_engine {
-class Buffer;
-class DescriptorSet;
-class Image;
-class ImageView;
-class IAsset;
-class RenderTexture;
-class Sampler;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API Image;
+class EVOENGINE_API ImageView;
+class EVOENGINE_API IAsset;
+class EVOENGINE_API RenderTexture;
+class EVOENGINE_API Sampler;
 
 enum class RenderPassQueue { Graphics, Compute, RayTracing };
 
@@ -273,7 +273,7 @@ struct RenderGraphResourceBinding {
   std::vector<std::shared_ptr<Image>> images;
 };
 
-class RenderGraphResourceRegistry {
+class EVOENGINE_API RenderGraphResourceRegistry {
  public:
   void Clear();
   void BindBuffer(const std::string& resource_name, std::shared_ptr<Buffer> buffer);
@@ -292,7 +292,7 @@ class RenderGraphResourceRegistry {
   std::vector<RenderGraphResourceBinding> resource_bindings_;
 };
 
-class RenderGraphTransientResourceStore {
+class EVOENGINE_API RenderGraphTransientResourceStore {
  public:
   void Clear();
   void Allocate(const std::vector<RenderResourceDescriptor>& resources, const RenderGraphExecutionPlan& execution_plan);
@@ -317,7 +317,7 @@ class RenderGraphTransientResourceStore {
   std::vector<RenderGraphResourceBinding> resource_bindings_;
 };
 
-class RenderGraphExecutionContext {
+class EVOENGINE_API RenderGraphExecutionContext {
  public:
   RenderGraphExecutionContext(const std::vector<RenderResourceDescriptor>& resources,
                               const std::vector<RenderPassDescriptor>& passes,
@@ -344,7 +344,7 @@ class RenderGraphExecutionContext {
   size_t current_pass_index_ = RenderGraphConstants::invalid_pass_index;
 };
 
-class RenderGraph {
+class EVOENGINE_API RenderGraph {
  public:
   using ExecuteFunction = std::function<void(const RenderGraphExecutionContext&)>;
 
@@ -381,7 +381,7 @@ struct RenderGraphPlanCacheStats {
   double compilation_milliseconds = 0.0;
 };
 
-class RenderGraphPlanCache final {
+class EVOENGINE_API RenderGraphPlanCache final {
  public:
   explicit RenderGraphPlanCache(size_t capacity = 16);
   [[nodiscard]] const RenderGraphExecutionPlan& GetOrCompile(const RenderGraph& graph,
@@ -404,12 +404,13 @@ class RenderGraphPlanCache final {
   std::vector<Entry> entries_{};
 };
 
-void AddDefaultFrameResources(RenderGraph& graph);
-void AddDefaultRasterCameraResources(RenderGraph& graph);
-void AddDefaultRayTracingCameraResources(RenderGraph& graph);
-void AddRayCameraOptionalOutputResources(RenderGraph& graph, const CameraSettings::RayOutputSettings& outputs);
-void AddAdvancedFrameResources(RenderGraph& graph);
-void AddAdvancedCameraResources(RenderGraph& graph);
-void AddVolumetricCloudCameraResources(RenderGraph& graph, uint32_t resolution_divisor = 1);
-void AddGaussianSplatCameraResources(RenderGraph& graph);
+EVOENGINE_API void AddDefaultFrameResources(RenderGraph& graph);
+EVOENGINE_API void AddDefaultRasterCameraResources(RenderGraph& graph);
+EVOENGINE_API void AddDefaultRayTracingCameraResources(RenderGraph& graph);
+EVOENGINE_API void AddRayCameraOptionalOutputResources(RenderGraph& graph,
+                                                       const CameraSettings::RayOutputSettings& outputs);
+EVOENGINE_API void AddAdvancedFrameResources(RenderGraph& graph);
+EVOENGINE_API void AddAdvancedCameraResources(RenderGraph& graph);
+EVOENGINE_API void AddVolumetricCloudCameraResources(RenderGraph& graph, uint32_t resolution_divisor = 1);
+EVOENGINE_API void AddGaussianSplatCameraResources(RenderGraph& graph);
 }  // namespace evo_engine

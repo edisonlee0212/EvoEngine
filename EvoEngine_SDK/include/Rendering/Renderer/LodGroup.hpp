@@ -36,7 +36,7 @@ class Lod {
 /**
  * @brief Represents a group of Level of Detail (LOD) configurations for a component.
  */
-class LodGroup : public IPrivateComponent {
+class EVOENGINE_API LodGroup : public IPrivateComponent {
  public:
   /**
    * @brief A collection of LODs that belong to this group.

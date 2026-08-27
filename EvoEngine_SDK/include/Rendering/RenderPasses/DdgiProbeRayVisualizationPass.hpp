@@ -5,18 +5,18 @@
 #include <glm/glm.hpp>
 
 namespace evo_engine {
-class Camera;
-class Buffer;
-class DescriptorSet;
-class DescriptorSetLayout;
-class GraphicsPipeline;
+class EVOENGINE_API Camera;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API GraphicsPipeline;
 
 struct DdgiProbeRayVisualizationPushConstant {
   glm::uvec2 camera_ray_count = glm::uvec2(0);
   glm::vec2 miss_distance_alpha = glm::vec2(1.0f, 0.85f);
 };
 
-class DdgiProbeRayVisualizationPass final {
+class EVOENGINE_API DdgiProbeRayVisualizationPass final {
  public:
   struct Parameters {
     std::shared_ptr<GraphicsPipeline> pipeline;

@@ -818,7 +818,7 @@ TEST(EnvironmentalLightingAsset, SourceContractRoutesRendererThroughResolverForE
   ASSERT_FALSE(render_instance_source.empty());
 
   EXPECT_NE(scene_header.find("AssetRef environmental_lighting"), std::string::npos);
-  EXPECT_NE(asset_header.find("class EnvironmentalLighting final : public IAsset"), std::string::npos);
+  EXPECT_NE(asset_header.find("class EVOENGINE_API EnvironmentalLighting final : public IAsset"), std::string::npos);
   EXPECT_NE(asset_header.find("AssetRef reflection_probe_pack"), std::string::npos);
   EXPECT_NE(asset_header.find("AssetRef ddgi_volume_pack"), std::string::npos);
   EXPECT_NE(asset_header.find("environment_lighting_intensity"), std::string::npos);

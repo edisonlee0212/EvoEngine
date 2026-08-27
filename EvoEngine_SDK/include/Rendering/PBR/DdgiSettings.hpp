@@ -5,7 +5,7 @@
 
 namespace YAML {
 class Emitter;
-class Node;
+class EVOENGINE_API Node;
 }  // namespace YAML
 
 namespace evo_engine {
@@ -22,7 +22,7 @@ enum DdgiVolumeTriggerCondition : int {
                                   DdgiVolumeTriggerConditionGeometryChanged
 };
 
-struct DdgiSettings {
+struct EVOENGINE_API DdgiSettings {
   struct RuntimeSettings {
     bool enabled = false;
     bool enable_emissive_mesh_sampling = true;
@@ -65,6 +65,6 @@ struct DdgiSettings {
   void ClampSettings();
 };
 
-void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings);
-void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings);
+EVOENGINE_API void SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& settings);
+EVOENGINE_API void DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings);
 }  // namespace evo_engine

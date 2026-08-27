@@ -8,9 +8,9 @@
 
 namespace evo_engine {
 
-class Scene;
+class EVOENGINE_API Scene;
 
-class EntitySelection final {
+class EVOENGINE_API EntitySelection final {
  public:
   enum class RequestSource : uint8_t { User, Programmatic, Lifecycle };
   enum class AnchorPolicy : uint8_t { Preserve, Set, Clear };
@@ -22,7 +22,7 @@ class EntitySelection final {
     Entity anchor{};
   };
 
-  struct Snapshot {
+  struct EVOENGINE_API Snapshot {
     std::weak_ptr<Scene> scene;
     std::vector<Entity> entities;
     Entity primary{};

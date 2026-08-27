@@ -278,9 +278,10 @@ TEST(BistroDemoScript, DemoSceneAlignsRootToReferenceCamera) {
 
   const auto post_processing_source =
       ReadText(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "src" / "PostProcessingStack.cpp");
-  EXPECT_NE(post_processing_source.find("enable_ambient_occlusion = true;\n  enable_bloom = false;\n  "
+  EXPECT_NE(post_processing_source.find("enable_ambient_occlusion = true;\n  enable_bloom = true;\n  "
                                         "enable_screen_space_reflection = false;"),
             std::string::npos);
+  EXPECT_EQ(demo_scene_source.find("post_processing_stack->enable_bloom = false"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("auto& ddgi = RequireEnvironmentalLightingDdgiSettings(scene);"), std::string::npos);
   EXPECT_NE(demo_scene_source.find("camera->post_processing_stack_ref = "
                                    "AssetManager::CreateTemporaryAsset<PostProcessingStack>();"),

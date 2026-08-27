@@ -6,7 +6,7 @@ namespace evo_engine {
 /**
  * @brief Represents a single cubic Bezier curve.
  */
-class BezierCurve {
+class EVOENGINE_API BezierCurve {
  public:
   /**
    * @brief Default constructor for the BezierCurve class.
@@ -74,7 +74,7 @@ class BezierCurve {
 /**
  * @brief Represents a spline composed of multiple connected Bezier curves.
  */
-class BezierSpline {
+class EVOENGINE_API BezierSpline {
  public:
   std::vector<BezierCurve> curves;  ///< A collection of Bezier curves forming the spline.
 

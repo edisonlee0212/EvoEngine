@@ -4,18 +4,15 @@
 
 #include "CBTFGroup.hpp"
 
+#include "BtfMaterial.hpp"
 #include "DigitalAgricultureInspectionAdapters.hpp"
 #include "DigitalAgricultureSerializationAdapters.hpp"
-#ifdef CUDA_MODULE_SERVICE
-#  include "BtfMaterial.hpp"
-#endif
 
 using namespace digital_agriculture_package;
 bool digital_agriculture_package::InspectCBTFGroup(InspectorContext& context, CBTFGroup& group) {
   const auto& editor_layer = context.editor_layer;
   auto& btfs = group.btfs;
   bool changed = false;
-#ifdef CUDA_MODULE_SERVICE
   static AssetRef temp;
   if (editor_layer->DragAndDropButton<BtfMaterial>(temp, ("Drop to add..."))) {
     btfs.emplace_back(temp);
@@ -32,7 +29,6 @@ bool digital_agriculture_package::InspectCBTFGroup(InspectorContext& context, CB
     }
     ImGui::TreePop();
   }
-#endif
   return changed;
 }
 
@@ -40,7 +36,6 @@ void CBTFGroup::CollectAssetRef(std::vector<AssetRef>& list) {
   for (const auto& i : btfs)
     list.push_back(i);
 }
-#ifdef CUDA_MODULE_SERVICE
 void digital_agriculture_package::SerializeCBTFGroup(YAML::Emitter& out, const CBTFGroup& target) {
   if (!target.btfs.empty()) {
     out << YAML::Key << "btfs" << YAML::Value << YAML::BeginSeq;
@@ -67,4 +62,3 @@ std::shared_ptr<BtfMaterial> CBTFGroup::GetRandom() {
   }
   return {};
 }
-#endif

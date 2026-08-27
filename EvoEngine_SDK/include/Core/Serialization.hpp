@@ -695,12 +695,12 @@ struct HasRelink<
 
 namespace evo_engine {
 struct OffscreenPreviewSettings;
-class ProjectContentBrowserPanel;
+class EVOENGINE_API ProjectContentBrowserPanel;
 
 /**
  * @brief Application-owned registry responsible for serialization and reflected type registration.
  */
-class Serialization final {
+class EVOENGINE_API Serialization final {
  public:
   Serialization() = default;
   using SerializeHandler = std::function<void(YAML::Emitter&, const void*)>;
@@ -748,7 +748,7 @@ class Serialization final {
     uint32_t version = 0;
   };
 
-  static EVOENGINE_API Serialization& GetInstance();
+  static Serialization& GetInstance();
   [[nodiscard]] static const std::map<std::string, size_t>& GetRegisteredSystemTypes();
 
  private:
@@ -1683,29 +1683,29 @@ bool Serialization::RegisterDefaultAssetPreviewHandler(const std::string& owner_
       owner_name, type_name, version);
 }
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec2& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec3& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::vec4& v);
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::quat& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::mat4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::quat& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::mat4& v);
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec2& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec3& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec2& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec3& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::dvec4& v);
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec2& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec3& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec2& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec3& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::ivec4& v);
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec2& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec3& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec2& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec3& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::uvec4& v);
 
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::u8vec4& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::i8vec4& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::u16vec4& v);
-YAML::Emitter& operator<<(YAML::Emitter& out, const glm::i16vec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::u8vec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::i8vec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::u16vec4& v);
+EVOENGINE_API YAML::Emitter& operator<<(YAML::Emitter& out, const glm::i16vec4& v);
 
 template <typename T>
 std::shared_ptr<T> Serialization::ProduceSerializable() {

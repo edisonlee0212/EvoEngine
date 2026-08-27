@@ -28,10 +28,10 @@ enum class GltfSceneFeature : uint32_t {
 
 constexpr uint32_t kGltfSceneAllFeatures = (1u << 15u) - 1u;
 
-[[nodiscard]] uint32_t PromoteGltfSceneFeatures(uint32_t feature_mask);
-[[nodiscard]] uint32_t DetectGltfSceneFeatures(const std::vector<GltfShadeMaterial>& materials,
-                                               const std::vector<GltfTextureInfo>& texture_infos);
-[[nodiscard]] std::string BuildGltfSceneFeatureDefines(uint32_t feature_mask);
-[[nodiscard]] std::string FormatGltfSceneFeatureMask(uint32_t feature_mask);
+[[nodiscard]] EVOENGINE_API uint32_t PromoteGltfSceneFeatures(uint32_t feature_mask);
+[[nodiscard]] EVOENGINE_API uint32_t DetectGltfSceneFeatures(const std::vector<GltfShadeMaterial>& materials,
+                                                             const std::vector<GltfTextureInfo>& texture_infos);
+[[nodiscard]] EVOENGINE_API std::string BuildGltfSceneFeatureDefines(uint32_t feature_mask);
+[[nodiscard]] EVOENGINE_API std::string FormatGltfSceneFeatureMask(uint32_t feature_mask);
 
 }  // namespace evo_engine

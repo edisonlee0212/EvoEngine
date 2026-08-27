@@ -8,7 +8,7 @@ enum class GaussianSplatSortMode { None = 0, CpuDepth = 1, GpuRadix = 2 };
 enum class GaussianSplatDepthMode { Always = 0, SceneDepth = 1 };
 enum class GaussianSplatRasterMode { Auto = 0, Vertex = 1, Mesh = 2 };
 
-class GaussianSplatRenderer final : public IPrivateComponent {
+class EVOENGINE_API GaussianSplatRenderer final : public IPrivateComponent {
  public:
   AssetRef gaussian_splat;
   float opacity_scale = 1.0f;

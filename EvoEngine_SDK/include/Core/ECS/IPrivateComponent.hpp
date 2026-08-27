@@ -4,7 +4,7 @@
 #include "Entity.hpp"
 
 namespace evo_engine {
-class EditorLayer;
+class EVOENGINE_API EditorLayer;
 
 /**
  * @class IPrivateComponent
@@ -13,7 +13,7 @@ class EditorLayer;
  * This interface provides various lifecycle callbacks and utility methods
  * to manage private components associated with entities in a scene.
  */
-class IPrivateComponent : public ISerializable {
+class EVOENGINE_API IPrivateComponent : public ISerializable {
   friend class Entities;
   friend class EditorLayer;
   friend struct PrivateComponentElement;
@@ -155,7 +155,7 @@ class IPrivateComponent : public ISerializable {
  * This structure is used for managing private components associated
  * with specific entity instances.
  */
-struct PrivateComponentElement {
+struct EVOENGINE_API PrivateComponentElement {
   size_t type_index;                                          ///< Type index of the private component.
   std::shared_ptr<IPrivateComponent> private_component_data;  ///< Shared pointer to the private component data.
 

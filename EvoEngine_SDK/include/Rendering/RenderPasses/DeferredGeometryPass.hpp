@@ -6,12 +6,12 @@
 #include <vector>
 
 namespace evo_engine {
-class Camera;
-class DescriptorSet;
-class GraphicsPipeline;
-class RenderInstanceStorage;
+class EVOENGINE_API Camera;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API RenderInstanceStorage;
 
-class DeferredGeometryPass final {
+class EVOENGINE_API DeferredGeometryPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
   using ExternalDeferredRendering = std::function<void(

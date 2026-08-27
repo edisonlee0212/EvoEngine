@@ -661,6 +661,10 @@ bool InspectCamera(InspectorContext& context, Camera& camera) {
 
 bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
   bool changed = false;
+  if (ImGui::Button("Apply default settings##AmbientOcclusion")) {
+    ambient_occlusion = {};
+    changed = true;
+  }
   if (ImGui::DragFloat("Radius", &ambient_occlusion.radius, 0.001f, 0.0f, 10.f))
     changed = true;
   if (ImGui::DragFloat("Thickness", &ambient_occlusion.thickness, 0.01f, 0.001f, 10.f))
@@ -680,6 +684,10 @@ bool InspectAmbientOcclusion(AmbientOcclusion& ambient_occlusion) {
 
 bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
   bool changed = false;
+  if (ImGui::Button("Apply default settings##AntiAliasing")) {
+    anti_aliasing = {};
+    changed = true;
+  }
   int preset = static_cast<int>(anti_aliasing.preset);
   const char* presets[] = {"Low", "Medium", "High", "Ultra"};
   if (ImGui::Combo("Preset", &preset, presets, IM_ARRAYSIZE(presets))) {
@@ -697,15 +705,27 @@ bool InspectAntiAliasing(AntiAliasing& anti_aliasing) {
 
 bool InspectBloom(Bloom& bloom) {
   bool changed = false;
-  if (ImGui::DragFloat("Filter radius", &bloom.filter_radius, 0.0001f, 0.0001f, .1f))
+  if (ImGui::Button("Apply default settings##Bloom")) {
+    bloom = {};
     changed = true;
-  if (ImGui::DragInt("Chain length", &bloom.bloom_chain_length, 1, 0, 10))
+  }
+  if (ImGui::DragFloat("Filter radius", &bloom.filter_radius, 0.05f, 0.1f, 4.0f))
+    changed = true;
+  if (ImGui::DragFloat("Threshold", &bloom.threshold, 0.01f, 0.0f, 100.0f))
+    changed = true;
+  if (ImGui::DragFloat("Knee", &bloom.knee, 0.01f, 0.0f, 10.0f))
+    changed = true;
+  if (ImGui::DragFloat("Intensity", &bloom.intensity, 0.01f, 0.0f, 100.0f))
     changed = true;
   return changed;
 }
 
 bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
   bool changed = false;
+  if (ImGui::Button("Apply default settings##ScreenSpaceReflection")) {
+    ssr = {};
+    changed = true;
+  }
   if (ImGui::DragFloat("Max march distance", &ssr.max_distance, 0.01f, 0.01f, 100.0f))
     changed = true;
   if (ImGui::DragFloat("Distance confidence", &ssr.distance_confidence, 0.1f, 0.0f, 128.0f))
@@ -723,6 +743,10 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
 
 bool InspectToneMapping(ToneMapping& tone_mapping) {
   bool changed = false;
+  if (ImGui::Button("Apply default settings##ToneMapping")) {
+    tone_mapping = {};
+    changed = true;
+  }
   int method = static_cast<int>(tone_mapping.method);
   const char* methods[] = {"Filmic", "Uncharted 2", "Clip", "ACES", "AgX", "Khronos PBR", "EvoEngine Exponential"};
   if (ImGui::Combo("Method", &method, methods, IM_ARRAYSIZE(methods))) {

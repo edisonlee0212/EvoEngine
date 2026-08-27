@@ -27,13 +27,13 @@ struct FrameOverviewSample {
 
 enum class CpuExecutorGroup : uint8_t { MainThread, Worker, AssetIo, GpuSubmission, Render, Background, Other };
 
-[[nodiscard]] double IntervalUnionMilliseconds(std::vector<TimingInterval> intervals);
-[[nodiscard]] FrameOverviewSample BuildFrameOverviewSample(double cpu_wall_ms, double synchronization_ms,
-                                                           std::optional<double> gpu_ms);
-[[nodiscard]] CpuExecutorGroup ClassifyCpuExecutor(const std::string& thread_name);
-[[nodiscard]] const char* CpuExecutorGroupName(CpuExecutorGroup group);
-[[nodiscard]] std::string StableHierarchyKey(CpuExecutorGroup group, const std::string& parent_path,
-                                             const std::string& category, const std::string& name);
+[[nodiscard]] EVOENGINE_API double IntervalUnionMilliseconds(std::vector<TimingInterval> intervals);
+[[nodiscard]] EVOENGINE_API FrameOverviewSample BuildFrameOverviewSample(double cpu_wall_ms, double synchronization_ms,
+                                                                         std::optional<double> gpu_ms);
+[[nodiscard]] EVOENGINE_API CpuExecutorGroup ClassifyCpuExecutor(const std::string& thread_name);
+[[nodiscard]] EVOENGINE_API const char* CpuExecutorGroupName(CpuExecutorGroup group);
+[[nodiscard]] EVOENGINE_API std::string StableHierarchyKey(CpuExecutorGroup group, const std::string& parent_path,
+                                                           const std::string& category, const std::string& name);
 
 template <typename Entry, typename Key, typename KeySelector>
 Entry& AppendFirstSeen(std::vector<Entry>& entries, const Key& key, KeySelector&& key_selector, Entry entry) {

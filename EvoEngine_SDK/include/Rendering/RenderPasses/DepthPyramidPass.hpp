@@ -4,11 +4,11 @@
 #include <functional>
 
 namespace evo_engine {
-class Camera;
-class ComputePipeline;
-class DescriptorSetLayout;
+class EVOENGINE_API Camera;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSetLayout;
 
-class DepthPyramidPass final {
+class EVOENGINE_API DepthPyramidPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 

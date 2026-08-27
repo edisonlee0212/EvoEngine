@@ -107,10 +107,6 @@ class PyEvoEngine {
    */
   static void PushEditorLayer();
   /**
-   * @brief Add EditorLayer to the framework.
-   */
-  static void PushRayTracerLayer();
-  /**
    * @brief Start the framework with RenderLayer but no WindowLayer.
    * @param project_path The path to the target project to load.
    * @return True when initialization was requested successfully.

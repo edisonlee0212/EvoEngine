@@ -12,7 +12,7 @@ namespace evo_engine {
  * The TransformGraph class is a singleton that provides functionalities to calculate and
  * manage global transformations of entities and their hierarchy within a scene.
  */
-class TransformGraph final {
+class EVOENGINE_API TransformGraph final {
  public:
   static TransformGraph& GetInstance();
 

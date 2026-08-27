@@ -7,12 +7,12 @@
 #include <future>
 
 namespace evo_engine {
-class ProjectContentBrowserPanel;
-class Folder;
+class EVOENGINE_API ProjectContentBrowserPanel;
+class EVOENGINE_API Folder;
 /**
  * @brief Represents a file in the asset management system.
  */
-class File {
+class EVOENGINE_API File {
  public:
   /**
    * @brief Retrieves the folder this file belongs to.
@@ -120,7 +120,7 @@ class File {
 /**
  * @brief Represents a folder in the asset management system.
  */
-class Folder {
+class EVOENGINE_API Folder {
   friend class IAsset;
   friend class EditorLayer;
   friend class ProjectManager;
@@ -285,7 +285,7 @@ class Folder {
 /**
  * @brief Manages files and folders in the asset management system.
  */
-class FileManager {
+class EVOENGINE_API FileManager {
  public:
   static FileManager& GetInstance();
 

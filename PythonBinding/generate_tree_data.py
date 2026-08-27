@@ -35,13 +35,8 @@ project_path = os.path.expanduser(evoengine_directory + "Resources/EcoSysLabProj
 if not os.path.isdir(output_root):
 	os.mkdir(output_root)
 
-#Enable GPU
-use_gpu = True
-
 #Start the framework without editor and window.
 tree_framework.PushRenderLayer()
-if use_gpu:
-	tree_framework.PushRayTracerLayer()
 tree_framework.RegisterClasses()
 tree_framework.PushEcoSysLabLayer()
 tree_framework.Run(project_path)

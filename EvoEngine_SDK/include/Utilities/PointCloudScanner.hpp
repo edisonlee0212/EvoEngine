@@ -2,7 +2,7 @@
 #include "AssetRef.hpp"
 #include "PointCloud.hpp"
 namespace evo_engine {
-class PointCloudScanner : public IPrivateComponent {
+class EVOENGINE_API PointCloudScanner : public IPrivateComponent {
  public:
   float rotate_angle = 0.0f;
   glm::vec2 size = glm::vec2(8, 4);

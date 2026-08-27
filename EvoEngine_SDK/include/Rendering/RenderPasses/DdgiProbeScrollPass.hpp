@@ -3,10 +3,10 @@
 #include "RenderInstanceStorage.hpp"
 
 namespace evo_engine {
-class ComputePipeline;
-class DescriptorSetLayout;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSetLayout;
 
-class DdgiProbeScrollPass final {
+class EVOENGINE_API DdgiProbeScrollPass final {
  public:
   struct Parameters {
     std::shared_ptr<ComputePipeline> pipeline;

@@ -7,12 +7,12 @@
 
 #include <optional>
 namespace evo_engine {
-class Texture2DStorage;
+class EVOENGINE_API Texture2DStorage;
 struct TextureStorageHandle;
 
 enum class TextureColorType { Red = 1, Rg = 2, Rgb = 3, Rgba = 4 };
 
-struct Texture2DSamplerSettings {
+struct EVOENGINE_API Texture2DSamplerSettings {
   VkFilter mag_filter = VK_FILTER_LINEAR;
   VkFilter min_filter = VK_FILTER_LINEAR;
   VkSamplerMipmapMode mipmap_mode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
@@ -29,7 +29,7 @@ struct Texture2DSamplerSettings {
   }
 };
 
-class Texture2D : public IAsset {
+class EVOENGINE_API Texture2D : public IAsset {
   friend class Resources;
   friend class Cubemap;
   friend class TextureStorage;

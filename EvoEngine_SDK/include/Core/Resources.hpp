@@ -7,18 +7,18 @@
 #include <filesystem>
 
 namespace evo_engine {
-class Texture2D;
-class Mesh;
-class Cubemap;
-class EnvironmentalMap;
-class GlobalReflectionProbe;
-class Scene;
+class EVOENGINE_API Texture2D;
+class EVOENGINE_API Mesh;
+class EVOENGINE_API Cubemap;
+class EVOENGINE_API EnvironmentalMap;
+class EVOENGINE_API GlobalReflectionProbe;
+class EVOENGINE_API Scene;
 
 /**
  * @class Resources
  * @brief Manages built-in and generated engine resources.
  */
-class Resources {
+class EVOENGINE_API Resources {
  public:
   static Resources& GetInstance();
 

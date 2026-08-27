@@ -18,7 +18,7 @@ struct TransformUpdateFlag : IDataComponent {
 /**
  * @brief Component for storing and manipulating global transformations.
  */
-struct GlobalTransform : IDataComponent {
+struct EVOENGINE_API GlobalTransform : IDataComponent {
   /// The transformation matrix value.
   glm::mat4 value =
       glm::translate(glm::vec3(0.0f)) * glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(1.0f));
@@ -141,7 +141,7 @@ struct GlobalTransform : IDataComponent {
 /**
  * @brief Component for storing and manipulating local transformations.
  */
-struct Transform : IDataComponent {
+struct EVOENGINE_API Transform : IDataComponent {
   /// The transformation matrix value.
   glm::mat4 value =
       glm::translate(glm::vec3(0.0f)) * glm::mat4_cast(glm::quat(glm::vec3(0.0f))) * glm::scale(glm::vec3(1.0f));

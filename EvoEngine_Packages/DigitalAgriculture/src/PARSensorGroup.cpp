@@ -2,21 +2,11 @@
 // Created by lllll on 2/23/2022.
 //
 #include <Jobs.hpp>
-#ifdef CUDA_MODULE_SERVICE
-#  include "DigitalAgricultureInspectionAdapters.hpp"
-#  include "DigitalAgricultureSerializationAdapters.hpp"
-#  include "Platform.hpp"
-#  include "RayTracerLayer.hpp"
+#include "DigitalAgricultureInspectionAdapters.hpp"
+#include "DigitalAgricultureSerializationAdapters.hpp"
+#include "Platform.hpp"
 
 using namespace digital_agriculture_package;
-void digital_agriculture_package::PARSensorGroup::CalculateIllumination(const RayProperties& ray_properties, int seed,
-                                                                        float push_normal_distance) {
-  if (samplers.empty())
-    return;
-  CudaModule::EstimateIlluminationRayTracing(
-      ApplicationContext::Get().GetLayer<RayTracerLayer>()->environment_properties, ray_properties, samplers, seed,
-      push_normal_distance);
-}
 bool digital_agriculture_package::InspectPARSensorGroup(InspectorContext& context, PARSensorGroup& group) {
   const auto& editor_layer = context.editor_layer;
   auto& samplers = group.samplers;
@@ -52,13 +42,6 @@ bool digital_agriculture_package::InspectPARSensorGroup(InspectorContext& contex
         samplers[i].v_0.normal = samplers[i].v_1.normal = samplers[i].v_2.normal = glm::vec3(0, 1, 0);
       });
     }
-    ImGui::TreePop();
-  }
-  if (ImGui::TreeNode("Estimation")) {
-    static RayProperties ray_properties = {8, 1000};
-    ray_properties.DrawGui();
-    if (ImGui::Button("Run!"))
-      group.CalculateIllumination(ray_properties, 0, 0.0f);
     ImGui::TreePop();
   }
   static bool draw = true;
@@ -117,4 +100,3 @@ void digital_agriculture_package::DeserializePARSensorGroup(const YAML::Node& in
     std::memcpy(target.samplers.data(), binary_list.data(), binary_list.size());
   }
 }
-#endif

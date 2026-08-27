@@ -13,7 +13,7 @@ namespace evo_engine {
  * This class provides mechanisms for updating bone matrices, managing ragdoll physics,
  * and handling asset references for skinned meshes and materials.
  */
-class SkinnedMeshRenderer : public IPrivateComponent {
+class EVOENGINE_API SkinnedMeshRenderer : public IPrivateComponent {
   friend class Animator;
   friend class AnimationLayer;
   friend class Prefab;

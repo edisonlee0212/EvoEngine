@@ -5,11 +5,11 @@
 #include <glm/glm.hpp>
 
 namespace evo_engine {
-class DescriptorSet;
-class GraphicsPipeline;
-class RenderInstanceStorage;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API RenderInstanceStorage;
 
-class DirectionalLightShadowPass final {
+class EVOENGINE_API DirectionalLightShadowPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
   using GetDepthAttachment = std::function<VkRenderingAttachmentInfo(uint32_t split, VkAttachmentLoadOp load_op,

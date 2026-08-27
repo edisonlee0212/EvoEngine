@@ -22,7 +22,7 @@ struct ProjectLaunchMetadata {
  * @brief A singleton class responsible for managing project-related operations, including asset management,
  *        folder hierarchy, and project settings.
  */
-class ProjectManager {
+class EVOENGINE_API ProjectManager {
  public:
   static ProjectManager& GetInstance();
 

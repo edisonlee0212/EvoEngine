@@ -239,7 +239,7 @@ struct DdgiProbeDebugDataView {
   bool selected_ray_samples_available = false;
 };
 
-class DdgiRuntime final {
+class EVOENGINE_API DdgiRuntime final {
  public:
   static constexpr uint32_t kProbeUpdateGroupSize = 64u;
   static constexpr uint32_t kProbeUpdateSharedMemoryBytes = 2u * 256u * sizeof(glm::vec4);

@@ -11,7 +11,7 @@ void RegisterWayPointsHandlers();
  * The WayPoints class is used to handle entities' movement along predefined
  * paths with configurable speeds and modes.
  */
-class WayPoints : public IPrivateComponent {
+class EVOENGINE_API WayPoints : public IPrivateComponent {
  public:
   /**
    * @brief Enum representing modes of waypoint traversal.

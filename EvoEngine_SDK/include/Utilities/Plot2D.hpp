@@ -18,7 +18,7 @@ enum class CurveEditorFlags {
 /**
  * @brief Represents a 2D curve that supports tangent manipulation and value constraints.
  */
-class Curve2D {
+class EVOENGINE_API Curve2D {
   bool tangent_;                  /**< Indicates if the curve uses tangents. */
   std::vector<glm::vec2> values_; /**< Stores the points of the curve. */
   glm::vec2 min_;                 /**< Minimum constraints for the curve's range. */

@@ -20,6 +20,7 @@ DEFAULT_DISABLED_DEMO_APP_ARGS = [
     "-DEvoEngine_App-DigitalAgricultureApp=OFF",
     "-DEvoEngine_App-LSystemApp=OFF",
 ]
+INSTALL_CONFIG_MARKER = ".evoengine-install-config"
 
 
 def repo_root() -> Path:
@@ -99,6 +100,13 @@ def clean_install_dir(root: Path, install_dir: Path) -> None:
 
     print(f"Cleaning {install_dir}")
     shutil.rmtree(install_dir)
+
+
+def installed_config(install_dir: Path) -> str | None:
+    try:
+        return (install_dir / INSTALL_CONFIG_MARKER).read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
 
 
 def open_folder(path: Path) -> None:
@@ -197,7 +205,9 @@ def main() -> int:
         configure_command.extend(args.cmake_arg)
         run_step("Configure Visual Studio project", configure_command)
 
-    if not args.incremental and not args.no_clean_install:
+    if not args.no_clean_install and (
+        not args.incremental or installed_config(install_dir) != args.config
+    ):
         clean_install_dir(root, install_dir)
 
     build_command = [
@@ -219,6 +229,9 @@ def main() -> int:
         ]
     )
     run_step(f"Build and install {args.config}", build_command)
+    (install_dir / INSTALL_CONFIG_MARKER).write_text(
+        f"{args.config}\n", encoding="utf-8"
+    )
 
     print(f"\nInstall output: {install_dir}")
     print(f"App binaries: {install_dir / 'bin'}")

@@ -35,7 +35,7 @@ struct FrameSubmissionState {
   enum class Status { Pending, Submitted, Discarded };
   Status status = Status::Pending;
 };
-class GpuService;
+class EVOENGINE_API GpuService;
 class PlatformLifecycleTestAccess;
 
 enum class RenderPassDrawBucket : uint8_t {
@@ -56,7 +56,7 @@ enum class RenderPassDrawBucket : uint8_t {
 
 enum class RenderDrawCallKind : uint8_t { Direct, Indirect };
 
-struct RenderPassDrawStats {
+struct EVOENGINE_API RenderPassDrawStats {
   size_t direct_draw_calls = 0;
   size_t indirect_draw_calls = 0;
   size_t indirect_draw_commands = 0;
@@ -64,7 +64,7 @@ struct RenderPassDrawStats {
   [[nodiscard]] size_t TotalDrawCalls() const;
 };
 
-struct RenderCameraDrawStats {
+struct EVOENGINE_API RenderCameraDrawStats {
   uint64_t camera_handle = 0;
   uint32_t entity_index = 0;
   bool scene_camera = false;
@@ -80,7 +80,7 @@ struct RenderCameraDrawScope {
   bool scene_camera = false;
 };
 
-struct GpuTimestampStats {
+struct EVOENGINE_API GpuTimestampStats {
   std::string name{};
   double last_milliseconds = 0.0;
   double minimum_milliseconds = 0.0;
@@ -172,15 +172,15 @@ struct GpuTimestampHistoryStats {
   std::vector<GpuTimestampGroupHistory> groups{};
 };
 
-[[nodiscard]] GpuTimestampFrameSnapshot BuildGpuTimestampFrameSnapshot(
+[[nodiscard]] EVOENGINE_API GpuTimestampFrameSnapshot BuildGpuTimestampFrameSnapshot(
     uint64_t application_frame_index, uint64_t capture_session_index, uint32_t query_capacity, uint32_t query_used,
     uint32_t skipped_scope_count, const std::vector<GpuTimestampQuerySample>& query_samples,
     const std::vector<uint64_t>& timestamps, double timestamp_period_nanoseconds, uint32_t timestamp_valid_bits);
-[[nodiscard]] std::vector<GpuTimestampPassAggregate> BuildGpuTimestampPassAggregates(
+[[nodiscard]] EVOENGINE_API std::vector<GpuTimestampPassAggregate> BuildGpuTimestampPassAggregates(
     const GpuTimestampFrameSnapshot& frame);
-[[nodiscard]] GpuTimestampHistoryStats BuildGpuTimestampHistoryStats(
-    const std::vector<GpuTimestampFrameSnapshot>& frames, size_t expected_frame_count = 0,
-    size_t selected_frame_index = (std::numeric_limits<size_t>::max)());
+[[nodiscard]] EVOENGINE_API GpuTimestampHistoryStats
+BuildGpuTimestampHistoryStats(const std::vector<GpuTimestampFrameSnapshot>& frames, size_t expected_frame_count = 0,
+                              size_t selected_frame_index = (std::numeric_limits<size_t>::max)());
 
 struct ImmediateGpuTimestampAction {
   std::string name{};
@@ -240,7 +240,7 @@ struct GpuTimestampScopeToken {
  * The Platform class manages all Vulkan-related initialization,
  * logical device creation, resource management, and rendering synchronization.
  */
-class Platform final {
+class EVOENGINE_API Platform final {
  public:
   static constexpr int kMaxFramesInFlight = 2;
 
@@ -250,7 +250,7 @@ class Platform final {
     uint32_t queue_count = 0;
   };
 
-  struct QueueFamilySelection {
+  struct EVOENGINE_API QueueFamilySelection {
     std::optional<uint32_t> graphics_and_compute_family{};
     std::optional<uint32_t> compute_family{};
     std::optional<uint32_t> present_family{};
@@ -295,7 +295,7 @@ class Platform final {
   /**
    * @brief Struct encapsulating Vulkan physical device data.
    */
-  struct PhysicalDevice {
+  struct EVOENGINE_API PhysicalDevice {
     /// Vulkan physical device handler.
     VkPhysicalDevice vk_physical_device{};
 
@@ -378,7 +378,7 @@ class Platform final {
     /**
      * @brief Struct representing queue family indices needed by the application.
      */
-    struct QueueFamilyIndices {
+    struct EVOENGINE_API QueueFamilyIndices {
       std::optional<uint32_t> graphics_and_compute_family{};
       std::optional<uint32_t> compute_family{};
       std::optional<uint32_t> present_family{};

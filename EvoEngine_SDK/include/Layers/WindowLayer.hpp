@@ -7,7 +7,7 @@
 #include "ILayer.hpp"
 
 namespace evo_engine {
-class Buffer;
+class EVOENGINE_API Buffer;
 
 /**
  * @class WindowLayer
@@ -16,7 +16,7 @@ class Buffer;
  * The WindowLayer class is responsible for managing GLFW windows, primary monitors,
  * and providing facilities to handle window events, resizing, and rendering.
  */
-class WindowLayer final : public ILayer {
+class EVOENGINE_API WindowLayer final : public ILayer {
   /**
    * @brief Allows `Platform` class access to private and protected members of WindowLayer.
    */

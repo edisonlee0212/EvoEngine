@@ -3,12 +3,12 @@
 #include "RenderInstanceStorage.hpp"
 
 namespace evo_engine {
-class Buffer;
-class ComputePipeline;
-class DescriptorSet;
-class DescriptorSetLayout;
+class EVOENGINE_API Buffer;
+class EVOENGINE_API ComputePipeline;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
 
-class DdgiProbeUpdatePass final {
+class EVOENGINE_API DdgiProbeUpdatePass final {
  public:
   struct DispatchSize {
     uint32_t x = 0u;

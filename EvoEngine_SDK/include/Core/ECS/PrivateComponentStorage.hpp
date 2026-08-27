@@ -30,13 +30,13 @@ struct POwnersCollection {
   }
 };
 
-class Scene;
+class EVOENGINE_API Scene;
 
 /**
  * @class PrivateComponentStorage
  * @brief Manages the storage and lifecycle of private components associated with entities.
  */
-class PrivateComponentStorage {
+class EVOENGINE_API PrivateComponentStorage {
   /**
    * @brief Maps a type ID to its index in the owners collections list.
    */

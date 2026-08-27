@@ -79,15 +79,42 @@ target_include_directories(EvoEngine_Tests
 	)
 target_compile_definitions(EvoEngine_Tests
 	PRIVATE
+	${EVOENGINE_SDK_DEFS}
 	EVOENGINE_TEST_SOURCE_DIR="${EVOENGINE_TEST_SOURCE_DIR_NORMALIZED}"
 	EVOENGINE_TEST_PYTHON_EXECUTABLE="${EVOENGINE_TEST_PYTHON_EXECUTABLE_NORMALIZED}"
 	EVOENGINE_TEST_SCRIPT_DIR="${EVOENGINE_TEST_SCRIPT_DIR_NORMALIZED}"
 	EVOENGINE_PYEVOENGINE_DIR="$<TARGET_FILE_DIR:PyEvoEngine>"
 	EVOENGINE_RENDER_TEST_DIR="$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	)
+target_precompile_headers(EvoEngine_Tests PRIVATE ${EVOENGINE_SDK_PCH})
 add_dependencies(EvoEngine_Tests PyEvoEngine)
 evoengine_copy_resources(EvoEngine_Tests "$<TARGET_FILE_DIR:EvoEngine_Tests>")
 set_property(TARGET EvoEngine_Tests PROPERTY FOLDER Tests)
+
+if(TARGET DigitalAgriculturePackage)
+	add_executable(DigitalAgriculture_Tests Core/DigitalAgricultureDataTest.cpp)
+	target_link_libraries(DigitalAgriculture_Tests PRIVATE DigitalAgriculturePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
+	target_compile_definitions(DigitalAgriculture_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
+	target_precompile_headers(DigitalAgriculture_Tests PRIVATE
+		${EVOENGINE_SDK_PCH}
+		${EVOENGINE_PACKAGE_PCH}
+		${DIGITAL_AGRICULTURE_PCH}
+		)
+	add_custom_command(TARGET DigitalAgriculture_Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:EvoEngine_SDK>
+			$<TARGET_FILE:BillboardCloudsPackage>
+			$<TARGET_FILE:EcoSysLabPackage>
+			$<TARGET_FILE:DigitalAgriculturePackage>
+			$<TARGET_FILE_DIR:DigitalAgriculture_Tests>
+		VERBATIM)
+	evoengine_copy_resources(DigitalAgriculture_Tests "$<TARGET_FILE_DIR:DigitalAgriculture_Tests>")
+	set_property(TARGET DigitalAgriculture_Tests PROPERTY FOLDER Tests)
+	gtest_discover_tests(DigitalAgriculture_Tests
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:DigitalAgriculture_Tests>"
+		PROPERTIES LABELS "digital-agriculture,serialization"
+		)
+endif()
 
 add_custom_target(EvoEngine_RenderTests)
 add_dependencies(EvoEngine_RenderTests EvoEngine_Tests)

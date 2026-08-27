@@ -80,6 +80,19 @@ const char* GetSmaaPresetDefine(const size_t preset_index) {
   constexpr const char* defines[] = {"SMAA_PRESET_LOW", "SMAA_PRESET_MEDIUM", "SMAA_PRESET_HIGH", "SMAA_PRESET_ULTRA"};
   return defines[glm::min(preset_index, std::size(defines) - 1)];
 }
+
+VkFormat ResolveBloomFormat() {
+  constexpr VkFormatFeatureFlags2 required_features = VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT |
+                                                      VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT |
+                                                      VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT;
+  const auto properties = Platform::GetPhysicalDeviceFormatProperties(VK_FORMAT_R16G16B16A16_SFLOAT);
+  return (properties.optimalTilingFeatures & required_features) == required_features ? VK_FORMAT_R16G16B16A16_SFLOAT
+                                                                                     : VK_FORMAT_R32G32B32A32_SFLOAT;
+}
+
+glm::uvec2 BloomMipSize(const glm::uvec2 base_size, const uint32_t mip_level) {
+  return glm::max(base_size >> mip_level, glm::uvec2(1));
+}
 }  // namespace
 
 std::shared_ptr<DescriptorSet> PerFrameDescriptorSet::GetOrCreate(
@@ -463,14 +476,20 @@ void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
 
 void Bloom::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "filter_radius" << YAML::Value << filter_radius;
-  out << YAML::Key << "bloom_chain_length" << YAML::Value << bloom_chain_length;
+  out << YAML::Key << "threshold" << YAML::Value << threshold;
+  out << YAML::Key << "knee" << YAML::Value << knee;
+  out << YAML::Key << "intensity" << YAML::Value << intensity;
 }
 
 void Bloom::Deserialize(const YAML::Node& in) {
   if (in["filter_radius"])
     filter_radius = in["filter_radius"].as<float>();
-  if (in["bloom_chain_length"])
-    bloom_chain_length = in["bloom_chain_length"].as<int>();
+  if (in["threshold"])
+    threshold = in["threshold"].as<float>();
+  if (in["knee"])
+    knee = in["knee"].as<float>();
+  if (in["intensity"])
+    intensity = in["intensity"].as<float>();
 }
 
 void Bloom::Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
@@ -478,23 +497,35 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   auto& stack = context.camera.stack;
   auto& camera = context.camera.bloom;
   auto& renderer = context.renderer.bloom;
+  const auto record_commands = [&](const std::function<void(VkCommandBuffer)>& action) {
+    if (context.record_commands) {
+      context.record_commands(action);
+    } else {
+      Platform::RecordCommandsMainQueue(action);
+    }
+  };
   if (!renderer.copy_pipeline || !renderer.copy_pipeline->Initialized() || !renderer.downsampling_pipeline ||
       !renderer.downsampling_pipeline->Initialized() || !renderer.upsampling_pipeline ||
       !renderer.upsampling_pipeline->Initialized() || !renderer.mix_pipeline || !renderer.mix_pipeline->Initialized())
     return;
 
-  const auto mip_levels = stack.result_texture->GetMipLevels();
-  const auto base_extent = stack.result_texture->GetColorImage()->GetExtent();
+  if (!camera.downsample_texture_a || !camera.downsample_texture_b || !camera.upsample_texture) {
+    return;
+  }
+  const auto mip_levels = camera.downsample_texture_a->GetMipLevels();
+  const uint32_t processed_mip_count = mip_levels > 2 ? mip_levels - 2 : 1;
+  const auto bloom_size = camera.size;
   const auto target_size = target_camera->GetSize();
   const auto& copy_frame_descriptor_set = camera.copy_descriptor_set.GetOrCreate(renderer.copy_layout);
   const auto& mix_frame_descriptor_set = camera.mix_descriptor_set.GetOrCreate(renderer.mix_layout);
   auto& downsampling_frame_descriptor_sets = camera.downsampling_descriptor_sets.Get();
   auto& upsampling_frame_descriptor_sets = camera.upsampling_descriptor_sets.Get();
-  const auto acquire_sampling_descriptor_set = [&](auto& descriptor_sets, const size_t index) {
+  const auto acquire_sampling_descriptor_set = [&](auto& descriptor_sets, const size_t index,
+                                                   const std::shared_ptr<DescriptorSetLayout>& layout) {
     descriptor_sets.resize(std::max(descriptor_sets.size(), index + 1));
     auto& descriptor_set = descriptor_sets[index];
     if (!descriptor_set) {
-      descriptor_set = std::make_shared<DescriptorSet>(renderer.sampling_layout);
+      descriptor_set = std::make_shared<DescriptorSet>(layout);
     }
     return descriptor_set;
   };
@@ -502,125 +533,128 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
-    image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
-    copy_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
     image_info.imageView = stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = stack.source_color_texture->GetColorSampler()->GetVkSampler();
+    copy_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+    image_info.imageView = camera.downsample_texture_a->GetColorImageView(0)->GetVkImageView();
+    image_info.sampler = camera.downsample_texture_a->GetColorSampler()->GetVkSampler();
     copy_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
-    image_info.imageView = stack.result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
-    copy_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   }
 
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+  record_commands([&](const VkCommandBuffer vk_command_buffer) {
+    const auto target_image = target_camera->GetRenderTexture()->GetColorImage();
+    const auto source_image = stack.source_color_texture->GetColorImage();
+    target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    source_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkImageCopy copy_region{};
+    copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy_region.srcSubresource.layerCount = 1;
+    copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    copy_region.dstSubresource.layerCount = 1;
+    copy_region.extent = {target_size.x, target_size.y, 1};
+    vkCmdCopyImage(vk_command_buffer, target_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+    target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    source_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    camera.downsample_texture_a->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    camera.downsample_texture_b->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    camera.upsample_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     renderer.copy_pipeline->Bind(vk_command_buffer);
     renderer.copy_pipeline->BindDescriptorSet(vk_command_buffer, 0, copy_frame_descriptor_set->GetVkDescriptorSet());
-    ComputePushConstant push_constant;
-    push_constant.resolution = target_size;
+    PrefilterPushConstant push_constant;
+    push_constant.source_resolution = target_size;
+    push_constant.target_resolution = bloom_size;
+    push_constant.threshold = threshold;
+    push_constant.knee = knee;
     renderer.copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-    renderer.copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16),
-                                     Platform::DivUp(target_size.y, 16));
+    renderer.copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(bloom_size.x, 16),
+                                     Platform::DivUp(bloom_size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
-  });
 
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    for (int target_mip_level = 1; target_mip_level < glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1);
-         ++target_mip_level) {
-      const auto current_descriptor_set =
-          acquire_sampling_descriptor_set(downsampling_frame_descriptor_sets, target_mip_level - 1);
-
-      VkDescriptorImageInfo descriptor_image_info;
-      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(target_mip_level - 1)->GetVkImageView();
-      descriptor_image_info.imageLayout = stack.result_texture->GetColorImage()->GetLayout();
-      descriptor_image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
-      current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
-      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(target_mip_level)->GetVkImageView();
-      current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
-      const float mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, target_mip_level);
-      const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, target_mip_level);
-      if (mip_width < 1.f || mip_height < 1.f)
-        continue;
-      const auto mip_extent_width = static_cast<uint32_t>(mip_width);
-      const auto mip_extent_height = static_cast<uint32_t>(mip_height);
-      renderer.downsampling_pipeline->Bind(vk_command_buffer);
-      renderer.downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                        current_descriptor_set->GetVkDescriptorSet());
-      DownsamplingPushConstant push_constant;
-      push_constant.mip_level = target_mip_level - 1;
-      push_constant.source_resolution = {mip_width, mip_height};
-      renderer.downsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      renderer.downsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
-                                               Platform::DivUp(mip_extent_height, 16));
-      Platform::EverythingBarrier(vk_command_buffer);
-    }
-  });
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     size_t descriptor_index = 0;
-    for (int src_mip_level = glm::min(static_cast<int>(mip_levels), bloom_chain_length + 1) - 1; src_mip_level > 0;
-         --src_mip_level) {
-      const auto current_descriptor_set =
-          acquire_sampling_descriptor_set(upsampling_frame_descriptor_sets, descriptor_index++);
+    for (uint32_t target_mip = 1; target_mip < processed_mip_count; ++target_mip) {
+      const auto source_size = BloomMipSize(bloom_size, target_mip - 1);
+      const auto destination_size = BloomMipSize(bloom_size, target_mip);
+      const std::array<std::shared_ptr<RenderTexture>, 2> inputs = {camera.downsample_texture_a,
+                                                                    camera.downsample_texture_b};
+      const std::array<std::shared_ptr<RenderTexture>, 2> outputs = {camera.downsample_texture_b,
+                                                                     camera.downsample_texture_a};
+      for (size_t pass = 0; pass < inputs.size(); ++pass) {
+        const auto descriptor_set = acquire_sampling_descriptor_set(downsampling_frame_descriptor_sets,
+                                                                    descriptor_index++, renderer.sampling_layout);
+        VkDescriptorImageInfo image_info{};
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        image_info.imageView =
+            inputs[pass]->GetColorImageView(pass == 0 ? target_mip - 1 : target_mip)->GetVkImageView();
+        image_info.sampler = inputs[pass]->GetColorSampler()->GetVkSampler();
+        descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+        image_info.imageView = outputs[pass]->GetColorImageView(target_mip)->GetVkImageView();
+        image_info.sampler = outputs[pass]->GetColorSampler()->GetVkSampler();
+        descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+        renderer.downsampling_pipeline->Bind(vk_command_buffer);
+        renderer.downsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+        DownsamplingPushConstant downsampling;
+        downsampling.source_resolution = pass == 0 ? source_size : destination_size;
+        downsampling.target_resolution = destination_size;
+        downsampling.apply_karis = target_mip == 1 && pass == 0 ? 1 : 0;
+        renderer.downsampling_pipeline->PushConstant(vk_command_buffer, 0, downsampling);
+        renderer.downsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(destination_size.x, 16),
+                                                 Platform::DivUp(destination_size.y, 16));
+        Platform::EverythingBarrier(vk_command_buffer);
+      }
+    }
 
-      VkDescriptorImageInfo descriptor_image_info;
-      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(src_mip_level)->GetVkImageView();
-      descriptor_image_info.imageLayout = stack.result_texture->GetColorImage()->GetLayout();
-      descriptor_image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
-      current_descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
-      descriptor_image_info.imageView = stack.result_texture->GetColorImageView(src_mip_level - 1)->GetVkImageView();
-      current_descriptor_set->UpdateImageDescriptorBinding(1, descriptor_image_info);
-
-      const float prev_mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, src_mip_level);
-      const float prev_mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level);
-      if (prev_mip_width < 1.f || prev_mip_height < 1.f)
-        continue;
-
-      const float mip_width = static_cast<float>(base_extent.width) * glm::pow(0.5f, src_mip_level - 1);
-      const float mip_height = static_cast<float>(base_extent.height) * glm::pow(0.5f, src_mip_level - 1);
-      const auto mip_extent_width = static_cast<uint32_t>(mip_width);
-      const auto mip_extent_height = static_cast<uint32_t>(mip_height);
+    descriptor_index = 0;
+    for (uint32_t target_mip = processed_mip_count - 1; target_mip-- > 0;) {
+      const auto target_mip_size = BloomMipSize(bloom_size, target_mip);
+      const auto source_mip_size = BloomMipSize(bloom_size, target_mip + 1);
+      const auto descriptor_set = acquire_sampling_descriptor_set(upsampling_frame_descriptor_sets, descriptor_index++,
+                                                                  renderer.upsampling_layout);
+      VkDescriptorImageInfo image_info{};
+      image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      image_info.imageView = camera.downsample_texture_a->GetColorImageView(target_mip)->GetVkImageView();
+      image_info.sampler = camera.downsample_texture_a->GetColorSampler()->GetVkSampler();
+      descriptor_set->UpdateImageDescriptorBinding(0, image_info);
+      const auto bloom_source =
+          target_mip == processed_mip_count - 2 ? camera.downsample_texture_a : camera.upsample_texture;
+      image_info.imageView = bloom_source->GetColorImageView(target_mip + 1)->GetVkImageView();
+      image_info.sampler = bloom_source->GetColorSampler()->GetVkSampler();
+      descriptor_set->UpdateImageDescriptorBinding(1, image_info);
+      image_info.imageView = camera.upsample_texture->GetColorImageView(target_mip)->GetVkImageView();
+      image_info.sampler = camera.upsample_texture->GetColorSampler()->GetVkSampler();
+      descriptor_set->UpdateImageDescriptorBinding(2, image_info);
       renderer.upsampling_pipeline->Bind(vk_command_buffer);
-      renderer.upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                      current_descriptor_set->GetVkDescriptorSet());
-      UpsamplingPushConstant push_constant;
-      push_constant.target_resolution = {mip_extent_width, mip_extent_height};
-      push_constant.filter_radius = filter_radius;
-      renderer.upsampling_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-      renderer.upsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(mip_extent_width, 16),
-                                             Platform::DivUp(mip_extent_height, 16));
+      renderer.upsampling_pipeline->BindDescriptorSet(vk_command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+      UpsamplingPushConstant upsampling;
+      upsampling.source_resolution = source_mip_size;
+      upsampling.target_resolution = target_mip_size;
+      upsampling.filter_radius = filter_radius;
+      renderer.upsampling_pipeline->PushConstant(vk_command_buffer, 0, upsampling);
+      renderer.upsampling_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_mip_size.x, 16),
+                                             Platform::DivUp(target_mip_size.y, 16));
       Platform::EverythingBarrier(vk_command_buffer);
     }
-  });
 
-  {
     VkDescriptorImageInfo image_info;
     image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = stack.source_color_texture->GetColorImageView()->GetVkImageView();
     image_info.sampler = stack.source_color_texture->GetColorSampler()->GetVkSampler();
     mix_frame_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
-    image_info.imageView = stack.result_texture->GetColorImageView()->GetVkImageView();
-    image_info.sampler = stack.result_texture->GetColorSampler()->GetVkSampler();
+    const auto bloom_result = processed_mip_count > 1 ? camera.upsample_texture : camera.downsample_texture_a;
+    image_info.imageView = bloom_result->GetColorImageView(0)->GetVkImageView();
+    image_info.sampler = bloom_result->GetColorSampler()->GetVkSampler();
     mix_frame_descriptor_set->UpdateImageDescriptorBinding(1, image_info);
     image_info.imageView = target_camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
     image_info.sampler = target_camera->GetRenderTexture()->GetColorSampler()->GetVkSampler();
     mix_frame_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
-  }
-
-  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-    stack.result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     renderer.mix_pipeline->Bind(vk_command_buffer);
     renderer.mix_pipeline->BindDescriptorSet(vk_command_buffer, 0, mix_frame_descriptor_set->GetVkDescriptorSet());
-    ComputePushConstant push_constant;
-    push_constant.resolution = target_size;
-    renderer.mix_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+    MixPushConstant mix_push_constant;
+    mix_push_constant.resolution = target_size;
+    mix_push_constant.bloom_resolution = bloom_size;
+    mix_push_constant.intensity = intensity;
+    renderer.mix_pipeline->PushConstant(vk_command_buffer, 0, mix_push_constant);
     renderer.mix_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(target_size.x, 16),
                                     Platform::DivUp(target_size.y, 16));
     Platform::EverythingBarrier(vk_command_buffer);
@@ -628,8 +662,19 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
 }
 
 void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const bool force_rebuild) const {
-  static_cast<void>(force_rebuild);
   auto& renderer = resources.bloom;
+  const auto format = ResolveBloomFormat();
+  if (force_rebuild || renderer.format != format) {
+    renderer.downsampling_pipeline.reset();
+    renderer.upsampling_pipeline.reset();
+    renderer.copy_pipeline.reset();
+    renderer.mix_pipeline.reset();
+    renderer.format = format;
+  }
+  auto bloom_shader_header = Platform::GetShaderGlobalDefines();
+  if (format == VK_FORMAT_R16G16B16A16_SFLOAT) {
+    bloom_shader_header += "\n#define EE_BLOOM_STORAGE_FORMAT_RGBA16F 1\n";
+  }
   if (!renderer.mix_layout) {
     renderer.mix_layout = std::make_shared<DescriptorSetLayout>();
     renderer.mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
@@ -644,7 +689,6 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
     renderer.copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                                                 VK_SHADER_STAGE_COMPUTE_BIT, 0);
     renderer.copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    renderer.copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     renderer.copy_layout->Initialize();
   }
   if (!renderer.sampling_layout) {
@@ -655,10 +699,20 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
                                                     0);
     renderer.sampling_layout->Initialize();
   }
+  if (!renderer.upsampling_layout) {
+    renderer.upsampling_layout = std::make_shared<DescriptorSetLayout>();
+    renderer.upsampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                      VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.upsampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                                                      VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    renderer.upsampling_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT,
+                                                      0);
+    renderer.upsampling_layout->Initialize();
+  }
   if (!renderer.downsampling_pipeline) {
     renderer.downsampling_pipeline = std::make_shared<ComputePipeline>();
     renderer.downsampling_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        ShaderType::Compute, bloom_shader_header,
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomDownsampling.slang");
     renderer.downsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
     auto& downsampling_push_constant_range = renderer.downsampling_pipeline->push_constant_ranges.emplace_back();
@@ -670,9 +724,9 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
   if (!renderer.upsampling_pipeline) {
     renderer.upsampling_pipeline = std::make_shared<ComputePipeline>();
     renderer.upsampling_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        ShaderType::Compute, bloom_shader_header,
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomUpsampling.slang");
-    renderer.upsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.sampling_layout);
+    renderer.upsampling_pipeline->descriptor_set_layouts.emplace_back(renderer.upsampling_layout);
     auto& upsampling_push_constant_range = renderer.upsampling_pipeline->push_constant_ranges.emplace_back();
     upsampling_push_constant_range.size = sizeof(UpsamplingPushConstant);
     upsampling_push_constant_range.offset = 0;
@@ -682,11 +736,11 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
   if (!renderer.copy_pipeline) {
     renderer.copy_pipeline = std::make_shared<ComputePipeline>();
     renderer.copy_pipeline->compute_shader = Shader::CreateTemporary(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        ShaderType::Compute, bloom_shader_header,
         Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomCopy.slang");
     renderer.copy_pipeline->descriptor_set_layouts.emplace_back(renderer.copy_layout);
     auto& copy_push_constant_range = renderer.copy_pipeline->push_constant_ranges.emplace_back();
-    copy_push_constant_range.size = sizeof(ComputePushConstant);
+    copy_push_constant_range.size = sizeof(PrefilterPushConstant);
     copy_push_constant_range.offset = 0;
     copy_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     renderer.copy_pipeline->Initialize();
@@ -698,7 +752,7 @@ void Bloom::BuildPipelines(PostProcessingRendererResources& resources, const boo
                                 Resources::GetDefaultResourcesPath() / "Shaders/Compute/PostProcessing/BloomMix.slang");
     renderer.mix_pipeline->descriptor_set_layouts.emplace_back(renderer.mix_layout);
     auto& mix_push_constant_range = renderer.mix_pipeline->push_constant_ranges.emplace_back();
-    mix_push_constant_range.size = sizeof(ComputePushConstant);
+    mix_push_constant_range.size = sizeof(MixPushConstant);
     mix_push_constant_range.offset = 0;
     mix_push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     renderer.mix_pipeline->Initialize();
@@ -711,34 +765,56 @@ void PostProcessingStack::Resize(PostProcessingCameraResources& resources, const
   if (size.x > 16384 || size.y >= 16384)
     return;
   auto& stack = resources.stack;
-  if (size == stack.size && stack.source_color_texture && stack.result_texture && stack.swap_texture)
+  auto& bloom = resources.bloom;
+  const auto bloom_size = (size + glm::uvec2(1)) / 2u;
+  const auto bloom_format = ResolveBloomFormat();
+  if (size == stack.size && stack.source_color_texture && stack.result_texture && stack.swap_texture &&
+      bloom.size == bloom_size && bloom.format == bloom_format && bloom.downsample_texture_a &&
+      bloom.downsample_texture_b && bloom.upsample_texture)
     return;
-  const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.x, size.y)))) + 1;
-  RenderTextureCreateInfo create_info{};
-  create_info.depth = false;
-  create_info.extent = {size.x, size.y, 1};
-  stack.source_color_texture = std::make_shared<RenderTexture>(create_info);
-  stack.result_texture = std::make_shared<RenderTexture>(create_info, mip_levels);
-  stack.swap_texture = std::make_shared<RenderTexture>(create_info);
-  stack.size = size;
-  ++stack.generation;
+  if (size != stack.size || !stack.source_color_texture || !stack.result_texture || !stack.swap_texture) {
+    const uint32_t mip_levels = static_cast<uint32_t>(std::floor(std::log2(std::max(size.x, size.y)))) + 1;
+    RenderTextureCreateInfo create_info{};
+    create_info.depth = false;
+    create_info.extent = {size.x, size.y, 1};
+    stack.source_color_texture = std::make_shared<RenderTexture>(create_info);
+    stack.result_texture = std::make_shared<RenderTexture>(create_info, mip_levels);
+    stack.swap_texture = std::make_shared<RenderTexture>(create_info);
+    stack.size = size;
+    ++stack.generation;
+  }
+
+  const uint32_t bloom_mip_levels =
+      static_cast<uint32_t>(std::floor(std::log2(std::min(bloom_size.x, bloom_size.y)))) + 1;
+  RenderTextureCreateInfo bloom_create_info{};
+  bloom_create_info.depth = false;
+  bloom_create_info.extent = {bloom_size.x, bloom_size.y, 1};
+  bloom_create_info.color_format = bloom_format;
+  bloom.downsample_texture_a = std::make_shared<RenderTexture>(bloom_create_info, bloom_mip_levels);
+  bloom.downsample_texture_b = std::make_shared<RenderTexture>(bloom_create_info, bloom_mip_levels);
+  bloom.upsample_texture = std::make_shared<RenderTexture>(bloom_create_info, bloom_mip_levels);
+  bloom.size = bloom_size;
+  bloom.format = bloom_format;
 }
 
 void PostProcessingStack::OnCreate() {
-  ambient_occlusion = std::make_shared<AmbientOcclusion>();
-  bloom = std::make_shared<Bloom>();
-  screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
-  anti_aliasing = std::make_shared<AntiAliasing>();
-  tone_mapping = std::make_shared<ToneMapping>();
+  ApplyDefaultSettings();
   const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
   if (render_layer && render_layer->GetPostProcessingRendererResources() &&
       !ApplicationContext::Get().GetLayer<WindowLayer>()) {
     while (!BuildNextPipeline(*render_layer->GetPostProcessingRendererResources())) {
     }
   }
+}
 
+void PostProcessingStack::ApplyDefaultSettings() {
+  ambient_occlusion = std::make_shared<AmbientOcclusion>();
+  bloom = std::make_shared<Bloom>();
+  screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
+  anti_aliasing = std::make_shared<AntiAliasing>();
+  tone_mapping = std::make_shared<ToneMapping>();
   enable_ambient_occlusion = true;
-  enable_bloom = false;
+  enable_bloom = true;
   enable_screen_space_reflection = false;
   enable_anti_aliasing = true;
   enable_tone_mapping = true;
@@ -832,6 +908,30 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
   if (enable_anti_aliasing) {
     anti_aliasing->Process(*this, target_camera, context);
   }
+}
+
+void PostProcessingStack::ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera) {
+  if (!target_camera || !bloom || !tone_mapping) {
+    return;
+  }
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer || !render_layer->GetPostProcessingRendererResources()) {
+    return;
+  }
+  auto& renderer = *render_layer->GetPostProcessingRendererResources();
+  bloom->BuildPipelines(renderer);
+  tone_mapping->BuildPipelines(renderer);
+  auto stack_asset = target_camera->post_processing_stack_ref.Get<PostProcessingStack>();
+  auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
+  Resize(camera, target_camera->GetSize());
+  PostProcessingExecutionContext context{camera, renderer};
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    context.record_commands = [&](const std::function<void(VkCommandBuffer)>& action) {
+      action(command_buffer);
+    };
+    bloom->Process(*this, target_camera, context);
+    tone_mapping->Process(*this, target_camera, context);
+  });
 }
 
 void PostProcessingStack::ProcessAmbientOcclusion(

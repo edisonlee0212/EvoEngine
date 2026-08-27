@@ -893,33 +893,41 @@ TEST(ShaderCache, ProductionBloomSharedSlangPushConstantsMatchHostLayout) {
       VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<uint32_t>(sizeof(Bloom::DownsamplingPushConstant))};
   const VkPushConstantRange upsampling_push_constant_range{
       VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<uint32_t>(sizeof(Bloom::UpsamplingPushConstant))};
-  const VkPushConstantRange compute_push_constant_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
-                                                        static_cast<uint32_t>(sizeof(Bloom::ComputePushConstant))};
+  const VkPushConstantRange prefilter_push_constant_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                                          static_cast<uint32_t>(sizeof(Bloom::PrefilterPushConstant))};
+  const VkPushConstantRange mix_push_constant_range{VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                                                    static_cast<uint32_t>(sizeof(Bloom::MixPushConstant))};
 
   auto sampling_layout = std::make_shared<DescriptorSetLayout>();
   sampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   sampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   const auto downsampling_path =
       RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomDownsampling.slang");
-  const auto downsampling_source = ShaderGlobalDefinesForTests() + ReadTextFile(downsampling_path);
+  const auto bloom_defines = ShaderGlobalDefinesForTests() + "\n#define EE_BLOOM_STORAGE_FORMAT_RGBA16F 1\n";
+  const auto downsampling_source = bloom_defines + ReadTextFile(downsampling_path);
   const auto downsampling_validation =
       Shader::ValidateSlangPipelineLayout(ShaderType::Compute, downsampling_source, downsampling_path,
                                           {sampling_layout}, {downsampling_push_constant_range});
   const auto upsampling_path =
       RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomUpsampling.slang");
-  const auto upsampling_source = ShaderGlobalDefinesForTests() + ReadTextFile(upsampling_path);
+  const auto upsampling_source = bloom_defines + ReadTextFile(upsampling_path);
+  auto upsampling_layout = std::make_shared<DescriptorSetLayout>();
+  upsampling_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0);
+  upsampling_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                           0);
+  upsampling_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   const auto upsampling_validation = Shader::ValidateSlangPipelineLayout(
-      ShaderType::Compute, upsampling_source, upsampling_path, {sampling_layout}, {upsampling_push_constant_range});
+      ShaderType::Compute, upsampling_source, upsampling_path, {upsampling_layout}, {upsampling_push_constant_range});
 
   auto copy_layout = std::make_shared<DescriptorSetLayout>();
   copy_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   copy_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  copy_layout->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   const auto copy_path =
       RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomCopy.slang");
-  const auto copy_source = ShaderGlobalDefinesForTests() + ReadTextFile(copy_path);
+  const auto copy_source = bloom_defines + ReadTextFile(copy_path);
   const auto copy_validation = Shader::ValidateSlangPipelineLayout(ShaderType::Compute, copy_source, copy_path,
-                                                                   {copy_layout}, {compute_push_constant_range});
+                                                                   {copy_layout}, {prefilter_push_constant_range});
 
   auto mix_layout = std::make_shared<DescriptorSetLayout>();
   mix_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
@@ -929,7 +937,7 @@ TEST(ShaderCache, ProductionBloomSharedSlangPushConstantsMatchHostLayout) {
       RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomMix.slang");
   const auto mix_source = ShaderGlobalDefinesForTests() + ReadTextFile(mix_path);
   const auto mix_validation = Shader::ValidateSlangPipelineLayout(ShaderType::Compute, mix_source, mix_path,
-                                                                  {mix_layout}, {compute_push_constant_range});
+                                                                  {mix_layout}, {mix_push_constant_range});
 
   ASSERT_TRUE(downsampling_validation.success) << downsampling_validation.diagnostics;
   ASSERT_EQ(downsampling_validation.reflection.push_constant_ranges.size(), 1u);
@@ -939,10 +947,10 @@ TEST(ShaderCache, ProductionBloomSharedSlangPushConstantsMatchHostLayout) {
   EXPECT_EQ(upsampling_validation.reflection.push_constant_ranges[0].size, upsampling_push_constant_range.size);
   ASSERT_TRUE(copy_validation.success) << copy_validation.diagnostics;
   ASSERT_EQ(copy_validation.reflection.push_constant_ranges.size(), 1u);
-  EXPECT_EQ(copy_validation.reflection.push_constant_ranges[0].size, compute_push_constant_range.size);
+  EXPECT_EQ(copy_validation.reflection.push_constant_ranges[0].size, prefilter_push_constant_range.size);
   ASSERT_TRUE(mix_validation.success) << mix_validation.diagnostics;
   ASSERT_EQ(mix_validation.reflection.push_constant_ranges.size(), 1u);
-  EXPECT_EQ(mix_validation.reflection.push_constant_ranges[0].size, compute_push_constant_range.size);
+  EXPECT_EQ(mix_validation.reflection.push_constant_ranges[0].size, mix_push_constant_range.size);
 }
 
 TEST(ShaderCache, ProductionBlurSlangPushConstantsMatchHostLayout) {

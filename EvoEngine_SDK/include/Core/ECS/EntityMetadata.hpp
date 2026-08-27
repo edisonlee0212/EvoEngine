@@ -8,7 +8,7 @@ namespace evo_engine {
 /**
  * @brief Represents the metadata associated with an Entity in the scene.
  */
-struct EntityMetadata {
+struct EVOENGINE_API EntityMetadata {
   /**
    * @brief The name of the entity.
    */

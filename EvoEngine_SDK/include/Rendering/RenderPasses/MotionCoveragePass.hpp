@@ -4,13 +4,13 @@
 #include <functional>
 
 namespace evo_engine {
-class Camera;
-class DescriptorSet;
-class DescriptorSetLayout;
-class GraphicsPipeline;
-class RenderInstanceStorage;
+class EVOENGINE_API Camera;
+class EVOENGINE_API DescriptorSet;
+class EVOENGINE_API DescriptorSetLayout;
+class EVOENGINE_API GraphicsPipeline;
+class EVOENGINE_API RenderInstanceStorage;
 
-class MotionCoveragePass final {
+class EVOENGINE_API MotionCoveragePass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 

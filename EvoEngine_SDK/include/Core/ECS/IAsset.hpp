@@ -13,12 +13,12 @@ namespace evo_engine {
 /**
  * Forward declarations of other classes.
  */
-class EditorLayer;
-class AssetRef;
-class File;
-class Folder;
-class ProjectContentBrowserPanel;
-class Texture2D;
+class EVOENGINE_API EditorLayer;
+class EVOENGINE_API AssetRef;
+class EVOENGINE_API File;
+class EVOENGINE_API Folder;
+class EVOENGINE_API ProjectContentBrowserPanel;
+class EVOENGINE_API Texture2D;
 
 /**
  * @class StagedAssetLoadPayload
@@ -34,7 +34,7 @@ class StagedAssetLoadPayload {
  * @brief Base class for managing assets in the evo_engine framework. Provides functionality for serialization,
  *        deserialization, and interactions with the asset's file system and the editor.
  */
-class IAsset : public ISerializable {
+class EVOENGINE_API IAsset : public ISerializable {
   struct PendingGpuWorkState {
     mutable std::mutex mutex;
     std::vector<JobHandle> handles;

@@ -4,12 +4,12 @@
 #include "IHandle.hpp"
 
 namespace evo_engine {
-class Scene;
+class EVOENGINE_API Scene;
 
 /**
  * @brief Represents metadata information about a data component type.
  */
-struct DataComponentType final {
+struct EVOENGINE_API DataComponentType final {
   std::string type_name;   ///< Name of the data component type.
   size_t type_index = 0;   ///< Unique index of the data component type.
   size_t type_size = 0;    ///< Size of the data component type in bytes.
@@ -46,7 +46,7 @@ struct DataComponentType final {
 /**
  * @brief Represents an entity archetype within the engine.
  */
-struct EntityArchetype final {
+struct EVOENGINE_API EntityArchetype final {
  private:
   friend class Entities;
   friend class Serialization;
@@ -86,14 +86,14 @@ struct EntityArchetype final {
   void SetName(const std::string &name) const;
 };
 
-class IPrivateComponent;
+class EVOENGINE_API IPrivateComponent;
 
 /**
  * @brief Represents an individual entity in the engine.
  */
-struct Entity final {
+struct EVOENGINE_API Entity final {
  private:
-  friend Entity MakeSceneEntity(uint32_t index, uint32_t version);
+  friend EVOENGINE_API Entity MakeSceneEntity(uint32_t index, uint32_t version);
   friend class Entities;
   friend class Scene;
   friend struct EntityMetadata;
@@ -137,12 +137,12 @@ struct Entity final {
   uint32_t operator()(Entity const &key) const;
 };
 
-Entity MakeSceneEntity(uint32_t index, uint32_t version);
+EVOENGINE_API Entity MakeSceneEntity(uint32_t index, uint32_t version);
 
 /**
  * @brief Represents a reference to an entity.
  */
-class EntityRef final {
+class EVOENGINE_API EntityRef final {
   Entity value_ = Entity();           ///< Entity value.
   Handle entity_handle_ = Handle(0);  ///< Handle representing the entity.
 
@@ -307,7 +307,7 @@ constexpr size_t archetype_chunk_size = 16384;
 /**
  * @brief Represents a chunk of memory for storing component data.
  */
-class ComponentDataChunk {
+class EVOENGINE_API ComponentDataChunk {
   std::vector<char> chunk_data_ = std::vector<char>(archetype_chunk_size);  ///< Internal memory chunk.
 
  public:
@@ -368,7 +368,7 @@ struct DataComponentChunkArray {
 /**
  * @brief Information about an entity archetype.
  */
-struct EntityArchetypeInfo {
+struct EVOENGINE_API EntityArchetypeInfo {
   std::string archetype_name = "New Entity Archetype";    ///< Name of the archetype.
   size_t entity_size = 0;                                 ///< Size of a single entity.
   size_t chunk_capacity = 0;                              ///< Capacity of each chunk.
@@ -393,7 +393,7 @@ struct EntityArchetypeInfo {
 /**
  * @brief Represents a query for entities matching specified filters.
  */
-struct EntityQuery final {
+struct EVOENGINE_API EntityQuery final {
  private:
   friend class Entities;
   friend class Scene;
@@ -475,7 +475,7 @@ struct EntityQuery final {
 /**
  * @brief Represents storage for data components in the engine.
  */
-struct DataComponentStorage {
+struct EVOENGINE_API DataComponentStorage {
   std::vector<DataComponentType> data_component_types;  ///< List of data component types in the storage.
   size_t entity_size = 0;                               ///< Size of an individual entity.
   size_t chunk_capacity = 0;                            ///< Number of entities a chunk can hold.

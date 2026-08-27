@@ -35,6 +35,7 @@
 #include <unordered_set>
 #include <utility>
 #include <vector>
+#include "Core/EvoEngineAPI.hpp"
 #include "Math.hpp"
 
 // Platform-specific Definitions
