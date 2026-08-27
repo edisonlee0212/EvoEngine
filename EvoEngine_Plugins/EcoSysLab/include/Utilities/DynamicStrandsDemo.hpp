@@ -67,9 +67,10 @@ class DynamicStrandsDemo : public IPrivateComponent {
     TreeCollision,    ///< Demonstrates tree collisions.
     TreeBreak,        ///< Demonstrates tree breaking physics.
     Fungus,           ///< Fungus / Woodstock demos.
-    SmallTrunk,       ///< Grow Oak_trunk then run volumetric meshing.
-    LogCut,           ///< Volumetric log mesh + log_cut intersection setup.
-    LogSpoon          ///< Volumetric log mesh + log_spoon intersection setup.
+    SmallTrunk,       ///< Grow Oak_trunk (4 years) then run volumetric meshing.
+    NormalTrunk,      ///< Grow Oak_trunk (8 years) then run volumetric meshing.
+    LogCut,           ///< Volumetric log cut + board-style pivot break simulation.
+    LogSpoon          ///< Volumetric log spoon cut + board-style pivot break simulation.
   };
 
   /**
@@ -103,6 +104,15 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief True after EcoSysLab auto-grow has been requested for the current tree-growth demo.
   bool tree_auto_grow_started_ = false;
 
+  /// @brief When true, download GPU meshlets and export OBJ at scheduled simulation times (no file dialog).
+  bool automated_export = false;
+  /// @brief Inclusive lower simulation time (seconds) for the first automated export.
+  float automated_export_lower = 0.f;
+  /// @brief Inclusive upper simulation time (seconds) for the last automated export.
+  float automated_export_upper = 10.f;
+  /// @brief Time step between automated exports (seconds).
+  float automated_export_stepsize = 0.5f;
+
   /// @brief Current demo type being simulated.
   DemoType demo_type = DemoType::Empty;
 
@@ -122,9 +132,20 @@ class DynamicStrandsDemo : public IPrivateComponent {
   void Update() override;
 
  private:
+  /// Next simulation time at which automated export should fire.
+  float next_automated_export_time_ = 0.f;
+
   /// Start EcoSysLab auto-grow for @ref target_growth_time years (async; advances in EcoSysLabLayer::Update).
   void BeginTreeAutoGrow();
   /// If auto-grow has finished, build strands/mesh and enter physics Simulation. Safe to call from OnInspect.
   void TryFinishTreeGrowthAndStartMeshing();
+  /// Reset the automated-export schedule to @ref automated_export_lower.
+  void ResetAutomatedExportSchedule();
+  /// Folder name under PhysicsDemoExports for the current @ref demo_type.
+  [[nodiscard]] static const char* DemoTypeExportFolderName(DemoType type);
+  /// DynamicTreeStrands that owns the active simulation mesh (owner or tree entity).
+  [[nodiscard]] std::shared_ptr<DynamicTreeStrands> GetActiveDynamicTreeStrands();
+  /// If due, download meshlets and write OBJs for all scheduled times <= @p time.
+  void TryAutomatedExportsUpTo(float time);
 };
 }  // namespace eco_sys_lab_plugin

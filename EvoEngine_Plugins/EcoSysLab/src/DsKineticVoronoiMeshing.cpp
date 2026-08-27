@@ -3335,7 +3335,8 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                                     dynamic_strands->segments,
                                     render_settings.segment_meshlet_render_parameters.uv_height_factor,
                                     render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                                    render_settings.segment_meshlet_render_parameters.fracture_distance);
+                                    render_settings.segment_meshlet_render_parameters.fracture_distance,
+                                    dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
       },
       false);
   ImGui::SameLine();
@@ -3346,9 +3347,16 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
                                     dynamic_strands->segments,
                                     render_settings.segment_meshlet_render_parameters.uv_height_factor,
                                     render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-                                    render_settings.segment_meshlet_render_parameters.fracture_distance);
+                                    render_settings.segment_meshlet_render_parameters.fracture_distance,
+                                    dynamic_strands->segment_pairs, dynamic_strands->segment_data_list);
       },
       false);
+  ImGui::Checkbox("Export smoothing", &MeshletObjExport::enable_smoothing);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When enabled, ApplySmoothing runs before OBJ write using downloaded segment pairs / segment data "
+        "connections.");
+  }
   // FileUtils::SaveFile(
   //     "Export Boundary OBJ", "OBJ", {".obj"},
   //     [&](const std::filesystem::path& path) {

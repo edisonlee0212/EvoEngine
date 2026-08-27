@@ -1,5 +1,9 @@
 #include "DynamicStrandsDemo.hpp"
 
+#include <iomanip>
+#include <sstream>
+
+#include "BufferExporter.hpp"
 #include "DsColliders.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -99,20 +103,22 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
 
   const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
   const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
-  if (demo_type == DemoType::SmallTrunk) {
+  if (demo_type == DemoType::SmallTrunk || demo_type == DemoType::NormalTrunk) {
     ApplyOakTrunkFullProcessTreePreset(tree);
     ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
     tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
     tree_dts->initialize_parameters.min_segment_length = 0.005f;
     tree_dts->initialize_parameters.max_segment_length = 0.01f;
-    EVOENGINE_LOG("Small Trunk: tree growth finished (" << target_growth_time
-                                                        << " years). Building strands and meshing...");
+    const char* name = demo_type == DemoType::SmallTrunk ? "Small Trunk" : "Normal Trunk";
+    EVOENGINE_LOG(name << ": tree growth finished (" << target_growth_time
+                       << " years). Building strands and meshing...");
   }
   tree_dts->InitializeFromTree(tree, pending_meshing_buffer_description);
   pending_meshing_buffer_description.clear();
   tree_auto_grow_started_ = false;
   demo_status = DemoStatus::Simulation;
   simulated_time = 0.f;
+  ResetAutomatedExportSchedule();
 }
 
 void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& editor_layer) {
@@ -128,6 +134,9 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   simulated_time = 0.f;
   // target_factor0 = 1.f;
   target_factor1 = 1.f;
+  automated_export_upper = 10.f;
+  ResetAutomatedExportSchedule();
+  DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.0004f;
   physics_parameters = {};
   physics_parameters.time_step = 0.005f;
   physics_parameters.enable_segment_collision = false;
@@ -186,6 +195,26 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNode("Physics Parameters")) {
     physics_parameters.OnInspect(editor_layer);
     ImGui::TreePop();
+  }
+
+  ImGui::Checkbox("Automated export", &automated_export);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "During simulation, download GPU meshlets and write OBJs (same as \"Download and export OBJ\") "
+        "into PhysicsDemoExports/<experiment>/meshlets_<time>.obj — no file dialog.");
+  }
+  ImGui::Checkbox("Export smoothing", &MeshletObjExport::enable_smoothing);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When exporting OBJs, run ApplySmoothing with physics segment-pair / segment-data connections.");
+  }
+  if (automated_export) {
+    ImGui::DragFloat("Export lower bound", &automated_export_lower, 0.01f, 0.f, 1.0e6f);
+    ImGui::DragFloat("Export upper bound", &automated_export_upper, 0.01f, 0.f, 1.0e6f);
+    ImGui::DragFloat("Export stepsize", &automated_export_stepsize, 0.01f, 0.001f, 1.0e6f);
+    if (automated_export_upper < automated_export_lower) {
+      automated_export_upper = automated_export_lower;
+    }
   }
 
   if (demo_type != DemoType::Empty) {
@@ -1164,10 +1193,16 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       log_experiment_setup_settings.cube_pattern = false;
       log_experiment_setup_settings.internal_pattern = false;
       log_experiment_setup_settings.competition_setting = false;
-      log_experiment_setup_settings.right_pivot_type =
-          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+      // Transform pivots + break motion (same as Log/Board break).
       log_experiment_setup_settings.left_pivot_type =
-          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+      log_experiment_setup_settings.right_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+      target_factor0 = 1.f;
+      target_factor1 = 1.f;
+      automated_export_upper = 4.f;
+      // Disable crack opening offset (x - fracture_distance * shift) for volumetric demos.
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       physics_parameters.enable_fungus = false;
       physics_parameters.enable_segment_collision = false;
       dts->initialize_parameters.max_segment_length = 0.01f;
@@ -1188,7 +1223,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Build the Fungus [Cubical] log without fungus, mesh it (uses MeshBuffers cache when available), "
-          "then load Assets/IntersectionSetups/log_cut.yml.");
+          "load Assets/IntersectionSetups/log_cut.yml (intersect manually), then pull pivots apart on Play.");
     }
 
     if (ImGui::Button("Log Spoon")) {
@@ -1202,10 +1237,13 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       log_experiment_setup_settings.cube_pattern = false;
       log_experiment_setup_settings.internal_pattern = false;
       log_experiment_setup_settings.competition_setting = false;
-      log_experiment_setup_settings.right_pivot_type =
-          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
       log_experiment_setup_settings.left_pivot_type =
-          static_cast<unsigned>(DynamicTreeStrands::PivotType::Partial_Transform);
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+      log_experiment_setup_settings.right_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+      target_factor0 = 1.f;
+      target_factor1 = 1.f;
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       physics_parameters.enable_fungus = false;
       physics_parameters.enable_segment_collision = false;
       dts->initialize_parameters.max_segment_length = 0.01f;
@@ -1225,8 +1263,8 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     }
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
-          "Same log setup as Log cut (uses MeshBuffers cache when available), "
-          "then load Assets/IntersectionSetups/log_spoon.yml.");
+          "Same as Log cut with Assets/IntersectionSetups/log_spoon.yml (intersect manually), "
+          "then pull pivots apart on Play.");
     }
 
     if (ImGui::Button("Small Trunk")) {
@@ -1234,6 +1272,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       demo_type = DemoType::SmallTrunk;
       demo_status = DemoStatus::TreeGrowth;
       pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Small Trunk";
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       const auto tree_entity = scene->CreateEntity("Tree");
       tree_entity_ref = tree_entity;
       const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
@@ -1255,6 +1294,36 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     if (ImGui::IsItemHovered()) {
       ImGui::SetTooltip(
           "Grow Oak_trunk for 4 years, apply Oak Trunk Full Process presets, then mesh "
+          "(uses MeshBuffers cache when available).");
+    }
+
+    if (ImGui::Button("Normal Trunk")) {
+      ResetEnvironment(editor_layer);
+      demo_type = DemoType::NormalTrunk;
+      demo_status = DemoStatus::TreeGrowth;
+      pending_meshing_buffer_description = "created from DynamicStrandsDemo scripted experiment: Normal Trunk";
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
+      const auto tree_entity = scene->CreateEntity("Tree");
+      tree_entity_ref = tree_entity;
+      const auto tree = scene->GetOrSetPrivateComponent<Tree>(tree_entity).lock();
+      scene->SetDataComponent(tree_entity, tree_initial_pose);
+      target_growth_time = 8.f;
+      tree->tree_descriptor_ref = ProjectManager::GetOrCreateAsset("./TreeDescriptors/Basic/Oak_trunk.tree");
+      ApplyOakTrunkFullProcessTreePreset(tree);
+      ApplyOakTrunkFullProcessPhysicsPreset(physics_parameters);
+      const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      tree_dts->enable_physics = false;
+      tree_dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      tree_dts->initialize_parameters.min_segment_length = 0.005f;
+      tree_dts->initialize_parameters.max_segment_length = 0.01f;
+      EVOENGINE_LOG("Normal Trunk: growing Oak_trunk for " << target_growth_time << " years...");
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      BeginTreeAutoGrow();
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Same as Small Trunk but grows Oak_trunk for 8 years before meshing "
           "(uses MeshBuffers cache when available).");
     }
     ImGui::TreePop();
@@ -1296,7 +1365,10 @@ void DynamicStrandsDemo::Update() {
   const float progress = simulated_time / target_simulation_time;
 
   switch (demo_type) {
-    case DemoType::LogBreak: {
+    case DemoType::LogBreak:
+    case DemoType::LogCut:
+    case DemoType::LogSpoon: {
+      // Same pivot pull-apart + rotation as Board break, driven by log length.
       const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
                                    log_experiment_setup_settings.segment_length;
       const float left_distance = board_distance * 0.5f * progress * target_factor0;
@@ -1465,12 +1537,8 @@ void DynamicStrandsDemo::Update() {
       dts->PhysicsStep(physics_parameters);
       break;
     }
-    case DemoType::LogCut:
-    case DemoType::LogSpoon: {
-      dts->PhysicsStep(physics_parameters);
-      break;
-    }
-    case DemoType::SmallTrunk: {
+    case DemoType::SmallTrunk:
+    case DemoType::NormalTrunk: {
       const auto tree_entity = tree_entity_ref.Get();
       if (scene->IsEntityValid(tree_entity)) {
         const auto tree_dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
@@ -1482,5 +1550,133 @@ void DynamicStrandsDemo::Update() {
       break;
   }
 
+  TryAutomatedExportsUpTo(simulated_time);
   simulated_time += physics_parameters.time_step;
+}
+
+void DynamicStrandsDemo::ResetAutomatedExportSchedule() {
+  next_automated_export_time_ = automated_export_lower;
+}
+
+const char* DynamicStrandsDemo::DemoTypeExportFolderName(const DemoType type) {
+  switch (type) {
+    case DemoType::LogBreak:
+      return "Log break";
+    case DemoType::BoardBreak:
+      return "Board break";
+    case DemoType::TwistingBreak:
+      return "Twisting break";
+    case DemoType::BendingBreak:
+      return "Bending break";
+    case DemoType::ShearingBreak:
+      return "Shearing break";
+    case DemoType::StretchingBreak:
+      return "Stretching break";
+    case DemoType::SapHeart:
+      return "SapHeart";
+    case DemoType::BoardCollision:
+      return "Board Collision";
+    case DemoType::TrunkStrength:
+      return "Trunk Strength";
+    case DemoType::Wind:
+      return "Wind";
+    case DemoType::TreeCollision:
+      return "Tree Collision";
+    case DemoType::TreeBreak:
+      return "Tree Break";
+    case DemoType::Fungus:
+      return "Fungus";
+    case DemoType::SmallTrunk:
+      return "Small Trunk";
+    case DemoType::NormalTrunk:
+      return "Normal Trunk";
+    case DemoType::LogCut:
+      return "Log cut";
+    case DemoType::LogSpoon:
+      return "Log Spoon";
+    case DemoType::Empty:
+    default:
+      return "Unknown";
+  }
+}
+
+std::shared_ptr<DynamicTreeStrands> DynamicStrandsDemo::GetActiveDynamicTreeStrands() {
+  const auto scene = GetScene();
+  const auto tree_entity = tree_entity_ref.Get();
+  switch (demo_type) {
+    case DemoType::SmallTrunk:
+    case DemoType::NormalTrunk:
+    case DemoType::TrunkStrength:
+    case DemoType::Wind:
+    case DemoType::TreeCollision:
+    case DemoType::TreeBreak:
+      if (scene->IsEntityValid(tree_entity) && scene->HasPrivateComponent<DynamicTreeStrands>(tree_entity)) {
+        return scene->GetOrSetPrivateComponent<DynamicTreeStrands>(tree_entity).lock();
+      }
+      break;
+    default:
+      break;
+  }
+  return scene->GetOrSetPrivateComponent<DynamicTreeStrands>(GetOwner()).lock();
+}
+
+void DynamicStrandsDemo::TryAutomatedExportsUpTo(const float time) {
+  if (!automated_export || demo_status != DemoStatus::Simulation || demo_type == DemoType::Empty) {
+    return;
+  }
+  if (automated_export_stepsize <= 0.f) {
+    return;
+  }
+
+  constexpr float kEps = 1.0e-4f;
+  while (next_automated_export_time_ <= automated_export_upper + kEps &&
+         time + kEps >= next_automated_export_time_) {
+    const float export_time = next_automated_export_time_;
+    next_automated_export_time_ += automated_export_stepsize;
+
+    const auto dts = GetActiveDynamicTreeStrands();
+    if (!dts || !dts->dynamic_strands || !dts->dynamic_strands->meshing) {
+      EVOENGINE_ERROR("Automated export: no DynamicTreeStrands / meshing available.");
+      continue;
+    }
+    auto* dskvm = dynamic_cast<DsKineticVoronoiMeshing*>(dts->dynamic_strands->meshing.get());
+    if (!dskvm) {
+      EVOENGINE_ERROR("Automated export: requires Kinetic Voronoi meshing (same as Download and export OBJ).");
+      continue;
+    }
+    if (dskvm->segment_meshlet_vertices.empty() || dskvm->segment_meshlet_triangles.empty()) {
+      EVOENGINE_ERROR("Automated export: meshlet buffers are empty at t=" << export_time << ".");
+      continue;
+    }
+
+    dts->dynamic_strands->Download();
+
+    const auto project_path = ProjectManager::GetProjectPath();
+    if (project_path.empty()) {
+      EVOENGINE_ERROR("Automated export: project path is empty.");
+      continue;
+    }
+    const auto folder = project_path.parent_path() / "PhysicsDemoExports" / DemoTypeExportFolderName(demo_type);
+    std::error_code ec;
+    std::filesystem::create_directories(folder, ec);
+    if (ec) {
+      EVOENGINE_ERROR("Automated export: failed to create folder " << folder.string() << " (" << ec.message() << ").");
+      continue;
+    }
+
+    std::ostringstream name;
+    name << "meshlets_" << std::fixed << std::setprecision(3) << export_time << ".obj";
+    const auto path = folder / name.str();
+    try {
+      MeshletObjExport::ExportObj(path, dskvm->segment_meshlet_vertices, dskvm->segment_meshlet_triangles,
+                                  dts->dynamic_strands->segments,
+                                  DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_height_factor,
+                                  DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_circum_factor,
+                                  DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance,
+                                  dts->dynamic_strands->segment_pairs, dts->dynamic_strands->segment_data_list);
+      EVOENGINE_LOG("Automated export: wrote " << path.string());
+    } catch (const std::exception& ex) {
+      EVOENGINE_ERROR("Automated export failed for " << path.string() << ": " << ex.what());
+    }
+  }
 }

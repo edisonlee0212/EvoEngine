@@ -159,7 +159,8 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
             out_path, export_groups, dts->dynamic_strands->segments,
             DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_height_factor,
             DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.uv_circum_factor,
-            DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance);
+            DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance,
+            dts->dynamic_strands->segment_pairs, dts->dynamic_strands->segment_data_list);
         EVOENGINE_LOG("Intersect and export all: exported " << export_groups.size() << " object(s) to "
                                                             << out_path.string() << ".");
         if (collect_intersection_stats && !intersection_stats_rows.empty()) {
