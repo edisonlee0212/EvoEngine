@@ -59,6 +59,7 @@ RenderPassDescriptor PostProcessingPass::CreateDescriptor(const char* dependency
           RenderPassScope::Camera,
           {{RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
+           {RenderResourceNames::camera_motion_vectors, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
            {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
           {dependency ? dependency : RenderPassNames::deferred_camera},
           RenderPassProfilerGroup::PostProcessing,
@@ -100,11 +101,21 @@ void PostProcessingPass::Execute(const RenderGraphExecutionContext& context, con
       return;
     }
     GpuTimestampScopeToken gpu_timestamp;
-    post_processing_stack->Process(parameters.camera, [&](const VkCommandBuffer vk_command_buffer) {
-      ApplyGraphResourceBarriers(vk_command_buffer, context);
-      gpu_timestamp =
-          BeginRenderPassGpuTimestamp(vk_command_buffer, context, parameters.camera->GetHandle().GetValue());
-    });
+    std::shared_ptr<ImageView> motion_vectors_view;
+    if (const auto* motion_vectors = context.GetResourceBinding(RenderResourceNames::camera_motion_vectors);
+        motion_vectors && motion_vectors->image) {
+      motion_vectors_view = CreateGraphImageMipView(motion_vectors->image, 0);
+      if (parameters.transient_resources)
+        parameters.transient_resources->RetainImageView(motion_vectors_view);
+    }
+    post_processing_stack->Process(
+        parameters.camera,
+        [&](const VkCommandBuffer vk_command_buffer) {
+          ApplyGraphResourceBarriers(vk_command_buffer, context);
+          gpu_timestamp =
+              BeginRenderPassGpuTimestamp(vk_command_buffer, context, parameters.camera->GetHandle().GetValue());
+        },
+        motion_vectors_view);
     if (parameters.transient_resources) {
       parameters.camera->RetainPostProcessingResources(*parameters.transient_resources);
     }

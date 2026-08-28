@@ -892,6 +892,10 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.bloom->intensity = 0.5f;
   stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   stack.screen_space_reflection->max_iteration_count = 96;
+  stack.screen_space_reflection->binary_search_iteration_count = 10;
+  stack.screen_space_reflection->start_bias = 0.075f;
+  stack.screen_space_reflection->debug_mode = ScreenSpaceReflection::DebugMode::Confidence;
+  stack.screen_space_reflection->temporal_stabilization = false;
   stack.screen_space_reflection->blur = false;
   stack.anti_aliasing = std::make_shared<AntiAliasing>();
   stack.anti_aliasing->preset = AntiAliasing::Preset::High;
@@ -923,6 +927,11 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FLOAT_EQ(stack_node["bloom"]["intensity"].as<float>(), 0.5f);
   EXPECT_FALSE(stack_node["bloom"]["bloom_chain_length"]);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
+  EXPECT_EQ(stack_node["screen_space_reflection"]["binary_search_iteration_count"].as<int>(), 10);
+  EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["start_bias"].as<float>(), 0.075f);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["composition_mode"]);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["debug_mode"]);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["temporal_stabilization"].as<bool>());
   const auto anti_aliasing_node = stack_node["anti_aliasing"];
   EXPECT_EQ(anti_aliasing_node["preset"].as<int>(), static_cast<int>(AntiAliasing::Preset::High));
   EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
@@ -959,6 +968,7 @@ screen_space_reflection:
   initial_steps: 12
   thickness: 0.75
   blur: false
+  composition_mode: 1
 anti_aliasing:
   preset: 2
 tone_mapping:
@@ -994,7 +1004,10 @@ tone_mapping:
   EXPECT_FLOAT_EQ(restored_stack.bloom->intensity, 0.75f);
   ASSERT_TRUE(restored_stack.screen_space_reflection);
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
-  EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
+  EXPECT_EQ(restored_stack.screen_space_reflection->binary_search_iteration_count, 12);
+  EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->start_bias, 0.05f);
+  EXPECT_EQ(restored_stack.screen_space_reflection->debug_mode, ScreenSpaceReflection::DebugMode::None);
+  EXPECT_TRUE(restored_stack.screen_space_reflection->temporal_stabilization);
   ASSERT_TRUE(restored_stack.anti_aliasing);
   const auto& restored_anti_aliasing = *restored_stack.anti_aliasing;
   EXPECT_EQ(restored_anti_aliasing.preset, AntiAliasing::Preset::High);
@@ -1344,6 +1357,40 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh_renderer.PeekRagDollTransformChain().size(), 1);
   ASSERT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights().size(), 1);
   EXPECT_FLOAT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights()[0], 0.75f);
+}
+
+TEST(SerializationRegistry, FirstPartyPostProcessingAssetsEnableSsrProductionDefaults) {
+  const std::filesystem::path relative_paths[] = {
+      "Resources/LSystemProject/Assets/New Scene.evescene",
+      "Resources/DigitalAgricultureProject/Assets/Default.evescene",
+      "Resources/DigitalAgricultureProject/Assets/DigitalAgriculture.evescene",
+      "Resources/EcoSysLabProject/Assets/Default.evescene",
+      "Resources/EcoSysLabProject/Assets/DigitalForestry.evescene",
+      "Resources/EcoSysLabProject/Assets/PlayGround.evescene",
+      "EvoEngine_Tests/Rendering/Fixtures/Rendering/Assets/New Scene.evescene",
+  };
+  for (const auto& relative_path : relative_paths) {
+    const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+    const auto root = YAML::LoadFile(path.string());
+    ASSERT_TRUE(root["LocalAssets"] && root["LocalAssets"].IsSequence()) << path.string();
+    YAML::Node stack;
+    for (size_t asset_index = 0; asset_index < root["LocalAssets"].size(); ++asset_index) {
+      const YAML::Node asset = root["LocalAssets"][asset_index];
+      if (asset["type_name"] && asset["type_name"].as<std::string>() == "PostProcessingStack") {
+        stack = asset;
+        break;
+      }
+    }
+    ASSERT_TRUE(stack) << path.string();
+    EXPECT_TRUE(stack["enable_screen_space_reflection"].as<bool>()) << path.string();
+    const auto ssr = stack["screen_space_reflection"];
+    ASSERT_TRUE(ssr) << path.string();
+    EXPECT_EQ(ssr["binary_search_iteration_count"].as<int>(), 8) << path.string();
+    EXPECT_FLOAT_EQ(ssr["start_bias"].as<float>(), 0.05f) << path.string();
+    EXPECT_TRUE(ssr["blur"].as<bool>()) << path.string();
+    EXPECT_TRUE(ssr["temporal_stabilization"].as<bool>()) << path.string();
+    EXPECT_FALSE(ssr["composition_mode"]) << path.string();
+  }
 }
 
 TEST(SerializationRegistry, PostProcessingAssetReloadAndImportAdvanceVersion) {

@@ -8,7 +8,7 @@ __exported import EvoEngine.Lighting;
 
 struct EeLightingResources : ILightingResources {
   float3 sampleSky(float3 direction) {
-    return EE_RASTER_SKYBOX.Sample(direction).rgb;
+    return EE_RASTER_SKYBOX.SampleLevel(direction, 0.0f).rgb;
   }
 
   float3 sampleReflectionProbe(int index, float3 direction, float lod) {
@@ -82,7 +82,7 @@ struct EeLightingResources : ILightingResources {
   }
 
   float3 sampleIrradiance(float3 direction) {
-    return EE_RASTER_IRRADIANCE_MAP.Sample(direction).rgb;
+    return EE_RASTER_IRRADIANCE_MAP.SampleLevel(direction, 0.0f).rgb;
   }
 
   float3 samplePrefiltered(float3 direction, float lod) {
@@ -98,12 +98,16 @@ struct EeLightingResources : ILightingResources {
   }
 
   float2 sampleBrdf(float2 uv) {
-    return EE_RASTER_BRDF_LUT.Sample(uv).rg;
+    return EE_RASTER_BRDF_LUT.SampleLevel(uv, 0.0f).rg;
   }
 };
 
 public float3 EE_SKY_COLOR(float3 direction) {
   return EE_SKY_COLOR(EeLightingResources(), direction);
+}
+
+public float2 EE_SAMPLE_RASTER_BRDF(float2 uv) {
+  return EeLightingResources().sampleBrdf(uv);
 }
 
 public EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
@@ -118,6 +122,14 @@ public float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(float3 albedo, float3 normal
                                                     float metallic, float roughness, float3 f0, float f90) {
   return EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT(EeLightingResources(), albedo, normal, view_dir, frag_pos, metallic,
                                                roughness, f0, f90);
+}
+
+public EeEnvironmentalLighting EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS(
+    float3 albedo, float3 normal, float3 view_dir, float3 frag_pos, float metallic, float roughness, float3 f0,
+    float f90, float material_occlusion, float screen_space_visibility) {
+  return EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS(
+      EeLightingResources(), albedo, normal, view_dir, frag_pos, metallic, roughness, f0, f90, material_occlusion,
+      screen_space_visibility);
 }
 
 public float3 EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(

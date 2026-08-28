@@ -122,10 +122,14 @@ TEST_F(PostProcessingRuntime, TechniqueAndExplicitCameraResetsKeepScratchIndepen
   resources.previous_inverse_projection = glm::mat4(2.0f);
   resources.previous_inverse_view = glm::mat4(3.0f);
   resources.previous_matrices_valid = true;
+  resources.screen_space_reflection.history_valid = true;
+  resources.screen_space_reflection.history_read_index = 1;
   camera.ResetFrameCount();
   EXPECT_EQ(resources.previous_inverse_projection, glm::mat4(1.0f));
   EXPECT_EQ(resources.previous_inverse_view, glm::mat4(1.0f));
   EXPECT_FALSE(resources.previous_matrices_valid);
+  EXPECT_FALSE(resources.screen_space_reflection.history_valid);
+  EXPECT_EQ(resources.screen_space_reflection.history_read_index, 0u);
   EXPECT_EQ(resources.stack.source_color_texture, source);
 }
 
@@ -165,11 +169,11 @@ TEST_F(PostProcessingRuntime, ApplyDefaultSettingsRestoresEffectsAndEnableFlags)
   ASSERT_TRUE(stack.tone_mapping);
   EXPECT_NE(stack.bloom, previous_bloom);
   EXPECT_FLOAT_EQ(stack.bloom->threshold, Bloom{}.threshold);
-  EXPECT_FLOAT_EQ(stack.bloom->intensity, 0.2f);
+  EXPECT_FLOAT_EQ(stack.bloom->intensity, 0.05f);
   EXPECT_FLOAT_EQ(stack.tone_mapping->exposure, ToneMapping{}.exposure);
   EXPECT_TRUE(stack.enable_ambient_occlusion);
   EXPECT_TRUE(stack.enable_bloom);
-  EXPECT_FALSE(stack.enable_screen_space_reflection);
+  EXPECT_TRUE(stack.enable_screen_space_reflection);
   EXPECT_TRUE(stack.enable_anti_aliasing);
   EXPECT_TRUE(stack.enable_tone_mapping);
 }

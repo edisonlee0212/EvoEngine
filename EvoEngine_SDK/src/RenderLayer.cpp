@@ -1575,6 +1575,10 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRasterMaterialDescri
   return raster_material_layout_;
 }
 
+const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRasterLightingTextureDescriptorSetLayout() const {
+  return raster_lighting_texture_layout_;
+}
+
 void RenderLayer::InitializeCommonDescriptorSetLayouts(
     const ApplicationInitializationSettings& application_initialization_settings) {
   if (!empty_descriptor_set_layout_) {
@@ -1621,13 +1625,14 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
           "The selected Vulkan device cannot bind two generations for 32 spatial reflection probes.");
     }
     raster_lighting_texture_layout_ = std::make_shared<DescriptorSetLayout>();
+    constexpr auto lighting_texture_stages = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
     for (uint32_t binding = 0; binding < 5; binding++) {
       raster_lighting_texture_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                             VK_SHADER_STAGE_FRAGMENT_BIT, 0);
+                                                             lighting_texture_stages, 0);
     }
     raster_lighting_texture_layout_->PushDescriptorBinding(
-        kRasterLightingReflectionProbesBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-        0, RenderInstanceStorage::kReflectionProbeMaxCount * 2u);
+        kRasterLightingReflectionProbesBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_texture_stages, 0,
+        RenderInstanceStorage::kReflectionProbeMaxCount * 2u);
     raster_lighting_texture_layout_->Initialize();
   }
   if (!meshlet_layout_) {
@@ -1647,17 +1652,15 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
   }
   if (!lighting_layout_) {
     lighting_layout_ = std::make_shared<DescriptorSetLayout>();
-    lighting_layout_->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            0);
-    lighting_layout_->PushDescriptorBinding(15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            0);
-    lighting_layout_->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            0);
-    lighting_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            0, RenderInstanceStorage::kDdgiMaxVolumeCount);
-    lighting_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                            0, RenderInstanceStorage::kDdgiMaxVolumeCount);
-    lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+    constexpr VkShaderStageFlags lighting_stages = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
+    lighting_layout_->PushDescriptorBinding(14, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages, 0);
+    lighting_layout_->PushDescriptorBinding(15, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages, 0);
+    lighting_layout_->PushDescriptorBinding(16, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages, 0);
+    lighting_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages, 0,
+                                            RenderInstanceStorage::kDdgiMaxVolumeCount);
+    lighting_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_stages, 0,
+                                            RenderInstanceStorage::kDdgiMaxVolumeCount);
+    lighting_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, lighting_stages, 0,
                                             RenderInstanceStorage::kDdgiMaxVolumeCount);
     lighting_layout_->Initialize();
   }
@@ -4246,6 +4249,16 @@ std::shared_ptr<DescriptorSet> RenderLayer::GetRasterLightingTextureDescriptorSe
     }
   }
   return descriptor_set;
+}
+
+std::shared_ptr<DescriptorSet> RenderLayer::GetExistingRasterLightingTextureDescriptorSet(
+    const uint32_t current_frame_index, const int camera_index) const {
+  if (current_frame_index >= raster_lighting_texture_descriptor_sets_.size() || camera_index < 0) {
+    return {};
+  }
+  const auto& frame_descriptor_sets = raster_lighting_texture_descriptor_sets_[current_frame_index];
+  return static_cast<size_t>(camera_index) < frame_descriptor_sets.size() ? frame_descriptor_sets[camera_index]
+                                                                          : nullptr;
 }
 
 void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& scene,

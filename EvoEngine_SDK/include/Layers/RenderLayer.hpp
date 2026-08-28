@@ -305,6 +305,9 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterLightingTextureDescriptorSetLayout() const;
+  [[nodiscard]] std::shared_ptr<DescriptorSet> GetExistingRasterLightingTextureDescriptorSet(
+      uint32_t current_frame_index, int camera_index) const;
   [[nodiscard]] const std::shared_ptr<PostProcessingRendererResources>& GetPostProcessingRendererResources() const;
   struct ReflectionProbeBakeRequest {
     glm::vec3 position{};
@@ -864,7 +867,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetRasterLightingTextureDescriptorSet(
       uint32_t current_frame_index, int camera_index,
       const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
-
   /**
    * \brief Applies all animators associated with this render layer.
    */

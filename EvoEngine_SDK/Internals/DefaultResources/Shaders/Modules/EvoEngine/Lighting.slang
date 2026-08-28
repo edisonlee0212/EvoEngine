@@ -366,6 +366,18 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
 }
 
 public
+EeEnvironmentalLighting EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS<T : ILightingResources>(
+    T resources, float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility) {
+  const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, false);
+  const float gatherWeight = EE_DDGI_GATHER_WEIGHT(gather);
+  const float ddgiSpecularVisibility = lerp(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gatherWeight);
+  return EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
+      resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
+      screenSpaceVisibility, gather.irradiance, gatherWeight, ddgiSpecularVisibility);
+}
+
+public
 float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT<T : ILightingResources>(T resources, float3 albedo, float3 normal,
                                                                      float3 viewDir, float3 fragPos, float metallic,
                                                                      float roughness, float3 F0, float F90) {

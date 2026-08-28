@@ -57,6 +57,16 @@ systems_:
 LocalAssets:
   - type_name: PostProcessingStack
     handle: 5260668087931866328
+    enable_screen_space_reflection: true
+    screen_space_reflection:
+      max_distance: 100
+      distance_confidence: 0.2
+      max_iteration_count: 128
+      binary_search_iteration_count: 8
+      thickness: 0.5
+      start_bias: 0.05
+      blur: true
+      temporal_stabilization: true
 data_component_storage_list:
   - entity_size: 130
     chunk_capacity: 126

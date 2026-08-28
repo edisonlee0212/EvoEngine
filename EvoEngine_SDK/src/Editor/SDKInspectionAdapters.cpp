@@ -732,12 +732,22 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
     changed = true;
   if (ImGui::DragInt("Max iteration count", &ssr.max_iteration_count, 1, 1, 256))
     changed = true;
-  if (ImGui::DragInt("Steps", &ssr.initial_steps, 1, 1, 64))
+  if (ImGui::DragInt("Binary search iterations", &ssr.binary_search_iteration_count, 1, 0, 64))
     changed = true;
   if (ImGui::DragFloat("Thickness", &ssr.thickness, 0.01f, 0.0f, 10.0f))
     changed = true;
-  if (ImGui::Checkbox("Blur", &ssr.blur))
+  if (ImGui::DragFloat("Start bias", &ssr.start_bias, 0.001f, 0.0f, 10.0f))
     changed = true;
+  if (ImGui::Checkbox("Edge-aware spatial resolve", &ssr.blur))
+    changed = true;
+  if (ImGui::Checkbox("Temporal stabilization", &ssr.temporal_stabilization))
+    changed = true;
+  const char* debug_modes[] = {"None", "Hit UV", "Ray distance", "Rejection reason", "Confidence"};
+  int debug_mode = static_cast<int>(ssr.debug_mode);
+  if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
+    ssr.debug_mode = static_cast<ScreenSpaceReflection::DebugMode>(debug_mode);
+    changed = true;
+  }
   return changed;
 }
 

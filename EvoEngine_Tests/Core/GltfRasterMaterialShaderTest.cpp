@@ -893,12 +893,15 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
     EXPECT_NE(source.find("[[vk::binding(22,"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Sampler2D inNormalRoughness"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Sampler2D inPbrFlags"), std::string::npos) << path.string();
-    EXPECT_TRUE(source.find("float roughness = inNormalRoughness.SampleLevel") != std::string::npos ||
-                source.find("float roughness = inNormalRoughness.Sample") != std::string::npos)
+    EXPECT_NE(source.find("float4 normal_roughness = inNormalRoughness.SampleLevel"), std::string::npos)
         << path.string();
-    EXPECT_TRUE(source.find("float metallic = inPbrFlags.SampleLevel") != std::string::npos ||
-                source.find("float metallic = inPbrFlags.Sample") != std::string::npos)
+    EXPECT_NE(source.find("float4 pbr_flags = inPbrFlags.SampleLevel"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float roughness = clamp(normal_roughness.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float metallic = clamp(pbr_flags.x"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("original + (ssr_specular - environment.specular) * trace_confidence"), std::string::npos)
         << path.string();
+    EXPECT_EQ(source.find("full_color_weight"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("composition_mode"), std::string::npos) << path.string();
   }
 
   const auto ambient_occlusion_geometry = ReadTextFile(ShaderPath("Compute/PostProcessing/GTAO.slang"));
@@ -921,6 +924,78 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
   EXPECT_FLOAT_EQ(compose_lighting(2.0f, 3.0f, 4.0f, 5.0f, 1.0f, 0.0f, 1.0f), 5.0f);
   EXPECT_FLOAT_EQ(compose_lighting(2.0f, 3.0f, 4.0f, 5.0f, 1.0f, 0.25f, 1.0f), 7.25f);
   EXPECT_FLOAT_EQ(compose_lighting(0.0f, 0.0f, 0.0f, 5.0f, 1.0f, 0.0f, 0.0f), 5.0f);
+}
+
+TEST(GltfRasterMaterial, ScreenSpaceReflectionTraversalGuardsDegenerateRays) {
+  const std::filesystem::path paths[] = {
+      ShaderPath("Compute/PostProcessing/SSRReflect.slang"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.slang"),
+  };
+
+  for (const auto& path : paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("float dominant_span = max(abs(pixel_delta.x), abs(pixel_delta.y))"), std::string::npos)
+        << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.start_bias"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.binary_search_iteration_count"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("bool bracket_found = false"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("all(isfinite(clip))"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("(frag.y - start_frag.y) / delta_y"), std::string::npos) << path.string();
+  }
+}
+
+TEST(GltfRasterMaterial, ScreenSpaceReflectionBuildsExplicitGeometricConfidence) {
+  const std::filesystem::path reflect_paths[] = {
+      ShaderPath("Compute/PostProcessing/SSRReflect.slang"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.slang"),
+  };
+  for (const auto& path : reflect_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("float thickness_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float distance_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float grazing_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float edge_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float normal_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float hit_facing = dot(hit_view_normal, -pivot)"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EncodeHit(sample_uv, normalized_distance, confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.debug_mode"), std::string::npos) << path.string();
+  }
+}
+
+TEST(GltfRasterMaterial, ScreenSpaceReflectionUsesEdgeAwareSpatialResolve) {
+  const auto source = ReadTextFile(ShaderPath("Compute/PostProcessing/SSRSpatialResolve.slang"));
+  ASSERT_FALSE(source.empty());
+  EXPECT_NE(source.find("center.a <= 0.0001f"), std::string::npos);
+  EXPECT_NE(source.find("center.a >= 0.85f"), std::string::npos);
+  EXPECT_NE(source.find("float3 radiance_sum = center.rgb"), std::string::npos);
+  EXPECT_NE(source.find("float weight_sum = 1.0f"), std::string::npos);
+  EXPECT_NE(source.find("float depth_weight"), std::string::npos);
+  EXPECT_NE(source.find("float normal_weight"), std::string::npos);
+  EXPECT_NE(source.find("float roughness_weight"), std::string::npos);
+  EXPECT_NE(source.find("sample_reflection.a"), std::string::npos);
+
+  const auto implementation = ReadTextFile(SdkPath("src/ScreenSpaceReflection.cpp"));
+  ASSERT_FALSE(implementation.empty());
+  EXPECT_NE(implementation.find("SSRSpatialResolve.slang"), std::string::npos);
+  EXPECT_EQ(implementation.find("GaussianBlur("), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, ScreenSpaceReflectionTemporalResolveRejectsInvalidHistory) {
+  const auto source = ReadTextFile(ShaderPath("Compute/PostProcessing/SSRTemporalResolve.slang"));
+  ASSERT_FALSE(source.empty());
+  EXPECT_NE(source.find("motion.xy * texel_size"), std::string::npos);
+  EXPECT_NE(source.find("expected_history_depth = linear_depth + motion.z"), std::string::npos);
+  EXPECT_NE(source.find("dot(normal, history_geometry.xyz) >= 0.9f"), std::string::npos);
+  EXPECT_NE(source.find("material_valid"), std::string::npos);
+  EXPECT_NE(source.find("clamp(history.rgb, neighborhood_min, neighborhood_max)"), std::string::npos);
+  EXPECT_NE(source.find("EE_SSR_CONSTANTS.temporal_history_valid"), std::string::npos);
+
+  const auto pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
+  ASSERT_FALSE(pass.empty());
+  EXPECT_NE(pass.find("RenderResourceNames::camera_motion_vectors"), std::string::npos);
+  EXPECT_NE(pass.find("motion_vectors_view"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
