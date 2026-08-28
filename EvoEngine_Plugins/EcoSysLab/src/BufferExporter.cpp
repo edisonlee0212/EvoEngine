@@ -1,5 +1,6 @@
 #include "BufferExporter.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <cstring>
@@ -114,9 +115,180 @@ bool AreSegmentsStillConnected(const int segment_a, const int segment_b,
   return false;
 }
 
+constexpr int kNeighborMatGrey = 0;
+constexpr int kNeighborMatBrown = 1;
+constexpr int kNeighborMatRed = 2;
+constexpr int kNeighborMatGreen = 3;
+
+bool NeighborConnectivityDebugEnabled() {
+  return DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity;
+}
+
+int NeighborConnectivityMaterialId(const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle,
+                                   const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs) {
+  if (triangle.neighbor_segment_index == -2) {
+    return kNeighborMatBrown;
+  }
+  if (triangle.neighbor_segment_index == -1 || triangle.neighbor_segment_index == -3) {
+    return kNeighborMatGrey;
+  }
+  if (triangle.segment_pair_index < 0 ||
+      static_cast<size_t>(triangle.segment_pair_index) >= segment_pairs.size()) {
+    return kNeighborMatRed;
+  }
+  const auto& pair = segment_pairs[static_cast<size_t>(triangle.segment_pair_index)];
+  if (pair.connectivity_integrity <= 0.f && pair.bend_twist_bundle_integrity <= 0.f) {
+    return kNeighborMatRed;
+  }
+  return kNeighborMatGreen;
+}
+
+void WriteNeighborConnectivityDebugMtl(const std::filesystem::path& mtl_path) {
+  std::ofstream file(mtl_path);
+  if (!file.is_open()) {
+    throw std::runtime_error("Failed to open neighbor-connectivity debug MTL file");
+  }
+  file << "newmtl debug_grey\n";
+  file << "Ka 0.55 0.55 0.55\n";
+  file << "Kd 0.55 0.55 0.55\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_brown\n";
+  file << "Ka 0.45 0.28 0.12\n";
+  file << "Kd 0.45 0.28 0.12\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_red\n";
+  file << "Ka 1.0 0.0 0.0\n";
+  file << "Kd 1.0 0.0 0.0\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n\n";
+  file << "newmtl debug_green\n";
+  file << "Ka 0.0 1.0 0.0\n";
+  file << "Kd 0.0 1.0 0.0\n";
+  file << "Ks 0.0 0.0 0.0\n";
+  file << "d 1.0\n";
+}
+
+void WriteExportedMesh(const std::filesystem::path& path, kinDS::VoronoiMesh mesh, kinDS::ObjWriteOptions options,
+                       const bool neighbor_connectivity_debug) {
+  options.framework_compatible = !neighbor_connectivity_debug;
+  kinDS::ObjExporter::writeMesh(mesh, path, options);
+  if (neighbor_connectivity_debug) {
+    std::filesystem::path mtl_path = path;
+    mtl_path.replace_extension(".mtl");
+    WriteNeighborConnectivityDebugMtl(mtl_path);
+  }
+}
+
 }  // namespace
 
 bool MeshletObjExport::enable_smoothing = false;
+bool MeshletObjExport::per_meshlet_objects = false;
+
+std::vector<MeshletObjExport::MeshGroup> BuildMeshGroupsBySegmentIndex(
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
+  using Triangle = DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle;
+
+  std::unordered_map<unsigned int, std::vector<size_t>> triangle_indices_by_segment;
+  triangle_indices_by_segment.reserve(triangles.size() / 4 + 1);
+  for (size_t tri_index = 0; tri_index < triangles.size(); ++tri_index) {
+    const unsigned int segment_index = vertices[triangles[tri_index].vertex_index0].segment_index;
+    triangle_indices_by_segment[segment_index].push_back(tri_index);
+  }
+
+  std::vector<unsigned int> segment_indices;
+  segment_indices.reserve(triangle_indices_by_segment.size());
+  for (const auto& [segment_index, _] : triangle_indices_by_segment) {
+    segment_indices.push_back(segment_index);
+  }
+  std::sort(segment_indices.begin(), segment_indices.end());
+
+  std::vector<MeshletObjExport::MeshGroup> groups;
+  groups.reserve(segment_indices.size());
+  for (const unsigned int segment_index : segment_indices) {
+    const auto& tri_indices = triangle_indices_by_segment[segment_index];
+    MeshletObjExport::MeshGroup group;
+    group.name = "meshlet_" + std::to_string(segment_index);
+
+    std::unordered_map<unsigned int, unsigned int> vertex_remap;
+    vertex_remap.reserve(tri_indices.size() * 2);
+    group.vertices.reserve(tri_indices.size());
+    group.triangles.reserve(tri_indices.size());
+
+    const auto remap_vertex = [&](const unsigned int old_index) -> unsigned int {
+      const auto found = vertex_remap.find(old_index);
+      if (found != vertex_remap.end()) {
+        return found->second;
+      }
+      const unsigned int new_index = static_cast<unsigned int>(group.vertices.size());
+      group.vertices.push_back(vertices[old_index]);
+      vertex_remap.emplace(old_index, new_index);
+      return new_index;
+    };
+
+    for (const size_t tri_index : tri_indices) {
+      const Triangle& src = triangles[tri_index];
+      Triangle dst = src;
+      dst.vertex_index0 = remap_vertex(src.vertex_index0);
+      dst.vertex_index1 = remap_vertex(src.vertex_index1);
+      dst.vertex_index2 = remap_vertex(src.vertex_index2);
+      group.triangles.push_back(dst);
+    }
+    groups.push_back(std::move(group));
+  }
+  return groups;
+}
+
+void WriteCombinedMeshGroups(const std::filesystem::path& path, const std::vector<MeshletObjExport::MeshGroup>& groups,
+                             const std::vector<DynamicStrands::GpuSegment>& segments, const double uv_height_factor,
+                             const double uv_circum_factor, const float fracture_distance,
+                             const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
+                             const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list,
+                             const bool smooth_each_group) {
+  if (groups.empty()) {
+    throw std::runtime_error("WriteCombinedMeshGroups: no mesh groups to export");
+  }
+
+  const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
+
+  kinDS::VoronoiMesh combined;
+  kinDS::ObjExportGpuAttributes combined_attrs;
+  bool initialized = false;
+
+  for (const auto& group : groups) {
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = group.triangles;
+    if (smooth_each_group && MeshletObjExport::enable_smoothing) {
+      MeshletObjExport::ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
+    }
+
+    kinDS::VoronoiMesh part = MeshletObjExport::ToVoronoiMesh(export_vertices, export_triangles, fracture_distance,
+                                                              neighbor_connectivity_debug, segment_pairs);
+    kinDS::ObjExportGpuAttributes part_attrs =
+        MeshletObjExport::BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
+
+    if (!initialized) {
+      combined = std::move(part);
+      combined.setGroupOffsets({0});
+      combined.setGroupNames({group.name});
+      combined_attrs = std::move(part_attrs);
+      initialized = true;
+    } else {
+      combined.startNewGroup(group.name);
+      combined += part;
+      MeshletObjExport::AppendGpuAttributes(combined_attrs, part_attrs);
+    }
+  }
+
+  kinDS::ObjWriteOptions options;
+  options.uv_height_factor = uv_height_factor;
+  options.uv_circum_factor = uv_circum_factor;
+  options.write_obj_groups = true;
+  options.gpu_attributes = std::move(combined_attrs);
+  WriteExportedMesh(path, std::move(combined), options, neighbor_connectivity_debug);
+}
 
 void PlyExporter::ExportAscii(const std::filesystem::path& path,
                               const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
@@ -202,8 +374,12 @@ void PlyExporter::WriteFaces(std::ofstream& file,
 
 kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, float fracture_distance) {
-  kinDS::VoronoiMesh mesh(std::vector<std::string>{"bark", "interior"}, kinDS::PerTriangleCorner);
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, const float fracture_distance,
+    const bool neighbor_connectivity_debug, const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs) {
+  kinDS::VoronoiMesh mesh(neighbor_connectivity_debug ? std::vector<std::string>{"debug_grey", "debug_brown", "debug_red",
+                                                                                "debug_green"}
+                                                      : std::vector<std::string>{"bark", "interior"},
+                          kinDS::PerTriangleCorner);
 
   for (const auto& v : vertices) {
     const glm::vec3 p = v.x - fracture_distance * v.shift;
@@ -211,7 +387,10 @@ kinDS::VoronoiMesh MeshletObjExport::ToVoronoiMesh(
   }
 
   for (const auto& t : triangles) {
-    const int material_id = (t.neighbor_segment_index == -2) ? 0 : 1;
+    const int material_id =
+        neighbor_connectivity_debug
+            ? NeighborConnectivityMaterialId(t, segment_pairs)
+            : ((t.neighbor_segment_index == -2) ? 0 : 1);
     const size_t uv0 = mesh.addUV(glm::dvec3(t.uv[0].x, t.uv[0].y, t.uv[0].z));
     const size_t uv1 = mesh.addUV(glm::dvec3(t.uv[1].x, t.uv[1].y, t.uv[1].z));
     const size_t uv2 = mesh.addUV(glm::dvec3(t.uv[2].x, t.uv[2].y, t.uv[2].z));
@@ -380,14 +559,22 @@ void MeshletObjExport::ExportObj(const std::filesystem::path& path,
     ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
   }
 
-  kinDS::VoronoiMesh mesh = ToVoronoiMesh(export_vertices, export_triangles, fracture_distance);
+  if (per_meshlet_objects) {
+    WriteCombinedMeshGroups(path, BuildMeshGroupsBySegmentIndex(export_vertices, export_triangles), segments,
+                            uv_height_factor, uv_circum_factor, fracture_distance, segment_pairs, segment_data_list,
+                            false);
+    return;
+  }
+
+  const bool neighbor_connectivity_debug = NeighborConnectivityDebugEnabled();
+  kinDS::VoronoiMesh mesh =
+      ToVoronoiMesh(export_vertices, export_triangles, fracture_distance, neighbor_connectivity_debug, segment_pairs);
   kinDS::ObjWriteOptions options;
   options.uv_height_factor = uv_height_factor;
   options.uv_circum_factor = uv_circum_factor;
-  options.framework_compatible = true;
   options.write_obj_groups = false;
   options.gpu_attributes = BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
-  kinDS::ObjExporter::writeMesh(mesh, path, options);
+  WriteExportedMesh(path, std::move(mesh), options, neighbor_connectivity_debug);
 }
 
 void MeshletObjExport::ExportObjCombined(const std::filesystem::path& path, const std::vector<MeshGroup>& groups,
@@ -395,43 +582,6 @@ void MeshletObjExport::ExportObjCombined(const std::filesystem::path& path, cons
                                          double uv_height_factor, double uv_circum_factor, float fracture_distance,
                                          const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
                                          const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
-  if (groups.empty()) {
-    throw std::runtime_error("ExportObjCombined: no mesh groups to export");
-  }
-
-  kinDS::VoronoiMesh combined;
-  kinDS::ObjExportGpuAttributes combined_attrs;
-  bool initialized = false;
-
-  for (const auto& group : groups) {
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex> export_vertices = group.vertices;
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle> export_triangles = group.triangles;
-    if (enable_smoothing) {
-      ApplySmoothing(export_vertices, export_triangles, segments, segment_pairs, segment_data_list);
-    }
-
-    kinDS::VoronoiMesh part = ToVoronoiMesh(export_vertices, export_triangles, fracture_distance);
-    kinDS::ObjExportGpuAttributes part_attrs =
-        BuildGpuAttributes(export_vertices, export_triangles, segments, uv_height_factor);
-
-    if (!initialized) {
-      combined = std::move(part);
-      combined.setGroupOffsets({0});
-      combined.setGroupNames({group.name});
-      combined_attrs = std::move(part_attrs);
-      initialized = true;
-    } else {
-      combined.startNewGroup(group.name);
-      combined += part;
-      AppendGpuAttributes(combined_attrs, part_attrs);
-    }
-  }
-
-  kinDS::ObjWriteOptions options;
-  options.uv_height_factor = uv_height_factor;
-  options.uv_circum_factor = uv_circum_factor;
-  options.framework_compatible = true;
-  options.write_obj_groups = true;
-  options.gpu_attributes = std::move(combined_attrs);
-  kinDS::ObjExporter::writeMesh(combined, path, options);
+  WriteCombinedMeshGroups(path, groups, segments, uv_height_factor, uv_circum_factor, fracture_distance,
+                          segment_pairs, segment_data_list, true);
 }

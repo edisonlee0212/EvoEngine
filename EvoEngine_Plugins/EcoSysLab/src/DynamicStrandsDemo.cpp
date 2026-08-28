@@ -1,5 +1,8 @@
 #include "DynamicStrandsDemo.hpp"
 
+#include <chrono>
+#include <cmath>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 
@@ -36,6 +39,28 @@ void ApplyOakTrunkFullProcessPhysicsPreset(DynamicStrands::PhysicsParameters& ph
   physics_parameters.matrixAb = glm::mat3(0.5f, 0.0f, 0.0f, 0.0f, 0.5f, 0.0f, 0.0f, 0.0f, 2.0f);
   physics_parameters.bb = 0.5f;
   physics_parameters.be = 0.5f;
+}
+
+constexpr float kDefaultPhysicsDemoHeight = 1.0f;
+constexpr float kVolumetricLogExperimentHeight = 0.25f;
+constexpr float kVolumetricLogExperimentCameraHeight = 0.55f;
+
+void SetupVolumetricLogExperimentHeight(const std::shared_ptr<Scene>& scene, const Entity& owner,
+                                        const std::shared_ptr<DynamicTreeStrands>& dts) {
+  GlobalTransform owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
+  const glm::vec3 pos = owner_gt.GetPosition();
+  owner_gt.SetPosition(glm::vec3(pos.x, kVolumetricLogExperimentHeight, pos.z));
+  scene->SetDataComponent(owner, owner_gt);
+  dts->initialize_parameters.root_transform = owner_gt;
+}
+
+void ResetPhysicsDemoHeight(const std::shared_ptr<Scene>& scene, const Entity& owner,
+                            const std::shared_ptr<DynamicTreeStrands>& dts) {
+  GlobalTransform owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
+  const glm::vec3 pos = owner_gt.GetPosition();
+  owner_gt.SetPosition(glm::vec3(pos.x, kDefaultPhysicsDemoHeight, pos.z));
+  scene->SetDataComponent(owner, owner_gt);
+  dts->initialize_parameters.root_transform = owner_gt;
 }
 
 }  // namespace
@@ -129,6 +154,7 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
     scene->RemovePrivateComponent<DynamicTreeStrands>(owner);
   }
   const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(owner).lock();
+  ResetPhysicsDemoHeight(scene, owner, dts);
 
   target_simulation_time = 100.f;
   simulated_time = 0.f;
@@ -201,12 +227,17 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "During simulation, download GPU meshlets and write OBJs (same as \"Download and export OBJ\") "
-        "into PhysicsDemoExports/<experiment>/meshlets_<time>.obj — no file dialog.");
+        "into PhysicsDemoExports/<experiment>/<timestamp>/meshlets_<time>.obj — no file dialog.");
   }
   ImGui::Checkbox("Export smoothing", &MeshletObjExport::enable_smoothing);
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "When exporting OBJs, run ApplySmoothing with physics segment-pair / segment-data connections.");
+  }
+  ImGui::Checkbox("Per-meshlet objects", &MeshletObjExport::per_meshlet_objects);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip(
+        "When exporting OBJs, write one object (o) per segment meshlet instead of a single combined object.");
   }
   if (automated_export) {
     ImGui::DragFloat("Export lower bound", &automated_export_lower, 0.01f, 0.f, 1.0e6f);
@@ -1184,7 +1215,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
   if (ImGui::TreeNodeEx("Volumetric Meshing", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Button("Log cut")) {
       ResetEnvironment(editor_layer);
-      camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+      camera_pose.SetPosition(glm::vec3(-0.3, kVolumetricLogExperimentCameraHeight, 0.2));
       camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
       log_experiment_setup_settings.rod_segment_count = 20;
       log_experiment_setup_settings.rod_size = 3200;
@@ -1200,14 +1231,18 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
       target_factor0 = 1.f;
       target_factor1 = 1.f;
-      automated_export_upper = 4.f;
+      automated_export_upper = 15.f;
+      automated_export_stepsize = 1.f;
+      ResetAutomatedExportSchedule();
       // Disable crack opening offset (x - fracture_distance * shift) for volumetric demos.
       DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       physics_parameters.enable_fungus = false;
       physics_parameters.enable_segment_collision = false;
-      dts->initialize_parameters.max_segment_length = 0.01f;
-      dts->initialize_parameters.min_segment_length = 0.005f;
+      // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
+      dts->initialize_parameters.min_segment_length = 0.02f;
+      dts->initialize_parameters.max_segment_length = 0.04f;
       dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      SetupVolumetricLogExperimentHeight(scene, owner, dts);
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log cut";
@@ -1228,7 +1263,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
     if (ImGui::Button("Log Spoon")) {
       ResetEnvironment(editor_layer);
-      camera_pose.SetPosition(glm::vec3(-0.3, 1.3, 0.2));
+      camera_pose.SetPosition(glm::vec3(-0.3, kVolumetricLogExperimentCameraHeight, 0.2));
       camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
       log_experiment_setup_settings.rod_segment_count = 20;
       log_experiment_setup_settings.rod_size = 3200;
@@ -1246,9 +1281,11 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       physics_parameters.enable_fungus = false;
       physics_parameters.enable_segment_collision = false;
-      dts->initialize_parameters.max_segment_length = 0.01f;
-      dts->initialize_parameters.min_segment_length = 0.005f;
+      // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
+      dts->initialize_parameters.min_segment_length = 0.02f;
+      dts->initialize_parameters.max_segment_length = 0.04f;
       dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+      SetupVolumetricLogExperimentHeight(scene, owner, dts);
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log Spoon";
@@ -1554,9 +1591,68 @@ void DynamicStrandsDemo::Update() {
   simulated_time += physics_parameters.time_step;
 }
 
+void DynamicStrandsDemo::SnapshotAutomatedExportSettings() {
+  automated_export_snapshot_ = automated_export;
+  automated_export_lower_snapshot_ = automated_export_lower;
+  automated_export_upper_snapshot_ = automated_export_upper;
+  automated_export_stepsize_snapshot_ = automated_export_stepsize;
+}
+
+bool DynamicStrandsDemo::AutomatedExportSettingsChanged() const {
+  return automated_export != automated_export_snapshot_ ||
+         automated_export_lower != automated_export_lower_snapshot_ ||
+         automated_export_upper != automated_export_upper_snapshot_ ||
+         automated_export_stepsize != automated_export_stepsize_snapshot_;
+}
+
+void DynamicStrandsDemo::AdvanceAutomatedExportScheduleFrom(const float current_time) {
+  constexpr float kEps = 1.0e-4f;
+  if (automated_export_stepsize <= 0.f) {
+    return;
+  }
+  if (current_time + kEps < automated_export_lower) {
+    next_automated_export_time_ = automated_export_lower;
+    return;
+  }
+
+  const float relative = current_time - automated_export_lower;
+  const float completed_steps = std::floor(relative / automated_export_stepsize + kEps);
+  float next = automated_export_lower + (completed_steps + 1.f) * automated_export_stepsize;
+
+  // Rescheduling at simulation start must still include the lower-bound export (t=0).
+  if (next_automated_export_time_ <= automated_export_lower + kEps &&
+      current_time <= automated_export_lower + kEps) {
+    next = automated_export_lower;
+  }
+
+  if (next > automated_export_upper + kEps) {
+    next = automated_export_upper + 1.0e6f;
+  }
+  next_automated_export_time_ = next;
+}
+
 void DynamicStrandsDemo::ResetAutomatedExportSchedule() {
   next_automated_export_time_ = automated_export_lower;
+  automated_export_folder_.clear();
+  SnapshotAutomatedExportSettings();
 }
+
+namespace {
+
+std::string MakeAutomatedExportTimestamp() {
+  const std::time_t now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
+  std::tm local_tm{};
+#if defined(_WIN32)
+  localtime_s(&local_tm, &now);
+#else
+  localtime_r(&now, &local_tm);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&local_tm, "%Y-%m-%d_%H-%M-%S");
+  return oss.str();
+}
+
+}  // namespace
 
 const char* DynamicStrandsDemo::DemoTypeExportFolderName(const DemoType type) {
   switch (type) {
@@ -1621,6 +1717,12 @@ std::shared_ptr<DynamicTreeStrands> DynamicStrandsDemo::GetActiveDynamicTreeStra
 }
 
 void DynamicStrandsDemo::TryAutomatedExportsUpTo(const float time) {
+  if (AutomatedExportSettingsChanged()) {
+    if (automated_export && demo_status == DemoStatus::Simulation && demo_type != DemoType::Empty) {
+      AdvanceAutomatedExportScheduleFrom(time);
+    }
+    SnapshotAutomatedExportSettings();
+  }
   if (!automated_export || demo_status != DemoStatus::Simulation || demo_type == DemoType::Empty) {
     return;
   }
@@ -1656,17 +1758,23 @@ void DynamicStrandsDemo::TryAutomatedExportsUpTo(const float time) {
       EVOENGINE_ERROR("Automated export: project path is empty.");
       continue;
     }
-    const auto folder = project_path.parent_path() / "PhysicsDemoExports" / DemoTypeExportFolderName(demo_type);
+    if (automated_export_folder_.empty()) {
+      automated_export_folder_ =
+          project_path.parent_path() / "PhysicsDemoExports" / DemoTypeExportFolderName(demo_type) /
+          MakeAutomatedExportTimestamp();
+      EVOENGINE_LOG("Automated export folder: " << automated_export_folder_.string());
+    }
     std::error_code ec;
-    std::filesystem::create_directories(folder, ec);
+    std::filesystem::create_directories(automated_export_folder_, ec);
     if (ec) {
-      EVOENGINE_ERROR("Automated export: failed to create folder " << folder.string() << " (" << ec.message() << ").");
+      EVOENGINE_ERROR("Automated export: failed to create folder " << automated_export_folder_.string() << " ("
+                                                                     << ec.message() << ").");
       continue;
     }
 
     std::ostringstream name;
     name << "meshlets_" << std::fixed << std::setprecision(3) << export_time << ".obj";
-    const auto path = folder / name.str();
+    const auto path = automated_export_folder_ / name.str();
     try {
       MeshletObjExport::ExportObj(path, dskvm->segment_meshlet_vertices, dskvm->segment_meshlet_triangles,
                                   dts->dynamic_strands->segments,

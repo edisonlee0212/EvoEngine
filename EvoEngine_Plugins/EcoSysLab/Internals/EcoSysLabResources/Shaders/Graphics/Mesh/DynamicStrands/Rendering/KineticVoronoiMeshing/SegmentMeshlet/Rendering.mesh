@@ -58,8 +58,27 @@ uint laneID = gl_LocalInvocationID.x;
 
 #include "KineticVoronoiRenderingConstants.glsl"
 
+// neighbor_segment_index: -2 = bark, -1/-3 = grey (never had / removed neighbor), >= 0 = lateral neighbor.
+vec4 NeighborConnectivityColor(SegmentMeshletTriangle tri) {
+  if (tri.neighbor_segment_index == -2) {
+    return vec4(0.45, 0.28, 0.12, 1.0);
+  }
+  if (tri.neighbor_segment_index == -1 || tri.neighbor_segment_index == -3) {
+    return vec4(0.55, 0.55, 0.55, 1.0);
+  }
+  if (tri.segment_pair_index < 0) {
+    return vec4(1.0, 0.0, 0.0, 1.0);
+  }
+  SegmentPair pair = segment_pairs[tri.segment_pair_index];
+  if (pair.connectivity_integrity <= 0.0 && pair.bend_twist_bundle_integrity <= 0.0) {
+    return vec4(1.0, 0.0, 0.0, 1.0);
+  }
+  return vec4(0.0, 1.0, 0.0, 1.0);
+}
+
 vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMeshletVertex segment_meshlet_vertex,
-                         in vec4 color, in vec2 uv_coords, in bool is_bark, in bool has_pair_handle) {
+                         in vec4 color, in vec2 uv_coords, in bool is_bark, in vec4 debug_color,
+                         in bool use_debug_color) {
   mat4 transform = EE_CAMERAS[EE_CAMERA_INDEX].projection_view;
 
   vec3 pos = segment_meshlet_vertex.x - fracture_distance * segment_meshlet_vertex.shift;
@@ -86,12 +105,8 @@ vec3 SetUpTriangleVertex(uint vertex_index, in vec3 vertex_normal, in SegmentMes
       ms_v_out[vertex_index].Color = vec4(uv_coords, 0.0, 1.0);
       break;
     case COLOR_NEIGHBORS:
-      if (has_pair_handle) {
-        ms_v_out[vertex_index].Color = vec4(0.0, 1.0, 0.0, 1.0);
-      } else {
-        ms_v_out[vertex_index].Color = vec4(1.0, 0.0, 0.0, 1.0);
-      }
-
+    case COLOR_NEIGHBOR_CONNECTIVITY:
+      ms_v_out[vertex_index].Color = debug_color;
       break;
   }
 
@@ -118,12 +133,22 @@ void main() {
         material_index = bark_material_index;
       }
 
+      vec4 debug_color = vec4(0.0);
+      bool use_debug_color = false;
+      if (color_mode == COLOR_NEIGHBOR_CONNECTIVITY) {
+        debug_color = NeighborConnectivityColor(tri);
+        use_debug_color = true;
+      } else if (color_mode == COLOR_NEIGHBORS) {
+        debug_color = tri.segment_pair_index != -1 ? vec4(0.0, 1.0, 0.0, 1.0) : vec4(1.0, 0.0, 0.0, 1.0);
+        use_debug_color = true;
+      }
+
       [[unroll]]
       for (int j = 0; j < 3; j++) {
         uint global_vertex_index = tri.vertex_indices[j];
         SegmentMeshletVertex segment_meshlet_vertex = segment_meshlet_vertices[global_vertex_index];
         SetUpTriangleVertex(j, tri.normal[j].xyz, segment_meshlet_vertex, color, tri.uv[j].xy,
-                            tri.neighbor_segment_index == -2, tri.segment_pair_index != -1);
+                            tri.neighbor_segment_index == -2, debug_color, use_debug_color);
       }
 
       ms_prim[0].MaterialIndex = material_index;

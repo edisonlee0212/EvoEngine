@@ -33,6 +33,8 @@ class MeshletObjExport {
  public:
   /// Shared UI/export option: when true, @ref ApplySmoothing runs before writing the OBJ.
   static bool enable_smoothing;
+  /// When true, OBJ export writes one `o` object per segment meshlet (grouped by @c segment_index).
+  static bool per_meshlet_objects;
 
   struct MeshGroup {
     std::string name;
@@ -42,7 +44,9 @@ class MeshletObjExport {
 
   static kinDS::VoronoiMesh ToVoronoiMesh(
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, float fracture_distance = 0.0f);
+      const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles, float fracture_distance = 0.0f,
+      bool neighbor_connectivity_debug = false,
+      const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs = {});
 
   static kinDS::ObjExportGpuAttributes BuildGpuAttributes(
       const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,

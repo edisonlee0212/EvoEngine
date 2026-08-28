@@ -53,6 +53,15 @@ constexpr uint64_t kFnvPrime = 1099511628211ull;
 constexpr uint64_t kMaxMeshingBufferCount = 500000000ull;
 constexpr uint64_t kMaxMeshingBufferString = 16ull * 1024ull * 1024ull;
 
+constexpr int kColorNeighborConnectivity = 4;
+
+int EffectiveSegmentMeshletColorMode(const DsKineticVoronoiMeshing::SegmentMeshletsRenderParameters& parameters) {
+  if (parameters.debug_neighbor_connectivity) {
+    return kColorNeighborConnectivity;
+  }
+  return parameters.color_mode;
+}
+
 struct Fnv64 {
   uint64_t value = kFnvOffset;
   void MixBytes(const void* data, size_t size) {
@@ -148,6 +157,8 @@ struct MeshingInputHashStats {
   size_t branch_id_count = 0;
   size_t strands_by_branch_outer_count = 0;
   size_t strands_by_branch_id_count = 0;
+  float min_segment_length = 0.f;
+  float max_segment_length = 0.f;
 };
 
 std::string CurrentUtcTimestamp() {
@@ -250,7 +261,8 @@ void LogMeshingInputHashStats(const MeshingInputHashStats& stats) {
                 << " [" << stats.root_transform_summary << "]"
                 << " support(strands=" << stats.support_strand_count << ", pts=" << stats.support_point_count
                 << ")=" << stats.support_hash << " subdiv(strands=" << stats.subdiv_strand_count
-                << ", vals=" << stats.subdiv_value_count << ")=" << stats.subdiv_hash
+                << ", vals=" << stats.subdiv_value_count << ", min_len=" << stats.min_segment_length
+                << ", max_len=" << stats.max_segment_length << ")=" << stats.subdiv_hash
                 << " physics(strands=" << stats.physics_strand_count << ", segs=" << stats.physics_segment_count
                 << ")=" << stats.physics_hash << " transforms(heights=" << stats.transform_height_count
                 << ", mats=" << stats.transform_matrix_count << ")=" << stats.transforms_hash
@@ -276,6 +288,8 @@ YAML::Node BuildMeshingBufferStatisticsNode(const MeshingInputHashStats& stats) 
   statistics["hash_inputs"]["support_points"]["strand_count"] = stats.support_strand_count;
   statistics["hash_inputs"]["support_points"]["point_count"] = stats.support_point_count;
   statistics["hash_inputs"]["support_points"]["hash"] = stats.support_hash;
+  statistics["hash_inputs"]["subdivisions"]["min_segment_length"] = stats.min_segment_length;
+  statistics["hash_inputs"]["subdivisions"]["max_segment_length"] = stats.max_segment_length;
   statistics["hash_inputs"]["subdivisions"]["strand_count"] = stats.subdiv_strand_count;
   statistics["hash_inputs"]["subdivisions"]["value_count"] = stats.subdiv_value_count;
   statistics["hash_inputs"]["subdivisions"]["hash"] = stats.subdiv_hash;
@@ -350,6 +364,9 @@ bool UpdateMeshingBufferYmlOnCacheHit(const std::filesystem::path& yml_path, con
     }
     if (!root["statistics"] || !root["statistics"]["input_hash"]) {
       root["statistics"] = BuildMeshingBufferStatisticsNode(stats);
+    } else {
+      root["statistics"]["hash_inputs"]["subdivisions"]["min_segment_length"] = stats.min_segment_length;
+      root["statistics"]["hash_inputs"]["subdivisions"]["max_segment_length"] = stats.max_segment_length;
     }
     root["description"] = description;
     if (!WriteMeshingBufferYml(yml_path, root)) {
@@ -2134,7 +2151,8 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
   }
   for (auto& triangle : segment_meshlet_triangles) {
     if (triangle.neighbor_segment_index >= 0) {
-      triangle.neighbor_segment_index = remap_segment(triangle.neighbor_segment_index);
+      const int mapped = remap_segment(triangle.neighbor_segment_index);
+      triangle.neighbor_segment_index = mapped < 0 ? -3 : mapped;
     }
     // Re-resolve segment_pair_index against remapped pair_handles.
     triangle.segment_pair_index = -1;
@@ -2367,7 +2385,8 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     std::vector<std::vector<int>>& physics_strand_to_segment_indices,
     const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch, const GlobalTransform& root_transform,
     const std::vector<std::vector<size_t>>& branch_indices,
-    std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id) {
+    std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id, const float min_segment_length,
+    const float max_segment_length) {
   std::vector<float> bottom_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
   std::vector<float> top_boundary_distances_by_strand_id(physics_strand_to_segment_indices.size());
 
@@ -2421,9 +2440,11 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
   tree_mesher_->getSettings().export_separate_contributor_objects =
       meshing_settings.export_separate_contributor_objects;
 
-  const MeshingInputHashStats hash_stats = ComputeMeshingInputHashStats(
+  MeshingInputHashStats hash_stats = ComputeMeshingInputHashStats(
       support_points, subdivisions_by_strand, physics_strand_to_segment_indices, transforms_by_height_and_branch,
       root_transform, branch_indices, strands_by_branch_id);
+  hash_stats.min_segment_length = min_segment_length;
+  hash_stats.max_segment_length = max_segment_length;
   LogMeshingInputHashStats(hash_stats);
   const std::string& input_hash = hash_stats.input_hash;
   const std::filesystem::path buffer_dir = MeshingBufferDirectory();
@@ -3005,7 +3026,8 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
   kinDS::logger.setLogLevel(kinDS::LogLevel::Debug, false);
   RunMeshingAlgorithm(strand_splines, random_subdivisions_by_strand, randomly_subdivided_segment_handles,
                       transforms_by_height_and_branch, initialize_parameters.root_transform, branch_indices,
-                      strands_by_branch_id);
+                      strands_by_branch_id, initialize_parameters.min_segment_length,
+                      initialize_parameters.max_segment_length);
 }
 
 void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitializationGraphicsPipeline(
@@ -3357,6 +3379,11 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
         "When enabled, ApplySmoothing runs before OBJ write using downloaded segment pairs / segment data "
         "connections.");
   }
+  ImGui::Checkbox("Per-meshlet objects", &MeshletObjExport::per_meshlet_objects);
+  if (ImGui::IsItemHovered()) {
+    ImGui::SetTooltip("When enabled, OBJ export writes one object (o) per segment meshlet instead of a single combined "
+                      "object.");
+  }
   // FileUtils::SaveFile(
   //     "Export Boundary OBJ", "OBJ", {".obj"},
   //     [&](const std::filesystem::path& path) {
@@ -3391,6 +3418,13 @@ void DsKineticVoronoiMeshing::OnInspectRenderSettings(const std::shared_ptr<Edit
 
     ImGui::Combo("Color mode", {"Standard", "Normals", "UVs", "Pair"},
                  render_settings.segment_meshlet_render_parameters.color_mode);
+
+    ImGui::Checkbox("Debug neighbor connectivity", &render_settings.segment_meshlet_render_parameters.debug_neighbor_connectivity);
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Color meshlet faces by lateral-neighbor state (viewport + OBJ export): grey = never had a neighbor or "
+          "neighbor removed by compact, brown = bark, red = pair disconnected, green = pair still connected.");
+    }
 
     // uv factors
     ImGui::DragFloat("UV height factor", &render_settings.segment_meshlet_render_parameters.uv_height_factor, 0.001f,
@@ -3691,7 +3725,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   render_push_constant.index2.camera_index = view.camera_index;
   render_push_constant.vertex_count = segment_meshlet_vertices.size();
   render_push_constant.triangle_count = segment_meshlet_triangles.size();
-  render_push_constant.color_mode = render_settings.segment_meshlet_render_parameters.color_mode;
+  render_push_constant.color_mode = EffectiveSegmentMeshletColorMode(render_parameters);
   render_push_constant.inner_wood_material_index = inner_wood_material_index;
   render_push_constant.bark_material_index = bark_material_index;
   render_push_constant.uv_height_factor = render_settings.segment_meshlet_render_parameters.uv_height_factor;

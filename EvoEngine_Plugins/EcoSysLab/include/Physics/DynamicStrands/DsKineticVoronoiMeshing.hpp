@@ -52,6 +52,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float uv_circum_factor = 2.0f;
     float fracture_distance = 0.0004f;
     double alpha_cutoff = 10.0;
+    /// When true, override color mode with neighbor-connectivity debug colors (grey / brown / red / green).
+    bool debug_neighbor_connectivity = false;
   };
 
   struct RenderSettings {
@@ -247,6 +249,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
                            const std::vector<std::vector<glm::dmat4>>& transforms_by_height_and_branch,
                            const GlobalTransform& root_transform,
                            const std::vector<std::vector<size_t>>& branch_indices,
-                           std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id);
+                           std::vector<std::vector<std::vector<size_t>>>& strands_by_branch_id,
+                           float min_segment_length, float max_segment_length);
 };
 }  // namespace eco_sys_lab_plugin

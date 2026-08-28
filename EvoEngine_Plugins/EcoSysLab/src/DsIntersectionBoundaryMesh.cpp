@@ -47,6 +47,7 @@ void DsIntersectionBoundaryMesh::UpdatePreviewMeshRenderer() {
   static constexpr glm::vec2 kCornerUvs[3] = {{0.0f, 0.0f}, {1.0f, 0.0f}, {0.0f, 1.0f}};
   const auto& mesh_vertices = mesh_.getVertices();
   const auto& triangles = mesh_.getTriangles();
+  const bool has_normals = mesh_.getNormalMode() == kinDS::PerTriangleCorner && !mesh_.getNormals().empty();
   for (size_t tri = 0; tri < mesh_.getTriangleCount(); ++tri) {
     for (size_t corner = 0; corner < 3; ++corner) {
       const size_t src = triangles[tri * 3 + corner];
@@ -54,6 +55,10 @@ void DsIntersectionBoundaryMesh::UpdatePreviewMeshRenderer() {
       const glm::dvec3& p = mesh_vertices[src];
       v.position = glm::vec3(p);
       v.tex_coord = kCornerUvs[corner];
+      if (has_normals) {
+        const glm::dvec3& n = mesh_.getNormal(tri * 3 + corner);
+        v.normal = glm::vec3(n);
+      }
       vertices.push_back(v);
       indices.push_back(static_cast<unsigned>(indices.size()));
     }
@@ -63,6 +68,7 @@ void DsIntersectionBoundaryMesh::UpdatePreviewMeshRenderer() {
     preview_mesh_ = AssetManager::CreateTemporaryAsset<Mesh>();
   }
   VertexAttributes attrs{};
+  attrs.normal = has_normals;
   attrs.tex_coord = true;
   preview_mesh_->SetVertices(attrs, vertices, indices);
 

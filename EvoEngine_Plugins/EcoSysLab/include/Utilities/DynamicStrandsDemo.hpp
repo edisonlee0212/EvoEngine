@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include "DynamicStrands.hpp"
 #include "DynamicTreeSkeleton.hpp"
 #include "DynamicTreeStrands.hpp"
@@ -134,6 +135,13 @@ class DynamicStrandsDemo : public IPrivateComponent {
  private:
   /// Next simulation time at which automated export should fire.
   float next_automated_export_time_ = 0.f;
+  /// Output folder for the current automated-export run (includes a timestamp subfolder).
+  std::filesystem::path automated_export_folder_;
+  /// Snapshot of export settings; used to detect mid-run edits without replaying past times.
+  bool automated_export_snapshot_ = false;
+  float automated_export_lower_snapshot_ = 0.f;
+  float automated_export_upper_snapshot_ = 10.f;
+  float automated_export_stepsize_snapshot_ = 0.5f;
 
   /// Start EcoSysLab auto-grow for @ref target_growth_time years (async; advances in EcoSysLabLayer::Update).
   void BeginTreeAutoGrow();
@@ -141,6 +149,10 @@ class DynamicStrandsDemo : public IPrivateComponent {
   void TryFinishTreeGrowthAndStartMeshing();
   /// Reset the automated-export schedule to @ref automated_export_lower.
   void ResetAutomatedExportSchedule();
+  /// Advance @ref next_automated_export_time_ to the next slot after @p current_time (skip past times).
+  void AdvanceAutomatedExportScheduleFrom(float current_time);
+  void SnapshotAutomatedExportSettings();
+  [[nodiscard]] bool AutomatedExportSettingsChanged() const;
   /// Folder name under PhysicsDemoExports for the current @ref demo_type.
   [[nodiscard]] static const char* DemoTypeExportFolderName(DemoType type);
   /// DynamicTreeStrands that owns the active simulation mesh (owner or tree entity).
