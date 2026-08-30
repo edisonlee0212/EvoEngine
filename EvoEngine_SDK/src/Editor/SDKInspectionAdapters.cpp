@@ -3313,23 +3313,6 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
       shade_material.double_sided = double_sided ? 1 : 0;
       changed = true;
     }
-    int pbr_model = glm::clamp(shade_material.pbr_model, 0, 1);
-    constexpr const char* pbr_models[] = {"Metallic Roughness", "Specular Glossiness"};
-    if (ImGui::Combo("PBR Model##Material", &pbr_model, pbr_models, IM_ARRAYSIZE(pbr_models))) {
-      shade_material.pbr_model = pbr_model;
-      changed = true;
-    }
-    if (shade_material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness)) {
-      if (ImGui::ColorEdit4("Diffuse Factor##Material", &shade_material.pbr_diffuse_factor.x)) {
-        changed = true;
-      }
-      if (ImGui::ColorEdit3("Specular Factor##Material", &shade_material.pbr_specular_factor.x)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat("Glossiness##Material", &shade_material.pbr_glossiness_factor, 0.01f, 0.0f, 1.0f)) {
-        changed = true;
-      }
-    }
     if (ImGui::DragFloat("IOR##Material", &shade_material.ior, 0.01f, 0.0f, 5.0f)) {
       changed = true;
     }

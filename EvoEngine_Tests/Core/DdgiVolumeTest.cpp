@@ -2025,27 +2025,28 @@ TEST(DdgiVolume, DdgiInputSignaturesTrackOnlyRayVisibleMaterialClosure) {
   ASSERT_FALSE(material_signature.empty());
   ASSERT_FALSE(texture_slots.empty());
 
-  for (const auto* field :
-       {"pbr_base_color_factor", "normal_texture_scale", "pbr_metallic_factor", "alpha_mode", "alpha_cutoff",
-        "double_sided", "ior", "transmission_factor", "thickness_factor", "clearcoat_factor",
-        "clearcoat_normal_texture_scale", "specular_color_factor", "specular_factor", "unlit", "pbr_model",
-        "pbr_diffuse_factor", "pbr_specular_factor", "diffuse_transmission_factor"}) {
+  for (const auto* field : {"pbr_base_color_factor", "normal_texture_scale", "pbr_metallic_factor", "alpha_mode",
+                            "alpha_cutoff", "double_sided", "ior", "transmission_factor", "thickness_factor",
+                            "clearcoat_factor", "clearcoat_normal_texture_scale", "specular_color_factor",
+                            "specular_factor", "unlit", "diffuse_transmission_factor"}) {
     EXPECT_NE(material_signature.find(field), std::string::npos) << field;
   }
-  for (const auto* field : {"emissive_factor", "pbr_roughness_factor", "occlusion_texture_strength",
-                            "attenuation_color", "attenuation_distance", "clearcoat_roughness", "sheen_color_factor",
-                            "sheen_roughness_factor", "pbr_glossiness_factor"}) {
+  for (const auto* field :
+       {"emissive_factor", "pbr_roughness_factor", "occlusion_texture_strength", "attenuation_color",
+        "attenuation_distance", "clearcoat_roughness", "sheen_color_factor", "sheen_roughness_factor", "pbr_model",
+        "pbr_diffuse_factor", "pbr_specular_factor", "pbr_glossiness_factor"}) {
     EXPECT_EQ(material_signature.find(field), std::string::npos) << field;
   }
 
-  for (const auto* field : {"pbr_base_color_texture", "normal_texture", "pbr_metallic_roughness_texture",
-                            "clearcoat_texture", "clearcoat_normal_texture", "specular_texture",
-                            "specular_color_texture", "pbr_diffuse_texture", "pbr_specular_glossiness_texture"}) {
+  for (const auto* field :
+       {"pbr_base_color_texture", "normal_texture", "pbr_metallic_roughness_texture", "clearcoat_texture",
+        "clearcoat_normal_texture", "specular_texture", "specular_color_texture"}) {
     EXPECT_NE(texture_slots.find(field), std::string::npos) << field;
   }
-  EXPECT_EQ(CountOccurrences(texture_slots, "material."), 9u);
+  EXPECT_EQ(CountOccurrences(texture_slots, "material."), 7u);
   for (const auto* field : {"emissive_texture", "occlusion_texture", "transmission_texture", "thickness_texture",
-                            "clearcoat_roughness_texture", "sheen_color_texture", "sheen_roughness_texture"}) {
+                            "clearcoat_roughness_texture", "sheen_color_texture", "sheen_roughness_texture",
+                            "pbr_diffuse_texture", "pbr_specular_glossiness_texture"}) {
     EXPECT_EQ(texture_slots.find(field), std::string::npos) << field;
   }
   EXPECT_EQ(render_layer_source.find("GetGltfMaterialTextureSlots"), std::string::npos);

@@ -2480,7 +2480,27 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   ASSERT_EQ(restored->material_data.texture_infos.size(), 11);
   EXPECT_EQ(restored->material_data.texture_infos[10].tex_coord, 1);
   EXPECT_EQ(restored->material_data.texture_infos[10].color_space, static_cast<int32_t>(GltfTextureColorSpace::Linear));
-  EXPECT_NE(std::string(out.c_str()).find("schema_version: 2"), std::string::npos);
+  EXPECT_NE(std::string(out.c_str()).find("schema_version: 3"), std::string::npos);
+}
+
+TEST(SerializationRegistry, LegacySpecularGlossinessMaterialRequiresSourceReimport) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(material);
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IAsset&>(*material));
+  out << YAML::EndMap;
+
+  auto serialized = YAML::Load(out.c_str());
+  serialized["gltf_material"]["schema_version"] = 2;
+  serialized["gltf_material"]["shade_material"]["pbr_model"] = 1;
+  const auto restored = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(restored);
+  EXPECT_THROW(Serialization::DeserializeObject(serialized, static_cast<IAsset&>(*restored)), std::runtime_error);
 }
 
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {

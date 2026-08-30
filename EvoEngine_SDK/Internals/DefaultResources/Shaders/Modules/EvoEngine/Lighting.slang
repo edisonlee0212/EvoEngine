@@ -117,6 +117,22 @@ float3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, float3 F0, float F90, f
          (max(float3(F90 * (1.0f - roughness)), F0) - F0) * pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
+// The G-buffer stores lerp(dielectric F0, base color, metallic), while diffuse energy uses only dielectric Fresnel.
+float3 EE_RECOVER_DIELECTRIC_F0(float3 albedo, float metallic, float3 combinedF0) {
+  const float metalWeight = clamp(metallic, 0.0f, 1.0f);
+  const float dielectricWeight = 1.0f - metalWeight;
+  return dielectricWeight > 0.000001f
+             ? clamp((combinedF0 - max(albedo, float3(0.0f)) * metalWeight) / dielectricWeight, float3(0.0f),
+                     float3(1.0f))
+             : float3(0.0f);
+}
+
+float EE_RECOVER_DIELECTRIC_F90(float metallic, float combinedF90) {
+  const float metalWeight = clamp(metallic, 0.0f, 1.0f);
+  const float dielectricWeight = 1.0f - metalWeight;
+  return dielectricWeight > 0.000001f ? clamp((combinedF90 - metalWeight) / dielectricWeight, 0.0f, 1.0f) : 0.0f;
+}
+
 public
 float3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, float3 albedo, float specular, float dist, float3 normal,
                                 float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90);
@@ -327,8 +343,11 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
   EeEnvironmentalLighting result;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(
+      normalDotView, EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90), roughness);
   const float3 R = reflect(-viewDir, normal);
-  result.diffuse_weight = (float3(1.0f) - F) * (1.0f - metallic);
+  result.diffuse_weight = (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   const bool reflectionProbeCapture = EE_BASIC_CONSTANTS.instance_index == 2;
 
   const float3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f
@@ -478,12 +497,14 @@ float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 no
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001f) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }
@@ -502,12 +523,14 @@ float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, 
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }
@@ -531,12 +554,14 @@ float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, f
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001f) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }

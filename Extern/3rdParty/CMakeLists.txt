@@ -46,6 +46,7 @@ add_subdirectory(zlib EXCLUDE_FROM_ALL)
 
 add_subdirectory(assimp EXCLUDE_FROM_ALL)
 add_subdirectory(base64 EXCLUDE_FROM_ALL)
+add_subdirectory(bc7enc EXCLUDE_FROM_ALL)
 add_subdirectory(csvpp EXCLUDE_FROM_ALL)
 
 add_subdirectory(glfw EXCLUDE_FROM_ALL)

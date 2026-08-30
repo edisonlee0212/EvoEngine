@@ -639,12 +639,6 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 #if MAT_EXT_DISPERSION
   out << YAML::Key << "dispersion" << YAML::Value << material.dispersion;
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  out << YAML::Key << "pbr_model" << YAML::Value << material.pbr_model;
-  out << YAML::Key << "pbr_diffuse_factor" << YAML::Value << material.pbr_diffuse_factor;
-  out << YAML::Key << "pbr_specular_factor" << YAML::Value << material.pbr_specular_factor;
-  out << YAML::Key << "pbr_glossiness_factor" << YAML::Value << material.pbr_glossiness_factor;
-#endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   out << YAML::Key << "diffuse_transmission_color" << YAML::Value << material.diffuse_transmission_color;
   out << YAML::Key << "diffuse_transmission_factor" << YAML::Value << material.diffuse_transmission_factor;
@@ -686,10 +680,6 @@ void SaveGltfShadeMaterial(const GltfShadeMaterial& material, YAML::Emitter& out
 #if MAT_EXT_SHEEN
   out << YAML::Key << "sheen_color_texture" << YAML::Value << material.sheen_color_texture;
   out << YAML::Key << "sheen_roughness_texture" << YAML::Value << material.sheen_roughness_texture;
-#endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  out << YAML::Key << "pbr_diffuse_texture" << YAML::Value << material.pbr_diffuse_texture;
-  out << YAML::Key << "pbr_specular_glossiness_texture" << YAML::Value << material.pbr_specular_glossiness_texture;
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   out << YAML::Key << "diffuse_transmission_texture" << YAML::Value << material.diffuse_transmission_texture;
@@ -786,16 +776,10 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
   if (in["dispersion"])
     material.dispersion = in["dispersion"].as<float>();
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  if (in["pbr_model"])
-    material.pbr_model = in["pbr_model"].as<int32_t>();
-  if (in["pbr_diffuse_factor"])
-    material.pbr_diffuse_factor = in["pbr_diffuse_factor"].as<glm::vec4>();
-  if (in["pbr_specular_factor"])
-    material.pbr_specular_factor = in["pbr_specular_factor"].as<glm::vec3>();
-  if (in["pbr_glossiness_factor"])
-    material.pbr_glossiness_factor = in["pbr_glossiness_factor"].as<float>();
-#endif
+  if (in["pbr_model"] && in["pbr_model"].as<int32_t>() == 1) {
+    throw std::runtime_error(
+        "Serialized specular-glossiness materials are no longer supported; reimport the material from its source.");
+  }
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   if (in["diffuse_transmission_color"])
     material.diffuse_transmission_color = in["diffuse_transmission_color"].as<glm::vec3>();
@@ -860,12 +844,6 @@ void LoadGltfShadeMaterial(const YAML::Node& in, GltfShadeMaterial& material) {
   if (in["sheen_roughness_texture"])
     material.sheen_roughness_texture = in["sheen_roughness_texture"].as<uint16_t>();
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  if (in["pbr_diffuse_texture"])
-    material.pbr_diffuse_texture = in["pbr_diffuse_texture"].as<uint16_t>();
-  if (in["pbr_specular_glossiness_texture"])
-    material.pbr_specular_glossiness_texture = in["pbr_specular_glossiness_texture"].as<uint16_t>();
-#endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   if (in["diffuse_transmission_texture"])
     material.diffuse_transmission_texture = in["diffuse_transmission_texture"].as<uint16_t>();
@@ -928,7 +906,7 @@ void LoadGltfTextureInfos(const YAML::Node& in, GltfMaterialData& data, std::vec
 
 void SerializeMaterial(YAML::Emitter& out, const Material& material) {
   out << YAML::Key << "gltf_material" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "schema_version" << YAML::Value << 2;
+  out << YAML::Key << "schema_version" << YAML::Value << 3;
   SaveGltfShadeMaterial(material.material_data.shade_material, out);
   SaveGltfTextureInfos(material, out);
   out << YAML::EndMap;

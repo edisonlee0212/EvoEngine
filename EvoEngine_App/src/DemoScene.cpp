@@ -551,18 +551,17 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
   particles->RecalculateBoundingBox();
   scene->SetParent(instanced_entity, root);
 
-  const auto spec_gloss_mesh =
+  const auto converted_spec_gloss_mesh =
       CreateRenderingRegressionMaterialQuad({glm::vec4(1.0f, 0.45f, 0.45f, 1.0f), glm::vec4(0.45f, 1.0f, 0.45f, 1.0f),
                                              glm::vec4(0.45f, 0.55f, 1.0f, 1.0f), glm::vec4(1.0f, 0.85f, 0.45f, 1.0f)});
-  const auto spec_gloss_material = AssetManager::CreateTemporaryAsset<Material>();
-  auto& spec_gloss = spec_gloss_material->material_data.shade_material;
-  spec_gloss.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
-  spec_gloss.pbr_diffuse_factor = glm::vec4(0.9f, 0.75f, 0.55f, 1.0f);
-  spec_gloss.pbr_specular_factor = glm::vec3(0.78f, 0.16f, 0.06f);
-  spec_gloss.pbr_glossiness_factor = 0.72f;
-  spec_gloss_material->MarkDirty();
+  const auto converted_spec_gloss_material = AssetManager::CreateTemporaryAsset<Material>();
+  auto& converted_spec_gloss = converted_spec_gloss_material->material_data.shade_material;
+  converted_spec_gloss.pbr_base_color_factor = glm::vec4(0.896099f, 0.398522f, 0.249460f, 1.0f);
+  converted_spec_gloss.pbr_metallic_factor = 0.707854f;
+  converted_spec_gloss.pbr_roughness_factor = 0.28f;
+  converted_spec_gloss_material->MarkDirty();
   CreateRenderingRegressionMaterialQuadEntity(
-      scene, root, "M3a Specular Glossiness F0 Probe", spec_gloss_mesh, spec_gloss_material,
+      scene, root, "M3a Converted Specular Glossiness Probe", converted_spec_gloss_mesh, converted_spec_gloss_material,
       glm::vec3(-0.55f, 0.85f, -1.35f), glm::radians(glm::vec3(-5.0f, -18.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
 
   const auto opaque_mesh =

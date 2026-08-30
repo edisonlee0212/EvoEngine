@@ -305,47 +305,25 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, GltfTexC
   surface.multiscatter_color_factor = float3(0.0);
   surface.scatter_coefficient = float3(0.0);
   surface.scatter_anisotropy = 0.0;
-  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    float4 diffuse = material.pbr_diffuse_factor * vertex_color;
-    float3 specular = material.pbr_specular_factor;
-    float glossiness = material.pbr_glossiness_factor;
-    diffuse *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords,
-                                           float4(1.0));
-    float4 specular_glossiness = EE_GLTF_SAMPLE_TEXTURE_SLOT(
-        material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS, tex_coords, float4(1.0));
-    specular *= specular_glossiness.rgb;
-    glossiness *= specular_glossiness.a;
-    surface.specular_f0 = clamp(specular, float3(0.0), float3(1.0));
-    surface.base_color.rgb =
-        diffuse.rgb * (1.0 - max(surface.specular_f0.r, max(surface.specular_f0.g, surface.specular_f0.b)));
-    surface.base_color.a = diffuse.a;
-    surface.metallic = 0.0;
-    surface.roughness = max(1.0 - glossiness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
-  } else {
-    surface.base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_base_color_texture,
-                                                      EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, float4(1.0));
-    float4 metallic_roughness = EE_GLTF_SAMPLE_TEXTURE_SLOT(
-        material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS, tex_coords, float4(1.0));
-    surface.roughness *= metallic_roughness.g;
-    surface.metallic *= metallic_roughness.b;
-    surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
-    surface.metallic = clamp(surface.metallic, 0.0, 1.0);
-    float dielectric_f0 = 0.04;
-    float dielectric_specular_f90 = 1.0;
-    const float material_ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
-    dielectric_f0 = pow((material_ior - 1.0) / max(material_ior + 1.0, 0.000001), 2.0);
-    float3 dielectric_specular_f0 = float3(dielectric_f0);
-    float specular_weight = material.specular_factor;
-    specular_weight *= EE_GLTF_SAMPLE_TEXTURE(material.specular_texture, tex_coords, float4(1.0)).a;
-    float3 specular_color = material.specular_color_factor;
-    specular_color *= EE_GLTF_SAMPLE_TEXTURE(material.specular_color_texture, tex_coords, float4(1.0)).rgb;
-    dielectric_specular_f0 =
-        clamp(dielectric_specular_f0 * max(specular_color, float3(0.0)), float3(0.0), float3(1.0)) *
-        clamp(specular_weight, 0.0, 1.0);
-    dielectric_specular_f90 = clamp(specular_weight, 0.0, 1.0);
-    surface.specular_f0 = lerp(dielectric_specular_f0, max(surface.base_color.rgb, float3(0.0)), surface.metallic);
-    surface.specular_f90 = lerp(dielectric_specular_f90, 1.0, surface.metallic);
-  }
+  surface.base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_base_color_texture,
+                                                    EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, float4(1.0));
+  float4 metallic_roughness = EE_GLTF_SAMPLE_TEXTURE_SLOT(
+      material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS, tex_coords, float4(1.0));
+  surface.roughness *= metallic_roughness.g;
+  surface.metallic *= metallic_roughness.b;
+  surface.roughness = max(surface.roughness, EE_GLTF_MICROFACET_MIN_ROUGHNESS);
+  surface.metallic = clamp(surface.metallic, 0.0, 1.0);
+  const float material_ior = material.ior == 0.0 ? 0.0 : max(material.ior, 1.0);
+  const float dielectric_f0 = pow((material_ior - 1.0) / max(material_ior + 1.0, 0.000001), 2.0);
+  float specular_weight = material.specular_factor;
+  specular_weight *= EE_GLTF_SAMPLE_TEXTURE(material.specular_texture, tex_coords, float4(1.0)).a;
+  float3 specular_color = material.specular_color_factor;
+  specular_color *= EE_GLTF_SAMPLE_TEXTURE(material.specular_color_texture, tex_coords, float4(1.0)).rgb;
+  const float3 dielectric_specular_f0 =
+      clamp(float3(dielectric_f0) * max(specular_color, float3(0.0)), float3(0.0), float3(1.0)) *
+      clamp(specular_weight, 0.0, 1.0);
+  surface.specular_f0 = lerp(dielectric_specular_f0, max(surface.base_color.rgb, float3(0.0)), surface.metallic);
+  surface.specular_f90 = lerp(clamp(specular_weight, 0.0, 1.0), 1.0, surface.metallic);
   if (EE_GLTF_HAS_TEXTURE(material.occlusion_texture)) {
     float occlusion = EE_GLTF_SAMPLE_TEXTURE_SLOT(material.occlusion_texture, EE_GLTF_RASTER_TEXTURE_OCCLUSION,
                                                   tex_coords, float4(1.0))
@@ -450,10 +428,6 @@ GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 t
 }
 public
 float3 EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint material_index, GltfRasterMaterial surface, float3 base_color) {
-  GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    return surface.specular_f0;
-  }
   const float metallic = clamp(surface.metallic, 0.0, 1.0);
   const float3 rebased_base_color = max(base_color, float3(0.0));
   if (metallic >= 0.999999) {
@@ -613,18 +587,10 @@ float3 EE_GLTF_RASTER_FRESNEL(const float3 f0, const float3 f90, const float cos
 public
 float EE_GLTF_RASTER_BASE_COLOR_ALPHA(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  float base_color_alpha;
-  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    base_color_alpha = material.pbr_diffuse_factor.a;
-    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
-                                                    tex_coords, float4(1.0))
-                            .a;
-  } else {
-    base_color_alpha = material.pbr_base_color_factor.a;
-    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
-                                                    tex_coords, float4(1.0))
-                            .a;
-  }
+  float base_color_alpha = material.pbr_base_color_factor.a;
+  base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT(material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
+                                                  tex_coords, float4(1.0))
+                          .a;
   base_color_alpha *= vertex_alpha;
   return base_color_alpha;
 }
@@ -637,18 +603,10 @@ bool EE_GLTF_RASTER_ALPHA_MASK_PASSES(uint material_index, GltfTexCoords tex_coo
 public
 float EE_GLTF_RASTER_BASE_COLOR_ALPHA_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
-  float base_color_alpha;
-  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    base_color_alpha = material.pbr_diffuse_factor.a;
-    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_diffuse_texture,
-                                                         EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, float4(1.0))
-                            .a;
-  } else {
-    base_color_alpha = material.pbr_base_color_factor.a;
-    base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_base_color_texture,
-                                                         EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, float4(1.0))
-                            .a;
-  }
+  float base_color_alpha = material.pbr_base_color_factor.a;
+  base_color_alpha *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_base_color_texture,
+                                                       EE_GLTF_RASTER_TEXTURE_BASE_COLOR, tex_coords, float4(1.0))
+                          .a;
   base_color_alpha *= vertex_alpha;
   return base_color_alpha;
 }
@@ -687,16 +645,9 @@ float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, GltfTexCoord
                                                float min_transmission) {
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];
   float3 base_color = material.pbr_base_color_factor.rgb * vertex_color;
-  if (material.pbr_model == EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    base_color = material.pbr_diffuse_factor.rgb * vertex_color;
-    base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
-                                                   tex_coords, float4(1.0))
-                      .rgb;
-  } else {
-    base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
-                                                   tex_coords, float4(1.0))
-                      .rgb;
-  }
+  base_color *= EE_GLTF_SAMPLE_TEXTURE_SLOT_LOD0(material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR,
+                                                 tex_coords, float4(1.0))
+                    .rgb;
   float specular_transmission = 0.0;
   specular_transmission = material.transmission_factor;
   specular_transmission *= EE_GLTF_SAMPLE_TEXTURE_LOD0(material.transmission_texture, tex_coords, float4(1.0)).r;

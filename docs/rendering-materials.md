@@ -7,8 +7,18 @@ ray query. Each technique chooses the passes and lobes it can evaluate without c
 
 ## Material Workflows
 
-The core physically based workflows are metallic-roughness and `KHR_materials_pbrSpecularGlossiness`. Materials also
-carry alpha mode, sidedness, emissive state, normal mapping, occlusion, and the supported glTF extension parameters.
+The renderer-owned physically based workflow is metallic-roughness. Materials also carry alpha mode, sidedness,
+emissive state, normal mapping, occlusion, and the supported glTF extension parameters.
+
+`KHR_materials_pbrSpecularGlossiness` is accepted only as a glTF import format. Its factors and textures are converted
+immediately to core metallic-roughness using Khronos' reference workflow conversion. The conversion is lossy because
+core metallic-roughness cannot represent arbitrary dielectric specular color or strength. Textures with incompatible UV
+mappings are rebased into the diffuse texture's mapping with an import warning; unreadable source pixels fall back to
+the corresponding factors. PNG, JPEG, TGA, embedded images, data URIs, and BC7 DDS alternatives are decoded directly
+for conversion without uploading specular-glossiness-only sources. Converted base-color and metallic-roughness mip
+chains are stored as disposable BC7 DDS pairs under `Cache/GltfMaterialConversion`; deleting this directory only makes
+the next import regenerate them. No specular-glossiness state is stored, edited, serialized, or evaluated at runtime.
+`KHR_materials_specular` remains independently supported and is not used by this workflow conversion.
 
 Opaque/default-lit raster materials are evaluated during the geometry pass and stored in the GBuffer. Alpha masking is a
 deterministic geometry-pass discard. Blended, transmissive, and other forward-only materials use the transparent or
@@ -28,7 +38,7 @@ ray paths rather than being approximated as ordinary deferred materials.
 ## Textures And Vertex Inputs
 
 Material textures can select `TEXCOORD_0` through `TEXCOORD_3`. `KHR_texture_transform` is applied after choosing the
-authored coordinate set. Vertex `COLOR_0` multiplies base color or diffuse color according to the selected PBR workflow.
+authored coordinate set. Vertex `COLOR_0` multiplies the metallic-roughness base color.
 
 Color textures use sRGB decoding while alpha and data channels remain linear. Imported wrap, magnification,
 minification, and mip-filter settings are preserved. Authored DDS/BC7 mip chains are preferred when available; common

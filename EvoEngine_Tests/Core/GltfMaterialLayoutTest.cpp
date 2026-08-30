@@ -3,6 +3,8 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -48,7 +50,7 @@ TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
 
   EXPECT_TRUE(std::is_standard_layout_v<GltfShadeMaterial>);
   EXPECT_GE(alignof(GltfShadeMaterial), 8);
-  EXPECT_EQ(sizeof(GltfShadeMaterial), 288);
+  EXPECT_EQ(sizeof(GltfShadeMaterial), 248);
   EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_base_color_factor), 0);
   EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_roughness_factor), 32);
   EXPECT_EQ(offsetof(GltfShadeMaterial, alpha_mode), 40);
@@ -58,15 +60,15 @@ TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {
   EXPECT_EQ(offsetof(GltfShadeMaterial, anisotropy_rotation), 128);
   EXPECT_EQ(offsetof(GltfShadeMaterial, anisotropy_strength), 148);
   EXPECT_EQ(offsetof(GltfShadeMaterial, dispersion), 156);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, retroreflection_factor), 212);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_base_color_texture), 232);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, iridescence_texture), 256);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, iridescence_thickness_texture), 258);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, anisotropy_texture), 260);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, retroreflection_texture), 274);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, nested_priority), 276);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, clearcoat_normal_texture_scale), 280);
-  EXPECT_EQ(offsetof(GltfShadeMaterial, padding1), 284);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, retroreflection_factor), 176);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, pbr_base_color_texture), 196);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, iridescence_texture), 220);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, iridescence_thickness_texture), 222);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, anisotropy_texture), 224);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, retroreflection_texture), 234);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, nested_priority), 236);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, clearcoat_normal_texture_scale), 240);
+  EXPECT_EQ(offsetof(GltfShadeMaterial, padding1), 244);
 }
 
 TEST(GltfMaterialLayout, NativeShaderModuleUsesTheFixedFullExtensionAbi) {
@@ -88,8 +90,44 @@ TEST(GltfMaterialLayout, NativeShaderModuleUsesTheFixedFullExtensionAbi) {
   EXPECT_NE(shader_source.find("float clearcoat_normal_texture_scale"), std::string::npos);
   EXPECT_NE(shader_source.find("uint16_t retroreflection_texture"), std::string::npos);
   EXPECT_NE(shader_source.find("uint nested_priority"), std::string::npos);
+  EXPECT_EQ(shader_source.find("SPECULAR_GLOSSINESS"), std::string::npos);
+  EXPECT_EQ(shader_source.find("pbr_model"), std::string::npos);
   EXPECT_NE(shader_source.find("[[vk::binding(11, 0)]]"), std::string::npos);
   EXPECT_NE(shader_source.find("StructuredBuffer<GltfShadeMaterial, ScalarDataLayout>"), std::string::npos);
   EXPECT_NE(shader_source.find("[[vk::binding(12, 0)]]"), std::string::npos);
   EXPECT_NE(shader_source.find("StructuredBuffer<GltfTextureInfo, ScalarDataLayout>"), std::string::npos);
+}
+
+TEST(GltfMaterialLayout, FirstPartyRuntimeContainsNoSpecularGlossinessRepresentation) {
+  const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR);
+  const std::array search_roots = {root / "EvoEngine_SDK" / "include", root / "EvoEngine_SDK" / "src",
+                                   root / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders",
+                                   root / "EvoEngine_App" / "src"};
+  const std::array allowed_import_files = {std::string("GltfMaterialCache.cpp"), std::string("Prefab.cpp"),
+                                           std::string("Application.cpp")};
+  const std::array forbidden = {std::string("GltfPbrModel"),
+                                std::string("MAT_EXT_SPECULAR_GLOSSINESS"),
+                                std::string("EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS"),
+                                std::string("EE_GLTF_SCENE_FEATURE_SPECULAR_GLOSSINESS"),
+                                std::string("pbr_diffuse_factor"),
+                                std::string("pbr_specular_factor"),
+                                std::string("pbr_diffuse_texture"),
+                                std::string("pbr_specular_glossiness_texture")};
+
+  for (const auto& search_root : search_roots) {
+    for (const auto& entry : std::filesystem::recursive_directory_iterator(search_root)) {
+      if (!entry.is_regular_file() || std::find(allowed_import_files.begin(), allowed_import_files.end(),
+                                                entry.path().filename().string()) != allowed_import_files.end()) {
+        continue;
+      }
+      const auto extension = entry.path().extension().string();
+      if (extension != ".cpp" && extension != ".hpp" && extension != ".slang" && extension != ".slangh") {
+        continue;
+      }
+      const auto source = ReadText(entry.path());
+      for (const auto& symbol : forbidden) {
+        EXPECT_EQ(source.find(symbol), std::string::npos) << entry.path().string() << ": " << symbol;
+      }
+    }
+  }
 }

@@ -4004,16 +4004,8 @@ void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
       descriptor_set = std::make_shared<DescriptorSet>(raster_material_layout);
     }
     const auto& material = shade_materials[material_index];
-#if MAT_EXT_SPECULAR_GLOSSINESS
-    const bool specular_glossiness = material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
-    const auto base_color_texture =
-        specular_glossiness ? material.pbr_diffuse_texture : material.pbr_base_color_texture;
-    const auto metallic_roughness_texture =
-        specular_glossiness ? material.pbr_specular_glossiness_texture : material.pbr_metallic_roughness_texture;
-#else
     const auto base_color_texture = material.pbr_base_color_texture;
     const auto metallic_roughness_texture = material.pbr_metallic_roughness_texture;
-#endif
     descriptor_set->UpdateImageDescriptorBinding(0, resolve_image_info(base_color_texture, 0));
     descriptor_set->UpdateImageDescriptorBinding(1, resolve_image_info(metallic_roughness_texture, 1));
     descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));

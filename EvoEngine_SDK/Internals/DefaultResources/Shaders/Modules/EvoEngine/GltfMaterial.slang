@@ -1,9 +1,5 @@
 // Struct layout mirrors Rendering/PBR/GltfMaterial.hpp with every material extension enabled.
 public
-static const int EE_GLTF_PBR_MODEL_METALLIC_ROUGHNESS = 0;
-public
-static const int EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS = 1;
-public
 static const int EE_GLTF_ALPHA_MODE_OPAQUE = 0;
 public
 static const int EE_GLTF_ALPHA_MODE_MASK = 1;
@@ -40,11 +36,9 @@ static const uint EE_GLTF_FEATURE_SPECULAR = 1u << 11u;
 public
 static const uint EE_GLTF_FEATURE_IOR = 1u << 12u;
 public
-static const uint EE_GLTF_FEATURE_SPECULAR_GLOSSINESS = 1u << 13u;
+static const uint EE_GLTF_FEATURE_TEXTURE_TRANSFORM = 1u << 13u;
 public
-static const uint EE_GLTF_FEATURE_TEXTURE_TRANSFORM = 1u << 14u;
-public
-static const uint EE_GLTF_ALL_FEATURES = (1u << 15u) - 1u;
+static const uint EE_GLTF_ALL_FEATURES = (1u << 14u) - 1u;
 
 public
 struct GltfTextureInfo {
@@ -124,14 +118,6 @@ struct GltfShadeMaterial {
  public
   float dispersion;
  public
-  int pbr_model;
- public
-  float4 pbr_diffuse_factor;
- public
-  float3 pbr_specular_factor;
- public
-  float pbr_glossiness_factor;
- public
   float3 diffuse_transmission_color;
  public
   float diffuse_transmission_factor;
@@ -175,10 +161,6 @@ struct GltfShadeMaterial {
   uint16_t sheen_color_texture;
  public
   uint16_t sheen_roughness_texture;
- public
-  uint16_t pbr_diffuse_texture;
- public
-  uint16_t pbr_specular_glossiness_texture;
  public
   uint16_t diffuse_transmission_texture;
  public

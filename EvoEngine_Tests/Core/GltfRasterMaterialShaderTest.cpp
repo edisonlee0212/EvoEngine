@@ -155,27 +155,21 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE"), std::string::npos);
   EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos);
 
-  EXPECT_NE(source.find("EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS"), std::string::npos);
-  EXPECT_NE(source.find("pbr_specular_glossiness_texture"), std::string::npos);
-  EXPECT_EQ(source.find("EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS"), std::string::npos);
-  EXPECT_NE(source.find("surface.specular_f0 = clamp(specular"), std::string::npos);
-  EXPECT_TRUE(ContainsIgnoringWhitespace(source,
-                                         "surface.base_color.rgb = diffuse.rgb * (1.0 - max(surface.specular_f0.r, "
-                                         "max(surface.specular_f0.g, surface.specular_f0.b)))"));
-  EXPECT_NE(source.find("surface.roughness = max(1.0 - glossiness"), std::string::npos);
+  EXPECT_EQ(source.find("SPECULAR_GLOSSINESS"), std::string::npos);
+  EXPECT_EQ(source.find("pbr_specular_glossiness_texture"), std::string::npos);
   EXPECT_NE(source.find("pbr_metallic_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("dielectric_f0 = pow((material_ior - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("specular_weight = material.specular_factor"), std::string::npos);
   EXPECT_NE(source.find("material.ior == 0.0 ? 0.0"), std::string::npos);
-  EXPECT_NE(source.find("dielectric_specular_f0 * max(specular_color"), std::string::npos);
+  EXPECT_NE(source.find("float3(dielectric_f0) * max(specular_color"), std::string::npos);
   EXPECT_NE(source.find("surface.specular_f0 = lerp(dielectric_specular_f0"), std::string::npos);
-  EXPECT_NE(source.find("surface.specular_f90 = lerp(dielectric_specular_f90, 1.0, surface.metallic)"),
+  EXPECT_NE(source.find("surface.specular_f90 = lerp(clamp(specular_weight, 0.0, 1.0), 1.0, surface.metallic)"),
             std::string::npos);
   EXPECT_NE(source.find("return f0 + (f90 - f0) * pow"), std::string::npos);
   EXPECT_NE(source.find("lerp(dielectric_specular_f0, max(surface.base_color.rgb"), std::string::npos);
   const auto rebase_specular_f0 =
       ExtractSourceRange(source, "float3 EE_GLTF_RASTER_REBASE_SPECULAR_F0", "float3 EE_GLTF_SAFE_NORMALIZE");
-  EXPECT_NE(rebase_specular_f0.find("return surface.specular_f0"), std::string::npos);
+  EXPECT_EQ(rebase_specular_f0.find("pbr_model"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("const float metallic = clamp(surface.metallic"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("surface.specular_f0 - original_base_color * metallic"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("return lerp(dielectric_specular_f0, rebased_base_color, metallic)"),
@@ -192,7 +186,7 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("surface.multiscatter_color_factor = max(material.multiscatter_color_factor"),
             std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO"), std::string::npos);
-  EXPECT_NE(source.find("material.pbr_diffuse_factor * vertex_color"), std::string::npos);
+  EXPECT_EQ(source.find("material.pbr_diffuse_factor * vertex_color"), std::string::npos);
   EXPECT_NE(source.find("material.pbr_base_color_factor * vertex_color"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_SRGB_TO_LINEAR"), std::string::npos);
   EXPECT_NE(source.find("encoded.x <= 0.04045"), std::string::npos);
@@ -310,7 +304,7 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
   EXPECT_NE(render_instance.find("TextureStorage::GetVersion()"), std::string::npos);
   EXPECT_NE(render_instance.find("raster_material_descriptor_sets.resize(shade_materials.size())"), std::string::npos);
   EXPECT_NE(render_instance.find("std::make_shared<DescriptorSet>(raster_material_layout)"), std::string::npos);
-  EXPECT_NE(render_instance.find("GltfPbrModel::SpecularGlossiness"), std::string::npos);
+  EXPECT_EQ(render_instance.find("GltfPbrModel::SpecularGlossiness"), std::string::npos);
   for (uint32_t binding = 0; binding < 8; binding++) {
     EXPECT_NE(render_instance.find("UpdateImageDescriptorBinding(" + std::to_string(binding)), std::string::npos);
   }
@@ -599,6 +593,13 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
             std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ROUGH_SPECULAR_VISIBILITY"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.unoccluded_specular"), std::string::npos);
+  EXPECT_NE(environmental_components.find("prefilteredColor * (F * brdf.x + float3(F90 * brdf.y))"), std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0)"), std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_RECOVER_DIELECTRIC_F90(metallic, F90)"), std::string::npos);
+  EXPECT_NE(environmental_components.find("(float3(1.0f) - dielectricF) *"), std::string::npos);
+  EXPECT_EQ(environmental_components.find("(float3(1.0f) - F) * (1.0f - metallic)"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(lighting_shader, "float3 kS = F"), 0u);
+  EXPECT_EQ(CountOccurrences(lighting_shader, "(float3(1.0f) - dielectricF) *"), 4u);
   EXPECT_NE(environmental_components.find("result.specular = result.unoccluded_specular * result.specular_visibility"),
             std::string::npos);
   EXPECT_EQ(environmental_components.find("result.diffuse_lighting"), std::string::npos);
@@ -824,10 +825,10 @@ TEST(GltfRasterMaterial, FixedRasterBackendUsesIndividualTextureBindings) {
   EXPECT_EQ(source.find("import EvoEngine.Textures"), std::string::npos);
 
   EXPECT_NE(source.find("material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
-  EXPECT_NE(source.find("material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
+  EXPECT_EQ(source.find("material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
   EXPECT_NE(source.find("material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
             std::string::npos);
-  EXPECT_NE(source.find("material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
+  EXPECT_EQ(source.find("material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
             std::string::npos);
   EXPECT_NE(source.find("material.normal_texture, EE_GLTF_RASTER_TEXTURE_NORMAL"), std::string::npos);
   EXPECT_NE(source.find("material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE"), std::string::npos);
@@ -898,6 +899,8 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
     EXPECT_NE(source.find("float4 pbr_flags = inPbrFlags.SampleLevel"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float roughness = clamp(normal_roughness.a"), std::string::npos) << path.string();
     EXPECT_NE(source.find("float metallic = clamp(pbr_flags.x"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y))"), std::string::npos)
+        << path.string();
     EXPECT_NE(source.find("original + (ssr_specular - environment.specular) * trace_confidence"), std::string::npos)
         << path.string();
     EXPECT_EQ(source.find("full_color_weight"), std::string::npos) << path.string();

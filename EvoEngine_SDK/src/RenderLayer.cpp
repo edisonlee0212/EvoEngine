@@ -1052,11 +1052,6 @@ uint64_t MakeDdgiMaterialSignature(const GltfShadeMaterial& material) {
 #if MAT_EXT_UNLIT
   signature = MixDdgiSignature(signature, static_cast<uint32_t>(material.unlit));
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  signature = MixDdgiSignature(signature, static_cast<uint32_t>(material.pbr_model));
-  signature = MixDdgiVec4(signature, material.pbr_diffuse_factor);
-  signature = MixDdgiVec3(signature, material.pbr_specular_factor);
-#endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   signature = MixDdgiFloat(signature, material.diffuse_transmission_factor);
 #endif
@@ -1073,10 +1068,6 @@ std::vector<uint16_t> GetDdgiMaterialTextureSlots(const GltfShadeMaterial& mater
 #if MAT_EXT_SPECULAR
   slots.push_back(material.specular_texture);
   slots.push_back(material.specular_color_texture);
-#endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  slots.push_back(material.pbr_diffuse_texture);
-  slots.push_back(material.pbr_specular_glossiness_texture);
 #endif
   return slots;
 }

@@ -1,6 +1,7 @@
 #include "GltfMaterialCache.hpp"
 
 #include "Console.hpp"
+#include "GltfSpecularGlossinessConversion.hpp"
 #include "Material.hpp"
 
 #include <algorithm>
@@ -223,10 +224,6 @@ void RemapTextureSlots(GltfShadeMaterial& material, const std::vector<uint16_t>&
 #if MAT_EXT_SHEEN
   RemapSlot(material.sheen_color_texture, remap);
   RemapSlot(material.sheen_roughness_texture, remap);
-#endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  RemapSlot(material.pbr_diffuse_texture, remap);
-  RemapSlot(material.pbr_specular_glossiness_texture, remap);
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   RemapSlot(material.diffuse_transmission_texture, remap);
@@ -534,19 +531,23 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     shade_material.scatter_anisotropy = ClampFloat(
         ReadFloat(ChildNode(volume_scatter, "scatterAnisotropy"), shade_material.scatter_anisotropy), -0.999f, 0.999f);
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
     const auto specular_glossiness = CompatibleMaterialExtension(extensions, "KHR_materials_pbrSpecularGlossiness",
                                                                  primary_model, material_index, report_error);
     if (specular_glossiness && specular_glossiness.IsMap()) {
-      shade_material.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
-      shade_material.pbr_diffuse_factor =
-          ReadVec4(ChildNode(specular_glossiness, "diffuseFactor"), shade_material.pbr_diffuse_factor);
-      shade_material.pbr_specular_factor =
-          ReadVec3(ChildNode(specular_glossiness, "specularFactor"), shade_material.pbr_specular_factor);
-      shade_material.pbr_glossiness_factor =
-          ReadFloat(ChildNode(specular_glossiness, "glossinessFactor"), shade_material.pbr_glossiness_factor);
+      const auto converted = gltf_import::ConvertSpecularGlossiness(
+          ReadVec4(ChildNode(specular_glossiness, "diffuseFactor"), glm::vec4(1.0f)),
+          ReadVec3(ChildNode(specular_glossiness, "specularFactor"), glm::vec3(1.0f)),
+          ReadFloat(ChildNode(specular_glossiness, "glossinessFactor"), 1.0f));
+      shade_material.pbr_base_color_factor = converted.base_color;
+      shade_material.pbr_metallic_factor = converted.metallic;
+      shade_material.pbr_roughness_factor = converted.roughness;
+      if (ChildNode(specular_glossiness, "diffuseTexture") ||
+          ChildNode(specular_glossiness, "specularGlossinessTexture")) {
+        ReportMaterialError(report_error, "glTF material " + std::to_string(material_index) +
+                                              " converts KHR_materials_pbrSpecularGlossiness factors only because "
+                                              "this material-data builder has no source pixel access.");
+      }
     }
-#endif
 
     const auto read_texture_info = [&](const YAML::Node& node) {
       return ReadTextureNodeInfo(node, material_index, report_error);
@@ -557,12 +558,14 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     AssignTextureNode(material_data, &GltfShadeMaterial::normal_texture,
                       read_texture_info(ChildNode(source_material, "normalTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
-    AssignTextureNode(material_data, &GltfShadeMaterial::pbr_base_color_texture,
-                      read_texture_info(ChildNode(pbr_metallic_roughness, "baseColorTexture")), resolve_texture_index,
-                      texture_source_needs_y_flip, texture_source_decodes_srgb, true);
-    AssignTextureNode(material_data, &GltfShadeMaterial::pbr_metallic_roughness_texture,
-                      read_texture_info(ChildNode(pbr_metallic_roughness, "metallicRoughnessTexture")),
-                      resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, false);
+    if (!specular_glossiness || !specular_glossiness.IsMap()) {
+      AssignTextureNode(material_data, &GltfShadeMaterial::pbr_base_color_texture,
+                        read_texture_info(ChildNode(pbr_metallic_roughness, "baseColorTexture")), resolve_texture_index,
+                        texture_source_needs_y_flip, texture_source_decodes_srgb, true);
+      AssignTextureNode(material_data, &GltfShadeMaterial::pbr_metallic_roughness_texture,
+                        read_texture_info(ChildNode(pbr_metallic_roughness, "metallicRoughnessTexture")),
+                        resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, false);
+    }
     AssignTextureNode(material_data, &GltfShadeMaterial::occlusion_texture,
                       read_texture_info(ChildNode(source_material, "occlusionTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
@@ -615,14 +618,6 @@ std::vector<GltfMaterialData> evo_engine::BuildGltfMaterialDataFromGltfNode(
     AssignTextureNode(material_data, &GltfShadeMaterial::sheen_roughness_texture,
                       read_texture_info(ChildNode(sheen, "sheenRoughnessTexture")), resolve_texture_index,
                       texture_source_needs_y_flip, texture_source_decodes_srgb, false);
-#endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-    AssignTextureNode(material_data, &GltfShadeMaterial::pbr_diffuse_texture,
-                      read_texture_info(ChildNode(specular_glossiness, "diffuseTexture")), resolve_texture_index,
-                      texture_source_needs_y_flip, texture_source_decodes_srgb, true);
-    AssignTextureNode(material_data, &GltfShadeMaterial::pbr_specular_glossiness_texture,
-                      read_texture_info(ChildNode(specular_glossiness, "specularGlossinessTexture")),
-                      resolve_texture_index, texture_source_needs_y_flip, texture_source_decodes_srgb, true);
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
     AssignTextureNode(material_data, &GltfShadeMaterial::diffuse_transmission_texture,
