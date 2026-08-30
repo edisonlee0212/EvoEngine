@@ -2,6 +2,7 @@
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
+#include "Platform.hpp"
 #include "TextureStorage.hpp"
 using namespace py_evo_engine;
 namespace py = pybind11;
@@ -75,6 +76,21 @@ bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& rende
   main_camera->camera_settings.bounce = bounces;
   main_camera->camera_settings.auto_spp_enabled = false;
   main_camera->ResetFrameCount();
+  return true;
+}
+
+bool PyEvoEngine::ConfigureRasterPathForCapture(const bool meshlet_enabled, const bool indirect_enabled) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_ERROR("Raster capture requires RenderLayer.")
+    return false;
+  }
+  if (meshlet_enabled && !Platform::MeshShaderEnabled()) {
+    EVOENGINE_ERROR("Raster capture requested meshlets, but the mesh-shader path is unavailable.")
+    return false;
+  }
+  render_layer->enable_meshlet = meshlet_enabled;
+  render_layer->enable_indirect_rendering = indirect_enabled;
   return true;
 }
 
@@ -286,6 +302,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("clear_generated_project_files") = true);
   m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
         py::arg("samples_per_frame"), py::arg("bounces"));
+  m.def("ConfigureRasterPathForCapture", &ConfigureRasterPathForCapture, py::arg("meshlet_enabled"),
+        py::arg("indirect_enabled"));
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
         py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false);
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);

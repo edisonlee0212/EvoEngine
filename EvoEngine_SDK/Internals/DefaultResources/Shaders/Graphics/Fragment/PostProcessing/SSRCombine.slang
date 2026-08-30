@@ -61,7 +61,8 @@ float3 ComposeReflection(float2 tex_coord, float3 original, float4 reflected) {
       base_color_ao.rgb, normal, view_direction, world_position, metallic, roughness, f0, f90, base_color_ao.a,
       screen_visibility);
   float2 brdf = EE_SAMPLE_RASTER_BRDF(float2(normal_dot_view, roughness));
-  float3 ssr_specular = reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y)) * environment.specular_visibility;
+  float3 ssr_specular =
+      reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y)) * environment.specular_visibility;
   float3 result = original + (ssr_specular - environment.specular) * trace_confidence;
   return max(all(isfinite(result)) ? result : original, float3(0.0f));
 }

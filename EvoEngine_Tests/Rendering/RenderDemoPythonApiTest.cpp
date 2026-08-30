@@ -36,20 +36,23 @@ struct RenderCaptureCase {
   int accumulation_frames;
   int samples_per_frame;
   int bounces;
+  bool configure_raster_path = false;
+  bool meshlet_enabled = false;
+  bool indirect_enabled = false;
+  bool baseline_reference = false;
 };
 
-constexpr RenderCaptureCase kRasterizationCapture{
-    "Rasterization",
-    "rendering_demo_rasterization.png",
-    "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
-    "RenderingDemo.CapturesSceneThroughPythonApi.png",
-    2560,
-    1440,
-    1800,
-    0,
-    4,
-    4,
-};
+constexpr std::array<RenderCaptureCase, 4> kRasterPathMatrix{{
+    {"Rasterization", "raster_meshlet_on_indirect_on.png", "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
+     "RenderingDemo.RasterPathMatrix.MeshletOn.IndirectOn.png", 2560, 1440, 1800, 0, 4, 4, true, true, true, true},
+    {"Rasterization", "raster_meshlet_on_indirect_off.png", "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
+     "RenderingDemo.RasterPathMatrix.MeshletOn.IndirectOff.png", 2560, 1440, 1800, 0, 4, 4, true, true, false, false},
+    {"Rasterization", "raster_meshlet_off_indirect_on.png", "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
+     "RenderingDemo.RasterPathMatrix.MeshletOff.IndirectOn.png", 2560, 1440, 1800, 0, 4, 4, true, false, true, false},
+    {"Rasterization", "raster_meshlet_off_indirect_off.png",
+     "RenderingDemo.CapturesSceneThroughPythonApi.2560x1440.png",
+     "RenderingDemo.RasterPathMatrix.MeshletOff.IndirectOff.png", 2560, 1440, 1800, 0, 4, 4, true, false, false, false},
+}};
 constexpr RenderCaptureCase kRayTracingCapture{
     "RayTracing",
     "rendering_demo_ray_tracing.png",
@@ -285,7 +288,8 @@ void AcceptBaselineIfRequested(const std::filesystem::path& output_path, const s
 
 void AssertGoldenImage(const Image& actual, const std::filesystem::path& baseline_path) {
   ASSERT_TRUE(std::filesystem::exists(baseline_path))
-      << "Missing render baseline. Regenerate it with: python .\\test.py --render-only --accept-render-baseline";
+      << "Missing render baseline. Regenerate it with: python .\\Scripts\\test.py --render-only "
+         "--accept-render-baseline --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage";
 
   const Image expected = LoadPng(baseline_path);
   ASSERT_EQ(expected.width, actual.width);
@@ -334,6 +338,10 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
   command += " --render-mode " + std::string(capture.render_mode);
   command += " --samples-per-frame " + std::to_string(capture.samples_per_frame);
   command += " --bounces " + std::to_string(capture.bounces);
+  if (capture.configure_raster_path) {
+    command += std::string(" --meshlet ") + (capture.meshlet_enabled ? "enabled" : "disabled");
+    command += std::string(" --indirect ") + (capture.indirect_enabled ? "enabled" : "disabled");
+  }
   if (capture.accumulation_frames > 0) {
     command += " --accumulation-frames " + std::to_string(capture.accumulation_frames);
   } else {
@@ -350,13 +358,19 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
   const Image output_image = LoadPng(output_path);
   ASSERT_NO_FATAL_FAILURE(AssertImageIsRenderablePng(output_path, output_image, capture.width, capture.height));
   CopyVisualArtifact(output_path, capture.artifact_file_name);
-  AcceptBaselineIfRequested(output_path, baseline_path);
+  if (capture.baseline_reference) {
+    AcceptBaselineIfRequested(output_path, baseline_path);
+  }
   ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path));
 }
 }  // namespace
 
-TEST(RenderingDemo, CapturesSceneThroughPythonApi) {
-  RunRenderingDemoCapture(kRasterizationCapture);
+TEST(RenderingDemo, RasterPathMatrixGoldenImage) {
+  for (const auto& capture : kRasterPathMatrix) {
+    SCOPED_TRACE(std::string("meshlet=") + (capture.meshlet_enabled ? "on" : "off") +
+                 ", indirect=" + (capture.indirect_enabled ? "on" : "off"));
+    ASSERT_NO_FATAL_FAILURE(RunRenderingDemoCapture(capture));
+  }
 }
 
 TEST(RenderingDemo, RayTracingGoldenImage) {

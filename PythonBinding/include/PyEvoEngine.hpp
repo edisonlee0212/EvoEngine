@@ -130,6 +130,13 @@ class PyEvoEngine {
    */
   static bool ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, int samples_per_frame, int bounces);
   /**
+   * @brief Configure the raster submission paths used by a deterministic capture.
+   * @param meshlet_enabled Whether raster geometry uses the mesh-shader path.
+   * @param indirect_enabled Whether raster geometry uses indirect submission.
+   * @return True when the requested path is available and was configured.
+   */
+  static bool ConfigureRasterPathForCapture(bool meshlet_enabled, bool indirect_enabled);
+  /**
    * @brief Render and save the active scene's main camera.
    * @param resolution_x Capture width.
    * @param resolution_y Capture height.

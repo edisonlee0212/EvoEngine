@@ -1,13 +1,25 @@
 {
   "counts": {
-    "files": 176,
-    "imports": 295,
-    "macro_control_files": 12
+    "files": 178,
+    "imports": 301,
+    "macro_control_files": 15
   },
   "macro_adapters": [
     {
       "macro_controls": 27,
       "path": "Compute/DDGIProbeUpdate.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/PostProcessing/BloomCopy.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/PostProcessing/BloomDownsampling.slang"
+    },
+    {
+      "macro_controls": 3,
+      "path": "Compute/PostProcessing/BloomUpsampling.slang"
     },
     {
       "macro_controls": 3,
@@ -142,6 +154,14 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRReflect",
       "path": "Compute/PostProcessing/SSRReflect.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRSpatialResolve",
+      "path": "Compute/PostProcessing/SSRSpatialResolve.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.PostProcessing.SSRTemporalResolve",
+      "path": "Compute/PostProcessing/SSRTemporalResolve.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.PostProcessing.ToneMapping",

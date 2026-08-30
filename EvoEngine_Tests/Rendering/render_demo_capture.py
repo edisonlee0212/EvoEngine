@@ -27,6 +27,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--samples-per-frame", type=int, default=4)
     parser.add_argument("--bounces", type=int, default=4)
+    parser.add_argument("--meshlet", choices=("enabled", "disabled"))
+    parser.add_argument("--indirect", choices=("enabled", "disabled"))
     return parser.parse_args()
 
 
@@ -55,6 +57,8 @@ def main() -> int:
         raise ValueError("Capture frame counts must be non-negative")
     if args.samples_per_frame <= 0 or args.bounces < 0:
         raise ValueError("Capture samples per frame must be positive and bounces must be non-negative")
+    if (args.meshlet is None) != (args.indirect is None):
+        raise ValueError("--meshlet and --indirect must be provided together")
 
     copy_rendering_assets(source_resources_root, test_resources_root)
 
@@ -71,6 +75,14 @@ def main() -> int:
         for _ in range(2):
             if not evoengine.Loop():
                 raise RuntimeError("Rendering demo ended during frame-slot warmup")
+        if args.meshlet is not None:
+            if not evoengine.ConfigureRasterPathForCapture(
+                args.meshlet == "enabled", args.indirect == "enabled"
+            ):
+                raise RuntimeError(
+                    f"Requested raster path is unavailable: meshlet={args.meshlet}, indirect={args.indirect}"
+                )
+            print(f"EVOENGINE_RASTER_PATH_CAPTURE meshlet={args.meshlet} indirect={args.indirect}")
         if not evoengine.ConfigureCurrentSceneCameraForCapture(
             args.render_mode, args.samples_per_frame, args.bounces
         ):
