@@ -29,6 +29,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--bounces", type=int, default=4)
     parser.add_argument("--meshlet", choices=("enabled", "disabled"))
     parser.add_argument("--indirect", choices=("enabled", "disabled"))
+    parser.add_argument("--ray-features", choices=("enabled", "disabled"), default="enabled")
+    parser.add_argument("--texture-lifecycle-stress", action="store_true")
+    parser.add_argument("--secondary-camera-output")
+    parser.add_argument("--expect-stable-texture-registrations", action="store_true")
     return parser.parse_args()
 
 
@@ -68,8 +72,24 @@ def main() -> int:
     import PyEvoEngine as evoengine
 
     try:
-        if not evoengine.RunDemoWindowless("Rendering", test_resources_root, True):
+        if not evoengine.RunDemoWindowless(
+            "Rendering", test_resources_root, True, args.ray_features == "enabled"
+        ):
             raise RuntimeError("RunDemoWindowless failed")
+        if not evoengine.SharedTextureDescriptorArraysEnabled():
+            raise RuntimeError("Shared sampled-texture descriptor arrays are not active")
+        if args.ray_features == "disabled" and (
+            evoengine.RayTracingEnabled() or evoengine.RayQueryEnabled()
+        ):
+            raise RuntimeError("Raster-only capture unexpectedly enabled ray tracing or ray query")
+        print(
+            "EVOENGINE_TEXTURE_ARRAYS_ACTIVE "
+            f"ray_tracing={evoengine.RayTracingEnabled()} ray_query={evoengine.RayQueryEnabled()}"
+        )
+        if args.texture_lifecycle_stress:
+            if not evoengine.ExerciseTextureLifecycleForCapture():
+                raise RuntimeError("Texture lifecycle stress failed")
+            print("EVOENGINE_TEXTURE_LIFECYCLE_STRESS passed")
         if not evoengine.IsCurrentSceneDdgiEnabled():
             raise RuntimeError("Rendering demo capture requires DDGI to be enabled")
         for _ in range(2):
@@ -87,6 +107,10 @@ def main() -> int:
             args.render_mode, args.samples_per_frame, args.bounces
         ):
             raise RuntimeError(f"Requested render mode is unavailable: {args.render_mode}")
+        if args.secondary_camera_output and not evoengine.ConfigureSecondarySceneCameraForCapture(
+            args.width, args.height
+        ):
+            raise RuntimeError("Failed to configure secondary capture camera")
         capture_frames = args.accumulation_frames or args.warmup_frames
         if not evoengine.CaptureCurrentScene(
             args.width,
@@ -94,8 +118,13 @@ def main() -> int:
             output,
             capture_frames,
             args.accumulation_frames > 0,
+            args.expect_stable_texture_registrations,
         ):
             raise RuntimeError("CaptureCurrentScene failed")
+        if args.secondary_camera_output and not evoengine.CaptureSecondarySceneCamera(
+            Path(args.secondary_camera_output).resolve()
+        ):
+            raise RuntimeError("CaptureSecondarySceneCamera failed")
     finally:
         evoengine.Terminate()
 

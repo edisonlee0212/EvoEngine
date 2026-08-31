@@ -221,6 +221,14 @@ set_tests_properties(ShaderPolicy.FirstParty
 	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 	LABELS "core,render,shader-policy"
 	)
+add_test(NAME TextureAccessPolicy.FirstParty
+	COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/check_texture_access_policy.py"
+	)
+set_tests_properties(TextureAccessPolicy.FirstParty
+	PROPERTIES
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+	LABELS "core,render,shader-policy,texture"
+	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER VulkanPipelineCache.*:RayCameraShaderVariantCache.*

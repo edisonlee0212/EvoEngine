@@ -203,7 +203,6 @@ class EVOENGINE_API RenderInstanceStorage {
                                uint64_t target_hierarchy_revision) const;
   };
 
-  static constexpr uint32_t kRasterMaterialTextureSlotCount = 8;
   static constexpr uint32_t kDdgiMaxVolumeCount = 8;
   static constexpr uint32_t kReflectionProbeMaxCount = 32;
 
@@ -909,10 +908,6 @@ class EVOENGINE_API RenderInstanceStorage {
    * @return Index of the registered material.
    */
   [[nodiscard]] int RegisterMaterial(const std::shared_ptr<Material>& material);
-  void RefreshRasterMaterialDescriptorSets(
-      const std::shared_ptr<DescriptorSetLayout>& raster_material_layout,
-      const std::array<VkDescriptorImageInfo, kRasterMaterialTextureSlotCount>& fallback_image_infos);
-  [[nodiscard]] const std::shared_ptr<DescriptorSet>& GetRasterMaterialDescriptorSet(uint32_t material_index) const;
   std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>> cameras;
   RenderSettings render_settings{};
   std::shared_ptr<Buffer> gltf_material_descriptor_buffer = {};
@@ -930,7 +925,6 @@ class EVOENGINE_API RenderInstanceStorage {
   std::shared_ptr<Buffer> emissive_triangle_info_descriptor_buffer = {};
 
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
-  std::vector<std::shared_ptr<DescriptorSet>> raster_material_descriptor_sets;
 
   struct DeferredMeshIndirectBatch {
     int32_t material_index = -1;
@@ -1352,7 +1346,6 @@ class EVOENGINE_API RenderInstanceStorage {
 
   std::vector<CameraInfoBlock> camera_info_blocks_{};
   std::vector<CameraRasterVisibility> camera_raster_visibility_{};
-  uint32_t raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   std::shared_ptr<MeshRenderInstanceCollection> deferred_render_instances;
   std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
   std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;

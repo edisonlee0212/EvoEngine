@@ -15,6 +15,48 @@ struct TextureStorageHandle {
   int value = 0;  ///< Unique identifier for the texture storage handle.
 };
 
+enum class SampledTextureAssetType { Texture2D, Cubemap };
+enum class SampledViewSlotState { Free, AllocatedPending, Ready, Retiring, Reusable };
+
+struct SampledViewInspection {
+  uint32_t index = 0;
+  int storage_handle = -1;
+  SampledTextureAssetType asset_type = SampledTextureAssetType::Texture2D;
+  VmaAllocation image_allocation = VK_NULL_HANDLE;
+  VkImage image = VK_NULL_HANDLE;
+  VkImageView image_view = VK_NULL_HANDLE;
+  VkSampler sampler = VK_NULL_HANDLE;
+  bool ready = false;
+  bool bindless_registered = false;
+  bool traditional_binding_compatible = false;
+  SampledViewSlotState slot_state = SampledViewSlotState::Free;
+};
+
+struct SampledTextureDescriptorUpdateStats {
+  uint64_t texture_2d_full_rebuilds = 0;
+  uint64_t cubemap_full_rebuilds = 0;
+  uint64_t texture_2d_descriptors_written = 0;
+  uint64_t cubemap_descriptors_written = 0;
+  uint64_t texture_2d_update_cpu_nanoseconds = 0;
+  uint64_t cubemap_update_cpu_nanoseconds = 0;
+};
+
+struct SampledTextureArrayDiagnostics {
+  uint32_t capacity = 0;
+  uint32_t occupancy = 0;
+  uint32_t high_water_mark = 0;
+  uint32_t pending_count = 0;
+  uint32_t retiring_count = 0;
+  uint32_t reusable_count = 0;
+  uint64_t descriptor_revision = 0;
+  uint64_t registration_revision = 0;
+  uint64_t full_rebuilds = 0;
+  uint64_t descriptors_written = 0;
+  uint64_t descriptor_update_cpu_nanoseconds = 0;
+  uint64_t descriptor_metadata_bytes_per_mirror = 0;
+  uint64_t overflow_attempts = 0;
+};
+
 /**
  * @class Texture2DStorage
  * @brief Responsible for managing 2D textures and their associated GPU resources.
@@ -72,6 +114,7 @@ class EVOENGINE_API Texture2DStorage {
 
  public:
   bool pending_delete = false;  ///< Indicates whether the storage is pending deletion.
+  SampledViewSlotState slot_state = SampledViewSlotState::Free;
 
   std::shared_ptr<TextureStorageHandle> handle;  ///< Handle associated with this texture storage.
 
@@ -167,6 +210,7 @@ class EVOENGINE_API Texture2DStorage {
 class EVOENGINE_API CubemapStorage {
  public:
   bool pending_delete = false;  ///< Indicates whether the storage is pending deletion.
+  SampledViewSlotState slot_state = SampledViewSlotState::Free;
 
   std::shared_ptr<TextureStorageHandle> handle;  ///< Handle associated with this cubemap storage.
 
@@ -239,14 +283,35 @@ class EVOENGINE_API TextureStorage final {
    * @brief Stores all cubemap storages.
    */
   std::vector<CubemapStorage> cubemaps_;
+  std::vector<uint32_t> reusable_texture_2d_slots_;
+  std::vector<uint32_t> reusable_cubemap_slots_;
+  Texture2DStorage placeholder_texture_2d_;
+  CubemapStorage placeholder_cubemap_;
 
   friend class RenderLayer;
   friend class Platform;
   friend class Resources;
+  friend class Texture2D;
   friend class Texture2DStorage;
+  friend class CubemapStorage;
+  friend class Cubemap;
 
   uint32_t version_ = 0;    ///< Current version of the texture storage.
   bool initialized = true;  ///< Indicates whether the storage has been initialized.
+  uint32_t texture_2d_capacity_ = 2048;
+  uint32_t cubemap_capacity_ = 256;
+  uint64_t texture_2d_descriptor_revision_ = 0;
+  uint64_t cubemap_descriptor_revision_ = 0;
+  uint64_t texture_2d_registration_revision_ = 0;
+  uint64_t cubemap_registration_revision_ = 0;
+  uint32_t texture_2d_high_water_mark_ = 0;
+  uint32_t cubemap_high_water_mark_ = 0;
+  uint64_t texture_2d_overflow_attempts_ = 0;
+  uint64_t cubemap_overflow_attempts_ = 0;
+  SampledTextureDescriptorUpdateStats descriptor_update_stats_{};
+
+  static void SetTexture2DSlotState(Texture2DStorage& texture, SampledViewSlotState state);
+  static void SetCubemapSlotState(CubemapStorage& cubemap, SampledViewSlotState state);
 
  public:
   /**
@@ -254,6 +319,17 @@ class EVOENGINE_API TextureStorage final {
    * @return The version as a 32-bit unsigned integer.
    */
   [[nodiscard]] static uint32_t GetVersion();
+  [[nodiscard]] static uint64_t GetTexture2DDescriptorRevision();
+  [[nodiscard]] static uint64_t GetCubemapDescriptorRevision();
+  [[nodiscard]] static uint64_t GetTexture2DRegistrationRevision();
+  [[nodiscard]] static uint64_t GetCubemapRegistrationRevision();
+  [[nodiscard]] static SampledTextureDescriptorUpdateStats GetDescriptorUpdateStats();
+  [[nodiscard]] static SampledTextureArrayDiagnostics GetTexture2DArrayDiagnostics();
+  [[nodiscard]] static SampledTextureArrayDiagnostics GetCubemapArrayDiagnostics();
+  static void ResetDescriptorUpdateStats();
+
+  [[nodiscard]] static std::vector<SampledViewInspection> InspectTexture2DSampledViews();
+  [[nodiscard]] static std::vector<SampledViewInspection> InspectCubemapSampledViews();
 
   /** Returns a stable signature for the selected 2D texture storage and its latest synchronized upload. */
   [[nodiscard]] static bool TryGetTexture2DContentSignature(uint32_t texture_index, uint64_t& signature);
@@ -282,7 +358,7 @@ class EVOENGINE_API TextureStorage final {
    * @param descriptor_set The descriptor set to bind the texture to.
    * @param binding The binding index within the descriptor set.
    */
-  static void BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
+  static uint32_t BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
 
   /**
    * @brief Resolves a single 2D texture storage index to a sampled image descriptor.
@@ -305,7 +381,7 @@ class EVOENGINE_API TextureStorage final {
    * @param descriptor_set The descriptor set to bind the cubemap to.
    * @param binding The binding index within the descriptor set.
    */
-  static void BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
+  static uint32_t BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set, uint32_t binding);
 
   /**
    * @brief Provides a constant reference to a Texture2DStorage object using a handle.
@@ -335,6 +411,7 @@ class EVOENGINE_API TextureStorage final {
    */
   static CubemapStorage& RefCubemapStorage(const std::shared_ptr<TextureStorageHandle>& handle);
 
+ private:
   /**
    * @brief Unregisters a 2D texture from the storage using a handle.
    * @param handle The handle identifying the texture storage.
@@ -359,6 +436,7 @@ class EVOENGINE_API TextureStorage final {
    */
   static std::shared_ptr<TextureStorageHandle> RegisterCubemap();
 
+ public:
   /**
    * @brief Initializes the texture storage system.
    */

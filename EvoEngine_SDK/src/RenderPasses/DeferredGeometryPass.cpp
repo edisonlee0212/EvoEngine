@@ -135,8 +135,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                 ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode);
             parameters.mesh_pipeline->states.cull_mode = batch.cull_mode;
             parameters.mesh_pipeline->states.line_width = batch.line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
-                                            batch.material_index);
             parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
             parameters.mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
             AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count,
@@ -163,8 +161,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                 ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
             parameters.mesh_pipeline->states.cull_mode = render_instance->cull_mode;
             parameters.mesh_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
             const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, parameters.mesh_pipeline);
             AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
           });
@@ -188,8 +184,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                 ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
             parameters.instanced_pipeline->states.cull_mode = render_instance->cull_mode;
             parameters.instanced_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.instanced_pipeline,
-                                            parameters.render_instances, render_instance->material_index);
             const auto prim_count =
                 render_instance->Render(vk_command_buffer, push_constant, parameters.instanced_pipeline);
             AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -215,8 +209,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                 ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
             parameters.skinned_pipeline->states.cull_mode = render_instance->cull_mode;
             parameters.skinned_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.skinned_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
             const auto prim_count =
                 render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_pipeline);
             AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
@@ -243,8 +235,6 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
                 ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
             parameters.strands_pipeline->states.cull_mode = render_instance->cull_mode;
             parameters.strands_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.strands_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
             const auto prim_count =
                 render_instance->Render(vk_command_buffer, push_constant, parameters.strands_pipeline);
             AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);

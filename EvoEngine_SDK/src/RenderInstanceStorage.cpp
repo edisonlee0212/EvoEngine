@@ -3970,68 +3970,6 @@ bool RenderInstanceStorage::RequiresCameraWideTemporalHistoryRejection() const {
          (external_render_instances && !external_render_instances->Empty());
 }
 
-void RenderInstanceStorage::RefreshRasterMaterialDescriptorSets(
-    const std::shared_ptr<DescriptorSetLayout>& raster_material_layout,
-    const std::array<VkDescriptorImageInfo, kRasterMaterialTextureSlotCount>& fallback_image_infos) {
-  if (!Platform::Initialized() || !raster_material_layout) {
-    return;
-  }
-  const auto& shade_materials = gltf_material_cache_.GetShadeMaterials();
-  const auto current_texture_storage_version = TextureStorage::GetVersion();
-  if (raster_material_descriptor_sets.size() == shade_materials.size() &&
-      raster_material_descriptor_texture_storage_version_ == current_texture_storage_version) {
-    return;
-  }
-
-  const auto& texture_infos = gltf_material_cache_.GetTextureInfos();
-  raster_material_descriptor_sets.resize(shade_materials.size());
-  const auto resolve_image_info = [&](const uint16_t texture_info_slot,
-                                      const uint32_t fallback_binding) -> VkDescriptorImageInfo {
-    auto image_info = fallback_image_infos[fallback_binding];
-    if (texture_info_slot >= texture_infos.size()) {
-      return image_info;
-    }
-    const auto texture_index = texture_infos[texture_info_slot].index;
-    if (texture_index >= 0) {
-      TextureStorage::TryGetTexture2DDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info);
-    }
-    return image_info;
-  };
-
-  for (uint32_t material_index = 0; material_index < shade_materials.size(); material_index++) {
-    auto& descriptor_set = raster_material_descriptor_sets[material_index];
-    if (!descriptor_set) {
-      descriptor_set = std::make_shared<DescriptorSet>(raster_material_layout);
-    }
-    const auto& material = shade_materials[material_index];
-    const auto base_color_texture = material.pbr_base_color_texture;
-    const auto metallic_roughness_texture = material.pbr_metallic_roughness_texture;
-    descriptor_set->UpdateImageDescriptorBinding(0, resolve_image_info(base_color_texture, 0));
-    descriptor_set->UpdateImageDescriptorBinding(1, resolve_image_info(metallic_roughness_texture, 1));
-    descriptor_set->UpdateImageDescriptorBinding(2, resolve_image_info(material.normal_texture, 2));
-    descriptor_set->UpdateImageDescriptorBinding(3, resolve_image_info(material.emissive_texture, 3));
-    descriptor_set->UpdateImageDescriptorBinding(4, resolve_image_info(material.occlusion_texture, 4));
-#if MAT_EXT_CLEARCOAT
-    descriptor_set->UpdateImageDescriptorBinding(5, resolve_image_info(material.clearcoat_texture, 5));
-    descriptor_set->UpdateImageDescriptorBinding(6, resolve_image_info(material.clearcoat_roughness_texture, 6));
-    descriptor_set->UpdateImageDescriptorBinding(7, resolve_image_info(material.clearcoat_normal_texture, 7));
-#else
-    descriptor_set->UpdateImageDescriptorBinding(5, fallback_image_infos[5]);
-    descriptor_set->UpdateImageDescriptorBinding(6, fallback_image_infos[6]);
-    descriptor_set->UpdateImageDescriptorBinding(7, fallback_image_infos[7]);
-#endif
-  }
-  raster_material_descriptor_texture_storage_version_ = current_texture_storage_version;
-}
-
-const std::shared_ptr<DescriptorSet>& RenderInstanceStorage::GetRasterMaterialDescriptorSet(
-    const uint32_t material_index) const {
-  if (material_index >= raster_material_descriptor_sets.size()) {
-    throw std::runtime_error("Unable to find raster material descriptor set.");
-  }
-  return raster_material_descriptor_sets[material_index];
-}
-
 void RenderInstanceStorage::CalculateLodFactor(const std::shared_ptr<Scene>& scene, const glm::vec3& view_position,
                                                const float max_distance) {
   if (const auto* owners = scene->UnsafeGetPrivateComponentOwnersList<LodGroup>()) {
@@ -4774,7 +4712,6 @@ int RenderInstanceStorage::RegisterMaterial(const std::shared_ptr<Material>& mat
     gltf_material_cache_.Update(static_cast<uint32_t>(search->second), material_data);
     material_versions_[handle] = version;
     material_cache_changed_this_frame_ = true;
-    raster_material_descriptor_texture_storage_version_ = UINT32_MAX;
   }
   return search->second;
 }

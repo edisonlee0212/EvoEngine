@@ -302,6 +302,9 @@ void Texture2D::UnsafeUploadDataImmediately() const {
   auto& texture_storage = TextureStorage::RefTexture2DStorage(texture_storage_handle_);
   texture_storage.UploadPendingDataImmediately();
   WaitForPendingGpuWork();
+  texture_storage.gpu_upload_generation_last_sync_ = texture_storage.gpu_upload_generation->load();
+  TextureStorage::GetInstance().version_++;
+  TextureStorage::SetTexture2DSlotState(texture_storage, SampledViewSlotState::Ready);
 }
 bool Texture2D::SaveInternal(const std::filesystem::path& path) const {
   if (path.extension() == ".png") {

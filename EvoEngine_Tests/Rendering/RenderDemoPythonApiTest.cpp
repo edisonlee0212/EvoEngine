@@ -315,10 +315,13 @@ void CopyVisualArtifact(const std::filesystem::path& output_path, const char* ar
                              std::filesystem::copy_options::overwrite_existing);
 }
 
-void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
+void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable_ray_features = true,
+                             const bool compare_baseline = true, const bool texture_lifecycle_stress = false,
+                             const bool multi_camera = false, const bool expect_stable_texture_registrations = false) {
   const std::filesystem::path executable_dir = std::filesystem::path(EVOENGINE_RENDER_TEST_DIR);
   const std::filesystem::path test_dir = CreateTestDirectory(executable_dir);
   const std::filesystem::path output_path = test_dir / capture.output_file_name;
+  const std::filesystem::path secondary_output_path = test_dir / "secondary_camera.png";
   const std::filesystem::path source_resources_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Resources";
   const std::filesystem::path test_resources_root = test_dir / "Resources";
   const std::filesystem::path script_path = std::filesystem::path(EVOENGINE_TEST_SCRIPT_DIR) / "render_demo_capture.py";
@@ -338,6 +341,16 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
   command += " --render-mode " + std::string(capture.render_mode);
   command += " --samples-per-frame " + std::to_string(capture.samples_per_frame);
   command += " --bounces " + std::to_string(capture.bounces);
+  command += std::string(" --ray-features ") + (enable_ray_features ? "enabled" : "disabled");
+  if (texture_lifecycle_stress) {
+    command += " --texture-lifecycle-stress";
+  }
+  if (multi_camera) {
+    command += " --secondary-camera-output " + Quote(secondary_output_path);
+  }
+  if (expect_stable_texture_registrations) {
+    command += " --expect-stable-texture-registrations";
+  }
   if (capture.configure_raster_path) {
     command += std::string(" --meshlet ") + (capture.meshlet_enabled ? "enabled" : "disabled");
     command += std::string(" --indirect ") + (capture.indirect_enabled ? "enabled" : "disabled");
@@ -358,10 +371,18 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture) {
   const Image output_image = LoadPng(output_path);
   ASSERT_NO_FATAL_FAILURE(AssertImageIsRenderablePng(output_path, output_image, capture.width, capture.height));
   CopyVisualArtifact(output_path, capture.artifact_file_name);
-  if (capture.baseline_reference) {
+  if (compare_baseline && capture.baseline_reference) {
     AcceptBaselineIfRequested(output_path, baseline_path);
   }
-  ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path));
+  if (compare_baseline) {
+    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path));
+  }
+  if (multi_camera) {
+    const Image secondary_output_image = LoadPng(secondary_output_path);
+    ASSERT_NO_FATAL_FAILURE(
+        AssertImageIsRenderablePng(secondary_output_path, secondary_output_image, capture.width, capture.height));
+    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(secondary_output_image, baseline_path));
+  }
 }
 }  // namespace
 
@@ -371,6 +392,18 @@ TEST(RenderingDemo, RasterPathMatrixGoldenImage) {
                  ", indirect=" + (capture.indirect_enabled ? "on" : "off"));
     ASSERT_NO_FATAL_FAILURE(RunRenderingDemoCapture(capture));
   }
+}
+
+TEST(RenderingDemo, RasterOnlyBindlessTextureSmoke) {
+  RunRenderingDemoCapture(kRasterPathMatrix.front(), false, false);
+}
+
+TEST(RenderingDemo, TextureLifecycleStressThenCanonicalRasterGolden) {
+  RunRenderingDemoCapture(kRasterPathMatrix.front(), true, true, true);
+}
+
+TEST(RenderingDemo, GlobalIblSsrAoMultiCameraGoldenImage) {
+  RunRenderingDemoCapture(kRasterPathMatrix.front(), true, true, false, true, true);
 }
 
 TEST(RenderingDemo, RayTracingGoldenImage) {

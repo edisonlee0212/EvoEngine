@@ -397,8 +397,10 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_EQ(record.find("Save"), std::string::npos);
   EXPECT_EQ(record.find("Download"), std::string::npos);
   EXPECT_NE(lighting_shader.find("lerp(source, target, blend_weight)"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("index * 2 + 1"), std::string::npos);
-  EXPECT_NE(fixed_lighting_shader.find("EE_REFLECTION_PROBE_MAX_COUNT * 2"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("int(probe.identity_and_flags.x)"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("int(probe.transition_parameters.x)"), std::string::npos);
+  EXPECT_NE(fixed_lighting_shader.find("EE_CUBEMAPS[NonUniformResourceIndex(texture_index)]"), std::string::npos);
+  EXPECT_EQ(fixed_lighting_shader.find("EE_RASTER_REFLECTION_PROBES"), std::string::npos);
   EXPECT_NE(render_instances.find("transition_parameters.z = glm::floatBitsToUint"), std::string::npos);
 }
 

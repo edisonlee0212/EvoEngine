@@ -8,6 +8,7 @@ image and where each rendering responsibility lives.
 Focused guides:
 
 - [Materials and geometry](rendering-materials.md)
+- [Texture access](rendering-texture-access.md)
 - [Dynamic Diffuse Global Illumination](ddgi.md)
 - [Reflection probes](reflection-probes.md)
 - [Rendering demos](rendering-demos.md)
@@ -98,9 +99,11 @@ Opaque and alpha-masked meshes normally write evaluated material attributes into
 punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion. Forward-only and blended
 geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and post-processing.
 
-Raster material textures use fixed descriptors so ordinary raster rendering does not require bindless descriptor-array
-features. Ray cameras retain bindless texture access for material evaluation during traversal. See
-[Materials and geometry](rendering-materials.md) for material behavior and geometry participation.
+Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
+environment, and reflection-probe assets share bindless 2D and cubemap index spaces across raster and ray paths;
+attachments, histories, and other pass-owned images retain explicit descriptors. See
+[Texture access](rendering-texture-access.md) for the ownership rules and [Materials and geometry](rendering-materials.md)
+for material behavior and geometry participation.
 
 ## Lighting
 

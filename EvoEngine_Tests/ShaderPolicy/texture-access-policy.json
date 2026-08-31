@@ -1,0 +1,1402 @@
+{
+  "schema": 1,
+  "scope": "Tracked first-party sampled-image declarations and host descriptor bindings",
+  "categories": {
+    "PersistentSampledAsset": "Asset-backed sampled data with identity beyond one pass or frame.",
+    "TransientPassResource": "Render target, history, attachment, or other pass-owned sampled input.",
+    "BoundedPassArray": "Explicitly bounded pass-local collection such as shadows, DDGI atlases, or lookup tables."
+  },
+  "records": [
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DepthPyramid.slang:Sampler2D:sourceDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DepthPyramid.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "sourceDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang:Sampler2D:inUtility:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inUtility",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/AmbientOcclusionBlur.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/AmbientOcclusionBlur.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/AmbientOcclusionBlur.slang:Sampler2D:image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/AmbientOcclusionBlur.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomCopy.slang:Sampler2D:inColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomCopy.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomDownsampling.slang:Sampler2D:srcTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomDownsampling.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "srcTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomMix.slang:Sampler2D:originalColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomMix.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "originalColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomMix.slang:Sampler2D:bloomColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomMix.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "bloomColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomUpsampling.slang:Sampler2D:currentTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomUpsampling.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "currentTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomUpsampling.slang:Sampler2D:bloomTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/BloomUpsampling.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "bloomTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/Blur.slang:Sampler2D:image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/Blur.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/GTAO.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/GTAO.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/GTAO.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/GTAO.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SMAAPrepare.slang:Sampler2D:inputColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SMAAPrepare.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inputColor",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:originalColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "originalColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:reflectedColorVisibility:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "reflectedColorVisibility",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inBaseColorAO:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inBaseColorAO",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inEmissive:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inEmissive",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang:Sampler2D:inAmbientOcclusion:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inAmbientOcclusion",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang:Sampler2D:inColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang:Sampler2D:inReflectionConfidence:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inReflectionConfidence",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRSpatialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inCurrentReflectionConfidence:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inCurrentReflectionConfidence",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inHistoryReflectionConfidence:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inHistoryReflectionConfidence",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inMotionVectors:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inMotionVectors",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inHistoryGeometry:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inHistoryGeometry",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inHistoryMaterial:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inHistoryMaterial",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/PostProcessing/SSRTemporalResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricClouds.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricClouds.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang:Sampler2D:inCloudAccumulation:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inCloudAccumulation",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang:Sampler2D:inCloudTransmittance:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inCloudTransmittance",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang:Sampler2D:inPreviousCloudAccumulation:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPreviousCloudAccumulation",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang:Sampler2D:inPreviousCloudTransmittance:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/VolumetricCloudsComposite.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPreviousCloudTransmittance",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.slang:Sampler2D:EE_DDGI_IRRADIANCE_ATLAS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/DDGI/DDGIProbeVisualization.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_DDGI_IRRADIANCE_ATLAS",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.slang:SamplerCube:environmentMap:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EnvironmentalMapIrradianceConvolution.slang",
+      "resource_type": "SamplerCube",
+      "symbol": "environmentMap",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang:SamplerCube:environmentMap:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EnvironmentalMapPrefilter.slang",
+      "resource_type": "SamplerCube",
+      "symbol": "environmentMap",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.slang:Sampler2D:equirectangularMap:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Lighting/EquirectangularMapToCubemap.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "equirectangularMap",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomCopy.slang:Sampler2D:inColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomCopy.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.slang:Sampler2D:srcTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomDownsampling.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "srcTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomMix.slang:Sampler2D:originalColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomMix.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "originalColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomMix.slang:Sampler2D:bloomColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomMix.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "bloomColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.slang:Sampler2D:srcTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/BloomUpsampling.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "srcTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/Blur.slang:Sampler2D:image:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/Blur.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "image",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang:Sampler2D:inUtility:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inUtility",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang:Sampler2D:edges_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "edges_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang:Sampler2D:area_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "area_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang:Sampler2D:search_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAABlendWeight.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "search_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAAEdge.slang:Sampler2D:color_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAAEdge.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "color_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang:Sampler2D:color_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "color_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang:Sampler2D:blend_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "blend_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang:Sampler2D:edges_tex:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SMAANeighborhood.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "edges_tex",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:originalColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "originalColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:reflectedColorVisibility:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "reflectedColorVisibility",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inBaseColorAO:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inBaseColorAO",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inEmissive:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inEmissive",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang:Sampler2D:inAmbientOcclusion:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRCombine.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inAmbientOcclusion",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang:Sampler2D:inColor:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/SSRReflect.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inColor",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inBaseColorAO:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inBaseColorAO",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inEmissive:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inEmissive",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang:Sampler2D:inAmbientOcclusion:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inAmbientOcclusion",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inBaseColorAO:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inBaseColorAO",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inNormalRoughness:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inNormalRoughness",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inPbrFlags:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inPbrFlags",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inEmissive:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inEmissive",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inUtility:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inUtility",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inAmbientOcclusion:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inAmbientOcclusion",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/TexturePassThrough.slang:Sampler2D:screenTexture:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/TexturePassThrough.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "screenTexture",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherMulti.slang:Sampler2D:EE_DDGI_IRRADIANCE_ATLASES:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherMulti.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_DDGI_IRRADIANCE_ATLASES",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherMulti.slang:Sampler2D:EE_DDGI_VISIBILITY_ATLASES:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherMulti.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_DDGI_VISIBILITY_ATLASES",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherSingle.slang:Sampler2D:EE_DDGI_IRRADIANCE_ATLAS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherSingle.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_DDGI_IRRADIANCE_ATLAS",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherSingle.slang:Sampler2D:EE_DDGI_VISIBILITY_ATLAS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/DDGIGatherSingle.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_DDGI_VISIBILITY_ATLAS",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang:Sampler2DArray:EE_POINT_LIGHT_SM:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang",
+      "resource_type": "Sampler2DArray",
+      "symbol": "EE_POINT_LIGHT_SM",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang:Sampler2D:EE_SPOT_LIGHT_SM:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_SPOT_LIGHT_SM",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Textures.slang:Sampler2D:EE_TEXTURE_2DS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Textures.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_TEXTURE_2DS",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Textures.slang:SamplerCube:EE_CUBEMAPS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Textures.slang",
+      "resource_type": "SamplerCube",
+      "symbol": "EE_CUBEMAPS",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang:Sampler3D:EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang",
+      "resource_type": "Sampler3D",
+      "symbol": "EE_VOLUMETRIC_CLOUD_BASE_SHAPE_NOISE",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang:Sampler3D:EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang",
+      "resource_type": "Sampler3D",
+      "symbol": "EE_VOLUMETRIC_CLOUD_DETAIL_EROSION_NOISE",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang:Sampler2D:EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_VOLUMETRIC_CLOUD_WEATHER_COVERAGE",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang:Sampler2D:EE_VOLUMETRIC_CLOUD_CURL_NOISE:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/VolumetricClouds.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_VOLUMETRIC_CLOUD_CURL_NOISE",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/AmbientOcclusion.cpp:blur_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/AmbientOcclusion.cpp",
+      "owner": "blur_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:smaa_prepare_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "smaa_prepare_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:smaa_edge_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "smaa_edge_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:smaa_weight_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "smaa_weight_layout",
+      "binding": "binding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:smaa_neighborhood_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "smaa_neighborhood_layout",
+      "binding": "binding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:mix_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "mix_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:mix_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "mix_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:copy_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "copy_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:sampling_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "sampling_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:upsampling_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "upsampling_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:upsampling_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "upsampling_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/PostProcessingStack.cpp:blur_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/PostProcessingStack.cpp",
+      "owner": "blur_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "layout",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:layout:10:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "layout",
+      "binding": "10",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:render_texture_present_layout_:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "render_texture_present_layout_",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:raster_lighting_texture_layout_:kRasterLightingAmbientOcclusionBinding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "raster_lighting_texture_layout_",
+      "binding": "kRasterLightingAmbientOcclusionBinding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:lighting_layout_:14:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "lighting_layout_",
+      "binding": "14",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:lighting_layout_:15:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "lighting_layout_",
+      "binding": "15",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:lighting_layout_:16:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "lighting_layout_",
+      "binding": "16",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:lighting_layout_:17:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "lighting_layout_",
+      "binding": "17",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:lighting_layout_:18:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "lighting_layout_",
+      "binding": "18",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:ddgi_probe_ray_output_layout_:17:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "ddgi_probe_ray_output_layout_",
+      "binding": "17",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:ddgi_probe_ray_output_layout_:18:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "ddgi_probe_ray_output_layout_",
+      "binding": "18",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:17:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "17",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:20:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "20",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:21:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "21",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:22:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "22",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:23:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "23",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:24:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "camera_g_buffer_layout_",
+      "binding": "24",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:depth_pyramid_layout_:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "depth_pyramid_layout_",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:4:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "4",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:5:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "5",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:6:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "6",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:7:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "7",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:8:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "8",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:10:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "10",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:volumetric_clouds_layout_:11:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "volumetric_clouds_layout_",
+      "binding": "11",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:ddgi_probe_visualization_layout_:17:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "ddgi_probe_visualization_layout_",
+      "binding": "17",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/ScreenSpaceReflection.cpp:combine_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/ScreenSpaceReflection.cpp",
+      "owner": "combine_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/ScreenSpaceReflection.cpp:combine_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/ScreenSpaceReflection.cpp",
+      "owner": "combine_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/ScreenSpaceReflection.cpp:spatial_resolve_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/ScreenSpaceReflection.cpp",
+      "owner": "spatial_resolve_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/ScreenSpaceReflection.cpp:temporal_layout:binding:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/ScreenSpaceReflection.cpp",
+      "owner": "temporal_layout",
+      "binding": "binding",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "layout",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:10:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "layout",
+      "binding": "10",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:bindless_layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "bindless_layout",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:fixed_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "fixed_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:fixed_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "fixed_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:1",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "layout",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:9:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:2",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "layout",
+      "binding": "9",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:layout:10:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:1",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "layout",
+      "binding": "10",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "BoundedPassArray"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/GpuServiceTest.cpp:descriptor_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/GpuServiceTest.cpp",
+      "owner": "descriptor_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:sampling_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "sampling_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:upsampling_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "upsampling_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:upsampling_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "upsampling_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:copy_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "copy_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:mix_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "mix_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:mix_layout:1:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "mix_layout",
+      "binding": "1",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:blur_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "blur_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:camera_gbuffer_layout:17:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "camera_gbuffer_layout",
+      "binding": "17",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:fragment_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "fragment_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_Tests/Core/ShaderCacheTest.cpp:fragment_sampler_layout:0:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_Tests/Core/ShaderCacheTest.cpp",
+      "owner": "fragment_sampler_layout",
+      "binding": "0",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_Tests/Resources/Shaders/Compute/BindlessTextureArrayProbe.slang:Sampler2D:EE_TEST_TEXTURE_2DS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_Tests/Resources/Shaders/Compute/BindlessTextureArrayProbe.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_TEST_TEXTURE_2DS",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_Tests/Resources/Shaders/Compute/BindlessTextureArrayProbe.slang:SamplerCube:EE_TEST_CUBEMAPS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_Tests/Resources/Shaders/Compute/BindlessTextureArrayProbe.slang",
+      "resource_type": "SamplerCube",
+      "symbol": "EE_TEST_CUBEMAPS",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang:Sampler2D:EE_TEST_TEXTURE_2DS:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "EE_TEST_TEXTURE_2DS",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang:Sampler2D:fixedTextureA:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "fixedTextureA",
+      "classification": "PersistentSampledAsset"
+    },
+    {
+      "id": "shader:EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang:Sampler2D:fixedTextureB:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_Tests/Resources/Shaders/Compute/TextureDualAccessProbe.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "fixedTextureB",
+      "classification": "PersistentSampledAsset"
+    }
+  ]
+}

@@ -304,7 +304,9 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
-  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
+  [[nodiscard]] bool SharedTextureDescriptorArraysEnabled() const;
+  [[nodiscard]] const std::vector<uint64_t>& GetPerFrameTexture2DAppliedRevisions() const;
+  [[nodiscard]] const std::vector<uint64_t>& GetPerFrameCubemapAppliedRevisions() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterLightingTextureDescriptorSetLayout() const;
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetExistingRasterLightingTextureDescriptorSet(
       uint32_t current_frame_index, int camera_index) const;
@@ -641,7 +643,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 #pragma region DescriptorSet Layouts
   std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
-  std::shared_ptr<DescriptorSetLayout> raster_material_per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> strand_meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
@@ -667,17 +668,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
-  std::shared_ptr<DescriptorSetLayout> raster_material_layout_;
   bool per_frame_bindless_texture_descriptors_enabled_ = false;
-  mutable std::shared_ptr<Texture2D> raster_material_white_fallback_texture_;
-  mutable std::shared_ptr<Texture2D> raster_material_black_fallback_texture_;
-  mutable std::shared_ptr<Texture2D> raster_material_flat_normal_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_lighting_white_fallback_texture_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
-  void EnsureRasterMaterialFallbackTextures() const;
-  [[nodiscard]] std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
-  GetRasterMaterialFallbackDescriptorImageInfos() const;
+  void EnsureRasterLightingFallbackTexture() const;
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
@@ -879,7 +875,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
-  std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
+  mutable std::vector<uint64_t> per_frame_texture_2d_applied_revisions_ = {};
+  mutable std::vector<uint64_t> per_frame_cubemap_applied_revisions_ = {};
   mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> strand_meshlet_descriptor_sets_ = {};

@@ -260,15 +260,15 @@ float3 EE_REFLECTION_PROBE_DIRECTION(ReflectionProbeInfo probe, float3 local_pos
       determinant);
 }
 
-float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, int index, ReflectionProbeInfo probe,
-                                                          float3 direction, float lod, float3 global_prefiltered) {
+float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, ReflectionProbeInfo probe, float3 direction,
+                                                          float lod, float3 global_prefiltered) {
   const float blend_weight = clamp(asfloat(probe.transition_parameters.z), 0.0f, 1.0f);
   const float3 source = probe.identity_and_flags.y != 0u
-                            ? resources.sampleReflectionProbe(index * 2, direction, lod)
+                            ? resources.sampleReflectionProbe(int(probe.identity_and_flags.x), direction, lod)
                             : global_prefiltered;
   if (probe.transition_parameters.y == 0u || blend_weight <= 0.0f)
     return source;
-  const float3 target = resources.sampleReflectionProbe(index * 2 + 1, direction, lod);
+  const float3 target = resources.sampleReflectionProbe(int(probe.transition_parameters.x), direction, lod);
   return blend_weight >= 1.0f ? target : lerp(source, target, blend_weight);
 }
 
@@ -314,8 +314,7 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
   ReflectionProbeInfo primary_probe = EE_RENDER_INFO.reflection_probes[primary];
   if (primary_probe.identity_and_flags.y != 0u || primary_probe.transition_parameters.y != 0u) {
     const float3 direction = EE_REFLECTION_PROBE_DIRECTION(primary_probe, primary_local, reflection_direction);
-    result += EE_SAMPLE_REFLECTION_PROBE(resources, primary, primary_probe, direction, roughness * 8.0f,
-                                         global_prefiltered) *
+    result += EE_SAMPLE_REFLECTION_PROBE(resources, primary_probe, direction, roughness * 8.0f, global_prefiltered) *
               primary_probe.lighting_parameters.x * primary_weight;
   } else {
     result += global_prefiltered * primary_weight;
@@ -325,8 +324,8 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
     ReflectionProbeInfo secondary_probe = EE_RENDER_INFO.reflection_probes[secondary];
     if (secondary_probe.identity_and_flags.y != 0u || secondary_probe.transition_parameters.y != 0u) {
       const float3 direction = EE_REFLECTION_PROBE_DIRECTION(secondary_probe, secondary_local, reflection_direction);
-      result += EE_SAMPLE_REFLECTION_PROBE(resources, secondary, secondary_probe, direction, roughness * 8.0f,
-                                           global_prefiltered) *
+      result +=
+          EE_SAMPLE_REFLECTION_PROBE(resources, secondary_probe, direction, roughness * 8.0f, global_prefiltered) *
                 secondary_probe.lighting_parameters.x * secondary_weight;
     } else {
       result += global_prefiltered * secondary_weight;

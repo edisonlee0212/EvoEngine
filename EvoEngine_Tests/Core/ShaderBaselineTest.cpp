@@ -163,36 +163,7 @@ const char* ShaderTypeName(const ShaderType shader_type) {
   }
 }
 
-bool EndsWith(const std::string_view value, const std::string_view suffix) {
-  return value.size() >= suffix.size() && value.compare(value.size() - suffix.size(), suffix.size(), suffix) == 0;
-}
-
-std::string VariantDefines(const std::filesystem::path& path) {
-  const auto relative = path.generic_string();
-  const std::string no_bindless = "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n";
-  const std::string material_no_bindless = no_bindless;
-  const std::string fixed_lighting =
-      no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 3\n";
-  const std::string fixed_material_lighting =
-      no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n";
-
-  if (relative.find("Graphics/Vertex/Standard/") != std::string::npos ||
-      relative.find("Graphics/Task/Standard/") != std::string::npos ||
-      relative.find("Graphics/Mesh/Standard/") != std::string::npos) {
-    return no_bindless;
-  }
-  if (EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferred.slang") ||
-      EndsWith(relative, "Graphics/Fragment/Standard/SkinnedMotionVectors.slang") ||
-      EndsWith(relative, "Graphics/Fragment/Standard/TransparentMotionVectors.slang")) {
-    return material_no_bindless;
-  }
-  if (EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferredLighting.slang") ||
-      EndsWith(relative, "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang")) {
-    return fixed_lighting;
-  }
-  if (EndsWith(relative, "Graphics/Fragment/Standard/StandardTransparent.slang")) {
-    return fixed_material_lighting;
-  }
+std::string VariantDefines(const std::filesystem::path&) {
   return {};
 }
 

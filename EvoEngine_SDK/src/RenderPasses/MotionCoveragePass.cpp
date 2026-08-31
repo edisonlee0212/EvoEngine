@@ -143,8 +143,6 @@ void MotionCoveragePass::Execute(const RenderGraphExecutionContext& context, con
               1, parameters.render_instances->previous_instance_info_descriptor_buffer);
           parameters.skinned_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                                          pose_descriptor_set->GetVkDescriptorSet());
-          BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.skinned_pipeline, parameters.render_instances,
-                                          render_instance->material_index);
           parameters.skinned_pipeline->states.polygon_mode =
               parameters.wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
           parameters.skinned_pipeline->states.cull_mode = render_instance->cull_mode;
@@ -176,8 +174,6 @@ void MotionCoveragePass::Execute(const RenderGraphExecutionContext& context, con
                                                            motion_descriptor_set->GetVkDescriptorSet());
         for (const auto& sorted_instance : sorted_transparent_instances) {
           const auto& render_instance = sorted_instance.render_instance;
-          BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.transparent_pipeline,
-                                          parameters.render_instances, render_instance->material_index);
           parameters.transparent_pipeline->states.polygon_mode =
               parameters.wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
           parameters.transparent_pipeline->states.cull_mode = render_instance->cull_mode;

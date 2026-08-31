@@ -1167,12 +1167,6 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
   const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
-  const std::string no_bindless = "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n";
-  const std::string material_no_bindless = no_bindless;
-  const std::string fixed_lighting =
-      no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 3\n";
-  const std::string fixed_material_lighting =
-      no_bindless + "#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n";
   struct Case {
     ShaderType shader_type;
     std::filesystem::path path;
@@ -1215,22 +1209,18 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Lighting/PointLightShadowMapSkinned.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.slang"},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/Standard.slang", no_bindless},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/StandardInstanced.slang", no_bindless},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/StandardSkinned.slang", no_bindless},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/SkinnedMotionVectors.slang", no_bindless},
-      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/TransparentMotionVectors.slang", no_bindless},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/Standard.slang"},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/StandardInstanced.slang"},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/StandardSkinned.slang"},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/SkinnedMotionVectors.slang"},
+      {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/TransparentMotionVectors.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Empty.slang"},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferred.slang", material_no_bindless},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang", fixed_lighting},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
-       fixed_lighting},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang",
-       fixed_material_lighting},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/SkinnedMotionVectors.slang",
-       material_no_bindless},
-      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/TransparentMotionVectors.slang",
-       material_no_bindless},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferred.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/SkinnedMotionVectors.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/TransparentMotionVectors.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/Gizmos.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Gizmos/Gizmos.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Gizmos/GizmosNormalColored.slang"},
@@ -1247,16 +1237,16 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/PostProcessing/SMAABlendWeight.slang"},
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/PostProcessing/SMAANeighborhood.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/PostProcessing/SMAANeighborhood.slang"},
-      {ShaderType::Task, shader_root / "Graphics/Task/Standard/Standard.slang", no_bindless},
-      {ShaderType::Task, shader_root / "Graphics/Task/Standard/StandardStrands.slang", no_bindless},
+      {ShaderType::Task, shader_root / "Graphics/Task/Standard/Standard.slang"},
+      {ShaderType::Task, shader_root / "Graphics/Task/Standard/StandardStrands.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/PointLightShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/SpotLightShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/DirectionalLightShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Lighting/StrandsShadowMap.slang"},
       {ShaderType::Task, shader_root / "Graphics/Task/Gizmos/GizmosStrands.slang"},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/Standard.slang", no_bindless},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardMeshletColored.slang", no_bindless},
-      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardStrands.slang", no_bindless},
+      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/Standard.slang"},
+      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardMeshletColored.slang"},
+      {ShaderType::Mesh, shader_root / "Graphics/Mesh/Standard/StandardStrands.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/PointLightShadowMap.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/SpotLightShadowMap.slang"},
       {ShaderType::Mesh, shader_root / "Graphics/Mesh/Lighting/DirectionalLightShadowMap.slang"},

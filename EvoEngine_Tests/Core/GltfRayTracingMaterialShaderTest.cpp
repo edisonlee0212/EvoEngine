@@ -220,7 +220,7 @@ TEST(GltfRayTracingMaterial, CameraRayVariantsKeepLayoutAndTechniqueOwnershipInd
 
 TEST(GltfRayTracingMaterial, CameraAnyHitAppliesGltfAlphaCutoff) {
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.slang"));
-  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto pipeline = ReadTextFile(SdkPath("src/RayTracingPipeline.cpp"));
   const auto raygen = ReadRayTracingCameraSource();
@@ -267,7 +267,7 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   const auto closest_hit = ReadTextFile(ShaderPath("RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   const auto raygen = ReadTextFile(ShaderPath("RayTracing/RayGen/DDGIProbeTrace.slang"));
   const auto payload = ReadTextFile(ShaderPath("Modules/EvoEngine/DDGIProbeRayPayload.slang"));
-  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto ray_material = ReadTextFile(ShaderPath("Modules/EvoEngine/RayTracingMaterial.slang"));
   const auto emissive_sampling = ReadTextFile(ShaderPath("Modules/EvoEngine/EmissiveTriangleSampling.slang"));
   const auto camera_integrator = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayIntegrator.slang"));
@@ -460,7 +460,7 @@ TEST(GltfRayTracingMaterial, DdgiCutoutFootprintAndTangentContractsAreNumericall
 
 TEST(GltfRayTracingMaterial, CameraRaygenUsesRgbTransparentShadowTransmission) {
   const auto payload = ReadTextFile(ShaderPath("Modules/EvoEngine/CameraRayTracingPayload.slang"));
-  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto raygen = ReadRayTracingCameraSource();
   const auto any_hit = ReadTextFile(ShaderPath("RayTracing/AnyHit/Camera.slang"));
   const auto miss = ReadTextFile(ShaderPath("RayTracing/Miss/Camera.slang"));
@@ -532,16 +532,17 @@ TEST(GltfRayTracingMaterial, RayShadersUseCanonicalMaterialBlockOnly) {
   EXPECT_EQ(per_frame_module.find(std::string("#include \"Materials") + ".slangh\""), std::string::npos);
   EXPECT_NE(per_frame_module.find("__exported import EvoEngine.GltfMaterial;"), std::string::npos);
 
-  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   ASSERT_FALSE(evaluator.empty());
   EXPECT_NE(evaluator.find("float4 EE_GLTF_SAMPLE_TEXTURE_SLOT"), std::string::npos);
   EXPECT_NE(evaluator.find(".SampleLevel(uv, 0.0f)"), std::string::npos);
-  EXPECT_NE(evaluator.find("float4 gradients"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddx_uv0"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddy_uv3"), std::string::npos);
   EXPECT_NE(evaluator.find(".SampleGrad(uv, ddx_uv, ddy_uv)"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
-  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto bsdf = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingBsdf.slang"));
   const auto raygen = ReadRayTracingCameraSource();
   const auto ray_query = ReadRayQueryCameraSource();
@@ -554,7 +555,8 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
 
   EXPECT_NE(evaluator.find("float4 EE_GLTF_SAMPLE_TEXTURE("), std::string::npos);
   EXPECT_NE(evaluator.find("GltfTexCoords tex_coords, float4 fallback"), std::string::npos);
-  EXPECT_NE(evaluator.find("tex_coords.gradients[clamp(texture_info.tex_coord, 0, 3)]"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_SELECT_TEX_COORD_DDX(texture_info.tex_coord, tex_coords)"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_SELECT_TEX_COORD_DDY(texture_info.tex_coord, tex_coords)"), std::string::npos);
   EXPECT_NE(evaluator.find("EE_GLTF_TRANSFORM_UV(texture_info, float3(ddx_uv, 0.0))"), std::string::npos);
   EXPECT_NE(evaluator.find("EE_GLTF_TRANSFORM_UV(texture_info, float3(ddy_uv, 0.0))"), std::string::npos);
   EXPECT_NE(evaluator.find("EE_GLTF_TEXTURE_UV_SPECIALIZED<let feature_mask : uint>"), std::string::npos);

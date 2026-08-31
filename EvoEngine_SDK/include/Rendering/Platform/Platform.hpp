@@ -358,6 +358,9 @@ class EVOENGINE_API Platform final {
     /// Physical device features.
     VkPhysicalDeviceFeatures features{};
 
+    /// Vulkan 1.2 features used by the standard renderer.
+    VkPhysicalDeviceVulkan12Features vulkan12_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+
     /// Acceleration structure features.
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR};

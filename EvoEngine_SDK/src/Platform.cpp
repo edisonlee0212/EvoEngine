@@ -1624,6 +1624,40 @@ bool Platform::PhysicalDevice::Suitable(const std::vector<std::string>& required
   }
   if (!support_check)
     return false;
+  const auto& graphics_settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  const auto reject_descriptor_indexing_feature = [&](const char* feature) {
+    EVOENGINE_WARNING(
+        std::string("Current device is missing required standard-renderer descriptor-indexing feature: ") + feature)
+    return false;
+  };
+  if (vulkan12_features.runtimeDescriptorArray != VK_TRUE)
+    return reject_descriptor_indexing_feature("runtimeDescriptorArray");
+  if (vulkan12_features.descriptorBindingPartiallyBound != VK_TRUE)
+    return reject_descriptor_indexing_feature("descriptorBindingPartiallyBound");
+  if (vulkan12_features.shaderSampledImageArrayNonUniformIndexing != VK_TRUE)
+    return reject_descriptor_indexing_feature("shaderSampledImageArrayNonUniformIndexing");
+
+  const auto sampled_descriptor_limit =
+      std::min({properties.limits.maxPerStageDescriptorSamplers, properties.limits.maxDescriptorSetSamplers,
+                properties.limits.maxPerStageDescriptorSampledImages, properties.limits.maxDescriptorSetSampledImages,
+                properties.limits.maxPerStageResources});
+  const auto reject_capacity = [&](const char* resource_type, const uint64_t capacity, const uint64_t requested_slot) {
+    EVOENGINE_WARNING(resource_type << " descriptor array rejected: requested slot " << requested_slot
+                                    << ", configured capacity " << capacity << ", current occupancy 0, device limit "
+                                    << sampled_descriptor_limit << ".")
+    return false;
+  };
+  const uint64_t texture_2d_capacity = graphics_settings.max_texture_2d_resource_size;
+  const uint64_t cubemap_capacity = graphics_settings.max_cubemap_resource_size;
+  if (texture_2d_capacity == 0 || texture_2d_capacity > sampled_descriptor_limit)
+    return reject_capacity("2D sampled texture", texture_2d_capacity,
+                           texture_2d_capacity ? texture_2d_capacity - 1 : 0);
+  if (cubemap_capacity == 0 || cubemap_capacity > sampled_descriptor_limit)
+    return reject_capacity("Cubemap sampled texture", cubemap_capacity, cubemap_capacity ? cubemap_capacity - 1 : 0);
+  const uint64_t combined_capacity = texture_2d_capacity + cubemap_capacity;
+  if (combined_capacity > sampled_descriptor_limit)
+    return reject_capacity("Combined 2D and cubemap sampled texture", combined_capacity, combined_capacity - 1);
+
   const auto effective_api_version = std::min(volkGetInstanceVersion(), properties.apiVersion);
   if (effective_api_version < VK_API_VERSION_1_3 &&
       !CheckExtensionSupport(VK_KHR_FORMAT_FEATURE_FLAGS_2_EXTENSION_NAME)) {
@@ -2091,6 +2125,8 @@ void Platform::PhysicalDevice::QueryInformation() {
     acceleration_structure_features.pNext = feature_chain_tail;
     feature_chain_tail = &acceleration_structure_features;
   }
+  vulkan12_features.pNext = feature_chain_tail;
+  feature_chain_tail = &vulkan12_features;
   device_features.pNext = feature_chain_tail;
 
   vkGetPhysicalDeviceFeatures2(vk_physical_device, &device_features);
@@ -2283,6 +2319,7 @@ void Platform::CreateLogicalDevice() {
   vk_physical_device_vulkan12_features.storagePushConstant8 = VK_TRUE;
   vk_physical_device_vulkan12_features.descriptorBindingPartiallyBound = VK_TRUE;
   vk_physical_device_vulkan12_features.runtimeDescriptorArray = VK_TRUE;
+  vk_physical_device_vulkan12_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
   vk_physical_device_vulkan12_features.bufferDeviceAddress = VK_TRUE;
 
   VkPhysicalDeviceVulkan11Features vk_physical_device_vulkan11_features{};

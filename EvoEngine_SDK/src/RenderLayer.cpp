@@ -97,14 +97,7 @@ constexpr uint32_t kDdgiSceneInputSettleFrameCount = 1;
 constexpr uint32_t kDdgiLightingIrradianceBinding = 17;
 constexpr uint32_t kDdgiLightingVisibilityBinding = 18;
 constexpr uint32_t kDdgiLightingProbeStateBinding = 19;
-constexpr uint32_t kRasterLightingBrdfLutBinding = 0;
-constexpr uint32_t kRasterLightingSkyboxBinding = 1;
-constexpr uint32_t kRasterLightingIrradianceBinding = 2;
-constexpr uint32_t kRasterLightingPrefilteredBinding = 3;
 constexpr uint32_t kRasterLightingAmbientOcclusionBinding = 4;
-constexpr uint32_t kRasterLightingReflectionProbesBinding = 5;
-constexpr uint32_t kRasterLightingDescriptorSamplerCount = 69;
-constexpr uint32_t kRasterLightingMaxPerStageSamplerCount = 69;
 constexpr uint32_t kStandaloneReflectionProbeBakeMaxRetryFrames = 600;
 
 std::shared_ptr<GlobalReflectionProbe> GetAssignedGlobalReflectionProbe(const std::shared_ptr<Scene>& scene) {
@@ -275,7 +268,7 @@ RenderGraphCompileContext CreateFrameRenderGraphCompileContext() {
 }
 
 bool ShouldCreatePerFrameBindlessTextureDescriptors() {
-  return Platform::RayTracingEnabled() || Platform::RayQueryEnabled();
+  return true;
 }
 
 void PushPerFrameSceneDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
@@ -1562,8 +1555,16 @@ const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRenderTexturePresent
   return render_texture_present_layout_;
 }
 
-const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRasterMaterialDescriptorSetLayout() const {
-  return raster_material_layout_;
+bool RenderLayer::SharedTextureDescriptorArraysEnabled() const {
+  return per_frame_bindless_texture_descriptors_enabled_;
+}
+
+const std::vector<uint64_t>& RenderLayer::GetPerFrameTexture2DAppliedRevisions() const {
+  return per_frame_texture_2d_applied_revisions_;
+}
+
+const std::vector<uint64_t>& RenderLayer::GetPerFrameCubemapAppliedRevisions() const {
+  return per_frame_cubemap_applied_revisions_;
 }
 
 const std::shared_ptr<DescriptorSetLayout>& RenderLayer::GetRasterLightingTextureDescriptorSetLayout() const {
@@ -1588,42 +1589,21 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     per_frame_bindless_texture_descriptors_enabled_ = ShouldCreatePerFrameBindlessTextureDescriptors();
     if (per_frame_bindless_texture_descriptors_enabled_) {
       PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_, application_initialization_settings);
+      EVOENGINE_LOG("Shared sampled-texture arrays active: 2D capacity="
+                    << application_initialization_settings.graphics_settings.max_texture_2d_resource_size
+                    << ", cubemap capacity="
+                    << application_initialization_settings.graphics_settings.max_cubemap_resource_size
+                    << ", raster=true, ray tracing=" << Platform::RayTracingEnabled()
+                    << ", ray query=" << Platform::RayQueryEnabled())
     }
     PushPerFrameMaterialBufferDescriptorBindings(per_frame_layout_);
     per_frame_layout_->Initialize();
   }
-  if (!raster_material_per_frame_layout_) {
-    raster_material_per_frame_layout_ = std::make_shared<DescriptorSetLayout>();
-    PushPerFrameSceneDescriptorBindings(raster_material_per_frame_layout_);
-    PushPerFrameMaterialBufferDescriptorBindings(raster_material_per_frame_layout_);
-    raster_material_per_frame_layout_->Initialize();
-  }
-  if (!raster_material_layout_) {
-    raster_material_layout_ = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding < RenderInstanceStorage::kRasterMaterialTextureSlotCount; binding++) {
-      raster_material_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                     VK_SHADER_STAGE_FRAGMENT_BIT, 0);
-    }
-    raster_material_layout_->Initialize();
-  }
   if (!raster_lighting_texture_layout_) {
-    const auto& limits = Platform::GetSelectedPhysicalDevice()->properties.limits;
-    if (limits.maxPerStageDescriptorSamplers < kRasterLightingMaxPerStageSamplerCount ||
-        limits.maxDescriptorSetSamplers < kRasterLightingDescriptorSamplerCount ||
-        limits.maxPerStageDescriptorSampledImages < kRasterLightingMaxPerStageSamplerCount ||
-        limits.maxDescriptorSetSampledImages < kRasterLightingDescriptorSamplerCount) {
-      throw std::runtime_error(
-          "The selected Vulkan device cannot bind two generations for 32 spatial reflection probes.");
-    }
     raster_lighting_texture_layout_ = std::make_shared<DescriptorSetLayout>();
     constexpr auto lighting_texture_stages = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT;
-    for (uint32_t binding = 0; binding < 5; binding++) {
-      raster_lighting_texture_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                             lighting_texture_stages, 0);
-    }
     raster_lighting_texture_layout_->PushDescriptorBinding(
-        kRasterLightingReflectionProbesBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_texture_stages, 0,
-        RenderInstanceStorage::kReflectionProbeMaxCount * 2u);
+        kRasterLightingAmbientOcclusionBinding, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, lighting_texture_stages, 0);
     raster_lighting_texture_layout_->Initialize();
   }
   if (!meshlet_layout_) {
@@ -2364,10 +2344,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     deferred_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
-    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
     deferred_geometry_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_geometry_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_geometry_pipeline_normal->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2389,10 +2368,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     deferred_geometry_pipeline_mesh->geometry_type = GeometryType::Mesh;
-    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
     deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(raster_material_layout_);
     deferred_geometry_pipeline_mesh->depth_attachment_format = Platform::Constants::render_texture_depth;
     deferred_geometry_pipeline_mesh->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     deferred_geometry_pipeline_mesh->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2411,10 +2389,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     instanced_deferred_geometry_pipeline->geometry_type = GeometryType::Mesh;
-    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
     instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     instanced_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     instanced_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     instanced_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2433,10 +2410,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     skinned_deferred_geometry_pipeline->geometry_type = GeometryType::SkinnedMesh;
-    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     skinned_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     skinned_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2456,10 +2432,9 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/SkinnedMotionVectors.slang");
     skinned_motion_vectors_pipeline_->geometry_type = GeometryType::SkinnedMesh;
     skinned_motion_vectors_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors;
-    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
     skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_coverage_layout_);
-    skinned_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_layout_);
     skinned_motion_vectors_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
     skinned_motion_vectors_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     skinned_motion_vectors_pipeline_->color_attachment_formats = {VK_FORMAT_R16G16B16A16_SFLOAT};
@@ -2479,10 +2454,9 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/TransparentMotionVectors.slang");
     transparent_motion_vectors_pipeline_->geometry_type = GeometryType::Mesh;
     transparent_motion_vectors_pipeline_->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors;
-    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(motion_coverage_layout_);
-    transparent_motion_vectors_pipeline_->descriptor_set_layouts.emplace_back(raster_material_layout_);
     transparent_motion_vectors_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
     transparent_motion_vectors_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     transparent_motion_vectors_pipeline_->color_attachment_formats = {VK_FORMAT_R16G16B16A16_SFLOAT};
@@ -2504,10 +2478,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
     strands_deferred_geometry_pipeline->vertex_input_enabled = false;
-    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
     strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
-    strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(raster_material_layout_);
     strands_deferred_geometry_pipeline->depth_attachment_format = Platform::Constants::render_texture_depth;
     strands_deferred_geometry_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
     strands_deferred_geometry_pipeline->color_attachment_formats = CreateDeferredGBufferColorAttachmentFormats();
@@ -2526,7 +2499,7 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredLighting.slang");
     deferred_lighting_pass_pipeline->geometry_type = GeometryType::Mesh;
     deferred_lighting_pass_pipeline->vertex_input_attribute_set = VertexInputAttributeSet::PositionTexCoord;
-    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(lighting_layout_);
     deferred_lighting_pass_pipeline->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
@@ -2549,8 +2522,7 @@ void RenderLayer::OnCreate() {
     deferred_lighting_pass_pipeline_scene_camera->geometry_type = GeometryType::Mesh;
     deferred_lighting_pass_pipeline_scene_camera->vertex_input_attribute_set =
         VertexInputAttributeSet::PositionTexCoord;
-    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(
-        raster_material_per_frame_layout_);
+    deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
     deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(lighting_layout_);
     deferred_lighting_pass_pipeline_scene_camera->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
@@ -2592,10 +2564,9 @@ void RenderLayer::OnCreate() {
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardTransparent.slang");
     transparent_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
-    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_per_frame_layout_);
+    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(lighting_layout_);
-    transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_material_layout_);
     transparent_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
     transparent_geometry_pipeline_normal->depth_attachment_format = Platform::Constants::render_texture_depth;
     transparent_geometry_pipeline_normal->stencil_attachment_format = VK_FORMAT_UNDEFINED;
@@ -2890,15 +2861,11 @@ void RenderLayer::OnCreate() {
         std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info));
   }
   per_frame_descriptor_sets_.clear();
+  per_frame_texture_2d_applied_revisions_.assign(max_frames_in_flight, 0);
+  per_frame_cubemap_applied_revisions_.assign(max_frames_in_flight, 0);
   for (size_t i = 0; i < max_frames_in_flight; i++) {
     auto descriptor_set = std::make_shared<DescriptorSet>(per_frame_layout_);
     per_frame_descriptor_sets_.emplace_back(descriptor_set);
-  }
-
-  raster_material_per_frame_descriptor_sets_.clear();
-  for (size_t i = 0; i < max_frames_in_flight; i++) {
-    auto descriptor_set = std::make_shared<DescriptorSet>(raster_material_per_frame_layout_);
-    raster_material_per_frame_descriptor_sets_.emplace_back(descriptor_set);
   }
 
   raster_lighting_texture_descriptor_sets_.clear();
@@ -2942,45 +2909,16 @@ void RenderLayer::OnCreate() {
   log_startup(true);
 }
 
-void RenderLayer::EnsureRasterMaterialFallbackTextures() const {
+void RenderLayer::EnsureRasterLightingFallbackTexture() const {
   const auto create_fallback_texture = [](const glm::vec4& color) {
     auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
     texture->SetRgbaChannelData({color}, {1, 1}, false);
     texture->UnsafeUploadDataImmediately();
     return texture;
   };
-  if (!raster_material_white_fallback_texture_) {
-    raster_material_white_fallback_texture_ = create_fallback_texture(glm::vec4(1.0f));
+  if (!raster_lighting_white_fallback_texture_) {
+    raster_lighting_white_fallback_texture_ = create_fallback_texture(glm::vec4(1.0f));
   }
-  if (!raster_material_black_fallback_texture_) {
-    raster_material_black_fallback_texture_ = create_fallback_texture(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-  }
-  if (!raster_material_flat_normal_fallback_texture_) {
-    raster_material_flat_normal_fallback_texture_ = create_fallback_texture(glm::vec4(0.5f, 0.5f, 1.0f, 1.0f));
-  }
-}
-
-std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
-RenderLayer::GetRasterMaterialFallbackDescriptorImageInfos() const {
-  EnsureRasterMaterialFallbackTextures();
-  std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount> image_infos{};
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[0]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[1]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(
-      raster_material_flat_normal_fallback_texture_->GetTextureStorageIndex(), image_infos[2]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_black_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[3]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[4]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[5]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(raster_material_white_fallback_texture_->GetTextureStorageIndex(),
-                                                     image_infos[6]);
-  TextureStorage::TryGetTexture2DDescriptorImageInfo(
-      raster_material_flat_normal_fallback_texture_->GetTextureStorageIndex(), image_infos[7]);
-  return image_infos;
 }
 
 void RenderLayer::ClearAllEditorCameras() const {
@@ -4092,9 +4030,6 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
 
 void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
                                             const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
-  render_instances->RefreshRasterMaterialDescriptorSets(raster_material_layout_,
-                                                        GetRasterMaterialFallbackDescriptorImageInfos());
-
   const auto update_per_frame_buffers = [&](const std::shared_ptr<DescriptorSet>& descriptor_set) {
     descriptor_set->UpdateBufferDescriptorBinding(0, render_instances->render_info_descriptor_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(1, render_instances->environment_info_descriptor_buffer);
@@ -4109,7 +4044,6 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
     descriptor_set->UpdateBufferDescriptorBinding(14, render_instances->raster_draw_instance_indices_buffer);
   };
   update_per_frame_buffers(per_frame_descriptor_sets_[current_frame_index]);
-  update_per_frame_buffers(raster_material_per_frame_descriptor_sets_[current_frame_index]);
 
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(0, GeometryStorage::GetVertexBuffer());
   meshlet_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(1, GeometryStorage::GetMeshletBuffer());
@@ -4121,8 +4055,16 @@ void RenderLayer::BindRenderInstanceStorage(const uint32_t current_frame_index,
   }
 
   if (per_frame_bindless_texture_descriptors_enabled_) {
-    TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
-    TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+    const auto texture_2d_revision = TextureStorage::GetTexture2DDescriptorRevision();
+    if (per_frame_texture_2d_applied_revisions_[current_frame_index] != texture_2d_revision) {
+      TextureStorage::BindTexture2DToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 9);
+      per_frame_texture_2d_applied_revisions_[current_frame_index] = texture_2d_revision;
+    }
+    const auto cubemap_revision = TextureStorage::GetCubemapDescriptorRevision();
+    if (per_frame_cubemap_applied_revisions_[current_frame_index] != cubemap_revision) {
+      TextureStorage::BindCubemapToDescriptorSet(per_frame_descriptor_sets_[current_frame_index], 10);
+      per_frame_cubemap_applied_revisions_[current_frame_index] = cubemap_revision;
+    }
   }
   if (Platform::RayAccelerationStructureEnabled() && current_frame_index < ray_tracing_descriptor_sets_.size()) {
     ray_tracing_descriptor_sets_[current_frame_index]->UpdateBufferDescriptorBinding(
@@ -4151,93 +4093,12 @@ std::shared_ptr<DescriptorSet> RenderLayer::GetRasterLightingTextureDescriptorSe
   if (!descriptor_set) {
     descriptor_set = std::make_shared<DescriptorSet>(raster_lighting_texture_layout_);
   }
-  EnsureRasterMaterialFallbackTextures();
+  EnsureRasterLightingFallbackTexture();
 
-  const auto bind_texture_2d = [&](const uint32_t binding, const uint32_t texture_index,
-                                   const std::shared_ptr<Texture2D>& fallback) {
-    VkDescriptorImageInfo image_info{};
-    if (TextureStorage::TryGetTexture2DDescriptorImageInfo(texture_index, image_info) ||
-        (fallback &&
-         TextureStorage::TryGetTexture2DDescriptorImageInfo(fallback->GetTextureStorageIndex(), image_info))) {
-      descriptor_set->UpdateImageDescriptorBinding(binding, image_info);
-    }
-  };
-  const auto bind_cubemap = [&](const uint32_t binding, const int texture_index,
-                                const std::shared_ptr<Cubemap>& fallback) {
-    VkDescriptorImageInfo image_info{};
-    if ((texture_index >= 0 &&
-         TextureStorage::TryGetCubemapDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) ||
-        (fallback &&
-         TextureStorage::TryGetCubemapDescriptorImageInfo(fallback->GetTextureStorageIndex(), image_info))) {
-      descriptor_set->UpdateImageDescriptorBinding(binding, image_info);
-    }
-  };
-
-  auto default_skybox = Resources::GetInstance().GetDefaultSkybox();
-  std::shared_ptr<Cubemap> default_irradiance;
-  std::shared_ptr<Cubemap> default_prefiltered;
-  if (const auto default_environment = Resources::GetInstance().GetDefaultEnvironmentalMap()) {
-    if (const auto light_probe = default_environment->light_probe.Get<LightProbe>()) {
-      default_irradiance = light_probe->GetCubemap();
-    }
-  }
-  if (const auto reflection_probe = Resources::GetInstance().GetDefaultGlobalReflectionProbe()) {
-    default_prefiltered = reflection_probe->GetCubemap();
-  }
-  if (!default_irradiance) {
-    default_irradiance = default_skybox;
-  }
-  if (!default_prefiltered) {
-    default_prefiltered = default_skybox;
-  }
-
-  const auto& camera_info = render_instances->camera_info_blocks_[camera_index];
-  bind_texture_2d(kRasterLightingBrdfLutBinding,
-                  environmental_brdf_lut_ ? environmental_brdf_lut_->GetTextureStorageIndex() : 0u,
-                  raster_material_white_fallback_texture_);
-  bind_cubemap(kRasterLightingSkyboxBinding, camera_info.skybox_texture_index, default_skybox);
-  bind_cubemap(kRasterLightingIrradianceBinding, camera_info.environmental_irradiance_texture_index,
-               default_irradiance);
-  VkDescriptorImageInfo global_prefiltered_info{};
-  const bool has_global_prefiltered =
-      (camera_info.environmental_prefiltered_index >= 0 &&
-       TextureStorage::TryGetCubemapDescriptorImageInfo(
-           static_cast<uint32_t>(camera_info.environmental_prefiltered_index), global_prefiltered_info)) ||
-      (default_prefiltered && TextureStorage::TryGetCubemapDescriptorImageInfo(
-                                  default_prefiltered->GetTextureStorageIndex(), global_prefiltered_info));
-  if (has_global_prefiltered) {
-    descriptor_set->UpdateImageDescriptorBinding(kRasterLightingPrefilteredBinding, global_prefiltered_info);
-  }
-  bind_texture_2d(kRasterLightingAmbientOcclusionBinding, (std::numeric_limits<uint32_t>::max)(),
-                  raster_material_white_fallback_texture_);
-  for (uint32_t probe_slot = 0; probe_slot < RenderInstanceStorage::kReflectionProbeMaxCount; ++probe_slot) {
-    VkDescriptorImageInfo source_info{};
-    VkDescriptorImageInfo target_info{};
-    bool source_bound = false;
-    bool target_bound = false;
-    if (probe_slot < render_instances->render_info_block.reflection_probe_header.x) {
-      const auto& probe = render_instances->render_info_block.reflection_probes[probe_slot];
-      source_bound = probe.identity_and_flags.y != 0u &&
-                     TextureStorage::TryGetCubemapDescriptorImageInfo(probe.identity_and_flags.x, source_info);
-      target_bound = probe.transition_parameters.y != 0u &&
-                     TextureStorage::TryGetCubemapDescriptorImageInfo(probe.transition_parameters.x, target_info);
-    }
-    if (!source_bound && has_global_prefiltered) {
-      source_info = global_prefiltered_info;
-      source_bound = true;
-    }
-    if (!target_bound && has_global_prefiltered) {
-      target_info = global_prefiltered_info;
-      target_bound = true;
-    }
-    if (source_bound) {
-      descriptor_set->UpdateImageDescriptorBinding(kRasterLightingReflectionProbesBinding, source_info,
-                                                   probe_slot * 2u);
-    }
-    if (target_bound) {
-      descriptor_set->UpdateImageDescriptorBinding(kRasterLightingReflectionProbesBinding, target_info,
-                                                   probe_slot * 2u + 1u);
-    }
+  VkDescriptorImageInfo ambient_occlusion_info{};
+  if (TextureStorage::TryGetTexture2DDescriptorImageInfo(
+          raster_lighting_white_fallback_texture_->GetTextureStorageIndex(), ambient_occlusion_info)) {
+    descriptor_set->UpdateImageDescriptorBinding(kRasterLightingAmbientOcclusionBinding, ambient_occlusion_info);
   }
   return descriptor_set;
 }
@@ -4737,7 +4598,7 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       instanced_deferred_geometry_pipeline,
                       skinned_deferred_geometry_pipeline,
                       capture.use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
-                      raster_material_per_frame_descriptor_sets_[capture.current_frame_index],
+                      per_frame_descriptor_sets_[capture.current_frame_index],
                       meshlet_descriptor_sets_[capture.current_frame_index],
                       capture.use_mesh_shader ? strand_meshlet_descriptor_sets_[capture.current_frame_index] : nullptr,
                       capture.camera_index,
@@ -4754,7 +4615,7 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
         const auto& capture = *reflection_probe_capture_graph_context_;
         DeferredLightingPass::Execute(context, {capture.camera,
                                                 deferred_lighting_pass_pipeline,
-                                                raster_material_per_frame_descriptor_sets_[capture.current_frame_index],
+                                                per_frame_descriptor_sets_[capture.current_frame_index],
                                                 capture.lighting_descriptor_set,
                                                 capture.raster_lighting_texture_descriptor_set,
                                                 capture.camera_index,
@@ -7380,8 +7241,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               context,
               {camera, current_render_instances, deferred_geometry_pipeline, instanced_deferred_geometry_pipeline,
                skinned_deferred_geometry_pipeline, use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
-               raster_material_per_frame_descriptor_sets_[current_frame_index],
-               meshlet_descriptor_sets_[current_frame_index],
+               per_frame_descriptor_sets_[current_frame_index], meshlet_descriptor_sets_[current_frame_index],
                use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr, camera_index,
                current_frame_index, use_mesh_shader, enable_indirect_rendering, count_draw_calls,
                reflection_probe_capture ? false : wire_frame,
@@ -7411,7 +7271,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           MotionCoveragePass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
             MotionCoveragePass::Execute(
                 context,
-                {camera, current_render_instances, raster_material_per_frame_descriptor_sets_[current_frame_index],
+                {camera, current_render_instances, per_frame_descriptor_sets_[current_frame_index],
                  skinned_motion_vectors_pipeline_, transparent_motion_vectors_pipeline_, motion_coverage_layout_,
                  active_camera_transient_resources, camera_index, wire_frame, record_commands});
           });
@@ -7434,7 +7294,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
               is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
           DeferredLightingPass::Execute(
               context,
-              {camera, deferred_lighting_pipeline, raster_material_per_frame_descriptor_sets_[current_frame_index],
+              {camera, deferred_lighting_pipeline, per_frame_descriptor_sets_[current_frame_index],
                lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
                directional_shadow_camera_index, current_frame_index, count_draw_calls, reflection_probe_capture,
                [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
@@ -7506,7 +7366,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
           [&](const RenderGraphExecutionContext& context) {
             TransparentGeometryPass::Execute(
                 context, {camera, current_render_instances, transparent_geometry_pipeline_normal,
-                          raster_material_per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
+                          per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
                           raster_lighting_texture_descriptor_set, camera_index, current_frame_index, count_draw_calls,
                           reflection_probe_capture ? false : wire_frame, record_commands});
           });
