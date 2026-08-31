@@ -57,7 +57,8 @@ class MeshletObjExport {
 
   /// Merge currently co-located meshlet vertices that still share an intact segment-pair connection:
   /// group by exact @c x0, build a connection graph from active rod-element neighbors, then replace each
-  /// connected component with its mean @c x.
+  /// connected component with its mean @c x. Unmatched vertices on the same segment-pair triangle sheet
+  /// inherit the displacement of the nearest seam @c x0 anchor (translation only; no extrapolating linear map).
   static void ApplySmoothing(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
                              std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
                              const std::vector<DynamicStrands::GpuSegment>& segments,

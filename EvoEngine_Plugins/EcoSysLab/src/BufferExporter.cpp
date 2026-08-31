@@ -4,8 +4,10 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 using namespace eco_sys_lab_plugin;
@@ -113,6 +115,119 @@ bool AreSegmentsStillConnected(const int segment_a, const int segment_b,
     return pair.bend_twist_bundle_integrity > 0.f;
   }
   return false;
+}
+
+struct TriangleSmoothingGroupKey {
+  int segment_pair_index = -1;
+  int owner_segment_index = -1;
+  int neighbor_segment_index = -1;
+
+  bool operator==(const TriangleSmoothingGroupKey& other) const {
+    return segment_pair_index == other.segment_pair_index && owner_segment_index == other.owner_segment_index &&
+           neighbor_segment_index == other.neighbor_segment_index;
+  }
+};
+
+struct TriangleSmoothingGroupKeyHash {
+  size_t operator()(const TriangleSmoothingGroupKey& key) const {
+    size_t h = static_cast<size_t>(key.segment_pair_index + 2);
+    h ^= static_cast<size_t>(key.owner_segment_index + 1) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    h ^= static_cast<size_t>(key.neighbor_segment_index + 3) + 0x9e3779b9 + (h << 6) + (h >> 2);
+    return h;
+  }
+};
+
+TriangleSmoothingGroupKey SmoothingGroupKeyFromTriangle(
+    const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices) {
+  const int owner_segment_index = static_cast<int>(vertices[triangle.vertex_index0].segment_index);
+  if (triangle.segment_pair_index >= 0) {
+    return TriangleSmoothingGroupKey{triangle.segment_pair_index, owner_segment_index, triangle.neighbor_segment_index};
+  }
+  return TriangleSmoothingGroupKey{-1, owner_segment_index, triangle.neighbor_segment_index};
+}
+
+/// Seam anchor: one matched @c x0 location on a triangle sheet and its mean displacement after smoothing.
+struct SeamAnchor {
+  ExactX0Key x0_key{};
+  glm::vec3 reference_position{0.f};
+  glm::vec3 displacement{0.f};
+};
+
+void PropagateSmoothingToUnmatchedVertices(
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+    const std::vector<glm::vec3>& x_before,
+    const std::vector<uint8_t>& was_smoothed,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
+  std::unordered_map<TriangleSmoothingGroupKey, std::unordered_set<size_t>, TriangleSmoothingGroupKeyHash> group_vertices;
+  group_vertices.reserve(triangles.size());
+
+  for (const auto& triangle : triangles) {
+    const TriangleSmoothingGroupKey key = SmoothingGroupKeyFromTriangle(triangle, vertices);
+    auto& members = group_vertices[key];
+    members.insert(triangle.vertex_index0);
+    members.insert(triangle.vertex_index1);
+    members.insert(triangle.vertex_index2);
+  }
+
+  for (const auto& [key, member_indices] : group_vertices) {
+    (void)key;
+
+    std::unordered_map<ExactX0Key, std::pair<glm::vec3, glm::vec3>, ExactX0KeyHash> seam_accum;
+    seam_accum.reserve(member_indices.size());
+    std::unordered_map<ExactX0Key, size_t, ExactX0KeyHash> seam_counts;
+
+    for (const size_t vertex_index : member_indices) {
+      if (vertex_index >= was_smoothed.size() || !was_smoothed[vertex_index]) {
+        continue;
+      }
+      const ExactX0Key x0_key = ExactX0Key::From(vertices[vertex_index].x0);
+      auto& sums = seam_accum[x0_key];
+      sums.first += x_before[vertex_index];
+      sums.second += vertices[vertex_index].x;
+      ++seam_counts[x0_key];
+    }
+
+    if (seam_accum.empty()) {
+      continue;
+    }
+
+    std::vector<SeamAnchor> anchors;
+    anchors.reserve(seam_accum.size());
+    for (const auto& [x0_key, sums] : seam_accum) {
+      const size_t count = seam_counts[x0_key];
+      if (count == 0) {
+        continue;
+      }
+      const float inv = 1.f / static_cast<float>(count);
+      SeamAnchor anchor;
+      anchor.x0_key = x0_key;
+      anchor.reference_position = sums.first * inv;
+      anchor.displacement = sums.second * inv - anchor.reference_position;
+      anchors.push_back(anchor);
+    }
+
+    for (const size_t vertex_index : member_indices) {
+      if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
+        continue;
+      }
+
+      const glm::vec3 query = x_before[vertex_index];
+      float best_distance_sq = std::numeric_limits<float>::max();
+      const SeamAnchor* best_anchor = nullptr;
+      for (const SeamAnchor& anchor : anchors) {
+        const glm::vec3 delta = query - anchor.reference_position;
+        const float distance_sq = glm::dot(delta, delta);
+        if (distance_sq < best_distance_sq) {
+          best_distance_sq = distance_sq;
+          best_anchor = &anchor;
+        }
+      }
+      if (best_anchor != nullptr) {
+        vertices[vertex_index].x = query + best_anchor->displacement;
+      }
+    }
+  }
 }
 
 constexpr int kNeighborMatGrey = 0;
@@ -490,13 +605,19 @@ void MeshletObjExport::AppendGpuAttributes(kinDS::ObjExportGpuAttributes& dst,
 
 void MeshletObjExport::ApplySmoothing(
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
-    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& /*triangles*/,
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles,
     const std::vector<DynamicStrands::GpuSegment>& segments,
     const std::vector<DynamicStrands::GpuSegmentPair>& segment_pairs,
     const std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
   if (vertices.size() < 2) {
     return;
   }
+
+  std::vector<glm::vec3> x_before(vertices.size());
+  for (size_t i = 0; i < vertices.size(); ++i) {
+    x_before[i] = vertices[i].x;
+  }
+  std::vector<uint8_t> was_smoothed(vertices.size(), 0);
 
   std::unordered_map<ExactX0Key, std::vector<size_t>, ExactX0KeyHash> groups_by_x0;
   groups_by_x0.reserve(vertices.size());
@@ -541,9 +662,12 @@ void MeshletObjExport::ApplySmoothing(
       mean_x *= inv;
       for (const size_t vertex_index : component) {
         vertices[vertex_index].x = mean_x;
+        was_smoothed[vertex_index] = 1;
       }
     }
   }
+
+  PropagateSmoothingToUnmatchedVertices(vertices, x_before, was_smoothed, triangles);
 }
 
 void MeshletObjExport::ExportObj(const std::filesystem::path& path,

@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include "DsMeshing.hpp"
+#include "DynamicStrandsInitializationParameters.hpp"
 #include "Entity.hpp"
 #include "Transform.hpp"
 #include "kinDS/kinDS/TreeMesher.hpp"
@@ -167,6 +168,8 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   std::vector<std::vector<int>> meshing_neighbor_indices_;
   /// Root transform used when uploading meshlets to GPU (tree frame → GPU/world frame).
   GlobalTransform meshlets_root_transform_{};
+  /// Cached from @ref InitData; used when rebuilding pair rest state after intersection compact.
+  DynamicStrandsInitializeParameters initialize_parameters_{};
 
   // registration
   void RegisterSegmentMeshletsRenderInstance(Handle& rendering_instance_handle, std::shared_ptr<Scene> scene,

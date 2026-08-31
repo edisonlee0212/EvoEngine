@@ -25,6 +25,7 @@
 #include "DsIntersectionBoundaryMesh.hpp"
 #include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsInitializationParameters.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform/Platform.hpp"
@@ -60,6 +61,145 @@ int EffectiveSegmentMeshletColorMode(const DsKineticVoronoiMeshing::SegmentMeshl
     return kColorNeighborConnectivity;
   }
   return parameters.color_mode;
+}
+
+bool SegmentPairNeedsMaterialInit(const DynamicStrands::GpuSegmentPair& pair) {
+  return pair.max_bending_modulus <= 0.f || pair.max_torsion_modulus <= 0.f;
+}
+
+void CopySegmentPairMaterialProperties(DynamicStrands::GpuSegmentPair& dst, const DynamicStrands::GpuSegmentPair& src) {
+  dst.bending_alpha = src.bending_alpha;
+  dst.torsion_alpha = src.torsion_alpha;
+  dst.max_bending_modulus = src.max_bending_modulus;
+  dst.max_torsion_modulus = src.max_torsion_modulus;
+  dst.max_bending_twist_bundle_strain = src.max_bending_twist_bundle_strain;
+  dst.bending_twist_bundle_strain_limit = src.bending_twist_bundle_strain_limit;
+  dst.max_connectivity_strain = src.max_connectivity_strain;
+  dst.connectivity_strain_limit = src.connectivity_strain_limit;
+}
+
+void InitializeCompactedSegmentPair(DynamicStrands::GpuSegmentPair& pair, DynamicStrands::GpuSegment& segment0,
+  DynamicStrands::GpuSegment& segment1, const bool direct_connection,
+  const DynamicStrandsInitializeParameters& initialize_parameters,
+  const DynamicStrands::GpuSegmentPair* material_template = nullptr) {
+  const glm::vec3 segment0_center = (segment0.particle0.x + segment0.particle1.x) * 0.5f;
+  const glm::vec3 segment1_center = (segment1.particle0.x + segment1.particle1.x) * 0.5f;
+  pair.segment0_offset = glm::vec4(glm::inverse(segment1.q) * (segment0_center - segment1_center), 0.0f);
+  pair.segment1_offset = glm::vec4(glm::inverse(segment0.q) * (segment1_center - segment0_center), 0.0f);
+  pair.rest_darboux_vector = glm::conjugate(segment0.q) * segment1.q;
+
+  pair.bending_twist_bundle_strain = glm::vec3(0.f);
+  pair.connectivity_strain = 0.f;
+  pair.bend_twist_bundle_integrity = 1.f;
+  pair.connectivity_integrity = direct_connection ? 1.f : 0.f;
+  pair.compression_lock = pair.positional_lock = pair.rotational_lock = pair.tensile_lock = 0;
+
+  if (!SegmentPairNeedsMaterialInit(pair)) {
+    return;
+  }
+  if (material_template != nullptr && !SegmentPairNeedsMaterialInit(*material_template)) {
+    CopySegmentPairMaterialProperties(pair, *material_template);
+    return;
+  }
+
+  const float root_distance = (segment0.particle0.root_distance + segment0.particle1.root_distance +
+                                segment1.particle0.root_distance + segment1.particle1.root_distance) *
+                               0.25f;
+  const float distance_to_boundary = (segment0.boundary_distance + segment1.boundary_distance) * 0.5f;
+
+  BiologicalPropertiesGraph::Input biological_properties_input;
+  biological_properties_input.root_distance = root_distance;
+  biological_properties_input.polar_distance =
+      (segment0.profile_polar_coordinate.x + segment1.profile_polar_coordinate.x) * 0.5f;
+  biological_properties_input.polar_angle =
+      (segment0.profile_polar_coordinate.y + segment1.profile_polar_coordinate.y) * 0.5f;
+  biological_properties_input.profile_boundary_distance = distance_to_boundary;
+  const BiologicalPropertiesGraph::Output biological_properties =
+      initialize_parameters.biological_properties_graph.GetValues(biological_properties_input);
+  const float trunk_strength_factor =
+      initialize_parameters.trunk_additional_strength
+          ? ActivationFunction::Sigmoid(biological_properties.trunk_additional_strength_factor, 0.f,
+                                        biological_properties.trunk_offset, 1.f / biological_properties.trunk_transition,
+                                        root_distance)
+          : 0.f;
+
+  ModulusGraph::Input modulus_graph_input;
+  modulus_graph_input.root_distance = root_distance;
+  modulus_graph_input.polar_distance = biological_properties_input.polar_distance;
+  modulus_graph_input.polar_angle = biological_properties_input.polar_angle;
+  modulus_graph_input.profile_boundary_distance = distance_to_boundary;
+
+  const glm::vec2 max_bending_modulus = initialize_parameters.modulus_graph.GetBendingModulus(modulus_graph_input);
+  pair.max_bending_modulus =
+      glm::max(1e-9f, ActivationFunction::Sigmoid(max_bending_modulus.x, max_bending_modulus.y,
+                                                  initialize_parameters.sapwood_offset,
+                                                  1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
+      1e9f;
+
+  const glm::vec2 max_twisting_modulus = initialize_parameters.modulus_graph.GetTwistingModulus(modulus_graph_input);
+  pair.max_torsion_modulus =
+      glm::max(1e-9f, ActivationFunction::Sigmoid(max_twisting_modulus.x, max_twisting_modulus.y,
+                                                  initialize_parameters.sapwood_offset,
+                                                  1.f / initialize_parameters.wood_transition, distance_to_boundary)) *
+      1e9f;
+
+  const float segment_radius = (segment0.radius + segment1.radius) * 0.5f;
+  const float segment_length = (segment0.rest_length + segment1.rest_length) * 0.5f;
+  const float second_moment_of_area = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.25f;
+  const float polar_moment_of_inertia = glm::pi<float>() * std::pow(segment_radius, 4.f) * 0.5f;
+  pair.bending_alpha = 1.f / (pair.max_bending_modulus * second_moment_of_area / glm::pow(segment_length, 3.f));
+  pair.torsion_alpha = 1.f / (pair.max_torsion_modulus * polar_moment_of_inertia / segment_length);
+
+  StrengthGraph::Input strength_graph_input;
+  strength_graph_input.root_distance = root_distance;
+  strength_graph_input.polar_distance = biological_properties_input.polar_distance;
+  strength_graph_input.polar_angle = biological_properties_input.polar_angle;
+  strength_graph_input.profile_boundary_distance = distance_to_boundary;
+
+  const glm::vec2 bending_strength = initialize_parameters.strength_graph.GetBendingStrength(strength_graph_input);
+  const float max_bending_strain = glm::max(
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(bending_strength.x, bending_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+  const glm::vec2 twisting_strength = initialize_parameters.strength_graph.GetTwistingStrength(strength_graph_input);
+  const float max_twisting_strain = glm::max(
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(twisting_strength.x, twisting_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+  const glm::vec2 bundle_strength = initialize_parameters.strength_graph.GetBundleStrength(strength_graph_input);
+  const float max_bundle_strain = glm::max(
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(bundle_strength.x, bundle_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+  const glm::vec2 connectivity_strength =
+      initialize_parameters.strength_graph.GetConnectivityStrength(strength_graph_input);
+  const float max_connectivity_strain = glm::max(
+      0.001f, trunk_strength_factor + ActivationFunction::Sigmoid(connectivity_strength.x, connectivity_strength.y,
+                                                                    initialize_parameters.sapwood_offset,
+                                                                    1.f / initialize_parameters.wood_transition,
+                                                                    distance_to_boundary));
+  pair.max_bending_twist_bundle_strain = pair.bending_twist_bundle_strain_limit =
+      glm::vec3(max_bending_strain, max_twisting_strain, max_bundle_strain);
+  pair.max_connectivity_strain = pair.connectivity_strain_limit = max_connectivity_strain;
+}
+
+void RecountSegmentPairHandles(std::vector<DynamicStrands::GpuSegment>& segments,
+  std::vector<DynamicStrands::GpuSegmentData>& segment_data_list) {
+  for (auto& segment : segments) {
+    segment.pairs_count = 0;
+  }
+  for (size_t segment_index = 0; segment_index < segment_data_list.size(); ++segment_index) {
+    int pair_count = 0;
+    for (const int pair_handle : segment_data_list[segment_index].pair_handles) {
+      if (pair_handle >= 0) {
+        ++pair_count;
+      }
+    }
+    segments[segment_index].pairs_count = pair_count;
+  }
 }
 
 struct Fnv64 {
@@ -2006,6 +2146,9 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
 
   // Rebuild pair_handles: [0]=below, [1]=above from strand order; laterals in [2+].
   for (auto& data : new_segment_data) {
+    data.particle0_position_correction = glm::vec3(0.f);
+    data.particle1_position_correction = glm::vec3(0.f);
+    data.q_correction = glm::quat(1.f, 0.f, 0.f, 0.f);
     for (int& handle : data.pair_handles) {
       handle = -1;
     }
@@ -2064,18 +2207,33 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
           break;
         }
       }
+      const bool direct_connection = found_old_pair >= 0;
       DynamicStrands::GpuSegmentPair vertical{};
+      const DynamicStrands::GpuSegmentPair* material_template = nullptr;
       if (found_old_pair >= 0) {
         vertical = new_pairs[static_cast<size_t>(found_old_pair)];
-        vertical.segment0_handle = below;
-        vertical.segment1_handle = above;
         // Mark consumed so lateral pass can skip.
         new_pairs[static_cast<size_t>(found_old_pair)].segment0_handle = -1;
         new_pairs[static_cast<size_t>(found_old_pair)].segment1_handle = -1;
       } else {
-        vertical.segment0_handle = below;
-        vertical.segment1_handle = above;
+        for (const auto& cand : new_pairs) {
+          if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
+            continue;
+          }
+          if (cand.segment0_handle == below || cand.segment1_handle == below || cand.segment0_handle == above ||
+              cand.segment1_handle == above) {
+            if (!SegmentPairNeedsMaterialInit(cand)) {
+              material_template = &cand;
+              break;
+            }
+          }
+        }
       }
+      vertical.segment0_handle = below;
+      vertical.segment1_handle = above;
+      InitializeCompactedSegmentPair(vertical, new_segments[static_cast<size_t>(below)],
+                                     new_segments[static_cast<size_t>(above)], direct_connection, initialize_parameters_,
+                                     material_template);
       const int pair_handle = static_cast<int>(ordered_pairs.size());
       ordered_pairs.push_back(vertical);
       new_segment_data[static_cast<size_t>(below)].pair_handles[1] = pair_handle;
@@ -2130,6 +2288,29 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
     new_segment_data[static_cast<size_t>(b)].pair_handles[second_slot] = pair_handle;
     ++first_slot;
     ++second_slot;
+  }
+
+  // Refresh lateral-pair rest pose / zero strains; material props were copied with the pair.
+  for (size_t pair_index = vertical_pair_count; pair_index < ordered_pairs.size(); ++pair_index) {
+    auto& pair = ordered_pairs[pair_index];
+    if (pair.segment0_handle < 0 || pair.segment1_handle < 0) {
+      continue;
+    }
+    InitializeCompactedSegmentPair(pair, new_segments[static_cast<size_t>(pair.segment0_handle)],
+                                   new_segments[static_cast<size_t>(pair.segment1_handle)], false, initialize_parameters_,
+                                   nullptr);
+  }
+
+  RecountSegmentPairHandles(new_segments, new_segment_data);
+
+  for (auto& segment : new_segments) {
+    segment.shear_stretch_strain = 0.f;
+    segment.torque = glm::vec3(0.f);
+    segment.angular_v = glm::vec3(0.f);
+    segment.particle0.v = glm::vec3(0.f);
+    segment.particle1.v = glm::vec3(0.f);
+    segment.particle0.acceleration = glm::vec3(0.f);
+    segment.particle1.acceleration = glm::vec3(0.f);
   }
 
   // Remap foliage.
@@ -2682,6 +2863,7 @@ void eco_sys_lab_plugin::DsKineticVoronoiMeshing::InitData(
     const DynamicStrandsInitializeParameters& initialize_parameters, const StrandModelSkeleton& strand_model_skeleton,
     const StrandModelStrandGroup& strand_model_strand_group, DtsStrandGroup& randomly_subdivided_strand_group,
     DtsStrandGroup& uniformly_subdivided_strand_group) {
+  initialize_parameters_ = initialize_parameters;
   const auto& randomly_subdivided_strands = randomly_subdivided_strand_group.PeekStrands();
   const auto& randomly_subdivided_strand_segments = randomly_subdivided_strand_group.PeekStrandSegments();
   if (randomly_subdivided_strands.empty()) {
