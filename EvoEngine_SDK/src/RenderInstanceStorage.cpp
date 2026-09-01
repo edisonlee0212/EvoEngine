@@ -233,12 +233,6 @@ glm::vec2 SelectTexCoord(const Vertex& vertex, const int32_t tex_coord) {
   if (tex_coord == 1) {
     return vertex.tex_coord_1;
   }
-  if (tex_coord == 2) {
-    return vertex.tex_coord_2;
-  }
-  if (tex_coord == 3) {
-    return vertex.tex_coord_3;
-  }
   return vertex.tex_coord;
 }
 

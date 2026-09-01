@@ -298,7 +298,7 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
   EXPECT_NE(any_hit.find("EE_DDGI_UNIFORM_RAY_COUNT()"), std::string::npos);
   EXPECT_NE(any_hit.find("const bool shadow_ray = hit_value.hit_count != 0u;"), std::string::npos);
   EXPECT_NE(any_hit.find("shadow_ray"), std::string::npos);
-  EXPECT_NE(any_hit.find("float4(0.0f)"), std::string::npos);
+  EXPECT_NE(any_hit.find("float2(0.0f)"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0("), std::string::npos);
   EXPECT_NE(evaluator.find("bool EE_GLTF_RASTER_ALPHA_MASK_PASSES("), std::string::npos);
   EXPECT_NE(evaluator.find("bool EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0("), std::string::npos);
@@ -307,8 +307,8 @@ TEST(GltfRayTracingMaterial, DdgiUsesFilteredCutoutMaterialsAndReusableRaySurfac
             std::string::npos);
 
   EXPECT_NE(ray_material.find("v0.tex_coord_1 * barycentrics.x"), std::string::npos);
-  EXPECT_NE(ray_material.find("v0.tex_coord_2 * barycentrics.x"), std::string::npos);
-  EXPECT_NE(ray_material.find("v0.tex_coord_3 * barycentrics.x"), std::string::npos);
+  EXPECT_EQ(ray_material.find("v0.tex_coord_2"), std::string::npos);
+  EXPECT_EQ(ray_material.find("v0.tex_coord_3"), std::string::npos);
   EXPECT_NE(ray_material.find("attributes.vertex_color = v0.color * barycentrics.x"), std::string::npos);
   EXPECT_NE(ray_material.find("attributes.tangent_handedness = v0.vertex_info3 < 0.0f ? -1.0f : 1.0f"),
             std::string::npos);
@@ -537,7 +537,8 @@ TEST(GltfRayTracingMaterial, RayShadersUseCanonicalMaterialBlockOnly) {
   EXPECT_NE(evaluator.find("float4 EE_GLTF_SAMPLE_TEXTURE_SLOT"), std::string::npos);
   EXPECT_NE(evaluator.find(".SampleLevel(uv, 0.0f)"), std::string::npos);
   EXPECT_NE(evaluator.find("float2 ddx_uv0"), std::string::npos);
-  EXPECT_NE(evaluator.find("float2 ddy_uv3"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddy_uv1"), std::string::npos);
+  EXPECT_EQ(evaluator.find("ddy_uv2"), std::string::npos);
   EXPECT_NE(evaluator.find(".SampleGrad(uv, ddx_uv, ddy_uv)"), std::string::npos);
 }
 
@@ -565,7 +566,8 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   EXPECT_EQ(evaluator.find('#'), std::string::npos);
   EXPECT_EQ(bsdf.find('#'), std::string::npos);
   EXPECT_NE(evaluator.find(".SampleGrad(uv, ddx_uv, ddy_uv)"), std::string::npos);
-  EXPECT_NE(evaluator.find("float2 tex_coord_2, float2 tex_coord_3"), std::string::npos);
+  EXPECT_EQ(evaluator.find("tex_coord_2"), std::string::npos);
+  EXPECT_EQ(evaluator.find("tex_coord_3"), std::string::npos);
 
   EXPECT_NE(bsdf.find("GltfTexCoords tex_coords"), std::string::npos);
   EXPECT_NE(bsdf.find("float4 vertex_color"), std::string::npos);
@@ -573,7 +575,7 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   EXPECT_NE(bsdf.find("material.normal_texture, tex_coords"), std::string::npos);
 
   for (const auto* source : {&raygen, &ray_query}) {
-    EXPECT_NE(source->find("float4 EE_CAMERA_TEXEL_DENSITY"), std::string::npos);
+    EXPECT_NE(source->find("float2 EE_CAMERA_TEXEL_DENSITY"), std::string::npos);
     EXPECT_NE(source->find("return sqrt(uv_area / max(world_area, 1e-20f))"), std::string::npos);
     EXPECT_NE(source->find("float EE_CAMERA_WORLD_FOOTPRINT"), std::string::npos);
     EXPECT_NE(source->find("float EE_CAMERA_RAY_SPREAD_ANGLE"), std::string::npos);
@@ -593,24 +595,23 @@ TEST(GltfRayTracingMaterial, RayTracedTextureLodUsesRayFootprintGradients) {
   }
 
   EXPECT_NE(raygen.find("hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width"), std::string::npos);
-  EXPECT_NE(raygen.find("hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color"),
-            std::string::npos);
-  EXPECT_NE(raygen.find("is_inside, hit.tex_gradients"), std::string::npos);
+  EXPECT_NE(raygen.find("EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, hit.tex_gradients)"), std::string::npos);
   EXPECT_NE(raygen.find("v0.tex_coord_1 * barycentrics.x"), std::string::npos);
-  EXPECT_NE(raygen.find("v0.tex_coord_2 * barycentrics.x"), std::string::npos);
-  EXPECT_NE(raygen.find("v0.tex_coord_3 * barycentrics.x"), std::string::npos);
+  EXPECT_EQ(raygen.find("v0.tex_coord_2"), std::string::npos);
+  EXPECT_EQ(raygen.find("v0.tex_coord_3"), std::string::npos);
   EXPECT_NE(raygen.find("v0.color * barycentrics.x"), std::string::npos);
   EXPECT_NE(ray_query.find("void EE_CAMERA_RQ_CANDIDATE_SURFACE"), std::string::npos);
   EXPECT_NE(ray_query.find("out uint material_index"), std::string::npos);
   EXPECT_NE(ray_query.find("EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<feature_mask>("), std::string::npos);
-  EXPECT_NE(ray_query.find("tex_coord_3, vertex_color.a"), std::string::npos);
+  EXPECT_NE(ray_query.find("EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), vertex_color.a"), std::string::npos);
   EXPECT_NE(ray_query.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<feature_mask>("), std::string::npos);
   EXPECT_NE(ray_query.find("hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width"), std::string::npos);
-  EXPECT_NE(ray_query.find("hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color"),
-            std::string::npos);
+  EXPECT_EQ(ray_query.find("tex_coord_2"), std::string::npos);
+  EXPECT_EQ(ray_query.find("tex_coord_3"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<feature_mask>("), std::string::npos);
   EXPECT_NE(any_hit.find("vertex_color.a"), std::string::npos);
   EXPECT_NE(any_hit.find("v0.tex_coord_1 * barycentrics.x"), std::string::npos);
+  EXPECT_EQ(any_hit.find("v0.tex_coord_2"), std::string::npos);
   EXPECT_NE(any_hit.find("EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<feature_mask>("), std::string::npos);
   EXPECT_EQ(any_hit.find("EE_CAMERA_TEXTURE_GRAD"), std::string::npos);
   EXPECT_NE(evaluator.find("float4 EE_GLTF_SAMPLE_TEXTURE_LOD0"), std::string::npos);
@@ -660,7 +661,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenOwnsPathTracingLoop) {
   EXPECT_NE(source.find("import EvoEngine.GltfRayTracingBsdf;"), std::string::npos);
   EXPECT_NE(source.find("GltfRayTracingPbrMaterial pbr"), std::string::npos);
   EXPECT_NE(source.find("EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL"), std::string::npos);
-  EXPECT_NE(source.find("tex_coord_2, tex_coord_3, vertex_color, hit.surface, hit.normal"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, hit.tex_gradients)"), std::string::npos);
   EXPECT_NE(source.find("hit.normal = hit.pbr.normal"), std::string::npos);
   EXPECT_NE(source.find("dot(direct_light.direction, hit.shading_normal) <= 0.0f && "
                         "hit.pbr.diffuse_transmission_factor <= 0.0f"),
@@ -1360,7 +1361,7 @@ TEST(GltfRayTracingMaterial, CameraRaygenBuildsReferenceStylePrimaryRays) {
 
 TEST(GltfRayTracingMaterial, RayTracingNormalMapsPreserveImportedTangentHandedness) {
   const auto prefab_source = ReadTextFile(SdkPath("src/Prefab.cpp"));
-  const auto raster_material = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRasterMaterial.slang"));
+  const auto raster_material = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
 
   ASSERT_FALSE(prefab_source.empty());
   ASSERT_FALSE(raster_material.empty());
@@ -1395,7 +1396,10 @@ TEST(GltfRayTracingMaterial, GeneratedTangentsUseMikkAndPreserveHandedness) {
   EXPECT_NE(mikk_source.find("genTangSpaceDefault(&context)"), std::string::npos);
   EXPECT_NE(mikk_source.find("vertices.emplace_back(vertices[source_index])"), std::string::npos);
   EXPECT_NE(mikk_source.find("vertices[target_index].vertex_info3 = tangent.w"), std::string::npos);
-  EXPECT_NE(mikk_source.find("case 3:"), std::string::npos);
+  EXPECT_NE(mikk_source.find("case 1:"), std::string::npos);
+  EXPECT_EQ(mikk_source.find("case 2:"), std::string::npos);
+  EXPECT_EQ(mikk_source.find("case 3:"), std::string::npos);
+  EXPECT_NE(mikk_source.find("glm::clamp(tex_coord, 0, 1)"), std::string::npos);
 }
 
 TEST(GltfRayTracingMaterial, CameraRaygenDoesNotBindPrimaryDdgiResources) {

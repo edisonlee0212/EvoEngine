@@ -20,9 +20,8 @@ struct StandardDeferredOutput {
   if (EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0f)
     discard;
   const GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(
-      input.tex_coord01.xy, input.tex_coord01.zw, input.tex_coord23.xy, input.tex_coord23.zw, ddx(input.tex_coord01.xy),
-      ddx(input.tex_coord01.zw), ddx(input.tex_coord23.xy), ddx(input.tex_coord23.zw), ddy(input.tex_coord01.xy),
-      ddy(input.tex_coord01.zw), ddy(input.tex_coord23.xy), ddy(input.tex_coord23.zw));
+      input.tex_coord01.xy, input.tex_coord01.zw, ddx(input.tex_coord01.xy), ddx(input.tex_coord01.zw),
+      ddy(input.tex_coord01.xy), ddy(input.tex_coord01.zw));
   GltfRasterMaterial surface = EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coords, input.color);
   if (EE_GLTF_RASTER_SHOULD_DISCARD(surface))
     discard;

@@ -793,7 +793,7 @@ import EvoEngine.CameraRayOutputs;
 [numthreads(1, 1, 1)]
 void main()
 {
-    static_assert(sizeof(Vertex) == 112, "Vertex ABI");
+    static_assert(sizeof(Vertex) == 96, "Vertex ABI");
     static_assert(sizeof(CameraRayTracingPayload) == 68, "camera payload ABI");
     static_assert(sizeof(PointCloudRayTracingPayload) == 96, "point-cloud payload ABI");
     CameraRayTracingPayload cameraPayload = {};

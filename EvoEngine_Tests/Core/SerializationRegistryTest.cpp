@@ -1192,16 +1192,12 @@ anti_aliasing:
   vertex_attributes.tangent = true;
   vertex_attributes.tex_coord = true;
   vertex_attributes.tex_coord_1 = true;
-  vertex_attributes.tex_coord_2 = true;
-  vertex_attributes.tex_coord_3 = true;
   vertex_attributes.color = true;
   std::vector<Vertex> vertices(3);
   vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   vertices[1].tex_coord_1 = glm::vec2(0.25f, 0.75f);
-  vertices[1].tex_coord_2 = glm::vec2(0.4f, 0.6f);
-  vertices[1].tex_coord_3 = glm::vec2(0.8f, 0.2f);
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(vertex_attributes, vertices, {glm::uvec3(0, 1, 2)});
   EXPECT_EQ(mesh->BuildMorphedVertices({}).size(), vertices.size());
@@ -1230,8 +1226,6 @@ anti_aliasing:
   EXPECT_EQ(restored_mesh->PeekTriangles().size(), 1);
   EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.x, 1.0f);
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
-  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.4f, 0.6f));
-  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.8f, 0.2f));
   ASSERT_EQ(restored_mesh->PeekMorphTargets().size(), 1);
   EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].name, "raise");
   EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].position_deltas[1], glm::vec3(0.0f, 2.0f, 0.0f));
@@ -1248,16 +1242,12 @@ anti_aliasing:
   skinned_vertex_attributes.tangent = true;
   skinned_vertex_attributes.tex_coord = true;
   skinned_vertex_attributes.tex_coord_1 = true;
-  skinned_vertex_attributes.tex_coord_2 = true;
-  skinned_vertex_attributes.tex_coord_3 = true;
   skinned_vertex_attributes.color = true;
   std::vector<SkinnedVertex> skinned_vertices(3);
   skinned_vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   skinned_vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   skinned_vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   skinned_vertices[1].tex_coord_1 = glm::vec2(0.6f, 0.4f);
-  skinned_vertices[1].tex_coord_2 = glm::vec2(0.3f, 0.7f);
-  skinned_vertices[1].tex_coord_3 = glm::vec2(0.9f, 0.1f);
   const auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   skinned_mesh->bone_animator_indices = {2, 5};
   skinned_mesh->SetVertices(skinned_vertex_attributes, skinned_vertices, {glm::uvec3(0, 1, 2)});
@@ -1282,8 +1272,6 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh->PeekTriangles().size(), 1);
   EXPECT_EQ(restored_skinned_mesh->bone_animator_indices[1], 5);
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
-  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.3f, 0.7f));
-  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.9f, 0.1f));
   ASSERT_EQ(restored_skinned_mesh->PeekMorphTargets().size(), 1);
   EXPECT_FLOAT_EQ(restored_skinned_mesh->GetDefaultMorphWeights()[0], 0.5f);
   EXPECT_TRUE(MorphVertexStreamsMatch(restored_skinned_mesh->PeekSkinnedVertices(),

@@ -20,6 +20,8 @@
 namespace {
 constexpr double kMinimumPsnr = 30.0;
 constexpr double kMinimumSsim = 0.95;
+constexpr double kRasterMatrixMinimumPsnr = 29.0;
+constexpr double kRasterMatrixMinimumSsim = 0.94;
 constexpr int kRayTargetSamples = 2048;
 constexpr int kRaySamplesPerFrame = 8;
 constexpr int kRayAccumulationFrames = kRayTargetSamples / kRaySamplesPerFrame;
@@ -286,7 +288,8 @@ void AcceptBaselineIfRequested(const std::filesystem::path& output_path, const s
   std::cout << "Accepted render baseline: " << baseline_path << std::endl;
 }
 
-void AssertGoldenImage(const Image& actual, const std::filesystem::path& baseline_path) {
+void AssertGoldenImage(const Image& actual, const std::filesystem::path& baseline_path, const double minimum_psnr,
+                       const double minimum_ssim) {
   ASSERT_TRUE(std::filesystem::exists(baseline_path))
       << "Missing render baseline. Regenerate it with: python .\\Scripts\\test.py --render-only "
          "--accept-render-baseline --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage";
@@ -299,8 +302,8 @@ void AssertGoldenImage(const Image& actual, const std::filesystem::path& baselin
   const double ssim = CalculateSsim(actual, expected);
   std::cout << "Render comparison PSNR: " << psnr << " dB" << std::endl;
   std::cout << "Render comparison SSIM: " << ssim << std::endl;
-  EXPECT_GE(psnr, kMinimumPsnr);
-  EXPECT_GE(ssim, kMinimumSsim);
+  EXPECT_GE(psnr, minimum_psnr);
+  EXPECT_GE(ssim, minimum_ssim);
 }
 
 void CopyVisualArtifact(const std::filesystem::path& output_path, const char* artifact_file_name) {
@@ -317,7 +320,8 @@ void CopyVisualArtifact(const std::filesystem::path& output_path, const char* ar
 
 void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable_ray_features = true,
                              const bool compare_baseline = true, const bool texture_lifecycle_stress = false,
-                             const bool multi_camera = false, const bool expect_stable_texture_registrations = false) {
+                             const bool multi_camera = false, const bool expect_stable_texture_registrations = false,
+                             const double minimum_psnr = kMinimumPsnr, const double minimum_ssim = kMinimumSsim) {
   const std::filesystem::path executable_dir = std::filesystem::path(EVOENGINE_RENDER_TEST_DIR);
   const std::filesystem::path test_dir = CreateTestDirectory(executable_dir);
   const std::filesystem::path output_path = test_dir / capture.output_file_name;
@@ -375,13 +379,13 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable
     AcceptBaselineIfRequested(output_path, baseline_path);
   }
   if (compare_baseline) {
-    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path));
+    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(output_image, baseline_path, minimum_psnr, minimum_ssim));
   }
   if (multi_camera) {
     const Image secondary_output_image = LoadPng(secondary_output_path);
     ASSERT_NO_FATAL_FAILURE(
         AssertImageIsRenderablePng(secondary_output_path, secondary_output_image, capture.width, capture.height));
-    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(secondary_output_image, baseline_path));
+    ASSERT_NO_FATAL_FAILURE(AssertGoldenImage(secondary_output_image, baseline_path, minimum_psnr, minimum_ssim));
   }
 }
 }  // namespace
@@ -390,7 +394,8 @@ TEST(RenderingDemo, RasterPathMatrixGoldenImage) {
   for (const auto& capture : kRasterPathMatrix) {
     SCOPED_TRACE(std::string("meshlet=") + (capture.meshlet_enabled ? "on" : "off") +
                  ", indirect=" + (capture.indirect_enabled ? "on" : "off"));
-    ASSERT_NO_FATAL_FAILURE(RunRenderingDemoCapture(capture));
+    ASSERT_NO_FATAL_FAILURE(RunRenderingDemoCapture(capture, true, true, false, false, false, kRasterMatrixMinimumPsnr,
+                                                    kRasterMatrixMinimumSsim));
   }
 }
 

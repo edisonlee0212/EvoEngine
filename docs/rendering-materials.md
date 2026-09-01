@@ -37,8 +37,13 @@ ray paths rather than being approximated as ordinary deferred materials.
 
 ## Textures And Vertex Inputs
 
-Material textures can select `TEXCOORD_0` through `TEXCOORD_3`. `KHR_texture_transform` is applied after choosing the
-authored coordinate set. Vertex `COLOR_0` multiplies the metallic-roughness base color.
+Material textures can select `TEXCOORD_0` or `TEXCOORD_1`. Additional imported mesh coordinate channels are ignored.
+`KHR_texture_transform` is applied after choosing the authored coordinate set. A texture binding that selects another
+coordinate set is disabled with a diagnostic rather than remapped. Vertex `COLOR_0` multiplies the
+metallic-roughness base color.
+
+Deferred rendering stores vertex color as clamped, rounded UNORM8 RGBA metadata. Negative and HDR vertex colors are
+therefore not preserved by the deferred path; forward-only paths retain full-float interpolation.
 
 Color textures use sRGB decoding while alpha and data channels remain linear. Imported wrap, magnification,
 minification, and mip-filter settings are preserved. Authored DDS/BC7 mip chains are preferred when available; common

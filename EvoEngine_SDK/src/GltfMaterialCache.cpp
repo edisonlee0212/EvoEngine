@@ -19,7 +19,7 @@ struct GltfTextureNodeInfo {
 };
 
 int32_t ClampTexCoord(const int32_t tex_coord) {
-  return tex_coord >= 0 && tex_coord <= 3 ? tex_coord : -1;
+  return tex_coord >= 0 && tex_coord <= 1 ? tex_coord : -1;
 }
 
 float ReadFloat(const YAML::Node& node, const float fallback) {
@@ -163,7 +163,7 @@ GltfTextureNodeInfo ReadTextureNodeInfo(const YAML::Node& texture_info, const si
   if (ClampTexCoord(result.tex_coord) < 0) {
     ReportMaterialError(report_error, "glTF material " + std::to_string(material_index) + " disables texture " +
                                           std::to_string(result.texture_index) + " because TEXCOORD_" +
-                                          std::to_string(result.tex_coord) + " is outside the supported range 0..3.");
+                                          std::to_string(result.tex_coord) + " is outside the supported range 0..1.");
     result.present = false;
   }
   return result;

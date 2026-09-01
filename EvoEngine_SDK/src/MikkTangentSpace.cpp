@@ -11,10 +11,6 @@ glm::vec2 ReadTexCoord(const VertexType& vertex, const int tex_coord) {
   switch (tex_coord) {
     case 1:
       return vertex.tex_coord_1;
-    case 2:
-      return vertex.tex_coord_2;
-    case 3:
-      return vertex.tex_coord_3;
     default:
       return vertex.tex_coord;
   }
@@ -97,7 +93,7 @@ void Generate(std::vector<VertexType>& vertices, std::vector<glm::uvec3>& triang
     std::iota(source_vertex_indices->begin(), source_vertex_indices->end(), 0u);
   }
   MikkMeshData<VertexType> data{&vertices, &triangles, std::vector<glm::vec4>(triangles.size() * 3),
-                                glm::clamp(tex_coord, 0, 3)};
+                                glm::clamp(tex_coord, 0, 1)};
   SMikkTSpaceInterface mikk_interface{};
   mikk_interface.m_getNumFaces = GetFaceCount<VertexType>;
   mikk_interface.m_getNumVerticesOfFace = GetVertexCount;

@@ -285,7 +285,7 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
       "alphaCutoff": 0.42,
       "doubleSided": true,
       "emissiveFactor": [0.1, 0.2, 0.3],
-      "normalTexture": {"index": 4, "texCoord": 2, "scale": 0.75},
+      "normalTexture": {"index": 4, "texCoord": 1, "scale": 0.75},
       "occlusionTexture": {"index": 5, "strength": 0.25},
       "pbrMetallicRoughness": {
         "baseColorFactor": [0.25, 0.5, 0.75, 0.9],
@@ -336,12 +336,12 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
 
   ASSERT_NE(material.normal_texture, 0);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].index, 104);
-  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
+  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 1);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].color_space,
             static_cast<int32_t>(GltfTextureColorSpace::Linear));
 }
 
-TEST(GltfMaterialConversion, SupportsFourUvSetsAndDisablesOnlyOutOfRangeBindings) {
+TEST(GltfMaterialConversion, SupportsTwoUvSetsAndDisablesUnsupportedBindings) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
       "normalTexture": {"index": 1, "texCoord": 2},
@@ -372,17 +372,23 @@ TEST(GltfMaterialConversion, SupportsFourUvSetsAndDisablesOnlyOutOfRangeBindings
 
   ASSERT_EQ(materials.size(), 1);
   const auto& material = materials[0].shade_material;
-  ASSERT_NE(material.normal_texture, 0);
-  ASSERT_NE(material.pbr_base_color_texture, 0);
+  EXPECT_EQ(material.normal_texture, 0);
+  EXPECT_EQ(material.pbr_base_color_texture, 0);
   ASSERT_NE(material.pbr_metallic_roughness_texture, 0);
   EXPECT_EQ(material.occlusion_texture, 0);
-  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_base_color_texture].tex_coord, 3);
   EXPECT_EQ(materials[0].texture_infos[material.pbr_metallic_roughness_texture].tex_coord, 0);
-  EXPECT_EQ(resolved, (std::vector<int32_t>{1, 3, 4}));
-  ASSERT_EQ(diagnostics.size(), 1);
-  EXPECT_NE(diagnostics[0].find("TEXCOORD_4"), std::string::npos);
-  EXPECT_NE(diagnostics[0].find("supported range 0..3"), std::string::npos);
+  EXPECT_EQ(resolved, (std::vector<int32_t>{4}));
+  ASSERT_EQ(diagnostics.size(), 3);
+  for (const auto tex_coord : {2, 3, 4}) {
+    EXPECT_NE(std::find_if(diagnostics.begin(), diagnostics.end(),
+                           [&](const std::string& diagnostic) {
+                             return diagnostic.find("TEXCOORD_" + std::to_string(tex_coord)) != std::string::npos;
+                           }),
+              diagnostics.end());
+  }
+  for (const auto& diagnostic : diagnostics) {
+    EXPECT_NE(diagnostic.find("supported range 0..1"), std::string::npos);
+  }
 }
 
 TEST(GltfMaterialConversion, GltfSamplerEnumsMapToVulkanWithoutReferenceMipSwap) {
@@ -1377,35 +1383,6 @@ TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesSecondaryUvSetBefor
   EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
 }
 
-TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesFourthUvSet) {
-  Application app;
-  VertexAttributes attributes;
-  attributes.normal = true;
-  attributes.tex_coord = true;
-  attributes.tex_coord_3 = true;
-
-  std::vector<Vertex> vertices(3);
-  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
-  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
-  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
-  for (auto& vertex : vertices) {
-    vertex.normal = glm::vec3(0.0f, 0.0f, 1.0f);
-    vertex.tex_coord = glm::vec2(0.0f);
-  }
-  vertices[0].tex_coord_3 = glm::vec2(0.0f, 0.0f);
-  vertices[1].tex_coord_3 = glm::vec2(0.0f, 1.0f);
-  vertices[2].tex_coord_3 = glm::vec2(1.0f, 0.0f);
-
-  Mesh mesh;
-  mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
-
-  ASSERT_EQ(mesh.PeekVertices().size(), 3);
-  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.x, 0.0f, kEpsilon);
-  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.y, 1.0f, kEpsilon);
-  EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
-}
-
 TEST(GltfMaterialConversion, MikkTangentsSplitMirroredChartsAndPreserveSkinnedData) {
   Application app;
   VertexAttributes attributes;
@@ -1531,7 +1508,7 @@ TEST(GltfMaterialConversion, AuthoredTangentsRemainByteStableAndUnsplit) {
   }
   Mesh mesh;
   mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 0);
   ASSERT_EQ(mesh.PeekVertices().size(), vertices.size());
   EXPECT_EQ(std::memcmp(mesh.PeekVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
 }

@@ -68,47 +68,32 @@ struct GltfTexCoords {
  public
   float2 uv0;
  public
-  float2 uv1;
- public
-  float2 uv2;
- public
-  float2 uv3;
+ float2 uv1;
  public
   float2 ddx_uv0;
  public
   float2 ddx_uv1;
  public
-  float2 ddx_uv2;
- public
-  float2 ddx_uv3;
- public
   float2 ddy_uv0;
  public
   float2 ddy_uv1;
  public
-  float2 ddy_uv2;
- public
-  float2 ddy_uv3;
- public
   uint gradient_mask;
 };
 public
-GltfTexCoords EE_GLTF_MAKE_TEX_COORDS(float2 uv0, float2 uv1, float2 uv2, float2 uv3, float4 gradients) {
-  const uint gradient_mask = (gradients.x > 0.0 ? 1u : 0u) | (gradients.y > 0.0 ? 2u : 0u) |
-                             (gradients.z > 0.0 ? 4u : 0u) | (gradients.w > 0.0 ? 8u : 0u);
-  return GltfTexCoords(uv0, uv1, uv2, uv3, float2(gradients.x, 0.0), float2(gradients.y, 0.0), float2(gradients.z, 0.0),
-                       float2(gradients.w, 0.0), float2(0.0, gradients.x), float2(0.0, gradients.y),
-                       float2(0.0, gradients.z), float2(0.0, gradients.w), gradient_mask);
+GltfTexCoords EE_GLTF_MAKE_TEX_COORDS(float2 uv0, float2 uv1, float2 gradients) {
+  const uint gradient_mask = (gradients.x > 0.0 ? 1u : 0u) | (gradients.y > 0.0 ? 2u : 0u);
+  return GltfTexCoords(uv0, uv1, float2(gradients.x, 0.0), float2(gradients.y, 0.0),
+                       float2(0.0, gradients.x), float2(0.0, gradients.y), gradient_mask);
 }
 public
-GltfTexCoords EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(float2 uv0, float2 uv1, float2 uv2, float2 uv3, float2 ddx_uv0,
-                                                     float2 ddx_uv1, float2 ddx_uv2, float2 ddx_uv3, float2 ddy_uv0,
-                                                     float2 ddy_uv1, float2 ddy_uv2, float2 ddy_uv3) {
-  return GltfTexCoords(uv0, uv1, uv2, uv3, ddx_uv0, ddx_uv1, ddx_uv2, ddx_uv3, ddy_uv0, ddy_uv1, ddy_uv2, ddy_uv3, 15u);
+GltfTexCoords EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(float2 uv0, float2 uv1, float2 ddx_uv0, float2 ddx_uv1,
+                                                     float2 ddy_uv0, float2 ddy_uv1) {
+  return GltfTexCoords(uv0, uv1, ddx_uv0, ddx_uv1, ddy_uv0, ddy_uv1, 3u);
 }
 public
 GltfTexCoords EE_GLTF_MAKE_TEX_COORDS(float2 uv0, float2 uv1) {
-  return EE_GLTF_MAKE_TEX_COORDS(uv0, uv1, float2(0.0), float2(0.0), float4(0.0));
+  return EE_GLTF_MAKE_TEX_COORDS(uv0, uv1, float2(0.0));
 }
 public
 bool EE_GLTF_HAS_TEXTURE(uint16_t texture_info_slot) {
@@ -118,35 +103,23 @@ public
 float2 EE_GLTF_SELECT_TEX_COORD(int tex_coord, GltfTexCoords tex_coords) {
   if (tex_coord == 1)
     return tex_coords.uv1;
-  if (tex_coord == 2)
-    return tex_coords.uv2;
-  if (tex_coord == 3)
-    return tex_coords.uv3;
   return tex_coords.uv0;
 }
 public
 float2 EE_GLTF_SELECT_TEX_COORD_DDX(int tex_coord, GltfTexCoords tex_coords) {
   if (tex_coord == 1)
     return tex_coords.ddx_uv1;
-  if (tex_coord == 2)
-    return tex_coords.ddx_uv2;
-  if (tex_coord == 3)
-    return tex_coords.ddx_uv3;
   return tex_coords.ddx_uv0;
 }
 public
 float2 EE_GLTF_SELECT_TEX_COORD_DDY(int tex_coord, GltfTexCoords tex_coords) {
   if (tex_coord == 1)
     return tex_coords.ddy_uv1;
-  if (tex_coord == 2)
-    return tex_coords.ddy_uv2;
-  if (tex_coord == 3)
-    return tex_coords.ddy_uv3;
   return tex_coords.ddy_uv0;
 }
 public
 bool EE_GLTF_HAS_TEX_COORD_GRADIENTS(int tex_coord, GltfTexCoords tex_coords) {
-  return (tex_coords.gradient_mask & (1u << uint(clamp(tex_coord, 0, 3)))) != 0u;
+  return (tex_coords.gradient_mask & (1u << uint(clamp(tex_coord, 0, 1)))) != 0u;
 }
 public
 void EE_GLTF_TEXTURE_GRADIENTS_SPECIALIZED<let feature_mask : uint>(GltfTextureInfo texture_info,
@@ -247,9 +220,7 @@ public
 float4 EE_GLTF_SAMPLE_TEXTURE_SLOT(uint16_t texture_info_slot, int texture_slot, float2 tex_coord_0, float2 tex_coord_1,
                                    float4 fallback, float2 tex_gradients) {
   return EE_GLTF_SAMPLE_TEXTURE_SLOT(
-      texture_info_slot, texture_slot,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_gradients, 0.0, 0.0)),
-      fallback);
+      texture_info_slot, texture_slot, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_gradients), fallback);
 }
 public
 float4 EE_GLTF_SAMPLE_TEXTURE(uint16_t texture_info_slot, float2 tex_coord_0, float2 tex_coord_1, float4 fallback,
@@ -444,50 +415,23 @@ public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, GltfTexCoords tex_coords, float4 vertex_color) {
   return EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<EE_GLTF_ALL_FEATURES>(material_index, tex_coords, vertex_color);
 }
-public
-GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<let feature_mask : uint>(
-    uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2, float2 tex_coord_3,
-    float4 vertex_color, float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<feature_mask>(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      vertex_color);
-}
-public
-GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
-                                                   float2 tex_coord_2, float2 tex_coord_3, float4 vertex_color,
-                                                   float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      vertex_color);
-}
-public
-GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
-                                                   float2 tex_coord_2, float2 tex_coord_3, float4 vertex_color) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3,
-                                         vertex_color, float4(0.0));
-}
-public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
                                                    float4 vertex_color, float2 tex_gradients) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE(
-      material_index,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_gradients, 0.0, 0.0)),
-      vertex_color);
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index,
+                                         EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_gradients), vertex_color);
 }
 public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
                                                    float4 vertex_color, float tex_grad) {
   return EE_EVALUATE_GLTF_RASTER_SURFACE(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_grad)),
-      vertex_color);
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(tex_grad)), vertex_color);
 }
 public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
                                                    float2 tex_gradients) {
-  return EE_EVALUATE_GLTF_RASTER_SURFACE(
-      material_index,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_gradients, 0.0, 0.0)),
-      float4(1.0));
+  return EE_EVALUATE_GLTF_RASTER_SURFACE(material_index,
+                                         EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_gradients),
+                                         float4(1.0));
 }
 public
 GltfRasterMaterial EE_EVALUATE_GLTF_RASTER_SURFACE(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
@@ -546,27 +490,11 @@ float3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, GltfTexCoords tex_coo
   float3 b = cross(n, t) * bitangent_sign;
   return EE_GLTF_SAFE_NORMALIZE(mul(normal_vector, float3x3(t, b, n)), n);
 }
-public
-float3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2,
-                                      float2 tex_coord_3, float3 normal, float3 tangent, float tangent_handedness,
-                                      float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RASTER_NORMAL(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      normal, tangent, tangent_handedness);
-}
-public
-float3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2,
-                                      float2 tex_coord_3, float3 normal, float3 tangent, float tangent_handedness) {
-  return EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, normal,
-                                        tangent, tangent_handedness, float4(0.0));
-}
-public
 float3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float3 normal,
                                       float3 tangent, float tangent_handedness, float2 tex_gradients) {
   return EE_EVALUATE_GLTF_RASTER_NORMAL(
-      material_index,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_gradients, 0.0, 0.0)),
-      normal, tangent, tangent_handedness);
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_gradients), normal, tangent,
+      tangent_handedness);
 }
 public
 float3 EE_EVALUATE_GLTF_RASTER_NORMAL(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float3 normal,
@@ -593,9 +521,8 @@ float3 EE_EVALUATE_GLTF_RASTER_CLEARCOAT_NORMAL(uint material_index, float2 tex_
                                                 float3 normal, float3 tangent, float tangent_handedness,
                                                 float2 tex_gradients) {
   return EE_EVALUATE_GLTF_RASTER_CLEARCOAT_NORMAL(
-      material_index,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_gradients, 0.0, 0.0)),
-      normal, tangent, tangent_handedness);
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_gradients), normal, tangent,
+      tangent_handedness);
 }
 public
 float3 EE_EVALUATE_GLTF_RASTER_CLEARCOAT_NORMAL_SPECIALIZED<let feature_mask : uint>(uint material_index,
@@ -646,17 +573,6 @@ float3 EE_GLTF_RASTER_COATED_EMISSION(uint material_index, GltfRasterMaterial su
                                       float facing_sign, float3 outgoing_direction) {
   float3 clearcoat_normal = EE_EVALUATE_GLTF_RASTER_CLEARCOAT_NORMAL(material_index, tex_coord_0, tex_coord_1, normal,
                                                                      tangent, tangent_handedness, float2(0.0));
-  clearcoat_normal = EE_GLTF_SAFE_NORMALIZE(facing_sign * clearcoat_normal, float3(0.0, 1.0, 0.0));
-  return EE_GLTF_RASTER_COATED_EMISSION(surface, clearcoat_normal, outgoing_direction);
-}
-public
-float3 EE_GLTF_RASTER_COATED_EMISSION(uint material_index, GltfRasterMaterial surface, float2 tex_coord_0,
-                                      float2 tex_coord_1, float2 tex_coord_2, float2 tex_coord_3, float3 normal,
-                                      float3 tangent, float tangent_handedness, float facing_sign,
-                                      float3 outgoing_direction) {
-  float3 clearcoat_normal = EE_EVALUATE_GLTF_RASTER_CLEARCOAT_NORMAL(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)), normal,
-      tangent, tangent_handedness);
   clearcoat_normal = EE_GLTF_SAFE_NORMALIZE(facing_sign * clearcoat_normal, float3(0.0, 1.0, 0.0));
   return EE_GLTF_RASTER_COATED_EMISSION(surface, clearcoat_normal, outgoing_direction);
 }
@@ -746,24 +662,8 @@ public
 float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, GltfTexCoords tex_coords, float vertex_alpha) {
   return EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<EE_GLTF_ALL_FEATURES>(material_index, tex_coords, vertex_alpha);
 }
-public
-float EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<let feature_mask : uint>(uint material_index, float2 tex_coord_0,
-                                                                       float2 tex_coord_1, float2 tex_coord_2,
-                                                                       float2 tex_coord_3, float vertex_alpha) {
-  return EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<feature_mask>(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)),
-      vertex_alpha);
-}
-public
 float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float vertex_alpha) {
   return EE_GLTF_RASTER_OPACITY_LOD0(material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), vertex_alpha);
-}
-public
-float EE_GLTF_RASTER_OPACITY_LOD0(uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2,
-                                  float2 tex_coord_3, float vertex_alpha) {
-  return EE_GLTF_RASTER_OPACITY_LOD0(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)),
-      vertex_alpha);
 }
 public
 float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<let feature_mask : uint>(
@@ -862,27 +762,9 @@ float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, GltfTexCoord
   return EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<EE_GLTF_ALL_FEATURES>(
       material_index, tex_coords, vertex_color, cos_theta, segment_length, is_inside, min_transmission);
 }
-public
-float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<let feature_mask : uint>(
-    uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2, float2 tex_coord_3,
-    float3 vertex_color, float cos_theta, float segment_length, inout bool is_inside, float min_transmission) {
-  return EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<feature_mask>(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)),
-      vertex_color, cos_theta, segment_length, is_inside, min_transmission);
-}
-public
 float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
                                                float3 vertex_color, float cos_theta, float segment_length,
                                                inout bool is_inside, float min_transmission) {
   return EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1),
                                                  vertex_color, cos_theta, segment_length, is_inside, min_transmission);
-}
-public
-float3 EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(uint material_index, float2 tex_coord_0, float2 tex_coord_1,
-                                               float2 tex_coord_2, float2 tex_coord_3, float3 vertex_color,
-                                               float cos_theta, float segment_length, inout bool is_inside,
-                                               float min_transmission) {
-  return EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)),
-      vertex_color, cos_theta, segment_length, is_inside, min_transmission);
 }

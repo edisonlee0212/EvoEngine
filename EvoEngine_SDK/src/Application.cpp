@@ -1272,14 +1272,109 @@ VertexAttributes DefaultVertexAttributes() {
   return attributes;
 }
 
+struct LegacyVertex {
+  glm::vec3 position;
+  float vertex_info1;
+  glm::vec3 normal;
+  float vertex_info2;
+  glm::vec3 tangent;
+  float vertex_info3;
+  glm::vec4 color;
+  glm::vec2 tex_coord;
+  glm::vec2 vertex_info4;
+  glm::vec2 tex_coord_1;
+  glm::vec2 discarded_coordinate_set2;
+  glm::vec2 discarded_coordinate_set3;
+  glm::vec2 padding;
+};
+
+struct LegacySkinnedVertex {
+  glm::vec3 position;
+  float vertex_info1;
+  glm::vec3 normal;
+  float vertex_info2;
+  glm::vec3 tangent;
+  float vertex_info3;
+  glm::vec4 color;
+  glm::vec2 tex_coord;
+  glm::vec2 vertex_info4;
+  glm::ivec4 bond_id;
+  glm::vec4 weight;
+  glm::ivec4 bond_id2;
+  glm::vec4 weight2;
+  glm::vec2 tex_coord_1;
+  glm::vec2 discarded_coordinate_set2;
+  glm::vec2 discarded_coordinate_set3;
+  glm::vec2 padding;
+};
+
+static_assert(sizeof(LegacyVertex) == 112);
+static_assert(sizeof(LegacySkinnedVertex) == 176);
+
+Vertex ConvertLegacyVertex(const LegacyVertex& source) {
+  Vertex destination{};
+  destination.position = source.position;
+  destination.vertex_info1 = source.vertex_info1;
+  destination.normal = source.normal;
+  destination.vertex_info2 = source.vertex_info2;
+  destination.tangent = source.tangent;
+  destination.vertex_info3 = source.vertex_info3;
+  destination.color = source.color;
+  destination.tex_coord = source.tex_coord;
+  destination.vertex_info4 = source.vertex_info4;
+  destination.tex_coord_1 = source.tex_coord_1;
+  destination.padding = source.padding;
+  return destination;
+}
+
+SkinnedVertex ConvertLegacyVertex(const LegacySkinnedVertex& source) {
+  SkinnedVertex destination{};
+  destination.position = source.position;
+  destination.vertex_info1 = source.vertex_info1;
+  destination.normal = source.normal;
+  destination.vertex_info2 = source.vertex_info2;
+  destination.tangent = source.tangent;
+  destination.vertex_info3 = source.vertex_info3;
+  destination.color = source.color;
+  destination.tex_coord = source.tex_coord;
+  destination.vertex_info4 = source.vertex_info4;
+  destination.bond_id = source.bond_id;
+  destination.weight = source.weight;
+  destination.bond_id2 = source.bond_id2;
+  destination.weight2 = source.weight2;
+  destination.tex_coord_1 = source.tex_coord_1;
+  destination.padding = source.padding;
+  return destination;
+}
+
 template <typename VertexType>
 std::vector<VertexType> DeserializeVertexData(const YAML::Binary& data, const size_t stride) {
-  if (stride != sizeof(VertexType) || data.size() % stride != 0) {
-    return {};
+  if (stride == sizeof(VertexType) && data.size() % stride == 0) {
+    std::vector<VertexType> vertices(data.size() / stride);
+    std::memcpy(vertices.data(), data.data(), data.size());
+    return vertices;
   }
-  std::vector<VertexType> vertices(data.size() / stride);
-  std::memcpy(vertices.data(), data.data(), data.size());
-  return vertices;
+  constexpr size_t legacy_stride = std::is_same_v<VertexType, Vertex>          ? sizeof(LegacyVertex)
+                                   : std::is_same_v<VertexType, SkinnedVertex> ? sizeof(LegacySkinnedVertex)
+                                                                               : 0;
+  if constexpr (legacy_stride != 0) {
+    if (stride == legacy_stride && data.size() % stride == 0) {
+      std::vector<VertexType> vertices(data.size() / stride);
+      for (size_t i = 0; i < vertices.size(); ++i) {
+        if constexpr (std::is_same_v<VertexType, Vertex>) {
+          LegacyVertex source{};
+          std::memcpy(&source, data.data() + i * stride, stride);
+          vertices[i] = ConvertLegacyVertex(source);
+        } else {
+          LegacySkinnedVertex source{};
+          std::memcpy(&source, data.data() + i * stride, stride);
+          vertices[i] = ConvertLegacyVertex(source);
+        }
+      }
+      return vertices;
+    }
+  }
+  return {};
 }
 
 SkinnedVertexAttributes DefaultSkinnedVertexAttributes() {

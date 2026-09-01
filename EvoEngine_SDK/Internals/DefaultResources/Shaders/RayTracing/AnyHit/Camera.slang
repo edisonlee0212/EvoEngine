@@ -15,27 +15,25 @@ float3 EE_CAMERA_ANY_HIT_SAFE_NORMALIZE(const float3 value, const float3 fallbac
 }
 
 float3 EE_CAMERA_ANY_HIT_SHADOW_TRANSMISSION<let feature_mask : uint>(
-    const uint material_index, const float2 tex_coord_0, const float2 tex_coord_1, const float2 tex_coord_2,
-    const float2 tex_coord_3, const float3 vertex_color, const float3 world_geometric_normal,
-    inout CameraRayTracingPayload hit_value) {
+    const uint material_index, const float2 tex_coord_0, const float2 tex_coord_1, const float3 vertex_color,
+    const float3 world_geometric_normal, inout CameraRayTracingPayload hit_value) {
   bool is_inside = hit_value.shadow_is_inside != 0u;
   const float3 ray_direction = WorldRayDirection();
   const float cos_theta =
       abs(dot(normalize(ray_direction), EE_CAMERA_ANY_HIT_SAFE_NORMALIZE(world_geometric_normal, -ray_direction)));
   const float segment_length = abs(RayTCurrent() - hit_value.shadow_previous_hit_t);
   const float3 transmission = EE_GLTF_RASTER_SHADOW_TRANSMISSION_LOD0_SPECIALIZED<feature_mask>(
-      material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, cos_theta, segment_length,
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), vertex_color, cos_theta, segment_length,
       is_inside, EE_CAMERA_MIN_SHADOW_TRANSMISSION);
   hit_value.shadow_is_inside = is_inside ? 1u : 0u;
   return max(transmission, float3(0.0f));
 }
 
 void EE_CAMERA_ANY_HIT_APPLY<let feature_mask : uint>(
-    const uint material_index, const float2 tex_coord_0, const float2 tex_coord_1, const float2 tex_coord_2,
-    const float2 tex_coord_3, const float4 vertex_color, const float3 world_geometric_normal,
-    inout CameraRayTracingPayload hit_value) {
+    const uint material_index, const float2 tex_coord_0, const float2 tex_coord_1, const float4 vertex_color,
+    const float3 world_geometric_normal, inout CameraRayTracingPayload hit_value) {
   const float opacity = EE_GLTF_RASTER_OPACITY_LOD0_SPECIALIZED<feature_mask>(
-      material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.a);
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), vertex_color.a);
   if (EE_PCG_RANDOM(hit_value.seed) > opacity) {
     IgnoreHit();
   }
@@ -44,8 +42,7 @@ void EE_CAMERA_ANY_HIT_APPLY<let feature_mask : uint>(
   }
 
   const float3 transmission = EE_CAMERA_ANY_HIT_SHADOW_TRANSMISSION<feature_mask>(
-      material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color.rgb, world_geometric_normal,
-      hit_value);
+      material_index, tex_coord_0, tex_coord_1, vertex_color.rgb, world_geometric_normal, hit_value);
   hit_value.shadow_previous_hit_t = RayTCurrent();
   hit_value.shadow_transmission *= transmission;
   if (max(max(hit_value.shadow_transmission.x, hit_value.shadow_transmission.y), hit_value.shadow_transmission.z) <=
@@ -78,8 +75,8 @@ void EE_CAMERA_ANY_HIT_APPLY<let feature_mask : uint>(
         endpoints[0].xyz, endpoints[1].xyz, parameter, object_hit, ObjectRayDirection());
     const float3 world_geometric_normal =
         EE_RT_WORLD_NORMAL(instance.model, object_geometric_normal, -WorldRayDirection());
-    EE_CAMERA_ANY_HIT_APPLY<EE_GLTF_COMPILED_FEATURE_MASK>(material_index, tex_coord, tex_coord, tex_coord, tex_coord,
-                                                           vertex_color, world_geometric_normal, hit_value);
+    EE_CAMERA_ANY_HIT_APPLY<EE_GLTF_COMPILED_FEATURE_MASK>(material_index, tex_coord, tex_coord, vertex_color,
+                                                           world_geometric_normal, hit_value);
     return;
   }
 #endif
@@ -94,10 +91,6 @@ void EE_CAMERA_ANY_HIT_APPLY<let feature_mask : uint>(
       v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
   const float2 tex_coord_1 =
       v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y + v2.tex_coord_1 * barycentrics.z;
-  const float2 tex_coord_2 =
-      v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y + v2.tex_coord_2 * barycentrics.z;
-  const float2 tex_coord_3 =
-      v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y + v2.tex_coord_3 * barycentrics.z;
   const float4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
 
   const float3 object_shading_normal = EE_CAMERA_SCALE_INDEPENDENT_NORMALIZE(
@@ -107,6 +100,6 @@ void EE_CAMERA_ANY_HIT_APPLY<let feature_mask : uint>(
   const float3 world_shading_normal = EE_RT_WORLD_NORMAL(instance.model, object_shading_normal, -WorldRayDirection());
   const float3 world_geometric_normal =
       EE_RT_WORLD_NORMAL(instance.model, object_geometric_normal, world_shading_normal);
-  EE_CAMERA_ANY_HIT_APPLY<EE_GLTF_COMPILED_FEATURE_MASK>(material_index, tex_coord_0, tex_coord_1, tex_coord_2,
-                                                         tex_coord_3, vertex_color, world_geometric_normal, hit_value);
+  EE_CAMERA_ANY_HIT_APPLY<EE_GLTF_COMPILED_FEATURE_MASK>(material_index, tex_coord_0, tex_coord_1, vertex_color,
+                                                         world_geometric_normal, hit_value);
 }

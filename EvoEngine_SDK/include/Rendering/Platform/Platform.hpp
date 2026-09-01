@@ -2,6 +2,7 @@
 #pragma once
 #include "ApplicationInitializationSettings.hpp"
 #include "ComputePipeline.hpp"
+#include "GBuffer.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
@@ -836,6 +837,11 @@ class EVOENGINE_API Platform final {
 
     /// Utility format for expanded G-buffer attachments.
     constexpr static VkFormat g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT;
+
+    /// Fixed formats for the raw geometry G-buffer ABI.
+    constexpr static VkFormat raw_g_buffer_attribute = raw_g_buffer::kAttributeFormat;
+    constexpr static VkFormat raw_g_buffer_metadata = raw_g_buffer::kMetadataFormat;
+    constexpr static VkFormat raw_g_buffer_depth = raw_g_buffer::kDepthFormat;
 
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;

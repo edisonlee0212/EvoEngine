@@ -699,10 +699,10 @@ TEST(GpuService, SharedBindlessGltfTextureAccessPreservesIndicesFallbacksAndGrad
   materials[3].pbr_base_color_texture = 3;
   std::array<GltfTextureInfo, 4> texture_infos{};
   texture_infos[1].index = static_cast<int32_t>(red.GetTextureStorageIndex());
-  texture_infos[1].tex_coord = 2;
+  texture_infos[1].tex_coord = 1;
   texture_infos[1].uv_transform = glm::mat3x2(glm::vec2(2.0f, 0.0f), glm::vec2(0.0f, 3.0f), glm::vec2(0.25f, 0.5f));
   texture_infos[2].index = static_cast<int32_t>(green.GetTextureStorageIndex());
-  texture_infos[2].tex_coord = 3;
+  texture_infos[2].tex_coord = 0;
   texture_infos[3].index = static_cast<int32_t>(pending.GetTextureStorageIndex());
 
   constexpr size_t output_count = 6;

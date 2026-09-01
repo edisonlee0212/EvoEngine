@@ -193,7 +193,7 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
   const float3 unflipped_world_geometric_normal =
       EE_RT_WORLD_NORMAL(instance.model, object_geometric_normal, float3(0.0f, 1.0f, 0.0f));
   const float3 ray_direction = normalize(WorldRayDirection());
-  const float4 tex_gradients =
+  const float2 tex_gradients =
       EE_RT_TEXTURE_GRADIENTS(0.0f, RayTCurrent(), unflipped_world_geometric_normal, ray_direction, instance.model, v0,
                               v1, v2, EE_RT_SPHERICAL_RAY_SPREAD(EE_DDGI_UNIFORM_RAY_COUNT()));
   const EeRayTracingSurfaceAttributes attributes =

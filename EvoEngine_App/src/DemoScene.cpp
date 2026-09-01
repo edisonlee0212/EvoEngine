@@ -433,25 +433,19 @@ std::shared_ptr<Mesh> CreateRenderingRegressionMaterialQuad(const std::array<glm
                                                  glm::vec2(0.0f, 1.0f)};
   const std::array<glm::vec2, 4> tex_coords_1 = {glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 0.0f), glm::vec2(1.0f, 0.0f),
                                                  glm::vec2(1.0f, 1.0f)};
-  const std::array<glm::vec2, 4> tex_coords_3 = {glm::vec2(1.0f, 1.0f), glm::vec2(0.0f, 1.0f), glm::vec2(0.0f, 0.0f),
-                                                 glm::vec2(1.0f, 0.0f)};
   for (size_t i = 0; i < vertices.size(); ++i) {
     vertices[i].normal = glm::vec3(0.0f, 0.0f, 1.0f);
     vertices[i].color = colors[i];
     vertices[i].tex_coord = tex_coords_0[i];
     vertices[i].tex_coord_1 = tex_coords_1[i];
-    vertices[i].tex_coord_2 = tex_coords_0[3 - i];
-    vertices[i].tex_coord_3 = tex_coords_3[i];
   }
   VertexAttributes attributes;
   attributes.normal = true;
   attributes.tex_coord = true;
   attributes.tex_coord_1 = true;
-  attributes.tex_coord_2 = true;
-  attributes.tex_coord_3 = true;
   attributes.color = true;
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
-  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, 3);
+  mesh->SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2), glm::uvec3(0, 2, 3)}, 1);
   return mesh;
 }
 
@@ -519,13 +513,13 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
   const glm::mat3x2 texture_transform(1.35f * std::cos(rotation), 1.35f * std::sin(rotation),
                                       -0.85f * std::sin(rotation), 0.85f * std::cos(rotation), 0.15f, 0.1f);
   const auto base_color_slot =
-      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 3, texture_transform);
+      textured_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, color_texture, 1, texture_transform);
   textured_material->material_data.texture_infos[base_color_slot].color_space =
       static_cast<int32_t>(GltfTextureColorSpace::Srgb);
-  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 3, texture_transform);
+  textured_material->SetTexture(&GltfShadeMaterial::normal_texture, normal_texture, 1, texture_transform);
   ConfigureMaterial(textured_material, glm::vec3(1.0f), 0.45f, 0.0f);
   CreateRenderingRegressionMaterialQuadEntity(
-      scene, root, "M9 UV3 Transform Vertex Color Probe", textured_mesh, textured_material,
+      scene, root, "M9 UV1 Transform Vertex Color Probe", textured_mesh, textured_material,
       glm::vec3(-1.75f, 0.85f, -1.35f), glm::radians(glm::vec3(8.0f, 22.0f, 0.0f)), glm::vec3(0.75f, 0.48f, 1.0f));
 
   const auto mirrored_normal_material = AssetManager::CreateTemporaryAsset<Material>();
@@ -632,7 +626,7 @@ void ConfigureRenderingRegressionGltfMaterialProbes(const std::shared_ptr<Scene>
   const auto mip_material = AssetManager::CreateTemporaryAsset<Material>();
   const glm::mat3x2 minification_transform(32.0f, 0.0f, 0.0f, 32.0f, 0.0f, 0.0f);
   const auto mip_slot =
-      mip_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, mip_texture, 2, minification_transform);
+      mip_material->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, mip_texture, 0, minification_transform);
   mip_material->material_data.texture_infos[mip_slot].color_space = static_cast<int32_t>(GltfTextureColorSpace::Linear);
   ConfigureMaterial(mip_material, glm::vec3(1.0f), 1.0f, 0.0f);
   mip_material->material_data.shade_material.unlit = 1;

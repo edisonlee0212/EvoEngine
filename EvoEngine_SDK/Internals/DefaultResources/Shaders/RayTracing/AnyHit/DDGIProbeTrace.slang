@@ -25,9 +25,9 @@ void main(inout DdgiProbeRayPayload hit_value, in BuiltInTriangleIntersectionAtt
   const float3 world_geometric_normal =
       EE_RT_WORLD_NORMAL(instance.model, object_geometric_normal, -ray_direction);
   const bool shadow_ray = hit_value.hit_count != 0u;
-  const float4 tex_gradients =
+  const float2 tex_gradients =
       shadow_ray
-          ? float4(0.0f)
+          ? float2(0.0f)
           : EE_RT_TEXTURE_GRADIENTS(0.0f, RayTCurrent(), world_geometric_normal, ray_direction, instance.model, v0, v1,
                                     v2, EE_RT_SPHERICAL_RAY_SPREAD(
                                             EE_DDGI_UNIFORM_RAY_COUNT()));

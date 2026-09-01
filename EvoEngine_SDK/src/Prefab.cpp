@@ -424,7 +424,9 @@ GltfSourceTextureInfo ReadGltfSourceTextureInfo(const YAML::Node& texture_info) 
                            offset.x,
                            offset.y};
   }
-  if (result.tex_coord < 0 || result.tex_coord > 3) {
+  if (result.tex_coord < 0 || result.tex_coord > 1) {
+    EVOENGINE_ERROR("Texture binding disabled because TEXCOORD_" + std::to_string(result.tex_coord) +
+                    " is outside the supported range 0..1.")
     result.present = false;
   }
   return result;
@@ -1629,14 +1631,6 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
       vertex.tex_coord_1 = glm::vec2(0.0f);
       attributes.tex_coord_1 = false;
     }
-    if (importer_mesh->HasTextureCoords(2)) {
-      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
-      attributes.tex_coord_2 = true;
-    }
-    if (importer_mesh->HasTextureCoords(3)) {
-      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
-      attributes.tex_coord_3 = true;
-    }
     vertices[i] = vertex;
   }
   auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
@@ -1735,14 +1729,6 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     } else {
       vertex.tex_coord_1 = glm::vec2(0.0f);
       skinned_vertex_attributes.tex_coord_1 = false;
-    }
-    if (importer_mesh->HasTextureCoords(2)) {
-      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
-      skinned_vertex_attributes.tex_coord_2 = true;
-    }
-    if (importer_mesh->HasTextureCoords(3)) {
-      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
-      skinned_vertex_attributes.tex_coord_3 = true;
     }
     vertices[i] = vertex;
   }

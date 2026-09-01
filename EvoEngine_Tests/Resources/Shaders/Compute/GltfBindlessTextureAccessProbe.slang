@@ -11,9 +11,8 @@ RWStructuredBuffer<float4> values;
 
 [numthreads(2, 1, 1)] void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   const GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(
-      float2(0.1, 0.2), float2(0.2, 0.3), float2(0.3, 0.4), float2(0.4, 0.5), float2(0.01, 0.02), float2(0.03, 0.04),
-      float2(0.11, 0.12), float2(0.13, 0.14), float2(0.05, 0.06), float2(0.07, 0.08), float2(0.21, 0.22),
-      float2(0.23, 0.24));
+      float2(0.1, 0.2), float2(0.3, 0.4), float2(0.01, 0.02), float2(0.11, 0.12), float2(0.05, 0.06),
+      float2(0.21, 0.22));
   const uint material_index =
       dispatch_thread_id.x == 0u ? push_constant.material_indices.x : push_constant.material_indices.y;
   const GltfShadeMaterial material = EE_GLTF_MATERIALS[material_index];

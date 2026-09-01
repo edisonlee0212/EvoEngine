@@ -15,8 +15,6 @@ struct StandardSkinnedVertexInput {
   [[vk::location(8)]] float4 weights2 : BLENDWEIGHT1;
   [[vk::location(9)]] float tangent_handedness : TEXCOORD4;
   [[vk::location(10)]] float2 tex_coord1 : TEXCOORD1;
-  [[vk::location(11)]] float2 tex_coord2 : TEXCOORD2;
-  [[vk::location(12)]] float2 tex_coord3 : TEXCOORD3;
 };
 
 [shader("vertex")]
@@ -26,6 +24,5 @@ StandardRasterOutput main(StandardSkinnedVertexInput input, uint draw_id : SV_Dr
   float4x4 transform = mul(skinning, EE_INSTANCES[instance_index].model);
   return EE_BUILD_STANDARD_RASTER_OUTPUT(
       input.position, input.normal, input.tangent, input.tangent_handedness, input.tex_coord0, input.tex_coord1,
-      input.tex_coord2, input.tex_coord3, input.color, instance_index, transform,
-      EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view);
+      input.color, instance_index, transform, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection_view);
 }

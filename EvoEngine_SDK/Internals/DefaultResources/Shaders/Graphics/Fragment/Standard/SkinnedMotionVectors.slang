@@ -11,9 +11,8 @@ float NormalizedLinearDepth(float4 clip) {
 
 [shader("fragment")] float4 main(RasterMotionVectorOutput input) : SV_Target {
   GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(
-      input.tex_coord0, input.tex_coord1, input.tex_coord2, input.tex_coord3, ddx(input.tex_coord0),
-      ddx(input.tex_coord1), ddx(input.tex_coord2), ddx(input.tex_coord3), ddy(input.tex_coord0), ddy(input.tex_coord1),
-      ddy(input.tex_coord2), ddy(input.tex_coord3));
+      input.tex_coord0, input.tex_coord1, ddx(input.tex_coord0), ddx(input.tex_coord1), ddy(input.tex_coord0),
+      ddy(input.tex_coord1));
   GltfRasterMaterial surface =
       EE_EVALUATE_GLTF_RASTER_SURFACE(uint(EE_INSTANCES[input.instance_index].material_index), tex_coords, input.color);
   if (EE_GLTF_RASTER_SHOULD_DISCARD(surface))
