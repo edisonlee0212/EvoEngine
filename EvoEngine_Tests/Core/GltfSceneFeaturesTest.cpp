@@ -68,9 +68,6 @@ TEST(GltfSceneFeatures, DetectsEveryBehaviorFeature) {
   material.ior = 0.0f;
   EXPECT_NE(detect(material) & Bit(GltfSceneFeature::Ior), 0u);
   material = {};
-  material.pbr_model = static_cast<int32_t>(GltfPbrModel::SpecularGlossiness);
-  EXPECT_NE(detect(material) & Bit(GltfSceneFeature::SpecularGlossiness), 0u);
-  material = {};
   material.pbr_base_color_texture = 1;
   auto texture_infos = TextureInfos();
   texture_infos[1].uv_transform[2] = glm::vec2(0.25f, 0.5f);

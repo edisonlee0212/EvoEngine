@@ -22,11 +22,10 @@ enum class GltfSceneFeature : uint32_t {
   Unlit = 1u << 10u,
   Specular = 1u << 11u,
   Ior = 1u << 12u,
-  SpecularGlossiness = 1u << 13u,
-  TextureTransform = 1u << 14u,
+  TextureTransform = 1u << 13u,
 };
 
-constexpr uint32_t kGltfSceneAllFeatures = (1u << 15u) - 1u;
+constexpr uint32_t kGltfSceneAllFeatures = (1u << 14u) - 1u;
 
 [[nodiscard]] EVOENGINE_API uint32_t PromoteGltfSceneFeatures(uint32_t feature_mask);
 [[nodiscard]] EVOENGINE_API uint32_t DetectGltfSceneFeatures(const std::vector<GltfShadeMaterial>& materials,

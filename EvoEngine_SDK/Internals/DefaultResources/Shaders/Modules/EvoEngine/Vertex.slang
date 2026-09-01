@@ -9,7 +9,5 @@ public struct Vertex {
   public float2 tex_coord;
   public float2 vertex_info4;
   public float2 tex_coord_1;
-  public float2 tex_coord_2;
-  public float2 tex_coord_3;
   public float2 padding;
 };

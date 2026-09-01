@@ -36,8 +36,6 @@ void SkinnedVertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tangent" << YAML::Value << tangent;
   out << YAML::Key << "tex_coord" << YAML::Value << tex_coord;
   out << YAML::Key << "tex_coord_1" << YAML::Value << tex_coord_1;
-  out << YAML::Key << "tex_coord_2" << YAML::Value << tex_coord_2;
-  out << YAML::Key << "tex_coord_3" << YAML::Value << tex_coord_3;
   out << YAML::Key << "color" << YAML::Value << color;
 }
 
@@ -50,10 +48,6 @@ void SkinnedVertexAttributes::Deserialize(const YAML::Node& in) {
     tex_coord = in["tex_coord"].as<bool>();
   if (in["tex_coord_1"])
     tex_coord_1 = in["tex_coord_1"].as<bool>();
-  if (in["tex_coord_2"])
-    tex_coord_2 = in["tex_coord_2"].as<bool>();
-  if (in["tex_coord_3"])
-    tex_coord_3 = in["tex_coord_3"].as<bool>();
   if (in["color"])
     color = in["color"].as<bool>();
 }
@@ -121,8 +115,6 @@ Vertex evo_engine::BuildSkinnedRayTracingVertex(const SkinnedVertex& skinned_ver
   vertex.tex_coord = skinned_vertex.tex_coord;
   vertex.vertex_info4 = skinned_vertex.vertex_info4;
   vertex.tex_coord_1 = skinned_vertex.tex_coord_1;
-  vertex.tex_coord_2 = skinned_vertex.tex_coord_2;
-  vertex.tex_coord_3 = skinned_vertex.tex_coord_3;
 
   glm::mat4 bone_transform(0.0f);
   bool has_valid_weight = false;

@@ -19,8 +19,6 @@ struct EVOENGINE_API VertexAttributes {
   bool tangent = false;     /**< Indicates if tangents are enabled. */
   bool tex_coord = false;   /**< Indicates if texture coordinates are enabled. */
   bool tex_coord_1 = false; /**< Indicates if secondary texture coordinates are enabled. */
-  bool tex_coord_2 = false; /**< Indicates if third texture coordinates are enabled. */
-  bool tex_coord_3 = false; /**< Indicates if fourth texture coordinates are enabled. */
   bool color = false;       /**< Indicates if vertex color is enabled. */
 
   /**

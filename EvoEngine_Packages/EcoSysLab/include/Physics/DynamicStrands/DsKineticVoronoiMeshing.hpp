@@ -1,6 +1,8 @@
 #pragma once
+
 #include "CubicHermiteSpline.hpp"
 #include "DsMeshing.hpp"
+#include "RenderLayer.hpp"
 
 namespace eco_sys_lab_package {
 using namespace evo_engine;
@@ -98,6 +100,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
     float uv_height_factor;
     float uv_circum_factor;
     float fracture_distance;
+    int render_material_index;
   };
 
   // public:
@@ -107,6 +110,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_masked_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_meshlet_visualization_render_pipeline{};
 
   std::vector<GpuSegmentMeshletVertex> segment_meshlet_vertices;
@@ -134,6 +138,7 @@ class DsKineticVoronoiMeshing : public DsMeshing {
       const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderSegmentMeshletsToCameraDeferred(
       const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
+      int render_material_index, const std::shared_ptr<GraphicsPipeline>& pipeline, VkCullModeFlags cull_mode,
       const SegmentMeshletsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;

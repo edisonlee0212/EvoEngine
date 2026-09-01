@@ -7,10 +7,9 @@ public struct StandardRasterOutput {
   [[vk::location(2)]] public float3 tangent : TANGENT;
   [[vk::location(3)]] public nointerpolation float tangent_handedness : TEXCOORD1;
   [[vk::location(4)]] public float4 tex_coord01 : TEXCOORD2;
-  [[vk::location(5)]] public float4 tex_coord23 : TEXCOORD3;
-  [[vk::location(6)]] public float4 color : COLOR0;
-  [[vk::location(7)]] public nointerpolation uint instance_index : TEXCOORD4;
-  [[vk::location(8)]] public nointerpolation float transform_handedness : TEXCOORD5;
+  [[vk::location(5)]] public float4 color : COLOR0;
+  [[vk::location(6)]] public nointerpolation uint instance_index : TEXCOORD3;
+  [[vk::location(7)]] public nointerpolation float transform_handedness : TEXCOORD4;
 };
 
 public float3 EE_RASTER_WORLD_NORMAL(float4x4 transform, float3 object_normal) {
@@ -24,8 +23,7 @@ public float3 EE_RASTER_WORLD_NORMAL(float4x4 transform, float3 object_normal) {
 
 public StandardRasterOutput EE_BUILD_STANDARD_RASTER_OUTPUT(
     float3 position, float3 normal, float3 tangent, float tangent_handedness, float2 tex_coord0, float2 tex_coord1,
-    float2 tex_coord2, float2 tex_coord3, float4 color, uint instance_index, float4x4 transform,
-    float4x4 projection_view) {
+    float4 color, uint instance_index, float4x4 transform, float4x4 projection_view) {
   StandardRasterOutput output;
   output.world_position = mul(float4(position, 1.0f), transform).xyz;
   output.normal = EE_RASTER_WORLD_NORMAL(transform, normal);
@@ -33,7 +31,6 @@ public StandardRasterOutput EE_BUILD_STANDARD_RASTER_OUTPUT(
   output.transform_handedness = EE_TRANSFORM_HANDEDNESS(transform);
   output.tangent_handedness = (tangent_handedness < 0.0f ? -1.0f : 1.0f) * output.transform_handedness;
   output.tex_coord01 = float4(tex_coord0, tex_coord1);
-  output.tex_coord23 = float4(tex_coord2, tex_coord3);
   output.color = color;
   output.instance_index = instance_index;
   output.position = mul(float4(output.world_position, 1.0f), projection_view);

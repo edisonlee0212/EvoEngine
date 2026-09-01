@@ -64,7 +64,8 @@ The SDK renderer is Vulkan-based and centered on `RenderLayer`. It includes defe
 
 Scene components describe rendering intent. Render instance storage converts scene state into GPU-friendly material, instance, camera, light, and environment buffers. Geometry and texture storage keep mesh and texture resources globally available to render passes.
 
-Services and packages can extend rendering through `RenderLayer` callbacks for shadow maps, deferred rendering, forward rendering, and custom render instance registration.
+Services and packages can extend rendering through `RenderLayer` callbacks for raw deferred rendering, forward rendering,
+custom render instance registration, and explicitly opaque or alpha-only masked shadow-map rendering.
 
 ## Jobs, Input, And Time
 

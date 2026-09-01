@@ -25,6 +25,10 @@ class EVOENGINE_API DeferredGeometryPass final {
     std::shared_ptr<GraphicsPipeline> instanced_pipeline;
     std::shared_ptr<GraphicsPipeline> skinned_pipeline;
     std::shared_ptr<GraphicsPipeline> strands_pipeline;
+    std::shared_ptr<GraphicsPipeline> masked_mesh_pipeline;
+    std::shared_ptr<GraphicsPipeline> masked_instanced_pipeline;
+    std::shared_ptr<GraphicsPipeline> masked_skinned_pipeline;
+    std::shared_ptr<GraphicsPipeline> masked_strands_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> meshlet_descriptor_set;
     std::shared_ptr<DescriptorSet> strand_meshlet_descriptor_set;
@@ -34,7 +38,8 @@ class EVOENGINE_API DeferredGeometryPass final {
     bool enable_indirect_rendering = false;
     bool count_draw_calls = false;
     bool wire_frame = false;
-    ExternalDeferredRendering external_deferred_rendering;
+    ExternalDeferredRendering external_opaque_rendering;
+    ExternalDeferredRendering external_masked_rendering;
     RecordCommands record_commands;
   };
 

@@ -20,6 +20,29 @@
 
 using namespace eco_sys_lab_package;
 
+namespace {
+std::shared_ptr<GraphicsPipeline> CreateMaskedRawPipeline(const std::shared_ptr<GraphicsPipeline>& opaque,
+                                                          const std::filesystem::path& fragment_shader_path) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader = opaque->vertex_shader;
+  pipeline->task_shader = opaque->task_shader;
+  pipeline->mesh_shader = opaque->mesh_shader;
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+  pipeline->geometry_type = opaque->geometry_type;
+  pipeline->vertex_input_attribute_set = opaque->vertex_input_attribute_set;
+  pipeline->vertex_input_enabled = opaque->vertex_input_enabled;
+  pipeline->primitive_topology = opaque->primitive_topology;
+  pipeline->descriptor_set_layouts = opaque->descriptor_set_layouts;
+  pipeline->color_attachment_formats = opaque->color_attachment_formats;
+  pipeline->depth_attachment_format = opaque->depth_attachment_format;
+  pipeline->stencil_attachment_format = opaque->stencil_attachment_format;
+  pipeline->push_constant_ranges = opaque->push_constant_ranges;
+  pipeline->Initialize();
+  return pipeline;
+}
+}  // namespace
+
 // helper functions
 std::vector<std::pair<size_t, double>> MergeSortedVectors(const std::vector<std::vector<double>>& inputs) {
   using Entry = std::pair<size_t, double>;  // (index of input vector, value)
@@ -1181,25 +1204,26 @@ void DsKineticVoronoiMeshing::RegisterSegmentMeshletsRenderInstance(Handle& rend
       bark_material && inner_wood_material && snow_material) {
     if (!dynamic_strands->segments.empty()) {
       if (segment_meshlet_point_light_render_pipeline && segment_meshlet_point_light_render_pipeline->Initialized()) {
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToPointLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                             vk_command_buffer, view);
         });
       }
       if (segment_meshlet_spot_light_render_pipeline && segment_meshlet_spot_light_render_pipeline->Initialized()) {
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToSpotLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                            vk_command_buffer, view);
         });
       }
       if (segment_meshlet_directional_light_render_pipeline &&
           segment_meshlet_directional_light_render_pipeline->Initialized()) {
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToDirectionalLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                                   vk_command_buffer, view);
         });
       }
-      if (segment_meshlet_render_pipeline && segment_meshlet_render_pipeline->Initialized()) {
+      if (segment_meshlet_render_pipeline && segment_meshlet_masked_render_pipeline &&
+          segment_meshlet_render_pipeline->Initialized() && segment_meshlet_masked_render_pipeline->Initialized()) {
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = rendering_instance_handle;
@@ -1208,15 +1232,35 @@ void DsKineticVoronoiMeshing::RegisterSegmentMeshletsRenderInstance(Handle& rend
                                                        &bark_material_index);
         const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
         const auto snow_material_index = current_render_storage->RegisterMaterial(snow_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return RenderSegmentMeshletsToCameraDeferred(
-                  renderer_handle, bark_material_index, inner_material_index, snow_material_index,
-                  render_settings.segment_meshlet_render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
-            });
+        const auto register_material = [&](const std::shared_ptr<Material>& material, const int material_index) {
+          const auto material_data = material->BuildGltfMaterialData();
+          const auto material_class =
+              ClassifyGltfRasterMaterial(material_data.shade_material, material->draw_settings.blending);
+          const auto pipeline = material_class == GltfRasterMaterialClass::Masked
+                                    ? segment_meshlet_masked_render_pipeline
+                                    : segment_meshlet_render_pipeline;
+          auto render = [=](const VkCommandBuffer vk_command_buffer,
+                            const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                            const RenderLayer::DeferredRenderingView& view) {
+            return RenderSegmentMeshletsToCameraDeferred(
+                renderer_handle, bark_material_index, inner_material_index, snow_material_index, material_index,
+                pipeline, material->draw_settings.cull_mode, render_settings.segment_meshlet_render_parameters,
+                vk_command_buffer, geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
+          };
+          if (material_class == GltfRasterMaterialClass::Opaque) {
+            render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+          } else if (material_class == GltfRasterMaterialClass::Masked) {
+            render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+          } else {
+            EVOENGINE_ERROR(
+                "Kinetic Voronoi material requires forward rendering, which this procedural renderer "
+                "does not support.");
+          }
+        };
+        register_material(bark_material, bark_material_index);
+        if (inner_material_index != bark_material_index) {
+          register_material(inner_wood_material, inner_material_index);
+        }
       }
     }
   }
@@ -1340,6 +1384,10 @@ void DsKineticVoronoiMeshing::BuildSegmentMeshletsRenderingPipelines() {
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   segment_meshlet_render_pipeline->Initialize();
+  segment_meshlet_masked_render_pipeline =
+      CreateMaskedRawPipeline(segment_meshlet_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
+                                                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/"
+                                                                   "KineticVoronoiMeshing/BranchesMasked.slang");
 }
 
 uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToPointLightShadowMap(
@@ -1434,6 +1482,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToDirectionalLightShadowM
 
 uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
     const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
+    const int render_material_index, const std::shared_ptr<GraphicsPipeline>& pipeline, const VkCullModeFlags cull_mode,
     const SegmentMeshletsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const {
@@ -1446,7 +1495,7 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   }
 
   // TODO: If we add any compute shaders, also check them here
-  if (!segment_meshlet_render_pipeline || !segment_meshlet_render_pipeline->Initialized()) {
+  if (!pipeline || !pipeline->Initialized()) {
     return 0;
   }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
@@ -1466,12 +1515,14 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   render_push_constant.uv_height_factor = render_settings.segment_meshlet_render_parameters.uv_height_factor;
   render_push_constant.uv_circum_factor = render_settings.segment_meshlet_render_parameters.uv_circum_factor;
   render_push_constant.fracture_distance = render_settings.segment_meshlet_render_parameters.fracture_distance;
+  render_push_constant.render_material_index = render_material_index;
 
-  segment_meshlet_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-  segment_meshlet_render_pipeline->states.SetViewportScissor(view.viewport);
-  segment_meshlet_render_pipeline->states.polygon_mode = polygon_mode;
-  segment_meshlet_render_pipeline->states.line_width = 2.0f;
-  segment_meshlet_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  pipeline->states.SetViewportScissor(view.viewport);
+  pipeline->states.polygon_mode = polygon_mode;
+  pipeline->states.line_width = 2.0f;
+  pipeline->states.cull_mode = cull_mode;
+  pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
   if (rdoc_api) {
@@ -1480,18 +1531,16 @@ uint32_t DsKineticVoronoiMeshing::RenderSegmentMeshletsToCameraDeferred(
   }
 #endif  //  USERENDERDOC
 
-  segment_meshlet_render_pipeline->Bind(vk_command_buffer);
-  segment_meshlet_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                     RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-  segment_meshlet_render_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  segment_meshlet_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                     RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  pipeline->Bind(vk_command_buffer);
+  pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                              dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
 
-  segment_meshlet_render_pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);
+  pipeline->PushConstant(vk_command_buffer, 0, render_push_constant);
 
   const uint32_t count = Platform::DivUp(segment_meshlet_triangles.size(), task_work_group_invocations);
-  segment_meshlet_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+  pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);

@@ -873,8 +873,6 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
                                                "emissive-large",
                                                "emissive-textured-uv0",
                                                "emissive-textured-uv1",
-                                               "emissive-textured-uv2",
-                                               "emissive-textured-uv3",
                                                "emissive-one-sided",
                                                "emissive-double-sided",
                                                "emissive-alpha-cutout",

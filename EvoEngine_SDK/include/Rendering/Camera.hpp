@@ -360,7 +360,6 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   [[nodiscard]] ImTextureID GetGBufferNormalRoughnessImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferPbrFlagsImTextureId() const;
   [[nodiscard]] ImTextureID GetGBufferEmissiveImTextureId() const;
-  [[nodiscard]] ImTextureID GetGBufferUtilityImTextureId() const;
 
   void SetRendered();
   void ResetRenderState();
@@ -392,7 +391,6 @@ class EVOENGINE_API Camera final : public IPrivateComponent {
   ImTextureID g_buffer_emissive_im_texture_id_ = {};                ///< ImTextureID for emissive.
   std::shared_ptr<Image> g_buffer_utility_ = {};                    ///< Expanded GBuffer utility image.
   std::shared_ptr<ImageView> g_buffer_utility_view_ = {};           ///< Expanded GBuffer utility view.
-  ImTextureID g_buffer_utility_im_texture_id_ = {};                 ///< ImTextureID for utility.
 
   uint32_t frame_count_ = 0;               ///< Frame count used for tracking rendering updates.
   uint32_t temporal_history_version_ = 0;  ///< Version incremented by explicit camera history resets.

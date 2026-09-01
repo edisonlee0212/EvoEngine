@@ -3,6 +3,7 @@
 #include "DsMaterials.hpp"
 #include "DsOperators.hpp"
 #include "DynamicStrands.hpp"
+#include "DynamicStrandsBundleDiagnostics.hpp"
 #include "DynamicStrandsVisualizationParameters.hpp"
 #include "ShootGrowthData.hpp"
 #include "StrandModelData.hpp"
@@ -40,6 +41,8 @@ class DynamicTreeStrands : public IPrivateComponent {
   DsMaterials materials;
 
   std::shared_ptr<DynamicStrands> dynamic_strands{};  ///< Shared pointer to DynamicStrands instance.
+  std::string bundle_experiment_name{};
+  BundleMomentum bundle_experiment_reference{};
 
   /**
    * @struct PivotTransform

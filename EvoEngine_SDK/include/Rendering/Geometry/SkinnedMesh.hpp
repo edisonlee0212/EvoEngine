@@ -23,8 +23,6 @@ struct EVOENGINE_API SkinnedVertexAttributes {
   bool tangent = false;     /**< Whether the tangent attribute is enabled. */
   bool tex_coord = false;   /**< Whether the texture coordinate attribute is enabled. */
   bool tex_coord_1 = false; /**< Whether the secondary texture coordinate attribute is enabled. */
-  bool tex_coord_2 = false; /**< Whether the third texture coordinate attribute is enabled. */
-  bool tex_coord_3 = false; /**< Whether the fourth texture coordinate attribute is enabled. */
   bool color = false;       /**< Whether the color attribute is enabled. */
 
   /**

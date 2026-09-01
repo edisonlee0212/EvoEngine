@@ -407,8 +407,6 @@ void VertexAttributes::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "tangent" << YAML::Value << tangent;
   out << YAML::Key << "tex_coord" << YAML::Value << tex_coord;
   out << YAML::Key << "tex_coord_1" << YAML::Value << tex_coord_1;
-  out << YAML::Key << "tex_coord_2" << YAML::Value << tex_coord_2;
-  out << YAML::Key << "tex_coord_3" << YAML::Value << tex_coord_3;
   out << YAML::Key << "color" << YAML::Value << color;
 }
 
@@ -421,10 +419,6 @@ void VertexAttributes::Deserialize(const YAML::Node& in) {
     tex_coord = in["tex_coord"].as<bool>();
   if (in["tex_coord_1"])
     tex_coord_1 = in["tex_coord_1"].as<bool>();
-  if (in["tex_coord_2"])
-    tex_coord_2 = in["tex_coord_2"].as<bool>();
-  if (in["tex_coord_3"])
-    tex_coord_3 = in["tex_coord_3"].as<bool>();
   if (in["color"])
     color = in["color"].as<bool>();
 }

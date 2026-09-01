@@ -43,7 +43,7 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
   static std::vector<VkVertexInputAttributeDescription> mesh_motion_vectors{};
   static std::vector<VkVertexInputAttributeDescription> skinned_mesh_motion_vectors{};
   if (mesh.empty()) {
-    mesh.resize(9);
+    mesh.resize(7);
     mesh[0].binding = 0;
     mesh[0].location = 0;
     mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -78,20 +78,10 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     mesh[6].location = 10;
     mesh[6].format = VK_FORMAT_R32G32_SFLOAT;
     mesh[6].offset = offsetof(Vertex, tex_coord_1);
-
-    mesh[7].binding = 0;
-    mesh[7].location = 11;
-    mesh[7].format = VK_FORMAT_R32G32_SFLOAT;
-    mesh[7].offset = offsetof(Vertex, tex_coord_2);
-
-    mesh[8].binding = 0;
-    mesh[8].location = 12;
-    mesh[8].format = VK_FORMAT_R32G32_SFLOAT;
-    mesh[8].offset = offsetof(Vertex, tex_coord_3);
   }
 
   if (skinned_mesh.empty()) {
-    skinned_mesh.resize(13);
+    skinned_mesh.resize(11);
     skinned_mesh[0].binding = 0;
     skinned_mesh[0].location = 0;
     skinned_mesh[0].format = VK_FORMAT_R32G32B32_SFLOAT;
@@ -146,16 +136,6 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
     skinned_mesh[10].location = 10;
     skinned_mesh[10].format = VK_FORMAT_R32G32_SFLOAT;
     skinned_mesh[10].offset = offsetof(SkinnedVertex, tex_coord_1);
-
-    skinned_mesh[11].binding = 0;
-    skinned_mesh[11].location = 11;
-    skinned_mesh[11].format = VK_FORMAT_R32G32_SFLOAT;
-    skinned_mesh[11].offset = offsetof(SkinnedVertex, tex_coord_2);
-
-    skinned_mesh[12].binding = 0;
-    skinned_mesh[12].location = 12;
-    skinned_mesh[12].format = VK_FORMAT_R32G32_SFLOAT;
-    skinned_mesh[12].offset = offsetof(SkinnedVertex, tex_coord_3);
   }
   if (mesh_base.empty()) {
     mesh_base.assign(mesh.begin(), mesh.begin() + 5);
@@ -191,12 +171,11 @@ const std::vector<VkVertexInputAttributeDescription>& IGeometry::GetVertexAttrib
                                        skinned_mesh[6], skinned_mesh[7], skinned_mesh[8]};
   }
   if (mesh_motion_vectors.empty()) {
-    mesh_motion_vectors = {mesh[0], mesh[3], mesh[4], mesh[6], mesh[7], mesh[8]};
+    mesh_motion_vectors = {mesh[0], mesh[3], mesh[4], mesh[6]};
   }
   if (skinned_mesh_motion_vectors.empty()) {
-    skinned_mesh_motion_vectors = {skinned_mesh[0],  skinned_mesh[3], skinned_mesh[4], skinned_mesh[5],
-                                   skinned_mesh[6],  skinned_mesh[7], skinned_mesh[8], skinned_mesh[10],
-                                   skinned_mesh[11], skinned_mesh[12]};
+    skinned_mesh_motion_vectors = {skinned_mesh[0], skinned_mesh[3], skinned_mesh[4], skinned_mesh[5],
+                                   skinned_mesh[6], skinned_mesh[7], skinned_mesh[8], skinned_mesh[10]};
   }
 
   switch (attribute_set) {

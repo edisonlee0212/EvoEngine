@@ -112,7 +112,7 @@ LocalAssets:
     handle: 12838370667989589858
     enable_ambient_occlusion: true
     enable_bloom: true
-    enable_screen_space_reflection: false
+    enable_screen_space_reflection: true
     enable_anti_aliasing: true
     enable_tone_mapping: true
     ambient_occlusion:
@@ -139,9 +139,11 @@ LocalAssets:
       max_distance: 100
       distance_confidence: 0.2
       max_iteration_count: 128
-      initial_steps: 32
+      binary_search_iteration_count: 8
       thickness: 0.5
+      start_bias: 0.05
       blur: true
+      temporal_stabilization: true
     anti_aliasing:
       algorithm: 1
       taa:

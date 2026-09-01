@@ -8,6 +8,7 @@ image and where each rendering responsibility lives.
 Focused guides:
 
 - [Materials and geometry](rendering-materials.md)
+- [Texture access](rendering-texture-access.md)
 - [Dynamic Diffuse Global Illumination](ddgi.md)
 - [Reflection probes](reflection-probes.md)
 - [Rendering demos](rendering-demos.md)
@@ -81,7 +82,7 @@ addresses, and BLAS content versions are unchanged, TLAS preparation is an exact
 
 | Technique | Rendering path | Availability behavior |
 | --- | --- | --- |
-| Rasterization | Opaque GBuffer, deferred lighting, forward/transparent rendering, then post-processing. | Always available. |
+| Rasterization | Raw opaque/masked GBuffer, fused compute material evaluation and lighting, forward/transparent rendering, then post-processing. | Always available. |
 | Ray tracing | Vulkan ray-tracing pipeline running the shared path-tracing integrator. | Falls back to ray query when available, otherwise rasterization. |
 | Ray query | Compute pipeline using inline ray queries with the shared path-tracing integrator. | Falls back to ray tracing when available, otherwise rasterization. |
 
@@ -94,13 +95,18 @@ invalidate the affected history. An unchanged camera continues accumulating samp
 
 ## Raster Path
 
-Opaque and alpha-masked meshes normally write evaluated material attributes into the GBuffer. Deferred lighting combines
-punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion. Forward-only and blended
-geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and post-processing.
+Opaque meshes write only raw geometry attributes and stable IDs into the GBuffer. A separate alpha-masked geometry path
+samples only base-color alpha to determine coverage, then writes the same raw layout. GTAO reads the geometric normal
+before an in-place compute pass evaluates full materials, publishes the resolved G-buffer surface, and writes scene
+color by combining punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion.
+Forward-only and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and
+post-processing.
 
-Raster material textures use fixed descriptors so ordinary raster rendering does not require bindless descriptor-array
-features. Ray cameras retain bindless texture access for material evaluation during traversal. See
-[Materials and geometry](rendering-materials.md) for material behavior and geometry participation.
+Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
+environment, and reflection-probe assets share bindless 2D and cubemap index spaces across raster and ray paths;
+attachments, histories, and other pass-owned images retain explicit descriptors. See
+[Texture access](rendering-texture-access.md) for the ownership rules and [Materials and geometry](rendering-materials.md)
+for material behavior and geometry participation.
 
 ## Lighting
 
@@ -140,7 +146,9 @@ Valid DDGI visibility may reduce rough probe leakage, but DDGI irradiance does n
 Directional lights use four cascades with Stable Sphere fitting by default; Tight Light-Space AABB fitting is available
 for comparison. Directional shadows use Vogel-disc percentage-closer filtering. Point and spot lights use their own
 shadow atlases and filtering paths. The quality override changes directional, point, and spot shadow-map resolution
-together.
+together. Every shadow type separates opaque and alpha-masked rigid, meshlet, instanced, skinned, and strand casters.
+Opaque depth shaders perform no material or texture access; masked depth shaders evaluate only base-color alpha
+coverage. External shadow renderers register explicitly for one of those two contracts.
 
 Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, bloom, tone mapping, and related post
 effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
@@ -162,7 +170,8 @@ Packages and services extend rendering through explicit APIs rather than by modi
 
 - register logical resources and frame- or camera-level render-graph passes;
 - register external render instances and, when applicable, compatible acceleration-structure metadata;
-- use deferred, forward, transparent, shadow, and gizmo callbacks exposed by `RenderLayer`;
+- use raw opaque or alpha-only masked deferred callbacks, forward/transparent callbacks, explicit opaque or alpha-only
+  masked shadow callbacks, and gizmo callbacks exposed by `RenderLayer`;
 - provide package-owned shaders, descriptors, and resources for package-specific rendering.
 
 External geometry participates only in the paths for which it supplies the required draw or traversal contract. For

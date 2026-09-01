@@ -5,6 +5,71 @@
 
 using namespace eco_sys_lab_package;
 
+bool BundleSolverSettings::DrawGui() {
+  bool changed = false;
+  auto mode_index = static_cast<unsigned>(mode);
+  if (ImGui::Combo("Mode (reinitialize)", {"Legacy", "Coupled XPBD", "Hybrid"}, mode_index)) {
+    mode = static_cast<BundleSolverMode>(mode_index);
+    changed = true;
+  }
+  changed = ImGui::DragInt("Legacy iterations", &legacy_iterations, 1, 1, 100) || changed;
+  changed = ImGui::DragInt("Pair iterations", &pair_iterations, 1, 1, 100) || changed;
+  changed = ImGui::DragInt("Coarse iterations", &coarse_iterations, 1, 1, 100) || changed;
+  changed = ImGui::DragFloat("Position compliance scale", &position_compliance_scale, 0.01f, 0.f, 100.f) || changed;
+  changed = ImGui::DragFloat("Bending compliance scale", &bending_compliance_scale, 0.01f, 0.f, 100.f) || changed;
+  changed = ImGui::DragFloat("Torsion compliance scale", &torsion_compliance_scale, 0.01f, 0.f, 100.f) || changed;
+  changed = ImGui::SliderFloat("Shape matching strength", &shape_matching_strength, 0.f, 1.f) || changed;
+  changed =
+      ImGui::DragFloat("Slice spacing factor (reinitialize)", &slice_spacing_factor, 0.05f, 0.1f, 10.f) || changed;
+  changed = ImGui::DragInt("Minimum slice members (reinitialize)", &minimum_slice_members, 1, 1, 1024) || changed;
+  return changed;
+}
+
+void BundleSolverSettings::Save(const std::string& name, YAML::Emitter& out) const {
+  out << YAML::Key << name << YAML::Value << YAML::BeginMap;
+  out << YAML::Key << "mode" << YAML::Value << static_cast<int>(mode);
+  out << YAML::Key << "legacy_iterations" << YAML::Value << legacy_iterations;
+  out << YAML::Key << "pair_iterations" << YAML::Value << pair_iterations;
+  out << YAML::Key << "coarse_iterations" << YAML::Value << coarse_iterations;
+  out << YAML::Key << "position_compliance_scale" << YAML::Value << position_compliance_scale;
+  out << YAML::Key << "bending_compliance_scale" << YAML::Value << bending_compliance_scale;
+  out << YAML::Key << "torsion_compliance_scale" << YAML::Value << torsion_compliance_scale;
+  out << YAML::Key << "shape_matching_strength" << YAML::Value << shape_matching_strength;
+  out << YAML::Key << "slice_spacing_factor" << YAML::Value << slice_spacing_factor;
+  out << YAML::Key << "minimum_slice_members" << YAML::Value << minimum_slice_members;
+  out << YAML::EndMap;
+}
+
+void BundleSolverSettings::Load(const std::string& name, const YAML::Node& in) {
+  if (!in[name])
+    return;
+  const auto& settings = in[name];
+  if (settings["mode"]) {
+    const auto value = settings["mode"].as<int>();
+    mode = value >= static_cast<int>(BundleSolverMode::Legacy) && value <= static_cast<int>(BundleSolverMode::Hybrid)
+               ? static_cast<BundleSolverMode>(value)
+               : BundleSolverMode::Legacy;
+  }
+  if (settings["legacy_iterations"])
+    legacy_iterations = glm::max(1, settings["legacy_iterations"].as<int>());
+  if (settings["pair_iterations"])
+    pair_iterations = glm::max(1, settings["pair_iterations"].as<int>());
+  if (settings["coarse_iterations"])
+    coarse_iterations = glm::max(1, settings["coarse_iterations"].as<int>());
+  if (settings["position_compliance_scale"])
+    position_compliance_scale = glm::max(0.f, settings["position_compliance_scale"].as<float>());
+  if (settings["bending_compliance_scale"])
+    bending_compliance_scale = glm::max(0.f, settings["bending_compliance_scale"].as<float>());
+  if (settings["torsion_compliance_scale"])
+    torsion_compliance_scale = glm::max(0.f, settings["torsion_compliance_scale"].as<float>());
+  if (settings["shape_matching_strength"])
+    shape_matching_strength = glm::clamp(settings["shape_matching_strength"].as<float>(), 0.f, 1.f);
+  if (settings["slice_spacing_factor"])
+    slice_spacing_factor = glm::max(0.1f, settings["slice_spacing_factor"].as<float>());
+  if (settings["minimum_slice_members"])
+    minimum_slice_members = glm::max(1, settings["minimum_slice_members"].as<int>());
+}
+
 bool DynamicStrandsInitializeParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::DragFloat("Min segment length", &min_segment_length, 0.001f, 0.001f, max_segment_length))
@@ -102,6 +167,11 @@ bool DynamicStrandsInitializeParameters::DrawGui(const std::shared_ptr<EditorLay
     ImGui::TreePop();
   }
 
+  if (ImGui::TreeNode("Bundle solver")) {
+    changed = bundle_solver.DrawGui() || changed;
+    ImGui::TreePop();
+  }
+
   return changed;
 }
 
@@ -141,6 +211,8 @@ void DynamicStrandsInitializeParameters::Save(const std::string& name, YAML::Emi
   out << YAML::Key << "max_dist_squared" << YAML::Value << max_dist_squared;
   out << YAML::Key << "use_cubic_hermite_spline" << YAML::Value << use_cubic_hermite_spline;
   out << YAML::Key << "min_bundle_size" << YAML::Value << min_bundle_size;
+
+  bundle_solver.Save("bundle_solver", out);
 
   foliage_descriptor.Save("foliage_descriptor", out);
 
@@ -202,6 +274,8 @@ void DynamicStrandsInitializeParameters::Load(const std::string& name, const YAM
       use_cubic_hermite_spline = in_parameters["use_cubic_hermite_spline"].as<bool>();
     if (in_parameters["min_bundle_size"])
       min_bundle_size = in_parameters["min_bundle_size"].as<int>();
+
+    bundle_solver.Load("bundle_solver", in_parameters);
 
     foliage_descriptor.Load("foliage_descriptor", in_parameters);
   }

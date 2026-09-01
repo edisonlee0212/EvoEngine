@@ -215,32 +215,54 @@ class EVOENGINE_API RenderLayer final : public ILayer {
    * \brief Register per-frame function to render to all point light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToPointLightShadowMap(std::function<uint32_t(VkCommandBuffer vk_command_buffer,
-                                                          const PointLightShadowMapView& shadow_map_view)>&& func);
+  void RenderOpaqueToPointLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&&
+          func);
+  void RenderAlphaMaskedToPointLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&&
+          func);
 
   /**
    * \brief Register per-frame function to render to all spot light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToSpotLightShadowMap(
+  void RenderOpaqueToSpotLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
+  void RenderAlphaMaskedToSpotLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
 
   /**
    * \brief Register per-frame function to render to all directional light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToDirectionalLightShadowMap(
+  void RenderOpaqueToDirectionalLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
+          func);
+  void RenderAlphaMaskedToDirectionalLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
           func);
 
   /**
-   * \brief Register per-frame function to render to all cameras using deferred rendering.
-   * \param func Render function targeting deferred rendering cameras. Return primitive count.
+   * \brief Register per-frame raw opaque geometry rendering for all deferred cameras.
+   *
+   * The callback must write the raw G-buffer ABI without evaluating materials or sampling textures.
+   * \param func Raw opaque geometry callback. Return primitive count.
    */
-  void DeferredRenderingAllCameras(
+  void RawOpaqueRenderingAllCameras(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                              const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                             const DeferredRenderingView& forward_rendering_view)>&& func);
+                             const DeferredRenderingView& deferred_rendering_view)>&& func);
+
+  /**
+   * \brief Register per-frame alpha-masked raw geometry rendering for all deferred cameras.
+   *
+   * The callback may evaluate only material alpha and must otherwise write the raw G-buffer ABI.
+   * \param func Alpha-masked raw geometry callback. Return primitive count.
+   */
+  void AlphaMaskedRenderingAllCameras(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                             const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                             const DeferredRenderingView& deferred_rendering_view)>&& func);
 
   /**
    * \brief Register per-frame function to render to all cameras using forward rendering.
@@ -304,7 +326,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetCameraGBufferDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTextureStorageDescriptorSetLayout() const;
   [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRenderTexturePresentDescriptorSetLayout() const;
-  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterMaterialDescriptorSetLayout() const;
+  [[nodiscard]] bool SharedTextureDescriptorArraysEnabled() const;
+  [[nodiscard]] const std::vector<uint64_t>& GetPerFrameTexture2DAppliedRevisions() const;
+  [[nodiscard]] const std::vector<uint64_t>& GetPerFrameCubemapAppliedRevisions() const;
+  [[nodiscard]] const std::shared_ptr<DescriptorSetLayout>& GetRasterLightingTextureDescriptorSetLayout() const;
+  [[nodiscard]] std::shared_ptr<DescriptorSet> GetExistingRasterLightingTextureDescriptorSet(
+      uint32_t current_frame_index, int camera_index) const;
   [[nodiscard]] const std::shared_ptr<PostProcessingRendererResources>& GetPostProcessingRendererResources() const;
   struct ReflectionProbeBakeRequest {
     glm::vec3 position{};
@@ -370,6 +397,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     std::shared_ptr<DescriptorSet> lighting_descriptor_set{};
     std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set{};
     RenderCommandRecorder record_commands{};
+    RenderGraphTransientResourceStore* transient_resources = nullptr;
     int camera_index = -1;
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
@@ -570,19 +598,31 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
-      point_light_shadow_map_external_functions;
+      opaque_point_light_shadow_map_external_functions;
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
+      alpha_masked_point_light_shadow_map_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>>
-      spot_light_shadow_map_external_functions;
+      opaque_spot_light_shadow_map_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>>
+      alpha_masked_spot_light_shadow_map_external_functions;
 
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
-      directional_light_shadow_map_external_functions;
+      opaque_directional_light_shadow_map_external_functions;
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
+      alpha_masked_directional_light_shadow_map_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                                      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                                      const DeferredRenderingView& forward_rendering_view)>>
-      deferred_rendering_external_functions;
+      raw_opaque_rendering_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                                     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                                     const DeferredRenderingView& deferred_rendering_view)>>
+      alpha_masked_rendering_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                                      const ForwardRenderingView& forward_rendering_view)>>
@@ -638,7 +678,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 #pragma region DescriptorSet Layouts
   std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
-  std::shared_ptr<DescriptorSetLayout> raster_material_per_frame_layout_;
   std::shared_ptr<DescriptorSetLayout> meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> strand_meshlet_layout_;
   std::shared_ptr<DescriptorSetLayout> lighting_layout_;
@@ -649,6 +688,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;
   std::shared_ptr<DescriptorSetLayout> bone_matrices_layout_;
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
+  std::shared_ptr<DescriptorSetLayout> deferred_compute_lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
@@ -664,17 +704,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_radix_sort_layout_;
-  std::shared_ptr<DescriptorSetLayout> raster_material_layout_;
   bool per_frame_bindless_texture_descriptors_enabled_ = false;
-  mutable std::shared_ptr<Texture2D> raster_material_white_fallback_texture_;
-  mutable std::shared_ptr<Texture2D> raster_material_black_fallback_texture_;
-  mutable std::shared_ptr<Texture2D> raster_material_flat_normal_fallback_texture_;
+  mutable std::shared_ptr<Texture2D> raster_lighting_white_fallback_texture_;
 
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
-  void EnsureRasterMaterialFallbackTextures() const;
-  [[nodiscard]] std::array<VkDescriptorImageInfo, RenderInstanceStorage::kRasterMaterialTextureSlotCount>
-  GetRasterMaterialFallbackDescriptorImageInfos() const;
+  void EnsureRasterLightingFallbackTexture() const;
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
@@ -864,7 +899,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] std::shared_ptr<DescriptorSet> GetRasterLightingTextureDescriptorSet(
       uint32_t current_frame_index, int camera_index,
       const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
-
   /**
    * \brief Applies all animators associated with this render layer.
    */
@@ -877,7 +911,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   friend class TextureStorage;
   std::vector<std::shared_ptr<DescriptorSet>> per_frame_descriptor_sets_ = {};
-  std::vector<std::shared_ptr<DescriptorSet>> raster_material_per_frame_descriptor_sets_ = {};
+  mutable std::vector<uint64_t> per_frame_texture_2d_applied_revisions_ = {};
+  mutable std::vector<uint64_t> per_frame_cubemap_applied_revisions_ = {};
   mutable std::vector<std::vector<std::shared_ptr<DescriptorSet>>> raster_lighting_texture_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> meshlet_descriptor_sets_ = {};
   std::vector<std::shared_ptr<DescriptorSet>> strand_meshlet_descriptor_sets_ = {};
@@ -887,75 +922,91 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 #pragma region Graphics Pipelines
   /// Depth-only pipeline for rendering point light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering point light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_masked;
 
   /// Depth-only pipeline for rendering spot light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering spot light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_masked;
 
   /// Depth-only pipeline for rendering directional light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_masked;
 
   /// Mesh-shader pipeline for rendering directional light shadows from strands.
-  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced spot light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced directional light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering point light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering spot light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering directional light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for rendering point light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for rendering spot light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using normal meshes.
   std::shared_ptr<GraphicsPipeline> deferred_geometry_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> deferred_masked_geometry_pipeline_normal;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using mesh shaders.
   std::shared_ptr<GraphicsPipeline> deferred_geometry_pipeline_mesh;
+  std::shared_ptr<GraphicsPipeline> deferred_masked_geometry_pipeline_mesh;
 
   /// Graphics pipeline for rendering instanced deferred shading GBuffer pre-pass.
   std::shared_ptr<GraphicsPipeline> instanced_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> instanced_deferred_masked_geometry_pipeline;
 
   /// Graphics pipeline for rendering deferred shading GBuffer pre-pass with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> skinned_deferred_masked_geometry_pipeline;
 
   /// Graphics pipeline for rendering deferred shading GBuffer pre-pass with hair strands.
   std::shared_ptr<GraphicsPipeline> strands_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_deferred_masked_geometry_pipeline;
 
-  /// Graphics pipeline for performing the deferred shading lighting pass.
-  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline;
-
-  /// Graphics pipeline for performing the deferred shading lighting pass with scene cameras.
-  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline_scene_camera;
   std::shared_ptr<GraphicsPipeline> entity_selection_highlight_pipeline_;
 
   /// Graphics pipeline for rendering transparent normal meshes after deferred lighting.
   std::shared_ptr<GraphicsPipeline> transparent_geometry_pipeline_normal;
 
-  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_pipeline_;
+  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_opaque_pipeline_;
+  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_masked_pipeline_;
   std::shared_ptr<GraphicsPipeline> transparent_motion_vectors_pipeline_;
 
   /// Graphics pipeline for rendering gizmos.
@@ -989,6 +1040,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
   std::shared_ptr<ComputePipeline> motion_vectors_pipeline_;
+  std::shared_ptr<ComputePipeline> deferred_compute_lighting_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> gaussian_splat_cull_pipeline_;

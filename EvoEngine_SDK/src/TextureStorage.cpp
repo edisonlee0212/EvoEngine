@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <utility>
 
@@ -418,6 +419,8 @@ void CubemapStorage::Initialize(uint32_t resolution, uint32_t mip_levels, const 
     EditorLayer::UpdateTextureId(im_texture_ids[i], sampler->GetVkSampler(), face_views[i]->GetVkImageView(),
                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
   }
+  TextureStorage::SetCubemapSlotState(
+      *this, transition_to_shader_read ? SampledViewSlotState::Ready : SampledViewSlotState::AllocatedPending);
 }
 
 VkImageLayout CubemapStorage::GetLayout() const {
@@ -562,6 +565,7 @@ void Texture2DStorage::Initialize(const glm::uvec2& resolution, const VkFormat f
 
   EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
                                image->GetLayout());
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::Ready);
 }
 
 GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data, const glm::uvec2& resolution,
@@ -586,18 +590,21 @@ GpuWorkHandle Texture2DStorage::SetDataAsync(const std::vector<glm::vec4>& data,
     }
   }
   Initialize(resolution, resolved_format, resolved_format == Platform::Constants::texture_2d, mip_levels);
+  GpuWorkHandle upload;
   if (resolved_format == VK_FORMAT_R8G8B8A8_SRGB && !supports_linear_blit) {
     auto mip_chain = BuildSrgbMipChain(data, resolution);
-    return EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, mip_chain.bytes, false,
-                                "Texture2DStorage::SetDataAsync (CPU sRGB mips)", std::move(mip_chain.regions));
+    upload = EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, mip_chain.bytes, false,
+                                  "Texture2DStorage::SetDataAsync (CPU sRGB mips)", std::move(mip_chain.regions));
+  } else {
+    auto upload_bytes = BuildTextureUploadBytes(data, resolution, resolved_format);
+    if (!upload_bytes || upload_bytes->empty()) {
+      return {};
+    }
+    upload = EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, upload_bytes, true,
+                                  "Texture2DStorage::SetDataAsync");
   }
-  auto upload_bytes = BuildTextureUploadBytes(data, resolution, resolved_format);
-  if (!upload_bytes || upload_bytes->empty()) {
-    return {};
-  }
-
-  return EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, upload_bytes, true,
-                              "Texture2DStorage::SetDataAsync");
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::AllocatedPending);
+  return upload;
 }
 
 GpuWorkHandle Texture2DStorage::SetCompressedDataAsync(const std::vector<std::byte>& data, const glm::uvec2& resolution,
@@ -615,8 +622,10 @@ GpuWorkHandle Texture2DStorage::SetCompressedDataAsync(const std::vector<std::by
   Initialize(resolution, format, false, resolved_mip_levels);
   auto upload_bytes = std::make_shared<std::vector<std::byte>>(data);
   auto copy_regions = BuildCompressedMipCopyRegions(resolution, resolved_mip_levels, format);
-  return EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, upload_bytes, false,
-                              "Texture2DStorage::SetCompressedDataAsync", std::move(copy_regions));
+  auto upload = EnqueueTextureUpload(image, gpu_upload_in_flight, gpu_upload_generation, upload_bytes, false,
+                                     "Texture2DStorage::SetCompressedDataAsync", std::move(copy_regions));
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::AllocatedPending);
+  return upload;
 }
 
 void Texture2DStorage::Clear() {
@@ -689,6 +698,7 @@ bool Texture2DStorage::ShareImage(const Texture2DStorage& source, const VkFormat
   EditorLayer::UpdateTextureId(im_texture_id, sampler->GetVkSampler(), image_view->GetVkImageView(),
                                image->GetLayout());
   TextureStorage::GetInstance().version_++;
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::Ready);
   return true;
 }
 
@@ -716,6 +726,7 @@ void Texture2DStorage::SetData(const std::vector<glm::vec4>& data, const glm::uv
   new_compressed_resolution_ = {};
   new_compressed_format_ = VK_FORMAT_UNDEFINED;
   new_compressed_mip_levels_ = 1;
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::AllocatedPending);
 }
 
 void Texture2DStorage::SetCompressedData(const std::vector<std::byte>& data, const glm::uvec2& resolution,
@@ -729,6 +740,7 @@ void Texture2DStorage::SetCompressedData(const std::vector<std::byte>& data, con
   new_data_format_ = VK_FORMAT_UNDEFINED;
   new_data_samples_linear_srgb_ = false;
   samples_linear_srgb_ = format == VK_FORMAT_BC7_SRGB_BLOCK;
+  TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::AllocatedPending);
 }
 
 VkFormat Texture2DStorage::GetFormat() const {
@@ -779,6 +791,9 @@ void Texture2DStorage::UploadPendingDataImmediately() {
   }
   if (upload.Valid()) {
     Platform::GetGpuService().Wait(upload);
+    gpu_upload_generation_last_sync_ = gpu_upload_generation->load();
+    TextureStorage::GetInstance().version_++;
+    TextureStorage::SetTexture2DSlotState(*this, SampledViewSlotState::Ready);
   }
 }
 
@@ -802,10 +817,150 @@ void Texture2DStorage::SetSampler(const VkSamplerCreateInfo& sampler_create_info
   }
   sampler = std::move(replacement_sampler);
   TextureStorage::GetInstance().version_++;
+  TextureStorage::SetTexture2DSlotState(
+      *this, IsGpuUploadPending() ? SampledViewSlotState::AllocatedPending : SampledViewSlotState::Ready);
 }
 
 uint32_t TextureStorage::GetVersion() {
   return GetInstance().version_;
+}
+
+void TextureStorage::SetTexture2DSlotState(Texture2DStorage& texture, const SampledViewSlotState state) {
+  texture.slot_state = state;
+  if (texture.handle) {
+    ++GetInstance().texture_2d_descriptor_revision_;
+  }
+}
+
+void TextureStorage::SetCubemapSlotState(CubemapStorage& cubemap, const SampledViewSlotState state) {
+  cubemap.slot_state = state;
+  if (cubemap.handle) {
+    ++GetInstance().cubemap_descriptor_revision_;
+  }
+}
+
+uint64_t TextureStorage::GetTexture2DDescriptorRevision() {
+  return GetInstance().texture_2d_descriptor_revision_;
+}
+
+uint64_t TextureStorage::GetCubemapDescriptorRevision() {
+  return GetInstance().cubemap_descriptor_revision_;
+}
+
+uint64_t TextureStorage::GetTexture2DRegistrationRevision() {
+  return GetInstance().texture_2d_registration_revision_;
+}
+
+uint64_t TextureStorage::GetCubemapRegistrationRevision() {
+  return GetInstance().cubemap_registration_revision_;
+}
+
+SampledTextureDescriptorUpdateStats TextureStorage::GetDescriptorUpdateStats() {
+  return GetInstance().descriptor_update_stats_;
+}
+
+SampledTextureArrayDiagnostics TextureStorage::GetTexture2DArrayDiagnostics() {
+  const auto& storage = GetInstance();
+  SampledTextureArrayDiagnostics diagnostics;
+  diagnostics.capacity = storage.texture_2d_capacity_;
+  diagnostics.high_water_mark = storage.texture_2d_high_water_mark_;
+  diagnostics.descriptor_revision = storage.texture_2d_descriptor_revision_;
+  diagnostics.registration_revision = storage.texture_2d_registration_revision_;
+  diagnostics.full_rebuilds = storage.descriptor_update_stats_.texture_2d_full_rebuilds;
+  diagnostics.descriptors_written = storage.descriptor_update_stats_.texture_2d_descriptors_written;
+  diagnostics.descriptor_update_cpu_nanoseconds = storage.descriptor_update_stats_.texture_2d_update_cpu_nanoseconds;
+  diagnostics.descriptor_metadata_bytes_per_mirror =
+      static_cast<uint64_t>(storage.texture_2d_capacity_) * sizeof(VkDescriptorImageInfo);
+  diagnostics.overflow_attempts = storage.texture_2d_overflow_attempts_;
+  for (const auto& texture : storage.texture_2ds_) {
+    diagnostics.occupancy += texture.handle && texture.slot_state != SampledViewSlotState::Retiring;
+    diagnostics.pending_count += texture.slot_state == SampledViewSlotState::AllocatedPending;
+    diagnostics.retiring_count += texture.slot_state == SampledViewSlotState::Retiring;
+    diagnostics.reusable_count += texture.slot_state == SampledViewSlotState::Reusable;
+  }
+  return diagnostics;
+}
+
+SampledTextureArrayDiagnostics TextureStorage::GetCubemapArrayDiagnostics() {
+  const auto& storage = GetInstance();
+  SampledTextureArrayDiagnostics diagnostics;
+  diagnostics.capacity = storage.cubemap_capacity_;
+  diagnostics.high_water_mark = storage.cubemap_high_water_mark_;
+  diagnostics.descriptor_revision = storage.cubemap_descriptor_revision_;
+  diagnostics.registration_revision = storage.cubemap_registration_revision_;
+  diagnostics.full_rebuilds = storage.descriptor_update_stats_.cubemap_full_rebuilds;
+  diagnostics.descriptors_written = storage.descriptor_update_stats_.cubemap_descriptors_written;
+  diagnostics.descriptor_update_cpu_nanoseconds = storage.descriptor_update_stats_.cubemap_update_cpu_nanoseconds;
+  diagnostics.descriptor_metadata_bytes_per_mirror =
+      static_cast<uint64_t>(storage.cubemap_capacity_) * sizeof(VkDescriptorImageInfo);
+  diagnostics.overflow_attempts = storage.cubemap_overflow_attempts_;
+  for (const auto& cubemap : storage.cubemaps_) {
+    diagnostics.occupancy += cubemap.handle && cubemap.slot_state != SampledViewSlotState::Retiring;
+    diagnostics.pending_count += cubemap.slot_state == SampledViewSlotState::AllocatedPending;
+    diagnostics.retiring_count += cubemap.slot_state == SampledViewSlotState::Retiring;
+    diagnostics.reusable_count += cubemap.slot_state == SampledViewSlotState::Reusable;
+  }
+  return diagnostics;
+}
+
+void TextureStorage::ResetDescriptorUpdateStats() {
+  GetInstance().descriptor_update_stats_ = {};
+}
+
+std::vector<SampledViewInspection> TextureStorage::InspectTexture2DSampledViews() {
+  const auto& textures = GetInstance().texture_2ds_;
+  std::vector<SampledViewInspection> result;
+  result.reserve(textures.size());
+  for (uint32_t index = 0; index < textures.size(); ++index) {
+    const auto& texture = textures[index];
+    const bool registered = texture.handle && texture.slot_state != SampledViewSlotState::Retiring;
+    const bool ready = registered && texture.slot_state == SampledViewSlotState::Ready && texture.image &&
+                       texture.image_view && texture.sampler && !texture.IsGpuUploadPending() &&
+                       IsSampledDescriptorImageLayout(texture.image->GetLayout()) &&
+                       texture.GetVkImageView() != VK_NULL_HANDLE && texture.GetVkSampler() != VK_NULL_HANDLE;
+    result.emplace_back(SampledViewInspection{
+        index,
+        texture.handle ? texture.handle->value : -1,
+        SampledTextureAssetType::Texture2D,
+        texture.image ? texture.image->GetVmaAllocation() : VK_NULL_HANDLE,
+        texture.image ? texture.image->GetVkImage() : VK_NULL_HANDLE,
+        texture.image_view ? texture.image_view->GetVkImageView() : VK_NULL_HANDLE,
+        texture.sampler ? texture.sampler->GetVkSampler() : VK_NULL_HANDLE,
+        ready,
+        registered,
+        ready,
+        texture.slot_state,
+    });
+  }
+  return result;
+}
+
+std::vector<SampledViewInspection> TextureStorage::InspectCubemapSampledViews() {
+  const auto& cubemaps = GetInstance().cubemaps_;
+  std::vector<SampledViewInspection> result;
+  result.reserve(cubemaps.size());
+  for (uint32_t index = 0; index < cubemaps.size(); ++index) {
+    const auto& cubemap = cubemaps[index];
+    const bool registered = cubemap.handle && cubemap.slot_state != SampledViewSlotState::Retiring;
+    const bool ready = registered && cubemap.slot_state == SampledViewSlotState::Ready && cubemap.image &&
+                       cubemap.image_view && cubemap.sampler &&
+                       IsSampledDescriptorImageLayout(cubemap.image->GetLayout()) &&
+                       cubemap.GetVkImageView() != VK_NULL_HANDLE && cubemap.GetVkSampler() != VK_NULL_HANDLE;
+    result.emplace_back(SampledViewInspection{
+        index,
+        cubemap.handle ? cubemap.handle->value : -1,
+        SampledTextureAssetType::Cubemap,
+        cubemap.image ? cubemap.image->GetVmaAllocation() : VK_NULL_HANDLE,
+        cubemap.image ? cubemap.image->GetVkImage() : VK_NULL_HANDLE,
+        cubemap.image_view ? cubemap.image_view->GetVkImageView() : VK_NULL_HANDLE,
+        cubemap.sampler ? cubemap.sampler->GetVkSampler() : VK_NULL_HANDLE,
+        ready,
+        registered,
+        ready,
+        cubemap.slot_state,
+    });
+  }
+  return result;
 }
 
 bool TextureStorage::TryGetTexture2DContentSignature(const uint32_t texture_index, uint64_t& signature) {
@@ -890,21 +1045,23 @@ void TextureStorage::DeviceSync() {
   if (!Platform::Initialized())
     return;
   auto& storage = GetInstance();
-  for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
-    if (storage.texture_2ds_[texture_index].pending_delete) {
-      storage.texture_2ds_[texture_index].Clear();
-      if (texture_index != storage.texture_2ds_.size() - 1) {
-        storage.texture_2ds_[texture_index] = std::move(storage.texture_2ds_.back());
-        storage.texture_2ds_[texture_index].handle->value = texture_index;
-      }
-      storage.texture_2ds_.pop_back();
+  for (uint32_t texture_index = 0; texture_index < storage.texture_2ds_.size(); ++texture_index) {
+    auto& texture = storage.texture_2ds_[texture_index];
+    if (texture.pending_delete) {
+      texture.Clear();
+      texture = Texture2DStorage{};
+      texture.slot_state = SampledViewSlotState::Reusable;
+      storage.reusable_texture_2d_slots_.emplace_back(texture_index);
+      ++storage.texture_2d_descriptor_revision_;
       storage.version_++;
-      texture_index--;
     }
   }
 
-  for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
+  for (uint32_t texture_index = 0; texture_index < storage.texture_2ds_.size(); ++texture_index) {
     auto& texture_storage = storage.texture_2ds_[texture_index];
+    if (!texture_storage.handle || texture_storage.slot_state == SampledViewSlotState::Reusable) {
+      continue;
+    }
     texture_storage.retired_samplers_.erase(
         std::remove_if(texture_storage.retired_samplers_.begin(), texture_storage.retired_samplers_.end(),
                        [](auto& retired) {
@@ -953,6 +1110,7 @@ void TextureStorage::DeviceSync() {
     if (texture_storage.gpu_upload_generation_last_sync_ != upload_generation) {
       storage.version_++;
       texture_storage.gpu_upload_generation_last_sync_ = upload_generation;
+      SetTexture2DSlotState(texture_storage, SampledViewSlotState::Ready);
     }
     texture_storage.retired_resources_.erase(
         std::remove_if(texture_storage.retired_resources_.begin(), texture_storage.retired_resources_.end(),
@@ -972,26 +1130,53 @@ void TextureStorage::DeviceSync() {
         texture_storage.retired_resources_.end());
   }
 
-  for (int texture_index = 0; texture_index < storage.cubemaps_.size(); texture_index++) {
-    if (const auto& texture_storage = storage.cubemaps_[texture_index]; texture_storage.pending_delete) {
-      storage.cubemaps_[texture_index] = storage.cubemaps_.back();
-      storage.cubemaps_[texture_index].handle->value = texture_index;
-      storage.cubemaps_.pop_back();
+  for (uint32_t texture_index = 0; texture_index < storage.cubemaps_.size(); ++texture_index) {
+    auto& cubemap = storage.cubemaps_[texture_index];
+    if (cubemap.pending_delete) {
+      cubemap.Clear();
+      cubemap = CubemapStorage{};
+      cubemap.slot_state = SampledViewSlotState::Reusable;
+      storage.reusable_cubemap_slots_.emplace_back(texture_index);
+      ++storage.cubemap_descriptor_revision_;
       storage.version_++;
-      texture_index--;
     }
   }
 }
 
-void TextureStorage::BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,
-                                                  const uint32_t binding) {
-  const auto& storage = GetInstance();
-  for (int texture_index = 0; texture_index < storage.texture_2ds_.size(); texture_index++) {
-    VkDescriptorImageInfo image_info;
-    if (TryGetTexture2DDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) {
+uint32_t TextureStorage::BindTexture2DToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,
+                                                      const uint32_t binding) {
+  const auto start_time = std::chrono::steady_clock::now();
+  auto& storage = GetInstance();
+  VkDescriptorImageInfo placeholder_info{};
+  const bool has_placeholder = storage.placeholder_texture_2d_.image && storage.placeholder_texture_2d_.image_view &&
+                               storage.placeholder_texture_2d_.sampler &&
+                               IsSampledDescriptorImageLayout(storage.placeholder_texture_2d_.GetLayout());
+  if (has_placeholder) {
+    placeholder_info.imageLayout = storage.placeholder_texture_2d_.GetLayout();
+    placeholder_info.imageView = storage.placeholder_texture_2d_.GetVkImageView();
+    placeholder_info.sampler = storage.placeholder_texture_2d_.GetVkSampler();
+  }
+  uint32_t written = 0;
+  for (uint32_t texture_index = 0; texture_index < storage.texture_2d_capacity_; ++texture_index) {
+    VkDescriptorImageInfo image_info{};
+    const bool ready = TryGetTexture2DDescriptorImageInfo(texture_index, image_info);
+    if (!ready && has_placeholder) {
+      image_info = placeholder_info;
+    }
+    if (ready || has_placeholder) {
+      if (image_info.imageView == VK_NULL_HANDLE || image_info.sampler == VK_NULL_HANDLE) {
+        throw std::runtime_error("Texture2D descriptor mirror resolved a null sampled-view tuple at slot " +
+                                 std::to_string(texture_index) + ".");
+      }
       descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+      ++written;
     }
   }
+  ++storage.descriptor_update_stats_.texture_2d_full_rebuilds;
+  storage.descriptor_update_stats_.texture_2d_descriptors_written += written;
+  storage.descriptor_update_stats_.texture_2d_update_cpu_nanoseconds +=
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count();
+  return written;
 }
 
 bool TextureStorage::TryGetTexture2DDescriptorImageInfo(const uint32_t texture_index,
@@ -1001,8 +1186,8 @@ bool TextureStorage::TryGetTexture2DDescriptorImageInfo(const uint32_t texture_i
     return false;
   }
   const auto& texture_storage = storage.texture_2ds_[texture_index];
-  if (!texture_storage.image || !texture_storage.image_view || !texture_storage.sampler ||
-      texture_storage.IsGpuUploadPending()) {
+  if (texture_storage.slot_state != SampledViewSlotState::Ready || !texture_storage.handle || !texture_storage.image ||
+      !texture_storage.image_view || !texture_storage.sampler || texture_storage.IsGpuUploadPending()) {
     return false;
   }
   const auto layout = texture_storage.GetLayout();
@@ -1022,6 +1207,10 @@ bool TextureStorage::TryGetCubemapDescriptorImageInfo(const uint32_t texture_ind
     return false;
   }
   const auto& texture_storage = storage.cubemaps_[texture_index];
+  if (texture_storage.slot_state != SampledViewSlotState::Ready || !texture_storage.handle || !texture_storage.image ||
+      !texture_storage.image_view || !texture_storage.sampler) {
+    return false;
+  }
   const auto layout = texture_storage.GetLayout();
   if (!IsSampledDescriptorImageLayout(layout) || texture_storage.GetVkImageView() == VK_NULL_HANDLE ||
       texture_storage.GetVkSampler() == VK_NULL_HANDLE) {
@@ -1033,79 +1222,214 @@ bool TextureStorage::TryGetCubemapDescriptorImageInfo(const uint32_t texture_ind
   return true;
 }
 
-void TextureStorage::BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,
-                                                const uint32_t binding) {
-  const auto& storage = GetInstance();
-  for (int texture_index = 0; texture_index < storage.cubemaps_.size(); texture_index++) {
-    VkDescriptorImageInfo image_info;
-    if (TryGetCubemapDescriptorImageInfo(static_cast<uint32_t>(texture_index), image_info)) {
+uint32_t TextureStorage::BindCubemapToDescriptorSet(const std::shared_ptr<DescriptorSet>& descriptor_set,
+                                                    const uint32_t binding) {
+  const auto start_time = std::chrono::steady_clock::now();
+  auto& storage = GetInstance();
+  VkDescriptorImageInfo placeholder_info{};
+  const bool has_placeholder = storage.placeholder_cubemap_.image && storage.placeholder_cubemap_.image_view &&
+                               storage.placeholder_cubemap_.sampler &&
+                               IsSampledDescriptorImageLayout(storage.placeholder_cubemap_.GetLayout());
+  if (has_placeholder) {
+    placeholder_info.imageLayout = storage.placeholder_cubemap_.GetLayout();
+    placeholder_info.imageView = storage.placeholder_cubemap_.GetVkImageView();
+    placeholder_info.sampler = storage.placeholder_cubemap_.GetVkSampler();
+  }
+  uint32_t written = 0;
+  for (uint32_t texture_index = 0; texture_index < storage.cubemap_capacity_; ++texture_index) {
+    VkDescriptorImageInfo image_info{};
+    const bool ready = TryGetCubemapDescriptorImageInfo(texture_index, image_info);
+    if (!ready && has_placeholder) {
+      image_info = placeholder_info;
+    }
+    if (ready || has_placeholder) {
+      if (image_info.imageView == VK_NULL_HANDLE || image_info.sampler == VK_NULL_HANDLE) {
+        throw std::runtime_error("Cubemap descriptor mirror resolved a null sampled-view tuple at slot " +
+                                 std::to_string(texture_index) + ".");
+      }
       descriptor_set->UpdateImageDescriptorBinding(binding, image_info, texture_index);
+      ++written;
     }
   }
+  ++storage.descriptor_update_stats_.cubemap_full_rebuilds;
+  storage.descriptor_update_stats_.cubemap_descriptors_written += written;
+  storage.descriptor_update_stats_.cubemap_update_cpu_nanoseconds +=
+      std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start_time).count();
+  return written;
 }
 
 const Texture2DStorage& TextureStorage::PeekTexture2DStorage(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  return storage.texture_2ds_.at(handle->value);
+  if (!handle || handle->value < 0 || static_cast<size_t>(handle->value) >= storage.texture_2ds_.size() ||
+      storage.texture_2ds_[handle->value].handle != handle) {
+    throw std::out_of_range("Texture2D storage handle is stale or invalid.");
+  }
+  return storage.texture_2ds_[handle->value];
 }
 
 Texture2DStorage& TextureStorage::RefTexture2DStorage(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  return storage.texture_2ds_.at(handle->value);
+  if (!handle || handle->value < 0 || static_cast<size_t>(handle->value) >= storage.texture_2ds_.size() ||
+      storage.texture_2ds_[handle->value].handle != handle) {
+    throw std::out_of_range("Texture2D storage handle is stale or invalid.");
+  }
+  return storage.texture_2ds_[handle->value];
 }
 
 const CubemapStorage& TextureStorage::PeekCubemapStorage(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  return storage.cubemaps_.at(handle->value);
+  if (!handle || handle->value < 0 || static_cast<size_t>(handle->value) >= storage.cubemaps_.size() ||
+      storage.cubemaps_[handle->value].handle != handle) {
+    throw std::out_of_range("Cubemap storage handle is stale or invalid.");
+  }
+  return storage.cubemaps_[handle->value];
 }
 
 CubemapStorage& TextureStorage::RefCubemapStorage(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  return storage.cubemaps_.at(handle->value);
+  if (!handle || handle->value < 0 || static_cast<size_t>(handle->value) >= storage.cubemaps_.size() ||
+      storage.cubemaps_[handle->value].handle != handle) {
+    throw std::out_of_range("Cubemap storage handle is stale or invalid.");
+  }
+  return storage.cubemaps_[handle->value];
 }
 
 void TextureStorage::UnRegisterTexture2D(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  if (storage.initialized)
-    storage.texture_2ds_[handle->value].pending_delete = true;
+  if (!storage.initialized || !handle || handle->value < 0 ||
+      static_cast<size_t>(handle->value) >= storage.texture_2ds_.size()) {
+    return;
+  }
+  auto& texture = storage.texture_2ds_[handle->value];
+  if (texture.handle == handle && texture.slot_state != SampledViewSlotState::Retiring) {
+    texture.pending_delete = true;
+    ++storage.texture_2d_registration_revision_;
+    SetTexture2DSlotState(texture, SampledViewSlotState::Retiring);
+  }
 }
 
 void TextureStorage::UnRegisterCubemap(const std::shared_ptr<TextureStorageHandle>& handle) {
   auto& storage = GetInstance();
-  if (storage.initialized)
-    storage.cubemaps_[handle->value].pending_delete = true;
+  if (!storage.initialized || !handle || handle->value < 0 ||
+      static_cast<size_t>(handle->value) >= storage.cubemaps_.size()) {
+    return;
+  }
+  auto& cubemap = storage.cubemaps_[handle->value];
+  if (cubemap.handle == handle && cubemap.slot_state != SampledViewSlotState::Retiring) {
+    cubemap.pending_delete = true;
+    ++storage.cubemap_registration_revision_;
+    SetCubemapSlotState(cubemap, SampledViewSlotState::Retiring);
+  }
 }
 
 std::shared_ptr<TextureStorageHandle> TextureStorage::RegisterTexture2D() {
   auto& storage = GetInstance();
+  uint32_t texture_index = 0;
+  if (!storage.reusable_texture_2d_slots_.empty()) {
+    texture_index = storage.reusable_texture_2d_slots_.back();
+    storage.reusable_texture_2d_slots_.pop_back();
+    storage.texture_2ds_[texture_index] = Texture2DStorage{};
+  } else {
+    texture_index = static_cast<uint32_t>(storage.texture_2ds_.size());
+    if (texture_index >= storage.texture_2d_capacity_) {
+      ++storage.texture_2d_overflow_attempts_;
+      const auto device_limit =
+          Platform::Initialized()
+              ? std::min(Platform::GetSelectedPhysicalDevice()->properties.limits.maxDescriptorSetSampledImages,
+                         Platform::GetSelectedPhysicalDevice()->properties.limits.maxDescriptorSetSamplers)
+              : storage.texture_2d_capacity_;
+      throw std::runtime_error("Texture2D sampled-view capacity overflow: requested slot " +
+                               std::to_string(texture_index) + ", configured capacity " +
+                               std::to_string(storage.texture_2d_capacity_) + ", current occupancy " +
+                               std::to_string(texture_index) + ", device limit " + std::to_string(device_limit) + ".");
+    }
+    storage.texture_2ds_.emplace_back();
+  }
   const auto ret_val = std::make_shared<TextureStorageHandle>();
-  ret_val->value = storage.texture_2ds_.size();
-  storage.texture_2ds_.emplace_back();
-  auto& new_texture_2d_storage = storage.texture_2ds_.back();
+  ret_val->value = static_cast<int>(texture_index);
+  auto& new_texture_2d_storage = storage.texture_2ds_[texture_index];
   new_texture_2d_storage.handle = ret_val;
-  storage.texture_2ds_.back().Initialize({1, 1});
+  storage.texture_2d_high_water_mark_ =
+      std::max(storage.texture_2d_high_water_mark_, static_cast<uint32_t>(storage.texture_2ds_.size()));
+  ++storage.texture_2d_registration_revision_;
+  SetTexture2DSlotState(new_texture_2d_storage, SampledViewSlotState::AllocatedPending);
+  new_texture_2d_storage.Initialize({1, 1});
   return ret_val;
 }
 
 std::shared_ptr<TextureStorageHandle> TextureStorage::RegisterCubemap() {
   auto& storage = GetInstance();
+  uint32_t texture_index = 0;
+  if (!storage.reusable_cubemap_slots_.empty()) {
+    texture_index = storage.reusable_cubemap_slots_.back();
+    storage.reusable_cubemap_slots_.pop_back();
+    storage.cubemaps_[texture_index] = CubemapStorage{};
+  } else {
+    texture_index = static_cast<uint32_t>(storage.cubemaps_.size());
+    if (texture_index >= storage.cubemap_capacity_) {
+      ++storage.cubemap_overflow_attempts_;
+      const auto device_limit =
+          Platform::Initialized()
+              ? std::min(Platform::GetSelectedPhysicalDevice()->properties.limits.maxDescriptorSetSampledImages,
+                         Platform::GetSelectedPhysicalDevice()->properties.limits.maxDescriptorSetSamplers)
+              : storage.cubemap_capacity_;
+      throw std::runtime_error("Cubemap sampled-view capacity overflow: requested slot " +
+                               std::to_string(texture_index) + ", configured capacity " +
+                               std::to_string(storage.cubemap_capacity_) + ", current occupancy " +
+                               std::to_string(texture_index) + ", device limit " + std::to_string(device_limit) + ".");
+    }
+    storage.cubemaps_.emplace_back();
+  }
   const auto ret_val = std::make_shared<TextureStorageHandle>();
-  ret_val->value = storage.cubemaps_.size();
-  storage.cubemaps_.emplace_back();
-  auto& new_cubemap_storage = storage.cubemaps_.back();
+  ret_val->value = static_cast<int>(texture_index);
+  auto& new_cubemap_storage = storage.cubemaps_[texture_index];
   new_cubemap_storage.handle = ret_val;
-  storage.cubemaps_.back().Initialize(1, 1, Platform::Constants::texture_2d);
+  storage.cubemap_high_water_mark_ =
+      std::max(storage.cubemap_high_water_mark_, static_cast<uint32_t>(storage.cubemaps_.size()));
+  ++storage.cubemap_registration_revision_;
+  SetCubemapSlotState(new_cubemap_storage, SampledViewSlotState::AllocatedPending);
+  new_cubemap_storage.Initialize(1, 1, Platform::Constants::texture_2d);
   return ret_val;
 }
 
 void TextureStorage::Initialize() {
   auto& storage = GetInstance();
+  const auto& settings = ApplicationContext::Get().GetApplicationInfo().graphics_settings;
+  storage.texture_2d_capacity_ = settings.max_texture_2d_resource_size;
+  storage.cubemap_capacity_ = settings.max_cubemap_resource_size;
+  storage.placeholder_texture_2d_.Initialize({1, 1});
+  storage.placeholder_cubemap_.Initialize(1, 1, Platform::Constants::texture_2d);
+  for (auto& texture : storage.texture_2ds_) {
+    if (texture.handle && !texture.image) {
+      texture.Initialize({1, 1});
+    }
+  }
+  for (auto& cubemap : storage.cubemaps_) {
+    if (cubemap.handle && !cubemap.image) {
+      cubemap.Initialize(1, 1, Platform::Constants::texture_2d);
+    }
+  }
   storage.initialized = true;
 }
 
 void TextureStorage::OnDestroy() {
   auto& storage = GetInstance();
+  for (auto& texture : storage.texture_2ds_) {
+    texture.Clear();
+  }
+  for (auto& cubemap : storage.cubemaps_) {
+    cubemap.Clear();
+  }
+  storage.placeholder_texture_2d_.Clear();
+  storage.placeholder_cubemap_.Clear();
   storage.texture_2ds_.clear();
   storage.cubemaps_.clear();
+  storage.reusable_texture_2d_slots_.clear();
+  storage.reusable_cubemap_slots_.clear();
+  storage.texture_2d_high_water_mark_ = 0;
+  storage.cubemap_high_water_mark_ = 0;
+  storage.texture_2d_overflow_attempts_ = 0;
+  storage.cubemap_overflow_attempts_ = 0;
+  storage.descriptor_update_stats_ = {};
   storage.initialized = false;
 }

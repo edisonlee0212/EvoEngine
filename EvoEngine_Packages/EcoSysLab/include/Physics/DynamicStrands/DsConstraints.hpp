@@ -174,6 +174,92 @@ class DsStiffRod final : public IDsConstraint {
 
 class DsBundle : public IDsConstraint {
  public:
+  struct alignas(16) CoupledPairState {
+    glm::vec4 positional_lambda{};
+    glm::vec4 angular_lambda{};
+  };
+
+  struct alignas(16) CoupledPairCorrection {
+    glm::vec4 segment0_position{};
+    glm::vec4 segment0_angular{};
+    glm::vec4 segment1_position{};
+    glm::vec4 segment1_angular{};
+  };
+
+  struct CoupledPairConstant {
+    uint32_t pair_begin = 0;
+    uint32_t pair_count = 0;
+    uint32_t segment_count = 0;
+    uint32_t reset_lambdas = 0;
+    float inverse_time_step_squared = 0.f;
+    float position_compliance_scale = 1.f;
+    float bending_compliance_scale = 1.f;
+    float torsion_compliance_scale = 1.f;
+  };
+
+  struct SliceMember {
+    uint32_t base_slice = 0;
+    int32_t group = 0;
+    uint32_t segment = 0;
+    uint32_t dynamic_slice = 0;
+  };
+
+  struct SliceRange {
+    uint32_t begin = 0;
+    uint32_t count = 0;
+    uint32_t base_slice = 0;
+    int32_t group = 0;
+  };
+
+  struct alignas(16) SliceTransform {
+    glm::vec4 rest_center{};
+    glm::vec4 center{};
+    glm::vec4 rotation{};
+    glm::vec4 inverse_mass{};
+    glm::vec4 inverse_inertia0{};
+    glm::vec4 inverse_inertia1{};
+    glm::vec4 inverse_inertia2{};
+  };
+
+  struct SliceConstant {
+    uint32_t segment_count = 0;
+    uint32_t padded_count = 0;
+    uint32_t minimum_members = 0;
+    uint32_t sort_stage = 0;
+    uint32_t sort_pass = 0;
+    float shape_matching_strength = 0.f;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
+  };
+
+  struct CoarseEdgeCandidate {
+    uint32_t slice0 = 0;
+    uint32_t slice1 = 0;
+    uint32_t pair = 0;
+    uint32_t padding = 0;
+  };
+
+  struct alignas(16) CoarseEdge {
+    uint32_t slice0 = 0;
+    uint32_t slice1 = 0;
+    uint32_t count = 0;
+    uint32_t padding = 0;
+    glm::vec4 compliance_cohesion{};
+    glm::vec4 positional_lambda{};
+    glm::vec4 angular_lambda{};
+  };
+
+  struct CoarseConstant {
+    uint32_t direct_pair_count = 0;
+    uint32_t padded_count = 0;
+    uint32_t sort_stage = 0;
+    uint32_t sort_pass = 0;
+    float inverse_time_step_squared = 0.f;
+    float position_compliance_scale = 1.f;
+    float bending_compliance_scale = 1.f;
+    float torsion_compliance_scale = 1.f;
+  };
+
   struct RandomBundleShearStretchConstant {
     uint32_t skip_index = 0;
     uint32_t skip_size = 1;
@@ -226,7 +312,36 @@ class DsBundle : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> apply_position_pipeline{};
   inline static std::shared_ptr<ComputePipeline> apply_position_rotation_pipeline{};
   inline static std::shared_ptr<ComputePipeline> connections_pipeline{};
+  inline static std::shared_ptr<DescriptorSetLayout> coupled_layout{};
+  inline static std::shared_ptr<ComputePipeline> coupled_pair_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coupled_gather_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_key_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_sort_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_range_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_fit_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_apply_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_key_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_sort_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_reduce_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_solve_pipeline{};
+  std::shared_ptr<Buffer> coupled_pair_state_buffer{};
+  std::shared_ptr<Buffer> coupled_pair_correction_buffer{};
+  std::shared_ptr<Buffer> base_slice_buffer{};
+  std::shared_ptr<Buffer> slice_member_buffer{};
+  std::shared_ptr<Buffer> slice_range_buffer{};
+  std::shared_ptr<Buffer> segment_slice_buffer{};
+  std::shared_ptr<Buffer> slice_transform_buffer{};
+  std::shared_ptr<Buffer> slice_count_buffer{};
+  std::shared_ptr<Buffer> slice_dispatch_buffer{};
+  std::shared_ptr<Buffer> coarse_candidate_buffer{};
+  std::shared_ptr<Buffer> coarse_edge_buffer{};
+  std::shared_ptr<Buffer> coarse_edge_count_buffer{};
+  std::vector<std::shared_ptr<DescriptorSet>> coupled_descriptor_sets{};
+  uint32_t slice_padded_count = 0;
+  uint32_t coarse_padded_count = 0;
+  uint32_t last_slice_frame = std::numeric_limits<uint32_t>::max();
   DsBundle();
+  BundleSolverSettings solver_settings{};
   int sub_iteration = 1;
   bool enable_bundle_position = true;
   // Not stable
@@ -234,6 +349,9 @@ class DsBundle : public IDsConstraint {
   bool enable_bend_twist = true;
   bool enable_stretch_shear = true;
   bool enable_connections = true;
+  void InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,
+                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
+                      const DynamicStrands& target_dynamic_strands) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 

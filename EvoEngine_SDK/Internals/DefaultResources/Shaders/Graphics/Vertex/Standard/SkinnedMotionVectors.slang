@@ -12,8 +12,6 @@ struct SkinnedMotionVectorVertexInput {
   [[vk::location(7)]] int4 bone_ids2 : BLENDINDICES1;
   [[vk::location(8)]] float4 weights2 : BLENDWEIGHT1;
   [[vk::location(10)]] float2 tex_coord1 : TEXCOORD1;
-  [[vk::location(11)]] float2 tex_coord2 : TEXCOORD2;
-  [[vk::location(12)]] float2 tex_coord3 : TEXCOORD3;
 };
 
 [[vk::binding(0, 2)]]
@@ -44,8 +42,6 @@ RasterMotionVectorOutput main(SkinnedMotionVectorVertexInput input, uint draw_id
   previous_world = mul(previous_world, EE_PREVIOUS_INSTANCES[instance_index].previous_model);
   output.tex_coord0 = input.tex_coord0;
   output.tex_coord1 = input.tex_coord1;
-  output.tex_coord2 = input.tex_coord2;
-  output.tex_coord3 = input.tex_coord3;
   output.color = input.color;
   output.current_clip = mul(current_world, EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].unjittered_projection_view);
   output.previous_clip =

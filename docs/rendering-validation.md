@@ -45,6 +45,31 @@ Use `out\install\vs2026-x64\bin\EvoEngineEditor.exe` for installed-runtime check
 
 ## Raster Performance Baseline
 
+The raster correctness gate runs one deterministic Rendering demo capture for every combination of meshlet and indirect
+submission. All four cells compare against the same 2560x1440 golden image with PSNR at least 30 dB and SSIM at least
+0.95:
+
+| Cell | Meshlet | Indirect |
+| --- | --- | --- |
+| 1 | enabled | enabled |
+| 2 | enabled | disabled |
+| 3 | disabled | enabled |
+| 4 | disabled | disabled |
+
+```powershell
+python Scripts\test.py --render-only --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage
+```
+
+The meshlet-enabled cells fail when mesh shaders are unavailable instead of silently exercising the indexed path. To
+deliberately refresh the target from the optimized meshlet-enabled, indirect-enabled cell and then verify every cell:
+
+```powershell
+python Scripts\test.py --render-only --accept-render-baseline --ctest-arg=-R --ctest-arg=RenderingDemo.RasterPathMatrixGoldenImage
+```
+
+Only the optimized cell may write the shared target. The other cells always remain comparison-only, including during a
+refresh run. Retain all four emitted PNG artifacts when diagnosing a failure.
+
 Use an installed RelWithDebInfo editor, a fixed camera, and the same shader cache for every comparison. The raster
 profile report records CPU frame median/p95 and every named GPU timestamp median/p95 after scene and shader readiness:
 

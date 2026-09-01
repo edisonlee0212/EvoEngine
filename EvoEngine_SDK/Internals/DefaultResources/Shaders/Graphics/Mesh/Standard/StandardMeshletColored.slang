@@ -37,7 +37,7 @@ void main(in payload EEMeshTaskPayload task_input, uint3 group_id : SV_GroupID, 
     Vertex vertex = EE_VERTEX_DATA_CHUNKS[meshlet_id].vertices[vertex_index];
     vertices[vertex_index] = EE_BUILD_STANDARD_RASTER_OUTPUT(
         vertex.position, vertex.normal, vertex.tangent, vertex.vertex_info3, vertex.tex_coord, vertex.tex_coord_1,
-        vertex.tex_coord_2, vertex.tex_coord_3, vertex.color, instance_index, model, projection_view);
+        vertex.color, instance_index, model, projection_view);
   }
 
   [unroll]

@@ -175,7 +175,9 @@ void Cubemap::UploadLocalData() const {
 
 void Cubemap::MarkGpuContentValid() const {
   gpu_content_valid_ = true;
-  ++RefStorage().content_generation;
+  auto& storage = RefStorage();
+  ++storage.content_generation;
+  TextureStorage::SetCubemapSlotState(storage, SampledViewSlotState::Ready);
 }
 
 void Cubemap::BeginGpuWrite() const {
@@ -186,6 +188,7 @@ void Cubemap::BeginGpuWrite() const {
   local_rgba16f_data_.clear();
   local_data_dirty_ = false;
   gpu_content_valid_ = false;
+  TextureStorage::SetCubemapSlotState(RefStorage(), SampledViewSlotState::AllocatedPending);
 }
 
 bool Cubemap::SetRgbaChannelData(const std::vector<glm::vec4>& pixels, const uint32_t resolution,

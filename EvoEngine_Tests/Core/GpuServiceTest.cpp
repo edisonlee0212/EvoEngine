@@ -7,6 +7,7 @@
 #include "ComputePipeline.hpp"
 #include "Cubemap.hpp"
 #include "GeometryStorage.hpp"
+#include "GltfMaterial.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "Jobs.hpp"
@@ -272,6 +273,24 @@ TEST(StaticBlasBuilder, GeometryWaitBarrierCommitsChangesDuringActiveBuild) {
   EXPECT_TRUE(replacement_blas->IsReady());
 }
 
+TEST(GpuService, PresentationReadinessAllowsDynamicParticleUpdatesAfterFirstUpload) {
+  ScopedGpuPlatform platform;
+  ParticleInfoList particles;
+  particles.OnCreate();
+  particles.SetParticleInfos({ParticleInfo{}});
+
+  EXPECT_TRUE(GeometryStorage::HasPendingPresentationUploads());
+  PlatformLifecycleTestAccess::PreUpdate();
+  EXPECT_FALSE(GeometryStorage::HasPendingPresentationUploads());
+
+  particles.SetParticleInfos({ParticleInfo{}});
+  EXPECT_TRUE(GeometryStorage::HasPendingUploads());
+  EXPECT_FALSE(GeometryStorage::HasPendingPresentationUploads());
+
+  particles.SetParticleInfos({ParticleInfo{}, ParticleInfo{}});
+  EXPECT_TRUE(GeometryStorage::HasPendingPresentationUploads());
+}
+
 TEST(StaticBlasBuilder, KeepsBuildHistoryAfterLiveStorageIsReleased) {
   ScopedGpuPlatform platform(true);
   if (!Platform::RayAccelerationStructureEnabled()) {
@@ -478,6 +497,438 @@ TEST(GpuService, CubemapUninitializedGpuStorageRejectsReadback) {
   EXPECT_TRUE(pixels.empty());
   EXPECT_TRUE(cubemap.PeekLocalData().empty());
   EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+}
+
+TEST(GpuService, RasterOnlyConfigurationSamplesSharedBindlessTextureArrays) {
+  ScopedGpuPlatform platform;
+  ASSERT_FALSE(Platform::RayTracingEnabled());
+  ASSERT_FALSE(Platform::RayQueryEnabled());
+
+  Texture2D texture_2d_a;
+  Texture2D texture_2d_b;
+  const auto texture_2d_a_upload =
+      texture_2d_a.RefTexture2DStorage().SetDataAsync({glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)}, {1, 1});
+  const auto texture_2d_b_upload =
+      texture_2d_b.RefTexture2DStorage().SetDataAsync({glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)}, {1, 1});
+  ASSERT_TRUE(texture_2d_a_upload.Valid());
+  ASSERT_TRUE(texture_2d_b_upload.Valid());
+  Platform::GetGpuService().Wait(texture_2d_a_upload);
+  Platform::GetGpuService().Wait(texture_2d_b_upload);
+  TextureStorage::DeviceSync();
+  Cubemap cubemap_a;
+  Cubemap cubemap_b;
+  ASSERT_TRUE(cubemap_a.SetRgbaChannelData(std::vector<glm::vec4>(6, glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)), 1));
+  ASSERT_TRUE(cubemap_b.SetRgbaChannelData(std::vector<glm::vec4>(6, glm::vec4(1.0f, 1.0f, 0.0f, 1.0f)), 1));
+
+  const GraphicsInitializationSettings settings;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, settings.max_texture_2d_resource_size);
+  layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, settings.max_cubemap_resource_size);
+  layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptor_set = std::make_shared<DescriptorSet>(layout);
+  TextureStorage::BindTexture2DToDescriptorSet(descriptor_set, 9);
+  TextureStorage::BindCubemapToDescriptorSet(descriptor_set, 10);
+
+  constexpr size_t output_count = 4;
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = output_count * sizeof(glm::vec4);
+  buffer_info.usage =
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_info, allocation_info);
+  output->Upload(std::array<glm::vec4, output_count>{});
+  descriptor_set->UpdateBufferDescriptorBinding(11, output);
+
+  const auto shader_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                           "Shaders" / "Compute" / "BindlessTextureArrayProbe.slang";
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path));
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts.emplace_back(layout);
+  pipeline->push_constant_ranges.emplace_back(VkPushConstantRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, 16});
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+
+  struct ProbePushConstant {
+    glm::uvec2 texture_2d_indices;
+    glm::uvec2 cubemap_indices;
+  };
+  const ProbePushConstant push_constant{{texture_2d_a.GetTextureStorageIndex(), texture_2d_b.GetTextureStorageIndex()},
+                                        {cubemap_a.GetTextureStorageIndex(), cubemap_b.GetTextureStorageIndex()}};
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline->Bind(command_buffer);
+    pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+    pipeline->PushConstant(command_buffer, 0, push_constant);
+    pipeline->Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+
+  std::array<glm::vec4, output_count> values{};
+  output->Download(values);
+  const std::array<glm::vec4, output_count> expected = {
+      glm::vec4(1.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 1.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f),
+      glm::vec4(1.0f, 1.0f, 0.0f, 1.0f)};
+  for (size_t value_index = 0; value_index < output_count; ++value_index) {
+    for (int channel = 0; channel < 4; ++channel) {
+      EXPECT_NEAR(values[value_index][channel], expected[value_index][channel], 1.0e-5f)
+          << value_index << ":" << channel;
+    }
+  }
+}
+
+TEST(GpuService, SampledViewInspectionAndDualBindingShareOneImageAllocation) {
+  ScopedGpuPlatform platform;
+
+  Texture2D source;
+  Texture2DSamplerSettings nearest_sampler;
+  nearest_sampler.mag_filter = VK_FILTER_NEAREST;
+  nearest_sampler.min_filter = VK_FILTER_NEAREST;
+  nearest_sampler.address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  nearest_sampler.address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  source.SetSamplerSettings(nearest_sampler);
+  const auto upload = source.RefTexture2DStorage().SetDataAsync(
+      {glm::vec4(1.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 1.0f, 1.0f)}, {2, 1});
+  ASSERT_TRUE(upload.Valid());
+  Platform::GetGpuService().Wait(upload);
+  TextureStorage::DeviceSync();
+
+  Texture2D alternate_view;
+  Texture2DSamplerSettings linear_sampler;
+  linear_sampler.address_mode_u = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  linear_sampler.address_mode_v = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  ASSERT_TRUE(alternate_view.ShareGpuImage(source, false, linear_sampler));
+
+  const auto inspections = TextureStorage::InspectTexture2DSampledViews();
+  const auto source_index = source.GetTextureStorageIndex();
+  const auto alternate_index = alternate_view.GetTextureStorageIndex();
+  ASSERT_LT(source_index, inspections.size());
+  ASSERT_LT(alternate_index, inspections.size());
+  const auto& source_inspection = inspections[source_index];
+  const auto& alternate_inspection = inspections[alternate_index];
+  EXPECT_EQ(source_inspection.storage_handle, static_cast<int>(source_index));
+  EXPECT_EQ(alternate_inspection.storage_handle, static_cast<int>(alternate_index));
+  EXPECT_EQ(source_inspection.asset_type, SampledTextureAssetType::Texture2D);
+  EXPECT_EQ(alternate_inspection.asset_type, SampledTextureAssetType::Texture2D);
+  EXPECT_TRUE(source_inspection.ready);
+  EXPECT_TRUE(alternate_inspection.ready);
+  EXPECT_TRUE(source_inspection.bindless_registered);
+  EXPECT_TRUE(alternate_inspection.bindless_registered);
+  EXPECT_TRUE(source_inspection.traditional_binding_compatible);
+  EXPECT_TRUE(alternate_inspection.traditional_binding_compatible);
+  EXPECT_NE(source_inspection.image_allocation, VK_NULL_HANDLE);
+  EXPECT_EQ(source_inspection.image_allocation, alternate_inspection.image_allocation);
+  EXPECT_EQ(source_inspection.image, alternate_inspection.image);
+  EXPECT_NE(source_inspection.image_view, alternate_inspection.image_view);
+  EXPECT_NE(source_inspection.sampler, alternate_inspection.sampler);
+
+  const GraphicsInitializationSettings settings;
+  auto bindless_layout = std::make_shared<DescriptorSetLayout>();
+  bindless_layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT,
+                                         settings.max_texture_2d_resource_size);
+  bindless_layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  bindless_layout->Initialize();
+  auto bindless_set = std::make_shared<DescriptorSet>(bindless_layout);
+  TextureStorage::BindTexture2DToDescriptorSet(bindless_set, 9);
+
+  auto fixed_layout = std::make_shared<DescriptorSetLayout>();
+  fixed_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  fixed_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  fixed_layout->Initialize();
+  auto fixed_set = std::make_shared<DescriptorSet>(fixed_layout);
+  VkDescriptorImageInfo source_info{};
+  source_info.imageLayout = source.GetLayout();
+  source_info.imageView = source.GetVkImageView();
+  source_info.sampler = source.GetVkSampler();
+  fixed_set->UpdateImageDescriptorBinding(0, source_info);
+  VkDescriptorImageInfo alternate_info{};
+  alternate_info.imageLayout = alternate_view.GetLayout();
+  alternate_info.imageView = alternate_view.GetVkImageView();
+  alternate_info.sampler = alternate_view.GetVkSampler();
+  fixed_set->UpdateImageDescriptorBinding(1, alternate_info);
+
+  constexpr size_t output_count = 4;
+  VkBufferCreateInfo buffer_info{};
+  buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+  buffer_info.size = output_count * sizeof(glm::vec4);
+  buffer_info.usage =
+      VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(buffer_info, allocation_info);
+  output->Upload(std::array<glm::vec4, output_count>{});
+  bindless_set->UpdateBufferDescriptorBinding(11, output);
+
+  const auto shader_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                           "Shaders" / "Compute" / "TextureDualAccessProbe.slang";
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path));
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts = {bindless_layout, fixed_layout};
+  pipeline->push_constant_ranges.emplace_back(VkPushConstantRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, 8});
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+
+  const glm::uvec2 texture_indices(source_index, alternate_index);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline->Bind(command_buffer);
+    pipeline->BindDescriptorSet(command_buffer, 0, bindless_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command_buffer, 1, fixed_set->GetVkDescriptorSet());
+    pipeline->PushConstant(command_buffer, 0, texture_indices);
+    pipeline->Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+
+  std::array<glm::vec4, output_count> values{};
+  output->Download(values);
+  for (int channel = 0; channel < 4; ++channel) {
+    EXPECT_NEAR(values[0][channel], values[1][channel], 1.0e-5f);
+    EXPECT_NEAR(values[2][channel], values[3][channel], 1.0e-5f);
+  }
+  EXPECT_GT(glm::distance(values[0], values[2]), 0.1f);
+}
+
+TEST(GpuService, SharedBindlessGltfTextureAccessPreservesIndicesFallbacksAndGradients) {
+  ScopedGpuPlatform platform;
+
+  Texture2D red;
+  Texture2D green;
+  Texture2D pending;
+  const auto red_upload = red.RefTexture2DStorage().SetDataAsync({glm::vec4(1.0f, 0.0f, 0.0f, 1.0f)}, {1, 1});
+  const auto green_upload = green.RefTexture2DStorage().SetDataAsync({glm::vec4(0.0f, 1.0f, 0.0f, 1.0f)}, {1, 1});
+  ASSERT_TRUE(red_upload.Valid());
+  ASSERT_TRUE(green_upload.Valid());
+  Platform::GetGpuService().Wait(red_upload);
+  Platform::GetGpuService().Wait(green_upload);
+  TextureStorage::DeviceSync();
+
+  std::array<GltfShadeMaterial, 4> materials{};
+  materials[0].pbr_base_color_texture = 1;
+  materials[1].pbr_base_color_texture = 2;
+  materials[3].pbr_base_color_texture = 3;
+  std::array<GltfTextureInfo, 4> texture_infos{};
+  texture_infos[1].index = static_cast<int32_t>(red.GetTextureStorageIndex());
+  texture_infos[1].tex_coord = 1;
+  texture_infos[1].uv_transform = glm::mat3x2(glm::vec2(2.0f, 0.0f), glm::vec2(0.0f, 3.0f), glm::vec2(0.25f, 0.5f));
+  texture_infos[2].index = static_cast<int32_t>(green.GetTextureStorageIndex());
+  texture_infos[2].tex_coord = 0;
+  texture_infos[3].index = static_cast<int32_t>(pending.GetTextureStorageIndex());
+
+  constexpr size_t output_count = 6;
+  const auto create_storage_buffer = [](const VkDeviceSize size) {
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = size;
+    buffer_info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo allocation_info{};
+    allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+    return std::make_shared<Buffer>(buffer_info, allocation_info);
+  };
+  auto material_buffer = create_storage_buffer(sizeof(materials));
+  auto texture_info_buffer = create_storage_buffer(sizeof(texture_infos));
+  auto output_buffer = create_storage_buffer(output_count * sizeof(glm::vec4));
+  material_buffer->Upload(materials);
+  texture_info_buffer->Upload(texture_infos);
+  output_buffer->Upload(std::array<glm::vec4, output_count>{});
+
+  const GraphicsInitializationSettings settings;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, settings.max_texture_2d_resource_size);
+  layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->PushDescriptorBinding(13, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  auto descriptor_set = std::make_shared<DescriptorSet>(layout);
+  TextureStorage::BindTexture2DToDescriptorSet(descriptor_set, 9);
+  descriptor_set->UpdateBufferDescriptorBinding(11, material_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(12, texture_info_buffer);
+  descriptor_set->UpdateBufferDescriptorBinding(13, output_buffer);
+
+  const auto shader_root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
+  Shader::RegisterShaderIncludePath(shader_root / "Modules");
+  const auto shader_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                           "Shaders" / "Compute" / "GltfBindlessTextureAccessProbe.slang";
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path));
+  const auto fragment_shader_path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_Tests" / "Resources" /
+                                    "Shaders" / "Fragment" / "GltfBindlessRasterAccessProbe.slang";
+  auto fragment_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(
+      fragment_shader->TryCompile(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path));
+  auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->compute_shader = shader;
+  pipeline->descriptor_set_layouts.emplace_back(layout);
+  pipeline->push_constant_ranges.emplace_back(VkPushConstantRange{VK_SHADER_STAGE_COMPUTE_BIT, 0, 16});
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+
+  const glm::uvec4 material_indices(0, 1, 2, 3);
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
+    pipeline->Bind(command_buffer);
+    pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+    pipeline->PushConstant(command_buffer, 0, material_indices);
+    pipeline->Dispatch(command_buffer, 1);
+    Platform::EverythingBarrier(command_buffer);
+  });
+
+  std::array<glm::vec4, output_count> values{};
+  output_buffer->Download(values);
+  EXPECT_NEAR(values[0].r, 1.0f, 1.0e-5f);
+  EXPECT_NEAR(values[0].g, 0.0f, 1.0e-5f);
+  EXPECT_NEAR(values[1].r, 0.0f, 1.0e-5f);
+  EXPECT_NEAR(values[1].g, 1.0f, 1.0e-5f);
+  EXPECT_EQ(values[2], glm::vec4(0.125f, 0.25f, 0.5f, 1.0f));
+  EXPECT_EQ(values[3], glm::vec4(1.0f));
+  EXPECT_NEAR(values[4].x, 0.22f, 1.0e-5f);
+  EXPECT_NEAR(values[4].y, 0.36f, 1.0e-5f);
+  EXPECT_NEAR(values[4].z, 0.42f, 1.0e-5f);
+  EXPECT_NEAR(values[4].w, 0.66f, 1.0e-5f);
+  EXPECT_NEAR(values[5].x, 0.85f, 1.0e-5f);
+  EXPECT_NEAR(values[5].y, 1.7f, 1.0e-5f);
+  EXPECT_NEAR(values[5].z, 0.3f, 1.0e-5f);
+  EXPECT_NEAR(values[5].w, 0.4f, 1.0e-5f);
+}
+
+TEST(GpuService, TextureStorageSlotsRemainStableAndRevisionedAcrossLifecycleStress) {
+  ScopedGpuPlatform platform;
+
+  const auto initial_texture_registration_revision = TextureStorage::GetTexture2DRegistrationRevision();
+  const auto initial_cubemap_registration_revision = TextureStorage::GetCubemapRegistrationRevision();
+  auto texture_a = std::make_unique<Texture2D>();
+  auto texture_retired = std::make_unique<Texture2D>();
+  auto texture_tail = std::make_unique<Texture2D>();
+  const auto texture_a_index = texture_a->GetTextureStorageIndex();
+  const auto texture_retired_index = texture_retired->GetTextureStorageIndex();
+  const auto texture_tail_index = texture_tail->GetTextureStorageIndex();
+  const auto texture_revision_before_retire = TextureStorage::GetTexture2DDescriptorRevision();
+  EXPECT_EQ(TextureStorage::GetTexture2DRegistrationRevision(), initial_texture_registration_revision + 3u);
+
+  texture_retired.reset();
+  EXPECT_EQ(TextureStorage::GetTexture2DRegistrationRevision(), initial_texture_registration_revision + 4u);
+  auto texture_inspections = TextureStorage::InspectTexture2DSampledViews();
+  ASSERT_LT(texture_retired_index, texture_inspections.size());
+  EXPECT_EQ(texture_inspections[texture_retired_index].slot_state, SampledViewSlotState::Retiring);
+  EXPECT_FALSE(texture_inspections[texture_retired_index].bindless_registered);
+  EXPECT_EQ(texture_a->GetTextureStorageIndex(), texture_a_index);
+  EXPECT_EQ(texture_tail->GetTextureStorageIndex(), texture_tail_index);
+  EXPECT_GT(TextureStorage::GetTexture2DDescriptorRevision(), texture_revision_before_retire);
+
+  TextureStorage::DeviceSync();
+  texture_inspections = TextureStorage::InspectTexture2DSampledViews();
+  EXPECT_EQ(texture_inspections[texture_retired_index].slot_state, SampledViewSlotState::Reusable);
+  EXPECT_EQ(texture_inspections[texture_retired_index].storage_handle, -1);
+  EXPECT_EQ(texture_tail->GetTextureStorageIndex(), texture_tail_index);
+
+  auto texture_replacement = std::make_unique<Texture2D>();
+  EXPECT_EQ(TextureStorage::GetTexture2DRegistrationRevision(), initial_texture_registration_revision + 5u);
+  EXPECT_EQ(texture_replacement->GetTextureStorageIndex(), texture_retired_index);
+  EXPECT_EQ(texture_a->GetTextureStorageIndex(), texture_a_index);
+  EXPECT_EQ(texture_tail->GetTextureStorageIndex(), texture_tail_index);
+
+  auto cubemap_a = std::make_unique<Cubemap>();
+  auto cubemap_retired = std::make_unique<Cubemap>();
+  auto cubemap_tail = std::make_unique<Cubemap>();
+  EXPECT_EQ(TextureStorage::GetCubemapRegistrationRevision(), initial_cubemap_registration_revision + 3u);
+  const auto cubemap_a_index = cubemap_a->GetTextureStorageIndex();
+  const auto cubemap_retired_index = cubemap_retired->GetTextureStorageIndex();
+  const auto cubemap_tail_index = cubemap_tail->GetTextureStorageIndex();
+  cubemap_retired.reset();
+  EXPECT_EQ(TextureStorage::GetCubemapRegistrationRevision(), initial_cubemap_registration_revision + 4u);
+  auto cubemap_inspections = TextureStorage::InspectCubemapSampledViews();
+  ASSERT_LT(cubemap_retired_index, cubemap_inspections.size());
+  EXPECT_EQ(cubemap_inspections[cubemap_retired_index].slot_state, SampledViewSlotState::Retiring);
+  TextureStorage::DeviceSync();
+  cubemap_inspections = TextureStorage::InspectCubemapSampledViews();
+  EXPECT_EQ(cubemap_inspections[cubemap_retired_index].slot_state, SampledViewSlotState::Reusable);
+  auto cubemap_replacement = std::make_unique<Cubemap>();
+  EXPECT_EQ(TextureStorage::GetCubemapRegistrationRevision(), initial_cubemap_registration_revision + 5u);
+  EXPECT_EQ(cubemap_replacement->GetTextureStorageIndex(), cubemap_retired_index);
+  EXPECT_EQ(cubemap_a->GetTextureStorageIndex(), cubemap_a_index);
+  EXPECT_EQ(cubemap_tail->GetTextureStorageIndex(), cubemap_tail_index);
+
+  Texture2D pending_texture;
+  const auto pending_upload =
+      pending_texture.RefTexture2DStorage().SetDataAsync({glm::vec4(0.25f, 0.5f, 0.75f, 1.0f)}, glm::uvec2(1));
+  ASSERT_TRUE(pending_upload.Valid());
+  texture_inspections = TextureStorage::InspectTexture2DSampledViews();
+  ASSERT_LT(pending_texture.GetTextureStorageIndex(), texture_inspections.size());
+  EXPECT_EQ(texture_inspections[pending_texture.GetTextureStorageIndex()].slot_state,
+            SampledViewSlotState::AllocatedPending);
+  EXPECT_FALSE(texture_inspections[pending_texture.GetTextureStorageIndex()].ready);
+  VkDescriptorImageInfo pending_info{};
+  EXPECT_FALSE(
+      TextureStorage::TryGetTexture2DDescriptorImageInfo(pending_texture.GetTextureStorageIndex(), pending_info));
+
+  const GraphicsInitializationSettings settings;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(9, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, settings.max_texture_2d_resource_size);
+  layout->PushDescriptorBinding(10, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT,
+                                VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT, settings.max_cubemap_resource_size);
+  layout->Initialize();
+  auto descriptor_set = std::make_shared<DescriptorSet>(layout);
+  TextureStorage::ResetDescriptorUpdateStats();
+  uint64_t applied_revision = 0;
+  const auto current_revision = TextureStorage::GetTexture2DDescriptorRevision();
+  if (applied_revision != current_revision) {
+    EXPECT_EQ(TextureStorage::BindTexture2DToDescriptorSet(descriptor_set, 9), settings.max_texture_2d_resource_size);
+    applied_revision = current_revision;
+  }
+  EXPECT_EQ(TextureStorage::BindCubemapToDescriptorSet(descriptor_set, 10), settings.max_cubemap_resource_size);
+  const auto first_update_stats = TextureStorage::GetDescriptorUpdateStats();
+  EXPECT_EQ(first_update_stats.texture_2d_full_rebuilds, 1u);
+  EXPECT_EQ(first_update_stats.texture_2d_descriptors_written, settings.max_texture_2d_resource_size);
+  EXPECT_EQ(first_update_stats.cubemap_full_rebuilds, 1u);
+  EXPECT_EQ(first_update_stats.cubemap_descriptors_written, settings.max_cubemap_resource_size);
+  const auto texture_diagnostics = TextureStorage::GetTexture2DArrayDiagnostics();
+  EXPECT_EQ(texture_diagnostics.capacity, settings.max_texture_2d_resource_size);
+  EXPECT_GE(texture_diagnostics.occupancy, 4u);
+  EXPECT_GE(texture_diagnostics.high_water_mark, texture_diagnostics.occupancy);
+  EXPECT_GE(texture_diagnostics.pending_count, 1u);
+  EXPECT_EQ(texture_diagnostics.full_rebuilds, 1u);
+  EXPECT_EQ(texture_diagnostics.descriptors_written, settings.max_texture_2d_resource_size);
+  EXPECT_EQ(texture_diagnostics.descriptor_metadata_bytes_per_mirror,
+            static_cast<uint64_t>(settings.max_texture_2d_resource_size) * sizeof(VkDescriptorImageInfo));
+  const auto cubemap_diagnostics = TextureStorage::GetCubemapArrayDiagnostics();
+  EXPECT_EQ(cubemap_diagnostics.capacity, settings.max_cubemap_resource_size);
+  EXPECT_GE(cubemap_diagnostics.occupancy, 3u);
+  EXPECT_GE(cubemap_diagnostics.high_water_mark, cubemap_diagnostics.occupancy);
+  EVOENGINE_LOG("EVOENGINE_BINDLESS_SMALL_SCENE texture_2d_occupancy=" + std::to_string(texture_diagnostics.occupancy) +
+                " cubemap_occupancy=" + std::to_string(cubemap_diagnostics.occupancy) + " descriptor_update_cpu_ms=" +
+                std::to_string(static_cast<double>(texture_diagnostics.descriptor_update_cpu_nanoseconds +
+                                                   cubemap_diagnostics.descriptor_update_cpu_nanoseconds) /
+                               1.0e6) +
+                " descriptors_written=" +
+                std::to_string(texture_diagnostics.descriptors_written + cubemap_diagnostics.descriptors_written) +
+                " descriptor_metadata_bytes_per_mirror=" +
+                std::to_string(texture_diagnostics.descriptor_metadata_bytes_per_mirror +
+                               cubemap_diagnostics.descriptor_metadata_bytes_per_mirror))
+  if (applied_revision != TextureStorage::GetTexture2DDescriptorRevision()) {
+    TextureStorage::BindTexture2DToDescriptorSet(descriptor_set, 9);
+  }
+  const auto unchanged_update_stats = TextureStorage::GetDescriptorUpdateStats();
+  EXPECT_EQ(unchanged_update_stats.texture_2d_full_rebuilds, first_update_stats.texture_2d_full_rebuilds);
+  EXPECT_EQ(unchanged_update_stats.texture_2d_descriptors_written, first_update_stats.texture_2d_descriptors_written);
+
+  Platform::GetGpuService().Wait(pending_upload);
+  TextureStorage::DeviceSync();
+  texture_inspections = TextureStorage::InspectTexture2DSampledViews();
+  EXPECT_EQ(texture_inspections[pending_texture.GetTextureStorageIndex()].slot_state, SampledViewSlotState::Ready);
+  EXPECT_TRUE(texture_inspections[pending_texture.GetTextureStorageIndex()].ready);
+  EXPECT_GT(TextureStorage::GetTexture2DDescriptorRevision(), current_revision);
 }
 
 TEST(GpuService, GltfRayTracingNumericalProbeMatchesAnalyticValues) {
@@ -1251,21 +1702,11 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
   Shader::RegisterShaderIncludePath(shader_root / "Includes");
   const auto header = Platform::GetShaderGlobalDefines();
-  const auto fixed_lighting_header =
-      header +
-      "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
-      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 3\n";
-  const auto fixed_material_lighting_header =
-      header +
-      "\n#define EE_SKIP_PER_FRAME_BINDLESS_TEXTURES 1\n#define EE_RASTER_FIXED_LIGHTING_TEXTURES 1\n#define "
-      "EE_RASTER_FIXED_LIGHTING_TEXTURE_SET 4\n";
 
   Shader raygen;
   Shader any_hit;
   Shader closest_hit;
   Shader miss;
-  Shader deferred;
-  Shader scene_camera;
   Shader transparent;
   Shader gtao;
   Shader ambient_occlusion_blur;
@@ -1274,12 +1715,7 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   EXPECT_TRUE(closest_hit.TryCompile(ShaderType::ClosestHit, header,
                                      shader_root / "RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeTrace.slang"));
-  EXPECT_TRUE(deferred.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                                  shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
-  EXPECT_TRUE(
-      scene_camera.TryCompile(ShaderType::Fragment, fixed_lighting_header,
-                              shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
-  EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, fixed_material_lighting_header,
+  EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, header,
                                      shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"));
   EXPECT_TRUE(gtao.TryCompile(ShaderType::Compute, header, shader_root / "Compute/PostProcessing/GTAO.slang"));
   EXPECT_TRUE(ambient_occlusion_blur.TryCompile(ShaderType::Compute, header,

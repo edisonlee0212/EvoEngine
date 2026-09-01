@@ -1,7 +1,11 @@
 #include "PyEvoEngine.hpp"
+#include "Cubemap.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
+#include "Platform.hpp"
+#include "Profiler.hpp"
+#include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 using namespace py_evo_engine;
 namespace py = pybind11;
@@ -21,6 +25,83 @@ Application& PyEvoEngine::GetApplication() {
 }
 
 namespace {
+std::string FormatRevisions(const std::vector<uint64_t>& revisions) {
+  std::string result;
+  for (const auto revision : revisions) {
+    if (!result.empty()) {
+      result += ',';
+    }
+    result += std::to_string(revision);
+  }
+  return result;
+}
+
+void LogSampledTextureDiagnostics(const std::shared_ptr<RenderLayer>& render_layer) {
+  const auto texture_2d = TextureStorage::GetTexture2DArrayDiagnostics();
+  const auto cubemap = TextureStorage::GetCubemapArrayDiagnostics();
+  const auto frame_count = std::max(Platform::GetFrameCount(), 1u);
+  const auto log_array = [frame_count](const char* type, const SampledTextureArrayDiagnostics& diagnostics) {
+    const auto rebuilds_per_frame = static_cast<double>(diagnostics.full_rebuilds) / frame_count;
+    const auto descriptors_per_rebuild =
+        diagnostics.full_rebuilds == 0
+            ? 0.0
+            : static_cast<double>(diagnostics.descriptors_written) / static_cast<double>(diagnostics.full_rebuilds);
+    EVOENGINE_LOG(
+        "EVOENGINE_SAMPLED_TEXTURE_ARRAY type=" + std::string(type) +
+        " capacity=" + std::to_string(diagnostics.capacity) + " occupancy=" + std::to_string(diagnostics.occupancy) +
+        " high_water=" + std::to_string(diagnostics.high_water_mark) + " pending=" +
+        std::to_string(diagnostics.pending_count) + " retiring=" + std::to_string(diagnostics.retiring_count) +
+        " reusable=" + std::to_string(diagnostics.reusable_count) +
+        " descriptor_revision=" + std::to_string(diagnostics.descriptor_revision) + " registration_revision=" +
+        std::to_string(diagnostics.registration_revision) + " rebuilds=" + std::to_string(diagnostics.full_rebuilds) +
+        " rebuilds_per_frame=" + std::to_string(rebuilds_per_frame) + " descriptors_per_rebuild=" +
+        std::to_string(descriptors_per_rebuild) + " overflow_attempts=" + std::to_string(diagnostics.overflow_attempts))
+  };
+  log_array("2d", texture_2d);
+  log_array("cubemap", cubemap);
+  EVOENGINE_LOG("EVOENGINE_SAMPLED_TEXTURE_MIRRORS type=2d applied_revisions=" +
+                FormatRevisions(render_layer->GetPerFrameTexture2DAppliedRevisions()))
+  EVOENGINE_LOG("EVOENGINE_SAMPLED_TEXTURE_MIRRORS type=cubemap applied_revisions=" +
+                FormatRevisions(render_layer->GetPerFrameCubemapAppliedRevisions()))
+
+  double command_recording_cpu_ms = 0.0;
+  const auto cpu_frame = Profiler::GetInstance().GetLatestFrameStatsSnapshot();
+  for (const auto& event : cpu_frame.named_event_totals) {
+    if (event.name == "RenderLayer::RenderAll") {
+      command_recording_cpu_ms = event.total_ms;
+      break;
+    }
+  }
+  double gpu_frame_ms = 0.0;
+  const auto gpu_frames = Platform::GetGpuTimestampFrameHistory();
+  const auto gpu_frame = std::find_if(gpu_frames.rbegin(), gpu_frames.rend(), [](const auto& frame) {
+    return frame.results_available;
+  });
+  if (gpu_frame != gpu_frames.rend()) {
+    gpu_frame_ms = gpu_frame->span_milliseconds;
+  }
+  size_t draw_calls = 0;
+  const auto current_frame_index = Platform::GetCurrentFrameIndex();
+  const auto& platform = Platform::GetInstance();
+  if (current_frame_index < platform.render_pass_draw_stats.size()) {
+    for (const auto& stats : platform.render_pass_draw_stats[current_frame_index]) {
+      draw_calls += stats.TotalDrawCalls();
+    }
+  }
+  const auto descriptor_update_cpu_ms =
+      static_cast<double>(texture_2d.descriptor_update_cpu_nanoseconds + cubemap.descriptor_update_cpu_nanoseconds) /
+      1.0e6;
+  const auto descriptor_metadata_bytes =
+      (texture_2d.descriptor_metadata_bytes_per_mirror + cubemap.descriptor_metadata_bytes_per_mirror) *
+      render_layer->GetPerFrameTexture2DAppliedRevisions().size();
+  EVOENGINE_LOG("EVOENGINE_BINDLESS_PERFORMANCE frames=" + std::to_string(frame_count) +
+                " descriptor_update_cpu_ms=" + std::to_string(descriptor_update_cpu_ms) +
+                " command_recording_cpu_ms=" + std::to_string(command_recording_cpu_ms) +
+                " material_fixed_descriptor_binds=0 draw_calls=" + std::to_string(draw_calls) +
+                " gpu_frame_ms=" + std::to_string(gpu_frame_ms) +
+                " descriptor_metadata_bytes=" + std::to_string(descriptor_metadata_bytes))
+}
+
 DemoSetup ParseDemoSetupName(const std::string& demo_setup_name) {
   if (demo_setup_name == "Rendering") {
     return DemoSetup::Rendering;
@@ -78,9 +159,56 @@ bool PyEvoEngine::ConfigureCurrentSceneCameraForCapture(const std::string& rende
   return true;
 }
 
+bool PyEvoEngine::ConfigureSecondarySceneCameraForCapture(const int resolution_x, const int resolution_y) {
+  if (resolution_x <= 0 || resolution_y <= 0) {
+    EVOENGINE_ERROR("Invalid secondary capture camera resolution.")
+    return false;
+  }
+  const auto scene = ApplicationContext::Get().GetActiveScene();
+  const auto main_camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+  if (!main_camera || !scene->IsEntityValid(main_camera->GetOwner())) {
+    EVOENGINE_ERROR("No main camera in scene!")
+    return false;
+  }
+
+  const auto entity = scene->CreateEntity("Secondary Capture Camera");
+  scene->SetDataComponent(entity, scene->GetDataComponent<Transform>(main_camera->GetOwner()));
+  scene->SetDataComponent(entity, scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner()));
+  const auto camera = scene->GetOrSetPrivateComponent<Camera>(entity).lock();
+  if (!camera) {
+    EVOENGINE_ERROR("Failed to create secondary capture camera.")
+    return false;
+  }
+  camera->camera_render_mode = main_camera->camera_render_mode;
+  camera->camera_settings = main_camera->camera_settings;
+  camera->skybox = main_camera->skybox;
+  camera->background_environment = main_camera->background_environment;
+  camera->post_processing_stack_ref = main_camera->post_processing_stack_ref;
+  camera->Resize({resolution_x, resolution_y});
+  camera->SetRequireRendering(true);
+  GetRuntime().capture_secondary_camera = camera;
+  return true;
+}
+
+bool PyEvoEngine::ConfigureRasterPathForCapture(const bool meshlet_enabled, const bool indirect_enabled) {
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    EVOENGINE_ERROR("Raster capture requires RenderLayer.")
+    return false;
+  }
+  if (meshlet_enabled && !Platform::MeshShaderEnabled()) {
+    EVOENGINE_ERROR("Raster capture requested meshlets, but the mesh-shader path is unavailable.")
+    return false;
+  }
+  render_layer->enable_meshlet = meshlet_enabled;
+  render_layer->enable_indirect_rendering = indirect_enabled;
+  return true;
+}
+
 bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resolution_y,
                                       const std::filesystem::path& output_path, const int warmup_frames,
-                                      const bool require_accumulated_frames) {
+                                      const bool require_accumulated_frames,
+                                      const bool require_stable_texture_registrations) {
   if (resolution_x <= 0 || resolution_y <= 0 || warmup_frames < 0) {
     EVOENGINE_ERROR("Invalid capture resolution or frame count!")
     return false;
@@ -89,12 +217,18 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   constexpr int max_readiness_frames = 300;
   int readiness_frames = 0;
   auto& application = ApplicationContext::Get();
+  const auto loop = [&]() {
+    if (const auto secondary_camera = GetRuntime().capture_secondary_camera.lock()) {
+      secondary_camera->SetRequireRendering(true);
+    }
+    return application.Loop();
+  };
   const auto is_scene_ready = []() {
     return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
            !TextureStorage::HasPendingUploads();
   };
   while (!is_scene_ready() && readiness_frames < max_readiness_frames) {
-    application.Loop();
+    loop();
     readiness_frames++;
   }
   if (!is_scene_ready()) {
@@ -121,13 +255,28 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     return false;
   }
   main_camera->Resize({resolution_x, resolution_y});
+  uint64_t texture_2d_registration_revision = 0;
+  uint64_t cubemap_registration_revision = 0;
+  if (require_stable_texture_registrations) {
+    Platform::SetGpuTimestampCaptureEnabled(true);
+    Profiler::GetInstance().SetEnabled(true);
+    Profiler::GetInstance().ClearFrameHistory();
+    TextureStorage::ResetDescriptorUpdateStats();
+    loop();
+    while (TextureStorage::HasPendingUploads() && readiness_frames < max_readiness_frames) {
+      loop();
+      ++readiness_frames;
+    }
+    texture_2d_registration_revision = TextureStorage::GetTexture2DRegistrationRevision();
+    cubemap_registration_revision = TextureStorage::GetCubemapRegistrationRevision();
+  }
   if (require_accumulated_frames) {
     const auto target_frame_count = static_cast<uint32_t>(std::max(1, warmup_frames));
     const auto maximum_loop_count = target_frame_count + 600u;
     main_camera->ResetFrameCount();
     uint32_t loop_count = 0;
     while (main_camera->GetFrameCount() < target_frame_count && loop_count < maximum_loop_count) {
-      if (!application.Loop()) {
+      if (!loop()) {
         EVOENGINE_ERROR("Application ended before the capture accumulation target was reached.")
         return false;
       }
@@ -148,8 +297,26 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   } else {
     const auto loop_count = std::max(1, warmup_frames);
     for (int i = 0; i < loop_count; i++) {
-      application.Loop();
+      loop();
     }
+  }
+  const auto final_texture_2d_registration_revision = TextureStorage::GetTexture2DRegistrationRevision();
+  const auto final_cubemap_registration_revision = TextureStorage::GetCubemapRegistrationRevision();
+  if (require_stable_texture_registrations &&
+      (texture_2d_registration_revision != final_texture_2d_registration_revision ||
+       cubemap_registration_revision != final_cubemap_registration_revision)) {
+    EVOENGINE_ERROR("Transient capture resources changed persistent sampled-texture registrations: 2D " +
+                    std::to_string(texture_2d_registration_revision) + " -> " +
+                    std::to_string(final_texture_2d_registration_revision) + ", cubemap " +
+                    std::to_string(cubemap_registration_revision) + " -> " +
+                    std::to_string(final_cubemap_registration_revision) + ".")
+    return false;
+  }
+  if (require_stable_texture_registrations) {
+    EVOENGINE_LOG("EVOENGINE_TRANSIENT_TEXTURE_REGISTRATIONS_STABLE texture_2d=" +
+                  std::to_string(texture_2d_registration_revision) +
+                  ", cubemap=" + std::to_string(cubemap_registration_revision))
+    LogSampledTextureDiagnostics(ApplicationContext::Get().GetLayer<RenderLayer>());
   }
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);
@@ -162,6 +329,19 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
     EVOENGINE_ERROR("Failed to export image to " + output_path.string())
   }
   return success;
+}
+
+bool PyEvoEngine::CaptureSecondarySceneCamera(const std::filesystem::path& output_path) {
+  const auto camera = GetRuntime().capture_secondary_camera.lock();
+  if (!camera || !camera->GetRenderTexture()) {
+    EVOENGINE_ERROR("Secondary capture camera has no render texture.")
+    return false;
+  }
+  if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
+    std::filesystem::create_directories(parent_path);
+  }
+  camera->GetRenderTexture()->StoreToPng(output_path);
+  return std::filesystem::exists(output_path) && std::filesystem::file_size(output_path) > 0;
 }
 
 Handle PyEvoEngine::CreateRuntimeAsset(const std::string& asset_type) {
@@ -283,12 +463,25 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
 
   m.def("RunWindowless", &RunWindowless);
   m.def("RunDemoWindowless", &RunDemoWindowless, py::arg("demo_setup_name"), py::arg("resource_folder_path"),
-        py::arg("clear_generated_project_files") = true);
+        py::arg("clear_generated_project_files") = true, py::arg("enable_ray_features") = true);
+  m.def("ExerciseTextureLifecycleForCapture", &ExerciseTextureLifecycleForCapture);
   m.def("ConfigureCurrentSceneCameraForCapture", &ConfigureCurrentSceneCameraForCapture, py::arg("render_mode"),
         py::arg("samples_per_frame"), py::arg("bounces"));
+  m.def("ConfigureSecondarySceneCameraForCapture", &ConfigureSecondarySceneCameraForCapture, py::arg("resolution_x"),
+        py::arg("resolution_y"));
+  m.def("ConfigureRasterPathForCapture", &ConfigureRasterPathForCapture, py::arg("meshlet_enabled"),
+        py::arg("indirect_enabled"));
   m.def("CaptureCurrentScene", &CaptureCurrentScene, py::arg("resolution_x"), py::arg("resolution_y"),
-        py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false);
+        py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false,
+        py::arg("require_stable_texture_registrations") = false);
+  m.def("CaptureSecondarySceneCamera", &CaptureSecondarySceneCamera, py::arg("output_path"));
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
+  m.def("SharedTextureDescriptorArraysEnabled", []() {
+    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+    return render_layer && render_layer->SharedTextureDescriptorArraysEnabled();
+  });
+  m.def("RayTracingEnabled", &Platform::RayTracingEnabled);
+  m.def("RayQueryEnabled", &Platform::RayQueryEnabled);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);
@@ -396,7 +589,7 @@ bool PyEvoEngine::RunWindowless(const std::filesystem::path& project_path) {
 
 bool PyEvoEngine::RunDemoWindowless(const std::string& demo_setup_name,
                                     const std::filesystem::path& resource_folder_path,
-                                    const bool clear_generated_project_files) {
+                                    const bool clear_generated_project_files, const bool enable_ray_features) {
   const auto demo_setup = ParseDemoSetupName(demo_setup_name);
   if (demo_setup == DemoSetup::Empty && demo_setup_name != "Empty") {
     return false;
@@ -405,6 +598,7 @@ bool PyEvoEngine::RunDemoWindowless(const std::string& demo_setup_name,
   EnsureRenderLayer();
   ApplicationInitializationSettings application_info{};
   SetupDemoScene(demo_setup, application_info, resource_folder_path, clear_generated_project_files);
+  application_info.graphics_settings.use_ray_tracing = enable_ray_features;
   if (application_info.project_path.empty()) {
     EVOENGINE_ERROR("Demo setup did not provide a project path!");
     return false;
@@ -412,6 +606,46 @@ bool PyEvoEngine::RunDemoWindowless(const std::string& demo_setup_name,
   ApplicationContext::Get().Initialize(application_info);
   ApplicationContext::Get().Start();
   return true;
+}
+
+bool PyEvoEngine::ExerciseTextureLifecycleForCapture() {
+  if (!Platform::Initialized()) {
+    return false;
+  }
+  auto texture_a = std::make_shared<Texture2D>();
+  auto texture_retired = std::make_shared<Texture2D>();
+  auto texture_tail = std::make_shared<Texture2D>();
+  const auto texture_a_index = texture_a->GetTextureStorageIndex();
+  const auto texture_retired_index = texture_retired->GetTextureStorageIndex();
+  const auto texture_tail_index = texture_tail->GetTextureStorageIndex();
+  texture_retired.reset();
+  TextureStorage::DeviceSync();
+  auto texture_replacement = std::make_shared<Texture2D>();
+  const bool texture_indices_stable = texture_a->GetTextureStorageIndex() == texture_a_index &&
+                                      texture_tail->GetTextureStorageIndex() == texture_tail_index &&
+                                      texture_replacement->GetTextureStorageIndex() == texture_retired_index;
+
+  auto cubemap_a = std::make_shared<Cubemap>();
+  auto cubemap_retired = std::make_shared<Cubemap>();
+  auto cubemap_tail = std::make_shared<Cubemap>();
+  const auto cubemap_a_index = cubemap_a->GetTextureStorageIndex();
+  const auto cubemap_retired_index = cubemap_retired->GetTextureStorageIndex();
+  const auto cubemap_tail_index = cubemap_tail->GetTextureStorageIndex();
+  cubemap_retired.reset();
+  TextureStorage::DeviceSync();
+  auto cubemap_replacement = std::make_shared<Cubemap>();
+  const bool cubemap_indices_stable = cubemap_a->GetTextureStorageIndex() == cubemap_a_index &&
+                                      cubemap_tail->GetTextureStorageIndex() == cubemap_tail_index &&
+                                      cubemap_replacement->GetTextureStorageIndex() == cubemap_retired_index;
+
+  texture_a.reset();
+  texture_tail.reset();
+  texture_replacement.reset();
+  cubemap_a.reset();
+  cubemap_tail.reset();
+  cubemap_replacement.reset();
+  TextureStorage::DeviceSync();
+  return texture_indices_stable && cubemap_indices_stable;
 }
 
 bool PyEvoEngine::IsCurrentSceneDdgiEnabled() {

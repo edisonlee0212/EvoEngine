@@ -892,6 +892,10 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   stack.bloom->intensity = 0.5f;
   stack.screen_space_reflection = std::make_shared<ScreenSpaceReflection>();
   stack.screen_space_reflection->max_iteration_count = 96;
+  stack.screen_space_reflection->binary_search_iteration_count = 10;
+  stack.screen_space_reflection->start_bias = 0.075f;
+  stack.screen_space_reflection->debug_mode = ScreenSpaceReflection::DebugMode::Confidence;
+  stack.screen_space_reflection->temporal_stabilization = false;
   stack.screen_space_reflection->blur = false;
   stack.anti_aliasing = std::make_shared<AntiAliasing>();
   stack.anti_aliasing->preset = AntiAliasing::Preset::High;
@@ -923,6 +927,11 @@ TEST(SerializationRegistry, BuiltInAnimationAndPostProcessingTypesInstallSeriali
   EXPECT_FLOAT_EQ(stack_node["bloom"]["intensity"].as<float>(), 0.5f);
   EXPECT_FALSE(stack_node["bloom"]["bloom_chain_length"]);
   EXPECT_EQ(stack_node["screen_space_reflection"]["max_iteration_count"].as<int>(), 96);
+  EXPECT_EQ(stack_node["screen_space_reflection"]["binary_search_iteration_count"].as<int>(), 10);
+  EXPECT_FLOAT_EQ(stack_node["screen_space_reflection"]["start_bias"].as<float>(), 0.075f);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["composition_mode"]);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["debug_mode"]);
+  EXPECT_FALSE(stack_node["screen_space_reflection"]["temporal_stabilization"].as<bool>());
   const auto anti_aliasing_node = stack_node["anti_aliasing"];
   EXPECT_EQ(anti_aliasing_node["preset"].as<int>(), static_cast<int>(AntiAliasing::Preset::High));
   EXPECT_EQ(stack_node["tone_mapping"]["method"].as<int>(), static_cast<int>(ToneMapping::ToneMapMethod::Filmic));
@@ -959,6 +968,7 @@ screen_space_reflection:
   initial_steps: 12
   thickness: 0.75
   blur: false
+  composition_mode: 1
 anti_aliasing:
   preset: 2
 tone_mapping:
@@ -994,7 +1004,10 @@ tone_mapping:
   EXPECT_FLOAT_EQ(restored_stack.bloom->intensity, 0.75f);
   ASSERT_TRUE(restored_stack.screen_space_reflection);
   EXPECT_FALSE(restored_stack.screen_space_reflection->blur);
-  EXPECT_EQ(restored_stack.screen_space_reflection->initial_steps, 12);
+  EXPECT_EQ(restored_stack.screen_space_reflection->binary_search_iteration_count, 12);
+  EXPECT_FLOAT_EQ(restored_stack.screen_space_reflection->start_bias, 0.05f);
+  EXPECT_EQ(restored_stack.screen_space_reflection->debug_mode, ScreenSpaceReflection::DebugMode::None);
+  EXPECT_TRUE(restored_stack.screen_space_reflection->temporal_stabilization);
   ASSERT_TRUE(restored_stack.anti_aliasing);
   const auto& restored_anti_aliasing = *restored_stack.anti_aliasing;
   EXPECT_EQ(restored_anti_aliasing.preset, AntiAliasing::Preset::High);
@@ -1179,16 +1192,12 @@ anti_aliasing:
   vertex_attributes.tangent = true;
   vertex_attributes.tex_coord = true;
   vertex_attributes.tex_coord_1 = true;
-  vertex_attributes.tex_coord_2 = true;
-  vertex_attributes.tex_coord_3 = true;
   vertex_attributes.color = true;
   std::vector<Vertex> vertices(3);
   vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   vertices[1].tex_coord_1 = glm::vec2(0.25f, 0.75f);
-  vertices[1].tex_coord_2 = glm::vec2(0.4f, 0.6f);
-  vertices[1].tex_coord_3 = glm::vec2(0.8f, 0.2f);
   const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
   mesh->SetVertices(vertex_attributes, vertices, {glm::uvec3(0, 1, 2)});
   EXPECT_EQ(mesh->BuildMorphedVertices({}).size(), vertices.size());
@@ -1217,8 +1226,6 @@ anti_aliasing:
   EXPECT_EQ(restored_mesh->PeekTriangles().size(), 1);
   EXPECT_FLOAT_EQ(restored_mesh->PeekVertices()[1].position.x, 1.0f);
   EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_1, glm::vec2(0.25f, 0.75f));
-  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_2, glm::vec2(0.4f, 0.6f));
-  EXPECT_EQ(restored_mesh->PeekVertices()[1].tex_coord_3, glm::vec2(0.8f, 0.2f));
   ASSERT_EQ(restored_mesh->PeekMorphTargets().size(), 1);
   EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].name, "raise");
   EXPECT_EQ(restored_mesh->PeekMorphTargets()[0].position_deltas[1], glm::vec3(0.0f, 2.0f, 0.0f));
@@ -1235,16 +1242,12 @@ anti_aliasing:
   skinned_vertex_attributes.tangent = true;
   skinned_vertex_attributes.tex_coord = true;
   skinned_vertex_attributes.tex_coord_1 = true;
-  skinned_vertex_attributes.tex_coord_2 = true;
-  skinned_vertex_attributes.tex_coord_3 = true;
   skinned_vertex_attributes.color = true;
   std::vector<SkinnedVertex> skinned_vertices(3);
   skinned_vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
   skinned_vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
   skinned_vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
   skinned_vertices[1].tex_coord_1 = glm::vec2(0.6f, 0.4f);
-  skinned_vertices[1].tex_coord_2 = glm::vec2(0.3f, 0.7f);
-  skinned_vertices[1].tex_coord_3 = glm::vec2(0.9f, 0.1f);
   const auto skinned_mesh = AssetManager::CreateTemporaryAsset<SkinnedMesh>();
   skinned_mesh->bone_animator_indices = {2, 5};
   skinned_mesh->SetVertices(skinned_vertex_attributes, skinned_vertices, {glm::uvec3(0, 1, 2)});
@@ -1269,8 +1272,6 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh->PeekTriangles().size(), 1);
   EXPECT_EQ(restored_skinned_mesh->bone_animator_indices[1], 5);
   EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_1, glm::vec2(0.6f, 0.4f));
-  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_2, glm::vec2(0.3f, 0.7f));
-  EXPECT_EQ(restored_skinned_mesh->PeekSkinnedVertices()[1].tex_coord_3, glm::vec2(0.9f, 0.1f));
   ASSERT_EQ(restored_skinned_mesh->PeekMorphTargets().size(), 1);
   EXPECT_FLOAT_EQ(restored_skinned_mesh->GetDefaultMorphWeights()[0], 0.5f);
   EXPECT_TRUE(MorphVertexStreamsMatch(restored_skinned_mesh->PeekSkinnedVertices(),
@@ -1344,6 +1345,40 @@ anti_aliasing:
   EXPECT_EQ(restored_skinned_mesh_renderer.PeekRagDollTransformChain().size(), 1);
   ASSERT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights().size(), 1);
   EXPECT_FLOAT_EQ(restored_skinned_mesh_renderer.PeekMorphWeights()[0], 0.75f);
+}
+
+TEST(SerializationRegistry, FirstPartyPostProcessingAssetsEnableSsrProductionDefaults) {
+  const std::filesystem::path relative_paths[] = {
+      "Resources/LSystemProject/Assets/New Scene.evescene",
+      "Resources/DigitalAgricultureProject/Assets/Default.evescene",
+      "Resources/DigitalAgricultureProject/Assets/DigitalAgriculture.evescene",
+      "Resources/EcoSysLabProject/Assets/Default.evescene",
+      "Resources/EcoSysLabProject/Assets/DigitalForestry.evescene",
+      "Resources/EcoSysLabProject/Assets/PlayGround.evescene",
+      "EvoEngine_Tests/Rendering/Fixtures/Rendering/Assets/New Scene.evescene",
+  };
+  for (const auto& relative_path : relative_paths) {
+    const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / relative_path;
+    const auto root = YAML::LoadFile(path.string());
+    ASSERT_TRUE(root["LocalAssets"] && root["LocalAssets"].IsSequence()) << path.string();
+    YAML::Node stack;
+    for (size_t asset_index = 0; asset_index < root["LocalAssets"].size(); ++asset_index) {
+      const YAML::Node asset = root["LocalAssets"][asset_index];
+      if (asset["type_name"] && asset["type_name"].as<std::string>() == "PostProcessingStack") {
+        stack = asset;
+        break;
+      }
+    }
+    ASSERT_TRUE(stack) << path.string();
+    EXPECT_TRUE(stack["enable_screen_space_reflection"].as<bool>()) << path.string();
+    const auto ssr = stack["screen_space_reflection"];
+    ASSERT_TRUE(ssr) << path.string();
+    EXPECT_EQ(ssr["binary_search_iteration_count"].as<int>(), 8) << path.string();
+    EXPECT_FLOAT_EQ(ssr["start_bias"].as<float>(), 0.05f) << path.string();
+    EXPECT_TRUE(ssr["blur"].as<bool>()) << path.string();
+    EXPECT_TRUE(ssr["temporal_stabilization"].as<bool>()) << path.string();
+    EXPECT_FALSE(ssr["composition_mode"]) << path.string();
+  }
 }
 
 TEST(SerializationRegistry, PostProcessingAssetReloadAndImportAdvanceVersion) {
@@ -2433,7 +2468,27 @@ TEST(SerializationRegistry, MaterialRoundTripKeepsTransparentExtensionFields) {
   ASSERT_EQ(restored->material_data.texture_infos.size(), 11);
   EXPECT_EQ(restored->material_data.texture_infos[10].tex_coord, 1);
   EXPECT_EQ(restored->material_data.texture_infos[10].color_space, static_cast<int32_t>(GltfTextureColorSpace::Linear));
-  EXPECT_NE(std::string(out.c_str()).find("schema_version: 2"), std::string::npos);
+  EXPECT_NE(std::string(out.c_str()).find("schema_version: 3"), std::string::npos);
+}
+
+TEST(SerializationRegistry, LegacySpecularGlossinessMaterialRequiresSourceReimport) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(material);
+  YAML::Emitter out;
+  BeginMap(out);
+  Serialization::SerializeObject(out, static_cast<IAsset&>(*material));
+  out << YAML::EndMap;
+
+  auto serialized = YAML::Load(out.c_str());
+  serialized["gltf_material"]["schema_version"] = 2;
+  serialized["gltf_material"]["shade_material"]["pbr_model"] = 1;
+  const auto restored = AssetManager::CreateTemporaryAsset<Material>();
+  ASSERT_TRUE(restored);
+  EXPECT_THROW(Serialization::DeserializeObject(serialized, static_cast<IAsset&>(*restored)), std::runtime_error);
 }
 
 TEST(SerializationRegistry, PrefabMeshRendererMaterialTextureRefsAreCollectedAndLoaded) {

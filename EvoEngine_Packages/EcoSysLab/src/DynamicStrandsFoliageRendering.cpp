@@ -8,6 +8,29 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
+namespace {
+std::shared_ptr<GraphicsPipeline> CreateMaskedRawPipeline(const std::shared_ptr<GraphicsPipeline>& opaque,
+                                                          const std::filesystem::path& fragment_shader_path) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader = opaque->vertex_shader;
+  pipeline->task_shader = opaque->task_shader;
+  pipeline->mesh_shader = opaque->mesh_shader;
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+  pipeline->geometry_type = opaque->geometry_type;
+  pipeline->vertex_input_attribute_set = opaque->vertex_input_attribute_set;
+  pipeline->vertex_input_enabled = opaque->vertex_input_enabled;
+  pipeline->primitive_topology = opaque->primitive_topology;
+  pipeline->descriptor_set_layouts = opaque->descriptor_set_layouts;
+  pipeline->color_attachment_formats = opaque->color_attachment_formats;
+  pipeline->depth_attachment_format = opaque->depth_attachment_format;
+  pipeline->stencil_attachment_format = opaque->stencil_attachment_format;
+  pipeline->push_constant_ranges = opaque->push_constant_ranges;
+  pipeline->Initialize();
+  return pipeline;
+}
+}  // namespace
+
 bool FoliageRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
 
@@ -132,6 +155,9 @@ void DynamicStrands::BuildFoliageRenderingPipelines() {
   push_constant_range.offset = 0;
   push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
   foliage_render_pipeline->Initialize();
+  foliage_masked_render_pipeline = CreateMaskedRawPipeline(
+      foliage_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
+                                   "Shaders/Graphics/Fragment/DynamicStrands/Rendering/FoliageMasked.slang");
 }
 
 uint32_t DynamicStrands::RenderFoliageToPointLightShadowMap(const FoliageRenderParameters& render_parameters,
@@ -220,7 +246,9 @@ uint32_t DynamicStrands::RenderFoliageToDirectionalLightShadowMap(
 }
 
 uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
-    const Handle& renderer_handle, const FoliageRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
+    const Handle& renderer_handle, const FoliageRenderParameters& render_parameters,
+    const std::shared_ptr<GraphicsPipeline>& pipeline, const VkCullModeFlags cull_mode,
+    VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
   if (!render_parameters.enabled) {
@@ -235,11 +263,11 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
           renderer_handle);
   push_constant.index2.camera_index = view.camera_index;
   push_constant.leaf_size = foliage.size();
-  foliage_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-  foliage_render_pipeline->states.SetViewportScissor(view.viewport);
-  foliage_render_pipeline->states.polygon_mode =
-      render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-  foliage_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  pipeline->states.SetViewportScissor(view.viewport);
+  pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+  pipeline->states.cull_mode = cull_mode;
+  pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
   if (rdoc_api) {
@@ -247,17 +275,14 @@ uint32_t DynamicStrands::RenderFoliageToCameraDeferred(
     EVOENGINE_LOG("RDOC API detected!");
   }
 #endif  //  USERENDERDOC
-  foliage_render_pipeline->Bind(vk_command_buffer);
-  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                             RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                             strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  foliage_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                             RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
-  foliage_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  pipeline->Bind(vk_command_buffer);
+  pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 1, strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
   const uint32_t count = Platform::DivUp(foliage.size(), task_work_group_invocations);
-  foliage_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+  pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);

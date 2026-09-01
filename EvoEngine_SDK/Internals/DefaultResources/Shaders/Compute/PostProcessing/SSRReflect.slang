@@ -18,19 +18,55 @@ RWTexture2D<float4> outSrcColor;
 [vk::image_format("rgba32f")]
 RWTexture2D<float4> outDstColorVisibility;
 
-float3 GetNormal(float2 tex_coord) {
-  return inNormalRoughness.SampleLevel(tex_coord, 0.0f).rgb;
-}
-
-float3 GetViewNormal(float2 tex_coord) {
-  return normalize(mul(float4(GetNormal(tex_coord), 0.0f), EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].view).xyz);
+bool IsUvInBounds(float2 tex_coord) {
+  return all(tex_coord >= float2(0.0f)) && all(tex_coord <= float2(1.0f));
 }
 
 bool GetViewPosition(float2 tex_coord, out float3 position) {
+  position = float3(0.0f);
+  if (!IsUvInBounds(tex_coord)) return false;
   float ndc_depth = inDepth.SampleLevel(tex_coord, 0.0f).x;
-  if (ndc_depth == 1.0f) return false;
+  if (!isfinite(ndc_depth) || ndc_depth >= 1.0f) return false;
   position = EE_DEPTH_TO_VIEW_POS(EE_SSR_CONSTANTS.camera_index, tex_coord, ndc_depth);
-  return true;
+  return all(isfinite(position));
+}
+
+bool ProjectViewPosition(float3 position, out float2 tex_coord) {
+  tex_coord = float2(0.0f);
+  float4 clip = mul(float4(position, 1.0f), EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].projection);
+  if (!all(isfinite(clip)) || clip.w <= 0.00001f) return false;
+  tex_coord = clip.xy / clip.w * 0.5f + 0.5f;
+  return all(isfinite(tex_coord));
+}
+
+bool SampleRayDepth(float screen_t, float2 start_uv, float2 end_uv, float start_view_z, float end_view_z,
+                    out float2 sample_uv, out float3 scene_position, out float depth_delta) {
+  sample_uv = lerp(start_uv, end_uv, screen_t);
+  scene_position = float3(0.0f);
+  depth_delta = 0.0f;
+  if (!GetViewPosition(sample_uv, scene_position)) return false;
+  float denominator = lerp(end_view_z, start_view_z, screen_t);
+  if (!isfinite(denominator) || abs(denominator) <= 0.00001f) return false;
+  float ray_view_z = start_view_z * end_view_z / denominator;
+  depth_delta = scene_position.z - ray_view_z;
+  return isfinite(ray_view_z) && isfinite(depth_delta);
+}
+
+float4 RejectionDebugColor(int reason) {
+  if (EE_SSR_CONSTANTS.debug_mode != 3) return float4(0.0f);
+  if (reason == 2) return float4(1.0f, 0.75f, 0.0f, 1.0f);
+  if (reason == 3) return float4(1.0f, 0.0f, 1.0f, 1.0f);
+  if (reason == 4) return float4(1.0f, 0.35f, 0.0f, 1.0f);
+  if (reason == 5) return float4(0.0f, 0.4f, 1.0f, 1.0f);
+  return float4(0.25f, 0.0f, 0.0f, 1.0f);
+}
+
+float4 EncodeHit(float2 hit_uv, float normalized_distance, float confidence, float3 radiance) {
+  if (EE_SSR_CONSTANTS.debug_mode == 1) return float4(hit_uv, 0.0f, 1.0f);
+  if (EE_SSR_CONSTANTS.debug_mode == 2) return float4(float3(normalized_distance), 1.0f);
+  if (EE_SSR_CONSTANTS.debug_mode == 3) return float4(0.0f, 1.0f, 0.0f, 1.0f);
+  if (EE_SSR_CONSTANTS.debug_mode == 4) return float4(float3(confidence), 1.0f);
+  return max(float4(radiance, confidence), float4(0.0f));
 }
 
 [shader("compute")]
@@ -45,84 +81,125 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
 
   float2 tex_size = float2(resolution);
   float2 tex_coord = (float2(pixel) + float2(0.5f)) / tex_size;
-  float4 src_color = inColor.SampleLevel(tex_coord, 0.0f);
-  outSrcColor[int2(pixel)] = src_color;
+  outSrcColor[int2(pixel)] = inColor.SampleLevel(tex_coord, 0.0f);
+  outDstColorVisibility[int2(pixel)] = RejectionDebugColor(1);
 
-  int steps = EE_SSR_CONSTANTS.initial_steps;
-  float2 uv = float2(0.0f);
   float3 position_from;
-  if (!GetViewPosition(tex_coord, position_from)) {
-    outDstColorVisibility[int2(pixel)] = float4(0.0f);
+  if (!GetViewPosition(tex_coord, position_from)) return;
+  float position_length = length(position_from);
+  if (!isfinite(position_length) || position_length <= 0.00001f) return;
+
+  float3 world_normal = inNormalRoughness.SampleLevel(tex_coord, 0.0f).rgb;
+  float3 view_normal = mul(float4(world_normal, 0.0f), EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].view).xyz;
+  float normal_length = length(view_normal);
+  if (!all(isfinite(view_normal)) || normal_length <= 0.00001f) return;
+  view_normal /= normal_length;
+
+  float3 unit_position_from = position_from / position_length;
+  float source_facing = dot(view_normal, -unit_position_from);
+  if (!isfinite(source_facing) || source_facing <= 0.001f) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(5);
     return;
   }
-  float3 position_to = position_from;
-  float3 unit_position_from = normalize(position_from);
-  float3 normal = GetViewNormal(tex_coord);
-  float3 pivot = normalize(reflect(unit_position_from, normal));
+  float3 pivot = reflect(unit_position_from, view_normal);
+  float pivot_length = length(pivot);
+  if (!all(isfinite(pivot)) || pivot_length <= 0.00001f) return;
+  pivot /= pivot_length;
 
-  float4 start_view = float4(position_from + pivot * 0.0f, 1.0f);
-  float4 end_view = float4(position_from + pivot * EE_SSR_CONSTANTS.max_distance, 1.0f);
-  float4 start_frag_temp = mul(start_view, EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].projection);
-  start_frag_temp.xyz /= start_frag_temp.w;
-  start_frag_temp.xy = start_frag_temp.xy * 0.5f + 0.5f;
-  float4 end_frag_temp = mul(end_view, EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].projection);
-  end_frag_temp.xyz /= end_frag_temp.w;
-  end_frag_temp.xy = end_frag_temp.xy * 0.5f + 0.5f;
+  float ray_length = EE_SSR_CONSTANTS.max_distance;
+  float near_view_z = -EE_CAMERA_NEAR(EE_SSR_CONSTANTS.camera_index) * 1.01f;
+  if (pivot.z > 0.00001f) {
+    ray_length = min(ray_length, (near_view_z - position_from.z) / pivot.z);
+  }
+  if (!isfinite(ray_length) || ray_length <= EE_SSR_CONSTANTS.start_bias + 0.00001f) return;
 
-  float2 start_frag = start_frag_temp.xy * tex_size;
-  float2 end_frag = end_frag_temp.xy * tex_size;
-  float2 frag = start_frag;
-  uv = frag / tex_size;
-  float delta_x = end_frag.x - start_frag.x;
-  float delta_y = end_frag.y - start_frag.y;
-  float2 increment = float2(delta_x, delta_y) / EE_SSR_CONSTANTS.iteration_count;
-  float search0 = 0.0f;
-  float search1 = 0.0f;
-  int hit0 = 0;
-  int hit1 = 0;
-  float view_distance = start_view.z;
-  float depth = EE_SSR_CONSTANTS.thickness;
+  float3 start_view = position_from + pivot * EE_SSR_CONSTANTS.start_bias;
+  float3 end_view = position_from + pivot * ray_length;
+  float2 start_uv;
+  float2 end_uv;
+  if (!ProjectViewPosition(start_view, start_uv) || !ProjectViewPosition(end_view, end_uv)) return;
 
-  for (int i = 0; i < EE_SSR_CONSTANTS.iteration_count; ++i) {
-    frag += increment;
-    uv = frag / tex_size;
-    GetViewPosition(uv, position_to);
-    search1 = clamp((frag.y - start_frag.y) / delta_y, 0.0f, 1.0f);
-    view_distance = (start_view.z * end_view.z) / lerp(end_view.z, start_view.z, search1);
-    depth = position_to.z - view_distance;
-    if (depth > 0.0f && depth < EE_SSR_CONSTANTS.thickness) {
-      hit0 = 1;
+  float2 pixel_delta = (end_uv - start_uv) * tex_size;
+  float dominant_span = max(abs(pixel_delta.x), abs(pixel_delta.y));
+  if (!isfinite(dominant_span) || dominant_span < 0.5f) return;
+  int march_step_count = min(EE_SSR_CONSTANTS.iteration_count, max(1, int(ceil(dominant_span))));
+
+  float previous_t = 0.0f;
+  float previous_depth_delta = -EE_SSR_CONSTANTS.thickness;
+  float bracket_min = 0.0f;
+  float bracket_max = 0.0f;
+  bool bracket_found = false;
+  float2 sample_uv = start_uv;
+  float3 scene_position = position_from;
+  float depth_delta = 0.0f;
+
+  for (int i = 0; i < march_step_count; ++i) {
+    float screen_t = float(i + 1) / float(march_step_count);
+    if (!SampleRayDepth(screen_t, start_uv, end_uv, start_view.z, end_view.z, sample_uv, scene_position,
+                        depth_delta)) {
       break;
     }
-    search0 = search1;
+    if (depth_delta > 0.0f && previous_depth_delta <= 0.0f) {
+      bracket_min = previous_t;
+      bracket_max = screen_t;
+      bracket_found = true;
+      break;
+    }
+    previous_t = screen_t;
+    previous_depth_delta = depth_delta;
+  }
+  if (!bracket_found) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(2);
+    return;
   }
 
-  search1 = search0 + (search1 - search0) * 0.5f;
-  steps *= hit0;
-  for (int i = 0; i < steps; ++i) {
-    frag = lerp(start_frag, end_frag, search1);
-    uv = frag / tex_size;
-    GetViewPosition(uv, position_to);
-    view_distance = (start_view.z * end_view.z) / lerp(end_view.z, start_view.z, search1);
-    depth = position_to.z - view_distance;
-    if (depth > 0.0f && depth < EE_SSR_CONSTANTS.thickness) {
-      hit1 = 1;
-      search1 = search0 + (search1 - search0) * 0.5f;
+  for (int i = 0; i < EE_SSR_CONSTANTS.binary_search_iteration_count; ++i) {
+    float midpoint = 0.5f * (bracket_min + bracket_max);
+    if (!SampleRayDepth(midpoint, start_uv, end_uv, start_view.z, end_view.z, sample_uv, scene_position,
+                        depth_delta)) {
+      outDstColorVisibility[int2(pixel)] = RejectionDebugColor(3);
+      return;
+    }
+    if (depth_delta > 0.0f) {
+      bracket_max = midpoint;
     } else {
-      float temp = search1;
-      search1 += (search1 - search0) * 0.5f;
-      search0 = temp;
+      bracket_min = midpoint;
     }
   }
 
-  float visibility = float(hit1) * (1.0f - max(dot(-unit_position_from, pivot), 0.0f)) *
-                     (1.0f - clamp(depth / EE_SSR_CONSTANTS.thickness, 0.0f, 1.0f)) *
-                     (1.0f - pow(clamp(length(position_to - position_from) / EE_SSR_CONSTANTS.max_distance, 0.0f, 1.0f),
-                                  EE_SSR_CONSTANTS.distance_confidence)) *
-                     (uv.x < 0.0f || uv.x > 1.0f ? 0.0f : 1.0f) *
-                     (uv.y < 0.0f || uv.y > 1.0f ? 0.0f : 1.0f);
-  visibility = clamp(visibility, 0.0f, 1.0f);
-  outDstColorVisibility[int2(pixel)] = visibility != 0.0f
-                                           ? max(float4(inColor.SampleLevel(uv, 0.0f).rgb, visibility), float4(0.0f))
-                                           : float4(0.0f);
+  if (!SampleRayDepth(bracket_max, start_uv, end_uv, start_view.z, end_view.z, sample_uv, scene_position,
+                      depth_delta)) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(3);
+    return;
+  }
+  if (depth_delta < 0.0f || depth_delta >= EE_SSR_CONSTANTS.thickness) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(4);
+    return;
+  }
+
+  float3 hit_world_normal = inNormalRoughness.SampleLevel(sample_uv, 0.0f).rgb;
+  float3 hit_view_normal = mul(float4(hit_world_normal, 0.0f), EE_CAMERAS[EE_SSR_CONSTANTS.camera_index].view).xyz;
+  float hit_normal_length = length(hit_view_normal);
+  if (!all(isfinite(hit_view_normal)) || hit_normal_length <= 0.00001f) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(5);
+    return;
+  }
+  hit_view_normal /= hit_normal_length;
+  float hit_facing = dot(hit_view_normal, -pivot);
+  if (!isfinite(hit_facing) || hit_facing <= 0.001f) {
+    outDstColorVisibility[int2(pixel)] = RejectionDebugColor(5);
+    return;
+  }
+
+  float normalized_distance = clamp(length(scene_position - position_from) / EE_SSR_CONSTANTS.max_distance, 0.0f, 1.0f);
+  float thickness_confidence = 1.0f - clamp(depth_delta / EE_SSR_CONSTANTS.thickness, 0.0f, 1.0f);
+  float distance_confidence = 1.0f - pow(normalized_distance, EE_SSR_CONSTANTS.distance_confidence);
+  float grazing_confidence = smoothstep(0.02f, 0.25f, source_facing);
+  float edge_distance = min(min(sample_uv.x, 1.0f - sample_uv.x), min(sample_uv.y, 1.0f - sample_uv.y));
+  float edge_confidence = smoothstep(0.0f, 0.05f, edge_distance);
+  float normal_confidence = smoothstep(0.05f, 0.35f, hit_facing);
+  float confidence = thickness_confidence * distance_confidence * grazing_confidence * edge_confidence * normal_confidence;
+  confidence = clamp(isfinite(confidence) ? confidence : 0.0f, 0.0f, 1.0f);
+  outDstColorVisibility[int2(pixel)] =
+      EncodeHit(sample_uv, normalized_distance, confidence, inColor.SampleLevel(sample_uv, 0.0f).rgb);
 }

@@ -2,6 +2,7 @@
 #pragma once
 #include "ApplicationInitializationSettings.hpp"
 #include "ComputePipeline.hpp"
+#include "GBuffer.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "RayTracingPipeline.hpp"
@@ -357,6 +358,9 @@ class EVOENGINE_API Platform final {
 
     /// Physical device features.
     VkPhysicalDeviceFeatures features{};
+
+    /// Vulkan 1.2 features used by the standard renderer.
+    VkPhysicalDeviceVulkan12Features vulkan12_features{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
 
     /// Acceleration structure features.
     VkPhysicalDeviceAccelerationStructureFeaturesKHR acceleration_structure_features{
@@ -831,8 +835,8 @@ class EVOENGINE_API Platform final {
     /// Attribute format for expanded G-buffer attachments.
     constexpr static VkFormat g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT;
 
-    /// Utility format for expanded G-buffer attachments.
-    constexpr static VkFormat g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT;
+    /// Exact integer metadata format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_utility = raw_g_buffer::kMetadataFormat;
 
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;

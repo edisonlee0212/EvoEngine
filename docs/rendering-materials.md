@@ -7,12 +7,30 @@ ray query. Each technique chooses the passes and lobes it can evaluate without c
 
 ## Material Workflows
 
-The core physically based workflows are metallic-roughness and `KHR_materials_pbrSpecularGlossiness`. Materials also
-carry alpha mode, sidedness, emissive state, normal mapping, occlusion, and the supported glTF extension parameters.
+The renderer-owned physically based workflow is metallic-roughness. Materials also carry alpha mode, sidedness,
+emissive state, normal mapping, occlusion, and the supported glTF extension parameters.
 
-Opaque/default-lit raster materials are evaluated during the geometry pass and stored in the GBuffer. Alpha masking is a
-deterministic geometry-pass discard. Blended, transmissive, and other forward-only materials use the transparent or
-forward path. Unlit materials return base color without adding lighting or emission first.
+`KHR_materials_pbrSpecularGlossiness` is accepted only as a glTF import format. Its factors and textures are converted
+immediately to core metallic-roughness using Khronos' reference workflow conversion. The conversion is lossy because
+core metallic-roughness cannot represent arbitrary dielectric specular color or strength. Textures with incompatible UV
+mappings are rebased into the diffuse texture's mapping with an import warning; unreadable source pixels fall back to
+the corresponding factors. PNG, JPEG, TGA, embedded images, data URIs, and BC7 DDS alternatives are decoded directly
+for conversion without uploading specular-glossiness-only sources. Converted base-color and metallic-roughness mip
+chains are stored as disposable BC7 DDS pairs under `Cache/GltfMaterialConversion`; deleting this directory only makes
+the next import regenerate them. No specular-glossiness state is stored, edited, serialized, or evaluated at runtime.
+`KHR_materials_specular` remains independently supported and is not used by this workflow conversion.
+
+The raster geometry pass writes UV0/UV1 and their gradients, the face-oriented geometric normal and tangent, stable
+instance/material/info metadata, and depth. Its opaque path performs no material-buffer or texture access. Its separate
+alpha-masked path evaluates only base-color alpha coverage before writing the same raw payload. GTAO consumes the raw
+geometric normal, then an in-place compute pass evaluates the full material, replaces the raw attributes with the
+resolved G-buffer surface, evaluates deferred lighting, and writes camera color. Later effects consume the resolved
+surface. Blended, transmissive, and other forward-only materials use the transparent or forward path. Unlit materials
+return base color without adding lighting or emission first.
+
+Directional, point, and spot shadow maps use the same opaque/masked classification. Opaque shadow shaders access only
+geometry. Masked shadow shaders evaluate the shared base-color alpha coverage helper and no other material inputs before
+writing depth. Masked skinned motion coverage uses that helper as well, so discarded pixels do not contribute motion.
 
 The shared ray material path evaluates the same base inputs and supports advanced reflection and transmission behavior,
 including:
@@ -27,8 +45,20 @@ ray paths rather than being approximated as ordinary deferred materials.
 
 ## Textures And Vertex Inputs
 
-Material textures can select `TEXCOORD_0` through `TEXCOORD_3`. `KHR_texture_transform` is applied after choosing the
-authored coordinate set. Vertex `COLOR_0` multiplies base color or diffuse color according to the selected PBR workflow.
+Material textures can select `TEXCOORD_0` or `TEXCOORD_1`. Additional imported mesh coordinate channels are ignored.
+`KHR_texture_transform` is applied after choosing the authored coordinate set. A texture binding that selects another
+coordinate set is disabled with a diagnostic rather than remapped. Vertex `COLOR_0` multiplies the
+metallic-roughness base color.
+
+Serialized `.evemesh` vertex data uses the current UV0/UV1-only 96-byte rigid or 160-byte skinned layout. Older
+112-byte and 176-byte layouts containing UV2/UV3 are not loaded.
+
+Deferred rendering stores vertex color as clamped, rounded UNORM8 RGBA metadata. Negative and HDR vertex colors are
+therefore not preserved by the deferred path; forward-only paths retain full-float interpolation.
+
+The stable G-buffer metadata attachment is `R32G32B32A32_UINT`: instance and info IDs retain all 32 bits, while the
+material word reserves its high two bits for procedural base-color replacement and tangent handedness. Consumers use
+integer texel loads; the attachment is never filtered or converted through floating point.
 
 Color textures use sRGB decoding while alpha and data channels remain linear. Imported wrap, magnification,
 minification, and mip-filter settings are preserved. Authored DDS/BC7 mip chains are preferred when available; common
@@ -43,13 +73,10 @@ than silently sampling another coordinate set.
 
 ## Raster And Ray Resource Models
 
-Raster materials use fixed texture descriptors. This keeps rasterization available on devices that do not expose the
-descriptor-indexing features used by ray traversal. Renderer-owned descriptor state is updated as material indices or
-textures change.
-
-Ray tracing and ray query use bindless texture storage because a ray can encounter any material after traversal begins.
-They share the same host material and texture-info buffers, scene feature detection, and specialized shader variants.
-Missing variants compile asynchronously while an all-feature fallback remains available.
+Raster deferred evaluation, ray tracing, and ray query share renderer-owned bindless texture arrays because each shader
+invocation can resolve an arbitrary material index. They share the same host material and texture-info buffers. Ray
+traversal additionally uses scene feature detection and specialized shader variants; missing variants compile
+asynchronously while an all-feature fallback remains available.
 
 Material and mesh thumbnails render through the normal fixed-descriptor raster path in a temporary scene. They disable
 DDGI and do not maintain a separate material implementation.
@@ -72,8 +99,8 @@ by a ray camera but are not part of the triangle sampling distribution.
 
 - Raster and ray cameras share authored material meaning, but their integrators and temporal histories are not expected
   to produce pixel-identical images.
-- Built-in raster shadow-map passes treat mesh materials as opaque and do not sample alpha textures for cutout
-  silhouettes.
+- Built-in raster shadow maps preserve alpha-cutout silhouettes with the shared base-color alpha coverage test. They do
+  not evaluate normal, roughness, metallic, occlusion, emission, or other material properties.
 - DDGI transports diffuse irradiance with a bounded material model; it is not a full camera-path BSDF integrator.
 - Ray-camera strand traversal is optional and capability-gated. Unsupported devices keep the raster strand path.
 - Gaussian splats do not enter triangle acceleration structures, DDGI, or ray-camera traversal.

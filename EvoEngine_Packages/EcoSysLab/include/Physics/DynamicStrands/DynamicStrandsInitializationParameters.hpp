@@ -8,6 +8,25 @@ using namespace evo_engine;
 
 enum class MeshingType { AlphaShape, KineticVoronoi };
 
+enum class BundleSolverMode { Legacy, CoupledXpbd, Hybrid };
+
+struct BundleSolverSettings {
+  BundleSolverMode mode = BundleSolverMode::Legacy;
+  int legacy_iterations = 1;
+  int pair_iterations = 4;
+  int coarse_iterations = 2;
+  float position_compliance_scale = 1.f;
+  float bending_compliance_scale = 1.f;
+  float torsion_compliance_scale = 1.f;
+  float shape_matching_strength = 1.f;
+  float slice_spacing_factor = 1.f;
+  int minimum_slice_members = 8;
+
+  bool DrawGui();
+  void Save(const std::string& name, YAML::Emitter& out) const;
+  void Load(const std::string& name, const YAML::Node& in);
+};
+
 /**
  * \brief Parameters used during the initialization of the dynamic strand model.
  */
@@ -50,6 +69,8 @@ struct DynamicStrandsInitializeParameters {
   float max_dist_squared = 1.0f;          ///< Maximum squared distance considered in calculations.
   bool use_cubic_hermite_spline = false;  ///< Whether to use cubic Hermite splines for interpolation, else use linear.
   int min_bundle_size = 3;                ///< Minimum size of a bundle, i.e. particle count in that branch.
+
+  BundleSolverSettings bundle_solver{};
 
   AssetRef foliage_descriptor;  ///< Descriptor reference for foliage data.
 

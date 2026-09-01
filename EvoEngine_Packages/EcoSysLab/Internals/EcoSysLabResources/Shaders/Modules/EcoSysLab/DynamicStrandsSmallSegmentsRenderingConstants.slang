@@ -5,6 +5,7 @@
   public float thickness_multiplier;
   public float4 position_scale;
   public int splinter_material_index;
+  public int render_material_index;
 };
 
 public static const uint SMALL_SEGMENT_SHADOW_MAP_VERTICES_SIZE = 8u;

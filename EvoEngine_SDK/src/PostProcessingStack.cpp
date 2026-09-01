@@ -159,6 +159,8 @@ void PostProcessingCameraResources::ResetTemporalState() {
   previous_inverse_projection = glm::mat4(1.0f);
   previous_inverse_view = glm::mat4(1.0f);
   previous_matrices_valid = false;
+  screen_space_reflection.history_read_index = 0;
+  screen_space_reflection.history_valid = false;
   tone_mapping.auto_exposure_time_initialized = false;
   tone_mapping.luminance_reset_pending = true;
   tone_mapping.last_auto_exposure_time = 0.0;
@@ -183,6 +185,14 @@ void PostProcessingCameraResources::Retain(RenderGraphTransientResourceStore& tr
   anti_aliasing.smaa_neighborhood_descriptor_set.Retain(transient_resources);
   screen_space_reflection.combine_descriptor_set.Retain(transient_resources);
   screen_space_reflection.reflect_output_descriptor_set.Retain(transient_resources);
+  screen_space_reflection.spatial_resolve_descriptor_set.Retain(transient_resources);
+  screen_space_reflection.temporal_descriptor_set.Retain(transient_resources);
+  for (const auto& texture : screen_space_reflection.reflection_history)
+    transient_resources.RetainRenderTextureResources(texture);
+  for (const auto& texture : screen_space_reflection.geometry_history)
+    transient_resources.RetainRenderTextureResources(texture);
+  for (const auto& texture : screen_space_reflection.material_history)
+    transient_resources.RetainRenderTextureResources(texture);
   bloom.mix_descriptor_set.Retain(transient_resources);
   bloom.copy_descriptor_set.Retain(transient_resources);
   bloom.downsampling_descriptor_sets.Retain(transient_resources);
@@ -766,6 +776,7 @@ void PostProcessingStack::Resize(PostProcessingCameraResources& resources, const
     return;
   auto& stack = resources.stack;
   auto& bloom = resources.bloom;
+  auto& screen_space_reflection = resources.screen_space_reflection;
   const auto bloom_size = (size + glm::uvec2(1)) / 2u;
   const auto bloom_format = ResolveBloomFormat();
   if (size == stack.size && stack.source_color_texture && stack.result_texture && stack.swap_texture &&
@@ -782,6 +793,23 @@ void PostProcessingStack::Resize(PostProcessingCameraResources& resources, const
     stack.swap_texture = std::make_shared<RenderTexture>(create_info);
     stack.size = size;
     ++stack.generation;
+  }
+  if (screen_space_reflection.history_size != size || !screen_space_reflection.reflection_history[0] ||
+      !screen_space_reflection.reflection_history[1] || !screen_space_reflection.geometry_history[0] ||
+      !screen_space_reflection.geometry_history[1] || !screen_space_reflection.material_history[0] ||
+      !screen_space_reflection.material_history[1]) {
+    RenderTextureCreateInfo history_create_info{};
+    history_create_info.depth = false;
+    history_create_info.extent = {size.x, size.y, 1};
+    for (auto& texture : screen_space_reflection.reflection_history)
+      texture = std::make_shared<RenderTexture>(history_create_info);
+    for (auto& texture : screen_space_reflection.geometry_history)
+      texture = std::make_shared<RenderTexture>(history_create_info);
+    for (auto& texture : screen_space_reflection.material_history)
+      texture = std::make_shared<RenderTexture>(history_create_info);
+    screen_space_reflection.history_size = size;
+    screen_space_reflection.history_read_index = 0;
+    screen_space_reflection.history_valid = false;
   }
 
   const uint32_t bloom_mip_levels =
@@ -815,7 +843,7 @@ void PostProcessingStack::ApplyDefaultSettings() {
   tone_mapping = std::make_shared<ToneMapping>();
   enable_ambient_occlusion = true;
   enable_bloom = true;
-  enable_screen_space_reflection = false;
+  enable_screen_space_reflection = true;
   enable_anti_aliasing = true;
   enable_tone_mapping = true;
 }
@@ -875,7 +903,8 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
 }
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
-                                  const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process) {
+                                  const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process,
+                                  const std::shared_ptr<ImageView>& motion_vectors_image_view) {
   if (!target_camera) {
     return;
   }
@@ -891,6 +920,7 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
   auto& camera = target_camera->AcquirePostProcessingResources(stack_asset);
   Resize(camera, target_camera->GetSize());
   PostProcessingExecutionContext context{camera, renderer};
+  context.motion_vectors_image_view = motion_vectors_image_view;
   if (pre_process) {
     Platform::RecordCommandsMainQueue(pre_process);
   }

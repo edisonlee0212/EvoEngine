@@ -15,26 +15,36 @@ void CpuRayTracer::Initialize(
   Clear();
   uint32_t mesh_index = 0;
   std::map<Handle, uint32_t> mesh_instances_map;
-  render_instances->deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    mesh_instances_map[render_instance->instance_index] = mesh_index;
-    geometry_instances_.emplace_back();
-    auto& mesh_instance = geometry_instances_.back();
-    const auto mesh = render_instance->mesh;
-    mesh_instance.Initialize(mesh);
-    mesh_binding(mesh_index, mesh);
-    mesh_index++;
-  });
+  const auto register_meshes =
+      [&](const std::shared_ptr<RenderInstanceStorage::MeshRenderInstanceCollection>& collection) {
+        collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
+          mesh_instances_map[render_instance->instance_index] = mesh_index;
+          geometry_instances_.emplace_back();
+          auto& mesh_instance = geometry_instances_.back();
+          const auto mesh = render_instance->mesh;
+          mesh_instance.Initialize(mesh);
+          mesh_binding(mesh_index, mesh);
+          mesh_index++;
+        });
+      };
+  register_meshes(render_instances->deferred_render_instances);
+  register_meshes(render_instances->deferred_masked_render_instances);
 
   uint32_t node_index = 0;
 
-  render_instances->deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    const auto mesh = render_instance->mesh;
-    node_instances_.emplace_back();
-    auto& node_instance = node_instances_.back();
-    node_instance.Initialize(render_instances, render_instance, geometry_instances_, mesh_instances_map);
-    node_binding(node_index, render_instance->owner);
-    node_index++;
-  });
+  const auto register_nodes =
+      [&](const std::shared_ptr<RenderInstanceStorage::MeshRenderInstanceCollection>& collection) {
+        collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
+          const auto mesh = render_instance->mesh;
+          node_instances_.emplace_back();
+          auto& node_instance = node_instances_.back();
+          node_instance.Initialize(render_instances, render_instance, geometry_instances_, mesh_instances_map);
+          node_binding(node_index, render_instance->owner);
+          node_index++;
+        });
+      };
+  register_nodes(render_instances->deferred_render_instances);
+  register_nodes(render_instances->deferred_masked_render_instances);
 
   Bvh scene_bvh;
   scene_bvh.element_indices.resize(node_instances_.size());
@@ -759,9 +769,9 @@ void CpuRayTracer::AggregatedScene::Trace(const RayDescriptor& ray_descriptor,
                   glm::floatBitsToUint(scene_geometry_data[aggregate_scene_info.triangles_offset + triangle_index].y);
               const auto t_z =
                   glm::floatBitsToUint(scene_geometry_data[aggregate_scene_info.triangles_offset + triangle_index].z);
-              glm::vec3 p0 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_x * 7];
-              glm::vec3 p1 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_y * 7];
-              glm::vec3 p2 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_z * 7];
+              glm::vec3 p0 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_x * 6];
+              glm::vec3 p1 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_y * 6];
+              glm::vec3 p2 = scene_geometry_data[aggregate_scene_info.vertices_offset + t_z * 6];
               if (p0 == p1 && p1 == p2)
                 continue;
               auto node_space_triangle_normal = glm::normalize(glm::cross(p1 - p0, p2 - p0));
@@ -1257,17 +1267,16 @@ CpuRayTracer::AggregatedScene CpuRayTracer::Aggregate() const {
 
   auto upload_vertices = [&](std::vector<glm::vec4>& destination, const std::vector<Vertex>& src) {
     std::vector<glm::vec4> gpu_vertices;
-    gpu_vertices.resize(src.size() * 7);
+    gpu_vertices.resize(src.size() * 6);
     Jobs::RunParallelFor(src.size(), [&](const auto i) {
       const auto& vertex = src[i];
-      gpu_vertices[i * 7] = glm::vec4(vertex.position.x, vertex.position.y, vertex.position.z, vertex.vertex_info1);
-      gpu_vertices[i * 7 + 1] = glm::vec4(vertex.normal.x, vertex.normal.y, vertex.normal.z, vertex.vertex_info2);
-      gpu_vertices[i * 7 + 2] = glm::vec4(vertex.tangent.x, vertex.tangent.y, vertex.tangent.z, vertex.vertex_info3);
-      gpu_vertices[i * 7 + 3] = vertex.color;
-      gpu_vertices[i * 7 + 4] =
+      gpu_vertices[i * 6] = glm::vec4(vertex.position.x, vertex.position.y, vertex.position.z, vertex.vertex_info1);
+      gpu_vertices[i * 6 + 1] = glm::vec4(vertex.normal.x, vertex.normal.y, vertex.normal.z, vertex.vertex_info2);
+      gpu_vertices[i * 6 + 2] = glm::vec4(vertex.tangent.x, vertex.tangent.y, vertex.tangent.z, vertex.vertex_info3);
+      gpu_vertices[i * 6 + 3] = vertex.color;
+      gpu_vertices[i * 6 + 4] =
           glm::vec4(vertex.tex_coord.x, vertex.tex_coord.y, vertex.vertex_info4.x, vertex.vertex_info4.y);
-      gpu_vertices[i * 7 + 5] = glm::vec4(vertex.tex_coord_1, vertex.tex_coord_2);
-      gpu_vertices[i * 7 + 6] = glm::vec4(vertex.tex_coord_3, vertex.padding);
+      gpu_vertices[i * 6 + 5] = glm::vec4(vertex.tex_coord_1, vertex.padding);
     });
     const uint32_t offset = destination.size();
     destination.insert(destination.end(), gpu_vertices.begin(), gpu_vertices.end());

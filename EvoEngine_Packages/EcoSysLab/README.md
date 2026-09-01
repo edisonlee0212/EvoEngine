@@ -26,6 +26,10 @@ EcoSysLab is EvoEngine's digital forestry and ecosystem simulation runtime packa
 - Volume assets such as radial bounding volumes and cube volumes.
 - Rendering hooks for specialized strand/branch visualization.
 
+Dynamic-strand bundle physics supports the compatibility-preserving `Legacy` mode and the opt-in `CoupledXpbd` and
+`Hybrid` torque-capable modes. See [Dynamic-strand bundle solver](docs/dynamic-strands-bundle-solver.md) for selection,
+material controls, damage behavior, diagnostics, and current validation limits.
+
 ## Main Entry Points
 
 | Source | Role |

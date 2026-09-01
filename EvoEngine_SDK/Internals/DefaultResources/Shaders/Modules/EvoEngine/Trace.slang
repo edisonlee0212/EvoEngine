@@ -224,9 +224,9 @@ public HitInfo Trace(in RayDescriptor ray_descriptor, in bool cull_back_face, in
               uint t_x = asuint(scene_geometry_data[triangles_offset + triangle_index].x);
               uint t_y = asuint(scene_geometry_data[triangles_offset + triangle_index].y);
               uint t_z = asuint(scene_geometry_data[triangles_offset + triangle_index].z);
-              float3 p0 = scene_geometry_data[vertices_offset + t_x * 7].xyz;
-              float3 p1 = scene_geometry_data[vertices_offset + t_y * 7].xyz;
-              float3 p2 = scene_geometry_data[vertices_offset + t_z * 7].xyz;
+              float3 p0 = scene_geometry_data[vertices_offset + t_x * 6].xyz;
+              float3 p1 = scene_geometry_data[vertices_offset + t_y * 6].xyz;
+              float3 p2 = scene_geometry_data[vertices_offset + t_z * 6].xyz;
               if (p0.x == p1.x && p0.y == p1.y && p0.z == p1.z && p1.x == p2.x && p1.y == p2.y && p1.z == p2.z)
                 continue;
               float3 node_space_triangle_normal = normalize(cross(p1 - p0, p2 - p0));

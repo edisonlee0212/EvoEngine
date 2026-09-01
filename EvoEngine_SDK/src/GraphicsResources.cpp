@@ -2024,6 +2024,13 @@ DescriptorSet::DescriptorSet(const std::shared_ptr<DescriptorSetLayout>& target_
 void DescriptorSet::UpdateImageDescriptorBinding(const uint32_t binding_index, const VkDescriptorImageInfo& image_info,
                                                  uint32_t array_element) const {
   const auto& descriptor_binding = descriptor_set_layout_->descriptor_set_layout_bindings_[binding_index];
+  if ((descriptor_binding.binding.descriptorType == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
+       descriptor_binding.binding.descriptorType == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE ||
+       descriptor_binding.binding.descriptorType == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE) &&
+      image_info.imageView == VK_NULL_HANDLE) {
+    throw std::runtime_error("Attempted to write a null image view to descriptor binding " +
+                             std::to_string(binding_index) + ", array element " + std::to_string(array_element) + ".");
+  }
   VkWriteDescriptorSet write_info{};
   write_info.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   write_info.dstSet = descriptor_set_;

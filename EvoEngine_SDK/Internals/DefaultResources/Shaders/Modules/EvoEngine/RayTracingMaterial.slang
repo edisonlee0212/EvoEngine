@@ -37,7 +37,7 @@ float3 EE_RT_GEOMETRIC_NORMAL(const float3 edge_1, const float3 edge_2, const fl
 public
 EeRayTracingSurfaceAttributes EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(const Vertex v0, const Vertex v1, const Vertex v2,
                                                                    const float3 barycentrics,
-                                                                   const float4 tex_gradients) {
+                                                                   const float2 tex_gradients) {
   EeRayTracingSurfaceAttributes attributes;
   attributes.position = v0.position * barycentrics.x + v1.position * barycentrics.y + v2.position * barycentrics.z;
   attributes.normal = v0.normal * barycentrics.x + v1.normal * barycentrics.y + v2.normal * barycentrics.z;
@@ -47,8 +47,6 @@ EeRayTracingSurfaceAttributes EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(const Vertex 
   attributes.tex_coords = EE_GLTF_MAKE_TEX_COORDS(
       v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z,
       v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y + v2.tex_coord_1 * barycentrics.z,
-      v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y + v2.tex_coord_2 * barycentrics.z,
-      v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y + v2.tex_coord_3 * barycentrics.z,
       tex_gradients);
   return attributes;
 }
@@ -77,7 +75,7 @@ float EE_RT_WORLD_TANGENT_HANDEDNESS(const float tangent_handedness, const float
   return tangent_handedness * EE_TRANSFORM_HANDEDNESS(model);
 }
 public
-float4 EE_RT_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
+float2 EE_RT_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
   const float3 world_edge_1 = mul(float4(v1.position - v0.position, 0.0f), model).xyz;
   const float3 world_edge_2 = mul(float4(v2.position - v0.position, 0.0f), model).xyz;
   const float world_area = length(cross(world_edge_1, world_edge_2));
@@ -85,14 +83,8 @@ float4 EE_RT_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vertex v
   const float2 uv0_edge_2 = v2.tex_coord - v0.tex_coord;
   const float2 uv1_edge_1 = v1.tex_coord_1 - v0.tex_coord_1;
   const float2 uv1_edge_2 = v2.tex_coord_1 - v0.tex_coord_1;
-  const float2 uv2_edge_1 = v1.tex_coord_2 - v0.tex_coord_2;
-  const float2 uv2_edge_2 = v2.tex_coord_2 - v0.tex_coord_2;
-  const float2 uv3_edge_1 = v1.tex_coord_3 - v0.tex_coord_3;
-  const float2 uv3_edge_2 = v2.tex_coord_3 - v0.tex_coord_3;
-  const float4 uv_area = abs(float4(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
-                                    uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y,
-                                    uv2_edge_1.x * uv2_edge_2.y - uv2_edge_2.x * uv2_edge_1.y,
-                                    uv3_edge_1.x * uv3_edge_2.y - uv3_edge_2.x * uv3_edge_1.y));
+  const float2 uv_area = abs(float2(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
+                                    uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y));
   return sqrt(uv_area / max(world_area, 1e-20f));
 }
 public
@@ -101,7 +93,7 @@ float EE_RT_WORLD_FOOTPRINT(const float ray_cone_width, const float hit_t, const
   return (ray_cone_width + hit_t * ray_spread_angle) / max(abs(dot(geometric_normal, -ray_direction)), 1e-3f);
 }
 public
-float4 EE_RT_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const float3 geometric_normal,
+float2 EE_RT_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const float3 geometric_normal,
                                const float3 ray_direction, const float4x4 model, const Vertex v0, const Vertex v1,
                                const Vertex v2, const float ray_spread_angle) {
   return EE_RT_WORLD_FOOTPRINT(ray_cone_width, hit_t, geometric_normal, ray_direction, ray_spread_angle) *

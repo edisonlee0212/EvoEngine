@@ -13,8 +13,8 @@
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
+#include "RenderPasses/DeferredComputeLightingPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
-#include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/EntitySelectionHighlightPass.hpp"
@@ -109,7 +109,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
   const auto deferred_geometry = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
-  const auto deferred_lighting = ReadTextFile(SdkPath("src/RenderPasses/DeferredLightingPass.cpp"));
   const auto directional_shadow = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(platform_header.empty());
@@ -117,7 +116,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(editor_layer.empty());
   ASSERT_FALSE(deferred_geometry.empty());
-  ASSERT_FALSE(deferred_lighting.empty());
   ASSERT_FALSE(directional_shadow.empty());
   ASSERT_FALSE(transparent.empty());
 
@@ -129,7 +127,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
 
   EXPECT_NE(deferred_geometry.find("RenderPassDrawBucket::DeferredGeometry"), std::string::npos);
   EXPECT_NE(deferred_geometry.find("RenderDrawCallKind::Indirect"), std::string::npos);
-  EXPECT_NE(deferred_lighting.find("RenderPassDrawBucket::DeferredLighting"), std::string::npos);
   EXPECT_NE(directional_shadow.find("RenderPassDrawBucket::DirectionalLightShadow"), std::string::npos);
   EXPECT_NE(transparent.find("RenderPassDrawBucket::TransparentGeometry"), std::string::npos);
   EXPECT_NE(render_layer.find("RenderPassDrawBucket::PointLightShadow"), std::string::npos);
@@ -220,7 +217,7 @@ TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
       DdgiProbeVisualizationPass::CreateDescriptor(),
       DdgiProbeTracePass::CreateDescriptor(),
       DeferredGeometryPass::CreateDescriptor(),
-      DeferredLightingPass::CreateDescriptor(),
+      DeferredComputeLightingPass::CreateDescriptor(false, false),
       DepthPyramidPass::CreateDescriptor(),
       DirectionalLightShadowPass::CreateDescriptor(),
       EntitySelectionHighlightPass::CreateDescriptor(),
@@ -1597,7 +1594,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
   EXPECT_EQ(plan.resources[depth_pyramid_index].resolved_dimensions.mip_levels, 11);
 }
 
-TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderReadImage) {
+TEST(RenderGraph, AmbientOcclusionPrecedesFusedDeferredCompute) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);
   AddAdvancedCameraResources(graph);
@@ -1620,7 +1617,7 @@ TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderRead
       });
   graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredLightingPass::CreateDescriptor(true), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DeferredComputeLightingPass::CreateDescriptor(true, true), [](const RenderGraphExecutionContext&) {
   });
 
   RenderGraphCompileContext context;
@@ -1632,11 +1629,12 @@ TEST(RenderGraph, AmbientOcclusionPrecedesDeferredLightingAndPublishesShaderRead
   EXPECT_TRUE(plan.passes[2].dependency_indices.empty());
   EXPECT_EQ(plan.passes[2].resource_dependency_indices, std::vector<size_t>({0}));
   EXPECT_EQ(plan.passes[3].dependency_indices, std::vector<size_t>({2}));
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::deferred_camera);
 
   const auto transition = std::find_if(plan.transitions.begin(), plan.transitions.end(), [](const auto& candidate) {
     return candidate.pass_index == 3 && candidate.previous_pass_index == 2 &&
-           candidate.previous_state == RenderResourceState::StorageReadWrite &&
-           candidate.next_state == RenderResourceState::ShaderRead;
+           candidate.previous_state == RenderResourceState::ShaderRead &&
+           candidate.next_state == RenderResourceState::StorageReadWrite;
   });
   ASSERT_NE(transition, plan.transitions.end());
   EXPECT_TRUE(transition->memory_dependency);
@@ -1656,7 +1654,7 @@ TEST(RenderGraph, AmbientOcclusionDoesNotRequireDepthPyramid) {
       });
   graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredLightingPass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DeferredComputeLightingPass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
   });
 
   const auto plan = graph.Compile();

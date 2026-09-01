@@ -116,6 +116,29 @@ if(TARGET DigitalAgriculturePackage)
 		)
 endif()
 
+if(TARGET EcoSysLabPackage)
+	add_executable(EcoSysLab_Tests Core/DynamicStrandsBundleTest.cpp)
+	target_link_libraries(EcoSysLab_Tests PRIVATE EcoSysLabPackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
+	target_compile_definitions(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
+	target_precompile_headers(EcoSysLab_Tests PRIVATE ${EVOENGINE_SDK_PCH})
+	add_custom_command(TARGET EcoSysLab_Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:EvoEngine_SDK>
+			$<TARGET_FILE:BillboardCloudsPackage>
+			$<TARGET_FILE:EcoSysLabPackage>
+			$<TARGET_FILE_DIR:EcoSysLab_Tests>
+		VERBATIM)
+	evoengine_copy_resources(EcoSysLab_Tests "$<TARGET_FILE_DIR:EcoSysLab_Tests>")
+	set_property(TARGET EcoSysLab_Tests PROPERTY FOLDER Tests)
+	gtest_discover_tests(EcoSysLab_Tests
+		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EcoSysLab_Tests>"
+		PROPERTIES LABELS "ecosyslab,dynamic-strands"
+		)
+	add_test(NAME DynamicStrandsBundle.ShaderInventory
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/check_dynamic_strands_bundle_shaders.py")
+	set_tests_properties(DynamicStrandsBundle.ShaderInventory PROPERTIES LABELS "ecosyslab,dynamic-strands,shaders")
+endif()
+
 add_custom_target(EvoEngine_RenderTests)
 add_dependencies(EvoEngine_RenderTests EvoEngine_Tests)
 set_property(TARGET EvoEngine_RenderTests PROPERTY FOLDER Tests)
@@ -220,6 +243,14 @@ set_tests_properties(ShaderPolicy.FirstParty
 	PROPERTIES
 	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
 	LABELS "core,render,shader-policy"
+	)
+add_test(NAME TextureAccessPolicy.FirstParty
+	COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/check_texture_access_policy.py"
+	)
+set_tests_properties(TextureAccessPolicy.FirstParty
+	PROPERTIES
+	WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+	LABELS "core,render,shader-policy,texture"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

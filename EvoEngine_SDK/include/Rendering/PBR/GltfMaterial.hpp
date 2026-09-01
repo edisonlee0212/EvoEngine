@@ -14,9 +14,6 @@
 #  define MAT_EXT_VAL 1
 #endif
 
-#ifndef MAT_EXT_SPECULAR_GLOSSINESS
-#  define MAT_EXT_SPECULAR_GLOSSINESS MAT_EXT_VAL
-#endif
 #ifndef MAT_EXT_IOR
 #  define MAT_EXT_IOR MAT_EXT_VAL
 #endif
@@ -61,11 +58,6 @@
 #endif
 
 namespace evo_engine {
-
-enum class GltfPbrModel : int32_t {
-  MetallicRoughness = 0,
-  SpecularGlossiness = 1,
-};
 
 enum class GltfAlphaMode : int32_t {
   Opaque = 0,
@@ -183,14 +175,6 @@ struct alignas(8) GltfShadeMaterial {
   float dispersion = 0.0f;
 #endif
 
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  int32_t pbr_model = static_cast<int32_t>(GltfPbrModel::MetallicRoughness);
-
-  glm::vec4 pbr_diffuse_factor = glm::vec4(1.0f);
-  glm::vec3 pbr_specular_factor = glm::vec3(1.0f);
-  float pbr_glossiness_factor = 1.0f;
-#endif
-
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   glm::vec3 diffuse_transmission_color = glm::vec3(1.0f);
   float diffuse_transmission_factor = 0.0f;
@@ -244,11 +228,6 @@ struct alignas(8) GltfShadeMaterial {
   uint16_t sheen_roughness_texture = 0;
 #endif
 
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  uint16_t pbr_diffuse_texture = 0;
-  uint16_t pbr_specular_glossiness_texture = 0;
-#endif
-
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   uint16_t diffuse_transmission_texture = 0;
   uint16_t diffuse_transmission_color_texture = 0;
@@ -282,6 +261,23 @@ inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& materia
   }
 #endif
   return false;
+}
+
+enum class GltfRasterMaterialClass : uint8_t {
+  Opaque,
+  Masked,
+  Forward,
+};
+
+inline GltfRasterMaterialClass ClassifyGltfRasterMaterial(const GltfShadeMaterial& material,
+                                                          const bool blending_enabled) {
+  if (blending_enabled || GltfMaterialRequiresTransparentPass(material)) {
+    return GltfRasterMaterialClass::Forward;
+  }
+  if (material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Mask)) {
+    return GltfRasterMaterialClass::Masked;
+  }
+  return GltfRasterMaterialClass::Opaque;
 }
 
 inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rhs) {
@@ -371,16 +367,6 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.dispersion != rhs.dispersion)
     return true;
 #endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  if (lhs.pbr_model != rhs.pbr_model)
-    return true;
-  if (lhs.pbr_diffuse_factor != rhs.pbr_diffuse_factor)
-    return true;
-  if (lhs.pbr_specular_factor != rhs.pbr_specular_factor)
-    return true;
-  if (lhs.pbr_glossiness_factor != rhs.pbr_glossiness_factor)
-    return true;
-#endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION
   if (lhs.diffuse_transmission_color != rhs.diffuse_transmission_color)
     return true;
@@ -443,12 +429,6 @@ inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rh
   if (lhs.sheen_color_texture != rhs.sheen_color_texture)
     return true;
   if (lhs.sheen_roughness_texture != rhs.sheen_roughness_texture)
-    return true;
-#endif
-#if MAT_EXT_SPECULAR_GLOSSINESS
-  if (lhs.pbr_diffuse_texture != rhs.pbr_diffuse_texture)
-    return true;
-  if (lhs.pbr_specular_glossiness_texture != rhs.pbr_specular_glossiness_texture)
     return true;
 #endif
 #if MAT_EXT_DIFFUSE_TRANSMISSION

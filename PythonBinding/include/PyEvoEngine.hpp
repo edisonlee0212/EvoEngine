@@ -26,6 +26,7 @@ class PyEvoEngine {
 
   Application application;
   std::unordered_map<Handle, std::shared_ptr<IAsset>> runtime_assets;
+  std::weak_ptr<Camera> capture_secondary_camera;
 
   static PyEvoEngine& GetRuntime();
   [[nodiscard]] Application& GetApplication();
@@ -120,7 +121,8 @@ class PyEvoEngine {
    * @return True when initialization was requested successfully.
    */
   static bool RunDemoWindowless(const std::string& demo_setup_name, const std::filesystem::path& resource_folder_path,
-                                bool clear_generated_project_files = true);
+                                bool clear_generated_project_files = true, bool enable_ray_features = true);
+  static bool ExerciseTextureLifecycleForCapture();
   /**
    * @brief Configure the active scene's main camera for a deterministic capture.
    * @param render_mode Exact camera render mode name.
@@ -129,6 +131,14 @@ class PyEvoEngine {
    * @return True when the requested render mode is available and the camera was configured.
    */
   static bool ConfigureCurrentSceneCameraForCapture(const std::string& render_mode, int samples_per_frame, int bounces);
+  static bool ConfigureSecondarySceneCameraForCapture(int resolution_x, int resolution_y);
+  /**
+   * @brief Configure the raster submission paths used by a deterministic capture.
+   * @param meshlet_enabled Whether raster geometry uses the mesh-shader path.
+   * @param indirect_enabled Whether raster geometry uses indirect submission.
+   * @return True when the requested path is available and was configured.
+   */
+  static bool ConfigureRasterPathForCapture(bool meshlet_enabled, bool indirect_enabled);
   /**
    * @brief Render and save the active scene's main camera.
    * @param resolution_x Capture width.
@@ -140,7 +150,9 @@ class PyEvoEngine {
    * @return True when a non-empty image was written.
    */
   static bool CaptureCurrentScene(int resolution_x, int resolution_y, const std::filesystem::path& output_path,
-                                  int warmup_frames = 1, bool require_accumulated_frames = false);
+                                  int warmup_frames = 1, bool require_accumulated_frames = false,
+                                  bool require_stable_texture_registrations = false);
+  static bool CaptureSecondarySceneCamera(const std::filesystem::path& output_path);
   /**
    * @brief Check whether the active scene is configured to render with DDGI.
    * @return True when DDGI runtime is enabled, indirect rendering is enabled, and an enabled DDGI volume exists.

@@ -732,12 +732,22 @@ bool InspectScreenSpaceReflection(ScreenSpaceReflection& ssr) {
     changed = true;
   if (ImGui::DragInt("Max iteration count", &ssr.max_iteration_count, 1, 1, 256))
     changed = true;
-  if (ImGui::DragInt("Steps", &ssr.initial_steps, 1, 1, 64))
+  if (ImGui::DragInt("Binary search iterations", &ssr.binary_search_iteration_count, 1, 0, 64))
     changed = true;
   if (ImGui::DragFloat("Thickness", &ssr.thickness, 0.01f, 0.0f, 10.0f))
     changed = true;
-  if (ImGui::Checkbox("Blur", &ssr.blur))
+  if (ImGui::DragFloat("Start bias", &ssr.start_bias, 0.001f, 0.0f, 10.0f))
     changed = true;
+  if (ImGui::Checkbox("Edge-aware spatial resolve", &ssr.blur))
+    changed = true;
+  if (ImGui::Checkbox("Temporal stabilization", &ssr.temporal_stabilization))
+    changed = true;
+  const char* debug_modes[] = {"None", "Hit UV", "Ray distance", "Rejection reason", "Confidence"};
+  int debug_mode = static_cast<int>(ssr.debug_mode);
+  if (ImGui::Combo("Debug view", &debug_mode, debug_modes, IM_ARRAYSIZE(debug_modes))) {
+    ssr.debug_mode = static_cast<ScreenSpaceReflection::DebugMode>(debug_mode);
+    changed = true;
+  }
   return changed;
 }
 
@@ -3303,23 +3313,6 @@ bool InspectMaterial(InspectorContext& context, Material& material) {
       shade_material.double_sided = double_sided ? 1 : 0;
       changed = true;
     }
-    int pbr_model = glm::clamp(shade_material.pbr_model, 0, 1);
-    constexpr const char* pbr_models[] = {"Metallic Roughness", "Specular Glossiness"};
-    if (ImGui::Combo("PBR Model##Material", &pbr_model, pbr_models, IM_ARRAYSIZE(pbr_models))) {
-      shade_material.pbr_model = pbr_model;
-      changed = true;
-    }
-    if (shade_material.pbr_model == static_cast<int32_t>(GltfPbrModel::SpecularGlossiness)) {
-      if (ImGui::ColorEdit4("Diffuse Factor##Material", &shade_material.pbr_diffuse_factor.x)) {
-        changed = true;
-      }
-      if (ImGui::ColorEdit3("Specular Factor##Material", &shade_material.pbr_specular_factor.x)) {
-        changed = true;
-      }
-      if (ImGui::DragFloat("Glossiness##Material", &shade_material.pbr_glossiness_factor, 0.01f, 0.0f, 1.0f)) {
-        changed = true;
-      }
-    }
     if (ImGui::DragFloat("IOR##Material", &shade_material.ior, 0.01f, 0.0f, 5.0f)) {
       changed = true;
     }
@@ -4187,8 +4180,10 @@ void evo_engine::DrawCameraDebugViews(const Camera& camera, const float debug_sc
     ImGui::Image(camera.GetGBufferEmissiveImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("Utility")) {
-    ImGui::Image(camera.GetGBufferUtilityImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNode("Metadata")) {
+    ImGui::TextWrapped(
+        "Integer instance, material, info, flags, and packed vertex-color data. Use the scene debug "
+        "views or viewport picking to inspect decoded values.");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Depth")) {

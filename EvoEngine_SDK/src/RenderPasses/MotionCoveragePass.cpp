@@ -77,19 +77,27 @@ void MotionCoveragePass::Execute(const RenderGraphExecutionContext& context, con
     const auto& deferred_skinned_render_instances =
         use_camera_visibility ? camera_visibility->deferred_skinned_render_instances
                               : parameters.render_instances->deferred_skinned_render_instances;
+    const auto& deferred_masked_skinned_render_instances =
+        use_camera_visibility ? camera_visibility->deferred_masked_skinned_render_instances
+                              : parameters.render_instances->deferred_masked_skinned_render_instances;
     const auto& transparent_render_instances = use_camera_visibility
                                                    ? camera_visibility->transparent_render_instances
                                                    : parameters.render_instances->transparent_render_instances;
-    const bool render_skinned_motion = parameters.skinned_pipeline && parameters.skinned_pipeline->Initialized() &&
-                                       parameters.motion_coverage_layout && deferred_skinned_render_instances &&
-                                       !deferred_skinned_render_instances->Empty();
+    const bool render_opaque_skinned_motion = parameters.skinned_opaque_pipeline &&
+                                              parameters.skinned_opaque_pipeline->Initialized() &&
+                                              parameters.motion_coverage_layout && deferred_skinned_render_instances &&
+                                              !deferred_skinned_render_instances->Empty();
+    const bool render_masked_skinned_motion =
+        parameters.skinned_masked_pipeline && parameters.skinned_masked_pipeline->Initialized() &&
+        parameters.motion_coverage_layout && deferred_masked_skinned_render_instances &&
+        !deferred_masked_skinned_render_instances->Empty();
     const bool render_transparent_motion =
         parameters.transparent_pipeline && parameters.transparent_pipeline->Initialized() &&
         parameters.motion_coverage_layout && parameters.render_instances->previous_instance_info_descriptor_buffer &&
         parameters.camera_index >= 0 &&
         static_cast<size_t>(parameters.camera_index) < parameters.render_instances->camera_info_blocks_.size() &&
         transparent_render_instances && !transparent_render_instances->Empty();
-    if (!render_skinned_motion && !render_transparent_motion) {
+    if (!render_opaque_skinned_motion && !render_masked_skinned_motion && !render_transparent_motion) {
       release_barriers();
       return;
     }
@@ -122,40 +130,44 @@ void MotionCoveragePass::Execute(const RenderGraphExecutionContext& context, con
     const glm::ivec4 viewport{0, 0, static_cast<int>(extent.width), static_cast<int>(extent.height)};
 
     Platform::RecordRenderCommands(render_info, vk_command_buffer, [&] {
-      if (render_skinned_motion) {
-        GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-        parameters.skinned_pipeline->states.ResetAllStates(1);
-        parameters.skinned_pipeline->states.SetViewportScissor(viewport);
-        parameters.skinned_pipeline->states.depth_test = true;
-        parameters.skinned_pipeline->states.depth_write = false;
-        parameters.skinned_pipeline->states.depth_compare = VK_COMPARE_OP_EQUAL;
-        parameters.skinned_pipeline->Bind(vk_command_buffer);
-        parameters.skinned_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                       parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-        deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
-          if (!render_instance || !render_instance->bone_matrices || !render_instance->skinned_mesh) {
-            return;
-          }
-          const auto pose_descriptor_set = std::make_shared<DescriptorSet>(parameters.motion_coverage_layout);
-          pose_descriptor_set->UpdateBufferDescriptorBinding(0,
-                                                             render_instance->bone_matrices->GetPreviousBufferInfo());
-          pose_descriptor_set->UpdateBufferDescriptorBinding(
-              1, parameters.render_instances->previous_instance_info_descriptor_buffer);
-          parameters.skinned_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                         pose_descriptor_set->GetVkDescriptorSet());
-          BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.skinned_pipeline, parameters.render_instances,
-                                          render_instance->material_index);
-          parameters.skinned_pipeline->states.polygon_mode =
-              parameters.wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
-          parameters.skinned_pipeline->states.cull_mode = render_instance->cull_mode;
-          parameters.skinned_pipeline->states.line_width = render_instance->line_width;
-          RenderInstancePushConstant push_constant{};
-          push_constant.instance_index = render_instance->instance_index;
-          push_constant.camera_index = parameters.camera_index;
-          render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_pipeline);
-          parameters.transient_resources->RetainDescriptorSet(pose_descriptor_set);
-        });
-      }
+      const auto render_skinned_collection =
+          [&](const std::shared_ptr<RenderInstanceStorage::SkinnedMeshRenderInstanceCollection>& collection,
+              const std::shared_ptr<GraphicsPipeline>& pipeline) {
+            if (!collection || collection->Empty() || !pipeline || !pipeline->Initialized()) {
+              return;
+            }
+            GeometryStorage::BindSkinnedVertices(vk_command_buffer);
+            pipeline->states.ResetAllStates(1);
+            pipeline->states.SetViewportScissor(viewport);
+            pipeline->states.depth_test = true;
+            pipeline->states.depth_write = false;
+            pipeline->states.depth_compare = VK_COMPARE_OP_EQUAL;
+            pipeline->Bind(vk_command_buffer);
+            pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                        parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+            collection->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+              if (!render_instance || !render_instance->bone_matrices || !render_instance->skinned_mesh) {
+                return;
+              }
+              const auto pose_descriptor_set = std::make_shared<DescriptorSet>(parameters.motion_coverage_layout);
+              pose_descriptor_set->UpdateBufferDescriptorBinding(
+                  0, render_instance->bone_matrices->GetPreviousBufferInfo());
+              pose_descriptor_set->UpdateBufferDescriptorBinding(
+                  1, parameters.render_instances->previous_instance_info_descriptor_buffer);
+              pipeline->BindDescriptorSet(vk_command_buffer, 2, pose_descriptor_set->GetVkDescriptorSet());
+              pipeline->states.polygon_mode =
+                  parameters.wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
+              pipeline->states.cull_mode = render_instance->cull_mode;
+              pipeline->states.line_width = render_instance->line_width;
+              RenderInstancePushConstant push_constant{};
+              push_constant.instance_index = render_instance->instance_index;
+              push_constant.camera_index = parameters.camera_index;
+              render_instance->Render(vk_command_buffer, push_constant, pipeline);
+              parameters.transient_resources->RetainDescriptorSet(pose_descriptor_set);
+            });
+          };
+      render_skinned_collection(deferred_skinned_render_instances, parameters.skinned_opaque_pipeline);
+      render_skinned_collection(deferred_masked_skinned_render_instances, parameters.skinned_masked_pipeline);
 
       if (!sorted_transparent_instances.empty()) {
         const auto motion_descriptor_set = std::make_shared<DescriptorSet>(parameters.motion_coverage_layout);
@@ -176,8 +188,6 @@ void MotionCoveragePass::Execute(const RenderGraphExecutionContext& context, con
                                                            motion_descriptor_set->GetVkDescriptorSet());
         for (const auto& sorted_instance : sorted_transparent_instances) {
           const auto& render_instance = sorted_instance.render_instance;
-          BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.transparent_pipeline,
-                                          parameters.render_instances, render_instance->material_index);
           parameters.transparent_pipeline->states.polygon_mode =
               parameters.wire_frame ? VK_POLYGON_MODE_LINE : render_instance->polygon_mode;
           parameters.transparent_pipeline->states.cull_mode = render_instance->cull_mode;

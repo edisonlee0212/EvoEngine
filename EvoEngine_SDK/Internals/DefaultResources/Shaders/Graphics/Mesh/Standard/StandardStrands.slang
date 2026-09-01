@@ -80,8 +80,8 @@ void main(in payload StrandTaskPayload strand_task, uint3 group_id : SV_GroupID,
     float2 tex_coord = float2(float(ring_step) / float(endpoint_ring), endpoint ? tex_coord1 : tex_coord0);
 
     vertices[vertex] = EE_BUILD_STANDARD_RASTER_OUTPUT(
-        position + radial * thickness, radial, tangent, 1.0f, tex_coord, tex_coord, float2(0.0f), float2(0.0f),
-        endpoint ? color1 : color0, instance_index, model, projection_view);
+        position + radial * thickness, radial, tangent, 1.0f, tex_coord, tex_coord, endpoint ? color1 : color0,
+        instance_index, model, projection_view);
     vertices[vertex].tangent_handedness = handedness;
   }
 

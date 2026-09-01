@@ -76,9 +76,11 @@ bool HasSlangLocationAttribute(const std::string& source, const int location) {
 
 bool HasFragmentOutputLocation(const std::string& source, const int location, const std::string& name) {
   const auto glsl_location = "layout(location = " + std::to_string(location) + ") out vec4 " + name;
-  const auto slang_field = "float4 " + name + " ";
+  const auto slang_float_field = "float4 " + name + " ";
+  const auto slang_uint_field = "uint4 " + name + " ";
   return source.find(glsl_location) != std::string::npos ||
-         (HasSlangLocationAttribute(source, location) && source.find(slang_field) != std::string::npos);
+         (HasSlangLocationAttribute(source, location) &&
+          (source.find(slang_float_field) != std::string::npos || source.find(slang_uint_field) != std::string::npos));
 }
 
 std::string ExtractStructIgnoringWhitespace(const std::string& source, const std::string& name) {
@@ -143,26 +145,21 @@ void ExpectSlangInputLocations(const std::string& shader, const std::filesystem:
 }  // namespace
 
 TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
-  const auto source = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRasterMaterial.slang"));
+  const auto source = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   ASSERT_FALSE(source.empty());
 
   EXPECT_NE(source.find("__exported import EvoEngine.GltfMaterial;"), std::string::npos);
-  EXPECT_EQ(source.find("import EvoEngine.Textures;"), std::string::npos);
+  EXPECT_NE(source.find("import EvoEngine.Textures;"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_HAS_TEXTURE"), std::string::npos);
   EXPECT_NE(source.find("return uint(texture_info_slot) > 0u"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_TEXTURE_INFOS[uint(texture_info_slot)]"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_TRANSFORM_UV(texture_info, float3(uv, 1.0))"), std::string::npos);
-  EXPECT_NE(source.find("EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE"), std::string::npos);
+  EXPECT_EQ(source.find("EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE"), std::string::npos);
+  EXPECT_NE(source.find("EE_TEXTURE_2DS[NonUniformResourceIndex(texture_info.index)]"), std::string::npos);
   EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos);
 
-  EXPECT_NE(source.find("EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS"), std::string::npos);
-  EXPECT_NE(source.find("pbr_specular_glossiness_texture"), std::string::npos);
-  EXPECT_EQ(source.find("EE_GLTF_CONVERT_SPEC_GLOSS_TO_METALLIC_ROUGHNESS"), std::string::npos);
-  EXPECT_NE(source.find("surface.specular_f0 = clamp(specular"), std::string::npos);
-  EXPECT_TRUE(ContainsIgnoringWhitespace(source,
-                                         "surface.base_color.rgb = diffuse.rgb * (1.0 - max(surface.specular_f0.r, "
-                                         "max(surface.specular_f0.g, surface.specular_f0.b)))"));
-  EXPECT_NE(source.find("surface.roughness = max(1.0 - glossiness"), std::string::npos);
+  EXPECT_EQ(source.find("SPECULAR_GLOSSINESS"), std::string::npos);
+  EXPECT_EQ(source.find("pbr_specular_glossiness_texture"), std::string::npos);
   EXPECT_NE(source.find("pbr_metallic_roughness_texture"), std::string::npos);
   EXPECT_NE(source.find("dielectric_f0 = pow((material_ior - 1.0)"), std::string::npos);
   EXPECT_NE(source.find("specular_weight = material.specular_factor"), std::string::npos);
@@ -175,7 +172,7 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("lerp(dielectric_specular_f0, max(surface.base_color.rgb"), std::string::npos);
   const auto rebase_specular_f0 =
       ExtractSourceRange(source, "float3 EE_GLTF_RASTER_REBASE_SPECULAR_F0", "float3 EE_GLTF_SAFE_NORMALIZE");
-  EXPECT_NE(rebase_specular_f0.find("return surface.specular_f0"), std::string::npos);
+  EXPECT_EQ(rebase_specular_f0.find("pbr_model"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("const float metallic = clamp(surface.metallic"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("surface.specular_f0 - original_base_color * metallic"), std::string::npos);
   EXPECT_NE(rebase_specular_f0.find("return lerp(dielectric_specular_f0, rebased_base_color, metallic)"),
@@ -192,13 +189,14 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
   EXPECT_NE(source.find("surface.multiscatter_color_factor = max(material.multiscatter_color_factor"),
             std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_MULTI_TO_SINGLE_SCATTER_ALBEDO"), std::string::npos);
-  EXPECT_NE(source.find("material.pbr_diffuse_factor * vertex_color"), std::string::npos);
+  EXPECT_EQ(source.find("material.pbr_diffuse_factor * vertex_color"), std::string::npos);
   EXPECT_NE(source.find("material.pbr_base_color_factor * vertex_color"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_SRGB_TO_LINEAR"), std::string::npos);
   EXPECT_NE(source.find("encoded.x <= 0.04045"), std::string::npos);
   EXPECT_NE(source.find("sample_value.rgb = EE_GLTF_SRGB_TO_LINEAR(sample_value.rgb)"), std::string::npos);
   EXPECT_NE(source.find("surface.alpha_mode == EE_GLTF_ALPHA_MODE_OPAQUE"), std::string::npos);
-  EXPECT_NE(source.find("EE_GLTF_SAMPLE_TEXTURE_LOD0(material.transmission_texture"), std::string::npos);
+  EXPECT_NE(source.find("EE_GLTF_SAMPLE_TEXTURE_LOD0_SPECIALIZED<feature_mask>(material.transmission_texture"),
+            std::string::npos);
   EXPECT_NE(source.find("effective_diffuse_transmission * diffuse_transmission_color"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_RASTER_FRESNEL(specular_f0, float3(specular_weight)"), std::string::npos);
   EXPECT_NE(source.find("const float remaining_energy = 1.0 - max(fresnel.r"), std::string::npos);
@@ -206,35 +204,26 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
 
 TEST(GltfRasterMaterial, FractionalSpecularF90AndUnlitSurviveDeferredAndTransparentPaths) {
   const auto lighting = ReadTextFile(ShaderPath("Modules/EvoEngine/Lighting.slang"));
-  const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
-  const auto scene_deferred =
-      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
+  const auto deferred = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   ASSERT_FALSE(lighting.empty());
   ASSERT_FALSE(deferred.empty());
-  ASSERT_FALSE(scene_deferred.empty());
   ASSERT_FALSE(transparent.empty());
 
   EXPECT_NE(lighting.find("float3(F90) - F0"), std::string::npos);
   EXPECT_NE(lighting.find("float3(F90 * (1.0f - roughness))"), std::string::npos);
   EXPECT_NE(lighting.find("float3(F90 * brdf.y)"), std::string::npos);
-  EXPECT_NE(deferred.find("float4 emissive_sample = inEmissive.Sample"), std::string::npos);
+  EXPECT_NE(deferred.find("surface.specular_f90"), std::string::npos);
   const auto deferred_unlit =
-      ExtractSourceRange(deferred, "if (emissive_sample.a < 0.0f)", "float3 normal = normalize(normal_roughness.xyz);");
-  EXPECT_NE(deferred_unlit.find("return float4(indirect_debug_view == 0 ? base_color_ao.rgb : float3(0.0f)"),
+      ExtractSourceRange(deferred, "if (!scene_camera && encoded_specular_f90 < 0.0f)", "const float linear_depth");
+  EXPECT_NE(deferred_unlit.find("indirect_lighting_debug_view == 0 ? resolved_base_color : float3(0.0f)"),
             std::string::npos);
   EXPECT_EQ(deferred_unlit.find("EE_FUNC_CALCULATE_"), std::string::npos);
-  EXPECT_NE(deferred.find("pbr_flags.yzw, emissive_sample.a"), std::string::npos);
+  EXPECT_NE(deferred.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
+  EXPECT_NE(deferred.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
 
-  EXPECT_NE(scene_deferred.find("float3 color = indirect_debug_view == 0 ? albedo : float3(0.0f)"), std::string::npos);
-  const auto scene_lit_only = ExtractSourceRange(scene_deferred, "if (emissive_sample.a >= 0.0f) {",
-                                                 "if (indirect_debug_view != 0) return float4(0.0f");
-  EXPECT_NE(scene_lit_only.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
-  EXPECT_NE(scene_lit_only.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
-  EXPECT_NE(scene_lit_only.find("pbr_flags.yzw, emissive_sample.a"), std::string::npos);
-
-  const auto transparent_unlit = ExtractSourceRange(transparent, "if (EE_GLTF_MATERIALS[material_index].unlit != 0) {",
-                                                    "float3 normal = EE_EVALUATE_GLTF_RASTER_NORMAL");
+  const auto transparent_unlit =
+      ExtractSourceRange(transparent, "if (EE_GLTF_MATERIALS[material_index].unlit != 0) {", "float3 normal =");
   EXPECT_NE(transparent_unlit.find("indirect_lighting_debug_view == 0 ? surface.base_color.rgb : float3(0.0f)"),
             std::string::npos);
   EXPECT_NE(transparent_unlit.find("indirect_lighting_debug_view == 0 ? EE_GLTF_RASTER_OPACITY(surface) : 1.0f"),
@@ -262,7 +251,81 @@ TEST(GltfRasterMaterial, PerFrameBindsCanonicalMaterialBuffers) {
   EXPECT_NE(textures.find("[[vk::binding(10, 0)]]"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
+TEST(GltfRasterMaterial, SharedBindlessTextureAccessPreservesCanonicalMaterialSemantics) {
+  const auto evaluator = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
+  const auto ray_compatibility = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingMaterial.slang"));
+  const auto bsdf = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRayTracingBsdf.slang"));
+  const auto textures = ReadTextFile(ShaderPath("Modules/EvoEngine/Textures.slang"));
+  const auto raster_probe =
+      ReadTextFile(RepoPath("EvoEngine_Tests/Resources/Shaders/Fragment/GltfBindlessRasterAccessProbe.slang"));
+  ASSERT_FALSE(evaluator.empty());
+  ASSERT_FALSE(ray_compatibility.empty());
+  ASSERT_FALSE(bsdf.empty());
+  ASSERT_FALSE(textures.empty());
+  ASSERT_FALSE(raster_probe.empty());
+
+  EXPECT_NE(ray_compatibility.find("__exported import EvoEngine.GltfBindlessMaterial;"), std::string::npos);
+  EXPECT_NE(evaluator.find("import EvoEngine.Textures;"), std::string::npos);
+  EXPECT_NE(textures.find("[[vk::binding(9, 0)]]"), std::string::npos);
+  EXPECT_EQ(evaluator.find("[[vk::binding(0, 3)]]"), std::string::npos);
+  EXPECT_EQ(evaluator.find("EE_GLTF_RASTER_BASE_COLOR_TEXTURE"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_TEXTURE_2DS[NonUniformResourceIndex(texture_info.index)]"), std::string::npos);
+  EXPECT_EQ(evaluator.find("NonUniformResourceIndex(texture_info_slot)"), std::string::npos);
+  EXPECT_NE(evaluator.find("if (!EE_GLTF_HAS_TEXTURE(texture_info_slot))"), std::string::npos);
+  EXPECT_NE(evaluator.find("if (texture_info.index < 0)"), std::string::npos);
+  EXPECT_NE(evaluator.find("return fallback;"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_DECODE_TEXTURE_SAMPLE"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_SRGB_TO_LINEAR"), std::string::npos);
+
+  EXPECT_NE(evaluator.find("float2 ddx_uv0"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddx_uv1"), std::string::npos);
+  EXPECT_EQ(evaluator.find("ddx_uv2"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddy_uv0"), std::string::npos);
+  EXPECT_NE(evaluator.find("float2 ddy_uv1"), std::string::npos);
+  EXPECT_EQ(evaluator.find("ddy_uv2"), std::string::npos);
+  EXPECT_NE(evaluator.find("uint gradient_mask"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_SELECT_TEX_COORD_DDX"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_SELECT_TEX_COORD_DDY"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_TRANSFORM_UV(texture_info, float3(ddx_uv, 0.0))"), std::string::npos);
+  EXPECT_NE(evaluator.find("EE_GLTF_TRANSFORM_UV(texture_info, float3(ddy_uv, 0.0))"), std::string::npos);
+  EXPECT_NE(evaluator.find(".SampleGrad(uv, ddx_uv, ddy_uv)"), std::string::npos);
+  EXPECT_NE(evaluator.find(".SampleLevel(uv, 0.0f)"), std::string::npos);
+  EXPECT_NE(raster_probe.find("import EvoEngine.GltfBindlessMaterial;"), std::string::npos);
+  EXPECT_NE(raster_probe.find("ddx(input.uv0)"), std::string::npos);
+  EXPECT_NE(raster_probe.find("ddx(input.uv1)"), std::string::npos);
+  EXPECT_EQ(raster_probe.find("input.uv2"), std::string::npos);
+  EXPECT_NE(raster_probe.find("ddy(input.uv0)"), std::string::npos);
+  EXPECT_NE(raster_probe.find("ddy(input.uv1)"), std::string::npos);
+
+  constexpr const char* texture_slots[] = {
+      "pbr_base_color_texture",
+      "normal_texture",
+      "pbr_metallic_roughness_texture",
+      "emissive_texture",
+      "occlusion_texture",
+      "transmission_texture",
+      "thickness_texture",
+      "clearcoat_texture",
+      "clearcoat_roughness_texture",
+      "clearcoat_normal_texture",
+      "specular_texture",
+      "specular_color_texture",
+      "iridescence_texture",
+      "iridescence_thickness_texture",
+      "anisotropy_texture",
+      "sheen_color_texture",
+      "sheen_roughness_texture",
+      "diffuse_transmission_texture",
+      "diffuse_transmission_color_texture",
+      "retroreflection_texture",
+  };
+  const auto material_evaluation = evaluator + bsdf;
+  for (const auto* texture_slot : texture_slots) {
+    EXPECT_NE(material_evaluation.find(std::string("material.") + texture_slot), std::string::npos) << texture_slot;
+  }
+}
+
+TEST(GltfRasterMaterial, RasterMaterialDescriptorsAreRetiredWithoutAffectingPassLocalLighting) {
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto render_instance_header =
@@ -277,43 +340,43 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
   ASSERT_FALSE(texture_storage_header.empty());
   ASSERT_FALSE(texture_storage.empty());
 
-  EXPECT_NE(render_instance_header.find("kRasterMaterialTextureSlotCount = 8"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("GetRasterMaterialDescriptorSetLayout"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_per_frame_layout_"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_layout_"), std::string::npos);
+  EXPECT_EQ(render_instance_header.find("kRasterMaterialTextureSlotCount"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("GetRasterMaterialDescriptorSetLayout"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("raster_material_per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("raster_material_layout_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_layout_"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_per_frame_descriptor_sets_"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("raster_material_per_frame_descriptor_sets_"), std::string::npos);
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_descriptor_sets_"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_white_fallback_texture_"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_black_fallback_texture_"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("raster_material_flat_normal_fallback_texture_"), std::string::npos);
-  EXPECT_NE(render_layer.find("raster_material_layout_->PushDescriptorBinding"), std::string::npos);
-  EXPECT_NE(render_layer.find("PushPerFrameSceneDescriptorBindings(raster_material_per_frame_layout_)"),
+  EXPECT_EQ(render_layer_header.find("raster_material_white_fallback_texture_"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("raster_material_black_fallback_texture_"), std::string::npos);
+  EXPECT_EQ(render_layer_header.find("raster_material_flat_normal_fallback_texture_"), std::string::npos);
+  EXPECT_EQ(render_layer.find("raster_material_layout_->PushDescriptorBinding"), std::string::npos);
+  EXPECT_EQ(render_layer.find("PushPerFrameSceneDescriptorBindings(raster_material_per_frame_layout_)"),
             std::string::npos);
-  EXPECT_NE(render_layer.find("PushPerFrameMaterialBufferDescriptorBindings(raster_material_per_frame_layout_)"),
+  EXPECT_EQ(render_layer.find("PushPerFrameMaterialBufferDescriptorBindings(raster_material_per_frame_layout_)"),
             std::string::npos);
   EXPECT_NE(render_layer.find("ShouldCreatePerFrameBindlessTextureDescriptors"), std::string::npos);
   EXPECT_NE(render_layer.find("per_frame_bindless_texture_descriptors_enabled_"), std::string::npos);
   EXPECT_NE(render_layer.find("PushPerFrameBindlessTextureDescriptorBindings(per_frame_layout_"), std::string::npos);
   EXPECT_NE(render_layer.find("if (per_frame_bindless_texture_descriptors_enabled_)"), std::string::npos);
-  EXPECT_NE(render_layer.find("std::make_shared<DescriptorSet>(raster_material_per_frame_layout_)"), std::string::npos);
+  EXPECT_EQ(render_layer.find("std::make_shared<DescriptorSet>(raster_material_per_frame_layout_)"), std::string::npos);
   EXPECT_NE(render_layer.find("std::make_shared<DescriptorSet>(raster_lighting_texture_layout_)"), std::string::npos);
   EXPECT_NE(render_layer.find("VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER"), std::string::npos);
   EXPECT_NE(render_layer.find("VK_SHADER_STAGE_FRAGMENT_BIT"), std::string::npos);
-  EXPECT_NE(render_layer.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
+  EXPECT_EQ(render_layer.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
   EXPECT_NE(render_layer.find("glm::vec4(1.0f)"), std::string::npos);
-  EXPECT_NE(render_layer.find("glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)"), std::string::npos);
-  EXPECT_NE(render_layer.find("glm::vec4(0.5f, 0.5f, 1.0f, 1.0f)"), std::string::npos);
+  EXPECT_EQ(render_layer.find("glm::vec4(0.5f, 0.5f, 1.0f, 1.0f)"), std::string::npos);
 
-  EXPECT_NE(render_instance_header.find("raster_material_descriptor_sets"), std::string::npos);
-  EXPECT_NE(render_instance_header.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
-  EXPECT_NE(render_instance.find("TextureStorage::GetVersion()"), std::string::npos);
-  EXPECT_NE(render_instance.find("raster_material_descriptor_sets.resize(shade_materials.size())"), std::string::npos);
-  EXPECT_NE(render_instance.find("std::make_shared<DescriptorSet>(raster_material_layout)"), std::string::npos);
-  EXPECT_NE(render_instance.find("GltfPbrModel::SpecularGlossiness"), std::string::npos);
-  for (uint32_t binding = 0; binding < 8; binding++) {
-    EXPECT_NE(render_instance.find("UpdateImageDescriptorBinding(" + std::to_string(binding)), std::string::npos);
-  }
+  const auto capability_gate = ExtractSourceRange(render_layer, "bool ShouldCreatePerFrameBindlessTextureDescriptors",
+                                                  "void PushPerFrameSceneDescriptorBindings");
+  EXPECT_NE(capability_gate.find("return true;"), std::string::npos);
+
+  EXPECT_EQ(render_instance_header.find("raster_material_descriptor_sets"), std::string::npos);
+  EXPECT_EQ(render_instance_header.find("RefreshRasterMaterialDescriptorSets"), std::string::npos);
+  EXPECT_EQ(render_instance.find("raster_material_descriptor_sets.resize(shade_materials.size())"), std::string::npos);
+  EXPECT_EQ(render_instance.find("std::make_shared<DescriptorSet>(raster_material_layout)"), std::string::npos);
+  EXPECT_EQ(render_instance.find("GltfPbrModel::SpecularGlossiness"), std::string::npos);
+  EXPECT_EQ(render_instance.find("UpdateImageDescriptorBinding("), std::string::npos);
 
   EXPECT_NE(texture_storage_header.find("TryGetTexture2DDescriptorImageInfo"), std::string::npos);
   EXPECT_NE(texture_storage_header.find("TryGetCubemapDescriptorImageInfo"), std::string::npos);
@@ -322,12 +385,33 @@ TEST(GltfRasterMaterial, RasterMaterialDescriptorFallbackResourcesArePresent) {
   EXPECT_NE(texture_storage.find("texture_storage.IsGpuUploadPending()"), std::string::npos);
   EXPECT_NE(texture_storage.find("bool IsSampledDescriptorImageLayout"), std::string::npos);
   EXPECT_EQ(CountOccurrences(texture_storage, "!IsSampledDescriptorImageLayout(layout)"), 2u);
-  const auto bind_cubemaps = ExtractSourceRange(texture_storage, "void TextureStorage::BindCubemapToDescriptorSet",
+  const auto bind_cubemaps = ExtractSourceRange(texture_storage, "uint32_t TextureStorage::BindCubemapToDescriptorSet",
                                                 "const Texture2DStorage& TextureStorage::PeekTexture2DStorage");
   EXPECT_NE(bind_cubemaps.find("TryGetCubemapDescriptorImageInfo"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
+TEST(GltfRasterMaterial, StandardRendererRequiresBindlessSampledTextureCapabilities) {
+  const auto platform_header = ReadTextFile(SdkPath("include/Rendering/Platform/Platform.hpp"));
+  const auto platform = ReadTextFile(SdkPath("src/Platform.cpp"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  ASSERT_FALSE(platform_header.empty());
+  ASSERT_FALSE(platform.empty());
+  ASSERT_FALSE(render_layer.empty());
+
+  EXPECT_NE(platform_header.find("VkPhysicalDeviceVulkan12Features vulkan12_features"), std::string::npos);
+  EXPECT_NE(platform.find("vulkan12_features.runtimeDescriptorArray != VK_TRUE"), std::string::npos);
+  EXPECT_NE(platform.find("vulkan12_features.descriptorBindingPartiallyBound != VK_TRUE"), std::string::npos);
+  EXPECT_NE(platform.find("vulkan12_features.shaderSampledImageArrayNonUniformIndexing != VK_TRUE"), std::string::npos);
+  EXPECT_NE(platform.find("vk_physical_device_vulkan12_features.shaderSampledImageArrayNonUniformIndexing = VK_TRUE"),
+            std::string::npos);
+  EXPECT_NE(platform.find("max_texture_2d_resource_size"), std::string::npos);
+  EXPECT_NE(platform.find("max_cubemap_resource_size"), std::string::npos);
+  EXPECT_NE(platform.find("maxPerStageDescriptorSampledImages"), std::string::npos);
+  EXPECT_NE(platform.find("maxDescriptorSetSampledImages"), std::string::npos);
+  EXPECT_NE(render_layer.find("Shared sampled-texture arrays active"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, OpaqueDeferredPassUsesSharedBindlessMaterialDescriptors) {
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto pass_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredGeometryPass.hpp"));
   const auto pass = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
@@ -346,7 +430,8 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
                                                          "deferred_geometry_pipeline_normal->depth_attachment_format");
   EXPECT_NE(normal_pipeline.find("Platform::GetShaderGlobalDefines()"), std::string::npos);
   EXPECT_EQ(CountOccurrences(normal_pipeline, "empty_descriptor_set_layout_"), 2);
-  EXPECT_NE(normal_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(normal_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(normal_pipeline.find("raster_material_layout_"), std::string::npos);
 
   const std::string mesh_pipeline =
       ExtractSourceRange(render_layer,
@@ -356,7 +441,8 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_NE(mesh_pipeline.find("Platform::GetShaderGlobalDefines()"), std::string::npos);
   EXPECT_NE(mesh_pipeline.find("meshlet_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(mesh_pipeline, "empty_descriptor_set_layout_"), 1);
-  EXPECT_NE(mesh_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(mesh_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(mesh_pipeline.find("raster_material_layout_"), std::string::npos);
 
   const std::string instanced_pipeline =
       ExtractSourceRange(render_layer, "if (!instanced_deferred_geometry_pipeline)",
@@ -364,7 +450,8 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_NE(instanced_pipeline.find("Platform::GetShaderGlobalDefines()"), std::string::npos);
   EXPECT_NE(instanced_pipeline.find("particle_instanced_data_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(instanced_pipeline, "empty_descriptor_set_layout_"), 1);
-  EXPECT_NE(instanced_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(instanced_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(instanced_pipeline.find("raster_material_layout_"), std::string::npos);
 
   const std::string skinned_pipeline =
       ExtractSourceRange(render_layer, "if (!skinned_deferred_geometry_pipeline)",
@@ -372,7 +459,8 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_NE(skinned_pipeline.find("Platform::GetShaderGlobalDefines()"), std::string::npos);
   EXPECT_NE(skinned_pipeline.find("bone_matrices_layout_"), std::string::npos);
   EXPECT_EQ(CountOccurrences(skinned_pipeline, "empty_descriptor_set_layout_"), 1);
-  EXPECT_NE(skinned_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(skinned_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(skinned_pipeline.find("raster_material_layout_"), std::string::npos);
 
   const std::string strands_pipeline =
       ExtractSourceRange(render_layer, "if (Platform::MeshShaderEnabled() && !strands_deferred_geometry_pipeline)",
@@ -383,23 +471,25 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassBindsRasterMaterialDescriptors) {
   EXPECT_EQ(strands_pipeline.find("tessellation_"), std::string::npos);
   EXPECT_EQ(strands_pipeline.find("geometry_shader"), std::string::npos);
   EXPECT_EQ(CountOccurrences(strands_pipeline, "empty_descriptor_set_layout_"), 1);
-  EXPECT_NE(strands_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_NE(strands_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(strands_pipeline.find("raster_material_layout_"), std::string::npos);
 
-  EXPECT_NE(render_layer.find("raster_material_per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
+  EXPECT_NE(render_layer.find("per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
+  EXPECT_EQ(render_layer.find("raster_material_per_frame_descriptor_sets_[current_frame_index]"), std::string::npos);
   EXPECT_NE(render_layer.find("enable_indirect_rendering,"), std::string::npos);
   EXPECT_NE(render_layer.find("count_draw_calls,"), std::string::npos);
   EXPECT_NE(render_layer.find("reflection_probe_capture ? false : wire_frame"), std::string::npos);
 
-  EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
+  EXPECT_EQ(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_NE(pass.find("deferred_mesh_indirect_batches"), std::string::npos);
   EXPECT_NE(pass.find("draw_instance_index_offset"), std::string::npos);
   EXPECT_NE(pass.find("batch.first_command * sizeof(VkDrawIndexedIndirectCommand)"), std::string::npos);
-  EXPECT_EQ(CountOccurrences(pass, "BindRasterMaterialDescriptorSet(vk_command_buffer, parameters."), 5);
-  EXPECT_NE(utilities.find("GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index))"), std::string::npos);
-  EXPECT_NE(utilities.find("BindDescriptorSet(vk_command_buffer, 3"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(pass, "BindRasterMaterialDescriptorSet(vk_command_buffer, parameters."), 0);
+  EXPECT_EQ(utilities.find("GetRasterMaterialDescriptorSet(static_cast<uint32_t>(material_index))"), std::string::npos);
+  EXPECT_EQ(utilities.find("BindDescriptorSet(vk_command_buffer, 3"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, DeferredIndirectUsesMaterialBatchedFixedDescriptors) {
+TEST(GltfRasterMaterial, DeferredIndirectUsesInstanceMetadataWithoutMaterialBatches) {
   const auto render_instance_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto render_instance = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
@@ -430,7 +520,10 @@ TEST(GltfRasterMaterial, DeferredIndirectUsesMaterialBatchedFixedDescriptors) {
   EXPECT_NE(render_instance_header.find("std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches"),
             std::string::npos);
   EXPECT_NE(render_instance.find("deferred_mesh_indirect_batches.clear()"), std::string::npos);
-  EXPECT_NE(render_instance.find("batch.material_index == render_instance->material_index"), std::string::npos);
+  const auto batch_definition = ExtractSourceRange(render_instance_header, "struct DeferredMeshIndirectBatch",
+                                                   "class EVOENGINE_API RasterSpatialIndex");
+  EXPECT_EQ(batch_definition.find("material_index"), std::string::npos);
+  EXPECT_EQ(render_instance.find("batch.material_index"), std::string::npos);
   EXPECT_EQ(render_instance_header.find("first_instance_index"), std::string::npos);
   EXPECT_NE(render_instance_header.find("std::vector<uint32_t> raster_draw_instance_indices"), std::string::npos);
   EXPECT_NE(render_instance.find(
@@ -440,8 +533,7 @@ TEST(GltfRasterMaterial, DeferredIndirectUsesMaterialBatchedFixedDescriptors) {
   EXPECT_NE(render_instance.find("batch.command_count++"), std::string::npos);
   EXPECT_NE(render_instance.find("batch.triangle_count +="), std::string::npos);
 
-  EXPECT_NE(pass.find("BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline"),
-            std::string::npos);
+  EXPECT_EQ(pass.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_NE(pass.find("RenderInstancePushConstant::kRasterDrawInstanceMappingBit"), std::string::npos);
   EXPECT_NE(pass.find("batch.first_command"), std::string::npos);
   EXPECT_NE(pass.find("ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode)"), std::string::npos);
@@ -454,58 +546,67 @@ TEST(GltfRasterMaterial, DeferredIndirectUsesMaterialBatchedFixedDescriptors) {
   EXPECT_EQ(CountOccurrences(shadow_shaders, "EE_RASTER_DRAW_INSTANCE_INDEX"), 6);
 }
 
-TEST(GltfRasterMaterial, ShadowPassesUseOpaqueDepthPipelinesAndTransparentPassesBindRasterMaterialDescriptors) {
+TEST(GltfRasterMaterial, ShadowAndTransparentPassesAvoidFixedMaterialDescriptors) {
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto directional_header =
       ReadTextFile(SdkPath("include/Rendering/RenderPasses/DirectionalLightShadowPass.hpp"));
   const auto directional = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   const auto utilities_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/RenderPassUtilities.hpp"));
+  const auto masked_shadow = ReadTextFile(ShaderPath("Graphics/Fragment/Lighting/AlphaMaskedShadow.slang"));
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(directional_header.empty());
   ASSERT_FALSE(directional.empty());
   ASSERT_FALSE(transparent.empty());
   ASSERT_FALSE(utilities_header.empty());
+  ASSERT_FALSE(masked_shadow.empty());
 
   const std::string shadow_pipeline_region =
       ExtractSourceRange(render_layer, "#pragma region Graphics Pipelines", "if (!deferred_geometry_pipeline_normal)");
   EXPECT_NE(shadow_pipeline_region.find("point_light_shadow_pipeline_normal_opaque"), std::string::npos);
+  EXPECT_NE(shadow_pipeline_region.find("point_light_shadow_pipeline_normal_masked"), std::string::npos);
   EXPECT_NE(shadow_pipeline_region.find("spot_light_shadow_pipeline_normal_opaque"), std::string::npos);
   EXPECT_NE(shadow_pipeline_region.find("directional_light_shadow_pipeline_normal_opaque"), std::string::npos);
   EXPECT_NE(shadow_pipeline_region.find("instanced_point_light_shadow_pipeline_opaque"), std::string::npos);
   EXPECT_NE(shadow_pipeline_region.find("skinned_point_light_shadow_pipeline_opaque"), std::string::npos);
   EXPECT_NE(shadow_pipeline_region.find("CreateShadowVertexPipeline"), std::string::npos);
+  EXPECT_NE(shadow_pipeline_region.find("CreateShadowMeshPipeline"), std::string::npos);
+  EXPECT_NE(shadow_pipeline_region.find("shadow_masked_fragment_shader_path"), std::string::npos);
   EXPECT_EQ(shadow_pipeline_region.find("CreateRasterMaterialShaderDefines()"), std::string::npos);
   EXPECT_EQ(shadow_pipeline_region.find("raster_material_per_frame_layout_"), std::string::npos);
   EXPECT_EQ(shadow_pipeline_region.find("raster_material_layout_"), std::string::npos);
   EXPECT_EQ(shadow_pipeline_region.find("ShadowMapPassThrough.slang"), std::string::npos);
-  EXPECT_EQ(render_layer.find("CreateShadowMeshPipeline"), std::string::npos);
+  EXPECT_NE(masked_shadow.find("import EvoEngine.GltfAlphaMask;"), std::string::npos);
+  EXPECT_NE(masked_shadow.find("EE_GLTF_ALPHA_MASK_PASSES"), std::string::npos);
+  EXPECT_EQ(masked_shadow.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos);
 
   const std::string transparent_pipeline = ExtractSourceRange(
       render_layer, "if (!transparent_geometry_pipeline_normal)", "transparent_geometry_pipeline_normal->Initialize()");
   EXPECT_EQ(transparent_pipeline.find("CreateRasterMaterialShaderDefines()"), std::string::npos);
   EXPECT_EQ(transparent_pipeline.find("CreateRasterNoBindlessTextureShaderDefines()"), std::string::npos);
-  EXPECT_NE(transparent_pipeline.find("raster_material_per_frame_layout_"), std::string::npos);
+  EXPECT_NE(transparent_pipeline.find("per_frame_layout_"), std::string::npos);
+  EXPECT_EQ(transparent_pipeline.find("raster_material_per_frame_layout_"), std::string::npos);
   EXPECT_NE(transparent_pipeline.find("lighting_layout_"), std::string::npos);
-  EXPECT_NE(transparent_pipeline.find("raster_material_layout_"), std::string::npos);
+  EXPECT_EQ(transparent_pipeline.find("raster_material_layout_"), std::string::npos);
   EXPECT_NE(transparent_pipeline.find("raster_lighting_texture_layout_"), std::string::npos);
-  EXPECT_NE(transparent.find("BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline"),
-            std::string::npos);
+  EXPECT_EQ(transparent.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_NE(transparent.find("parameters.raster_lighting_texture_descriptor_set"), std::string::npos);
-  EXPECT_NE(transparent.find("vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set"),
+  EXPECT_NE(transparent.find("vk_command_buffer, 3, parameters.raster_lighting_texture_descriptor_set"),
             std::string::npos);
-  EXPECT_NE(transparent.find("render_instance->material_index"), std::string::npos);
+  EXPECT_EQ(transparent.find("render_instance->material_index"), std::string::npos);
 
-  EXPECT_NE(utilities_header.find("BindRasterMaterialDescriptorSet"), std::string::npos);
+  EXPECT_EQ(utilities_header.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_EQ(directional_header.find("bind_raster_material_descriptor_sets"), std::string::npos);
   EXPECT_EQ(directional_header.find("raster_material_per_frame_descriptor_set"), std::string::npos);
-  EXPECT_EQ(directional_header.find("directional_pipeline"), std::string::npos);
-  EXPECT_EQ(directional_header.find("instanced_pipeline"), std::string::npos);
-  EXPECT_EQ(directional_header.find("skinned_pipeline"), std::string::npos);
+  EXPECT_NE(directional_header.find("directional_masked_pipeline"), std::string::npos);
+  EXPECT_NE(directional_header.find("instanced_masked_pipeline"), std::string::npos);
+  EXPECT_NE(directional_header.find("skinned_masked_pipeline"), std::string::npos);
   EXPECT_EQ(directional.find("BindRasterMaterialDescriptorSet"), std::string::npos);
   EXPECT_EQ(directional.find("alpha_tested"), std::string::npos);
   EXPECT_NE(directional.find("RenderInstancePushConstant::kRasterDrawInstanceMappingBit"), std::string::npos);
-  EXPECT_NE(directional.find("draw_indirect(parameters.directional_opaque_pipeline"), std::string::npos);
+  EXPECT_NE(directional.find("render_bucket(false)"), std::string::npos);
+  EXPECT_NE(directional.find("render_bucket(true)"), std::string::npos);
+  EXPECT_NE(directional.find("masked_shadow_mesh_indirect_batches"), std::string::npos);
   EXPECT_EQ(render_layer.find("const bool bind_raster_material_descriptor_sets = true"), std::string::npos);
   EXPECT_EQ(render_layer.find("use_alpha_tested_indirect_shadow"), std::string::npos);
   EXPECT_NE(render_layer.find("RenderInstancePushConstant::kRasterDrawInstanceMappingBit"), std::string::npos);
@@ -523,28 +624,24 @@ TEST(GltfRasterMaterial, ShadowPassesUseOpaqueDepthPipelinesAndTransparentPasses
             std::string::npos);
 }
 
-TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
+TEST(GltfRasterMaterial, RasterLightingUsesBindlessGlobalIblAndPassLocalAmbientOcclusion) {
   const auto lighting_shader = ReadTextFile(ShaderPath("Modules/EvoEngine/Lighting.slang")) +
                                ReadTextFile(ShaderPath("Modules/EvoEngine/LightingFixedSet3.slang"));
-  const auto transparent_lighting_module = ReadTextFile(ShaderPath("Modules/EvoEngine/LightingFixedSet4.slang"));
-  const auto deferred_lighting_shader =
-      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.slang"));
-  const auto scene_camera_lighting_shader =
-      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
+  const auto transparent_lighting_module = ReadTextFile(ShaderPath("Modules/EvoEngine/LightingFixedSet3.slang"));
+  const auto deferred_lighting_shader = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   const auto transparent_lighting_shader =
       ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   const auto render_info_shader = ReadTextFile(ShaderPath("Modules/EvoEngine/RenderInfo.slang"));
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
-  const auto deferred_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredLightingPass.hpp"));
-  const auto deferred = ReadTextFile(SdkPath("src/RenderPasses/DeferredLightingPass.cpp"));
+  const auto deferred_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredComputeLightingPass.hpp"));
+  const auto deferred = ReadTextFile(SdkPath("src/RenderPasses/DeferredComputeLightingPass.cpp"));
   const auto transparent_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/TransparentGeometryPass.hpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(lighting_shader.empty());
   ASSERT_FALSE(transparent_lighting_module.empty());
   ASSERT_FALSE(deferred_lighting_shader.empty());
-  ASSERT_FALSE(scene_camera_lighting_shader.empty());
   ASSERT_FALSE(transparent_lighting_shader.empty());
   ASSERT_FALSE(render_info_shader.empty());
   ASSERT_FALSE(render_layer_header.empty());
@@ -555,22 +652,27 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   ASSERT_FALSE(transparent_header.empty());
   ASSERT_FALSE(transparent.empty());
 
-  EXPECT_NE(lighting_shader.find("[[vk::binding(0, 3)]] Sampler2D EE_RASTER_BRDF_LUT"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("[[vk::binding(1, 3)]] SamplerCube EE_RASTER_SKYBOX"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("[[vk::binding(2, 3)]] SamplerCube EE_RASTER_IRRADIANCE_MAP"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("[[vk::binding(3, 3)]] SamplerCube EE_RASTER_PREFILTERED_MAP"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("[[vk::binding(5, 3)]] SamplerCube EE_RASTER_REFLECTION_PROBES"), std::string::npos);
-  EXPECT_NE(transparent_lighting_module.find("[[vk::binding(5, 4)]] SamplerCube EE_RASTER_REFLECTION_PROBES"),
+  EXPECT_EQ(lighting_shader.find("EE_RASTER_BRDF_LUT"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_RASTER_SKYBOX"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_RASTER_IRRADIANCE_MAP"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_RASTER_PREFILTERED_MAP"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_CUBEMAPS[NonUniformResourceIndex(texture_index)]"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("EE_TEXTURE_2DS[NonUniformResourceIndex(EE_RENDER_INFO.brdf_lut_map_index)]"),
             std::string::npos);
-  EXPECT_EQ(lighting_shader.find("EE_CUBEMAPS[camera.skybox_tex_index]"), std::string::npos);
-  EXPECT_EQ(lighting_shader.find("EE_TEXTURE_2DS[EE_RENDER_INFO.brdf_lut_map_index]"), std::string::npos);
+  EXPECT_NE(lighting_shader.find(".skybox_tex_index"), std::string::npos);
+  EXPECT_NE(lighting_shader.find(".irradiance_map_index"), std::string::npos);
+  EXPECT_NE(lighting_shader.find(".prefiltered_map_index"), std::string::npos);
+  EXPECT_EQ(lighting_shader.find("EE_RASTER_REFLECTION_PROBES"), std::string::npos);
+  EXPECT_EQ(transparent_lighting_module.find("EE_RASTER_REFLECTION_PROBES"), std::string::npos);
   EXPECT_NE(render_info_shader.find("const uint EE_REFLECTION_PROBE_MAX_COUNT = 32u"), std::string::npos);
-  EXPECT_NE(lighting_shader.find("EE_RASTER_REFLECTION_PROBES[EE_REFLECTION_PROBE_MAX_COUNT * 2]"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("sampleReflectionProbe(int texture_index"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("int(probe.identity_and_flags.x)"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("int(probe.transition_parameters.x)"), std::string::npos);
   const auto environmental_components =
       ExtractSourceRange(lighting_shader, "EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS",
                          "float3 EE_FUNC_CALCULATE_ENVIRONMENTAL_LIGHT");
   EXPECT_GE(CountOccurrences(environmental_components, "float3(1.0f / EE_ENVIRONMENT.gamma)"), 2u);
-  EXPECT_NE(lighting_shader.find("case 31:"), std::string::npos);
+  EXPECT_NE(lighting_shader.find("int(EE_REFLECTION_PROBE_MAX_COUNT)"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_REFLECTION_PROBE_INFLUENCE"), std::string::npos);
   EXPECT_NE(lighting_shader.find("EE_REFLECTION_PROBE_DIRECTION"), std::string::npos);
   EXPECT_NE(lighting_shader.find("any(abs(local_position) > projection_extents)"), std::string::npos);
@@ -599,6 +701,13 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
             std::string::npos);
   EXPECT_NE(environmental_components.find("EE_ROUGH_SPECULAR_VISIBILITY"), std::string::npos);
   EXPECT_NE(environmental_components.find("result.unoccluded_specular"), std::string::npos);
+  EXPECT_NE(environmental_components.find("prefilteredColor * (F * brdf.x + float3(F90 * brdf.y))"), std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0)"), std::string::npos);
+  EXPECT_NE(environmental_components.find("EE_RECOVER_DIELECTRIC_F90(metallic, F90)"), std::string::npos);
+  EXPECT_NE(environmental_components.find("(float3(1.0f) - dielectricF) *"), std::string::npos);
+  EXPECT_EQ(environmental_components.find("(float3(1.0f) - F) * (1.0f - metallic)"), std::string::npos);
+  EXPECT_EQ(CountOccurrences(lighting_shader, "float3 kS = F"), 0u);
+  EXPECT_EQ(CountOccurrences(lighting_shader, "(float3(1.0f) - dielectricF) *"), 4u);
   EXPECT_NE(environmental_components.find("result.specular = result.unoccluded_specular * result.specular_visibility"),
             std::string::npos);
   EXPECT_EQ(environmental_components.find("result.diffuse_lighting"), std::string::npos);
@@ -608,11 +717,9 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
                                  "lerp(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gather_weight)"),
             std::string::npos);
   EXPECT_NE(lighting_shader.find("const float3 specular = environment.specular"), std::string::npos);
-  EXPECT_NE(deferred_lighting_shader.find("inAmbientOcclusion.Sample(input.tex_coord).r"), std::string::npos);
-  EXPECT_NE(scene_camera_lighting_shader.find("inAmbientOcclusion.Sample(input.tex_coord).r"), std::string::npos);
+  EXPECT_NE(deferred_lighting_shader.find("inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r"), std::string::npos);
   EXPECT_NE(transparent_lighting_shader.find("surface.occlusion, 1.0f"), std::string::npos);
   EXPECT_EQ(deferred_lighting_shader.find("screenSpaceVisibility, result"), std::string::npos);
-  EXPECT_EQ(scene_camera_lighting_shader.find("screenSpaceVisibility, direct"), std::string::npos);
   EXPECT_EQ(transparent_lighting_shader.find("1.0f, direct"), std::string::npos);
 
   EXPECT_NE(render_layer_header.find("raster_lighting_texture_layout_"), std::string::npos);
@@ -622,18 +729,16 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_EQ(render_layer.find("EE_SKIP_PER_FRAME_BINDLESS_TEXTURES"), std::string::npos);
   EXPECT_NE(render_layer.find("raster_lighting_texture_layout_->PushDescriptorBinding"), std::string::npos);
   EXPECT_NE(render_layer.find("TextureStorage::TryGetCubemapDescriptorImageInfo"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingBrdfLutBinding"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingSkyboxBinding"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingIrradianceBinding"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingPrefilteredBinding"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingReflectionProbesBinding = 5"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingDescriptorSamplerCount = 69"), std::string::npos);
-  EXPECT_NE(render_layer.find("kRasterLightingMaxPerStageSamplerCount = 69"), std::string::npos);
-  EXPECT_NE(render_layer.find("maxDescriptorSetSampledImages < kRasterLightingDescriptorSamplerCount"),
-            std::string::npos);
-  EXPECT_NE(render_layer.find("RenderInstanceStorage::kReflectionProbeMaxCount"), std::string::npos);
-  EXPECT_NE(render_layer.find("source_info = global_prefiltered_info"), std::string::npos);
-  EXPECT_NE(render_layer.find("target_info = global_prefiltered_info"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingBrdfLutBinding"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingSkyboxBinding"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingIrradianceBinding"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingPrefilteredBinding"), std::string::npos);
+  EXPECT_NE(render_layer.find("kRasterLightingAmbientOcclusionBinding = 4"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingReflectionProbesBinding"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingDescriptorSamplerCount"), std::string::npos);
+  EXPECT_EQ(render_layer.find("kRasterLightingMaxPerStageSamplerCount"), std::string::npos);
+  EXPECT_EQ(render_layer.find("source_info = global_prefiltered_info"), std::string::npos);
+  EXPECT_EQ(render_layer.find("target_info = global_prefiltered_info"), std::string::npos);
 
   EXPECT_NE(render_instance_storage.find("ResolveEnvironmentalLighting(target_scene)"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("resolved_lighting.local_reflection_probes"), std::string::npos);
@@ -657,26 +762,19 @@ TEST(GltfRasterMaterial, RasterLightingPassesUseFixedGlobalTextureDescriptors) {
   EXPECT_EQ(probe_collection.find("ClampSettings("), std::string::npos);
   EXPECT_EQ(probe_collection.find("EnforceSceneLimit("), std::string::npos);
 
-  const std::string deferred_pipeline = ExtractSourceRange(render_layer, "if (!deferred_lighting_pass_pipeline)",
-                                                           "deferred_lighting_pass_pipeline->depth_attachment_format");
+  const std::string deferred_pipeline = ExtractSourceRange(render_layer, "if (!deferred_compute_lighting_pipeline_)",
+                                                           "deferred_compute_lighting_pipeline_->Initialize()");
   EXPECT_EQ(deferred_pipeline.find("CreateRasterFixedLightingShaderDefines"), std::string::npos);
-  EXPECT_NE(deferred_pipeline.find("raster_material_per_frame_layout_"), std::string::npos);
+  EXPECT_NE(deferred_pipeline.find("per_frame_layout_"), std::string::npos);
   EXPECT_NE(deferred_pipeline.find("lighting_layout_"), std::string::npos);
   EXPECT_NE(deferred_pipeline.find("raster_lighting_texture_layout_"), std::string::npos);
-
-  const std::string scene_camera_pipeline =
-      ExtractSourceRange(render_layer, "if (!deferred_lighting_pass_pipeline_scene_camera)",
-                         "deferred_lighting_pass_pipeline_scene_camera->depth_attachment_format");
-  EXPECT_EQ(scene_camera_pipeline.find("CreateRasterFixedLightingShaderDefines"), std::string::npos);
-  EXPECT_NE(scene_camera_pipeline.find("raster_material_per_frame_layout_"), std::string::npos);
-  EXPECT_NE(scene_camera_pipeline.find("raster_lighting_texture_layout_"), std::string::npos);
 
   EXPECT_NE(deferred_header.find("raster_lighting_texture_descriptor_set"), std::string::npos);
   EXPECT_NE(deferred.find("parameters.raster_lighting_texture_descriptor_set"), std::string::npos);
   EXPECT_NE(deferred.find("BindDescriptorSet(vk_command_buffer, 3"), std::string::npos);
   EXPECT_NE(transparent_header.find("raster_lighting_texture_descriptor_set"), std::string::npos);
   EXPECT_NE(transparent.find("parameters.raster_lighting_texture_descriptor_set"), std::string::npos);
-  EXPECT_NE(transparent.find("vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set"),
+  EXPECT_NE(transparent.find("vk_command_buffer, 3, parameters.raster_lighting_texture_descriptor_set"),
             std::string::npos);
 }
 
@@ -779,6 +877,29 @@ TEST(GltfRasterMaterial, PreviewThumbnailsUseRenderLayerFixedRasterPath) {
             std::string::npos);
 }
 
+TEST(GltfRasterMaterial, PersistentSampledViewRegistrationIsAssetOwnedAndAbsentFromTransientPasses) {
+  const auto texture_storage = ReadTextFile(SdkPath("include/Rendering/Texture/TextureStorage.hpp"));
+  const auto private_registration =
+      ExtractSourceRange(texture_storage, "private:\n  /**\n   * @brief Unregisters a 2D texture", "public:\n  /**");
+  ASSERT_FALSE(private_registration.empty());
+  EXPECT_NE(private_registration.find("RegisterTexture2D"), std::string::npos);
+  EXPECT_NE(private_registration.find("RegisterCubemap"), std::string::npos);
+
+  const auto source_root = SdkPath("src");
+  for (const auto& entry : std::filesystem::recursive_directory_iterator(source_root)) {
+    if (!entry.is_regular_file() || (entry.path().extension() != ".cpp" && entry.path().extension() != ".hpp")) {
+      continue;
+    }
+    const auto file_name = entry.path().filename().string();
+    if (file_name == "Texture2D.cpp" || file_name == "Cubemap.cpp" || file_name == "TextureStorage.cpp") {
+      continue;
+    }
+    const auto source = ReadTextFile(entry.path());
+    EXPECT_EQ(source.find("TextureStorage::RegisterTexture2D"), std::string::npos) << entry.path().string();
+    EXPECT_EQ(source.find("TextureStorage::RegisterCubemap"), std::string::npos) << entry.path().string();
+  }
+}
+
 TEST(GltfRasterMaterial, ProjectThumbnailCacheTracksMaterialDependenciesAndStaysOutsideAssets) {
   const auto thumbnail_provider = ReadTextFile(SdkPath("src/AssetThumbnailProvider.cpp"));
   const auto file_manager = ReadTextFile(SdkPath("src/FileManager.cpp"));
@@ -803,50 +924,32 @@ TEST(GltfRasterMaterial, ProjectThumbnailCacheTracksMaterialDependenciesAndStays
             std::string::npos);
 }
 
-TEST(GltfRasterMaterial, FixedRasterBackendUsesIndividualTextureBindings) {
-  const auto source = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRasterMaterial.slang"));
+TEST(GltfRasterMaterial, RasterBackendUsesCanonicalBindlessTextureIndices) {
+  const auto compatibility = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRasterMaterial.slang"));
+  const auto source = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
+  ASSERT_FALSE(compatibility.empty());
   ASSERT_FALSE(source.empty());
 
-  EXPECT_NE(source.find("__exported import EvoEngine.GltfMaterial;"), std::string::npos);
-  for (uint32_t binding = 0; binding < 8; ++binding) {
-    EXPECT_NE(source.find("[[vk::binding(" + std::to_string(binding) + ", 3)]]"), std::string::npos);
-  }
-  EXPECT_EQ(CountOccurrences(source, "Sampler2D<float4> EE_GLTF_RASTER_"), 8u);
-  const std::string fixed_sampling =
-      ExtractSourceRange(source, "float4 EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE", "float4 EE_GLTF_SAMPLE_TEXTURE_SLOT");
-  EXPECT_NE(fixed_sampling.find("EE_GLTF_RASTER_BASE_COLOR_TEXTURE.Sample"), std::string::npos);
-  EXPECT_NE(fixed_sampling.find("EE_GLTF_RASTER_METALLIC_ROUGHNESS_TEXTURE.Sample"), std::string::npos);
-  EXPECT_NE(fixed_sampling.find("EE_GLTF_RASTER_NORMAL_TEXTURE.Sample"), std::string::npos);
-  EXPECT_NE(fixed_sampling.find("EE_GLTF_RASTER_EMISSIVE_TEXTURE.Sample"), std::string::npos);
-  EXPECT_NE(fixed_sampling.find("EE_GLTF_RASTER_OCCLUSION_TEXTURE.Sample"), std::string::npos);
-  EXPECT_EQ(fixed_sampling.find("EE_TEXTURE_2DS"), std::string::npos);
-  EXPECT_EQ(source.find("NonUniformResourceIndex"), std::string::npos);
-  EXPECT_EQ(source.find("import EvoEngine.Textures"), std::string::npos);
-
-  EXPECT_NE(source.find("material.pbr_base_color_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
-  EXPECT_NE(source.find("material.pbr_diffuse_texture, EE_GLTF_RASTER_TEXTURE_BASE_COLOR"), std::string::npos);
-  EXPECT_NE(source.find("material.pbr_metallic_roughness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
-            std::string::npos);
-  EXPECT_NE(source.find("material.pbr_specular_glossiness_texture, EE_GLTF_RASTER_TEXTURE_METALLIC_ROUGHNESS"),
-            std::string::npos);
-  EXPECT_NE(source.find("material.normal_texture, EE_GLTF_RASTER_TEXTURE_NORMAL"), std::string::npos);
-  EXPECT_NE(source.find("material.emissive_texture, EE_GLTF_RASTER_TEXTURE_EMISSIVE"), std::string::npos);
-  EXPECT_NE(source.find("material.occlusion_texture, EE_GLTF_RASTER_TEXTURE_OCCLUSION"), std::string::npos);
-  EXPECT_NE(source.find("material.clearcoat_texture, EE_GLTF_RASTER_TEXTURE_CLEARCOAT"), std::string::npos);
-  EXPECT_NE(source.find("material.clearcoat_roughness_texture, EE_GLTF_RASTER_TEXTURE_CLEARCOAT_ROUGHNESS"),
-            std::string::npos);
-  EXPECT_NE(source.find("material.clearcoat_normal_texture, EE_GLTF_RASTER_TEXTURE_CLEARCOAT_NORMAL"),
-            std::string::npos);
+  EXPECT_NE(compatibility.find("__exported import EvoEngine.GltfBindlessMaterial;"), std::string::npos);
+  EXPECT_EQ(source.find("Sampler2D<float4> EE_GLTF_RASTER_"), std::string::npos);
+  EXPECT_EQ(source.find("EE_GLTF_SAMPLE_FIXED_RASTER_TEXTURE"), std::string::npos);
+  EXPECT_NE(source.find("import EvoEngine.Textures;"), std::string::npos);
+  EXPECT_NE(source.find("EE_TEXTURE_2DS[NonUniformResourceIndex(texture_info.index)]"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_base_color_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.pbr_metallic_roughness_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.normal_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.emissive_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.occlusion_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.clearcoat_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.clearcoat_roughness_texture"), std::string::npos);
+  EXPECT_NE(source.find("material.clearcoat_normal_texture"), std::string::npos);
   EXPECT_NE(source.find("normal_vector.xy *= material.clearcoat_normal_texture_scale"), std::string::npos);
   EXPECT_NE(source.find("EE_GLTF_RASTER_COATED_EMISSION"), std::string::npos);
-  EXPECT_NE(source.find("EE_GLTF_RASTER_TEXTURE_UNSUPPORTED_EXTENSION"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
   const std::filesystem::path paths[] = {
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferred.slang"),
       ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"),
-      ShaderPath("Graphics/Fragment/Standard/SkinnedMotionVectors.slang"),
       ShaderPath("Graphics/Fragment/Standard/TransparentMotionVectors.slang"),
   };
 
@@ -854,13 +957,16 @@ TEST(GltfRasterMaterial, ActiveRasterShadersUseGltfEvaluator) {
     const auto source = ReadTextFile(path);
     ASSERT_FALSE(source.empty()) << path.string();
     EXPECT_NE(source.find("import EvoEngine.GltfRasterMaterial;"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("import EvoEngine.GltfRasterMaterial;"), std::string::npos) << path.string();
     EXPECT_TRUE(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE") != std::string::npos ||
                 source.find("EE_GLTF_RASTER_ALPHA_MASK_PASSES") != std::string::npos)
         << path.string();
     EXPECT_EQ(source.find(std::string("EE_MATERIAL") + "_PROPERTIES"), std::string::npos) << path.string();
     EXPECT_EQ(source.find(std::string("Material") + "Properties"), std::string::npos) << path.string();
   }
+  const auto skinned_motion = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/SkinnedMotionVectors.slang"));
+  EXPECT_NE(skinned_motion.find("import EvoEngine.GltfAlphaMask;"), std::string::npos);
+  EXPECT_NE(skinned_motion.find("EE_GLTF_ALPHA_MASK_PASSES"), std::string::npos);
+  EXPECT_EQ(skinned_motion.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
@@ -893,12 +999,17 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
     EXPECT_NE(source.find("[[vk::binding(22,"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Sampler2D inNormalRoughness"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Sampler2D inPbrFlags"), std::string::npos) << path.string();
-    EXPECT_TRUE(source.find("float roughness = inNormalRoughness.SampleLevel") != std::string::npos ||
-                source.find("float roughness = inNormalRoughness.Sample") != std::string::npos)
+    EXPECT_NE(source.find("float4 normal_roughness = inNormalRoughness.SampleLevel"), std::string::npos)
         << path.string();
-    EXPECT_TRUE(source.find("float metallic = inPbrFlags.SampleLevel") != std::string::npos ||
-                source.find("float metallic = inPbrFlags.Sample") != std::string::npos)
+    EXPECT_NE(source.find("float4 pbr_flags = inPbrFlags.SampleLevel"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float roughness = clamp(normal_roughness.a"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float metallic = clamp(pbr_flags.x"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("reflected.rgb * (fresnel * brdf.x + float3(f90 * brdf.y))"), std::string::npos)
         << path.string();
+    EXPECT_NE(source.find("original + (ssr_specular - environment.specular) * trace_confidence"), std::string::npos)
+        << path.string();
+    EXPECT_EQ(source.find("full_color_weight"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("composition_mode"), std::string::npos) << path.string();
   }
 
   const auto ambient_occlusion_geometry = ReadTextFile(ShaderPath("Compute/PostProcessing/GTAO.slang"));
@@ -923,48 +1034,112 @@ TEST(GltfRasterMaterial, PostProcessConsumersReadExpandedGBuffer) {
   EXPECT_FLOAT_EQ(compose_lighting(0.0f, 0.0f, 0.0f, 5.0f, 1.0f, 0.0f, 0.0f), 5.0f);
 }
 
-TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
+TEST(GltfRasterMaterial, ScreenSpaceReflectionTraversalGuardsDegenerateRays) {
   const std::filesystem::path paths[] = {
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.slang"),
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"),
+      ShaderPath("Compute/PostProcessing/SSRReflect.slang"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.slang"),
   };
 
   for (const auto& path : paths) {
     const auto source = ReadTextFile(path);
     ASSERT_FALSE(source.empty()) << path.string();
-    EXPECT_EQ(source.find("#include \"GltfRasterMaterial.slangh\""), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
-    for (uint32_t binding = 20; binding <= 23; ++binding) {
-      EXPECT_NE(source.find("[[vk::binding(" + std::to_string(binding) + ", 1)]]"), std::string::npos) << path.string();
-    }
-    EXPECT_NE(source.find("[[vk::binding(4, 3)]]"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("pbr_flags.x, normal_roughness.a, pbr_flags.yzw"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("emissive_sample.a, base_color_ao.a"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("inAmbientOcclusion.Sample(input.tex_coord).r"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float4 base_color_ao = inBaseColorAO.Sample(input.tex_coord)"), std::string::npos)
+    EXPECT_NE(source.find("float dominant_span = max(abs(pixel_delta.x), abs(pixel_delta.y))"), std::string::npos)
         << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.start_bias"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.binary_search_iteration_count"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("bool bracket_found = false"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("all(isfinite(clip))"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("(frag.y - start_frag.y) / delta_y"), std::string::npos) << path.string();
   }
+}
 
-  const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.slang"));
-  ASSERT_FALSE(deferred.empty());
+TEST(GltfRasterMaterial, ScreenSpaceReflectionBuildsExplicitGeometricConfidence) {
+  const std::filesystem::path reflect_paths[] = {
+      ShaderPath("Compute/PostProcessing/SSRReflect.slang"),
+      ShaderPath("Graphics/Fragment/PostProcessing/SSRReflect.slang"),
+  };
+  for (const auto& path : reflect_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("float thickness_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float distance_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float grazing_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float edge_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float normal_confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("float hit_facing = dot(hit_view_normal, -pivot)"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EncodeHit(sample_uv, normalized_distance, confidence"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_SSR_CONSTANTS.debug_mode"), std::string::npos) << path.string();
+  }
+}
 
-  EXPECT_EQ(deferred.find("outNormal"), std::string::npos);
-  EXPECT_EQ(deferred.find("outMaterial"), std::string::npos);
-  EXPECT_TRUE(HasFragmentOutputLocation(deferred, 0, "base_color_ao"));
-  EXPECT_TRUE(HasFragmentOutputLocation(deferred, 1, "normal_roughness"));
-  EXPECT_TRUE(HasFragmentOutputLocation(deferred, 2, "pbr_flags"));
-  EXPECT_TRUE(HasFragmentOutputLocation(deferred, 3, "emissive"));
-  EXPECT_TRUE(HasFragmentOutputLocation(deferred, 4, "utility"));
-  EXPECT_NE(deferred.find("output.base_color_ao = float4(max(surface.base_color.rgb, float3(0.0f)), "
-                          "max(surface.occlusion, 0.0f))"),
-            std::string::npos);
-  EXPECT_NE(deferred.find("output.normal_roughness = float4(world_normal, surface.roughness)"), std::string::npos);
-  EXPECT_NE(deferred.find("output.pbr_flags = float4(surface.metallic, surface.specular_f0)"), std::string::npos);
-  EXPECT_NE(deferred.find("float encoded_specular_f90"), std::string::npos);
-  EXPECT_NE(deferred.find("output.emissive = float4(coated_emissive, encoded_specular_f90)"), std::string::npos);
-  EXPECT_NE(deferred.find("output.utility = float4(float(instance_index), float(instance.info_index), "
-                          "float(instance.material_index), 0.0f)"),
-            std::string::npos);
+TEST(GltfRasterMaterial, ScreenSpaceReflectionUsesEdgeAwareSpatialResolve) {
+  const auto source = ReadTextFile(ShaderPath("Compute/PostProcessing/SSRSpatialResolve.slang"));
+  ASSERT_FALSE(source.empty());
+  EXPECT_NE(source.find("center.a <= 0.0001f"), std::string::npos);
+  EXPECT_NE(source.find("center.a >= 0.85f"), std::string::npos);
+  EXPECT_NE(source.find("float3 radiance_sum = center.rgb"), std::string::npos);
+  EXPECT_NE(source.find("float weight_sum = 1.0f"), std::string::npos);
+  EXPECT_NE(source.find("float depth_weight"), std::string::npos);
+  EXPECT_NE(source.find("float normal_weight"), std::string::npos);
+  EXPECT_NE(source.find("float roughness_weight"), std::string::npos);
+  EXPECT_NE(source.find("sample_reflection.a"), std::string::npos);
+
+  const auto implementation = ReadTextFile(SdkPath("src/ScreenSpaceReflection.cpp"));
+  ASSERT_FALSE(implementation.empty());
+  EXPECT_NE(implementation.find("SSRSpatialResolve.slang"), std::string::npos);
+  EXPECT_EQ(implementation.find("GaussianBlur("), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, ScreenSpaceReflectionTemporalResolveRejectsInvalidHistory) {
+  const auto source = ReadTextFile(ShaderPath("Compute/PostProcessing/SSRTemporalResolve.slang"));
+  ASSERT_FALSE(source.empty());
+  EXPECT_NE(source.find("motion.xy * texel_size"), std::string::npos);
+  EXPECT_NE(source.find("expected_history_depth = linear_depth + motion.z"), std::string::npos);
+  EXPECT_NE(source.find("dot(normal, history_geometry.xyz) >= 0.9f"), std::string::npos);
+  EXPECT_NE(source.find("material_valid"), std::string::npos);
+  EXPECT_NE(source.find("clamp(history.rgb, neighborhood_min, neighborhood_max)"), std::string::npos);
+  EXPECT_NE(source.find("EE_SSR_CONSTANTS.temporal_history_valid"), std::string::npos);
+
+  const auto pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
+  ASSERT_FALSE(pass.empty());
+  EXPECT_NE(pass.find("RenderResourceNames::camera_motion_vectors"), std::string::npos);
+  EXPECT_NE(pass.find("motion_vectors_view"), std::string::npos);
+}
+
+TEST(GltfRasterMaterial, FusedDeferredComputeResolvesAndLightsExpandedGBuffer) {
+  const auto opaque = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredRaw.slang"));
+  const auto masked = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang"));
+  const auto resolve = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
+  ASSERT_FALSE(opaque.empty());
+  ASSERT_FALSE(masked.empty());
+  ASSERT_FALSE(resolve.empty());
+
+  EXPECT_NE(opaque.find("import EvoEngine.RawGBuffer;"), std::string::npos);
+  EXPECT_NE(opaque.find("EE_BUILD_RAW_GBUFFER"), std::string::npos);
+  EXPECT_EQ(opaque.find("GltfAlphaMask"), std::string::npos);
+  EXPECT_EQ(opaque.find("EE_EVALUATE_GLTF"), std::string::npos);
+  EXPECT_EQ(opaque.find("Sample"), std::string::npos);
+  EXPECT_NE(masked.find("import EvoEngine.GltfAlphaMask;"), std::string::npos);
+  EXPECT_NE(masked.find("EE_GLTF_ALPHA_MASK_PASSES"), std::string::npos);
+  EXPECT_EQ(masked.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos);
+  EXPECT_EQ(masked.find("EE_EVALUATE_GLTF_RASTER_NORMAL"), std::string::npos);
+
+  EXPECT_NE(resolve.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_EVALUATE_GLTF_RASTER_NORMAL"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_GLTF_RASTER_COATED_EMISSION"), std::string::npos);
+  EXPECT_NE(resolve.find("surface.specular_f0 ="), std::string::npos);
+  EXPECT_NE(resolve.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos);
+  EXPECT_NE(resolve.find("if (!isfinite(depth) || depth >= 1.0f)"), std::string::npos);
+  EXPECT_EQ(resolve.find("packed_metadata.x == EE_GBUFFER_CLEAR_VALUE"), std::string::npos);
+  for (uint32_t binding = 0; binding <= 5; ++binding) {
+    EXPECT_NE(resolve.find("[[vk::binding(" + std::to_string(binding) + ", 4)]]"), std::string::npos) << binding;
+  }
+  EXPECT_NE(resolve.find("[[vk::binding(4, 3)]]"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
+  EXPECT_NE(resolve.find("outColor[pixel]"), std::string::npos);
+  EXPECT_NE(resolve.find("inOutUvBaseColorAo[pixel] = float4(resolved_base_color"), std::string::npos);
+  EXPECT_NE(resolve.find("inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
@@ -982,12 +1157,13 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(platform.find("g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT"), std::string::npos);
-  EXPECT_NE(platform.find("g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT"), std::string::npos);
+  EXPECT_NE(platform.find("g_buffer_utility = raw_g_buffer::kMetadataFormat"), std::string::npos);
   EXPECT_EQ(platform.find("g_buffer_color"), std::string::npos);
   EXPECT_EQ(platform.find("g_buffer_material"), std::string::npos);
   EXPECT_NE(render_layer.find("CreateDeferredGBufferColorAttachmentFormats"), std::string::npos);
   EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(18"), std::string::npos);
   EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(19"), std::string::npos);
+  EXPECT_NE(render_layer.find("PushDescriptorBinding(24, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE"), std::string::npos);
 
   for (uint32_t binding = 20; binding <= 24; binding++) {
     EXPECT_NE(render_layer.find("PushDescriptorBinding(" + std::to_string(binding)), std::string::npos);
@@ -996,21 +1172,47 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(18"), std::string::npos);
   EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(19"), std::string::npos);
 
-  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_)"),
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_, "
+                        "clear_value)"),
             std::string::npos);
-  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_)"),
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_, "
+                        "clear_value)"),
             std::string::npos);
+  EXPECT_NE(camera.find("clear_value.color.uint32[0] = raw_g_buffer::kClearValue"), std::string::npos);
+  EXPECT_NE(camera.find("image_info.sampler = VK_NULL_HANDLE"), std::string::npos);
   EXPECT_EQ(camera.find("g_buffer_material_"), std::string::npos);
   EXPECT_EQ(camera_header.find("g_buffer_material_"), std::string::npos);
   EXPECT_NE(editor.find("GetGBufferUtilityImage()"), std::string::npos);
-  EXPECT_NE(editor.find("val = glm::round(ptr[0])"), std::string::npos);
+  EXPECT_NE(editor.find("static_cast<const uint32_t*>(mapped_entity_index_data_)[0]"), std::string::npos);
+  EXPECT_NE(editor.find("instance_index != raw_g_buffer::kClearValue"), std::string::npos);
   EXPECT_EQ(editor.find("GetGBufferNormalImage()"), std::string::npos);
   EXPECT_EQ(inspection.find("GetGBufferMaterialTexCoordImTextureId"), std::string::npos);
   EXPECT_EQ(inspection.find("GetGBufferMaterialIndicesImTextureId"), std::string::npos);
+  EXPECT_EQ(camera_header.find("GetGBufferUtilityImTextureId"), std::string::npos);
+  EXPECT_NE(inspection.find("Integer instance, material, info, flags, and packed vertex-color data"),
+            std::string::npos);
+
+  const auto motion_vectors = ReadTextFile(ShaderPath("Compute/MotionVectors.slang"));
+  const auto deferred_lighting = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
+  const auto selection = ReadTextFile(ShaderPath("Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"));
+  for (const auto* source : {&motion_vectors, &selection}) {
+    EXPECT_NE(source->find("Texture2D<uint4> inUtility"), std::string::npos);
+    EXPECT_EQ(source->find("Sampler2D inUtility"), std::string::npos);
+    EXPECT_EQ(source->find("Sampler2D<float4> inUtility"), std::string::npos);
+  }
+  EXPECT_NE(motion_vectors.find("uint instance_index = inUtility.Load(int3(texel, 0)).x"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("Texture2D<uint4> inMetadata"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("const uint4 packed_metadata = inMetadata.Load"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("metadata.material_index"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("metadata.info_index"), std::string::npos);
+  EXPECT_NE(selection.find("info_index != EE_GBUFFER_CLEAR_VALUE && (info_index & 1u) != 0u"), std::string::npos);
+
+  const auto render_graph = ReadTextFile(SdkPath("src/RenderGraph.cpp"));
+  EXPECT_NE(render_graph.find("format_name == \"GBufferMetadata\""), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
-  const std::filesystem::path shader_paths[] = {
+TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteStrictRawGeometry) {
+  const std::filesystem::path opaque_shader_paths[] = {
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
                "Rendering/Foliage.slang"),
       RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
@@ -1023,21 +1225,37 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
                "Rendering/KineticVoronoiMeshing/Branches.slang"),
   };
 
-  for (const auto& path : shader_paths) {
+  for (const auto& path : opaque_shader_paths) {
     const auto source = ReadTextFile(path);
     ASSERT_FALSE(source.empty()) << path.string();
-    EXPECT_EQ(source.find("outNormal"), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("outMaterial"), std::string::npos) << path.string();
-    EXPECT_TRUE(HasFragmentOutputLocation(source, 0, "outGBufferBaseColorAO")) << path.string();
-    EXPECT_TRUE(HasFragmentOutputLocation(source, 1, "outGBufferNormalRoughness")) << path.string();
-    EXPECT_TRUE(HasFragmentOutputLocation(source, 2, "outGBufferPbrFlags")) << path.string();
-    EXPECT_TRUE(HasFragmentOutputLocation(source, 3, "outGBufferEmissive")) << path.string();
-    EXPECT_TRUE(HasFragmentOutputLocation(source, 4, "outGBufferUtility")) << path.string();
-    EXPECT_NE(source.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("EE_GLTF_RASTER_COATED_EMISSION"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("encoded_specular_f90"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("output.outGBufferUtility = float4(float(EE_INSTANCE_INDEX)"), std::string::npos)
-        << path.string();
+    EXPECT_NE(source.find("import EvoEngine.RawGBuffer;"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_BUILD_RAW_GBUFFER"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("GltfAlphaMask"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("EE_EVALUATE_GLTF"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("Sample"), std::string::npos) << path.string();
+  }
+
+  const std::filesystem::path masked_shader_paths[] = {
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/FoliageMasked.slang"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/SmallSegmentsMasked.slang"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/SmallSegmentsVisualizationMasked.slang"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/AlphaShapeMeshing/BranchesMasked.slang"),
+      RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders/Graphics/Fragment/DynamicStrands/"
+               "Rendering/KineticVoronoiMeshing/BranchesMasked.slang"),
+  };
+  for (const auto& path : masked_shader_paths) {
+    const auto source = ReadTextFile(path);
+    ASSERT_FALSE(source.empty()) << path.string();
+    EXPECT_NE(source.find("import EvoEngine.RawGBuffer;"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("import EvoEngine.GltfAlphaMask;"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_GLTF_ALPHA_MASK_PASSES"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("EE_BUILD_RAW_GBUFFER"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
+    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_NORMAL"), std::string::npos) << path.string();
   }
 
   const std::filesystem::path pipeline_paths[] = {
@@ -1053,6 +1271,19 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
     EXPECT_EQ(source.find("g_buffer_color"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Platform::Constants::g_buffer_attribute"), std::string::npos) << path.string();
     EXPECT_NE(source.find("Platform::Constants::g_buffer_utility"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("Masked.slang"), std::string::npos) << path.string();
+  }
+
+  const auto alpha_shape_registration =
+      ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/DsAlphaShapeMeshing.cpp"));
+  const auto kinetic_registration =
+      ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/DsKineticVoronoiMeshing.cpp"));
+  const auto foliage_registration = ReadTextFile(RepoPath("EvoEngine_Packages/EcoSysLab/src/DynamicTreeStrands.cpp"));
+  for (const auto* source : {&alpha_shape_registration, &kinetic_registration, &foliage_registration}) {
+    ASSERT_FALSE(source->empty());
+    EXPECT_NE(source->find("RawOpaqueRenderingAllCameras"), std::string::npos);
+    EXPECT_NE(source->find("AlphaMaskedRenderingAllCameras"), std::string::npos);
+    EXPECT_EQ(source->find("DeferredRenderingAllCameras"), std::string::npos);
   }
 }
 
@@ -1133,8 +1364,8 @@ TEST(GltfRasterMaterial, EcoSysLabTaskMeshPayloadsAndGraphicsInterfacesMatch) {
   for (const auto* source : {&alpha_mesh, &alpha_fragment, &kinetic_mesh, &kinetic_fragment}) {
     EXPECT_NE(source->find("[[vk::location(5)]] nointerpolation int MaterialIndex"), std::string::npos);
   }
-  EXPECT_NE(alpha_fragment.find("fs_in.MaterialIndex"), std::string::npos);
-  EXPECT_NE(kinetic_fragment.find("fs_in.MaterialIndex"), std::string::npos);
+  EXPECT_NE(alpha_fragment.find("input.MaterialIndex"), std::string::npos);
+  EXPECT_NE(kinetic_fragment.find("input.MaterialIndex"), std::string::npos);
   EXPECT_EQ(alpha_fragment.find("EcoSysLabPrimitiveInput"), std::string::npos);
   EXPECT_EQ(kinetic_fragment.find("EcoSysLabPrimitiveInput"), std::string::npos);
 
@@ -1152,9 +1383,9 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   const auto standard_meshlet_colored = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/StandardMeshletColored.slang"));
   const auto standard_strands = ReadTextFile(ShaderPath("Graphics/Mesh/Standard/StandardStrands.slang"));
   const auto instances = ReadTextFile(ShaderPath("Modules/EvoEngine/Instances.slang"));
-  const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferred.slang"));
+  const auto deferred = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredRaw.slang"));
   const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
-  const auto raster_material = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfRasterMaterial.slang"));
+  const auto raster_material = ReadTextFile(ShaderPath("Modules/EvoEngine/GltfBindlessMaterial.slang"));
   const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
   const auto inspection_adapters = ReadTextFile(SdkPath("src/Editor/SDKInspectionAdapters.cpp"));
   const auto scots_pine = ReadTextFile(RepoPath("EvoEngine_Packages/LSystem/src/ScotsPine.cpp"));
@@ -1186,22 +1417,16 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(geometry.find("mesh[6].offset = offsetof(Vertex, tex_coord_1)"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[10].location = 10"), std::string::npos);
   EXPECT_NE(geometry.find("skinned_mesh[10].offset = offsetof(SkinnedVertex, tex_coord_1)"), std::string::npos);
-  EXPECT_NE(geometry.find("mesh[7].location = 11"), std::string::npos);
-  EXPECT_NE(geometry.find("mesh[7].offset = offsetof(Vertex, tex_coord_2)"), std::string::npos);
-  EXPECT_NE(geometry.find("mesh[8].location = 12"), std::string::npos);
-  EXPECT_NE(geometry.find("mesh[8].offset = offsetof(Vertex, tex_coord_3)"), std::string::npos);
-  EXPECT_NE(geometry.find("skinned_mesh[11].location = 11"), std::string::npos);
-  EXPECT_NE(geometry.find("skinned_mesh[12].location = 12"), std::string::npos);
+  EXPECT_EQ(geometry.find("tex_coord_2"), std::string::npos);
+  EXPECT_EQ(geometry.find("tex_coord_3"), std::string::npos);
 
   for (const auto* source : {&standard, &standard_instanced, &standard_skinned}) {
     EXPECT_NE(source->find("[[vk::location(9)]] float tangent_handedness"), std::string::npos);
     EXPECT_NE(source->find("[[vk::location(10)]] float2 tex_coord1"), std::string::npos);
-    EXPECT_NE(source->find("[[vk::location(11)]] float2 tex_coord2"), std::string::npos);
-    EXPECT_NE(source->find("[[vk::location(12)]] float2 tex_coord3"), std::string::npos);
+    EXPECT_EQ(source->find("tex_coord2"), std::string::npos);
+    EXPECT_EQ(source->find("tex_coord3"), std::string::npos);
     EXPECT_NE(source->find("input.tangent_handedness"), std::string::npos);
     EXPECT_NE(source->find("input.tex_coord1"), std::string::npos);
-    EXPECT_NE(source->find("input.tex_coord2"), std::string::npos);
-    EXPECT_NE(source->find("input.tex_coord3"), std::string::npos);
     EXPECT_NE(source->find("input.color"), std::string::npos);
     EXPECT_EQ(source->find("T = normalize(T - dot(T, N) * N)"), std::string::npos);
   }
@@ -1211,16 +1436,15 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
     EXPECT_NE(source->find("EE_BUILD_STANDARD_RASTER_OUTPUT"), std::string::npos);
     EXPECT_NE(source->find("vertex.vertex_info3"), std::string::npos);
     EXPECT_NE(source->find("vertex.tex_coord_1"), std::string::npos);
-    EXPECT_NE(source->find("vertex.tex_coord_2"), std::string::npos);
-    EXPECT_NE(source->find("vertex.tex_coord_3"), std::string::npos);
+    EXPECT_EQ(source->find("vertex.tex_coord_2"), std::string::npos);
+    EXPECT_EQ(source->find("vertex.tex_coord_3"), std::string::npos);
     EXPECT_NE(source->find("vertex.color"), std::string::npos);
     EXPECT_EQ(source->find("T = normalize(T - dot(T, N) * N)"), std::string::npos);
   }
 
   EXPECT_NE(deferred.find("input.tangent_handedness"), std::string::npos);
   EXPECT_NE(deferred.find("input.tex_coord01.zw"), std::string::npos);
-  EXPECT_NE(deferred.find("input.tex_coord23.xy"), std::string::npos);
-  EXPECT_NE(deferred.find("input.tex_coord23.zw"), std::string::npos);
+  EXPECT_EQ(deferred.find("input.tex_coord23"), std::string::npos);
   EXPECT_NE(deferred.find("input.color"), std::string::npos);
   EXPECT_EQ(deferred.find("EE_EVALUATE_GLTF_RASTER_NORMAL(material_index, tex_coord, tex_coord, fs_in.Normal, "
                           "fs_in.Tangent)"),
@@ -1231,13 +1455,15 @@ TEST(GltfRasterMaterial, ActiveRasterNormalMapsUseTangentHandedness) {
   EXPECT_NE(raster_material.find("float3 b = cross(n, t) *"), std::string::npos);
   EXPECT_NE(standard_strands.find("EE_BUILD_STANDARD_RASTER_OUTPUT"), std::string::npos);
   EXPECT_NE(standard_strands.find("vertices[vertex].tangent_handedness = handedness"), std::string::npos);
-  EXPECT_NE(standard_strands.find("tex_coord, tex_coord, float2(0.0f), float2(0.0f)"), std::string::npos);
+  EXPECT_NE(standard_strands.find("tex_coord, tex_coord, endpoint ? color1 : color0"), std::string::npos);
   for (const auto* source : {&deferred, &transparent}) {
     EXPECT_NE(source->find("bool is_front_face : SV_IsFrontFace"), std::string::npos);
     EXPECT_NE(source->find("(is_front_face ? 1.0f : -1.0f) * input.transform_handedness"), std::string::npos);
-    EXPECT_NE(source->find("EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0"),
-              std::string::npos);
   }
+  EXPECT_EQ(deferred.find("EE_GLTF_MATERIALS"), std::string::npos);
+  EXPECT_EQ(deferred.find("EE_EVALUATE_GLTF"), std::string::npos);
+  EXPECT_NE(transparent.find("EE_GLTF_MATERIALS[material_index].double_sided == 0 && facing_sign < 0.0"),
+            std::string::npos);
   EXPECT_NE(instances.find("float EE_TRANSFORM_HANDEDNESS(float4x4 transform)"), std::string::npos);
   EXPECT_NE(instances.find("determinant(float3x3(transform)) < 0.0 ? -1.0 : 1.0"), std::string::npos);
   EXPECT_NE(render_instance_storage.find("VkCullModeFlags ResolveCullModeForTransform"), std::string::npos);
@@ -1288,32 +1514,32 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
             std::string::npos);
   EXPECT_NE(geometry_source.find("mesh_position = {mesh[0]}"), std::string::npos);
   EXPECT_NE(geometry_source.find("mesh_position_tex_coord = {mesh[0], mesh[3]}"), std::string::npos);
-  EXPECT_NE(geometry_source.find("mesh_motion_vectors = {mesh[0], mesh[3], mesh[4], mesh[6], mesh[7], mesh[8]}"),
-            std::string::npos);
+  EXPECT_NE(geometry_source.find("mesh_motion_vectors = {mesh[0], mesh[3], mesh[4], mesh[6]}"), std::string::npos);
 
   const auto shadow_pipeline =
       ExtractSourceRange(render_layer, "std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline",
                          "std::shared_ptr<GraphicsPipeline> CreateStrandShadowMeshPipeline");
   ASSERT_FALSE(shadow_pipeline.empty());
-  EXPECT_NE(shadow_pipeline.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::Position"),
-            std::string::npos);
+  EXPECT_TRUE(ContainsIgnoringWhitespace(
+      shadow_pipeline, "alpha_masked ? VertexInputAttributeSet::MotionVectors : VertexInputAttributeSet::Position"));
 
   EXPECT_NE(platform.find("graphics.render_texture_present_pipeline->vertex_input_attribute_set = "
                           "VertexInputAttributeSet::PositionTexCoord"),
             std::string::npos);
-  for (const auto* pipeline : {"deferred_lighting_pass_pipeline", "deferred_lighting_pass_pipeline_scene_camera",
-                               "environmental_brdf_pipeline"}) {
+  for (const auto* pipeline : {"environmental_brdf_pipeline"}) {
     EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) +
                                                              "->vertex_input_attribute_set = "
                                                              "VertexInputAttributeSet::PositionTexCoord"))
         << pipeline;
   }
-  for (const auto* pipeline : {"transparent_motion_vectors_pipeline_", "skinned_motion_vectors_pipeline_"}) {
+  for (const auto* pipeline : {"transparent_motion_vectors_pipeline_"}) {
     EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) +
                                                              "->vertex_input_attribute_set = "
                                                              "VertexInputAttributeSet::MotionVectors"))
         << pipeline;
   }
+  EXPECT_NE(render_layer.find("pipeline->vertex_input_attribute_set = VertexInputAttributeSet::MotionVectors"),
+            std::string::npos);
   for (const auto* pipeline : {"gizmos", "gizmos_instanced_colored"}) {
     EXPECT_TRUE(ContainsIgnoringWhitespace(render_layer, std::string(pipeline) + "->vertex_input_attribute_set = "
                                                                                  "VertexInputAttributeSet::Position"))
@@ -1335,22 +1561,23 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
                              "VertexInputAttributeSet::Position"),
             std::string::npos);
 
-  const std::filesystem::path mesh_lightweight_shaders[] = {
+  const std::filesystem::path rigid_shadow_shaders[] = {
       ShaderPath("Graphics/Vertex/Lighting/PointLightShadowMap.slang"),
       ShaderPath("Graphics/Vertex/Lighting/SpotLightShadowMap.slang"),
       ShaderPath("Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang"),
       ShaderPath("Graphics/Vertex/Lighting/PointLightShadowMapInstanced.slang"),
       ShaderPath("Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.slang"),
       ShaderPath("Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.slang"),
-      ShaderPath("Graphics/Vertex/Lighting/AtmosphereToCubemap.slang"),
   };
-  for (const auto& shader_path : mesh_lightweight_shaders) {
+  for (const auto& shader_path : rigid_shadow_shaders) {
     const auto shader = ReadTextFile(shader_path);
     ASSERT_FALSE(shader.empty()) << shader_path.string();
-    ExpectShaderInputLocations(shader, shader_path, {0});
+    ExpectShaderInputLocations(shader, shader_path, {0, 3, 4, 10});
     EXPECT_EQ(shader.find("out VS_OUT"), std::string::npos) << shader_path.string();
     EXPECT_EQ(shader.find("currentInstanceIndex"), std::string::npos) << shader_path.string();
   }
+  ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Lighting/AtmosphereToCubemap.slang")),
+                             ShaderPath("Graphics/Vertex/Lighting/AtmosphereToCubemap.slang"), {0});
   ExpectShaderInputLocations(ReadTextFile(ShaderPath("Graphics/Vertex/Lighting/CubemapProcess.slang")),
                              ShaderPath("Graphics/Vertex/Lighting/CubemapProcess.slang"), {0});
 
@@ -1362,7 +1589,7 @@ TEST(GltfRasterMaterial, LightweightPipelinesUseCompactVertexInputLayouts) {
   for (const auto& shader_path : skinned_shadow_shaders) {
     const auto shader = ReadTextFile(shader_path);
     ASSERT_FALSE(shader.empty()) << shader_path.string();
-    ExpectShaderInputLocations(shader, shader_path, {0, 5, 6, 7, 8});
+    ExpectShaderInputLocations(shader, shader_path, {0, 3, 4, 5, 6, 7, 8, 10});
     EXPECT_EQ(shader.find("out VS_OUT"), std::string::npos) << shader_path.string();
     EXPECT_EQ(shader.find("currentInstanceIndex"), std::string::npos) << shader_path.string();
   }
@@ -1402,10 +1629,8 @@ TEST(GltfRasterMaterial, PrefabImporterPreservesMissingTexCoordAttributes) {
   EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord = false"), std::string::npos);
   EXPECT_NE(prefab_source.find("attributes.tex_coord_1 = true"), std::string::npos);
   EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_1 = true"), std::string::npos);
-  EXPECT_NE(prefab_source.find("attributes.tex_coord_2 = true"), std::string::npos);
-  EXPECT_NE(prefab_source.find("attributes.tex_coord_3 = true"), std::string::npos);
-  EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_2 = true"), std::string::npos);
-  EXPECT_NE(prefab_source.find("skinned_vertex_attributes.tex_coord_3 = true"), std::string::npos);
+  EXPECT_EQ(prefab_source.find("HasTextureCoords(2)"), std::string::npos);
+  EXPECT_EQ(prefab_source.find("HasTextureCoords(3)"), std::string::npos);
   EXPECT_NE(prefab_source.find("glm::vec4(color.r, color.g, color.b, color.a)"), std::string::npos);
   EXPECT_NE(prefab_source.find("ReadImportedTexCoord(importer_mesh, 1"), std::string::npos);
   EXPECT_NE(prefab_source.find("bool parsed_gltf = false"), std::string::npos);

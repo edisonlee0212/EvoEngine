@@ -127,7 +127,7 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
       parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 2,
                                                   parameters.lighting_descriptor_set->GetVkDescriptorSet());
       parameters.mesh_pipeline->BindDescriptorSet(
-          vk_command_buffer, 4, parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
+          vk_command_buffer, 3, parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
 
       for (const auto& sorted_instance : sorted_instances) {
         const auto& render_instance = sorted_instance.render_instance;
@@ -146,8 +146,6 @@ void TransparentGeometryPass::Execute(const RenderGraphExecutionContext& context
         RenderInstancePushConstant push_constant;
         push_constant.camera_index = parameters.camera_index;
         push_constant.instance_index = render_instance->instance_index;
-        BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
-                                        render_instance->material_index);
         parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
         render_instance->mesh->DrawIndexed(vk_command_buffer, parameters.mesh_pipeline->states, 1);
         if (parameters.count_draw_calls) {

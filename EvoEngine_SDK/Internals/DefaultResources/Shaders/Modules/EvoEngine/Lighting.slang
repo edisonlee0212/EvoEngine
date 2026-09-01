@@ -117,6 +117,22 @@ float3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, float3 F0, float F90, f
          (max(float3(F90 * (1.0f - roughness)), F0) - F0) * pow(max(1.0f - clamp(cosTheta, 0.0f, 1.0f), 0.0f), 5.0f);
 }
 
+// The G-buffer stores lerp(dielectric F0, base color, metallic), while diffuse energy uses only dielectric Fresnel.
+float3 EE_RECOVER_DIELECTRIC_F0(float3 albedo, float metallic, float3 combinedF0) {
+  const float metalWeight = clamp(metallic, 0.0f, 1.0f);
+  const float dielectricWeight = 1.0f - metalWeight;
+  return dielectricWeight > 0.000001f
+             ? clamp((combinedF0 - max(albedo, float3(0.0f)) * metalWeight) / dielectricWeight, float3(0.0f),
+                     float3(1.0f))
+             : float3(0.0f);
+}
+
+float EE_RECOVER_DIELECTRIC_F90(float metallic, float combinedF90) {
+  const float metalWeight = clamp(metallic, 0.0f, 1.0f);
+  const float dielectricWeight = 1.0f - metalWeight;
+  return dielectricWeight > 0.000001f ? clamp((combinedF90 - metalWeight) / dielectricWeight, 0.0f, 1.0f) : 0.0f;
+}
+
 public
 float3 EE_FUNC_CALCULATE_LIGHTS(in bool calculateShadow, float3 albedo, float specular, float dist, float3 normal,
                                 float3 viewDir, float3 fragPos, float metallic, float roughness, float3 F0, float F90);
@@ -244,15 +260,15 @@ float3 EE_REFLECTION_PROBE_DIRECTION(ReflectionProbeInfo probe, float3 local_pos
       determinant);
 }
 
-float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, int index, ReflectionProbeInfo probe,
-                                                          float3 direction, float lod, float3 global_prefiltered) {
+float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, ReflectionProbeInfo probe, float3 direction,
+                                                          float lod, float3 global_prefiltered) {
   const float blend_weight = clamp(asfloat(probe.transition_parameters.z), 0.0f, 1.0f);
   const float3 source = probe.identity_and_flags.y != 0u
-                            ? resources.sampleReflectionProbe(index * 2, direction, lod)
+                            ? resources.sampleReflectionProbe(int(probe.identity_and_flags.x), direction, lod)
                             : global_prefiltered;
   if (probe.transition_parameters.y == 0u || blend_weight <= 0.0f)
     return source;
-  const float3 target = resources.sampleReflectionProbe(index * 2 + 1, direction, lod);
+  const float3 target = resources.sampleReflectionProbe(int(probe.transition_parameters.x), direction, lod);
   return blend_weight >= 1.0f ? target : lerp(source, target, blend_weight);
 }
 
@@ -298,8 +314,7 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
   ReflectionProbeInfo primary_probe = EE_RENDER_INFO.reflection_probes[primary];
   if (primary_probe.identity_and_flags.y != 0u || primary_probe.transition_parameters.y != 0u) {
     const float3 direction = EE_REFLECTION_PROBE_DIRECTION(primary_probe, primary_local, reflection_direction);
-    result += EE_SAMPLE_REFLECTION_PROBE(resources, primary, primary_probe, direction, roughness * 8.0f,
-                                         global_prefiltered) *
+    result += EE_SAMPLE_REFLECTION_PROBE(resources, primary_probe, direction, roughness * 8.0f, global_prefiltered) *
               primary_probe.lighting_parameters.x * primary_weight;
   } else {
     result += global_prefiltered * primary_weight;
@@ -309,8 +324,8 @@ float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, fl
     ReflectionProbeInfo secondary_probe = EE_RENDER_INFO.reflection_probes[secondary];
     if (secondary_probe.identity_and_flags.y != 0u || secondary_probe.transition_parameters.y != 0u) {
       const float3 direction = EE_REFLECTION_PROBE_DIRECTION(secondary_probe, secondary_local, reflection_direction);
-      result += EE_SAMPLE_REFLECTION_PROBE(resources, secondary, secondary_probe, direction, roughness * 8.0f,
-                                           global_prefiltered) *
+      result +=
+          EE_SAMPLE_REFLECTION_PROBE(resources, secondary_probe, direction, roughness * 8.0f, global_prefiltered) *
                 secondary_probe.lighting_parameters.x * secondary_weight;
     } else {
       result += global_prefiltered * secondary_weight;
@@ -327,8 +342,11 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
   EeEnvironmentalLighting result;
   const float normalDotView = max(dot(normal, viewDir), 0.0f);
   const float3 F = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(normalDotView, F0, F90, roughness);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(
+      normalDotView, EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90), roughness);
   const float3 R = reflect(-viewDir, normal);
-  result.diffuse_weight = (float3(1.0f) - F) * (1.0f - metallic);
+  result.diffuse_weight = (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   const bool reflectionProbeCapture = EE_BASIC_CONSTANTS.instance_index == 2;
 
   const float3 irradiance = EE_ENVIRONMENT.background_color.w == 1.0f
@@ -363,6 +381,18 @@ EeEnvironmentalLighting EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS<T : ILighting
                                    ddgiVisibility, roughness, normalDotView);
   result.specular = result.unoccluded_specular * result.specular_visibility;
   return result;
+}
+
+public
+EeEnvironmentalLighting EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_COMPONENTS<T : ILightingResources>(
+    T resources, float3 albedo, float3 normal, float3 viewDir, float3 fragPos, float metallic, float roughness,
+    float3 F0, float F90, float materialOcclusion, float screenSpaceVisibility) {
+  const EeDdgiGatherResult gather = EE_DDGI_GATHER_IRRADIANCE(normal, viewDir, fragPos, false);
+  const float gatherWeight = EE_DDGI_GATHER_WEIGHT(gather);
+  const float ddgiSpecularVisibility = lerp(1.0f, EE_DDGI_GATHER_VISIBILITY(gather), gatherWeight);
+  return EE_FUNC_CALCULATE_ENVIRONMENTAL_COMPONENTS(
+      resources, albedo, normal, viewDir, fragPos, metallic, roughness, F0, F90, materialOcclusion,
+      screenSpaceVisibility, gather.irradiance, gatherWeight, ddgiSpecularVisibility);
 }
 
 public
@@ -466,12 +496,14 @@ float3 EE_FUNC_DIRECTIONAL_LIGHT(float3 albedo, float specular, int i, float3 no
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001f) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }
@@ -490,12 +522,14 @@ float3 EE_FUNC_POINT_LIGHT(float3 albedo, float specular, int i, float3 normal, 
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }
@@ -519,12 +553,14 @@ float3 EE_FUNC_SPOT_LIGHT(float3 albedo, float specular, int i, float3 normal, f
   float normalDF = EE_FUNC_DISTRIBUTION_GGX(normal, H, roughness);
   float G = EE_FUNC_GEOMETRY_SMITH(normal, viewDir, lightDir, roughness);
   float3 F = EE_FUNC_FRESNEL_SCHLICK(clamp(dot(H, viewDir), 0.0f, 1.0f), F0, F90);
+  const float3 dielectricF = EE_FUNC_FRESNEL_SCHLICK(
+      clamp(dot(H, viewDir), 0.0f, 1.0f), EE_RECOVER_DIELECTRIC_F0(albedo, metallic, F0),
+      EE_RECOVER_DIELECTRIC_F90(metallic, F90));
   float3 nominator = normalDF * G * F;
   float denominator = 4 * max(dot(normal, viewDir), 0.0f) * max(dot(normal, lightDir), 0.0f);
   float3 spec = nominator / max(denominator, 0.001f) * specular;
-  float3 kS = F;
-  float3 kD = float3(1.0f) - kS;
-  kD *= 1.0f - metallic;
+  const float3 kD =
+      (float3(1.0f) - dielectricF) * (1.0f - clamp(metallic, 0.0f, 1.0f));
   float NdotL = max(dot(normal, lightDir), 0.0f);
   return (kD * albedo / PI + spec) * radiance * NdotL;
 }
@@ -728,7 +764,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(DirectionalLight light, int splitIndex, 
   if (any(lightUv < halfTexel) || any(lightUv > float2(1.0f) - halfTexel)) {
     return 1.0f;
   }
-  return EE_DIRECTIONAL_LIGHT_SM.SampleCmp(
+  return EE_DIRECTIONAL_LIGHT_SM.SampleCmpLevelZero(
       float3(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), float(splitIndex)), receiverDepth);
 }
 
@@ -806,17 +842,19 @@ float2 EE_FUNC_SHADOW_ATLAS_UV(float2 lightUv, int viewportXOffset, int viewport
 public
 float EE_FUNC_SPOT_SHADOW_DEPTH(SpotLight light, float2 lightUv) {
   return EE_SPOT_LIGHT_SM
-      .Sample(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset, light.viewport_x_size,
-                                      light.viewport_y_size, EeSpotShadowMapSize()))
+      .SampleLevel(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
+                                           light.viewport_x_size, light.viewport_y_size, EeSpotShadowMapSize()),
+                   0.0f)
       .r;
 }
 
 public
 float EE_FUNC_POINT_SHADOW_DEPTH(PointLight light, int slice, float2 lightUv) {
   return EE_POINT_LIGHT_SM
-      .Sample(float3(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
-                                             light.viewport_x_size, light.viewport_y_size, EePointShadowMapSize()),
-                     float(slice)))
+      .SampleLevel(float3(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
+                                                  light.viewport_x_size, light.viewport_y_size, EePointShadowMapSize()),
+                          float(slice)),
+                   0.0f)
       .r;
 }
 

@@ -1,8 +1,10 @@
 #include "Prefab.hpp"
 #include "Application.hpp"
 #include "AssetManager.hpp"
+#include "Bc7TextureCodec.hpp"
 #include "EditorLayer.hpp"
 #include "GltfMaterialCache.hpp"
+#include "GltfSpecularGlossinessConversion.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
 #include "Platform.hpp"
@@ -19,7 +21,12 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <fstream>
+#include <iomanip>
+#include <mutex>
 #include <optional>
+#include <sstream>
+#include <thread>
 #include <unordered_set>
 
 #include <stb_image.h>
@@ -386,6 +393,56 @@ struct ImportedGltfMaterialData {
   std::vector<AssetRef> texture_refs;
 };
 
+struct GltfSourceTextureInfo {
+  bool present = false;
+  int32_t texture_index = -1;
+  int32_t tex_coord = 0;
+  glm::mat3x2 uv_transform = glm::mat3x2(1.0f);
+};
+
+GltfSourceTextureInfo ReadGltfSourceTextureInfo(const YAML::Node& texture_info) {
+  GltfSourceTextureInfo result;
+  if (!texture_info || !texture_info.IsMap() || !texture_info["index"]) {
+    return result;
+  }
+  result.present = true;
+  result.texture_index = texture_info["index"].as<int32_t>();
+  result.tex_coord = texture_info["texCoord"] ? texture_info["texCoord"].as<int32_t>() : 0;
+  const auto extensions = texture_info["extensions"];
+  const auto transform = extensions ? extensions["KHR_texture_transform"] : YAML::Node{};
+  if (transform && transform.IsMap()) {
+    const glm::vec2 offset = transform["offset"] ? transform["offset"].as<glm::vec2>() : glm::vec2(0.0f);
+    const glm::vec2 scale = transform["scale"] ? transform["scale"].as<glm::vec2>() : glm::vec2(1.0f);
+    const float rotation = transform["rotation"] ? transform["rotation"].as<float>() : 0.0f;
+    if (transform["texCoord"]) {
+      result.tex_coord = transform["texCoord"].as<int32_t>();
+    }
+    result.uv_transform = {scale.x * std::cos(rotation),
+                           scale.x * std::sin(rotation),
+                           -scale.y * std::sin(rotation),
+                           scale.y * std::cos(rotation),
+                           offset.x,
+                           offset.y};
+  }
+  if (result.tex_coord < 0 || result.tex_coord > 1) {
+    EVOENGINE_ERROR("Texture binding disabled because TEXCOORD_" + std::to_string(result.tex_coord) +
+                    " is outside the supported range 0..1.")
+    result.present = false;
+  }
+  return result;
+}
+
+glm::mat3x2 FlipGltfTextureTransformY(const glm::mat3x2& uv_transform) {
+  glm::mat3x2 result = uv_transform;
+  result[0][1] = -result[0][1];
+  result[1][1] = -result[1][1];
+  result[2][1] = 1.0f - result[2][1];
+  return result;
+}
+
+bool ReadTexturePixelsForPacking(const std::shared_ptr<Texture2D>& texture, const glm::uvec2& resolution,
+                                 std::vector<glm::vec4>& pixels);
+
 std::string LowercaseExtension(const std::filesystem::path& path);
 
 YAML::Node evo_engine::ReadGltfRootNode(const std::filesystem::path& path) {
@@ -423,7 +480,8 @@ YAML::Node evo_engine::ReadGltfRootNode(const std::filesystem::path& path) {
   return YAML::Load(json);
 }
 
-std::vector<int32_t> GltfTextureImageIndices(const YAML::Node& gltf, const int32_t texture_index) {
+std::vector<int32_t> GltfTextureImageIndices(const YAML::Node& gltf, const int32_t texture_index,
+                                             const bool prefer_dds = true) {
   std::vector<int32_t> result;
   const auto textures = gltf["textures"];
   if (!textures || !textures.IsSequence() || texture_index < 0 || texture_index >= textures.size()) {
@@ -433,14 +491,19 @@ std::vector<int32_t> GltfTextureImageIndices(const YAML::Node& gltf, const int32
   const auto dds = texture["extensions"] && texture["extensions"]["MSFT_texture_dds"]
                        ? texture["extensions"]["MSFT_texture_dds"]
                        : YAML::Node{};
-  if (dds && dds["source"]) {
-    result.push_back(dds["source"].as<int32_t>());
-  }
-  if (texture["source"]) {
-    const int32_t core_source = texture["source"].as<int32_t>();
-    if (result.empty() || result.front() != core_source) {
-      result.push_back(core_source);
+  const int32_t dds_source = dds && dds["source"] ? dds["source"].as<int32_t>() : -1;
+  const int32_t core_source = texture["source"] ? texture["source"].as<int32_t>() : -1;
+  const auto append_unique = [&](const int32_t image_index) {
+    if (image_index >= 0 && std::find(result.begin(), result.end(), image_index) == result.end()) {
+      result.push_back(image_index);
     }
+  };
+  if (prefer_dds) {
+    append_unique(dds_source);
+    append_unique(core_source);
+  } else {
+    append_unique(core_source);
+    append_unique(dds_source);
   }
   return result;
 }
@@ -526,6 +589,336 @@ std::shared_ptr<Texture2D> LoadEmbeddedGltfTexture(const aiTexture& source, cons
   return texture;
 }
 
+struct GltfDecodedTexture {
+  bc7_texture_codec::MipChain mip_chain;
+  bool source_needs_y_flip = false;
+};
+
+uint64_t HashTextureBytes(const void* data, const size_t size) {
+  uint64_t hash = 14695981039346656037ull;
+  const auto* bytes = static_cast<const unsigned char*>(data);
+  for (size_t index = 0; index < size; ++index) {
+    hash ^= bytes[index];
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+void GenerateColorMipChain(bc7_texture_codec::MipChain& texture) {
+  while (!texture.levels.empty() && texture.levels.back().resolution != glm::uvec2(1)) {
+    const auto& source = texture.levels.back();
+    bc7_texture_codec::MipLevel target;
+    target.resolution = glm::max(source.resolution / 2u, glm::uvec2(1));
+    target.pixels.resize(static_cast<size_t>(target.resolution.x) * target.resolution.y);
+    Jobs::RunParallelFor(target.pixels.size(), [&](const size_t index) {
+      const uint32_t target_x = static_cast<uint32_t>(index) % target.resolution.x;
+      const uint32_t target_y = static_cast<uint32_t>(index) / target.resolution.x;
+      glm::vec4 sum(0.0f);
+      uint32_t samples = 0;
+      for (uint32_t y = 0; y < 2; ++y) {
+        for (uint32_t x = 0; x < 2; ++x) {
+          const uint32_t source_x = std::min(target_x * 2 + x, source.resolution.x - 1);
+          const uint32_t source_y = std::min(target_y * 2 + y, source.resolution.y - 1);
+          const auto& pixel = source.pixels[static_cast<size_t>(source_y) * source.resolution.x + source_x];
+          sum += glm::vec4(gltf_import::DecodeSrgb(glm::vec3(pixel)), pixel.a);
+          ++samples;
+        }
+      }
+      const auto average = sum / static_cast<float>(samples);
+      target.pixels[index] = glm::vec4(gltf_import::EncodeSrgb(glm::vec3(average)), average.a);
+    });
+    texture.levels.emplace_back(std::move(target));
+  }
+}
+
+bool DecodeStandardGltfImage(const std::filesystem::path& path, GltfDecodedTexture& result) {
+  int width = 0;
+  int height = 0;
+  int components = 0;
+  stbi_set_flip_vertically_on_load_thread(true);
+  auto* decoded = stbi_load(path.string().c_str(), &width, &height, &components, STBI_rgb_alpha);
+  if (!decoded || width <= 0 || height <= 0) {
+    if (decoded) {
+      stbi_image_free(decoded);
+    }
+    return false;
+  }
+  bc7_texture_codec::MipLevel level;
+  level.resolution = glm::uvec2(width, height);
+  level.pixels.resize(static_cast<size_t>(width) * height);
+  for (size_t index = 0; index < level.pixels.size(); ++index) {
+    level.pixels[index] =
+        glm::vec4(decoded[index * 4], decoded[index * 4 + 1], decoded[index * 4 + 2], decoded[index * 4 + 3]) / 255.0f;
+  }
+  stbi_image_free(decoded);
+  result.mip_chain.levels = {std::move(level)};
+  std::ifstream stream(path, std::ios::binary);
+  std::vector<unsigned char> source_bytes((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+  result.mip_chain.content_hash = HashTextureBytes(source_bytes.data(), source_bytes.size());
+  result.source_needs_y_flip = true;
+  GenerateColorMipChain(result.mip_chain);
+  return true;
+}
+
+bool DecodeEmbeddedGltfImage(const aiTexture& source, GltfDecodedTexture& result) {
+  if (!source.pcData || source.mWidth == 0) {
+    return false;
+  }
+  if (source.mHeight == 0) {
+    const auto byte_size = static_cast<size_t>(source.mWidth);
+    const auto* bytes = reinterpret_cast<const std::byte*>(source.pcData);
+    if (byte_size >= 4 && std::memcmp(bytes, "DDS ", 4) == 0) {
+      std::vector<std::byte> dds(bytes, bytes + byte_size);
+      result.source_needs_y_flip = false;
+      return bc7_texture_codec::DecodeDds(dds, result.mip_chain);
+    }
+    int width = 0;
+    int height = 0;
+    int components = 0;
+    stbi_set_flip_vertically_on_load_thread(true);
+    auto* decoded =
+        stbi_load_from_memory(reinterpret_cast<const stbi_uc*>(source.pcData), static_cast<int>(source.mWidth), &width,
+                              &height, &components, STBI_rgb_alpha);
+    if (!decoded || width <= 0 || height <= 0) {
+      if (decoded) {
+        stbi_image_free(decoded);
+      }
+      return false;
+    }
+    bc7_texture_codec::MipLevel level;
+    level.resolution = glm::uvec2(width, height);
+    level.pixels.resize(static_cast<size_t>(width) * height);
+    for (size_t index = 0; index < level.pixels.size(); ++index) {
+      level.pixels[index] =
+          glm::vec4(decoded[index * 4], decoded[index * 4 + 1], decoded[index * 4 + 2], decoded[index * 4 + 3]) /
+          255.0f;
+    }
+    stbi_image_free(decoded);
+    result.mip_chain.levels = {std::move(level)};
+    result.mip_chain.content_hash = HashTextureBytes(source.pcData, byte_size);
+    result.source_needs_y_flip = true;
+    GenerateColorMipChain(result.mip_chain);
+    return true;
+  }
+
+  bc7_texture_codec::MipLevel level;
+  level.resolution = glm::uvec2(source.mWidth, source.mHeight);
+  level.pixels.resize(static_cast<size_t>(source.mWidth) * source.mHeight);
+  const size_t source_byte_size = level.pixels.size() * sizeof(aiTexel);
+  for (uint32_t y = 0; y < source.mHeight; ++y) {
+    for (uint32_t x = 0; x < source.mWidth; ++x) {
+      const auto& texel = source.pcData[(source.mHeight - 1 - y) * source.mWidth + x];
+      level.pixels[static_cast<size_t>(y) * source.mWidth + x] = glm::vec4(texel.r, texel.g, texel.b, texel.a) / 255.0f;
+    }
+  }
+  result.mip_chain.levels = {std::move(level)};
+  result.mip_chain.content_hash = HashTextureBytes(source.pcData, source_byte_size);
+  result.source_needs_y_flip = true;
+  GenerateColorMipChain(result.mip_chain);
+  return true;
+}
+
+std::shared_ptr<GltfDecodedTexture> DecodeGltfTextureForConversion(
+    const YAML::Node& gltf, const aiScene& scene, const std::string& directory, const int32_t texture_index,
+    std::unordered_map<int32_t, std::weak_ptr<GltfDecodedTexture>>& decoded_textures) {
+  if (texture_index < 0) {
+    return {};
+  }
+  if (const auto cached = decoded_textures.find(texture_index); cached != decoded_textures.end()) {
+    if (auto texture = cached->second.lock()) {
+      return texture;
+    }
+  }
+  for (const int32_t image_index : GltfTextureImageIndices(gltf, texture_index, false)) {
+    auto decoded = std::make_shared<GltfDecodedTexture>();
+    if (const auto embedded = GltfEmbeddedTexture(gltf, scene, image_index)) {
+      if (DecodeEmbeddedGltfImage(*embedded, *decoded)) {
+        decoded_textures[texture_index] = decoded;
+        return decoded;
+      }
+      continue;
+    }
+    const auto uri = GltfImageUri(gltf, image_index);
+    for (const auto& full_path : CollectTextureImportCandidates(directory, uri, false)) {
+      if (!std::filesystem::is_regular_file(full_path)) {
+        continue;
+      }
+      const auto extension = LowercaseExtension(full_path);
+      const bool success = extension == ".dds" ? bc7_texture_codec::DecodeDds(full_path, decoded->mip_chain)
+                                               : DecodeStandardGltfImage(full_path, *decoded);
+      if (success) {
+        decoded->source_needs_y_flip = extension != ".dds";
+        decoded_textures[texture_index] = decoded;
+        return decoded;
+      }
+    }
+  }
+  return {};
+}
+
+float AddressGltfTextureCoordinate(float value, const VkSamplerAddressMode mode) {
+  switch (mode) {
+    case VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE:
+      return glm::clamp(value, 0.0f, 1.0f);
+    case VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT: {
+      const float period = std::floor(value);
+      const float fraction = value - period;
+      return (static_cast<int64_t>(period) & 1) == 0 ? fraction : 1.0f - fraction;
+    }
+    default:
+      return value - std::floor(value);
+  }
+}
+
+glm::vec4 SampleGltfDecodedTexture(const GltfDecodedTexture& texture, const uint32_t mip_level, glm::vec2 uv,
+                                   const Texture2DSamplerSettings& sampler) {
+  const auto& level = texture.mip_chain.levels[std::min<size_t>(mip_level, texture.mip_chain.levels.size() - 1)];
+  uv.x = AddressGltfTextureCoordinate(uv.x, sampler.address_mode_u);
+  uv.y = AddressGltfTextureCoordinate(uv.y, sampler.address_mode_v);
+  const bool nearest = sampler.min_filter == VK_FILTER_NEAREST;
+  const auto fetch = [&](int32_t x, int32_t y) {
+    const auto address_index = [](const int32_t index, const uint32_t size, const VkSamplerAddressMode mode) {
+      if (mode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE) {
+        return static_cast<uint32_t>(glm::clamp(index, 0, static_cast<int32_t>(size) - 1));
+      }
+      const int32_t period =
+          mode == VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT ? static_cast<int32_t>(size) * 2 : static_cast<int32_t>(size);
+      int32_t wrapped = index % period;
+      if (wrapped < 0) {
+        wrapped += period;
+      }
+      if (mode == VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT && wrapped >= static_cast<int32_t>(size)) {
+        wrapped = period - 1 - wrapped;
+      }
+      return static_cast<uint32_t>(wrapped);
+    };
+    const uint32_t sample_x = address_index(x, level.resolution.x, sampler.address_mode_u);
+    const uint32_t sample_y = address_index(y, level.resolution.y, sampler.address_mode_v);
+    return level.pixels[static_cast<size_t>(sample_y) * level.resolution.x + sample_x];
+  };
+  if (nearest) {
+    return fetch(static_cast<int32_t>(std::floor(uv.x * level.resolution.x)),
+                 static_cast<int32_t>(std::floor(uv.y * level.resolution.y)));
+  }
+  const glm::vec2 position = uv * glm::vec2(level.resolution) - glm::vec2(0.5f);
+  const glm::ivec2 base = glm::floor(position);
+  const glm::vec2 blend = glm::fract(position);
+  return glm::mix(glm::mix(fetch(base.x, base.y), fetch(base.x + 1, base.y), blend.x),
+                  glm::mix(fetch(base.x, base.y + 1), fetch(base.x + 1, base.y + 1), blend.x), blend.y);
+}
+
+glm::vec2 RebaseGltfTextureCoordinate(const glm::vec2 output_uv, const GltfSourceTextureInfo& domain,
+                                      const GltfSourceTextureInfo& source) {
+  if (source.tex_coord != domain.tex_coord) {
+    return output_uv;
+  }
+  const glm::mat2 domain_linear(domain.uv_transform[0], domain.uv_transform[1]);
+  const float determinant = glm::determinant(domain_linear);
+  if (std::abs(determinant) <= 1.0e-8f) {
+    return output_uv;
+  }
+  const glm::vec2 untransformed = glm::inverse(domain_linear) * (output_uv - domain.uv_transform[2]);
+  return glm::mat2(source.uv_transform[0], source.uv_transform[1]) * untransformed + source.uv_transform[2];
+}
+
+uint64_t HashConversionText(const std::string& text, uint64_t hash) {
+  for (const unsigned char value : text) {
+    hash ^= value;
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
+
+std::string GltfConversionCacheId(const std::string& key) {
+  const uint64_t low = HashConversionText(key, 14695981039346656037ull);
+  const uint64_t high = HashConversionText(key, 1099511628211ull);
+  std::ostringstream name;
+  name << std::hex << std::setfill('0') << std::setw(16) << high << std::setw(16) << low;
+  return name.str();
+}
+
+std::filesystem::path GltfMaterialConversionCacheDirectory() {
+  const auto project_folder = ProjectManager::GetProjectFolderPath();
+  if (!project_folder.empty()) {
+    return project_folder / "Cache/GltfMaterialConversion/v1";
+  }
+  return std::filesystem::temp_directory_path() / "EvoEngine/Cache/GltfMaterialConversion/v1";
+}
+
+bool PublishConvertedGltfTextures(const std::filesystem::path& base_path, const std::filesystem::path& mr_path,
+                                  const std::filesystem::path& manifest_path,
+                                  const std::vector<bc7_texture_codec::MipLevel>& base_levels,
+                                  const std::vector<bc7_texture_codec::MipLevel>& mr_levels, const std::string& key,
+                                  std::string& error) {
+  static std::mutex cache_mutex;
+  std::lock_guard lock(cache_mutex);
+  if (std::filesystem::is_regular_file(manifest_path) &&
+      bc7_texture_codec::ValidateDds(base_path, base_levels.front().resolution, true) &&
+      bc7_texture_codec::ValidateDds(mr_path, mr_levels.front().resolution, false)) {
+    return true;
+  }
+  std::error_code file_error;
+  std::filesystem::create_directories(base_path.parent_path(), file_error);
+  if (file_error) {
+    error = "unable to create the material conversion cache directory";
+    return false;
+  }
+  std::ostringstream suffix;
+  suffix << ".tmp-" << std::hash<std::thread::id>{}(std::this_thread::get_id()) << '-'
+         << std::chrono::steady_clock::now().time_since_epoch().count();
+  auto base_temporary = base_path;
+  auto mr_temporary = mr_path;
+  auto manifest_temporary = manifest_path;
+  base_temporary += suffix.str();
+  mr_temporary += suffix.str();
+  manifest_temporary += suffix.str();
+  const auto cleanup = [&]() {
+    std::filesystem::remove(base_temporary, file_error);
+    file_error.clear();
+    std::filesystem::remove(mr_temporary, file_error);
+    file_error.clear();
+    std::filesystem::remove(manifest_temporary, file_error);
+  };
+  if (!bc7_texture_codec::WriteDds(base_temporary, base_levels, true, true, &error) ||
+      !bc7_texture_codec::WriteDds(mr_temporary, mr_levels, false, false, &error)) {
+    cleanup();
+    return false;
+  }
+  std::ofstream manifest(manifest_temporary, std::ios::binary | std::ios::trunc);
+  manifest << "version=1\nkey=" << key << '\n';
+  manifest.close();
+  if (!manifest) {
+    error = "unable to write the material conversion cache manifest";
+    cleanup();
+    return false;
+  }
+  for (const auto& path : {base_path, mr_path, manifest_path}) {
+    std::filesystem::remove(path, file_error);
+    file_error.clear();
+  }
+  std::filesystem::rename(base_temporary, base_path, file_error);
+  if (!file_error) {
+    std::filesystem::rename(mr_temporary, mr_path, file_error);
+  }
+  if (!file_error) {
+    std::filesystem::rename(manifest_temporary, manifest_path, file_error);
+  }
+  if (file_error) {
+    error = "unable to publish the material conversion cache pair";
+    cleanup();
+    return false;
+  }
+  return true;
+}
+
+std::shared_ptr<Texture2D> LoadConvertedGltfTexture(const std::filesystem::path& path, const bool srgb,
+                                                    const Texture2DSamplerSettings& sampler) {
+  auto texture = AssetManager::CreateTemporaryAsset<Texture2D>();
+  texture->SetSrgbImportOverride(srgb);
+  texture->SetSamplerSettings(sampler);
+  return Serialization::LoadAsset(*texture, path) ? texture : nullptr;
+}
+
 std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
     const std::filesystem::path& path, const std::string& directory,
     std::unordered_map<std::string, std::shared_ptr<Texture2D>>& loaded_textures, const aiScene& scene,
@@ -543,83 +936,93 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
     std::unordered_map<uint64_t, int32_t> resolved_texture_indices;
     std::unordered_map<uint64_t, bool> resolved_texture_source_needs_y_flip;
     std::unordered_map<int32_t, std::shared_ptr<Texture2D>> resolved_textures_by_storage_index;
+    std::unordered_map<int32_t, std::weak_ptr<GltfDecodedTexture>> decoded_conversion_textures;
+    std::unordered_map<std::string, std::pair<std::shared_ptr<Texture2D>, std::shared_ptr<Texture2D>>>
+        converted_specular_glossiness_textures;
+    size_t converted_textured_materials = 0;
+    size_t converted_texture_pairs = 0;
+    size_t conversion_cache_hits = 0;
+    size_t substituted_conversion_sources = 0;
+    size_t factor_only_conversion_fallbacks = 0;
     const auto cache_key = [](const int32_t texture_index, const bool srgb) {
       return (static_cast<uint64_t>(static_cast<uint32_t>(texture_index)) << 1u) | static_cast<uint64_t>(srgb);
     };
     const auto report_error = [&](const std::string& message) {
       EVOENGINE_ERROR(message)
     };
-    auto material_data = BuildGltfMaterialDataFromGltfNode(
-        gltf,
-        [&](const int32_t texture_index, const bool srgb) {
-          if (texture_index < 0) {
-            return -1;
-          }
-          const auto key = cache_key(texture_index, srgb);
-          if (const auto search = resolved_texture_indices.find(key); search != resolved_texture_indices.end()) {
-            return search->second;
-          }
+    const auto report_warning = [&](const std::string& message) {
+      EVOENGINE_WARNING(message)
+    };
+    const std::function<int32_t(int32_t, bool)> resolve_texture = [&](const int32_t texture_index, const bool srgb) {
+      if (texture_index < 0) {
+        return -1;
+      }
+      const auto key = cache_key(texture_index, srgb);
+      if (const auto search = resolved_texture_indices.find(key); search != resolved_texture_indices.end()) {
+        return search->second;
+      }
 
-          const auto sampler = ToTextureSamplerSettings(ReadGltfSamplerInfo(gltf, texture_index, report_error));
-          std::shared_ptr<Texture2D> texture;
-          bool source_needs_y_flip = false;
-          for (const int32_t image_index : GltfTextureImageIndices(gltf, texture_index)) {
-            if (const auto embedded = GltfEmbeddedTexture(gltf, scene, image_index)) {
-              texture = LoadEmbeddedGltfTexture(*embedded, srgb, sampler);
-              source_needs_y_flip = texture != nullptr;
-            } else if (const auto texture_uri = GltfImageUri(gltf, image_index); !texture_uri.empty()) {
-              for (const auto& full_path : CollectTextureImportCandidates(directory, texture_uri, false)) {
-                if (!std::filesystem::exists(full_path)) {
-                  continue;
+      const auto sampler = ToTextureSamplerSettings(ReadGltfSamplerInfo(gltf, texture_index, report_error));
+      std::shared_ptr<Texture2D> texture;
+      bool source_needs_y_flip = false;
+      for (const int32_t image_index : GltfTextureImageIndices(gltf, texture_index)) {
+        if (const auto embedded = GltfEmbeddedTexture(gltf, scene, image_index)) {
+          texture = LoadEmbeddedGltfTexture(*embedded, srgb, sampler);
+          source_needs_y_flip = texture != nullptr;
+        } else if (const auto texture_uri = GltfImageUri(gltf, image_index); !texture_uri.empty()) {
+          for (const auto& full_path : CollectTextureImportCandidates(directory, texture_uri, false)) {
+            if (!std::filesystem::exists(full_path)) {
+              continue;
+            }
+            if (!Platform::Initialized() && LowercaseExtension(full_path) == ".dds") {
+              continue;
+            }
+            std::shared_ptr<Texture2D> candidate;
+            bool shared_project_image = false;
+            if (ProjectManager::IsInAssetsFolder(full_path)) {
+              try {
+                const auto source = std::dynamic_pointer_cast<Texture2D>(
+                    ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
+                auto shared_view = AssetManager::CreateTemporaryAsset<Texture2D>();
+                if (source && shared_view->ShareGpuImage(*source, srgb, sampler)) {
+                  candidate = std::move(shared_view);
+                  shared_project_image = true;
                 }
-                if (!Platform::Initialized() && LowercaseExtension(full_path) == ".dds") {
-                  continue;
-                }
-                std::shared_ptr<Texture2D> candidate;
-                bool shared_project_image = false;
-                if (ProjectManager::IsInAssetsFolder(full_path)) {
-                  try {
-                    const auto source = std::dynamic_pointer_cast<Texture2D>(
-                        ProjectManager::GetOrCreateAsset(ProjectManager::GetAssetsRelativePath(full_path)));
-                    auto shared_view = AssetManager::CreateTemporaryAsset<Texture2D>();
-                    if (source && shared_view->ShareGpuImage(*source, srgb, sampler)) {
-                      candidate = std::move(shared_view);
-                      shared_project_image = true;
-                    }
-                  } catch (const std::exception& e) {
-                    EVOENGINE_WARNING("Unable to reuse project texture " + full_path.filename().string() + ": " +
-                                      e.what())
-                  }
-                }
-                if (!candidate) {
-                  candidate = AssetManager::CreateTemporaryAsset<Texture2D>();
-                  candidate->SetSrgbImportOverride(srgb);
-                  candidate->SetSamplerSettings(sampler);
-                }
-                if (shared_project_image || Serialization::LoadAsset(*candidate, full_path)) {
-                  texture = std::move(candidate);
-                  source_needs_y_flip = TexturePathNeedsYFlip(full_path);
-                  loaded_textures[full_path.string() + "#gltf-" + std::to_string(texture_index) +
-                                  (srgb ? "-srgb" : "-linear")] = texture;
-                  break;
-                }
+              } catch (const std::exception& e) {
+                EVOENGINE_WARNING("Unable to reuse project texture " + full_path.filename().string() + ": " + e.what())
               }
             }
-            if (texture) {
+            if (!candidate) {
+              candidate = AssetManager::CreateTemporaryAsset<Texture2D>();
+              candidate->SetSrgbImportOverride(srgb);
+              candidate->SetSamplerSettings(sampler);
+            }
+            if (shared_project_image || Serialization::LoadAsset(*candidate, full_path)) {
+              texture = std::move(candidate);
+              source_needs_y_flip = TexturePathNeedsYFlip(full_path);
+              loaded_textures[full_path.string() + "#gltf-" + std::to_string(texture_index) +
+                              (srgb ? "-srgb" : "-linear")] = texture;
               break;
             }
           }
-          if (!texture) {
-            report_error("glTF texture " + std::to_string(texture_index) + " could not be decoded; disabling binding.");
-          }
-          const int32_t storage_index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
-          resolved_texture_indices[key] = storage_index;
-          resolved_texture_source_needs_y_flip[key] = source_needs_y_flip;
-          if (texture && storage_index >= 0) {
-            resolved_textures_by_storage_index[storage_index] = texture;
-          }
-          return storage_index;
-        },
+        }
+        if (texture) {
+          break;
+        }
+      }
+      if (!texture) {
+        report_error("glTF texture " + std::to_string(texture_index) + " could not be decoded; disabling binding.");
+      }
+      const int32_t storage_index = texture ? static_cast<int32_t>(texture->GetTextureStorageIndex()) : -1;
+      resolved_texture_indices[key] = storage_index;
+      resolved_texture_source_needs_y_flip[key] = source_needs_y_flip;
+      if (texture && storage_index >= 0) {
+        resolved_textures_by_storage_index[storage_index] = texture;
+      }
+      return storage_index;
+    };
+    auto material_data = BuildGltfMaterialDataFromGltfNode(
+        gltf, resolve_texture,
         [&](const int32_t texture_index, const bool srgb) {
           const auto resolved = resolved_texture_source_needs_y_flip.find(cache_key(texture_index, srgb));
           return resolved != resolved_texture_source_needs_y_flip.end() && resolved->second;
@@ -633,7 +1036,237 @@ std::vector<ImportedGltfMaterialData> ReadGltfMaterialData(
           return resolved_texture != resolved_textures_by_storage_index.end() && resolved_texture->second &&
                  resolved_texture->second->SamplesLinearSrgb();
         },
-        report_error);
+        [&](const std::string& message) {
+          if (message.find("converts KHR_materials_pbrSpecularGlossiness factors only") == std::string::npos) {
+            report_error(message);
+          }
+        });
+
+    const auto source_materials = gltf["materials"];
+    for (size_t material_index = 0;
+         source_materials && material_index < source_materials.size() && material_index < material_data.size();
+         ++material_index) {
+      const auto extensions = source_materials[material_index]["extensions"];
+      const auto specular_glossiness = extensions ? extensions["KHR_materials_pbrSpecularGlossiness"] : YAML::Node{};
+      if (!specular_glossiness || !specular_glossiness.IsMap()) {
+        continue;
+      }
+      if (extensions["KHR_materials_unlit"]) {
+        continue;
+      }
+
+      const auto read_vec4 = [](const YAML::Node& node, const glm::vec4& fallback) {
+        try {
+          return node ? node.as<glm::vec4>() : fallback;
+        } catch (const YAML::Exception&) {
+          return fallback;
+        }
+      };
+      const auto read_vec3 = [](const YAML::Node& node, const glm::vec3& fallback) {
+        try {
+          return node ? node.as<glm::vec3>() : fallback;
+        } catch (const YAML::Exception&) {
+          return fallback;
+        }
+      };
+      const auto read_float = [](const YAML::Node& node, const float fallback) {
+        try {
+          return node ? node.as<float>() : fallback;
+        } catch (const YAML::Exception&) {
+          return fallback;
+        }
+      };
+      const glm::vec4 diffuse_factor = read_vec4(specular_glossiness["diffuseFactor"], glm::vec4(1.0f));
+      const glm::vec3 specular_factor = read_vec3(specular_glossiness["specularFactor"], glm::vec3(1.0f));
+      const float glossiness_factor = read_float(specular_glossiness["glossinessFactor"], 1.0f);
+      const auto diffuse_info = ReadGltfSourceTextureInfo(specular_glossiness["diffuseTexture"]);
+      const auto specular_info = ReadGltfSourceTextureInfo(specular_glossiness["specularGlossinessTexture"]);
+      if (!diffuse_info.present && !specular_info.present) {
+        continue;
+      }
+
+      const auto source_texture = [&](const GltfSourceTextureInfo& info) {
+        return info.present ? DecodeGltfTextureForConversion(gltf, scene, directory, info.texture_index,
+                                                             decoded_conversion_textures)
+                            : std::shared_ptr<GltfDecodedTexture>{};
+      };
+      const auto diffuse_texture = source_texture(diffuse_info);
+      const auto specular_texture = source_texture(specular_info);
+      const auto& domain_info = diffuse_info.present ? diffuse_info : specular_info;
+      const auto domain_texture = diffuse_info.present ? diffuse_texture : specular_texture;
+      const auto source_sampler = [&](const GltfSourceTextureInfo& info) {
+        return info.present ? ToTextureSamplerSettings(ReadGltfSamplerInfo(gltf, info.texture_index))
+                            : Texture2DSamplerSettings{};
+      };
+      const auto diffuse_sampler = source_sampler(diffuse_info);
+      const auto specular_sampler = source_sampler(specular_info);
+      const auto& domain_sampler = diffuse_info.present ? diffuse_sampler : specular_sampler;
+      const bool matching_mapping = !diffuse_info.present || !specular_info.present ||
+                                    (diffuse_info.tex_coord == specular_info.tex_coord &&
+                                     diffuse_info.uv_transform == specular_info.uv_transform);
+      if (!matching_mapping) {
+        report_warning("glTF material " + std::to_string(material_index) +
+                       " rebases specular-glossiness textures with different UV mappings into the diffuse mapping.");
+      }
+
+      glm::uvec2 resolution(0);
+      if (diffuse_texture && !diffuse_texture->mip_chain.levels.empty()) {
+        resolution = glm::max(resolution, diffuse_texture->mip_chain.levels.front().resolution);
+      }
+      if (specular_texture && !specular_texture->mip_chain.levels.empty()) {
+        resolution = glm::max(resolution, specular_texture->mip_chain.levels.front().resolution);
+      }
+      if (resolution.x == 0 || resolution.y == 0) {
+        report_warning("glTF material " + std::to_string(material_index) +
+                       " could not read specular-glossiness texture dimensions; using factor-only conversion.");
+        ++factor_only_conversion_fallbacks;
+        continue;
+      }
+      if (diffuse_info.present && !diffuse_texture) {
+        ++substituted_conversion_sources;
+        report_warning("glTF material " + std::to_string(material_index) +
+                       " could not decode its diffuse texture; substituting diffuseFactor.");
+      }
+      if (specular_info.present && !specular_texture) {
+        ++substituted_conversion_sources;
+        report_warning("glTF material " + std::to_string(material_index) +
+                       " could not decode its specular-glossiness texture; substituting its factors.");
+      }
+
+      std::ostringstream conversion_key;
+      conversion_key << "khr-sg-bc7-v1:" << (diffuse_texture ? diffuse_texture->mip_chain.content_hash : 0) << ':'
+                     << (specular_texture ? specular_texture->mip_chain.content_hash : 0) << ':' << resolution.x << 'x'
+                     << resolution.y << ':' << diffuse_factor.x << ':' << diffuse_factor.y << ':' << diffuse_factor.z
+                     << ':' << diffuse_factor.w << ':' << specular_factor.x << ':' << specular_factor.y << ':'
+                     << specular_factor.z << ':' << glossiness_factor;
+      const auto append_source = [&](const GltfSourceTextureInfo& info, const Texture2DSamplerSettings& sampler,
+                                     const std::shared_ptr<GltfDecodedTexture>& texture) {
+        conversion_key << ':' << info.present << ':' << info.tex_coord << ':'
+                       << (texture ? texture->source_needs_y_flip : false) << ':' << sampler.mag_filter << ':'
+                       << sampler.min_filter << ':' << sampler.mipmap_mode << ':' << sampler.address_mode_u << ':'
+                       << sampler.address_mode_v << ':' << sampler.min_lod << ':' << sampler.max_lod;
+        for (int column = 0; column < 3; ++column) {
+          conversion_key << ':' << info.uv_transform[column].x << ':' << info.uv_transform[column].y;
+        }
+      };
+      append_source(diffuse_info, diffuse_sampler, diffuse_texture);
+      append_source(specular_info, specular_sampler, specular_texture);
+
+      std::shared_ptr<Texture2D> base_color_texture;
+      std::shared_ptr<Texture2D> metallic_roughness_texture;
+      if (const auto cached = converted_specular_glossiness_textures.find(conversion_key.str());
+          cached != converted_specular_glossiness_textures.end()) {
+        base_color_texture = cached->second.first;
+        metallic_roughness_texture = cached->second.second;
+      } else {
+        const auto cache_id = GltfConversionCacheId(conversion_key.str());
+        const auto cache_directory = GltfMaterialConversionCacheDirectory();
+        const auto base_path = cache_directory / (cache_id + "-base.dds");
+        const auto mr_path = cache_directory / (cache_id + "-mr.dds");
+        const auto manifest_path = cache_directory / (cache_id + ".manifest");
+        const bool cache_available = std::filesystem::is_regular_file(manifest_path) &&
+                                     bc7_texture_codec::ValidateDds(base_path, resolution, true) &&
+                                     bc7_texture_codec::ValidateDds(mr_path, resolution, false);
+        if (cache_available) {
+          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler);
+          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler);
+          if (base_color_texture && metallic_roughness_texture) {
+            ++conversion_cache_hits;
+          }
+        }
+        if (!base_color_texture || !metallic_roughness_texture) {
+          std::vector<bc7_texture_codec::MipLevel> base_levels;
+          std::vector<bc7_texture_codec::MipLevel> mr_levels;
+          auto mip_resolution = resolution;
+          uint32_t mip_level = 0;
+          while (true) {
+            bc7_texture_codec::MipLevel base_level;
+            bc7_texture_codec::MipLevel mr_level;
+            base_level.resolution = mip_resolution;
+            mr_level.resolution = mip_resolution;
+            const size_t pixel_count = static_cast<size_t>(mip_resolution.x) * mip_resolution.y;
+            base_level.pixels.resize(pixel_count);
+            mr_level.pixels.resize(pixel_count);
+            Jobs::RunParallelFor(pixel_count, [&](const size_t pixel_index) {
+              const uint32_t x = static_cast<uint32_t>(pixel_index) % mip_resolution.x;
+              const uint32_t y = static_cast<uint32_t>(pixel_index) / mip_resolution.x;
+              const glm::vec2 output_uv = (glm::vec2(x, y) + glm::vec2(0.5f)) / glm::vec2(mip_resolution);
+              const glm::vec4 diffuse_sample =
+                  diffuse_texture
+                      ? SampleGltfDecodedTexture(*diffuse_texture, mip_level,
+                                                 RebaseGltfTextureCoordinate(output_uv, domain_info, diffuse_info),
+                                                 diffuse_sampler)
+                      : glm::vec4(1.0f);
+              const glm::vec4 specular_sample =
+                  specular_texture
+                      ? SampleGltfDecodedTexture(*specular_texture, mip_level,
+                                                 RebaseGltfTextureCoordinate(output_uv, domain_info, specular_info),
+                                                 specular_sampler)
+                      : glm::vec4(1.0f);
+              const auto converted = gltf_import::ConvertSpecularGlossinessTexel(
+                  diffuse_sample, specular_sample, diffuse_factor, specular_factor, glossiness_factor);
+              base_level.pixels[pixel_index] = converted.first;
+              mr_level.pixels[pixel_index] = converted.second;
+            });
+            base_levels.emplace_back(std::move(base_level));
+            mr_levels.emplace_back(std::move(mr_level));
+            if (mip_resolution == glm::uvec2(1)) {
+              break;
+            }
+            mip_resolution = glm::max(mip_resolution / 2u, glm::uvec2(1));
+            ++mip_level;
+          }
+          std::string cache_error;
+          if (!PublishConvertedGltfTextures(base_path, mr_path, manifest_path, base_levels, mr_levels,
+                                            conversion_key.str(), cache_error)) {
+            report_warning("glTF material " + std::to_string(material_index) + " could not cache converted textures (" +
+                           cache_error + "); using factor-only conversion.");
+            ++factor_only_conversion_fallbacks;
+            continue;
+          }
+          base_color_texture = LoadConvertedGltfTexture(base_path, true, domain_sampler);
+          metallic_roughness_texture = LoadConvertedGltfTexture(mr_path, false, domain_sampler);
+          if (!base_color_texture || !metallic_roughness_texture) {
+            report_warning("glTF material " + std::to_string(material_index) +
+                           " could not load its converted BC7 textures; using factor-only conversion.");
+            ++factor_only_conversion_fallbacks;
+            continue;
+          }
+          ++converted_texture_pairs;
+        }
+        converted_specular_glossiness_textures[conversion_key.str()] = {base_color_texture, metallic_roughness_texture};
+      }
+
+      auto uv_transform = domain_info.uv_transform;
+      if (domain_texture && domain_texture->source_needs_y_flip) {
+        uv_transform = FlipGltfTextureTransformY(uv_transform);
+      }
+      auto& converted_material = material_data[material_index];
+      converted_material.shade_material.pbr_base_color_factor = glm::vec4(1.0f);
+      converted_material.shade_material.pbr_metallic_factor = 1.0f;
+      converted_material.shade_material.pbr_roughness_factor = 1.0f;
+      const int32_t base_color_index = static_cast<int32_t>(base_color_texture->GetTextureStorageIndex());
+      const int32_t metallic_roughness_index =
+          static_cast<int32_t>(metallic_roughness_texture->GetTextureStorageIndex());
+      AssignGltfTextureSlot(
+          converted_material, &GltfShadeMaterial::pbr_base_color_texture, base_color_index, domain_info.tex_coord,
+          uv_transform,
+          base_color_texture->SamplesLinearSrgb() ? GltfTextureColorSpace::Linear : GltfTextureColorSpace::Srgb);
+      AssignGltfTextureSlot(converted_material, &GltfShadeMaterial::pbr_metallic_roughness_texture,
+                            metallic_roughness_index, domain_info.tex_coord, uv_transform,
+                            GltfTextureColorSpace::Linear);
+      resolved_textures_by_storage_index[base_color_index] = base_color_texture;
+      resolved_textures_by_storage_index[metallic_roughness_index] = metallic_roughness_texture;
+      ++converted_textured_materials;
+    }
+    if (!converted_specular_glossiness_textures.empty() || factor_only_conversion_fallbacks > 0) {
+      EVOENGINE_LOG("glTF specular-glossiness conversion: " + std::to_string(converted_textured_materials) +
+                    " textured materials, " + std::to_string(converted_specular_glossiness_textures.size()) +
+                    " unique pairs, " + std::to_string(converted_texture_pairs) + " encoded, " +
+                    std::to_string(conversion_cache_hits) + " persistent cache hits, " +
+                    std::to_string(substituted_conversion_sources) + " source substitutions, " +
+                    std::to_string(factor_only_conversion_fallbacks) + " factor-only fallbacks.")
+    }
     std::vector<ImportedGltfMaterialData> result;
     result.reserve(material_data.size());
     for (auto& data : material_data) {
@@ -670,8 +1303,14 @@ bool ReadTexturePixelsForPacking(const std::shared_ptr<Texture2D>& texture, cons
   }
   const auto pixel_count = static_cast<size_t>(resolution.x) * resolution.y;
   const auto& local_pixels = texture->PeekLocalData();
-  if (texture->GetResolution() == resolution && local_pixels.size() == pixel_count) {
-    pixels = local_pixels;
+  const auto source_resolution = texture->GetResolution();
+  const auto source_pixel_count = static_cast<size_t>(source_resolution.x) * source_resolution.y;
+  if (local_pixels.size() == source_pixel_count) {
+    if (source_resolution == resolution) {
+      pixels = local_pixels;
+    } else {
+      Texture2D::Resize(local_pixels, source_resolution, pixels, resolution);
+    }
     return true;
   }
   texture->GetRgbaChannelData(pixels, static_cast<int>(resolution.x), static_cast<int>(resolution.y));
@@ -992,14 +1631,6 @@ std::shared_ptr<Mesh> ReadMesh(aiMesh* importer_mesh, const bool restore_gltf_co
       vertex.tex_coord_1 = glm::vec2(0.0f);
       attributes.tex_coord_1 = false;
     }
-    if (importer_mesh->HasTextureCoords(2)) {
-      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
-      attributes.tex_coord_2 = true;
-    }
-    if (importer_mesh->HasTextureCoords(3)) {
-      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
-      attributes.tex_coord_3 = true;
-    }
     vertices[i] = vertex;
   }
   auto [morph_targets, default_morph_weights] = restore_gltf_coordinates
@@ -1098,14 +1729,6 @@ std::shared_ptr<SkinnedMesh> ReadSkinnedMesh(
     } else {
       vertex.tex_coord_1 = glm::vec2(0.0f);
       skinned_vertex_attributes.tex_coord_1 = false;
-    }
-    if (importer_mesh->HasTextureCoords(2)) {
-      vertex.tex_coord_2 = ReadImportedTexCoord(importer_mesh, 2, i, restore_gltf_coordinates);
-      skinned_vertex_attributes.tex_coord_2 = true;
-    }
-    if (importer_mesh->HasTextureCoords(3)) {
-      vertex.tex_coord_3 = ReadImportedTexCoord(importer_mesh, 3, i, restore_gltf_coordinates);
-      skinned_vertex_attributes.tex_coord_3 = true;
     }
     vertices[i] = vertex;
   }

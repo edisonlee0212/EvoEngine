@@ -267,15 +267,6 @@ float3 EE_GLTF_RT_COATED_EMISSION_LOD0(const uint material_index, const float2 t
   return EE_GLTF_RT_COATED_EMISSION_LOD0(material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1), normal,
                                          tangent, bitangent, outgoing_direction);
 }
-public
-float3 EE_GLTF_RT_COATED_EMISSION_LOD0(const uint material_index, const float2 tex_coord_0, const float2 tex_coord_1,
-                                       const float2 tex_coord_2, const float2 tex_coord_3, const float3 normal,
-                                       const float3 tangent, const float3 bitangent, const float3 outgoing_direction) {
-  return EE_GLTF_RT_COATED_EMISSION_LOD0(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, float4(0.0)), normal,
-      tangent, bitangent, outgoing_direction);
-}
-public
 float EE_GLTF_RT_FRESNEL_COSINE_APPROXIMATION(const float v_dot_n, const float roughness) {
   return lerp(v_dot_n, sqrt(0.5f + 0.5f * v_dot_n), sqrt(clamp(roughness, 0.0f, 1.0f)));
 }
@@ -817,11 +808,8 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<
     dielectric_ior = material.ior == 0.0f ? 0.0f : max(material.ior, 1.0f);
     pbr.ior2 = material.ior == 0.0f ? EE_GLTF_RT_IOR_INFINITY_SURROGATE : max(material.ior, 1.0f);
   }
-  if ((feature_mask & EE_GLTF_FEATURE_SPECULAR_GLOSSINESS) == 0u ||
-      material.pbr_model != EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-    const float dielectric_f0 = EE_GLTF_RT_IOR_TO_F0(pbr.ior1, dielectric_ior);
-    pbr.specular_f0 = float3(dielectric_f0);
-  }
+  const float dielectric_f0 = EE_GLTF_RT_IOR_TO_F0(pbr.ior1, dielectric_ior);
+  pbr.specular_f0 = float3(dielectric_f0);
   if (is_inside && pbr.thickness > 0.0f) {
     pbr.ior1 = pbr.ior2;
     pbr.ior2 = 1.0f;
@@ -838,10 +826,7 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<
       pbr.specular *=
           EE_GLTF_SAMPLE_TEXTURE_SPECIALIZED<feature_mask>(material.specular_texture, tex_coords, float4(1.0f)).a;
     }
-    if ((feature_mask & EE_GLTF_FEATURE_SPECULAR_GLOSSINESS) == 0u ||
-        material.pbr_model != EE_GLTF_PBR_MODEL_SPECULAR_GLOSSINESS) {
-      pbr.specular_f0 = clamp(pbr.specular_f0 * max(pbr.specular_color, float3(0.0f)), float3(0.0f), float3(1.0f));
-    }
+    pbr.specular_f0 = clamp(pbr.specular_f0 * max(pbr.specular_color, float3(0.0f)), float3(0.0f), float3(1.0f));
   }
   if ((feature_mask & EE_GLTF_FEATURE_TRANSMISSION) != 0u) {
     pbr.transmission = material.transmission_factor;
@@ -982,44 +967,13 @@ GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(uint materia
   return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(material_index, tex_coords, vertex_color, surface, normal, tangent,
                                                    bitangent, geometric_normal, is_inside);
 }
-public
-GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<let feature_mask : uint>(
-    uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2, float2 tex_coord_3,
-    float4 vertex_color, GltfRasterMaterial surface, float3 normal, float3 tangent, float3 bitangent,
-    float3 geometric_normal, bool is_inside, float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<feature_mask>(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      vertex_color, surface, normal, tangent, bitangent, geometric_normal, is_inside);
-}
-public
-GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-    uint material_index, float2 tex_coord_0, float2 tex_coord_1, float2 tex_coord_2, float2 tex_coord_3,
-    float4 vertex_color, GltfRasterMaterial surface, float3 normal, float3 tangent, float3 bitangent,
-    float3 geometric_normal, bool is_inside, float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      vertex_color, surface, normal, tangent, bitangent, geometric_normal, is_inside);
-}
-public
-GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(uint material_index, float2 tex_coord_0,
-                                                                    float2 tex_coord_1, float2 tex_coord_2,
-                                                                    float2 tex_coord_3, float4 vertex_color,
-                                                                    float3 normal, float3 tangent, float3 bitangent,
-                                                                    float3 geometric_normal, bool is_inside,
-                                                                    float4 tex_gradients) {
-  return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, tex_gradients),
-      vertex_color, normal, tangent, bitangent, geometric_normal, is_inside);
-}
-public
 GltfRayTracingPbrMaterial EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(uint material_index, float2 tex_coord_0,
                                                                     float2 tex_coord_1, float4 vertex_color,
                                                                     float3 normal, float3 tangent, float3 bitangent,
                                                                     float3 geometric_normal, bool is_inside,
                                                                     float2 tex_grad) {
   return EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL(
-      material_index,
-      EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, float2(0.0), float2(0.0), float4(tex_grad, 0.0, 0.0)),
+      material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, tex_grad),
       vertex_color, normal, tangent, bitangent, geometric_normal, is_inside);
 }
 public

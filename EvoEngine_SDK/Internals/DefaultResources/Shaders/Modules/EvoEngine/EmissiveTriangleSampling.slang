@@ -216,7 +216,7 @@ bool EE_SAMPLE_EMISSIVE_TRIANGLE_SPECIALIZED_MODE<let feature_mask : uint>(
     return false;
   }
   const EeRayTracingSurfaceAttributes attributes =
-      EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(v0, v1, v2, barycentrics, float4(0.0f));
+      EE_RT_INTERPOLATE_SURFACE_ATTRIBUTES(v0, v1, v2, barycentrics, float2(0.0f));
   if (!EE_GLTF_RASTER_ALPHA_MASK_PASSES_LOD0_SPECIALIZED<feature_mask>(material_index, attributes.tex_coords,
                                                                        attributes.vertex_color.a)) {
     result.rejection_reason = EE_DDGI_EMISSIVE_SAMPLE_REJECT_ALPHA_MASK;

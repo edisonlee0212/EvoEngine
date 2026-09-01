@@ -82,178 +82,181 @@ void DeferredGeometryPass::Execute(const RenderGraphExecutionContext& context, c
           use_camera_visibility ? camera_visibility->indexed_indirect_buffer_offset : 0;
       const VkDeviceSize mesh_task_indirect_buffer_offset =
           use_camera_visibility ? camera_visibility->mesh_task_indirect_buffer_offset : 0;
-      const auto& deferred_mesh_indirect_batches = use_camera_visibility
-                                                       ? camera_visibility->deferred_mesh_indirect_batches
-                                                       : parameters.render_instances->deferred_mesh_indirect_batches;
       const auto& mesh_draw_indexed_indirect_commands_buffer =
           use_camera_visibility ? camera_visibility->mesh_draw_indexed_indirect_commands_buffer
                                 : parameters.render_instances->mesh_draw_indexed_indirect_commands_buffer;
       const auto& mesh_draw_mesh_tasks_indirect_commands_buffer =
           use_camera_visibility ? camera_visibility->mesh_draw_mesh_tasks_indirect_commands_buffer
                                 : parameters.render_instances->mesh_draw_mesh_tasks_indirect_commands_buffer;
-      const auto& deferred_render_instances = use_camera_visibility
-                                                  ? camera_visibility->deferred_render_instances
-                                                  : parameters.render_instances->deferred_render_instances;
-      const auto& deferred_instanced_render_instances =
-          use_camera_visibility ? camera_visibility->deferred_instanced_render_instances
-                                : parameters.render_instances->deferred_instanced_render_instances;
-      const auto& deferred_skinned_render_instances =
-          use_camera_visibility ? camera_visibility->deferred_skinned_render_instances
-                                : parameters.render_instances->deferred_skinned_render_instances;
-      const auto& deferred_strands_render_instances =
-          use_camera_visibility ? camera_visibility->deferred_strands_render_instances
-                                : parameters.render_instances->deferred_strands_render_instances;
-      GeometryStorage::BindVertices(vk_command_buffer);
-      {
-        parameters.mesh_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-        parameters.mesh_pipeline->states.SetViewportScissor(viewport);
-        parameters.mesh_pipeline->states.polygon_mode =
-            parameters.wire_frame ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-        parameters.mesh_pipeline->states.depth_write = true;
-        parameters.mesh_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-        parameters.mesh_pipeline->Bind(vk_command_buffer);
-        parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+      const auto render_bucket =
+          [&](const std::shared_ptr<GraphicsPipeline>& mesh_pipeline,
+              const std::shared_ptr<GraphicsPipeline>& instanced_pipeline,
+              const std::shared_ptr<GraphicsPipeline>& skinned_pipeline,
+              const std::shared_ptr<GraphicsPipeline>& strands_pipeline,
+              const std::vector<RenderInstanceStorage::DeferredMeshIndirectBatch>& batches,
+              const std::shared_ptr<RenderInstanceStorage::MeshRenderInstanceCollection>& meshes,
+              const std::shared_ptr<RenderInstanceStorage::InstancedRenderInstanceCollection>& instanced,
+              const std::shared_ptr<RenderInstanceStorage::SkinnedMeshRenderInstanceCollection>& skinned,
+              const std::shared_ptr<RenderInstanceStorage::StrandsRenderInstanceCollection>& strands,
+              const ExternalDeferredRendering& external_rendering) {
+            GeometryStorage::BindVertices(vk_command_buffer);
+            if (mesh_pipeline) {
+              mesh_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+              mesh_pipeline->states.SetViewportScissor(viewport);
+              mesh_pipeline->states.polygon_mode = parameters.wire_frame ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+              mesh_pipeline->states.depth_write = true;
+              mesh_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+              mesh_pipeline->Bind(vk_command_buffer);
+              mesh_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                               parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+              if (parameters.use_mesh_shader && parameters.meshlet_descriptor_set) {
+                mesh_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                 parameters.meshlet_descriptor_set->GetVkDescriptorSet());
+              }
+              if (parameters.enable_indirect_rendering && !batches.empty()) {
+                for (const auto& batch : batches) {
+                  if (batch.command_count == 0) {
+                    continue;
+                  }
+                  RenderInstancePushConstant push_constant;
+                  push_constant.camera_index = parameters.camera_index;
+                  push_constant.meshlet_culling_flags =
+                      MeshletCullingFlags(batch.cull_mode) | RenderInstancePushConstant::kRasterDrawInstanceMappingBit;
+                  push_constant.instance_index = static_cast<int>(
+                      (use_camera_visibility ? camera_visibility->draw_instance_index_offset
+                                             : parameters.render_instances->deferred_mesh_draw_instance_index_offset) +
+                      batch.first_command);
+                  mesh_pipeline->states.polygon_mode = ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode);
+                  mesh_pipeline->states.cull_mode = batch.cull_mode;
+                  mesh_pipeline->states.line_width = batch.line_width;
+                  mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+                  mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
+                  AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count,
+                               RenderDrawCallKind::Indirect, batch.command_count);
+                  if (parameters.use_mesh_shader) {
+                    Platform::DrawMeshTasksIndirect(vk_command_buffer, *mesh_draw_mesh_tasks_indirect_commands_buffer,
+                                                    mesh_task_indirect_buffer_offset +
+                                                        batch.first_command * sizeof(VkDrawMeshTasksIndirectCommandEXT),
+                                                    batch.command_count, sizeof(VkDrawMeshTasksIndirectCommandEXT));
+                  } else {
+                    Platform::DrawIndexedIndirect(
+                        vk_command_buffer, *mesh_draw_indexed_indirect_commands_buffer,
+                        indexed_indirect_buffer_offset + batch.first_command * sizeof(VkDrawIndexedIndirectCommand),
+                        batch.command_count, sizeof(VkDrawIndexedIndirectCommand));
+                  }
+                }
+              } else {
+                meshes->ForEachMeshRenderInstance([&](const auto& render_instance) {
+                  RenderInstancePushConstant push_constant;
+                  push_constant.camera_index = parameters.camera_index;
+                  push_constant.meshlet_culling_flags = MeshletCullingFlags(render_instance->cull_mode);
+                  push_constant.instance_index = render_instance->instance_index;
+                  mesh_pipeline->states.polygon_mode =
+                      ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
+                  mesh_pipeline->states.cull_mode = render_instance->cull_mode;
+                  mesh_pipeline->states.line_width = render_instance->line_width;
+                  const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, mesh_pipeline);
+                  AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+                });
+              }
+            }
+            if (instanced_pipeline) {
+              instanced_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+              instanced_pipeline->states.SetViewportScissor(viewport);
+              instanced_pipeline->states.depth_write = true;
+              instanced_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+              instanced_pipeline->Bind(vk_command_buffer);
+              instanced_pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                                     parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-        if (parameters.use_mesh_shader && parameters.meshlet_descriptor_set) {
-          parameters.mesh_pipeline->BindDescriptorSet(vk_command_buffer, 1,
-                                                      parameters.meshlet_descriptor_set->GetVkDescriptorSet());
-        }
-        if (parameters.enable_indirect_rendering && !deferred_mesh_indirect_batches.empty()) {
-          for (const auto& batch : deferred_mesh_indirect_batches) {
-            if (batch.command_count == 0) {
-              continue;
+              instanced->ForEachInstancedRenderInstance([&](const auto& render_instance) {
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = parameters.camera_index;
+                push_constant.meshlet_culling_flags = 1u;
+                push_constant.instance_index = render_instance->instance_index;
+                instanced_pipeline->states.polygon_mode =
+                    ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
+                instanced_pipeline->states.cull_mode = render_instance->cull_mode;
+                instanced_pipeline->states.line_width = render_instance->line_width;
+                const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, instanced_pipeline);
+                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+              });
             }
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = parameters.camera_index;
-            push_constant.meshlet_culling_flags =
-                MeshletCullingFlags(batch.cull_mode) | RenderInstancePushConstant::kRasterDrawInstanceMappingBit;
-            push_constant.instance_index = static_cast<int>(
-                (use_camera_visibility ? camera_visibility->draw_instance_index_offset
-                                       : parameters.render_instances->deferred_mesh_draw_instance_index_offset) +
-                batch.first_command);
-            parameters.mesh_pipeline->states.polygon_mode =
-                ResolvePolygonMode(parameters.wire_frame, batch.polygon_mode);
-            parameters.mesh_pipeline->states.cull_mode = batch.cull_mode;
-            parameters.mesh_pipeline->states.line_width = batch.line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
-                                            batch.material_index);
-            parameters.mesh_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
-            parameters.mesh_pipeline->states.ApplyAllStates(vk_command_buffer);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, batch.triangle_count,
-                         RenderDrawCallKind::Indirect, batch.command_count);
-            if (parameters.use_mesh_shader) {
-              Platform::DrawMeshTasksIndirect(
-                  vk_command_buffer, *mesh_draw_mesh_tasks_indirect_commands_buffer,
-                  mesh_task_indirect_buffer_offset + batch.first_command * sizeof(VkDrawMeshTasksIndirectCommandEXT),
-                  batch.command_count, sizeof(VkDrawMeshTasksIndirectCommandEXT));
-            } else {
-              Platform::DrawIndexedIndirect(
-                  vk_command_buffer, *mesh_draw_indexed_indirect_commands_buffer,
-                  indexed_indirect_buffer_offset + batch.first_command * sizeof(VkDrawIndexedIndirectCommand),
-                  batch.command_count, sizeof(VkDrawIndexedIndirectCommand));
+            GeometryStorage::BindSkinnedVertices(vk_command_buffer);
+            if (skinned_pipeline) {
+              skinned_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+              skinned_pipeline->states.SetViewportScissor(viewport);
+              skinned_pipeline->states.depth_write = true;
+              skinned_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+              skinned_pipeline->Bind(vk_command_buffer);
+              skinned_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                  parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+              skinned->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = parameters.camera_index;
+                push_constant.meshlet_culling_flags = 1u;
+                push_constant.instance_index = render_instance->instance_index;
+                skinned_pipeline->states.polygon_mode =
+                    ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
+                skinned_pipeline->states.cull_mode = render_instance->cull_mode;
+                skinned_pipeline->states.line_width = render_instance->line_width;
+                const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, skinned_pipeline);
+                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+              });
             }
-          }
-        } else {
-          deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = parameters.camera_index;
-            push_constant.meshlet_culling_flags = MeshletCullingFlags(render_instance->cull_mode);
-            push_constant.instance_index = render_instance->instance_index;
-            parameters.mesh_pipeline->states.polygon_mode =
-                ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
-            parameters.mesh_pipeline->states.cull_mode = render_instance->cull_mode;
-            parameters.mesh_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.mesh_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
-            const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, parameters.mesh_pipeline);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
-          });
-        }
-      }
-      {
-        if (parameters.instanced_pipeline) {
-          parameters.instanced_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          parameters.instanced_pipeline->states.SetViewportScissor(viewport);
-          parameters.instanced_pipeline->states.depth_write = true;
-          parameters.instanced_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-          parameters.instanced_pipeline->Bind(vk_command_buffer);
-          parameters.instanced_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                           parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          deferred_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = parameters.camera_index;
-            push_constant.meshlet_culling_flags = 1u;
-            push_constant.instance_index = render_instance->instance_index;
-            parameters.instanced_pipeline->states.polygon_mode =
-                ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
-            parameters.instanced_pipeline->states.cull_mode = render_instance->cull_mode;
-            parameters.instanced_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.instanced_pipeline,
-                                            parameters.render_instances, render_instance->material_index);
-            const auto prim_count =
-                render_instance->Render(vk_command_buffer, push_constant, parameters.instanced_pipeline);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
-          });
-        }
-      }
-      GeometryStorage::BindSkinnedVertices(vk_command_buffer);
-      {
-        if (parameters.skinned_pipeline) {
-          parameters.skinned_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          parameters.skinned_pipeline->states.SetViewportScissor(viewport);
-          parameters.skinned_pipeline->states.depth_write = true;
-          parameters.skinned_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-          parameters.skinned_pipeline->Bind(vk_command_buffer);
-          parameters.skinned_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                         parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = parameters.camera_index;
-            push_constant.meshlet_culling_flags = 1u;
-            push_constant.instance_index = render_instance->instance_index;
-            parameters.skinned_pipeline->states.polygon_mode =
-                ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
-            parameters.skinned_pipeline->states.cull_mode = render_instance->cull_mode;
-            parameters.skinned_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.skinned_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
-            const auto prim_count =
-                render_instance->Render(vk_command_buffer, push_constant, parameters.skinned_pipeline);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
-          });
-        }
-      }
-      {
-        if (parameters.strands_pipeline) {
-          parameters.strands_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-          parameters.strands_pipeline->states.SetViewportScissor(viewport);
-          parameters.strands_pipeline->states.depth_write = true;
-          parameters.strands_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
-          parameters.strands_pipeline->Bind(vk_command_buffer);
-          parameters.strands_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                         parameters.per_frame_descriptor_set->GetVkDescriptorSet());
-          parameters.strands_pipeline->BindDescriptorSet(
-              vk_command_buffer, 1, parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet());
-          deferred_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
-            RenderInstancePushConstant push_constant;
-            push_constant.camera_index = parameters.camera_index;
-            push_constant.meshlet_culling_flags = 1u;
-            push_constant.instance_index = render_instance->instance_index;
-            parameters.strands_pipeline->states.polygon_mode =
-                ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
-            parameters.strands_pipeline->states.cull_mode = render_instance->cull_mode;
-            parameters.strands_pipeline->states.line_width = render_instance->line_width;
-            BindRasterMaterialDescriptorSet(vk_command_buffer, parameters.strands_pipeline, parameters.render_instances,
-                                            render_instance->material_index);
-            const auto prim_count =
-                render_instance->Render(vk_command_buffer, push_constant, parameters.strands_pipeline);
-            AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
-          });
-        }
-      }
-      if (parameters.external_deferred_rendering) {
-        parameters.external_deferred_rendering(vk_command_buffer, geometry_pass_color_attachment_infos, viewport);
-      }
+            if (strands_pipeline && parameters.strand_meshlet_descriptor_set) {
+              strands_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+              strands_pipeline->states.SetViewportScissor(viewport);
+              strands_pipeline->states.depth_write = true;
+              strands_pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+              strands_pipeline->Bind(vk_command_buffer);
+              strands_pipeline->BindDescriptorSet(vk_command_buffer, 0,
+                                                  parameters.per_frame_descriptor_set->GetVkDescriptorSet());
+              strands_pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                                                  parameters.strand_meshlet_descriptor_set->GetVkDescriptorSet());
+              strands->ForEachStrandsRenderInstance([&](const auto& render_instance) {
+                RenderInstancePushConstant push_constant;
+                push_constant.camera_index = parameters.camera_index;
+                push_constant.meshlet_culling_flags = 1u;
+                push_constant.instance_index = render_instance->instance_index;
+                strands_pipeline->states.polygon_mode =
+                    ResolvePolygonMode(parameters.wire_frame, render_instance->polygon_mode);
+                strands_pipeline->states.cull_mode = render_instance->cull_mode;
+                strands_pipeline->states.line_width = render_instance->line_width;
+                const auto prim_count = render_instance->Render(vk_command_buffer, push_constant, strands_pipeline);
+                AccountDraws(parameters.count_draw_calls, parameters.current_frame_index, prim_count);
+              });
+            }
+            if (external_rendering) {
+              external_rendering(vk_command_buffer, geometry_pass_color_attachment_infos, viewport);
+            }
+          };
+
+      render_bucket(parameters.mesh_pipeline, parameters.instanced_pipeline, parameters.skinned_pipeline,
+                    parameters.strands_pipeline,
+                    use_camera_visibility ? camera_visibility->deferred_mesh_indirect_batches
+                                          : parameters.render_instances->deferred_mesh_indirect_batches,
+                    use_camera_visibility ? camera_visibility->deferred_render_instances
+                                          : parameters.render_instances->deferred_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_instanced_render_instances
+                                          : parameters.render_instances->deferred_instanced_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_skinned_render_instances
+                                          : parameters.render_instances->deferred_skinned_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_strands_render_instances
+                                          : parameters.render_instances->deferred_strands_render_instances,
+                    parameters.external_opaque_rendering);
+      render_bucket(parameters.masked_mesh_pipeline, parameters.masked_instanced_pipeline,
+                    parameters.masked_skinned_pipeline, parameters.masked_strands_pipeline,
+                    use_camera_visibility ? camera_visibility->deferred_masked_mesh_indirect_batches
+                                          : parameters.render_instances->deferred_masked_mesh_indirect_batches,
+                    use_camera_visibility ? camera_visibility->deferred_masked_render_instances
+                                          : parameters.render_instances->deferred_masked_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_masked_instanced_render_instances
+                                          : parameters.render_instances->deferred_masked_instanced_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_masked_skinned_render_instances
+                                          : parameters.render_instances->deferred_masked_skinned_render_instances,
+                    use_camera_visibility ? camera_visibility->deferred_masked_strands_render_instances
+                                          : parameters.render_instances->deferred_masked_strands_render_instances,
+                    parameters.external_masked_rendering);
     });
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
   });

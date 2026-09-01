@@ -46,10 +46,8 @@ struct EE_CAMERA_SURFACE_HIT {
   float3 bitangent;
   float2 tex_coord_0;
   float2 tex_coord_1;
-  float2 tex_coord_2;
-  float2 tex_coord_3;
   float4 vertex_color;
-  float4 tex_gradients;
+  float2 tex_gradients;
   uint material_index;
   bool front_facing;
   GltfRasterMaterial surface;
@@ -146,7 +144,7 @@ float3 EE_CAMERA_SAFE_OFFSET_RAY(const float3 world_position, const float3 offse
       abs(world_position.y) < origin ? world_position.y + float_scale * offset_direction.y : offset_position.y,
       abs(world_position.z) < origin ? world_position.z + float_scale * offset_direction.z : offset_position.z);
 }
-float4 EE_CAMERA_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
+float2 EE_CAMERA_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vertex v1, const Vertex v2) {
   const float3 world_edge_1 = mul(float4(v1.position - v0.position, 0.0f), model).xyz;
   const float3 world_edge_2 = mul(float4(v2.position - v0.position, 0.0f), model).xyz;
   const float world_area = length(cross(world_edge_1, world_edge_2));
@@ -154,14 +152,8 @@ float4 EE_CAMERA_TEXEL_DENSITY(const float4x4 model, const Vertex v0, const Vert
   const float2 uv0_edge_2 = v2.tex_coord - v0.tex_coord;
   const float2 uv1_edge_1 = v1.tex_coord_1 - v0.tex_coord_1;
   const float2 uv1_edge_2 = v2.tex_coord_1 - v0.tex_coord_1;
-  const float2 uv2_edge_1 = v1.tex_coord_2 - v0.tex_coord_2;
-  const float2 uv2_edge_2 = v2.tex_coord_2 - v0.tex_coord_2;
-  const float2 uv3_edge_1 = v1.tex_coord_3 - v0.tex_coord_3;
-  const float2 uv3_edge_2 = v2.tex_coord_3 - v0.tex_coord_3;
-  const float4 uv_area = abs(float4(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
-                                    uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y,
-                                    uv2_edge_1.x * uv2_edge_2.y - uv2_edge_2.x * uv2_edge_1.y,
-                                    uv3_edge_1.x * uv3_edge_2.y - uv3_edge_2.x * uv3_edge_1.y));
+  const float2 uv_area = abs(float2(uv0_edge_1.x * uv0_edge_2.y - uv0_edge_2.x * uv0_edge_1.y,
+                                    uv1_edge_1.x * uv1_edge_2.y - uv1_edge_2.x * uv1_edge_1.y));
   return sqrt(uv_area / max(world_area, 1e-20f));
 }
 float EE_CAMERA_RAY_SPREAD_ANGLE(const float resolution_y) {
@@ -172,7 +164,7 @@ float EE_CAMERA_WORLD_FOOTPRINT(const float ray_cone_width, const float hit_t, c
                                 const float3 ray_direction, const float ray_spread_angle) {
   return (ray_cone_width + hit_t * ray_spread_angle) / max(abs(dot(geometric_normal, -ray_direction)), 1e-3f);
 }
-float4 EE_CAMERA_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const float3 geometric_normal,
+float2 EE_CAMERA_TEXTURE_GRADIENTS(const float ray_cone_width, const float hit_t, const float3 geometric_normal,
                                    const float3 ray_direction, const float4x4 model, const Vertex v0, const Vertex v1,
                                    const Vertex v2, const float ray_spread_angle) {
   return EE_CAMERA_WORLD_FOOTPRINT(ray_cone_width, hit_t, geometric_normal, ray_direction, ray_spread_angle) *
@@ -1147,11 +1139,11 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_LSS_SURFACE_HIT<let feature_mask : u
   const float side_flip = hit.front_facing ? 1.0f : -1.0f;
   hit.geometric_normal = unflipped_geometric_normal * side_flip;
   hit.shadow_position = EE_CAMERA_SAFE_OFFSET_RAY(hit.position, hit.geometric_normal);
-  hit.tex_gradients = float4(0.0f);
+  hit.tex_gradients = float2(0.0f);
   const float2 tex_coord = float2(lerp(point_0.tex_coord, point_1.tex_coord, parameter), 0.0f);
   const float4 vertex_color = lerp(point_0.color, point_1.color, parameter);
   hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<feature_mask>(
-      hit.material_index, tex_coord, tex_coord, tex_coord, tex_coord, vertex_color, hit.tex_gradients);
+      hit.material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord, tex_coord, hit.tex_gradients), vertex_color);
   hit.normal = unflipped_shading_normal;
   hit.tangent = EE_RT_WORLD_TANGENT(instance.model, object_tangent, hit.normal);
   const float tangent_handedness = EE_TRANSFORM_HANDEDNESS(instance.model);
@@ -1165,12 +1157,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_LSS_SURFACE_HIT<let feature_mask : u
   hit.shading_normal = hit.normal;
   hit.tex_coord_0 = tex_coord;
   hit.tex_coord_1 = tex_coord;
-  hit.tex_coord_2 = tex_coord;
-  hit.tex_coord_3 = tex_coord;
   hit.vertex_color = vertex_color;
   hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<feature_mask>(
-      hit.material_index, tex_coord, tex_coord, tex_coord, tex_coord, vertex_color, hit.surface, hit.normal,
-      hit.tangent, hit.bitangent, hit.geometric_normal, is_inside, hit.tex_gradients);
+      hit.material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord, tex_coord, hit.tex_gradients), vertex_color, hit.surface,
+      hit.normal, hit.tangent, hit.bitangent, hit.geometric_normal, is_inside);
   hit.normal = hit.pbr.normal;
   return hit;
 }
@@ -1204,10 +1194,6 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT<let feature_mask : uint>
       v0.tex_coord * barycentrics.x + v1.tex_coord * barycentrics.y + v2.tex_coord * barycentrics.z;
   const float2 tex_coord_1 =
       v0.tex_coord_1 * barycentrics.x + v1.tex_coord_1 * barycentrics.y + v2.tex_coord_1 * barycentrics.z;
-  const float2 tex_coord_2 =
-      v0.tex_coord_2 * barycentrics.x + v1.tex_coord_2 * barycentrics.y + v2.tex_coord_2 * barycentrics.z;
-  const float2 tex_coord_3 =
-      v0.tex_coord_3 * barycentrics.x + v1.tex_coord_3 * barycentrics.y + v2.tex_coord_3 * barycentrics.z;
   const float4 vertex_color = v0.color * barycentrics.x + v1.color * barycentrics.y + v2.color * barycentrics.z;
   const float3 object_tangent = v0.tangent * barycentrics.x + v1.tangent * barycentrics.y + v2.tangent * barycentrics.z;
   const float tangent_handedness = (v0.vertex_info3 < 0.0f ? -1.0f : 1.0f) * EE_TRANSFORM_HANDEDNESS(instance.model);
@@ -1231,7 +1217,7 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT<let feature_mask : uint>
   hit.tex_gradients = EE_CAMERA_TEXTURE_GRADIENTS(ray_cone_width, hit_value.hit_t, hit.geometric_normal, ray_direction,
                                                   instance.model, v0, v1, v2, ray_spread_angle);
   hit.surface = EE_EVALUATE_GLTF_RASTER_SURFACE_SPECIALIZED<feature_mask>(
-      hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, hit.tex_gradients);
+      hit.material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, hit.tex_gradients), vertex_color);
   hit.normal = unflipped_shading_normal;
   hit.tangent = EE_RT_WORLD_TANGENT(instance.model, object_tangent, hit.normal);
   hit.bitangent =
@@ -1253,12 +1239,10 @@ EE_CAMERA_SURFACE_HIT EE_CAMERA_RECONSTRUCT_SURFACE_HIT<let feature_mask : uint>
   hit.shading_normal = hit.normal;
   hit.tex_coord_0 = tex_coord_0;
   hit.tex_coord_1 = tex_coord_1;
-  hit.tex_coord_2 = tex_coord_2;
-  hit.tex_coord_3 = tex_coord_3;
   hit.vertex_color = vertex_color;
   hit.pbr = EE_EVALUATE_GLTF_RAY_TRACING_PBR_MATERIAL_SPECIALIZED<feature_mask>(
-      hit.material_index, tex_coord_0, tex_coord_1, tex_coord_2, tex_coord_3, vertex_color, hit.surface, hit.normal,
-      hit.tangent, hit.bitangent, hit.geometric_normal, is_inside, hit.tex_gradients);
+      hit.material_index, EE_GLTF_MAKE_TEX_COORDS(tex_coord_0, tex_coord_1, hit.tex_gradients), vertex_color,
+      hit.surface, hit.normal, hit.tangent, hit.bitangent, hit.geometric_normal, is_inside);
   hit.normal = hit.pbr.normal;
   return hit;
 }
@@ -1415,8 +1399,7 @@ float3 EE_CAMERA_TRACE_PATH<T : ICameraRayTraversal, let feature_mask : uint>(
           emissive_triangle_hit
               ? EE_RT_COATED_EMISSION_LOD0_SPECIALIZED<feature_mask>(
                     surface_hit.material_index,
-                    EE_GLTF_MAKE_TEX_COORDS(surface_hit.tex_coord_0, surface_hit.tex_coord_1, surface_hit.tex_coord_2,
-                                            surface_hit.tex_coord_3, float4(0.0f)),
+                    EE_GLTF_MAKE_TEX_COORDS(surface_hit.tex_coord_0, surface_hit.tex_coord_1),
                     surface_hit.shading_normal, surface_hit.tangent, surface_hit.bitangent,
                     surface_hit.geometric_normal, view_direction)
               : EE_GLTF_RT_COATED_EMISSION(surface_hit.pbr, view_direction);

@@ -21,9 +21,13 @@ class EVOENGINE_API DirectionalLightShadowPass final {
   struct Parameters {
     std::shared_ptr<RenderInstanceStorage> render_instances;
     std::shared_ptr<GraphicsPipeline> directional_opaque_pipeline;
+    std::shared_ptr<GraphicsPipeline> directional_masked_pipeline;
     std::shared_ptr<GraphicsPipeline> instanced_opaque_pipeline;
+    std::shared_ptr<GraphicsPipeline> instanced_masked_pipeline;
     std::shared_ptr<GraphicsPipeline> skinned_opaque_pipeline;
+    std::shared_ptr<GraphicsPipeline> skinned_masked_pipeline;
     std::shared_ptr<GraphicsPipeline> strands_opaque_pipeline;
+    std::shared_ptr<GraphicsPipeline> strands_masked_pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
     std::shared_ptr<DescriptorSet> meshlet_descriptor_set;
     std::shared_ptr<DescriptorSet> strand_meshlet_descriptor_set;
@@ -35,7 +39,8 @@ class EVOENGINE_API DirectionalLightShadowPass final {
     bool enable_indirect_rendering = false;
     bool count_draw_calls = false;
     GetDepthAttachment get_depth_attachment;
-    ExternalShadowRendering external_shadow_rendering;
+    ExternalShadowRendering external_opaque_shadow_rendering;
+    ExternalShadowRendering external_masked_shadow_rendering;
     RecordCommands record_commands;
   };
 

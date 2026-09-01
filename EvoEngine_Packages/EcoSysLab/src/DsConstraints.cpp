@@ -1,4 +1,6 @@
 #include "DsConstraints.hpp"
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 #include "VoxelGrid.hpp"
 using namespace eco_sys_lab_package;
@@ -535,10 +537,285 @@ DsBundle::DsBundle() {
   }
 }
 
+void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,
+                              const StrandModelSkeleton& strand_model_skeleton,
+                              const DtsStrandGroup& subdivided_strand_group,
+                              const DynamicStrands& target_dynamic_strands) {
+  solver_settings = initialize_parameters.bundle_solver;
+  sub_iteration = solver_settings.legacy_iterations;
+  if (solver_settings.mode == BundleSolverMode::Legacy)
+    return;
+  if (!coupled_layout) {
+    coupled_layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 12; ++binding)
+      coupled_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    coupled_layout->Initialize();
+  }
+  const auto initialize_coupled_pipeline = [](std::shared_ptr<ComputePipeline>& pipeline, const char* shader_name) {
+    if (pipeline)
+      return;
+    const auto shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./EcoSysLabResources/Shaders/Compute/DynamicStrands/Constraints/Position/Bundle") /
+            shader_name);
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts = {DynamicStrands::strands_layout, coupled_layout};
+    auto& range = pipeline->push_constant_ranges.emplace_back();
+    range.size = sizeof(CoupledPairConstant);
+    range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline->Initialize();
+  };
+  initialize_coupled_pipeline(coupled_pair_pipeline, "SolveCoupledPairs.slang");
+  initialize_coupled_pipeline(coupled_gather_pipeline, "GatherCoupledPairs.slang");
+  if (solver_settings.mode == BundleSolverMode::Hybrid) {
+    initialize_coupled_pipeline(slice_key_pipeline, "BuildSliceMembers.slang");
+    initialize_coupled_pipeline(slice_sort_pipeline, "SortSliceMembers.slang");
+    initialize_coupled_pipeline(slice_range_pipeline, "BuildSliceRanges.slang");
+    initialize_coupled_pipeline(slice_fit_pipeline, "FitSlices.slang");
+    initialize_coupled_pipeline(slice_apply_pipeline, "ApplySlices.slang");
+    initialize_coupled_pipeline(coarse_key_pipeline, "BuildCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_sort_pipeline, "SortCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_reduce_pipeline, "ReduceCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_solve_pipeline, "SolveCoarseEdges.slang");
+  }
+  VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_info.size = 1;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  coupled_pair_state_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coupled_pair_correction_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coupled_pair_state_buffer->UploadVector(std::vector<CoupledPairState>(target_dynamic_strands.segment_pairs.size()));
+  coupled_pair_correction_buffer->UploadVector(
+      std::vector<CoupledPairCorrection>(target_dynamic_strands.segment_pairs.size()));
+  coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
+  for (auto& descriptor_set : coupled_descriptor_sets) {
+    descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
+    descriptor_set->UpdateBufferDescriptorBinding(0, coupled_pair_state_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(1, coupled_pair_correction_buffer);
+  }
+  if (solver_settings.mode != BundleSolverMode::Hybrid)
+    return;
+  float average_length = 0.f;
+  for (const auto& segment : target_dynamic_strands.segments)
+    average_length += segment.rest_length;
+  average_length /= glm::max(static_cast<float>(target_dynamic_strands.segments.size()), 1.f);
+  const float spacing = glm::max(average_length * solver_settings.slice_spacing_factor, 1e-6f);
+  std::map<std::pair<int32_t, int32_t>, uint32_t> base_slice_indices;
+  std::vector<uint32_t> base_slices(target_dynamic_strands.segments.size());
+  for (size_t segment_index = 0; segment_index < target_dynamic_strands.segments.size(); ++segment_index) {
+    const auto& segment = target_dynamic_strands.segments[segment_index];
+    const float root_distance = .5f * (segment.particle0.root_distance + segment.particle1.root_distance);
+    const auto key = std::make_pair(segment.node_handle, static_cast<int32_t>(glm::floor(root_distance / spacing)));
+    const auto [iterator, inserted] =
+        base_slice_indices.try_emplace(key, static_cast<uint32_t>(base_slice_indices.size()));
+    base_slices[segment_index] = iterator->second;
+  }
+  slice_padded_count = 1;
+  while (slice_padded_count < target_dynamic_strands.segments.size())
+    slice_padded_count *= 2;
+  coarse_padded_count = 1;
+  while (coarse_padded_count < target_dynamic_strands.connection_segment_pair_size)
+    coarse_padded_count *= 2;
+  base_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_member_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_range_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  segment_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_transform_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_candidate_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_edge_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_edge_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  slice_dispatch_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  base_slice_buffer->UploadVector(base_slices);
+  slice_member_buffer->UploadVector(std::vector<SliceMember>(slice_padded_count));
+  slice_range_buffer->UploadVector(std::vector<SliceRange>(target_dynamic_strands.segments.size()));
+  segment_slice_buffer->UploadVector(std::vector<uint32_t>(target_dynamic_strands.segments.size()));
+  slice_transform_buffer->UploadVector(std::vector<SliceTransform>(target_dynamic_strands.segments.size()));
+  slice_count_buffer->UploadVector(std::vector<uint32_t>(1));
+  slice_dispatch_buffer->UploadVector(std::vector<VkDispatchIndirectCommand>(1, {0, 1, 1}));
+  coarse_candidate_buffer->UploadVector(std::vector<CoarseEdgeCandidate>(coarse_padded_count));
+  coarse_edge_buffer->UploadVector(
+      std::vector<CoarseEdge>(glm::max(target_dynamic_strands.connection_segment_pair_size, 1u)));
+  coarse_edge_count_buffer->UploadVector(std::vector<uint32_t>(1));
+  for (auto& descriptor_set : coupled_descriptor_sets) {
+    descriptor_set->UpdateBufferDescriptorBinding(2, base_slice_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(3, slice_member_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(4, slice_range_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(5, segment_slice_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(6, slice_transform_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(7, slice_count_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(8, slice_dispatch_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(9, coarse_candidate_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(10, coarse_edge_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(11, coarse_edge_count_buffer);
+  }
+}
+
 void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   if (target_dynamic_strands.segment_pairs.empty())
     return;
+  if (solver_settings.mode != BundleSolverMode::Legacy) {
+    const auto frame = Platform::GetCurrentFrameIndex();
+    const auto work_group_size = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
+    if (solver_settings.mode == BundleSolverMode::Hybrid) {
+      SliceConstant slice_constant;
+      slice_constant.segment_count = static_cast<uint32_t>(target_dynamic_strands.segments.size());
+      slice_constant.padded_count = slice_padded_count;
+      slice_constant.minimum_members = static_cast<uint32_t>(solver_settings.minimum_slice_members);
+      slice_constant.shape_matching_strength = solver_settings.shape_matching_strength;
+      if (last_slice_frame != target_dynamic_strands.GetFrameIndex()) {
+        last_slice_frame = target_dynamic_strands.GetFrameIndex();
+        const RecordedGpuProfilerScope topology_scope(dynamic_strands_profiler::GetItems().bundle_topology_rebuild);
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+          slice_key_pipeline->Bind(command_buffer);
+          slice_key_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_key_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_key_pipeline->PushConstant(command_buffer, 0, slice_constant);
+          slice_key_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_padded_count, work_group_size), 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          for (uint32_t stage = 2; stage <= slice_padded_count; stage *= 2) {
+            slice_constant.sort_stage = stage;
+            for (uint32_t pass = stage / 2; pass > 0; pass /= 2) {
+              slice_constant.sort_pass = pass;
+              slice_sort_pipeline->Bind(command_buffer);
+              slice_sort_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                     coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+              slice_sort_pipeline->PushConstant(command_buffer, 0, slice_constant);
+              slice_sort_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_padded_count, work_group_size), 1, 1);
+              Platform::EverythingBarrier(command_buffer);
+            }
+          }
+          slice_range_pipeline->Bind(command_buffer);
+          slice_range_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                  coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_range_pipeline->PushConstant(command_buffer, 0, slice_constant);
+          slice_range_pipeline->Dispatch(command_buffer, 1, 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          CoarseConstant coarse_constant;
+          coarse_constant.direct_pair_count = target_dynamic_strands.connection_segment_pair_size;
+          coarse_constant.padded_count = coarse_padded_count;
+          coarse_key_pipeline->Bind(command_buffer);
+          coarse_key_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_key_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                 coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_key_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          coarse_key_pipeline->Dispatch(command_buffer, Platform::DivUp(coarse_padded_count, work_group_size), 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          for (uint32_t stage = 2; stage <= coarse_padded_count; stage *= 2) {
+            coarse_constant.sort_stage = stage;
+            for (uint32_t pass = stage / 2; pass > 0; pass /= 2) {
+              coarse_constant.sort_pass = pass;
+              coarse_sort_pipeline->Bind(command_buffer);
+              coarse_sort_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                      coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+              coarse_sort_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+              coarse_sort_pipeline->Dispatch(command_buffer, Platform::DivUp(coarse_padded_count, work_group_size), 1,
+                                             1);
+              Platform::EverythingBarrier(command_buffer);
+            }
+          }
+          coarse_reduce_pipeline->Bind(command_buffer);
+          coarse_reduce_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_reduce_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                    coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_reduce_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          coarse_reduce_pipeline->Dispatch(command_buffer, 1, 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+        });
+      }
+      const RecordedGpuProfilerScope fit_scope(dynamic_strands_profiler::GetItems().bundle_slice_fit_apply);
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+        slice_fit_pipeline->Bind(command_buffer);
+        slice_fit_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_fit_pipeline->BindDescriptorSet(command_buffer, 1, coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_fit_pipeline->PushConstant(command_buffer, 0, slice_constant);
+        slice_fit_pipeline->DispatchIndirect(command_buffer, *slice_dispatch_buffer);
+        Platform::EverythingBarrier(command_buffer);
+        CoarseConstant coarse_constant;
+        coarse_constant.direct_pair_count = target_dynamic_strands.connection_segment_pair_size;
+        coarse_constant.padded_count = coarse_padded_count;
+        coarse_constant.inverse_time_step_squared = 1.f / physics_parameters.time_step / physics_parameters.time_step;
+        coarse_constant.position_compliance_scale = solver_settings.position_compliance_scale;
+        coarse_constant.bending_compliance_scale = solver_settings.bending_compliance_scale;
+        coarse_constant.torsion_compliance_scale = solver_settings.torsion_compliance_scale;
+        {
+          const RecordedGpuProfilerScope coarse_scope(dynamic_strands_profiler::GetItems().bundle_coarse_edge_solve);
+          coarse_solve_pipeline->Bind(command_buffer);
+          coarse_solve_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                   coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_solve_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          for (int iteration = 0; iteration < solver_settings.coarse_iterations; ++iteration) {
+            coarse_solve_pipeline->Dispatch(command_buffer, 1, 1, 1);
+            Platform::EverythingBarrier(command_buffer);
+          }
+        }
+        slice_apply_pipeline->Bind(command_buffer);
+        slice_apply_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_apply_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_apply_pipeline->PushConstant(command_buffer, 0, slice_constant);
+        slice_apply_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_constant.segment_count, work_group_size),
+                                       1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      });
+    }
+    CoupledPairConstant constant;
+    constant.pair_begin = target_dynamic_strands.connection_segment_pair_size;
+    constant.pair_count = static_cast<uint32_t>(target_dynamic_strands.segment_pairs.size()) - constant.pair_begin;
+    constant.segment_count = static_cast<uint32_t>(target_dynamic_strands.segments.size());
+    constant.inverse_time_step_squared = glm::pow(physics_parameters.sub_step / physics_parameters.time_step, 2.f);
+    constant.position_compliance_scale = solver_settings.position_compliance_scale;
+    constant.bending_compliance_scale = solver_settings.bending_compliance_scale;
+    constant.torsion_compliance_scale = solver_settings.torsion_compliance_scale;
+    const RecordedGpuProfilerScope gpu_scope(dynamic_strands_profiler::GetItems().bundle_pair_solve);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+      for (int iteration = 0; constant.pair_count > 0 && iteration < solver_settings.pair_iterations; ++iteration) {
+        constant.reset_lambdas = iteration == 0;
+        coupled_pair_pipeline->Bind(command_buffer);
+        coupled_pair_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_pair_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                 coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_pair_pipeline->PushConstant(command_buffer, 0, constant);
+        coupled_pair_pipeline->Dispatch(command_buffer, Platform::DivUp(constant.pair_count, work_group_size), 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+        coupled_gather_pipeline->Bind(command_buffer);
+        coupled_gather_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_gather_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                   coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_gather_pipeline->PushConstant(command_buffer, 0, constant);
+        coupled_gather_pipeline->Dispatch(command_buffer, Platform::DivUp(constant.segment_count, work_group_size), 1,
+                                          1);
+        Platform::EverythingBarrier(command_buffer);
+      }
+      if (enable_connections && connections_pipeline && connections_pipeline->Initialized()) {
+        RandomBundleApplyConnectionsConstant connection_constant;
+        connection_constant.segment_pair_size = target_dynamic_strands.connection_segment_pair_size;
+        connection_constant.inv_time_step = physics_parameters.sub_step / physics_parameters.time_step;
+        connections_pipeline->Bind(command_buffer);
+        connections_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        connections_pipeline->PushConstant(command_buffer, 0, connection_constant);
+        connections_pipeline->Dispatch(command_buffer,
+                                       Platform::DivUp(connection_constant.segment_pair_size, work_group_size), 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      }
+    });
+    return;
+  }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   RandomBundleConstant constraint_constant;
   constraint_constant.skip_size = skip_size;
@@ -577,6 +854,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
 
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
+  const RecordedGpuProfilerScope gpu_scope(dynamic_strands_profiler::GetItems().bundle_legacy);
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
       const auto apply_rotations = [&](const uint32_t skip_index) {
@@ -722,6 +1000,8 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
 bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Random Bundle")) {
+    constexpr const char* mode_names[] = {"Legacy", "Coupled XPBD", "Hybrid"};
+    ImGui::Text("Solver mode: %s", mode_names[static_cast<int>(solver_settings.mode)]);
     if (ImGui::Checkbox("Enable", &enabled))
       changed = true;
     if (enabled) {
@@ -736,7 +1016,21 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::Checkbox("Enable connections", &enable_connections))
         changed = true;
     }
-    if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
+    if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100)) {
+      solver_settings.legacy_iterations = sub_iteration;
+      changed = true;
+    }
+    if (ImGui::DragInt("Pair iterations", &solver_settings.pair_iterations, 1, 1, 100))
+      changed = true;
+    if (ImGui::DragInt("Coarse iterations", &solver_settings.coarse_iterations, 1, 1, 100))
+      changed = true;
+    if (ImGui::DragFloat("Position compliance scale", &solver_settings.position_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Bending compliance scale", &solver_settings.bending_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Torsion compliance scale", &solver_settings.torsion_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::SliderFloat("Shape matching strength", &solver_settings.shape_matching_strength, 0.f, 1.f))
       changed = true;
     if (ImGui::DragInt("Skip size", &skip_size, 1, 1, 100))
       changed = true;

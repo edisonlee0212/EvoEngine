@@ -2,6 +2,8 @@
 
 #include <gtest/gtest.h>
 
+#include "../../EvoEngine_SDK/src/Bc7TextureCodec.hpp"
+#include "../../EvoEngine_SDK/src/GltfSpecularGlossinessConversion.hpp"
 #include "Application.hpp"
 #include "ApplicationContext.hpp"
 #include "ApplicationInitializationSettings.hpp"
@@ -114,6 +116,23 @@ void WriteBc7UnormDds(const std::filesystem::path& path) {
   stream.write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
 }
 
+void WriteSolidBc7Dds(const std::filesystem::path& path, const glm::vec4 color, const bool srgb = false) {
+  std::vector<bc7_texture_codec::MipLevel> levels;
+  auto resolution = glm::uvec2(4);
+  while (true) {
+    bc7_texture_codec::MipLevel level;
+    level.resolution = resolution;
+    level.pixels.assign(static_cast<size_t>(resolution.x) * resolution.y, color);
+    levels.emplace_back(std::move(level));
+    if (resolution == glm::uvec2(1)) {
+      break;
+    }
+    resolution = glm::max(resolution / 2u, glm::uvec2(1));
+  }
+  std::string error;
+  ASSERT_TRUE(bc7_texture_codec::WriteDds(path, levels, srgb, srgb, &error)) << error;
+}
+
 void WriteGltfDdsVariant(const std::filesystem::path& source_path, const std::filesystem::path& output_path,
                          const std::string& dds_uri) {
   std::ifstream source_stream(source_path);
@@ -204,6 +223,61 @@ std::shared_ptr<Mesh> FindFirstMesh(const std::shared_ptr<Prefab>& prefab) {
 }
 }  // namespace
 
+TEST(GltfMaterialConversion, Bc7CodecWritesValidCompleteMipChainsAndDecodesWithinLossyTolerance) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto root = std::filesystem::temp_directory_path() /
+                    ("EvoEngine_Bc7MaterialConversion_" +
+                     std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(root);
+  const auto path = root / "gradient.dds";
+
+  std::vector<bc7_texture_codec::MipLevel> levels;
+  auto resolution = glm::uvec2(8, 4);
+  while (true) {
+    bc7_texture_codec::MipLevel level;
+    level.resolution = resolution;
+    level.pixels.resize(static_cast<size_t>(resolution.x) * resolution.y);
+    for (uint32_t y = 0; y < resolution.y; ++y) {
+      for (uint32_t x = 0; x < resolution.x; ++x) {
+        level.pixels[static_cast<size_t>(y) * resolution.x + x] =
+            glm::vec4(static_cast<float>(x) / std::max(resolution.x - 1u, 1u),
+                      static_cast<float>(y) / std::max(resolution.y - 1u, 1u), 0.35f, 0.8f);
+      }
+    }
+    levels.emplace_back(std::move(level));
+    if (resolution == glm::uvec2(1)) {
+      break;
+    }
+    resolution = glm::max(resolution / 2u, glm::uvec2(1));
+  }
+
+  std::string error;
+  ASSERT_TRUE(bc7_texture_codec::WriteDds(path, levels, true, true, &error)) << error;
+  EXPECT_TRUE(bc7_texture_codec::ValidateDds(path, glm::uvec2(8, 4), true, &error)) << error;
+  bc7_texture_codec::MipChain decoded;
+  ASSERT_TRUE(bc7_texture_codec::DecodeDds(path, decoded, &error)) << error;
+  ASSERT_EQ(decoded.levels.size(), levels.size());
+  double squared_error = 0.0;
+  size_t component_count = 0;
+  for (size_t mip = 0; mip < levels.size(); ++mip) {
+    EXPECT_EQ(decoded.levels[mip].resolution, levels[mip].resolution);
+    ASSERT_EQ(decoded.levels[mip].pixels.size(), levels[mip].pixels.size());
+    for (size_t pixel = 0; pixel < levels[mip].pixels.size(); ++pixel) {
+      const glm::vec4 difference = decoded.levels[mip].pixels[pixel] - levels[mip].pixels[pixel];
+      squared_error += glm::dot(difference, difference);
+      component_count += 4;
+    }
+  }
+  EXPECT_LT(std::sqrt(squared_error / static_cast<double>(component_count)), 0.08);
+
+  std::filesystem::resize_file(path, std::filesystem::file_size(path) - 1);
+  EXPECT_FALSE(bc7_texture_codec::ValidateDds(path, glm::uvec2(8, 4), true));
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
+}
+
 TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureInfos) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
@@ -211,7 +285,7 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
       "alphaCutoff": 0.42,
       "doubleSided": true,
       "emissiveFactor": [0.1, 0.2, 0.3],
-      "normalTexture": {"index": 4, "texCoord": 2, "scale": 0.75},
+      "normalTexture": {"index": 4, "texCoord": 1, "scale": 0.75},
       "occlusionTexture": {"index": 5, "strength": 0.25},
       "pbrMetallicRoughness": {
         "baseColorFactor": [0.25, 0.5, 0.75, 0.9],
@@ -240,7 +314,6 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
 
   ASSERT_EQ(materials.size(), 1);
   const auto& material = materials[0].shade_material;
-  EXPECT_EQ(material.pbr_model, static_cast<int32_t>(GltfPbrModel::MetallicRoughness));
   EXPECT_EQ(material.alpha_mode, static_cast<int32_t>(GltfAlphaMode::Mask));
   EXPECT_NEAR(material.alpha_cutoff, 0.42f, kEpsilon);
   EXPECT_EQ(material.double_sided, 1);
@@ -263,12 +336,12 @@ TEST(GltfMaterialConversion, MetallicRoughnessGltfMaterialMapsFactorsAndTextureI
 
   ASSERT_NE(material.normal_texture, 0);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].index, 104);
-  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
+  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 1);
   EXPECT_EQ(materials[0].texture_infos[material.normal_texture].color_space,
             static_cast<int32_t>(GltfTextureColorSpace::Linear));
 }
 
-TEST(GltfMaterialConversion, SupportsFourUvSetsAndDisablesOnlyOutOfRangeBindings) {
+TEST(GltfMaterialConversion, SupportsTwoUvSetsAndDisablesUnsupportedBindings) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
       "normalTexture": {"index": 1, "texCoord": 2},
@@ -299,17 +372,23 @@ TEST(GltfMaterialConversion, SupportsFourUvSetsAndDisablesOnlyOutOfRangeBindings
 
   ASSERT_EQ(materials.size(), 1);
   const auto& material = materials[0].shade_material;
-  ASSERT_NE(material.normal_texture, 0);
-  ASSERT_NE(material.pbr_base_color_texture, 0);
+  EXPECT_EQ(material.normal_texture, 0);
+  EXPECT_EQ(material.pbr_base_color_texture, 0);
   ASSERT_NE(material.pbr_metallic_roughness_texture, 0);
   EXPECT_EQ(material.occlusion_texture, 0);
-  EXPECT_EQ(materials[0].texture_infos[material.normal_texture].tex_coord, 2);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_base_color_texture].tex_coord, 3);
   EXPECT_EQ(materials[0].texture_infos[material.pbr_metallic_roughness_texture].tex_coord, 0);
-  EXPECT_EQ(resolved, (std::vector<int32_t>{1, 3, 4}));
-  ASSERT_EQ(diagnostics.size(), 1);
-  EXPECT_NE(diagnostics[0].find("TEXCOORD_4"), std::string::npos);
-  EXPECT_NE(diagnostics[0].find("supported range 0..3"), std::string::npos);
+  EXPECT_EQ(resolved, (std::vector<int32_t>{4}));
+  ASSERT_EQ(diagnostics.size(), 3);
+  for (const auto tex_coord : {2, 3, 4}) {
+    EXPECT_NE(std::find_if(diagnostics.begin(), diagnostics.end(),
+                           [&](const std::string& diagnostic) {
+                             return diagnostic.find("TEXCOORD_" + std::to_string(tex_coord)) != std::string::npos;
+                           }),
+              diagnostics.end());
+  }
+  for (const auto& diagnostic : diagnostics) {
+    EXPECT_NE(diagnostic.find("supported range 0..1"), std::string::npos);
+  }
 }
 
 TEST(GltfMaterialConversion, GltfSamplerEnumsMapToVulkanWithoutReferenceMipSwap) {
@@ -470,6 +549,91 @@ TEST(GltfMaterialConversion, PrefabImportsExternalEmbeddedAndBinaryGltfTexturesW
   validate_import(uri_path);
   std::error_code cleanup_error;
   std::filesystem::remove_all(uri_root, cleanup_error);
+}
+
+TEST(GltfMaterialConversion, PrefabBakesSpecularGlossinessTextureIntoCanonicalMetallicRoughness) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto path = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" / "assimp" /
+                    "test" / "models" / "glTF2" / "BoxTextured-glTF-pbrSpecularGlossiness" / "BoxTextured.gltf";
+  ASSERT_TRUE(std::filesystem::exists(path));
+
+  const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+  ASSERT_TRUE(prefab->Import(path));
+  const auto material = FindFirstMaterial(prefab);
+  ASSERT_TRUE(material);
+  const auto& shade_material = material->material_data.shade_material;
+  EXPECT_EQ(shade_material.pbr_base_color_factor, glm::vec4(1.0f));
+  EXPECT_FLOAT_EQ(shade_material.pbr_metallic_factor, 1.0f);
+  EXPECT_FLOAT_EQ(shade_material.pbr_roughness_factor, 1.0f);
+  ASSERT_NE(shade_material.pbr_base_color_texture, 0);
+  ASSERT_NE(shade_material.pbr_metallic_roughness_texture, 0);
+
+  const auto base_color = material->GetTexture(shade_material.pbr_base_color_texture);
+  const auto metallic_roughness = material->GetTexture(shade_material.pbr_metallic_roughness_texture);
+  ASSERT_TRUE(base_color);
+  ASSERT_TRUE(metallic_roughness);
+  EXPECT_TRUE(base_color->srgb);
+  EXPECT_FALSE(metallic_roughness->srgb);
+  EXPECT_EQ(base_color->GetResolution(), metallic_roughness->GetResolution());
+  EXPECT_TRUE(base_color->PeekLocalData().empty());
+  EXPECT_TRUE(metallic_roughness->PeekLocalData().empty());
+  EXPECT_EQ(base_color->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_EQ(metallic_roughness->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
+  EXPECT_EQ(base_color->RefTexture2DStorage().GetMipLevels(), metallic_roughness->RefTexture2DStorage().GetMipLevels());
+  EXPECT_EQ(base_color->RefTexture2DStorage().GetMipLevels(),
+            static_cast<uint32_t>(
+                std::floor(std::log2(std::max(base_color->GetResolution().x, base_color->GetResolution().y)))) +
+                1u);
+}
+
+TEST(GltfMaterialConversion, PrefabConvertsDdsOnlySpecularGlossinessWhenCoreImageIsMissing) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto source_root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "Extern" / "3rdParty" / "assimp" /
+                           "assimp" / "test" / "models" / "glTF2" / "BoxTextured-glTF-pbrSpecularGlossiness";
+  const auto root =
+      std::filesystem::temp_directory_path() /
+      ("EvoEngine_DdsOnlySpecGloss_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::filesystem::create_directories(root);
+  std::filesystem::copy_file(source_root / "BoxTextured0.bin", root / "BoxTextured0.bin",
+                             std::filesystem::copy_options::overwrite_existing);
+  WriteSolidBc7Dds(root / "Diffuse.dds", glm::vec4(0.25f, 0.5f, 0.75f, 0.6f), true);
+  WriteGltfDdsVariant(source_root / "BoxTextured.gltf", root / "BoxTextured.gltf", "Diffuse.dds");
+  {
+    std::ifstream stream(root / "BoxTextured.gltf", std::ios::binary);
+    std::string gltf((std::istreambuf_iterator<char>(stream)), std::istreambuf_iterator<char>());
+    const auto position = gltf.find("CesiumLogoFlat.png");
+    ASSERT_NE(position, std::string::npos);
+    gltf.replace(position, std::string("CesiumLogoFlat.png").size(), "Missing.png");
+    std::ofstream(root / "BoxTextured.gltf", std::ios::binary | std::ios::trunc) << gltf;
+  }
+
+  const auto prefab = AssetManager::CreateTemporaryAsset<Prefab>();
+  ASSERT_TRUE(prefab->Import(root / "BoxTextured.gltf"));
+  const auto material = FindFirstMaterial(prefab);
+  ASSERT_TRUE(material);
+  const auto& shade_material = material->material_data.shade_material;
+  EXPECT_EQ(shade_material.pbr_base_color_factor, glm::vec4(1.0f));
+  EXPECT_FLOAT_EQ(shade_material.pbr_metallic_factor, 1.0f);
+  EXPECT_FLOAT_EQ(shade_material.pbr_roughness_factor, 1.0f);
+  const auto base_color = material->GetTexture(shade_material.pbr_base_color_texture);
+  const auto metallic_roughness = material->GetTexture(shade_material.pbr_metallic_roughness_texture);
+  ASSERT_TRUE(base_color);
+  ASSERT_TRUE(metallic_roughness);
+  EXPECT_EQ(base_color->GetResolution(), glm::uvec2(4));
+  EXPECT_EQ(metallic_roughness->GetResolution(), glm::uvec2(4));
+  EXPECT_EQ(base_color->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_SRGB_BLOCK);
+  EXPECT_EQ(metallic_roughness->RefTexture2DStorage().GetFormat(), VK_FORMAT_BC7_UNORM_BLOCK);
+  EXPECT_EQ(base_color->RefTexture2DStorage().GetMipLevels(), 3u);
+  EXPECT_EQ(metallic_roughness->RefTexture2DStorage().GetMipLevels(), 3u);
+  EXPECT_TRUE(base_color->PeekLocalData().empty());
+  EXPECT_TRUE(metallic_roughness->PeekLocalData().empty());
+
+  std::error_code cleanup_error;
+  std::filesystem::remove_all(root, cleanup_error);
 }
 
 TEST(GltfMaterialConversion, PrefabImportsAndPreservesDefaultMorphTargets) {
@@ -646,9 +810,16 @@ TEST(GltfMaterialConversion, ProjectGltfTextureReuseAndManagedFailureFallback) {
   EXPECT_TRUE(texture->SamplesLinearSrgb());
 }
 
-TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlossModel) {
+TEST(GltfMaterialConversion, SpecularGlossinessFactorsConvertToMetallicRoughness) {
   const auto gltf = YAML::Load(R"({
     "materials": [{
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [0.01, 0.02, 0.03, 0.04],
+        "metallicFactor": 0.05,
+        "roughnessFactor": 0.06,
+        "baseColorTexture": {"index": 0},
+        "metallicRoughnessTexture": {"index": 1}
+      },
       "extensions": {
         "KHR_materials_pbrSpecularGlossiness": {
           "diffuseFactor": [0.8, 0.7, 0.6, 0.5],
@@ -665,27 +836,92 @@ TEST(GltfMaterialConversion, BistroSpecularGlossinessGltfMaterialSelectsSpecGlos
     }]
   })");
 
-  const auto materials = BuildGltfMaterialDataFromGltfNode(gltf, [](const int32_t texture_index) {
-    return 200 + texture_index;
-  });
+  std::vector<std::string> diagnostics;
+  const auto materials = BuildGltfMaterialDataFromGltfNode(
+      gltf,
+      [](const int32_t texture_index) {
+        return 200 + texture_index;
+      },
+      {}, {},
+      [&](const std::string& message) {
+        diagnostics.push_back(message);
+      });
 
   ASSERT_EQ(materials.size(), 1);
   const auto& material = materials[0].shade_material;
-  EXPECT_EQ(material.pbr_model, static_cast<int32_t>(GltfPbrModel::SpecularGlossiness));
-  ExpectVec4Near(material.pbr_diffuse_factor, glm::vec4(0.8f, 0.7f, 0.6f, 0.5f));
-  ExpectVec3Near(material.pbr_specular_factor, glm::vec3(0.4f, 0.3f, 0.2f));
-  EXPECT_NEAR(material.pbr_glossiness_factor, 0.81f, kEpsilon);
+  ExpectVec4Near(material.pbr_base_color_factor, glm::vec4(0.850341f, 0.722852f, 0.595363f, 0.5f));
+  EXPECT_NEAR(material.pbr_metallic_factor, 0.399934f, kEpsilon);
+  EXPECT_NEAR(material.pbr_roughness_factor, 0.19f, kEpsilon);
   ExpectVec3Near(material.emissive_factor, glm::vec3(0.25f, 0.5f, 0.75f));
+  EXPECT_EQ(material.pbr_base_color_texture, 0);
+  EXPECT_EQ(material.pbr_metallic_roughness_texture, 0);
+  ASSERT_EQ(diagnostics.size(), 1);
+  EXPECT_NE(diagnostics[0].find("factors only"), std::string::npos);
+}
 
-  ASSERT_NE(material.pbr_diffuse_texture, 0);
-  ASSERT_NE(material.pbr_specular_glossiness_texture, 0);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_diffuse_texture].index, 202);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].index, 203);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].tex_coord, 1);
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_diffuse_texture].color_space,
-            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
-  EXPECT_EQ(materials[0].texture_infos[material.pbr_specular_glossiness_texture].color_space,
-            static_cast<int32_t>(GltfTextureColorSpace::Srgb));
+TEST(GltfMaterialConversion, SpecularGlossinessGoldenFactorsMatchKhronosReference) {
+  struct GoldenCase {
+    glm::vec4 diffuse;
+    glm::vec3 specular;
+    float glossiness;
+    glm::vec4 base_color;
+    float metallic;
+    float roughness;
+  };
+  constexpr std::array cases{
+      GoldenCase{glm::vec4(0.2f, 0.4f, 0.6f, 0.75f), glm::vec3(0.04f), 0.3f, glm::vec4(0.2f, 0.4f, 0.6f, 0.75f), 0.0f,
+                 0.7f},
+      GoldenCase{glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec3(0.8f, 0.3f, 0.1f), 0.9f,
+                 glm::vec4(0.8f, 0.3f, 0.1f, 1.0f), 1.0f, 0.1f},
+      GoldenCase{glm::vec4(0.8f, 0.7f, 0.6f, 0.5f), glm::vec3(0.4f, 0.3f, 0.2f), 0.81f,
+                 glm::vec4(0.850341f, 0.722852f, 0.595363f, 0.5f), 0.399934f, 0.19f},
+      GoldenCase{glm::vec4(0.3f, 0.2f, 0.1f, 0.25f), glm::vec3(0.0f), 0.4f,
+                 glm::vec4(0.3125f, 0.208333f, 0.104167f, 0.25f), 0.0f, 0.6f},
+      GoldenCase{glm::vec4(1.5f, -0.25f, 0.5f, 1.2f), glm::vec3(1.2f, -0.2f, 0.5f), 1.4f,
+                 glm::vec4(1.0f, 0.0f, 0.5f, 1.0f), 1.0f, 0.0f},
+  };
+
+  for (const auto& golden : cases) {
+    YAML::Node extension;
+    extension["diffuseFactor"] = golden.diffuse;
+    extension["specularFactor"] = golden.specular;
+    extension["glossinessFactor"] = golden.glossiness;
+    YAML::Node gltf;
+    gltf["materials"][0]["extensions"]["KHR_materials_pbrSpecularGlossiness"] = extension;
+
+    const auto materials = BuildGltfMaterialDataFromGltfNode(gltf, [](const int32_t index) {
+      return index;
+    });
+    ASSERT_EQ(materials.size(), 1);
+    const auto& material = materials[0].shade_material;
+    ExpectVec4Near(material.pbr_base_color_factor, golden.base_color);
+    EXPECT_NEAR(material.pbr_metallic_factor, golden.metallic, kEpsilon);
+    EXPECT_NEAR(material.pbr_roughness_factor, golden.roughness, kEpsilon);
+  }
+}
+
+TEST(GltfMaterialConversion, SpecularGlossinessTextureTexelUsesSrgbFactorsAndCanonicalPacking) {
+  const auto [base_color, metallic_roughness] = gltf_import::ConvertSpecularGlossinessTexel(
+      glm::vec4(0.5f, 0.25f, 0.75f, 0.8f), glm::vec4(0.25f, 0.5f, 0.75f, 0.6f), glm::vec4(0.6f, 0.7f, 0.8f, 0.5f),
+      glm::vec3(0.9f, 0.8f, 0.7f), 0.4f);
+
+  ExpectVec4Near(base_color, glm::vec4(0.430459f, 0.400360f, 0.831838f, 0.4f));
+  ExpectVec4Near(metallic_roughness, glm::vec4(1.0f, 0.76f, 0.611495f, 1.0f));
+}
+
+TEST(GltfMaterialConversion, SpecularGlossinessTextureFallbackAndResolutionRebaseAreDeterministic) {
+  std::vector<glm::vec4> one_pixel = {glm::vec4(0.25f, 0.5f, 0.75f, 0.6f)};
+  std::vector<glm::vec4> resized;
+  Texture2D::Resize(one_pixel, glm::uvec2(1), resized, glm::uvec2(2, 3));
+  ASSERT_EQ(resized.size(), 6);
+  for (const auto& texel : resized) {
+    EXPECT_EQ(texel, one_pixel[0]);
+  }
+
+  const auto [base_color, metallic_roughness] = gltf_import::ConvertSpecularGlossinessTexel(
+      glm::vec4(1.0f), resized[0], glm::vec4(0.3f, 0.2f, 0.1f, 0.25f), glm::vec3(0.0f), 0.5f);
+  ExpectVec4Near(base_color, glm::vec4(0.594790f, 0.493785f, 0.356124f, 0.25f));
+  ExpectVec4Near(metallic_roughness, glm::vec4(1.0f, 0.7f, 0.0f, 1.0f));
 }
 
 TEST(GltfMaterialConversion, ForbiddenShadingModelExtensionCombinationsAreDiagnosedAndRejected) {
@@ -722,8 +958,7 @@ TEST(GltfMaterialConversion, ForbiddenShadingModelExtensionCombinationsAreDiagno
       });
 
   ASSERT_EQ(materials.size(), 2);
-  EXPECT_EQ(materials[0].shade_material.pbr_model, static_cast<int32_t>(GltfPbrModel::SpecularGlossiness));
-  ExpectVec3Near(materials[0].shade_material.pbr_specular_factor, glm::vec3(0.2f, 0.3f, 0.4f));
+  EXPECT_NEAR(materials[0].shade_material.pbr_roughness_factor, 0.0f, kEpsilon);
   EXPECT_FLOAT_EQ(materials[0].shade_material.specular_factor, 1.0f);
   EXPECT_FLOAT_EQ(materials[0].shade_material.transmission_factor, 0.0f);
   EXPECT_FLOAT_EQ(materials[0].shade_material.clearcoat_factor, 0.0f);
@@ -733,7 +968,6 @@ TEST(GltfMaterialConversion, ForbiddenShadingModelExtensionCombinationsAreDiagno
   EXPECT_EQ(materials[0].shade_material.iridescence_texture, 0);
 
   EXPECT_EQ(materials[1].shade_material.unlit, 1);
-  EXPECT_EQ(materials[1].shade_material.pbr_model, static_cast<int32_t>(GltfPbrModel::MetallicRoughness));
   EXPECT_FLOAT_EQ(materials[1].shade_material.transmission_factor, 0.0f);
   EXPECT_FLOAT_EQ(materials[1].shade_material.clearcoat_factor, 0.0f);
   EXPECT_FLOAT_EQ(materials[1].shade_material.iridescence_factor, 0.0f);
@@ -1149,35 +1383,6 @@ TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesSecondaryUvSetBefor
   EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
 }
 
-TEST(GltfMaterialConversion, MissingTangentsUseNormalTexturesFourthUvSet) {
-  Application app;
-  VertexAttributes attributes;
-  attributes.normal = true;
-  attributes.tex_coord = true;
-  attributes.tex_coord_3 = true;
-
-  std::vector<Vertex> vertices(3);
-  vertices[0].position = glm::vec3(0.0f, 0.0f, 0.0f);
-  vertices[1].position = glm::vec3(1.0f, 0.0f, 0.0f);
-  vertices[2].position = glm::vec3(0.0f, 1.0f, 0.0f);
-  for (auto& vertex : vertices) {
-    vertex.normal = glm::vec3(0.0f, 0.0f, 1.0f);
-    vertex.tex_coord = glm::vec2(0.0f);
-  }
-  vertices[0].tex_coord_3 = glm::vec2(0.0f, 0.0f);
-  vertices[1].tex_coord_3 = glm::vec2(0.0f, 1.0f);
-  vertices[2].tex_coord_3 = glm::vec2(1.0f, 0.0f);
-
-  Mesh mesh;
-  mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
-
-  ASSERT_EQ(mesh.PeekVertices().size(), 3);
-  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.x, 0.0f, kEpsilon);
-  EXPECT_NEAR(mesh.PeekVertices()[0].tangent.y, 1.0f, kEpsilon);
-  EXPECT_NEAR(mesh.PeekVertices()[0].vertex_info3, -1.0f, kEpsilon);
-}
-
 TEST(GltfMaterialConversion, MikkTangentsSplitMirroredChartsAndPreserveSkinnedData) {
   Application app;
   VertexAttributes attributes;
@@ -1303,7 +1508,7 @@ TEST(GltfMaterialConversion, AuthoredTangentsRemainByteStableAndUnsplit) {
   }
   Mesh mesh;
   mesh.OnCreate();
-  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 3);
+  mesh.SetVertices(attributes, vertices, {glm::uvec3(0, 1, 2)}, 0);
   ASSERT_EQ(mesh.PeekVertices().size(), vertices.size());
   EXPECT_EQ(std::memcmp(mesh.PeekVertices().data(), vertices.data(), vertices.size() * sizeof(Vertex)), 0);
 }
@@ -1360,7 +1565,6 @@ TEST(GltfMaterialConversion, CanonicalMaterialAssetBuildsGltfMaterialDataDirectl
   const auto material_data = BuildMaterialGltfData(material);
   const auto& shade_material = material_data.shade_material;
 
-  EXPECT_EQ(shade_material.pbr_model, static_cast<int32_t>(GltfPbrModel::MetallicRoughness));
   EXPECT_EQ(shade_material.alpha_mode, static_cast<int32_t>(GltfAlphaMode::Blend));
   EXPECT_EQ(shade_material.double_sided, 1);
   ExpectVec4Near(shade_material.pbr_base_color_factor, glm::vec4(0.2f, 0.4f, 0.6f, 0.75f));
@@ -1426,4 +1630,17 @@ TEST(GltfMaterialConversion, TransmissiveMaterialSynchronizesTransparentPass) {
 
   EXPECT_FALSE(GltfMaterialRequiresTransparentPass(shade_material));
   EXPECT_FALSE(material.draw_settings.blending);
+}
+
+TEST(GltfMaterialConversion, RasterClassificationPrioritizesForwardThenMask) {
+  GltfShadeMaterial material;
+  material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Opaque);
+
+  material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Masked);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, true), GltfRasterMaterialClass::Forward);
+
+  material.transmission_factor = 0.5f;
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Forward);
 }

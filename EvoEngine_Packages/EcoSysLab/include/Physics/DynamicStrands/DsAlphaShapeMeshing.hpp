@@ -1,5 +1,7 @@
 #pragma once
+
 #include "DsMeshing.hpp"
+#include "RenderLayer.hpp"
 #include "RenderParameters.hpp"
 
 #ifdef USE_CGAL
@@ -134,12 +136,15 @@ class DsAlphaShapeMeshing : public DsMeshing {
   inline static std::shared_ptr<GraphicsPipeline> branches_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> branches_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> branches_masked_render_pipeline{};
 
   inline static std::shared_ptr<GraphicsPipeline> small_segments_point_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_masked_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> small_segments_visualization_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> small_segments_visualization_masked_render_pipeline{};
 
   std::vector<GpuUniformParticle> uniform_particles;
   std::vector<GpuDelaunayTetrahedron> delaunay_tetrahedrons;
@@ -207,6 +212,7 @@ class DsAlphaShapeMeshing : public DsMeshing {
                                                      const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderBranchesToCameraDeferred(
       const Handle& renderer_handle, int bark_material_index, int inner_wood_material_index, int snow_material_index,
+      int render_material_index, const std::shared_ptr<GraphicsPipeline>& pipeline, VkCullModeFlags cull_mode,
       const BranchesRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view, VkPolygonMode polygon_mode) const;
@@ -221,13 +227,15 @@ class DsAlphaShapeMeshing : public DsMeshing {
                                                           VkCommandBuffer vk_command_buffer,
                                                           const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderSmallSegmentsToCameraDeferred(
-      const Handle& renderer_handle, int splinter_material_index,
+      const Handle& renderer_handle, int splinter_material_index, int render_material_index,
+      const std::shared_ptr<GraphicsPipeline>& pipeline, VkCullModeFlags cull_mode,
       const SmallSegmentsRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
   uint32_t RenderSmallSegmentsVisualizationToCameraDeferred(
       const Handle& renderer_handle, const DynamicStrandsInitializeParameters& initialize_parameters,
+      const std::shared_ptr<GraphicsPipeline>& pipeline, VkCullModeFlags cull_mode,
       const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;

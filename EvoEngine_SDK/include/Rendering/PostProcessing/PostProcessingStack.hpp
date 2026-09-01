@@ -67,7 +67,8 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
   void OnCreate() override;
   void ApplyDefaultSettings();
   void Process(const std::shared_ptr<Camera>& target_camera,
-               const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {});
+               const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {},
+               const std::shared_ptr<ImageView>& motion_vectors_image_view = {});
   void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,
@@ -92,7 +93,7 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
 
   bool enable_ambient_occlusion = true;
   bool enable_bloom = true;
-  bool enable_screen_space_reflection = false;
+  bool enable_screen_space_reflection = true;
   bool enable_anti_aliasing = true;
   bool enable_tone_mapping = true;
 };
@@ -171,20 +172,29 @@ class EVOENGINE_API AntiAliasing final : public IPostProcessing {
 
 class EVOENGINE_API ScreenSpaceReflection : public IPostProcessing {
  public:
+  enum class DebugMode : int32_t { None = 0, HitUv = 1, RayDistance = 2, RejectionReason = 3, Confidence = 4 };
+
   float max_distance = 100.f;
   float distance_confidence = 0.2f;
   int max_iteration_count = 128;
-  int initial_steps = 32;
+  int binary_search_iteration_count = 8;
   float thickness = 0.5f;
+  float start_bias = 0.05f;
   bool blur = true;
+  bool temporal_stabilization = true;
+  DebugMode debug_mode = DebugMode::None;
 
   struct PushConstant {
     int32_t camera_index = 0;
     float max_distance;
     float distance_confidence;
     int max_iteration_count = 5;
-    int initial_steps;
+    int binary_search_iteration_count;
     float thickness;
+    float start_bias;
+    int32_t debug_mode;
+    int32_t temporal_enabled;
+    int32_t temporal_history_valid;
   };
 
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
@@ -228,7 +238,7 @@ class EVOENGINE_API Bloom : public IPostProcessing {
   float filter_radius = 1.0f;
   float threshold = 1.0f;
   float knee = 0.1f;
-  float intensity = 0.2f;
+  float intensity = 0.05f;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
   void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;
@@ -317,8 +327,16 @@ struct EVOENGINE_API PostProcessingCameraResources {
   } anti_aliasing;
 
   struct ScreenSpaceReflectionResources {
+    glm::uvec2 history_size = glm::uvec2(0);
+    std::array<std::shared_ptr<RenderTexture>, 2> reflection_history{};
+    std::array<std::shared_ptr<RenderTexture>, 2> geometry_history{};
+    std::array<std::shared_ptr<RenderTexture>, 2> material_history{};
+    uint32_t history_read_index = 0;
+    bool history_valid = false;
     PerFrameDescriptorSet combine_descriptor_set;
     PerFrameDescriptorSet reflect_output_descriptor_set;
+    PerFrameDescriptorSet spatial_resolve_descriptor_set;
+    PerFrameDescriptorSet temporal_descriptor_set;
   } screen_space_reflection;
 
   struct BloomResources {
@@ -398,7 +416,11 @@ struct PostProcessingRendererResources {
   struct ScreenSpaceReflectionResources {
     std::shared_ptr<DescriptorSetLayout> combine_layout;
     std::shared_ptr<DescriptorSetLayout> reflect_output_layout;
+    std::shared_ptr<DescriptorSetLayout> spatial_resolve_layout;
+    std::shared_ptr<DescriptorSetLayout> temporal_layout;
     std::shared_ptr<ComputePipeline> reflect_pipeline;
+    std::shared_ptr<ComputePipeline> spatial_resolve_pipeline;
+    std::shared_ptr<ComputePipeline> temporal_pipeline;
     std::shared_ptr<ComputePipeline> combine_pipeline;
   } screen_space_reflection;
 
@@ -427,6 +449,7 @@ struct PostProcessingExecutionContext {
   PostProcessingRendererResources& renderer;
   std::shared_ptr<ImageView> ambient_occlusion_image_view;
   std::shared_ptr<ImageView> ambient_occlusion_scratch_image_view;
+  std::shared_ptr<ImageView> motion_vectors_image_view;
   std::function<void(const std::function<void(VkCommandBuffer)>&)> record_commands;
 };
 

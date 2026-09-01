@@ -9,6 +9,7 @@
   public float uv_height_factor;
   public float uv_circum_factor;
   public float fracture_distance;
+  public int render_material_index;
 };
 
 // color mode constants

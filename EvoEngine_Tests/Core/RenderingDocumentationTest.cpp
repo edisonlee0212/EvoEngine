@@ -13,7 +13,7 @@
 
 namespace {
 const std::vector<std::filesystem::path> kRenderingGuides = {
-    "docs/rendering.md",         "docs/rendering-materials.md", "docs/ddgi.md",
+    "docs/rendering.md",         "docs/rendering-materials.md", "docs/rendering-texture-access.md", "docs/ddgi.md",
     "docs/reflection-probes.md", "docs/rendering-demos.md",     "docs/rendering-validation.md",
 };
 

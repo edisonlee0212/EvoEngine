@@ -2675,16 +2675,7 @@ void EditorLayer::OnCreate() {
 
   VkBufferCreateInfo entity_index_read_buffer{};
   entity_index_read_buffer.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-  switch (Platform::Constants::texture_2d) {
-    case VK_FORMAT_R32G32B32A32_SFLOAT: {
-      entity_index_read_buffer.size = sizeof(float) * 4;
-      break;
-    }
-    case VK_FORMAT_R16G16B16A16_SFLOAT: {
-      entity_index_read_buffer.size = sizeof(glm::detail::hdata) * 4;
-      break;
-    }
-  }
+  entity_index_read_buffer.size = sizeof(glm::uvec4);
 
   entity_index_read_buffer.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT;
   entity_index_read_buffer.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -7829,20 +7820,8 @@ Entity EditorLayer::MouseEntitySelection(const std::shared_ptr<Camera>& target_c
     image_copy.imageOffset.z = 0;
     Platform::WaitForFrameSubmissions("Entity Picking Readback Fence Wait");
     entity_index_read_buffer_->CopyFromImage(*g_buffer_utility, image_copy);
-    float val = -1;
-    switch (Platform::Constants::g_buffer_utility) {
-      case VK_FORMAT_R32G32B32A32_SFLOAT: {
-        const auto* ptr = static_cast<float*>(mapped_entity_index_data_);
-        val = glm::round(ptr[0]);
-        break;
-      }
-      case VK_FORMAT_R16G16B16A16_SFLOAT: {
-        const auto* ptr = static_cast<glm::detail::hdata*>(mapped_entity_index_data_);
-        val = glm::round(glm::detail::toFloat32(ptr[0]));
-        break;
-      }
-    }
-    if (const int32_t instance_index = static_cast<int>(val); instance_index > 0) {
+    const auto instance_index = static_cast<const uint32_t*>(mapped_entity_index_data_)[0];
+    if (instance_index != raw_g_buffer::kClearValue && instance_index > 0u) {
       const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
       const auto scene = GetScene();
       if (const auto handle = render_layer->GetCurrentRenderInstanceStorage()->GetInstanceEntityHandle(instance_index);

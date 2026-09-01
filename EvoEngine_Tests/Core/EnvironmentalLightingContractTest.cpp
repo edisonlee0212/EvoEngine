@@ -376,5 +376,5 @@ TEST(EnvironmentalLightingContract, EnvironmentalMapNoLongerOwnsGlobalSpecularFa
   EXPECT_NE(resources_header.find("GetDefaultGlobalReflectionProbe"), std::string::npos);
   EXPECT_NE(resources_source.find("default_global_reflection_probe_->ConstructFromCubemap"), std::string::npos);
   EXPECT_NE(camera_source.find("Resources::GetInstance().GetDefaultGlobalReflectionProbe()"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("Resources::GetInstance().GetDefaultGlobalReflectionProbe()"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("Resources::GetInstance().GetDefaultGlobalReflectionProbe()"), std::string::npos);
 }

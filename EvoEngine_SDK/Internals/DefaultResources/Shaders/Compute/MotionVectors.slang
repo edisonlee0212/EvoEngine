@@ -4,7 +4,7 @@ import EvoEngine.PerFrame;
 Sampler2D inDepth;
 
 [[vk::binding(24, 1)]]
-Sampler2D inUtility;
+Texture2D<uint4> inUtility;
 
 [[vk::binding(0, 2)]]
 [vk::image_format("rgba16f")]
@@ -74,8 +74,8 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   float3 current_world = EE_DEPTH_TO_WORLD_POS(constants.camera_index, tex_coord, reconstruction_depth);
   float3 previous_world = current_world;
   if (has_geometry) {
-    int instance_index = int(round(inUtility.Load(int3(texel, 0)).x));
-    if (instance_index >= 0 && instance_index < constants.instance_count &&
+    uint instance_index = inUtility.Load(int3(texel, 0)).x;
+    if (instance_index < uint(constants.instance_count) &&
         EE_PREVIOUS_INSTANCES[instance_index].flags.x != 0u) {
       float4x4 current_model = EE_INSTANCES[instance_index].model;
       float4x4 previous_model = EE_PREVIOUS_INSTANCES[instance_index].previous_model;

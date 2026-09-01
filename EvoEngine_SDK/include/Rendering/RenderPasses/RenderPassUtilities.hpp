@@ -32,10 +32,6 @@ void ApplyGraphResourceBarriers(VkCommandBuffer vk_command_buffer, const RenderG
                                 RenderPassQueue recorded_queue = RenderPassQueue::Graphics);
 void ApplyGraphResourceReleaseBarriers(VkCommandBuffer vk_command_buffer, const RenderGraphExecutionContext& context,
                                        RenderPassQueue recorded_queue);
-void BindRasterMaterialDescriptorSet(VkCommandBuffer vk_command_buffer,
-                                     const std::shared_ptr<GraphicsPipeline>& graphics_pipeline,
-                                     const std::shared_ptr<RenderInstanceStorage>& render_instances,
-                                     int32_t material_index);
 void ClearGraphColorImage(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Image>& image,
                           const VkClearColorValue& clear_value);
 }  // namespace evo_engine
