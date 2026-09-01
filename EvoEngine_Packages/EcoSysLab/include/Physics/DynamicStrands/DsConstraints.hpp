@@ -227,6 +227,7 @@ class DsBundle : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> apply_position_rotation_pipeline{};
   inline static std::shared_ptr<ComputePipeline> connections_pipeline{};
   DsBundle();
+  BundleSolverSettings solver_settings{};
   int sub_iteration = 1;
   bool enable_bundle_position = true;
   // Not stable
@@ -234,6 +235,9 @@ class DsBundle : public IDsConstraint {
   bool enable_bend_twist = true;
   bool enable_stretch_shear = true;
   bool enable_connections = true;
+  void InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,
+                      const StrandModelSkeleton& strand_model_skeleton, const DtsStrandGroup& subdivided_strand_group,
+                      const DynamicStrands& target_dynamic_strands) override;
   void ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                  const DynamicStrands& target_dynamic_strands) override;
 

@@ -1,0 +1,68 @@
+#include "EvoEngine_SDK_PCH.hpp"
+
+#include "Camera.hpp"
+#include "DynamicStrandsBundleDiagnostics.hpp"
+#include "RenderLayer.hpp"
+
+#include <gtest/gtest.h>
+
+using namespace eco_sys_lab_package;
+
+TEST(DynamicStrandsBundle, LegacySettingsRemainTheMissingSceneDefault) {
+  BundleSolverSettings settings;
+  settings.Load("bundle_solver", YAML::Load("initialize_parameters: {}"));
+
+  EXPECT_EQ(settings.mode, BundleSolverMode::Legacy);
+  EXPECT_EQ(settings.legacy_iterations, 1);
+  EXPECT_FLOAT_EQ(settings.position_compliance_scale, 1.f);
+  EXPECT_FLOAT_EQ(settings.slice_spacing_factor, 1.f);
+  EXPECT_EQ(settings.minimum_slice_members, 8);
+}
+
+TEST(DynamicStrandsBundle, SolverSettingsRoundTrip) {
+  BundleSolverSettings source;
+  source.mode = BundleSolverMode::Hybrid;
+  source.legacy_iterations = 3;
+  source.pair_iterations = 7;
+  source.coarse_iterations = 2;
+  source.position_compliance_scale = .5f;
+  source.bending_compliance_scale = 2.f;
+  source.torsion_compliance_scale = 3.f;
+  source.shape_matching_strength = .75f;
+  source.slice_spacing_factor = 1.5f;
+  source.minimum_slice_members = 12;
+
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  source.Save("bundle_solver", out);
+  out << YAML::EndMap;
+  BundleSolverSettings loaded;
+  loaded.Load("bundle_solver", YAML::Load(out.c_str()));
+
+  EXPECT_EQ(loaded.mode, source.mode);
+  EXPECT_EQ(loaded.legacy_iterations, source.legacy_iterations);
+  EXPECT_EQ(loaded.pair_iterations, source.pair_iterations);
+  EXPECT_EQ(loaded.coarse_iterations, source.coarse_iterations);
+  EXPECT_FLOAT_EQ(loaded.position_compliance_scale, source.position_compliance_scale);
+  EXPECT_FLOAT_EQ(loaded.bending_compliance_scale, source.bending_compliance_scale);
+  EXPECT_FLOAT_EQ(loaded.torsion_compliance_scale, source.torsion_compliance_scale);
+  EXPECT_FLOAT_EQ(loaded.shape_matching_strength, source.shape_matching_strength);
+  EXPECT_FLOAT_EQ(loaded.slice_spacing_factor, source.slice_spacing_factor);
+  EXPECT_EQ(loaded.minimum_slice_members, source.minimum_slice_members);
+}
+
+TEST(DynamicStrandsBundle, MomentumReferenceUsesSegmentMassAndVelocities) {
+  DsMaterials materials;
+  DynamicStrands strands(materials);
+  auto& segment = strands.segments.emplace_back();
+  segment.original_mass = 2.f;
+  segment.particle0.x = {-1.f, 0.f, 0.f};
+  segment.particle1.x = {1.f, 0.f, 0.f};
+  segment.particle0.v = {1.f, 2.f, 3.f};
+  segment.particle1.v = {1.f, 2.f, 3.f};
+
+  const auto momentum = CalculateBundleMomentum(strands);
+
+  EXPECT_EQ(momentum.linear, glm::vec3(2.f, 4.f, 6.f));
+  EXPECT_EQ(momentum.angular, glm::vec3(0.f));
+}

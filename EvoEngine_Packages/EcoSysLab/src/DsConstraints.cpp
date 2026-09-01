@@ -1,4 +1,6 @@
 #include "DsConstraints.hpp"
+#include "DynamicStrandsProfiler.hpp"
+#include "GpuProfiler.hpp"
 #include "Shader.hpp"
 #include "VoxelGrid.hpp"
 using namespace eco_sys_lab_package;
@@ -535,6 +537,14 @@ DsBundle::DsBundle() {
   }
 }
 
+void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initialize_parameters,
+                              const StrandModelSkeleton& strand_model_skeleton,
+                              const DtsStrandGroup& subdivided_strand_group,
+                              const DynamicStrands& target_dynamic_strands) {
+  solver_settings = initialize_parameters.bundle_solver;
+  sub_iteration = solver_settings.legacy_iterations;
+}
+
 void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   if (target_dynamic_strands.segment_pairs.empty())
@@ -577,6 +587,7 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
 
   const uint32_t work_group_invocations = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
 
+  const RecordedGpuProfilerScope gpu_scope(dynamic_strands_profiler::GetItems().bundle_legacy);
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
     for (int sub_iteration_index = 0; sub_iteration_index < sub_iteration; sub_iteration_index++) {
       const auto apply_rotations = [&](const uint32_t skip_index) {
@@ -722,6 +733,8 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
 bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::TreeNode("Random Bundle")) {
+    constexpr const char* mode_names[] = {"Legacy", "Coupled XPBD", "Hybrid"};
+    ImGui::Text("Solver mode: %s", mode_names[static_cast<int>(solver_settings.mode)]);
     if (ImGui::Checkbox("Enable", &enabled))
       changed = true;
     if (enabled) {
@@ -736,7 +749,21 @@ bool DsBundle::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
       if (ImGui::Checkbox("Enable connections", &enable_connections))
         changed = true;
     }
-    if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100))
+    if (ImGui::DragInt("Sub iteration", &sub_iteration, 1, 1, 100)) {
+      solver_settings.legacy_iterations = sub_iteration;
+      changed = true;
+    }
+    if (ImGui::DragInt("Pair iterations", &solver_settings.pair_iterations, 1, 1, 100))
+      changed = true;
+    if (ImGui::DragInt("Coarse iterations", &solver_settings.coarse_iterations, 1, 1, 100))
+      changed = true;
+    if (ImGui::DragFloat("Position compliance scale", &solver_settings.position_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Bending compliance scale", &solver_settings.bending_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::DragFloat("Torsion compliance scale", &solver_settings.torsion_compliance_scale, 0.01f, 0.f, 100.f))
+      changed = true;
+    if (ImGui::SliderFloat("Shape matching strength", &solver_settings.shape_matching_strength, 0.f, 1.f))
       changed = true;
     if (ImGui::DragInt("Skip size", &skip_size, 1, 1, 100))
       changed = true;

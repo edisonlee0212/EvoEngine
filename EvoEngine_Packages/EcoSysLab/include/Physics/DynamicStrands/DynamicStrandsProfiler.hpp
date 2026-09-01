@@ -12,6 +12,11 @@ struct Items {
   evo_engine::ProfilerItemHandle pre_step;
   evo_engine::ProfilerItemHandle dynamic_grouping;
   evo_engine::ProfilerItemHandle segment_collision;
+  evo_engine::ProfilerItemHandle bundle_legacy;
+  evo_engine::ProfilerItemHandle bundle_pair_solve;
+  evo_engine::ProfilerItemHandle bundle_topology_rebuild;
+  evo_engine::ProfilerItemHandle bundle_slice_fit_apply;
+  evo_engine::ProfilerItemHandle bundle_coarse_edge_solve;
   evo_engine::ProfilerItemHandle render_compute;
 };
 

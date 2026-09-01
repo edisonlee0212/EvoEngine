@@ -117,30 +117,42 @@ void eco_sys_lab_package::DeserializeDynamicTreeStrands(const YAML::Node& in, Dy
 
 bool DynamicTreeStrands::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Preset settings")) {
+    const auto apply_bundle_preset = [&](const BundleSolverMode mode, const int iterations) {
+      initialize_parameters.bundle_solver.mode = mode;
+      initialize_parameters.bundle_solver.legacy_iterations = iterations;
+      initialize_parameters.bundle_solver.pair_iterations = iterations;
+      initialize_parameters.bundle_solver.coarse_iterations = glm::max(1, iterations / 2);
+      if (mode == BundleSolverMode::Legacy && dynamic_strands) {
+        for (auto& constraint : dynamic_strands->constraints) {
+          if (const auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
+            bundle->solver_settings = initialize_parameters.bundle_solver;
+            bundle->sub_iteration = iterations;
+            break;
+          }
+        }
+      }
+    };
     if (ImGui::Button("Oak Trunk")) {
       initialize_parameters.min_segment_length = 0.005f;
       initialize_parameters.max_segment_length = 0.01f;
     }
-    if (ImGui::Button("Spruce")) {
-      if (dynamic_strands) {
-        for (auto& constraint : dynamic_strands->constraints) {
-          if (auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
-            bundle->sub_iteration = 5;
-            break;  // stop once we found the bundle constraint
-          }
-        }
-      }
-    }
-    if (ImGui::Button("Oak")) {
-      if (dynamic_strands) {
-        for (auto& constraint : dynamic_strands->constraints) {
-          if (auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
-            bundle->sub_iteration = 3;
-            break;  // stop once we found the bundle constraint
-          }
-        }
-      }
-    }
+    if (ImGui::Button("Spruce (Legacy)"))
+      apply_bundle_preset(BundleSolverMode::Legacy, 5);
+    ImGui::SameLine();
+    if (ImGui::Button("Spruce (Coupled XPBD)"))
+      apply_bundle_preset(BundleSolverMode::CoupledXpbd, 5);
+    ImGui::SameLine();
+    if (ImGui::Button("Spruce (Hybrid)"))
+      apply_bundle_preset(BundleSolverMode::Hybrid, 5);
+    if (ImGui::Button("Oak (Legacy)"))
+      apply_bundle_preset(BundleSolverMode::Legacy, 3);
+    ImGui::SameLine();
+    if (ImGui::Button("Oak (Coupled XPBD)"))
+      apply_bundle_preset(BundleSolverMode::CoupledXpbd, 3);
+    ImGui::SameLine();
+    if (ImGui::Button("Oak (Hybrid)"))
+      apply_bundle_preset(BundleSolverMode::Hybrid, 3);
+    ImGui::TextDisabled("Coupled XPBD and Hybrid preset changes apply after re-subdivision.");
     ImGui::TreePop();
   }
   ImGui::RadioButton("Kinetic Voronoi Meshing", reinterpret_cast<int*>(&initialize_parameters.meshing_type),
@@ -247,6 +259,20 @@ bool DynamicTreeStrands::DrawGui(const std::shared_ptr<EditorLayer>& editor_laye
         LogExperimentSetup(log_experiment_setup_settings);
       }
       ImGui::TreePop();
+    }
+    if (!bundle_experiment_name.empty() && ImGui::Button("Capture bundle diagnostics")) {
+      dynamic_strands->Download();
+      for (const auto& constraint : dynamic_strands->constraints) {
+        if (const auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
+          const auto path = ProjectManager::GetProjectPath().parent_path() / "Diagnostics" /
+                            (bundle_experiment_name + "-bundle-diagnostics.yaml");
+          CaptureBundleExperimentDiagnostics(bundle_experiment_name, *dynamic_strands, *bundle,
+                                             bundle_experiment_reference)
+              .Save(path);
+          EVOENGINE_LOG("Saved dynamic-strands bundle diagnostics: " + path.string());
+          break;
+        }
+      }
     }
     ImGui::TreePop();
   }
@@ -535,6 +561,8 @@ void DynamicTreeStrands::BoardExperimentSetup(const BoardExperimentSetupSettings
     }
   }
   dynamic_strands->Upload();
+  bundle_experiment_name = "board";
+  bundle_experiment_reference = CalculateBundleMomentum(*dynamic_strands);
   dynamic_strands->InitializeMesh(initialize_parameters);
   initialize_parameters.trunk_additional_strength = trunk;
 
@@ -999,6 +1027,8 @@ void DynamicTreeStrands::LogExperimentSetup(const LogExperimentSetupSettings& se
     });
   }
   dynamic_strands->Upload();
+  bundle_experiment_name = "log";
+  bundle_experiment_reference = CalculateBundleMomentum(*dynamic_strands);
   dynamic_strands->InitializeMesh(initialize_parameters);
   initialize_parameters.trunk_additional_strength = trunk;
 
