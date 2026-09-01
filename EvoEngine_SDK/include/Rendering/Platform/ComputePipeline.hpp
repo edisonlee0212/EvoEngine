@@ -85,6 +85,8 @@ class EVOENGINE_API ComputePipeline final : public IGraphicsResource {
    */
   void Dispatch(VkCommandBuffer vk_command_buffer, uint32_t x, uint32_t y = 1, uint32_t z = 1) const;
 
+  void DispatchIndirect(VkCommandBuffer vk_command_buffer, const Buffer& buffer, VkDeviceSize offset = 0) const;
+
   /**
    * @brief Updates the push constants of the pipeline.
    *

@@ -197,6 +197,37 @@ class DsBundle : public IDsConstraint {
     float torsion_compliance_scale = 1.f;
   };
 
+  struct SliceMember {
+    uint32_t base_slice = 0;
+    int32_t group = 0;
+    uint32_t segment = 0;
+    uint32_t dynamic_slice = 0;
+  };
+
+  struct SliceRange {
+    uint32_t begin = 0;
+    uint32_t count = 0;
+    uint32_t base_slice = 0;
+    int32_t group = 0;
+  };
+
+  struct alignas(16) SliceTransform {
+    glm::vec4 rest_center{};
+    glm::vec4 center{};
+    glm::vec4 rotation{};
+  };
+
+  struct SliceConstant {
+    uint32_t segment_count = 0;
+    uint32_t padded_count = 0;
+    uint32_t minimum_members = 0;
+    uint32_t sort_stage = 0;
+    uint32_t sort_pass = 0;
+    float shape_matching_strength = 0.f;
+    uint32_t padding0 = 0;
+    uint32_t padding1 = 0;
+  };
+
   struct RandomBundleShearStretchConstant {
     uint32_t skip_index = 0;
     uint32_t skip_size = 1;
@@ -252,9 +283,23 @@ class DsBundle : public IDsConstraint {
   inline static std::shared_ptr<DescriptorSetLayout> coupled_layout{};
   inline static std::shared_ptr<ComputePipeline> coupled_pair_pipeline{};
   inline static std::shared_ptr<ComputePipeline> coupled_gather_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_key_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_sort_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_range_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_fit_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> slice_apply_pipeline{};
   std::shared_ptr<Buffer> coupled_pair_state_buffer{};
   std::shared_ptr<Buffer> coupled_pair_correction_buffer{};
+  std::shared_ptr<Buffer> base_slice_buffer{};
+  std::shared_ptr<Buffer> slice_member_buffer{};
+  std::shared_ptr<Buffer> slice_range_buffer{};
+  std::shared_ptr<Buffer> segment_slice_buffer{};
+  std::shared_ptr<Buffer> slice_transform_buffer{};
+  std::shared_ptr<Buffer> slice_count_buffer{};
+  std::shared_ptr<Buffer> slice_dispatch_buffer{};
   std::vector<std::shared_ptr<DescriptorSet>> coupled_descriptor_sets{};
+  uint32_t slice_padded_count = 0;
+  uint32_t last_slice_frame = std::numeric_limits<uint32_t>::max();
   DsBundle();
   BundleSolverSettings solver_settings{};
   int sub_iteration = 1;

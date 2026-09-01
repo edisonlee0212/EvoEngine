@@ -2,6 +2,8 @@
 
 #include "glm/gtc/quaternion.hpp"
 
+#include <vector>
+
 namespace eco_sys_lab_package {
 
 struct BundleRigidBodyState {
@@ -28,11 +30,34 @@ struct BundlePairCorrection {
   glm::vec3 angular1{};
 };
 
+struct BundleSliceSegment {
+  int32_t node_handle = 0;
+  float root_distance = 0.f;
+  float rest_length = 0.f;
+};
+
+struct BundleSlicePoint {
+  glm::vec3 rest{};
+  glm::vec3 current{};
+  float mass = 1.f;
+};
+
+struct BundleSliceFit {
+  glm::vec3 rest_center{};
+  glm::vec3 center{};
+  glm::quat rotation{1.f, 0.f, 0.f, 0.f};
+  bool valid = false;
+};
+
 [[nodiscard]] glm::vec3 BundleQuaternionLog(glm::quat rotation);
 [[nodiscard]] BundlePairCorrection SolveBundlePairReference(const BundleRigidBodyState& body0,
                                                             const BundleRigidBodyState& body1,
                                                             BundlePairReferenceState& constraint);
 void ApplyBundlePairCorrection(BundleRigidBodyState& body0, BundleRigidBodyState& body1,
                                const BundlePairCorrection& correction);
+[[nodiscard]] std::vector<uint32_t> BuildBundleBaseSlices(const std::vector<BundleSliceSegment>& segments,
+                                                          float spacing_factor);
+[[nodiscard]] BundleSliceFit FitBundleSliceReference(const std::vector<BundleSlicePoint>& points,
+                                                     size_t minimum_points);
 
 }  // namespace eco_sys_lab_package

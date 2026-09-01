@@ -110,6 +110,11 @@ void ComputePipeline::Dispatch(const VkCommandBuffer vk_command_buffer, const ui
   vkCmdDispatch(vk_command_buffer, x, y, z);
 }
 
+void ComputePipeline::DispatchIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                       const VkDeviceSize offset) const {
+  vkCmdDispatchIndirect(vk_command_buffer, buffer.GetVkBuffer(), offset);
+}
+
 void ComputePipeline::PushConstantData(const VkCommandBuffer vk_command_buffer, const size_t range_index,
                                        const void* data) const {
   const auto& range = push_constant_ranges[range_index];

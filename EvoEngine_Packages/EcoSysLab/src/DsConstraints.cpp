@@ -389,8 +389,8 @@ glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat&
 DsBundle::DsBundle() {
   if (!coupled_layout) {
     coupled_layout = std::make_shared<DescriptorSetLayout>();
-    coupled_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    coupled_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    for (uint32_t binding = 0; binding < 9; ++binding)
+      coupled_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     coupled_layout->Initialize();
   }
   const auto initialize_coupled_pipeline = [](std::shared_ptr<ComputePipeline>& pipeline, const char* shader_name) {
@@ -411,6 +411,11 @@ DsBundle::DsBundle() {
   };
   initialize_coupled_pipeline(coupled_pair_pipeline, "SolveCoupledPairs.slang");
   initialize_coupled_pipeline(coupled_gather_pipeline, "GatherCoupledPairs.slang");
+  initialize_coupled_pipeline(slice_key_pipeline, "BuildSliceMembers.slang");
+  initialize_coupled_pipeline(slice_sort_pipeline, "SortSliceMembers.slang");
+  initialize_coupled_pipeline(slice_range_pipeline, "BuildSliceRanges.slang");
+  initialize_coupled_pipeline(slice_fit_pipeline, "FitSlices.slang");
+  initialize_coupled_pipeline(slice_apply_pipeline, "ApplySlices.slang");
 
   if (!stretch_shear_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -581,11 +586,51 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   coupled_pair_state_buffer->UploadVector(std::vector<CoupledPairState>(target_dynamic_strands.segment_pairs.size()));
   coupled_pair_correction_buffer->UploadVector(
       std::vector<CoupledPairCorrection>(target_dynamic_strands.segment_pairs.size()));
+  float average_length = 0.f;
+  for (const auto& segment : target_dynamic_strands.segments)
+    average_length += segment.rest_length;
+  average_length /= glm::max(static_cast<float>(target_dynamic_strands.segments.size()), 1.f);
+  const float spacing = glm::max(average_length * solver_settings.slice_spacing_factor, 1e-6f);
+  std::map<std::pair<int32_t, int32_t>, uint32_t> base_slice_indices;
+  std::vector<uint32_t> base_slices(target_dynamic_strands.segments.size());
+  for (size_t segment_index = 0; segment_index < target_dynamic_strands.segments.size(); ++segment_index) {
+    const auto& segment = target_dynamic_strands.segments[segment_index];
+    const float root_distance = .5f * (segment.particle0.root_distance + segment.particle1.root_distance);
+    const auto key = std::make_pair(segment.node_handle, static_cast<int32_t>(glm::floor(root_distance / spacing)));
+    const auto [iterator, inserted] =
+        base_slice_indices.try_emplace(key, static_cast<uint32_t>(base_slice_indices.size()));
+    base_slices[segment_index] = iterator->second;
+  }
+  slice_padded_count = 1;
+  while (slice_padded_count < target_dynamic_strands.segments.size())
+    slice_padded_count *= 2;
+  buffer_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  base_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_member_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_range_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  segment_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_transform_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  slice_dispatch_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  base_slice_buffer->UploadVector(base_slices);
+  slice_member_buffer->UploadVector(std::vector<SliceMember>(slice_padded_count));
+  slice_range_buffer->UploadVector(std::vector<SliceRange>(target_dynamic_strands.segments.size()));
+  segment_slice_buffer->UploadVector(std::vector<uint32_t>(target_dynamic_strands.segments.size()));
+  slice_transform_buffer->UploadVector(std::vector<SliceTransform>(target_dynamic_strands.segments.size()));
+  slice_count_buffer->UploadVector(std::vector<uint32_t>(1));
+  slice_dispatch_buffer->UploadVector(std::vector<VkDispatchIndirectCommand>(1, {0, 1, 1}));
   coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
   for (auto& descriptor_set : coupled_descriptor_sets) {
     descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
     descriptor_set->UpdateBufferDescriptorBinding(0, coupled_pair_state_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(1, coupled_pair_correction_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(2, base_slice_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(3, slice_member_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(4, slice_range_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(5, segment_slice_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(6, slice_transform_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(7, slice_count_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(8, slice_dispatch_buffer);
   }
 }
 
@@ -594,6 +639,66 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
   if (target_dynamic_strands.segment_pairs.empty())
     return;
   if (solver_settings.mode != BundleSolverMode::Legacy) {
+    const auto frame = Platform::GetCurrentFrameIndex();
+    const auto work_group_size = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
+    if (solver_settings.mode == BundleSolverMode::Hybrid) {
+      SliceConstant slice_constant;
+      slice_constant.segment_count = static_cast<uint32_t>(target_dynamic_strands.segments.size());
+      slice_constant.padded_count = slice_padded_count;
+      slice_constant.minimum_members = static_cast<uint32_t>(solver_settings.minimum_slice_members);
+      slice_constant.shape_matching_strength = solver_settings.shape_matching_strength;
+      if (last_slice_frame != target_dynamic_strands.GetFrameIndex()) {
+        last_slice_frame = target_dynamic_strands.GetFrameIndex();
+        const RecordedGpuProfilerScope topology_scope(dynamic_strands_profiler::GetItems().bundle_topology_rebuild);
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+          slice_key_pipeline->Bind(command_buffer);
+          slice_key_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_key_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_key_pipeline->PushConstant(command_buffer, 0, slice_constant);
+          slice_key_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_padded_count, work_group_size), 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          for (uint32_t stage = 2; stage <= slice_padded_count; stage *= 2) {
+            slice_constant.sort_stage = stage;
+            for (uint32_t pass = stage / 2; pass > 0; pass /= 2) {
+              slice_constant.sort_pass = pass;
+              slice_sort_pipeline->Bind(command_buffer);
+              slice_sort_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                     coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+              slice_sort_pipeline->PushConstant(command_buffer, 0, slice_constant);
+              slice_sort_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_padded_count, work_group_size), 1, 1);
+              Platform::EverythingBarrier(command_buffer);
+            }
+          }
+          slice_range_pipeline->Bind(command_buffer);
+          slice_range_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                  coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          slice_range_pipeline->PushConstant(command_buffer, 0, slice_constant);
+          slice_range_pipeline->Dispatch(command_buffer, 1, 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+        });
+      }
+      const RecordedGpuProfilerScope fit_scope(dynamic_strands_profiler::GetItems().bundle_slice_fit_apply);
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+        slice_fit_pipeline->Bind(command_buffer);
+        slice_fit_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_fit_pipeline->BindDescriptorSet(command_buffer, 1, coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_fit_pipeline->PushConstant(command_buffer, 0, slice_constant);
+        slice_fit_pipeline->DispatchIndirect(command_buffer, *slice_dispatch_buffer);
+        Platform::EverythingBarrier(command_buffer);
+        slice_apply_pipeline->Bind(command_buffer);
+        slice_apply_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_apply_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        slice_apply_pipeline->PushConstant(command_buffer, 0, slice_constant);
+        slice_apply_pipeline->Dispatch(command_buffer, Platform::DivUp(slice_constant.segment_count, work_group_size),
+                                       1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      });
+    }
     CoupledPairConstant constant;
     constant.pair_begin = target_dynamic_strands.connection_segment_pair_size;
     constant.pair_count = static_cast<uint32_t>(target_dynamic_strands.segment_pairs.size()) - constant.pair_begin;
@@ -602,8 +707,6 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
     constant.position_compliance_scale = solver_settings.position_compliance_scale;
     constant.bending_compliance_scale = solver_settings.bending_compliance_scale;
     constant.torsion_compliance_scale = solver_settings.torsion_compliance_scale;
-    const auto frame = Platform::GetCurrentFrameIndex();
-    const auto work_group_size = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
     const RecordedGpuProfilerScope gpu_scope(dynamic_strands_profiler::GetItems().bundle_pair_solve);
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
       for (int iteration = 0; constant.pair_count > 0 && iteration < solver_settings.pair_iterations; ++iteration) {

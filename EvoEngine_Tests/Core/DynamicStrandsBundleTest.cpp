@@ -116,3 +116,41 @@ TEST(DynamicStrandsBundle, CoupledPairResidualDecreasesWithIterations) {
   EXPECT_GE(residual2, residual4);
   EXPECT_GE(residual4 + 1e-6f, residual8);
 }
+
+TEST(DynamicStrandsBundle, BaseSlicesSeparateBranchesAndDistanceBins) {
+  const std::vector<BundleSliceSegment> segments = {{0, .1f, 1.f}, {0, .9f, 1.f}, {0, 1.1f, 1.f}, {1, .1f, 1.f}};
+
+  const auto slices = BuildBundleBaseSlices(segments, 1.f);
+
+  EXPECT_EQ(slices[0], slices[1]);
+  EXPECT_NE(slices[1], slices[2]);
+  EXPECT_NE(slices[0], slices[3]);
+}
+
+TEST(DynamicStrandsBundle, SliceFitRecoversKnownRigidTransform) {
+  const glm::quat expected = glm::angleAxis(glm::radians(35.f), glm::normalize(glm::vec3(1.f, 2.f, 3.f)));
+  const glm::vec3 translation{2.f, -1.f, .5f};
+  std::vector<BundleSlicePoint> points;
+  for (const glm::vec3 rest : {glm::vec3(-1.f, 0.f, 0.f), glm::vec3(1.f, 0.f, 0.f), glm::vec3(0.f, -1.f, .2f),
+                               glm::vec3(0.f, 1.f, -.3f), glm::vec3(.2f, -.1f, 1.f)})
+    points.push_back({rest, expected * rest + translation, 1.f});
+
+  const auto fit = FitBundleSliceReference(points, 4);
+  glm::vec3 rest_center(0.f);
+  for (const auto& point : points)
+    rest_center += point.rest;
+  rest_center /= static_cast<float>(points.size());
+
+  EXPECT_TRUE(fit.valid);
+  EXPECT_NEAR(glm::length(fit.center - (expected * rest_center + translation)), 0.f, 1e-5f);
+  EXPECT_NEAR(glm::abs(glm::dot(fit.rotation, expected)), 1.f, 1e-5f);
+}
+
+TEST(DynamicStrandsBundle, SliceFitRejectsSmallAndCollinearComponents) {
+  EXPECT_FALSE(FitBundleSliceReference({{{0.f, 0.f, 0.f}, {1.f, 0.f, 0.f}, 1.f}}, 2).valid);
+  EXPECT_FALSE(FitBundleSliceReference({{{-1.f, 0.f, 0.f}, {-1.f, 1.f, 0.f}, 1.f},
+                                        {{0.f, 0.f, 0.f}, {0.f, 1.f, 0.f}, 1.f},
+                                        {{1.f, 0.f, 0.f}, {1.f, 1.f, 0.f}, 1.f}},
+                                       3)
+                   .valid);
+}

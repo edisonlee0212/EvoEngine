@@ -1,5 +1,7 @@
 #include "DynamicStrandsBundleMath.hpp"
 
+#include <map>
+
 namespace eco_sys_lab_package {
 namespace {
 glm::mat3 CrossMatrix(const glm::vec3 vector) {
@@ -62,5 +64,58 @@ void ApplyBundlePairCorrection(BundleRigidBodyState& body0, BundleRigidBodyState
   };
   apply(body0, correction.position0, correction.angular0);
   apply(body1, correction.position1, correction.angular1);
+}
+
+std::vector<uint32_t> BuildBundleBaseSlices(const std::vector<BundleSliceSegment>& segments,
+                                            const float spacing_factor) {
+  float average_length = 0.f;
+  for (const auto& segment : segments)
+    average_length += segment.rest_length;
+  average_length /= glm::max(static_cast<float>(segments.size()), 1.f);
+  const float spacing = glm::max(average_length * spacing_factor, 1e-6f);
+  std::map<std::pair<int32_t, int32_t>, uint32_t> indices;
+  std::vector<uint32_t> result(segments.size());
+  for (size_t index = 0; index < segments.size(); ++index) {
+    const auto key = std::make_pair(segments[index].node_handle,
+                                    static_cast<int32_t>(glm::floor(segments[index].root_distance / spacing)));
+    result[index] = indices.try_emplace(key, static_cast<uint32_t>(indices.size())).first->second;
+  }
+  return result;
+}
+
+BundleSliceFit FitBundleSliceReference(const std::vector<BundleSlicePoint>& points, const size_t minimum_points) {
+  BundleSliceFit result;
+  if (points.size() < minimum_points)
+    return result;
+  float mass_sum = 0.f;
+  for (const auto& point : points) {
+    const float mass = glm::max(point.mass, 1e-6f);
+    mass_sum += mass;
+    result.rest_center += mass * point.rest;
+    result.center += mass * point.current;
+  }
+  result.rest_center /= mass_sum;
+  result.center /= mass_sum;
+  glm::mat3 covariance(0.f);
+  for (const auto& point : points) {
+    const float mass = glm::max(point.mass, 1e-6f);
+    covariance += mass * glm::outerProduct(point.current - result.center, point.rest - result.rest_center);
+  }
+  float norm_squared = 0.f;
+  for (int column = 0; column < 3; ++column)
+    norm_squared += glm::dot(covariance[column], covariance[column]);
+  if (norm_squared < 1e-12f)
+    return result;
+  glm::mat3 rotation = covariance / glm::sqrt(norm_squared);
+  for (int iteration = 0; iteration < 8; ++iteration) {
+    if (glm::abs(glm::determinant(rotation)) < 1e-6f)
+      return result;
+    rotation = .5f * (rotation + glm::inverse(glm::transpose(rotation)));
+  }
+  if (glm::determinant(rotation) < 0.f)
+    rotation[2] = -rotation[2];
+  result.rotation = glm::normalize(glm::quat_cast(rotation));
+  result.valid = true;
+  return result;
 }
 }  // namespace eco_sys_lab_package
