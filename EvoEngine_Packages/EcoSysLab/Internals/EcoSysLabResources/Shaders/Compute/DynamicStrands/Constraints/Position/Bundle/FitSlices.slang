@@ -20,6 +20,10 @@ struct SliceTransform {
   float4 rest_center;
   float4 center;
   float4 rotation;
+  float4 inverse_mass;
+  float4 inverse_inertia0;
+  float4 inverse_inertia1;
+  float4 inverse_inertia2;
 };
 
 [[vk::binding(3, 1)]] StructuredBuffer<SliceMember, Std430DataLayout> slice_members;
@@ -68,6 +72,7 @@ void main(uint slice_index : SV_DispatchThreadID) {
     return;
   }
   float total_mass = 0;
+  bool fixed_slice = false;
   for (uint index = range.begin; index < range.begin + range.count; ++index) {
     uint segment_index = slice_members[index].segment;
     Segment segment = segments[segment_index];
@@ -77,6 +82,7 @@ void main(uint slice_index : SV_DispatchThreadID) {
     transform.center.xyz +=
         endpoint_mass * (segment_particle0s[segment_index].x + segment_particle1s[segment_index].x);
     total_mass += 2.f * endpoint_mass;
+    fixed_slice = fixed_slice || segment.inv_mass <= 0;
   }
   transform.rest_center.xyz /= total_mass;
   transform.center.xyz /= total_mass;
@@ -109,5 +115,24 @@ void main(uint slice_index : SV_DispatchThreadID) {
     rotation[2] = -rotation[2];
   transform.rest_center.w = 1.f;
   transform.rotation = normalize(quat_cast(rotation));
+  transform.inverse_mass.x = fixed_slice ? 0.f : 1.f / total_mass;
+  if (!fixed_slice) {
+    float3x3 inertia = float3x3(0);
+    for (uint index = range.begin; index < range.begin + range.count; ++index) {
+      uint segment_index = slice_members[index].segment;
+      Segment segment = segments[segment_index];
+      float endpoint_mass = .5f * max(segment.original_mass + segment.extra_mass, 1e-6f);
+      float3 arm0 = segment_particle0s[segment_index].x - transform.center.xyz;
+      float3 arm1 = segment_particle1s[segment_index].x - transform.center.xyz;
+      inertia += endpoint_mass * ((dot(arm0, arm0) + dot(arm1, arm1)) * float3x3(1) -
+                                  outer_product(arm0, arm0) - outer_product(arm1, arm1));
+    }
+    if (abs(determinant(inertia)) > 1e-12f) {
+      float3x3 inverse_inertia = inverse_transpose(inertia);
+      transform.inverse_inertia0.xyz = inverse_inertia[0];
+      transform.inverse_inertia1.xyz = inverse_inertia[1];
+      transform.inverse_inertia2.xyz = inverse_inertia[2];
+    }
+  }
   slice_transforms[slice_index] = transform;
 }

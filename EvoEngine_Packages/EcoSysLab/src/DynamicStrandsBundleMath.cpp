@@ -118,4 +118,22 @@ BundleSliceFit FitBundleSliceReference(const std::vector<BundleSlicePoint>& poin
   result.valid = true;
   return result;
 }
+
+std::vector<BundleCoarseEdge> BuildBundleCoarseEdges(const std::vector<uint32_t>& segment_slices,
+                                                     const std::vector<int32_t>& segment_groups,
+                                                     const std::vector<BundleCoarsePair>& pairs) {
+  std::map<std::pair<uint32_t, uint32_t>, uint32_t> counts;
+  for (const auto& pair : pairs) {
+    if (pair.connectivity <= 1e-6f || segment_groups[pair.segment0] != segment_groups[pair.segment1])
+      continue;
+    const auto slices = std::minmax(segment_slices[pair.segment0], segment_slices[pair.segment1]);
+    if (slices.first != slices.second)
+      ++counts[slices];
+  }
+  std::vector<BundleCoarseEdge> result;
+  result.reserve(counts.size());
+  for (const auto& [slices, count] : counts)
+    result.push_back({slices.first, slices.second, count});
+  return result;
+}
 }  // namespace eco_sys_lab_package

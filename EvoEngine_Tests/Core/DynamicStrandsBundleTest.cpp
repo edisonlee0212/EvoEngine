@@ -154,3 +154,20 @@ TEST(DynamicStrandsBundle, SliceFitRejectsSmallAndCollinearComponents) {
                                        3)
                    .valid);
 }
+
+TEST(DynamicStrandsBundle, CoarseEdgesReduceDirectPairsByOrderedSlices) {
+  const std::vector<uint32_t> slices = {0, 1, 0, 1, 2};
+  const std::vector<int32_t> groups(slices.size(), 7);
+  const std::vector<BundleCoarsePair> pairs = {{0, 1, 1.f}, {2, 3, 1.f}, {3, 4, 1.f}, {0, 2, 1.f}};
+
+  EXPECT_EQ(BuildBundleCoarseEdges(slices, groups, pairs), (std::vector<BundleCoarseEdge>{{0, 1, 2}, {1, 2, 1}}));
+}
+
+TEST(DynamicStrandsBundle, CoarseEdgesSplitImmediatelyFromLiveConnectivity) {
+  const std::vector<uint32_t> slices = {0, 1, 1, 2};
+  const std::vector<BundleCoarsePair> pairs = {{0, 1, 1.f}, {2, 3, 1.f}};
+
+  EXPECT_EQ(BuildBundleCoarseEdges(slices, {4, 4, 4, 4}, pairs).size(), 2);
+  EXPECT_TRUE(BuildBundleCoarseEdges(slices, {4, 9, 9, 4}, pairs).empty());
+  EXPECT_TRUE(BuildBundleCoarseEdges(slices, {4, 4, 4, 4}, {{0, 1, 0.f}, {2, 3, 0.f}}).empty());
+}

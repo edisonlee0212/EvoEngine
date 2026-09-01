@@ -215,6 +215,10 @@ class DsBundle : public IDsConstraint {
     glm::vec4 rest_center{};
     glm::vec4 center{};
     glm::vec4 rotation{};
+    glm::vec4 inverse_mass{};
+    glm::vec4 inverse_inertia0{};
+    glm::vec4 inverse_inertia1{};
+    glm::vec4 inverse_inertia2{};
   };
 
   struct SliceConstant {
@@ -226,6 +230,34 @@ class DsBundle : public IDsConstraint {
     float shape_matching_strength = 0.f;
     uint32_t padding0 = 0;
     uint32_t padding1 = 0;
+  };
+
+  struct CoarseEdgeCandidate {
+    uint32_t slice0 = 0;
+    uint32_t slice1 = 0;
+    uint32_t pair = 0;
+    uint32_t padding = 0;
+  };
+
+  struct alignas(16) CoarseEdge {
+    uint32_t slice0 = 0;
+    uint32_t slice1 = 0;
+    uint32_t count = 0;
+    uint32_t padding = 0;
+    glm::vec4 compliance_cohesion{};
+    glm::vec4 positional_lambda{};
+    glm::vec4 angular_lambda{};
+  };
+
+  struct CoarseConstant {
+    uint32_t direct_pair_count = 0;
+    uint32_t padded_count = 0;
+    uint32_t sort_stage = 0;
+    uint32_t sort_pass = 0;
+    float inverse_time_step_squared = 0.f;
+    float position_compliance_scale = 1.f;
+    float bending_compliance_scale = 1.f;
+    float torsion_compliance_scale = 1.f;
   };
 
   struct RandomBundleShearStretchConstant {
@@ -288,6 +320,10 @@ class DsBundle : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> slice_range_pipeline{};
   inline static std::shared_ptr<ComputePipeline> slice_fit_pipeline{};
   inline static std::shared_ptr<ComputePipeline> slice_apply_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_key_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_sort_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_reduce_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coarse_solve_pipeline{};
   std::shared_ptr<Buffer> coupled_pair_state_buffer{};
   std::shared_ptr<Buffer> coupled_pair_correction_buffer{};
   std::shared_ptr<Buffer> base_slice_buffer{};
@@ -297,8 +333,12 @@ class DsBundle : public IDsConstraint {
   std::shared_ptr<Buffer> slice_transform_buffer{};
   std::shared_ptr<Buffer> slice_count_buffer{};
   std::shared_ptr<Buffer> slice_dispatch_buffer{};
+  std::shared_ptr<Buffer> coarse_candidate_buffer{};
+  std::shared_ptr<Buffer> coarse_edge_buffer{};
+  std::shared_ptr<Buffer> coarse_edge_count_buffer{};
   std::vector<std::shared_ptr<DescriptorSet>> coupled_descriptor_sets{};
   uint32_t slice_padded_count = 0;
+  uint32_t coarse_padded_count = 0;
   uint32_t last_slice_frame = std::numeric_limits<uint32_t>::max();
   DsBundle();
   BundleSolverSettings solver_settings{};

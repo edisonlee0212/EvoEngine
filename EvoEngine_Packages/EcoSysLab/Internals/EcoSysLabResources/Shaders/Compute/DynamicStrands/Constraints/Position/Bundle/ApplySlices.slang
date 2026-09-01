@@ -6,6 +6,10 @@ struct SliceTransform {
   float4 rest_center;
   float4 center;
   float4 rotation;
+  float4 inverse_mass;
+  float4 inverse_inertia0;
+  float4 inverse_inertia1;
+  float4 inverse_inertia2;
 };
 
 [[vk::binding(5, 1)]] StructuredBuffer<uint, Std430DataLayout> segment_slices;

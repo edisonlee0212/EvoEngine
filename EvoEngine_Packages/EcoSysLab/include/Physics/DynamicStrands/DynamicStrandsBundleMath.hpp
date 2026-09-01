@@ -49,6 +49,22 @@ struct BundleSliceFit {
   bool valid = false;
 };
 
+struct BundleCoarsePair {
+  uint32_t segment0 = 0;
+  uint32_t segment1 = 0;
+  float connectivity = 1.f;
+};
+
+struct BundleCoarseEdge {
+  uint32_t slice0 = 0;
+  uint32_t slice1 = 0;
+  uint32_t count = 0;
+
+  bool operator==(const BundleCoarseEdge& other) const {
+    return slice0 == other.slice0 && slice1 == other.slice1 && count == other.count;
+  }
+};
+
 [[nodiscard]] glm::vec3 BundleQuaternionLog(glm::quat rotation);
 [[nodiscard]] BundlePairCorrection SolveBundlePairReference(const BundleRigidBodyState& body0,
                                                             const BundleRigidBodyState& body1,
@@ -59,5 +75,8 @@ void ApplyBundlePairCorrection(BundleRigidBodyState& body0, BundleRigidBodyState
                                                           float spacing_factor);
 [[nodiscard]] BundleSliceFit FitBundleSliceReference(const std::vector<BundleSlicePoint>& points,
                                                      size_t minimum_points);
+[[nodiscard]] std::vector<BundleCoarseEdge> BuildBundleCoarseEdges(const std::vector<uint32_t>& segment_slices,
+                                                                   const std::vector<int32_t>& segment_groups,
+                                                                   const std::vector<BundleCoarsePair>& pairs);
 
 }  // namespace eco_sys_lab_package

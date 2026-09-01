@@ -389,7 +389,7 @@ glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat&
 DsBundle::DsBundle() {
   if (!coupled_layout) {
     coupled_layout = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding < 9; ++binding)
+    for (uint32_t binding = 0; binding < 12; ++binding)
       coupled_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     coupled_layout->Initialize();
   }
@@ -416,6 +416,10 @@ DsBundle::DsBundle() {
   initialize_coupled_pipeline(slice_range_pipeline, "BuildSliceRanges.slang");
   initialize_coupled_pipeline(slice_fit_pipeline, "FitSlices.slang");
   initialize_coupled_pipeline(slice_apply_pipeline, "ApplySlices.slang");
+  initialize_coupled_pipeline(coarse_key_pipeline, "BuildCoarseEdges.slang");
+  initialize_coupled_pipeline(coarse_sort_pipeline, "SortCoarseEdges.slang");
+  initialize_coupled_pipeline(coarse_reduce_pipeline, "ReduceCoarseEdges.slang");
+  initialize_coupled_pipeline(coarse_solve_pipeline, "SolveCoarseEdges.slang");
 
   if (!stretch_shear_pipeline) {
     static std::shared_ptr<Shader> shader{};
@@ -604,6 +608,9 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   slice_padded_count = 1;
   while (slice_padded_count < target_dynamic_strands.segments.size())
     slice_padded_count *= 2;
+  coarse_padded_count = 1;
+  while (coarse_padded_count < target_dynamic_strands.connection_segment_pair_size)
+    coarse_padded_count *= 2;
   buffer_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   base_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_member_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
@@ -612,6 +619,9 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   slice_transform_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_dispatch_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_candidate_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_edge_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coarse_edge_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   base_slice_buffer->UploadVector(base_slices);
   slice_member_buffer->UploadVector(std::vector<SliceMember>(slice_padded_count));
   slice_range_buffer->UploadVector(std::vector<SliceRange>(target_dynamic_strands.segments.size()));
@@ -619,6 +629,9 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   slice_transform_buffer->UploadVector(std::vector<SliceTransform>(target_dynamic_strands.segments.size()));
   slice_count_buffer->UploadVector(std::vector<uint32_t>(1));
   slice_dispatch_buffer->UploadVector(std::vector<VkDispatchIndirectCommand>(1, {0, 1, 1}));
+  coarse_candidate_buffer->UploadVector(std::vector<CoarseEdgeCandidate>(coarse_padded_count));
+  coarse_edge_buffer->UploadVector(std::vector<CoarseEdge>(target_dynamic_strands.connection_segment_pair_size));
+  coarse_edge_count_buffer->UploadVector(std::vector<uint32_t>(1));
   coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
   for (auto& descriptor_set : coupled_descriptor_sets) {
     descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
@@ -631,6 +644,9 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
     descriptor_set->UpdateBufferDescriptorBinding(6, slice_transform_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(7, slice_count_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(8, slice_dispatch_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(9, coarse_candidate_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(10, coarse_edge_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(11, coarse_edge_count_buffer);
   }
 }
 
@@ -677,6 +693,38 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
           slice_range_pipeline->PushConstant(command_buffer, 0, slice_constant);
           slice_range_pipeline->Dispatch(command_buffer, 1, 1, 1);
           Platform::EverythingBarrier(command_buffer);
+          CoarseConstant coarse_constant;
+          coarse_constant.direct_pair_count = target_dynamic_strands.connection_segment_pair_size;
+          coarse_constant.padded_count = coarse_padded_count;
+          coarse_key_pipeline->Bind(command_buffer);
+          coarse_key_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_key_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                 coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_key_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          coarse_key_pipeline->Dispatch(command_buffer, Platform::DivUp(coarse_padded_count, work_group_size), 1, 1);
+          Platform::EverythingBarrier(command_buffer);
+          for (uint32_t stage = 2; stage <= coarse_padded_count; stage *= 2) {
+            coarse_constant.sort_stage = stage;
+            for (uint32_t pass = stage / 2; pass > 0; pass /= 2) {
+              coarse_constant.sort_pass = pass;
+              coarse_sort_pipeline->Bind(command_buffer);
+              coarse_sort_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                      coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+              coarse_sort_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+              coarse_sort_pipeline->Dispatch(command_buffer, Platform::DivUp(coarse_padded_count, work_group_size), 1,
+                                             1);
+              Platform::EverythingBarrier(command_buffer);
+            }
+          }
+          coarse_reduce_pipeline->Bind(command_buffer);
+          coarse_reduce_pipeline->BindDescriptorSet(
+              command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_reduce_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                    coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_reduce_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          coarse_reduce_pipeline->Dispatch(command_buffer, 1, 1, 1);
+          Platform::EverythingBarrier(command_buffer);
         });
       }
       const RecordedGpuProfilerScope fit_scope(dynamic_strands_profiler::GetItems().bundle_slice_fit_apply);
@@ -688,6 +736,24 @@ void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters
         slice_fit_pipeline->PushConstant(command_buffer, 0, slice_constant);
         slice_fit_pipeline->DispatchIndirect(command_buffer, *slice_dispatch_buffer);
         Platform::EverythingBarrier(command_buffer);
+        CoarseConstant coarse_constant;
+        coarse_constant.direct_pair_count = target_dynamic_strands.connection_segment_pair_size;
+        coarse_constant.padded_count = coarse_padded_count;
+        coarse_constant.inverse_time_step_squared = 1.f / physics_parameters.time_step / physics_parameters.time_step;
+        coarse_constant.position_compliance_scale = solver_settings.position_compliance_scale;
+        coarse_constant.bending_compliance_scale = solver_settings.bending_compliance_scale;
+        coarse_constant.torsion_compliance_scale = solver_settings.torsion_compliance_scale;
+        {
+          const RecordedGpuProfilerScope coarse_scope(dynamic_strands_profiler::GetItems().bundle_coarse_edge_solve);
+          coarse_solve_pipeline->Bind(command_buffer);
+          coarse_solve_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                   coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+          coarse_solve_pipeline->PushConstant(command_buffer, 0, coarse_constant);
+          for (int iteration = 0; iteration < solver_settings.coarse_iterations; ++iteration) {
+            coarse_solve_pipeline->Dispatch(command_buffer, 1, 1, 1);
+            Platform::EverythingBarrier(command_buffer);
+          }
+        }
         slice_apply_pipeline->Bind(command_buffer);
         slice_apply_pipeline->BindDescriptorSet(
             command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
