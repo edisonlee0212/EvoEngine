@@ -1,5 +1,7 @@
 #pragma once
+
 #include "DsMeshing.hpp"
+#include "RenderLayer.hpp"
 #include "RenderParameters.hpp"
 
 #ifdef USE_CGAL

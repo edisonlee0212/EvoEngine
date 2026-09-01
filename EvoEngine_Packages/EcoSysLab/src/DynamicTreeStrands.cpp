@@ -264,8 +264,13 @@ bool DynamicTreeStrands::DrawGui(const std::shared_ptr<EditorLayer>& editor_laye
       dynamic_strands->Download();
       for (const auto& constraint : dynamic_strands->constraints) {
         if (const auto bundle = std::dynamic_pointer_cast<DsBundle>(constraint)) {
+          constexpr const char* mode_names[] = {"legacy", "coupled-xpbd", "hybrid"};
+          const std::string mode_suffix =
+              bundle->solver_settings.mode == BundleSolverMode::Legacy
+                  ? ""
+                  : std::string("-") + mode_names[static_cast<int>(bundle->solver_settings.mode)];
           const auto path = ProjectManager::GetProjectPath().parent_path() / "Diagnostics" /
-                            (bundle_experiment_name + "-bundle-diagnostics.yaml");
+                            (bundle_experiment_name + mode_suffix + "-bundle-diagnostics.yaml");
           CaptureBundleExperimentDiagnostics(bundle_experiment_name, *dynamic_strands, *bundle,
                                              bundle_experiment_reference)
               .Save(path);

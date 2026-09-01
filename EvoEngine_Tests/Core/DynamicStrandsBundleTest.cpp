@@ -2,6 +2,7 @@
 
 #include "Camera.hpp"
 #include "DynamicStrandsBundleDiagnostics.hpp"
+#include "DynamicStrandsBundleMath.hpp"
 #include "RenderLayer.hpp"
 
 #include <gtest/gtest.h>
@@ -65,4 +66,53 @@ TEST(DynamicStrandsBundle, MomentumReferenceUsesSegmentMassAndVelocities) {
 
   EXPECT_EQ(momentum.linear, glm::vec3(2.f, 4.f, 6.f));
   EXPECT_EQ(momentum.angular, glm::vec3(0.f));
+}
+
+TEST(DynamicStrandsBundle, CoupledPairProducesEqualOppositeImpulseAndTorque) {
+  BundleRigidBodyState body0{{0.f, 0.f, 0.f}, {}, 1.f, glm::mat3(1.f)};
+  BundleRigidBodyState body1{{2.f, 1.f, 0.f}, {}, .5f, glm::mat3(.5f)};
+  BundlePairReferenceState constraint;
+  constraint.segment0_midpoint_offset = {1.f, 0.f, 0.f};
+  constraint.segment1_midpoint_offset = {-1.f, 0.f, 0.f};
+
+  const auto correction = SolveBundlePairReference(body0, body1, constraint);
+
+  const glm::vec3 impulse0 = correction.position0 / body0.inverse_mass;
+  const glm::vec3 impulse1 = correction.position1 / body1.inverse_mass;
+  EXPECT_NEAR(glm::length(impulse0 + impulse1), 0.f, 1e-6f);
+  EXPECT_GT(glm::abs(correction.angular0.z) + glm::abs(correction.angular1.z), 0.f);
+}
+
+TEST(DynamicStrandsBundle, OffCenterBoundaryErrorIntroducesCorrectRotation) {
+  BundleRigidBodyState body0{{0.f, 0.f, 0.f}, {}, 1.f, glm::mat3(1.f)};
+  BundleRigidBodyState body1{{2.f, 1.f, 0.f}, {}, 0.f, glm::mat3(0.f)};
+  BundlePairReferenceState constraint;
+  constraint.segment0_midpoint_offset = {1.f, 0.f, 0.f};
+  constraint.segment1_midpoint_offset = {-1.f, 0.f, 0.f};
+
+  const auto correction = SolveBundlePairReference(body0, body1, constraint);
+
+  EXPECT_GT(correction.angular0.z, 0.f);
+}
+
+TEST(DynamicStrandsBundle, CoupledPairResidualDecreasesWithIterations) {
+  const auto residual = [](const int iterations) {
+    BundleRigidBodyState body0{{0.f, 0.f, 0.f}, {}, 1.f, glm::mat3(1.f)};
+    BundleRigidBodyState body1{{2.f, 1.f, 0.f}, {}, 0.f, glm::mat3(0.f)};
+    BundlePairReferenceState constraint;
+    constraint.segment0_midpoint_offset = {1.f, 0.f, 0.f};
+    constraint.segment1_midpoint_offset = {-1.f, 0.f, 0.f};
+    for (int iteration = 0; iteration < iterations; ++iteration)
+      ApplyBundlePairCorrection(body0, body1, SolveBundlePairReference(body0, body1, constraint));
+    return glm::length(body0.position + body0.rotation * constraint.segment0_midpoint_offset - body1.position -
+                       body1.rotation * constraint.segment1_midpoint_offset);
+  };
+  const float residual1 = residual(1);
+  const float residual2 = residual(2);
+  const float residual4 = residual(4);
+  const float residual8 = residual(8);
+  EXPECT_GT(residual1, residual8);
+  EXPECT_GE(residual1, residual2);
+  EXPECT_GE(residual2, residual4);
+  EXPECT_GE(residual4 + 1e-6f, residual8);
 }

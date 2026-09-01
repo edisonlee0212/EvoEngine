@@ -64,7 +64,7 @@ uint64_t BufferBytes(const std::shared_ptr<Buffer>& buffer) {
   return buffer ? buffer->GetSize() : 0;
 }
 
-GpuTimestampStats BundleGpuStats() {
+GpuTimestampStats BundleGpuStats(const BundleSolverMode mode) {
   GpuTimestampStats stats;
   const auto history = Platform::GetGpuTimestampFrameHistory();
   const size_t begin = history.size() > 120 ? history.size() - 120 : 0;
@@ -72,7 +72,10 @@ GpuTimestampStats BundleGpuStats() {
     double frame_milliseconds = 0.0;
     bool found = false;
     for (const auto& sample : history[frame_index].samples) {
-      if (sample.metadata.stable_pass_id == "EcoSysLab.DynamicStrands.Bundle.Legacy") {
+      const bool matches = mode == BundleSolverMode::Legacy
+                               ? sample.metadata.stable_pass_id == "EcoSysLab.DynamicStrands.Bundle.Legacy"
+                               : sample.metadata.stable_pass_id == "EcoSysLab.DynamicStrands.Bundle.PairSolveGather";
+      if (matches) {
         frame_milliseconds += sample.duration_milliseconds;
         found = true;
       }
@@ -192,24 +195,30 @@ BundleExperimentDiagnostics eco_sys_lab_package::CaptureBundleExperimentDiagnost
   const auto momentum = CalculateBundleMomentum(dynamic_strands);
   result.linear_momentum_residual = momentum.linear - reference_momentum.linear;
   result.angular_momentum_residual = momentum.angular - reference_momentum.angular;
-  const uint64_t calculate_apply_passes =
-      2ull * bundle.skip_size *
-      (static_cast<uint64_t>(bundle.enable_bundle_position) + static_cast<uint64_t>(bundle.enable_bundle_rotation) +
-       static_cast<uint64_t>(bundle.enable_bend_twist) + static_cast<uint64_t>(bundle.enable_stretch_shear));
-  result.bundle_dispatches_per_projection =
-      bundle.sub_iteration * (calculate_apply_passes + static_cast<uint64_t>(bundle.enable_connections));
-  result.strand_buffer_bytes = BufferBytes(dynamic_strands.device_strands_buffer) +
-                               BufferBytes(dynamic_strands.device_nodes_buffer) +
-                               BufferBytes(dynamic_strands.device_segments_buffer) +
-                               BufferBytes(dynamic_strands.device_segment_particle0_buffer) +
-                               BufferBytes(dynamic_strands.device_segment_particle1_buffer) +
-                               BufferBytes(dynamic_strands.device_segment_pairs_buffer) +
-                               BufferBytes(dynamic_strands.device_segment_data_list_buffer) +
-                               BufferBytes(dynamic_strands.device_segment_connection_handles_buffer) +
-                               BufferBytes(dynamic_strands.device_hashed_grid_elements_buffer) +
-                               BufferBytes(dynamic_strands.device_hashed_grid_cell_starts_buffer) +
-                               BufferBytes(dynamic_strands.device_foliage_buffer);
-  const auto gpu_stats = BundleGpuStats();
+  if (bundle.solver_settings.mode == BundleSolverMode::Legacy) {
+    const uint64_t calculate_apply_passes =
+        2ull * bundle.skip_size *
+        (static_cast<uint64_t>(bundle.enable_bundle_position) + static_cast<uint64_t>(bundle.enable_bundle_rotation) +
+         static_cast<uint64_t>(bundle.enable_bend_twist) + static_cast<uint64_t>(bundle.enable_stretch_shear));
+    result.bundle_dispatches_per_projection =
+        bundle.sub_iteration * (calculate_apply_passes + static_cast<uint64_t>(bundle.enable_connections));
+  } else {
+    result.bundle_dispatches_per_projection =
+        2ull * bundle.solver_settings.pair_iterations + static_cast<uint64_t>(bundle.enable_connections);
+  }
+  result.strand_buffer_bytes =
+      BufferBytes(dynamic_strands.device_strands_buffer) + BufferBytes(dynamic_strands.device_nodes_buffer) +
+      BufferBytes(dynamic_strands.device_segments_buffer) +
+      BufferBytes(dynamic_strands.device_segment_particle0_buffer) +
+      BufferBytes(dynamic_strands.device_segment_particle1_buffer) +
+      BufferBytes(dynamic_strands.device_segment_pairs_buffer) +
+      BufferBytes(dynamic_strands.device_segment_data_list_buffer) +
+      BufferBytes(dynamic_strands.device_segment_connection_handles_buffer) +
+      BufferBytes(dynamic_strands.device_hashed_grid_elements_buffer) +
+      BufferBytes(dynamic_strands.device_hashed_grid_cell_starts_buffer) +
+      BufferBytes(dynamic_strands.device_foliage_buffer) + BufferBytes(bundle.coupled_pair_state_buffer) +
+      BufferBytes(bundle.coupled_pair_correction_buffer);
+  const auto gpu_stats = BundleGpuStats(bundle.solver_settings.mode);
   result.gpu_sample_count = gpu_stats.sample_count;
   result.gpu_median_milliseconds = gpu_stats.MedianMilliseconds();
   result.gpu_p95_milliseconds = gpu_stats.PercentileMilliseconds(.95);

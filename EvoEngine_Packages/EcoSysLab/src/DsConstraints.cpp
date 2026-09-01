@@ -387,6 +387,31 @@ glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat&
 }
 
 DsBundle::DsBundle() {
+  if (!coupled_layout) {
+    coupled_layout = std::make_shared<DescriptorSetLayout>();
+    coupled_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    coupled_layout->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    coupled_layout->Initialize();
+  }
+  const auto initialize_coupled_pipeline = [](std::shared_ptr<ComputePipeline>& pipeline, const char* shader_name) {
+    if (pipeline)
+      return;
+    const auto shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./EcoSysLabResources/Shaders/Compute/DynamicStrands/Constraints/Position/Bundle") /
+            shader_name);
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts = {DynamicStrands::strands_layout, coupled_layout};
+    auto& range = pipeline->push_constant_ranges.emplace_back();
+    range.size = sizeof(CoupledPairConstant);
+    range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline->Initialize();
+  };
+  initialize_coupled_pipeline(coupled_pair_pipeline, "SolveCoupledPairs.slang");
+  initialize_coupled_pipeline(coupled_gather_pipeline, "GatherCoupledPairs.slang");
+
   if (!stretch_shear_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -543,12 +568,79 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
                               const DynamicStrands& target_dynamic_strands) {
   solver_settings = initialize_parameters.bundle_solver;
   sub_iteration = solver_settings.legacy_iterations;
+  if (solver_settings.mode == BundleSolverMode::Legacy)
+    return;
+  VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
+  buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  buffer_info.size = 1;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  coupled_pair_state_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coupled_pair_correction_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  coupled_pair_state_buffer->UploadVector(std::vector<CoupledPairState>(target_dynamic_strands.segment_pairs.size()));
+  coupled_pair_correction_buffer->UploadVector(
+      std::vector<CoupledPairCorrection>(target_dynamic_strands.segment_pairs.size()));
+  coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
+  for (auto& descriptor_set : coupled_descriptor_sets) {
+    descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
+    descriptor_set->UpdateBufferDescriptorBinding(0, coupled_pair_state_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(1, coupled_pair_correction_buffer);
+  }
 }
 
 void DsBundle::ProjectPositionConstraint(const DynamicStrands::PhysicsParameters& physics_parameters,
                                          const DynamicStrands& target_dynamic_strands) {
   if (target_dynamic_strands.segment_pairs.empty())
     return;
+  if (solver_settings.mode != BundleSolverMode::Legacy) {
+    CoupledPairConstant constant;
+    constant.pair_begin = target_dynamic_strands.connection_segment_pair_size;
+    constant.pair_count = static_cast<uint32_t>(target_dynamic_strands.segment_pairs.size()) - constant.pair_begin;
+    constant.segment_count = static_cast<uint32_t>(target_dynamic_strands.segments.size());
+    constant.inverse_time_step_squared = glm::pow(physics_parameters.sub_step / physics_parameters.time_step, 2.f);
+    constant.position_compliance_scale = solver_settings.position_compliance_scale;
+    constant.bending_compliance_scale = solver_settings.bending_compliance_scale;
+    constant.torsion_compliance_scale = solver_settings.torsion_compliance_scale;
+    const auto frame = Platform::GetCurrentFrameIndex();
+    const auto work_group_size = Platform::GetInstance().GetCapabilities().compute_work_group_invocations;
+    const RecordedGpuProfilerScope gpu_scope(dynamic_strands_profiler::GetItems().bundle_pair_solve);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+      for (int iteration = 0; constant.pair_count > 0 && iteration < solver_settings.pair_iterations; ++iteration) {
+        constant.reset_lambdas = iteration == 0;
+        coupled_pair_pipeline->Bind(command_buffer);
+        coupled_pair_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_pair_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                 coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_pair_pipeline->PushConstant(command_buffer, 0, constant);
+        coupled_pair_pipeline->Dispatch(command_buffer, Platform::DivUp(constant.pair_count, work_group_size), 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+        coupled_gather_pipeline->Bind(command_buffer);
+        coupled_gather_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_gather_pipeline->BindDescriptorSet(command_buffer, 1,
+                                                   coupled_descriptor_sets[frame]->GetVkDescriptorSet());
+        coupled_gather_pipeline->PushConstant(command_buffer, 0, constant);
+        coupled_gather_pipeline->Dispatch(command_buffer, Platform::DivUp(constant.segment_count, work_group_size), 1,
+                                          1);
+        Platform::EverythingBarrier(command_buffer);
+      }
+      if (enable_connections && connections_pipeline && connections_pipeline->Initialized()) {
+        RandomBundleApplyConnectionsConstant connection_constant;
+        connection_constant.segment_pair_size = target_dynamic_strands.connection_segment_pair_size;
+        connection_constant.inv_time_step = physics_parameters.sub_step / physics_parameters.time_step;
+        connections_pipeline->Bind(command_buffer);
+        connections_pipeline->BindDescriptorSet(
+            command_buffer, 0, target_dynamic_strands.strands_descriptor_sets[frame]->GetVkDescriptorSet());
+        connections_pipeline->PushConstant(command_buffer, 0, connection_constant);
+        connections_pipeline->Dispatch(command_buffer,
+                                       Platform::DivUp(connection_constant.segment_pair_size, work_group_size), 1, 1);
+        Platform::EverythingBarrier(command_buffer);
+      }
+    });
+    return;
+  }
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   RandomBundleConstant constraint_constant;
   constraint_constant.skip_size = skip_size;

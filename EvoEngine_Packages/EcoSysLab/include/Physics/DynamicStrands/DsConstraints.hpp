@@ -174,6 +174,29 @@ class DsStiffRod final : public IDsConstraint {
 
 class DsBundle : public IDsConstraint {
  public:
+  struct alignas(16) CoupledPairState {
+    glm::vec4 positional_lambda{};
+    glm::vec4 angular_lambda{};
+  };
+
+  struct alignas(16) CoupledPairCorrection {
+    glm::vec4 segment0_position{};
+    glm::vec4 segment0_angular{};
+    glm::vec4 segment1_position{};
+    glm::vec4 segment1_angular{};
+  };
+
+  struct CoupledPairConstant {
+    uint32_t pair_begin = 0;
+    uint32_t pair_count = 0;
+    uint32_t segment_count = 0;
+    uint32_t reset_lambdas = 0;
+    float inverse_time_step_squared = 0.f;
+    float position_compliance_scale = 1.f;
+    float bending_compliance_scale = 1.f;
+    float torsion_compliance_scale = 1.f;
+  };
+
   struct RandomBundleShearStretchConstant {
     uint32_t skip_index = 0;
     uint32_t skip_size = 1;
@@ -226,6 +249,12 @@ class DsBundle : public IDsConstraint {
   inline static std::shared_ptr<ComputePipeline> apply_position_pipeline{};
   inline static std::shared_ptr<ComputePipeline> apply_position_rotation_pipeline{};
   inline static std::shared_ptr<ComputePipeline> connections_pipeline{};
+  inline static std::shared_ptr<DescriptorSetLayout> coupled_layout{};
+  inline static std::shared_ptr<ComputePipeline> coupled_pair_pipeline{};
+  inline static std::shared_ptr<ComputePipeline> coupled_gather_pipeline{};
+  std::shared_ptr<Buffer> coupled_pair_state_buffer{};
+  std::shared_ptr<Buffer> coupled_pair_correction_buffer{};
+  std::vector<std::shared_ptr<DescriptorSet>> coupled_descriptor_sets{};
   DsBundle();
   BundleSolverSettings solver_settings{};
   int sub_iteration = 1;
