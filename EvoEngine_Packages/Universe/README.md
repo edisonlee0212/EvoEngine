@@ -47,6 +47,12 @@ The package entrypoint registers several data components:
 
 Universe is a strong example of SDK data components, archetypes, entity queries, temporary particle assets, editor layer inspection, and render-layer draw calls.
 
+## Design Documentation
+
+See the [Universe design documentation](docs/README.md) for the proposed strategy simulation, map design, player
+experience, and technical roadmap. These documents describe future direction rather than currently implemented
+gameplay.
+
 ## Future Work Notes
 
 Use this package as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.

@@ -330,6 +330,7 @@ void GeometryStorage::UploadData() {
       buffer_info.buffer = particle_info_list_data.buffer->GetVkBuffer();
       particle_info_list_data.descriptor_set->UpdateBufferDescriptorBinding(0, buffer_info, 0);
 
+      particle_info_list_data.uploaded_particle_count = particle_info_list_data.particle_info_list.size();
       particle_info_list_data.status = ParticleInfoListDataStatus::Updated;
     }
   }
@@ -431,6 +432,16 @@ bool GeometryStorage::HasPendingMeshUploads() {
          storage.require_skinned_mesh_data_device_update_ || storage.pending_skinned_mesh_upload_.active ||
          storage.require_strand_mesh_data_device_update_ || storage.pending_strand_upload_.active ||
          storage.require_ray_tracing_strand_data_device_update_ || storage.pending_ray_tracing_strand_upload_.active;
+}
+
+bool GeometryStorage::HasPendingPresentationUploads() {
+  const auto& storage = GetInstance();
+  return HasPendingMeshUploads() ||
+         std::any_of(storage.particle_info_list_data_list_.begin(), storage.particle_info_list_data_list_.end(),
+                     [](const ParticleInfoListData& data) {
+                       return data.status != ParticleInfoListDataStatus::Removed &&
+                              data.uploaded_particle_count < data.particle_info_list.size();
+                     });
 }
 
 bool GeometryStorage::HasPendingUploads() {

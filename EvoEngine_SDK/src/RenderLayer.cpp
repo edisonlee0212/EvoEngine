@@ -6388,7 +6388,7 @@ bool RenderLayer::IsSceneLightingReadyForPresentation(
     const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const {
   if (!scene || !render_instances || !ProjectManager::IsProjectIdle() ||
       AssetManager::GetAssetLoadSnapshot().Active() || TextureStorage::HasPendingUploads() ||
-      GeometryStorage::HasPendingUploads()) {
+      GeometryStorage::HasPendingPresentationUploads()) {
     return false;
   }
 

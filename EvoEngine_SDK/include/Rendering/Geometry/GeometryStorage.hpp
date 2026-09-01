@@ -213,6 +213,11 @@ struct ParticleInfoListData {
   ParticleInfoListDataStatus status = ParticleInfoListDataStatus::Updated;
 
   /**
+   * @brief Number of particle records backed by valid uploaded data.
+   */
+  size_t uploaded_particle_count = 0;
+
+  /**
    * @brief Range descriptor for the particle info list data.
    */
   std::shared_ptr<RangeDescriptor> range_descriptor;
@@ -344,6 +349,7 @@ class EVOENGINE_API GeometryStorage final {
  public:
   [[nodiscard]] static uint32_t GetVersion();
   [[nodiscard]] static bool HasPendingMeshUploads();
+  [[nodiscard]] static bool HasPendingPresentationUploads();
   [[nodiscard]] static bool HasPendingUploads();
   static void WaitForPendingUploads();
   static const std::shared_ptr<Buffer>& GetTriangleBuffer();

@@ -273,6 +273,24 @@ TEST(StaticBlasBuilder, GeometryWaitBarrierCommitsChangesDuringActiveBuild) {
   EXPECT_TRUE(replacement_blas->IsReady());
 }
 
+TEST(GpuService, PresentationReadinessAllowsDynamicParticleUpdatesAfterFirstUpload) {
+  ScopedGpuPlatform platform;
+  ParticleInfoList particles;
+  particles.OnCreate();
+  particles.SetParticleInfos({ParticleInfo{}});
+
+  EXPECT_TRUE(GeometryStorage::HasPendingPresentationUploads());
+  PlatformLifecycleTestAccess::PreUpdate();
+  EXPECT_FALSE(GeometryStorage::HasPendingPresentationUploads());
+
+  particles.SetParticleInfos({ParticleInfo{}});
+  EXPECT_TRUE(GeometryStorage::HasPendingUploads());
+  EXPECT_FALSE(GeometryStorage::HasPendingPresentationUploads());
+
+  particles.SetParticleInfos({ParticleInfo{}, ParticleInfo{}});
+  EXPECT_TRUE(GeometryStorage::HasPendingPresentationUploads());
+}
+
 TEST(StaticBlasBuilder, KeepsBuildHistoryAfterLiveStorageIsReleased) {
   ScopedGpuPlatform platform(true);
   if (!Platform::RayAccelerationStructureEnabled()) {
