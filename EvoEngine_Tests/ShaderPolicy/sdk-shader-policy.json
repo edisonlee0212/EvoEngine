@@ -156,8 +156,8 @@
       "path": "Compute/DDGIProbeVariabilityReduce.slang"
     },
     {
-      "module": "EvoEngine.EntryPoints.Compute.DeferredMaterialResolve",
-      "path": "Compute/DeferredMaterialResolve.slang"
+      "module": "EvoEngine.EntryPoints.Compute.DeferredComputeLighting",
+      "path": "Compute/DeferredComputeLighting.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.DepthPyramid",

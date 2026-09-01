@@ -9,7 +9,7 @@ class EVOENGINE_API ComputePipeline;
 class EVOENGINE_API DescriptorSet;
 class EVOENGINE_API DescriptorSetLayout;
 
-class EVOENGINE_API DeferredMaterialResolvePass final {
+class EVOENGINE_API DeferredComputeLightingPass final {
  public:
   using RecordCommands = std::function<void(const std::function<void(VkCommandBuffer vk_command_buffer)>& action)>;
 

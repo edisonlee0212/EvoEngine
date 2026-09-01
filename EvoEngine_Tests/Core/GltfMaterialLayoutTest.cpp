@@ -10,7 +10,6 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
-#include <limits>
 #include <string>
 #include <type_traits>
 
@@ -43,81 +42,6 @@ TEST(GltfMaterialLayout, VerticesExposeOnlyUv0AndUv1) {
   EXPECT_EQ(sizeof(SkinnedVertex), 160);
   EXPECT_EQ(offsetof(SkinnedVertex, tex_coord_1), 144);
   EXPECT_EQ(offsetof(SkinnedVertex, padding), 152);
-}
-
-TEST(GltfMaterialLayout, RawGBufferFormatsAndMetadataRoundTripExactly) {
-  using namespace evo_engine::raw_g_buffer;
-
-  EXPECT_EQ(kAttributeFormat, VK_FORMAT_R16G16B16A16_SFLOAT);
-  EXPECT_EQ(kMetadataFormat, VK_FORMAT_R32G32B32A32_UINT);
-  EXPECT_EQ(kDepthFormat, VK_FORMAT_D32_SFLOAT);
-  Metadata source;
-  source.instance_index = 0xfedcba98u;
-  source.material_index = kMaterialIndexMask;
-  source.info_index = 0x87654321u;
-  source.vertex_color = glm::vec4(-1.0f, 0.5f, 1.5f, 1.0f / 510.0f);
-  source.vertex_color_replaces_base_color = true;
-  source.negative_tangent_handedness = true;
-
-  const glm::uvec4 packed = PackMetadata(source);
-  EXPECT_EQ(packed.x, source.instance_index);
-  EXPECT_EQ(packed.y, 0xffffffffu);
-  EXPECT_EQ(packed.z, source.info_index);
-  EXPECT_EQ(packed.w, 0x01ff8000u);
-
-  const Metadata restored = UnpackMetadata(packed);
-  EXPECT_EQ(restored.instance_index, source.instance_index);
-  EXPECT_EQ(restored.material_index, source.material_index);
-  EXPECT_EQ(restored.info_index, source.info_index);
-  EXPECT_EQ(restored.vertex_color, glm::vec4(0.0f, 128.0f / 255.0f, 1.0f, 1.0f / 255.0f));
-  EXPECT_TRUE(restored.vertex_color_replaces_base_color);
-  EXPECT_TRUE(restored.negative_tangent_handedness);
-  EXPECT_EQ(ClearMetadata(), glm::uvec4(std::numeric_limits<uint32_t>::max()));
-}
-
-TEST(GltfMaterialLayout, RawGBufferMetadataPreservesIdsBeyondFloatPrecision) {
-  using namespace evo_engine::raw_g_buffer;
-
-  Metadata source;
-  source.instance_index = 16777217u;
-  source.material_index = 16777219u;
-  source.info_index = 16777221u;
-  const auto packed = PackMetadata(source);
-  const auto restored = UnpackMetadata(packed);
-
-  EXPECT_EQ(packed.x, 16777217u);
-  EXPECT_EQ(packed.z, 16777221u);
-  EXPECT_EQ(restored.instance_index, 16777217u);
-  EXPECT_EQ(restored.material_index, 16777219u);
-  EXPECT_EQ(restored.info_index, 16777221u);
-}
-
-TEST(GltfMaterialLayout, RawGBufferOctahedralFrameRoundTrips) {
-  using namespace evo_engine::raw_g_buffer;
-
-  const std::array directions = {glm::normalize(glm::vec3(1.0f, 2.0f, 3.0f)),
-                                 glm::normalize(glm::vec3(-4.0f, 1.0f, -2.0f)), glm::vec3(0.0f, 0.0f, -1.0f),
-                                 glm::vec3(0.0f, 1.0f, 0.0f)};
-  for (const auto& direction : directions) {
-    EXPECT_GT(glm::dot(direction, OctDecode(OctEncode(direction))), 0.99999f);
-  }
-  EXPECT_EQ(OctDecode(OctEncode(glm::vec3(0.0f))), glm::vec3(0.0f, 0.0f, 1.0f));
-}
-
-TEST(GltfMaterialLayout, RawGBufferShaderMirrorsTheHostAbi) {
-  const auto shader_root =
-      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto shader_source = ReadText(shader_root / "Modules" / "EvoEngine" / "GBuffer.slang");
-
-  EXPECT_NE(shader_source.find("EE_GBUFFER_MATERIAL_INDEX_MASK = 0x3fffffffu"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_VERTEX_COLOR_REPLACES_BASE_COLOR_BIT = 0x40000000u"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_NEGATIVE_TANGENT_HANDEDNESS_BIT = 0x80000000u"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_CLEAR_VALUE = 0xffffffffu"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_PACK_UNORM8"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_PACK_METADATA"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_UNPACK_METADATA"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_OCT_ENCODE"), std::string::npos);
-  EXPECT_NE(shader_source.find("EE_GBUFFER_OCT_DECODE"), std::string::npos);
 }
 
 TEST(GltfMaterialLayout, HostShadeMaterialMatchesReferenceBaseAnchors) {

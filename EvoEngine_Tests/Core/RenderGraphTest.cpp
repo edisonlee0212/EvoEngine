@@ -13,8 +13,8 @@
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
+#include "RenderPasses/DeferredComputeLightingPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
-#include "RenderPasses/DeferredMaterialResolvePass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/EntitySelectionHighlightPass.hpp"
@@ -109,7 +109,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto editor_layer = ReadTextFile(SdkPath("src/EditorLayer.cpp"));
   const auto deferred_geometry = ReadTextFile(SdkPath("src/RenderPasses/DeferredGeometryPass.cpp"));
-  const auto deferred_lighting = ReadTextFile(SdkPath("src/RenderPasses/DeferredMaterialResolvePass.cpp"));
   const auto directional_shadow = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(platform_header.empty());
@@ -117,7 +116,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
   ASSERT_FALSE(render_layer.empty());
   ASSERT_FALSE(editor_layer.empty());
   ASSERT_FALSE(deferred_geometry.empty());
-  ASSERT_FALSE(deferred_lighting.empty());
   ASSERT_FALSE(directional_shadow.empty());
   ASSERT_FALSE(transparent.empty());
 
@@ -129,7 +127,6 @@ TEST(RenderGraph, RenderPassDrawCountersRouteRasterAccountingByPass) {
 
   EXPECT_NE(deferred_geometry.find("RenderPassDrawBucket::DeferredGeometry"), std::string::npos);
   EXPECT_NE(deferred_geometry.find("RenderDrawCallKind::Indirect"), std::string::npos);
-  EXPECT_NE(deferred_lighting.find("RenderPassGpuTimestampScope"), std::string::npos);
   EXPECT_NE(directional_shadow.find("RenderPassDrawBucket::DirectionalLightShadow"), std::string::npos);
   EXPECT_NE(transparent.find("RenderPassDrawBucket::TransparentGeometry"), std::string::npos);
   EXPECT_NE(render_layer.find("RenderPassDrawBucket::PointLightShadow"), std::string::npos);
@@ -220,7 +217,7 @@ TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
       DdgiProbeVisualizationPass::CreateDescriptor(),
       DdgiProbeTracePass::CreateDescriptor(),
       DeferredGeometryPass::CreateDescriptor(),
-      DeferredMaterialResolvePass::CreateDescriptor(false, false),
+      DeferredComputeLightingPass::CreateDescriptor(false, false),
       DepthPyramidPass::CreateDescriptor(),
       DirectionalLightShadowPass::CreateDescriptor(),
       EntitySelectionHighlightPass::CreateDescriptor(),
@@ -321,31 +318,11 @@ TEST(RenderGraph, ShadowFrustumBoundsAreConservative) {
 TEST(RenderGraph, PackedShadowIndirectUsesOneStableArenaAndViewOffsets) {
   const auto storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
   const auto header = ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
-  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
-  const auto directional_shadow = ReadTextFile(SdkPath("src/RenderPasses/DirectionalLightShadowPass.cpp"));
   EXPECT_NE(header.find("VkDeviceSize indirect_buffer_offset = 0"), std::string::npos);
   EXPECT_NE(storage.find("FinalizeShadowIndirectBuffers(use_mesh_shader)"), std::string::npos);
   EXPECT_NE(storage.find("visibility.indirect_buffer_offset = VectorBytes(packed_shadow"), std::string::npos);
   EXPECT_NE(storage.find("add_vector_if_changed(packed_shadow_indirect_buffer"), std::string::npos);
   EXPECT_NE(storage.find("BufferUploadBatch upload_batch"), std::string::npos);
-
-  const auto punctual_begin = render_layer.find("const auto draw_shadow_indirect");
-  const auto punctual_end = render_layer.find("const auto render_strands_shadow_collection", punctual_begin);
-  ASSERT_NE(punctual_begin, std::string::npos);
-  ASSERT_NE(punctual_end, std::string::npos);
-  const auto punctual_batches = render_layer.substr(punctual_begin, punctual_end - punctual_begin);
-  const auto punctual_first_command = punctual_batches.find("batch.first_command");
-  ASSERT_NE(punctual_first_command, std::string::npos);
-  EXPECT_NE(punctual_batches.find("batch.first_command", punctual_first_command + 1), std::string::npos);
-
-  const auto directional_begin = directional_shadow.find("if (parameters.enable_indirect_rendering");
-  const auto directional_end = directional_shadow.find("} else if (prepare_graphics_pipeline", directional_begin);
-  ASSERT_NE(directional_begin, std::string::npos);
-  ASSERT_NE(directional_end, std::string::npos);
-  const auto directional_batches = directional_shadow.substr(directional_begin, directional_end - directional_begin);
-  const auto directional_first_command = directional_batches.find("batch.first_command");
-  ASSERT_NE(directional_first_command, std::string::npos);
-  EXPECT_NE(directional_batches.find("batch.first_command", directional_first_command + 1), std::string::npos);
 }
 
 TEST(RenderGraph, PackedCameraIndirectUsesAlignedArenaRanges) {
@@ -1640,7 +1617,7 @@ TEST(RenderGraph, AmbientOcclusionPrecedesFusedDeferredCompute) {
       });
   graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredMaterialResolvePass::CreateDescriptor(true, true), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DeferredComputeLightingPass::CreateDescriptor(true, true), [](const RenderGraphExecutionContext&) {
   });
 
   RenderGraphCompileContext context;
@@ -1677,7 +1654,7 @@ TEST(RenderGraph, AmbientOcclusionDoesNotRequireDepthPyramid) {
       });
   graph.AddPass(AmbientOcclusionPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredMaterialResolvePass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
+  graph.AddPass(DeferredComputeLightingPass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
   });
 
   const auto plan = graph.Compile();

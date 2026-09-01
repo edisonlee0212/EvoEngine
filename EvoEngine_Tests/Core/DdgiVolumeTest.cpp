@@ -1394,7 +1394,7 @@ TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
 TEST(DdgiVolume, DdgiRasterPathsKeepScalarAoInputsOutOfDirectAndEmission) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto deferred = ReadTextFile(shader_root / "Compute" / "DeferredMaterialResolve.slang");
+  const auto deferred = ReadTextFile(shader_root / "Compute" / "DeferredComputeLighting.slang");
   const auto transparent =
       ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.slang");
   ASSERT_FALSE(deferred.empty());
@@ -1407,7 +1407,7 @@ TEST(DdgiVolume, DdgiRasterPathsKeepScalarAoInputsOutOfDirectAndEmission) {
   EXPECT_EQ(transparent.find("inAmbientOcclusion"), std::string::npos);
   EXPECT_EQ(deferred.find("ambient * ao"), std::string::npos);
   EXPECT_EQ(transparent.find("ambient * surface.occlusion"), std::string::npos);
-  EXPECT_NE(deferred.find("indirect_debug_view != 0"), std::string::npos);
+  EXPECT_NE(deferred.find("indirect_lighting_debug_view != 0"), std::string::npos);
   EXPECT_NE(transparent.find("indirect_lighting_debug_view != 0"), std::string::npos);
 }
 

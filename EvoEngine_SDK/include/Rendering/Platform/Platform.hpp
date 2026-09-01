@@ -838,11 +838,6 @@ class EVOENGINE_API Platform final {
     /// Exact integer metadata format for expanded G-buffer attachments.
     constexpr static VkFormat g_buffer_utility = raw_g_buffer::kMetadataFormat;
 
-    /// Fixed formats for the raw geometry G-buffer ABI.
-    constexpr static VkFormat raw_g_buffer_attribute = raw_g_buffer::kAttributeFormat;
-    constexpr static VkFormat raw_g_buffer_metadata = raw_g_buffer::kMetadataFormat;
-    constexpr static VkFormat raw_g_buffer_depth = raw_g_buffer::kDepthFormat;
-
     /// Format for shadow maps.
     constexpr static VkFormat shadow_map = VK_FORMAT_D32_SFLOAT;
 

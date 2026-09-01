@@ -8,25 +8,25 @@
   },
   "records": [
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Sampler2D:inDepth:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang:Sampler2D:inDepth:0",
       "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang",
       "resource_type": "Sampler2D",
       "symbol": "inDepth",
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Sampler2D:inAmbientOcclusion:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang:Sampler2D:inAmbientOcclusion:0",
       "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang",
       "resource_type": "Sampler2D",
       "symbol": "inAmbientOcclusion",
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Texture2D:inMetadata:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang:Texture2D:inMetadata:0",
       "kind": "shader-resource",
-      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredComputeLighting.slang",
       "resource_type": "Texture2D",
       "symbol": "inMetadata",
       "classification": "TransientPassResource"
@@ -973,10 +973,10 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:deferred_material_resolve_layout_:4:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:0",
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:deferred_compute_lighting_layout_:4:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:0",
       "kind": "host-binding",
       "path": "EvoEngine_SDK/src/RenderLayer.cpp",
-      "owner": "deferred_material_resolve_layout_",
+      "owner": "deferred_compute_lighting_layout_",
       "binding": "4",
       "descriptor_type": "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE",
       "classification": "TransientPassResource"

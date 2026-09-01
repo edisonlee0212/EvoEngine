@@ -1,4 +1,4 @@
-#include "RenderPasses/DeferredMaterialResolvePass.hpp"
+#include "RenderPasses/DeferredComputeLightingPass.hpp"
 
 #include "Camera.hpp"
 #include "ComputePipeline.hpp"
@@ -11,7 +11,7 @@
 
 using namespace evo_engine;
 
-RenderPassDescriptor DeferredMaterialResolvePass::CreateDescriptor(const bool ambient_occlusion_enabled,
+RenderPassDescriptor DeferredComputeLightingPass::CreateDescriptor(const bool ambient_occlusion_enabled,
                                                                    const bool depth_pyramid_enabled) {
   const char* dependency = RenderPassNames::deferred_geometry;
   if (ambient_occlusion_enabled) {
@@ -39,7 +39,7 @@ RenderPassDescriptor DeferredMaterialResolvePass::CreateDescriptor(const bool am
   return descriptor;
 }
 
-void DeferredMaterialResolvePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
+void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   if (!parameters.record_commands || !parameters.camera || !parameters.camera->GetRenderTexture() ||
       !parameters.per_frame_descriptor_set || !parameters.lighting_descriptor_set ||
       !parameters.raster_lighting_texture_descriptor_set || !parameters.pipeline ||

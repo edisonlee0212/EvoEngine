@@ -2121,13 +2121,11 @@ RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCamera
           mesh_draw_mesh_tasks_indirect_commands[command_index]);
       visibility.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
       const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
-        return batch.material_index == render_instance->material_index &&
-               batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+        return batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
                batch.polygon_mode == render_instance->polygon_mode;
       };
       if (batches.empty() || !same_batch(batches.back())) {
         auto& batch = batches.emplace_back();
-        batch.material_index = render_instance->material_index;
         batch.first_command = compact_command_index;
         batch.line_width = render_instance->line_width;
         batch.cull_mode = render_instance->cull_mode;
@@ -2639,8 +2637,6 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       !canonical_structure_initialized_ || structure_signature != canonical_structure_signature_;
   canonical_structure_initialized_ = true;
   canonical_structure_signature_ = structure_signature;
-  total_opaque_shadow_mesh_triangles = 0;
-  total_masked_shadow_mesh_triangles = 0;
   raster_draw_instance_indices.clear();
   deferred_mesh_draw_instance_index_offset = 0;
   if (canonical_structure_changed_this_frame_) {
@@ -2726,8 +2722,7 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
         }
       };
   const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<MeshRenderInstance>& render_instance,
-                                                         std::vector<DeferredMeshIndirectBatch>& batches,
-                                                         uint32_t& total_triangles) {
+                                                         std::vector<DeferredMeshIndirectBatch>& batches) {
     VkDrawIndexedIndirectCommand draw{};
     VkDrawMeshTasksIndirectCommandEXT mesh_task{};
 
@@ -2737,7 +2732,6 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       const auto meshlet_range = render_instance->mesh->meshlet_range_->prev_frame_range;
       draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
       mesh_task = CreateMeshTaskCommand(meshlet_range);
-      total_triangles += triangle_index_count / 3u;
     }
 
     if (canonical_structure_changed_this_frame_) {
@@ -2770,13 +2764,11 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       return;
     }
     const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
-      return batch.material_index == render_instance->material_index &&
-             batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+      return batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
              batch.polygon_mode == render_instance->polygon_mode;
     };
     if (batches.empty() || !same_batch(batches.back())) {
       auto& batch = batches.emplace_back();
-      batch.material_index = render_instance->material_index;
       batch.first_command = deferred_mesh_command_index;
       batch.line_width = render_instance->line_width;
       batch.cull_mode = render_instance->cull_mode;
@@ -2784,13 +2776,12 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
     auto& batch = batches.back();
     batch.command_count++;
-    batch.triangle_count += render_instance->mesh->triangle_range_->prev_frame_index_count;
+    batch.triangle_count += render_instance->mesh->triangle_range_->prev_frame_index_count / 3u;
     deferred_mesh_command_index++;
   };
   const auto register_deferred_mesh_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection,
                                                      std::vector<DeferredMeshIndirectBatch>& batches,
-                                                     std::vector<DeferredMeshIndirectBatch>& shadow_batches,
-                                                     uint32_t& total_shadow_triangles) {
+                                                     std::vector<DeferredMeshIndirectBatch>& shadow_batches) {
     collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
       if (canonical_structure_changed_this_frame_ && render_instance && render_instance->mesh) {
         AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
@@ -2804,13 +2795,13 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       if (canonical_structure_changed_this_frame_) {
         register_deferred_mesh_indirect_batch(render_instance, batches);
       }
-      register_shadow_mesh_indirect_command(render_instance, shadow_batches, total_shadow_triangles);
+      register_shadow_mesh_indirect_command(render_instance, shadow_batches);
     });
   };
   register_deferred_mesh_collection(deferred_render_instances, deferred_mesh_indirect_batches,
-                                    opaque_shadow_mesh_indirect_batches, total_opaque_shadow_mesh_triangles);
+                                    opaque_shadow_mesh_indirect_batches);
   register_deferred_mesh_collection(deferred_masked_render_instances, deferred_masked_mesh_indirect_batches,
-                                    masked_shadow_mesh_indirect_batches, total_masked_shadow_mesh_triangles);
+                                    masked_shadow_mesh_indirect_batches);
   ValidateDeferredMeshIndirectCommandCount(
       CountRenderInstances(deferred_render_instances) + CountRenderInstances(deferred_masked_render_instances),
       mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands, raster_draw_instance_indices);
@@ -3748,7 +3739,6 @@ RenderInstanceStorage::RenderInstanceStorage() {
 }
 
 void RenderInstanceStorage::Clear() {
-  total_opaque_shadow_mesh_triangles = 0;
   total_skinned_mesh_triangles = 0;
   total_instanced_mesh_triangles = 0;
   total_strands_segments = 0;

@@ -927,7 +927,6 @@ class EVOENGINE_API RenderInstanceStorage {
   std::shared_ptr<TopLevelAccelerationStructure> mesh_top_level_acceleration_structure{};
 
   struct DeferredMeshIndirectBatch {
-    int32_t material_index = -1;
     uint32_t first_command = 0;
     uint32_t command_count = 0;
     uint32_t triangle_count = 0;
@@ -1083,8 +1082,6 @@ class EVOENGINE_API RenderInstanceStorage {
   std::vector<ShadowViewIndirectCommands> spot_shadow_views_;
   uint32_t directional_shadow_light_count_ = 0;
 
-  uint32_t total_opaque_shadow_mesh_triangles = 0;
-  uint32_t total_masked_shadow_mesh_triangles = 0;
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;

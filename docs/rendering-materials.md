@@ -50,6 +50,9 @@ Material textures can select `TEXCOORD_0` or `TEXCOORD_1`. Additional imported m
 coordinate set is disabled with a diagnostic rather than remapped. Vertex `COLOR_0` multiplies the
 metallic-roughness base color.
 
+Serialized `.evemesh` vertex data uses the current UV0/UV1-only 96-byte rigid or 160-byte skinned layout. Older
+112-byte and 176-byte layouts containing UV2/UV3 are not loaded.
+
 Deferred rendering stores vertex color as clamped, rounded UNORM8 RGBA metadata. Negative and HDR vertex colors are
 therefore not preserved by the deferred path; forward-only paths retain full-float interpolation.
 

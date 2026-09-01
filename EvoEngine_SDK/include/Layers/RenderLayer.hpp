@@ -688,7 +688,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;
   std::shared_ptr<DescriptorSetLayout> bone_matrices_layout_;
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
-  std::shared_ptr<DescriptorSetLayout> deferred_material_resolve_layout_;
+  std::shared_ptr<DescriptorSetLayout> deferred_compute_lighting_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
@@ -1040,7 +1040,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
   std::shared_ptr<ComputePipeline> motion_vectors_pipeline_;
-  std::shared_ptr<ComputePipeline> deferred_material_resolve_pipeline_;
+  std::shared_ptr<ComputePipeline> deferred_compute_lighting_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> gaussian_splat_cull_pipeline_;

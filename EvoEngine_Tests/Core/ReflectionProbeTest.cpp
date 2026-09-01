@@ -422,7 +422,7 @@ TEST(ReflectionProbe, PrefilterSupportsAContiguousFaceRange) {
 TEST(ReflectionProbe, BakeAllReusesFramePointSpotAndDirectionalShadows) {
   const auto inspector = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
   const auto render_layer = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
-  const auto deferred_pass = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/DeferredMaterialResolvePass.cpp"));
+  const auto deferred_pass = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderPasses/DeferredComputeLightingPass.cpp"));
   const auto lighting =
       ReadTextFile(SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/Lighting.slang"));
   ASSERT_FALSE(inspector.empty());

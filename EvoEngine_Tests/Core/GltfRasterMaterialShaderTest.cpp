@@ -204,7 +204,7 @@ TEST(GltfRasterMaterial, EvaluatorCoversCanonicalTextureInfoAndPbrTerms) {
 
 TEST(GltfRasterMaterial, FractionalSpecularF90AndUnlitSurviveDeferredAndTransparentPaths) {
   const auto lighting = ReadTextFile(ShaderPath("Modules/EvoEngine/Lighting.slang"));
-  const auto deferred = ReadTextFile(ShaderPath("Compute/DeferredMaterialResolve.slang"));
+  const auto deferred = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   const auto transparent = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   ASSERT_FALSE(lighting.empty());
   ASSERT_FALSE(deferred.empty());
@@ -216,7 +216,8 @@ TEST(GltfRasterMaterial, FractionalSpecularF90AndUnlitSurviveDeferredAndTranspar
   EXPECT_NE(deferred.find("surface.specular_f90"), std::string::npos);
   const auto deferred_unlit =
       ExtractSourceRange(deferred, "if (!scene_camera && encoded_specular_f90 < 0.0f)", "const float linear_depth");
-  EXPECT_NE(deferred_unlit.find("indirect_debug_view == 0 ? resolved_base_color : float3(0.0f)"), std::string::npos);
+  EXPECT_NE(deferred_unlit.find("indirect_lighting_debug_view == 0 ? resolved_base_color : float3(0.0f)"),
+            std::string::npos);
   EXPECT_EQ(deferred_unlit.find("EE_FUNC_CALCULATE_"), std::string::npos);
   EXPECT_NE(deferred.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
   EXPECT_NE(deferred.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
@@ -488,7 +489,7 @@ TEST(GltfRasterMaterial, OpaqueDeferredPassUsesSharedBindlessMaterialDescriptors
   EXPECT_EQ(utilities.find("BindDescriptorSet(vk_command_buffer, 3"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, DeferredIndirectUsesCanonicalMaterialIndicesWithoutFixedDescriptors) {
+TEST(GltfRasterMaterial, DeferredIndirectUsesInstanceMetadataWithoutMaterialBatches) {
   const auto render_instance_header =
       ReadTextFile(SdkPath("include/Rendering/RenderInstances/RenderInstanceStorage.hpp"));
   const auto render_instance = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
@@ -519,7 +520,10 @@ TEST(GltfRasterMaterial, DeferredIndirectUsesCanonicalMaterialIndicesWithoutFixe
   EXPECT_NE(render_instance_header.find("std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches"),
             std::string::npos);
   EXPECT_NE(render_instance.find("deferred_mesh_indirect_batches.clear()"), std::string::npos);
-  EXPECT_NE(render_instance.find("batch.material_index == render_instance->material_index"), std::string::npos);
+  const auto batch_definition = ExtractSourceRange(render_instance_header, "struct DeferredMeshIndirectBatch",
+                                                   "class EVOENGINE_API RasterSpatialIndex");
+  EXPECT_EQ(batch_definition.find("material_index"), std::string::npos);
+  EXPECT_EQ(render_instance.find("batch.material_index"), std::string::npos);
   EXPECT_EQ(render_instance_header.find("first_instance_index"), std::string::npos);
   EXPECT_NE(render_instance_header.find("std::vector<uint32_t> raster_draw_instance_indices"), std::string::npos);
   EXPECT_NE(render_instance.find(
@@ -624,15 +628,15 @@ TEST(GltfRasterMaterial, RasterLightingUsesBindlessGlobalIblAndPassLocalAmbientO
   const auto lighting_shader = ReadTextFile(ShaderPath("Modules/EvoEngine/Lighting.slang")) +
                                ReadTextFile(ShaderPath("Modules/EvoEngine/LightingFixedSet3.slang"));
   const auto transparent_lighting_module = ReadTextFile(ShaderPath("Modules/EvoEngine/LightingFixedSet3.slang"));
-  const auto deferred_lighting_shader = ReadTextFile(ShaderPath("Compute/DeferredMaterialResolve.slang"));
+  const auto deferred_lighting_shader = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   const auto transparent_lighting_shader =
       ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardTransparent.slang"));
   const auto render_info_shader = ReadTextFile(ShaderPath("Modules/EvoEngine/RenderInfo.slang"));
   const auto render_layer_header = ReadTextFile(SdkPath("include/Layers/RenderLayer.hpp"));
   const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   const auto render_instance_storage = ReadTextFile(SdkPath("src/RenderInstanceStorage.cpp"));
-  const auto deferred_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredMaterialResolvePass.hpp"));
-  const auto deferred = ReadTextFile(SdkPath("src/RenderPasses/DeferredMaterialResolvePass.cpp"));
+  const auto deferred_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/DeferredComputeLightingPass.hpp"));
+  const auto deferred = ReadTextFile(SdkPath("src/RenderPasses/DeferredComputeLightingPass.cpp"));
   const auto transparent_header = ReadTextFile(SdkPath("include/Rendering/RenderPasses/TransparentGeometryPass.hpp"));
   const auto transparent = ReadTextFile(SdkPath("src/RenderPasses/TransparentGeometryPass.cpp"));
   ASSERT_FALSE(lighting_shader.empty());
@@ -758,8 +762,8 @@ TEST(GltfRasterMaterial, RasterLightingUsesBindlessGlobalIblAndPassLocalAmbientO
   EXPECT_EQ(probe_collection.find("ClampSettings("), std::string::npos);
   EXPECT_EQ(probe_collection.find("EnforceSceneLimit("), std::string::npos);
 
-  const std::string deferred_pipeline = ExtractSourceRange(render_layer, "if (!deferred_material_resolve_pipeline_)",
-                                                           "deferred_material_resolve_pipeline_->Initialize()");
+  const std::string deferred_pipeline = ExtractSourceRange(render_layer, "if (!deferred_compute_lighting_pipeline_)",
+                                                           "deferred_compute_lighting_pipeline_->Initialize()");
   EXPECT_EQ(deferred_pipeline.find("CreateRasterFixedLightingShaderDefines"), std::string::npos);
   EXPECT_NE(deferred_pipeline.find("per_frame_layout_"), std::string::npos);
   EXPECT_NE(deferred_pipeline.find("lighting_layout_"), std::string::npos);
@@ -1105,12 +1109,10 @@ TEST(GltfRasterMaterial, ScreenSpaceReflectionTemporalResolveRejectsInvalidHisto
 TEST(GltfRasterMaterial, FusedDeferredComputeResolvesAndLightsExpandedGBuffer) {
   const auto opaque = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredRaw.slang"));
   const auto masked = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang"));
-  const auto resolve = ReadTextFile(ShaderPath("Compute/DeferredMaterialResolve.slang"));
-  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto resolve = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   ASSERT_FALSE(opaque.empty());
   ASSERT_FALSE(masked.empty());
   ASSERT_FALSE(resolve.empty());
-  ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(opaque.find("import EvoEngine.RawGBuffer;"), std::string::npos);
   EXPECT_NE(opaque.find("EE_BUILD_RAW_GBUFFER"), std::string::npos);
@@ -1138,8 +1140,6 @@ TEST(GltfRasterMaterial, FusedDeferredComputeResolvesAndLightsExpandedGBuffer) {
   EXPECT_NE(resolve.find("outColor[pixel]"), std::string::npos);
   EXPECT_NE(resolve.find("inOutUvBaseColorAo[pixel] = float4(resolved_base_color"), std::string::npos);
   EXPECT_NE(resolve.find("inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r"), std::string::npos);
-  EXPECT_EQ(render_layer.find("DeferredLightingPass::Execute"), std::string::npos);
-  EXPECT_EQ(render_layer.find("DeferredLightingPass::CreateDescriptor"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
@@ -1193,7 +1193,7 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
             std::string::npos);
 
   const auto motion_vectors = ReadTextFile(ShaderPath("Compute/MotionVectors.slang"));
-  const auto deferred_lighting = ReadTextFile(ShaderPath("Compute/DeferredMaterialResolve.slang"));
+  const auto deferred_lighting = ReadTextFile(ShaderPath("Compute/DeferredComputeLighting.slang"));
   const auto selection = ReadTextFile(ShaderPath("Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"));
   for (const auto* source : {&motion_vectors, &selection}) {
     EXPECT_NE(source->find("Texture2D<uint4> inUtility"), std::string::npos);

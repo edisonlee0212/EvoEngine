@@ -1244,7 +1244,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Compute, shader_root / "Compute/RayQueryCamera.slang"},
       {ShaderType::Compute, shader_root / "Compute/DepthPyramid.slang"},
       {ShaderType::Compute, shader_root / "Compute/MotionVectors.slang"},
-      {ShaderType::Compute, shader_root / "Compute/DeferredMaterialResolve.slang"},
+      {ShaderType::Compute, shader_root / "Compute/DeferredComputeLighting.slang"},
       {ShaderType::Compute, shader_root / "Compute/VolumetricClouds.slang"},
       {ShaderType::Compute, shader_root / "Compute/VolumetricCloudsComposite.slang"},
       {ShaderType::Compute, shader_root / "Compute/GaussianSplatCull.slang"},

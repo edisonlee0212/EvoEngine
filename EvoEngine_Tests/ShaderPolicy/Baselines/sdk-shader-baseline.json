@@ -1,6 +1,6 @@
 {
   "compiled_spirv": {
-    "aggregate_manifest_sha256": "2c27cf78e57b872a2b83c98585caf631964874943edcb8034ab6b7b16b56295d",
+    "aggregate_manifest_sha256": "8475239d38c8e7145f2eef9d372ff9c6631d24c167c51b8a7ca4aad0fcfad8ec",
     "aggregate_spirv_bytes": 3598560,
     "compiler": "1788159859",
     "entry_point_count": 117,
@@ -131,7 +131,7 @@
           16,
           1
         ],
-        "path": "Compute/DeferredMaterialResolve.slang",
+        "path": "Compute/DeferredComputeLighting.slang",
         "reflection_counts": {
           "descriptor_bindings": 27,
           "push_constant_ranges": 1,
@@ -2351,7 +2351,7 @@
   "schema": 1,
   "scope": "EvoEngine_SDK current native Slang shader baseline",
   "source_inventory": {
-    "aggregate_source_sha256": "63c693c00cf5679bcb8b3c53a70fcafed567508ade357fb3e25a1a230c2f0fb9",
+    "aggregate_source_sha256": "b28a05d7150e4e095e4f99ff6ce4f9e07dbe714cdb150129b9283303043d6c50",
     "counts": {
       "cone:Compute": 32,
       "cone:Graphics": 74,
@@ -2412,7 +2412,7 @@
         "imports": [],
         "includes": []
       },
-      "Compute/DeferredMaterialResolve.slang": {
+      "Compute/DeferredComputeLighting.slang": {
         "imports": [
           "EvoEngine.GBuffer",
           "EvoEngine.GltfRasterMaterial",
@@ -3571,15 +3571,15 @@
         "stage": "compute"
       },
       {
-        "bytes": 7273,
+        "bytes": 7353,
         "cone": "Compute",
         "extension": ".slang",
         "import_count": 3,
         "include_count": 0,
         "macro_control_count": 0,
-        "path": "Compute/DeferredMaterialResolve.slang",
+        "path": "Compute/DeferredComputeLighting.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "0b11596b7c5e6c097e5bcc1d1df96af6f390a268d560a4cdcb861996ecce3ed4",
+        "sha256": "a0d209a012eff3902308a5588e67b2cfbee45a54f0f19737dc5bc5dd3c00a5b4",
         "stage": "compute"
       },
       {

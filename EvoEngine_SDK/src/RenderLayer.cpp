@@ -34,8 +34,8 @@
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
+#include "RenderPasses/DeferredComputeLightingPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
-#include "RenderPasses/DeferredMaterialResolvePass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/EntitySelectionHighlightPass.hpp"
@@ -1788,17 +1788,17 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->Initialize();
   }
-  if (!deferred_material_resolve_layout_) {
-    deferred_material_resolve_layout_ = std::make_shared<DescriptorSetLayout>();
+  if (!deferred_compute_lighting_layout_) {
+    deferred_compute_lighting_layout_ = std::make_shared<DescriptorSetLayout>();
     for (uint32_t binding = 0; binding < 4; ++binding) {
-      deferred_material_resolve_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+      deferred_compute_lighting_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                                VK_SHADER_STAGE_COMPUTE_BIT, 0);
     }
-    deferred_material_resolve_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+    deferred_compute_lighting_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                                              VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    deferred_material_resolve_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+    deferred_compute_lighting_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
                                                              VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    deferred_material_resolve_layout_->Initialize();
+    deferred_compute_lighting_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
     render_texture_storage_layout_ = std::make_shared<DescriptorSetLayout>();
@@ -2099,21 +2099,21 @@ void RenderLayer::OnCreate() {
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     motion_vectors_pipeline_->Initialize();
   }
-  if (!deferred_material_resolve_pipeline_) {
-    deferred_material_resolve_pipeline_ = std::make_shared<ComputePipeline>();
-    deferred_material_resolve_pipeline_->compute_shader =
+  if (!deferred_compute_lighting_pipeline_) {
+    deferred_compute_lighting_pipeline_ = std::make_shared<ComputePipeline>();
+    deferred_compute_lighting_pipeline_->compute_shader =
         Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DeferredMaterialResolve.slang");
-    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
-    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
-    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(lighting_layout_);
-    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
-    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(deferred_material_resolve_layout_);
-    auto& push_constant_range = deferred_material_resolve_pipeline_->push_constant_ranges.emplace_back();
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DeferredComputeLighting.slang");
+    deferred_compute_lighting_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_compute_lighting_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    deferred_compute_lighting_pipeline_->descriptor_set_layouts.emplace_back(lighting_layout_);
+    deferred_compute_lighting_pipeline_->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
+    deferred_compute_lighting_pipeline_->descriptor_set_layouts.emplace_back(deferred_compute_lighting_layout_);
+    auto& push_constant_range = deferred_compute_lighting_pipeline_->push_constant_ranges.emplace_back();
     push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    deferred_material_resolve_pipeline_->Initialize();
+    deferred_compute_lighting_pipeline_->Initialize();
   }
   if (!volumetric_clouds_pipeline_) {
     volumetric_clouds_pipeline_ = std::make_shared<ComputePipeline>();
@@ -4718,13 +4718,13 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       capture.record_commands});
       });
   reflection_probe_capture_render_graph_.AddPass(
-      DeferredMaterialResolvePass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
+      DeferredComputeLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
-        DeferredMaterialResolvePass::Execute(
+        DeferredComputeLightingPass::Execute(
             context,
             {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index], capture.lighting_descriptor_set,
-             capture.raster_lighting_texture_descriptor_set, deferred_material_resolve_pipeline_,
-             deferred_material_resolve_layout_, capture.transient_resources, capture.camera_index,
+             capture.raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
+             deferred_compute_lighting_layout_, capture.transient_resources, capture.camera_index,
              capture.directional_shadow_camera_index, true, false, capture.record_commands});
       });
   if (!reflection_probe_capture_render_graph_.Validate()) {
@@ -7496,12 +7496,12 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                   });
     }
     camera_render_graph.AddPass(
-        DeferredMaterialResolvePass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
+        DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
         [&](const RenderGraphExecutionContext& context) {
-          DeferredMaterialResolvePass::Execute(
+          DeferredComputeLightingPass::Execute(
               context, {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
-                        raster_lighting_texture_descriptor_set, deferred_material_resolve_pipeline_,
-                        deferred_material_resolve_layout_, active_camera_transient_resources, camera_index,
+                        raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
+                        deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
                         directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands});
         });
     const bool forward_external_rendering_enabled =

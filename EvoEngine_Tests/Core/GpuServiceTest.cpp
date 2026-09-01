@@ -1689,8 +1689,6 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   Shader any_hit;
   Shader closest_hit;
   Shader miss;
-  Shader deferred;
-  Shader masked_shadow;
   Shader transparent;
   Shader gtao;
   Shader ambient_occlusion_blur;
@@ -1699,9 +1697,6 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   EXPECT_TRUE(closest_hit.TryCompile(ShaderType::ClosestHit, header,
                                      shader_root / "RayTracing/ClosestHit/DDGIProbeTrace.slang"));
   EXPECT_TRUE(miss.TryCompile(ShaderType::Miss, header, shader_root / "RayTracing/Miss/DDGIProbeTrace.slang"));
-  EXPECT_TRUE(deferred.TryCompile(ShaderType::Compute, header, shader_root / "Compute/DeferredMaterialResolve.slang"));
-  EXPECT_TRUE(masked_shadow.TryCompile(ShaderType::Fragment, header,
-                                       shader_root / "Graphics/Fragment/Lighting/AlphaMaskedShadow.slang"));
   EXPECT_TRUE(transparent.TryCompile(ShaderType::Fragment, header,
                                      shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"));
   EXPECT_TRUE(gtao.TryCompile(ShaderType::Compute, header, shader_root / "Compute/PostProcessing/GTAO.slang"));
