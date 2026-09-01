@@ -99,6 +99,13 @@ class DynamicStrandsDemo : public IPrivateComponent {
   /// @brief Settings for board experiment setup.
   DynamicTreeStrands::BoardExperimentSetupSettings board_experiment_setup_settings{};
 
+  /// @brief When true, @ref override_min_segment_length and @ref override_max_segment_length replace per-experiment values.
+  bool override_experiment_segment_subdivision = false;
+  /// @brief Minimum segment length for random subdivision when override is enabled.
+  float override_min_segment_length = 0.02f;
+  /// @brief Maximum segment length for random subdivision when override is enabled.
+  float override_max_segment_length = 0.04f;
+
   /// @brief Description applied when tree-growth demos call InitializeFromTree.
   std::string pending_meshing_buffer_description;
 
@@ -159,5 +166,8 @@ class DynamicStrandsDemo : public IPrivateComponent {
   [[nodiscard]] std::shared_ptr<DynamicTreeStrands> GetActiveDynamicTreeStrands();
   /// If due, download meshlets and write OBJs for all scheduled times <= @p time.
   void TryAutomatedExportsUpTo(float time);
+  void ApplySegmentSubdivisionOverride(DynamicStrandsInitializeParameters& initialize_parameters) const;
+  void RunLogExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
+  void RunBoardExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts);
 };
 }  // namespace eco_sys_lab_plugin

@@ -1847,7 +1847,8 @@ bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>
 bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
                                                             const GlobalTransform& boundary_world_transform,
                                                             const GlobalTransform& tree_world_transform,
-                                                            IntersectionRunStats* stats) {
+                                                            IntersectionRunStats* stats,
+                                                            const bool apply_to_simulation) {
   if (!HasMeshedSegmentMeshlets()) {
     EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
     return false;
@@ -1908,6 +1909,11 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
                             tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
                             tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  if (!apply_to_simulation) {
+    EVOENGINE_LOG("Intersection complete (export-only). " << segment_meshlet_vertices.size() << " vertices, "
+                << segment_meshlet_triangles.size() << " triangles.");
+    return true;
+  }
   Upload();
   DownloadPhysicsSegmentsAndPairs();
   CompactSurvivingPhysicsSegments(truncate_result.outside_meshlet_indices);

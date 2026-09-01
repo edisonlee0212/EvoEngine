@@ -129,7 +129,8 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
           const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(child);
           DsKineticVoronoiMeshing::IntersectionRunStats intersection_stats;
           if (!dskvm->IntersectMeshletsWithBoundary(ibm->GetMesh(), boundary_gt, tree_gt,
-                                                    collect_intersection_stats ? &intersection_stats : nullptr)) {
+                                                    collect_intersection_stats ? &intersection_stats : nullptr,
+                                                    false)) {
             EVOENGINE_ERROR("Intersect and export all: intersection failed for entity " << child.GetIndex() << ".");
             continue;
           }
@@ -176,7 +177,8 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
     ImGui::SetTooltip(
         "For each boundary mesh in this group, compute the intersection and export all results as a single OBJ "
-        "(one object per boundary mesh). Restores pristine meshlets afterward. Requires a completed meshing run.");
+        "(one object per boundary mesh). Does not modify simulation physics; restores pristine meshlets afterward. "
+        "Requires a completed meshing run.");
   }
 
   return changed;

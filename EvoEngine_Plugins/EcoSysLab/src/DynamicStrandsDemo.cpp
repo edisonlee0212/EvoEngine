@@ -167,6 +167,7 @@ void DynamicStrandsDemo::TryFinishTreeGrowthAndStartMeshing() {
     EVOENGINE_LOG(name << ": tree growth finished (" << target_growth_time
                        << " years). Building strands and meshing...");
   }
+  ApplySegmentSubdivisionOverride(tree_dts->initialize_parameters);
   tree_dts->InitializeFromTree(tree, pending_meshing_buffer_description);
   pending_meshing_buffer_description.clear();
   tree_auto_grow_started_ = false;
@@ -246,6 +247,28 @@ void DynamicStrandsDemo::ResetEnvironment(const std::shared_ptr<EditorLayer>& ed
   physics_parameters.segment_angular_velocity_damping = 1.f;
 }
 
+void DynamicStrandsDemo::ApplySegmentSubdivisionOverride(
+    DynamicStrandsInitializeParameters& initialize_parameters) const {
+  if (!override_experiment_segment_subdivision) {
+    return;
+  }
+  initialize_parameters.min_segment_length = override_min_segment_length;
+  initialize_parameters.max_segment_length = override_max_segment_length;
+  if (initialize_parameters.max_segment_length < initialize_parameters.min_segment_length) {
+    initialize_parameters.max_segment_length = initialize_parameters.min_segment_length;
+  }
+}
+
+void DynamicStrandsDemo::RunLogExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts) {
+  ApplySegmentSubdivisionOverride(dts->initialize_parameters);
+  dts->LogExperimentSetup(log_experiment_setup_settings);
+}
+
+void DynamicStrandsDemo::RunBoardExperimentSetup(const std::shared_ptr<DynamicTreeStrands>& dts) {
+  ApplySegmentSubdivisionOverride(dts->initialize_parameters);
+  dts->BoardExperimentSetup(board_experiment_setup_settings);
+}
+
 bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   if (ImGui::TreeNode("Physics Parameters")) {
     physics_parameters.OnInspect(editor_layer);
@@ -322,6 +345,14 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
     board_experiment_setup_settings.OnInspect(editor_layer);
     ImGui::TreePop();
   }
+  ImGui::Checkbox("Override Experiment Setting", &override_experiment_segment_subdivision);
+  if (override_experiment_segment_subdivision) {
+    ImGui::DragFloat("Min segment length", &override_min_segment_length, 0.001f, 0.0001f, 1.f);
+    ImGui::DragFloat("Max segment length", &override_max_segment_length, 0.001f, 0.0001f, 1.f);
+    if (override_max_segment_length < override_min_segment_length) {
+      override_max_segment_length = override_min_segment_length;
+    }
+  }
 
   if (ImGui::TreeNodeEx("Woodstock", ImGuiTreeNodeFlags_DefaultOpen)) {
     if (ImGui::Button("Fungus [Competition-Equal]")) {
@@ -366,7 +397,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-Equal]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -415,7 +446,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-Brown]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -463,7 +494,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Competition-White]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -496,7 +527,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Internal]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -539,7 +570,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Cubical]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -577,7 +608,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Fungus [Non-Cubical]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -615,7 +646,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Board Fungus";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -645,7 +676,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log break [Diffuse]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -671,7 +702,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       physics_parameters.enable_segment_compression_disconnection = false;
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log break [Clean]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -695,7 +726,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       physics_parameters.enable_segment_disconnection = false;
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log break [Transverse buckling]";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -713,7 +744,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Board break [Low]";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -730,7 +761,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Board break [Medium]";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -746,7 +777,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Board break [High]";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -770,7 +801,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Twisting break";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -797,7 +828,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Bending break";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -820,7 +851,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Shearing break";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -843,7 +874,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       board_experiment_setup_settings.rod_dimension = {160, 10, 20};
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Stretching break";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -869,7 +900,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({750.f, 50.f});
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Sap/Heart Increase";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -893,7 +924,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({500.f, 500.f});
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Sap/Heart Equal";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -917,7 +948,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       dts->initialize_parameters.strength_graph.SetConnectivityStrength({50.f, 750.f});
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Sap/Heart Decrease";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -963,7 +994,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       temp_entity1_ref = sphere_entity;
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Short rod sphere Collision";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -1000,7 +1031,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       temp_entity1_ref = sphere_entity;
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Long rod sphere Collision";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -1039,7 +1070,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       temp_entity1_ref = cylinder_entity;
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Small cylinder Collision";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -1077,7 +1108,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
       temp_entity1_ref = cylinder_entity;
       board_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Big cylinder Collision";
-      dts->BoardExperimentSetup(board_experiment_setup_settings);
+      RunBoardExperimentSetup(dts);
       editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
       editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
     }
@@ -1276,7 +1307,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log cut";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       const auto yaml_path = ProjectManager::GetAssetsFolderPath() / "IntersectionSetups" / "log_cut.yml";
       DsKineticVoronoiMeshing::LoadIntersectionSetup(scene, owner, yaml_path);
 
@@ -1320,7 +1351,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
 
       log_experiment_setup_settings.meshing_buffer_description =
           "created from DynamicStrandsDemo scripted experiment: Log Spoon";
-      dts->LogExperimentSetup(log_experiment_setup_settings);
+      RunLogExperimentSetup(dts);
       const auto yaml_path = ProjectManager::GetAssetsFolderPath() / "IntersectionSetups" / "log_spoon.yml";
       DsKineticVoronoiMeshing::LoadIntersectionSetup(scene, owner, yaml_path);
 

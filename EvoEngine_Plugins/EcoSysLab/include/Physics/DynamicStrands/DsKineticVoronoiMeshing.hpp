@@ -219,10 +219,12 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   /// @p tree_world_transform is the current world transform of the DynamicTreeStrands entity; used to
   /// convert the boundary from world space into tree-local space (where the raw meshlets live).
   /// When @p stats is non-null, fills classification counts, input poly count, and clip runtime.
+  /// When @p apply_to_simulation is false, only rebuilds CPU meshlet export buffers without GPU upload
+  /// or physics compaction (for "Intersect and export all"; each boundary is evaluated from pristine meshlets).
   bool IntersectMeshletsWithBoundary(const kinDS::VoronoiMesh& raw_mesh,
                                      const GlobalTransform& boundary_world_transform,
                                      const GlobalTransform& tree_world_transform,
-                                     IntersectionRunStats* stats = nullptr);
+                                     IntersectionRunStats* stats = nullptr, bool apply_to_simulation = true);
   /// Load an intersection-setup YAML under @p owner into a newly created Intersection Meshes group
   /// (existing groups are left untouched). Relative @c obj_path entries are resolved against the
   /// project assets folder, then the YAML directory.
