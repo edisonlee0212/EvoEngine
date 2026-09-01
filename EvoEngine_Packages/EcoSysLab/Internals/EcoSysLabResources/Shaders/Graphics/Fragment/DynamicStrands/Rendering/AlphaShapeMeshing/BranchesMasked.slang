@@ -1,6 +1,7 @@
 import EvoEngine.PerFrame;
-import EcoSysLab.KineticVoronoiRenderingConstants;
+import EcoSysLab.AlphaShapeRenderingConstants;
 import EvoEngine.RawGBuffer;
+import EvoEngine.GltfAlphaMask;
 
 struct EcoSysLabRasterInput {
   [[vk::location(0)]] float3 FragPos : TEXCOORD0;
@@ -18,8 +19,14 @@ RawGBufferOutput main(EcoSysLabRasterInput input, bool is_front_face : SV_IsFron
   if (material_index != render_material_index) {
     discard;
   }
+  const GltfAlphaTexCoords tex_coords = EE_GLTF_MAKE_ALPHA_TEX_COORDS(
+      input.TexCoord, input.TexCoord, ddx(input.TexCoord), ddx(input.TexCoord), ddy(input.TexCoord),
+      ddy(input.TexCoord));
+  if (!EE_GLTF_ALPHA_MASK_PASSES(uint(material_index), tex_coords, input.Color.a)) {
+    discard;
+  }
   const float facing_sign = (is_front_face ? 1.0f : -1.0f) * EE_TRANSFORM_HANDEDNESS(instance.model);
-  const bool replace_base_color = color_mode != COLOR_STANDARD;
+  const bool replace_base_color = vertex_colors != 0;
   const uint info_index = uint(instance.info_index + (replace_base_color ? 2 : 0));
   return EE_BUILD_RAW_GBUFFER(input.TexCoord, input.TexCoord, facing_sign * input.Normal,
                               facing_sign * input.Tangent, facing_sign, uint(EE_INSTANCE_INDEX),

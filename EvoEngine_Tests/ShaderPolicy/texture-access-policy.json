@@ -8,6 +8,22 @@
   },
   "records": [
     {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Sampler2D:inDepth:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inDepth",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Texture2D:inMetadata:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "resource_type": "Texture2D",
+      "symbol": "inMetadata",
+      "classification": "TransientPassResource"
+    },
+    {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DepthPyramid.slang:Sampler2D:sourceDepth:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DepthPyramid.slang",
@@ -1049,6 +1065,15 @@
       "path": "EvoEngine_SDK/src/RenderLayer.cpp",
       "owner": "camera_g_buffer_layout_",
       "binding": "24",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE",
+      "classification": "TransientPassResource"
+    },
+    {
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:deferred_material_resolve_layout_:4:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:0",
+      "kind": "host-binding",
+      "path": "EvoEngine_SDK/src/RenderLayer.cpp",
+      "owner": "deferred_material_resolve_layout_",
+      "binding": "4",
       "descriptor_type": "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE",
       "classification": "TransientPassResource"
     },

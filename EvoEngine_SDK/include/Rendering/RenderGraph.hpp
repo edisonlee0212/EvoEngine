@@ -156,6 +156,7 @@ inline constexpr const char* ddgi_probe_visualization = "DDGIProbeVisualization"
 inline constexpr const char* ddgi_probe_ray_visualization = "DDGIProbeRayVisualization";
 inline constexpr const char* directional_light_shadow = "DirectionalLightShadow";
 inline constexpr const char* deferred_geometry = "DeferredGeometry";
+inline constexpr const char* deferred_material_resolve = "DeferredMaterialResolve";
 inline constexpr const char* motion_vectors = "MotionVectors";
 inline constexpr const char* motion_coverage = "MotionCoverage";
 inline constexpr const char* depth_pyramid = "DepthPyramid";

@@ -10,6 +10,29 @@
 #include "Tree.hpp"
 using namespace eco_sys_lab_package;
 
+namespace {
+std::shared_ptr<GraphicsPipeline> CreateMaskedRawPipeline(const std::shared_ptr<GraphicsPipeline>& opaque,
+                                                          const std::filesystem::path& fragment_shader_path) {
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader = opaque->vertex_shader;
+  pipeline->task_shader = opaque->task_shader;
+  pipeline->mesh_shader = opaque->mesh_shader;
+  pipeline->fragment_shader =
+      Shader::CreateTemporary(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_shader_path);
+  pipeline->geometry_type = opaque->geometry_type;
+  pipeline->vertex_input_attribute_set = opaque->vertex_input_attribute_set;
+  pipeline->vertex_input_enabled = opaque->vertex_input_enabled;
+  pipeline->primitive_topology = opaque->primitive_topology;
+  pipeline->descriptor_set_layouts = opaque->descriptor_set_layouts;
+  pipeline->color_attachment_formats = opaque->color_attachment_formats;
+  pipeline->depth_attachment_format = opaque->depth_attachment_format;
+  pipeline->stencil_attachment_format = opaque->stencil_attachment_format;
+  pipeline->push_constant_ranges = opaque->push_constant_ranges;
+  pipeline->Initialize();
+  return pipeline;
+}
+}  // namespace
+
 bool SmallSegmentsRenderParameters::DrawGui(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   if (ImGui::Checkbox("Cast Shadow", &cast_shadow)) {
@@ -91,6 +114,7 @@ struct SmallSegmentsRenderPushConstant {
   glm::vec3 position_scale;
   float padding;
   int splinter_material_index;
+  int render_material_index;
 };
 
 uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToPointLightShadowMap(
@@ -187,7 +211,8 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToDirectionalLightShadowMap(
 }
 
 uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
-    const Handle& renderer_handle, const int splinter_material_index,
+    const Handle& renderer_handle, const int splinter_material_index, const int render_material_index,
+    const std::shared_ptr<GraphicsPipeline>& pipeline, const VkCullModeFlags cull_mode,
     const SmallSegmentsRenderParameters& render_parameters, const VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
@@ -205,13 +230,14 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
   push_constant.uniform_particle_size = uniform_particles.size();  // TODO: move to meshing
   push_constant.thickness_multiplier = render_parameters.thickness_multiplier;
   push_constant.splinter_material_index = splinter_material_index;
+  push_constant.render_material_index = render_material_index;
   push_constant.position_scale = render_parameters.position_scale;
 
-  small_segments_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-  small_segments_render_pipeline->states.SetViewportScissor(view.viewport);
-  small_segments_render_pipeline->states.polygon_mode =
-      render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
-  small_segments_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  pipeline->states.SetViewportScissor(view.viewport);
+  pipeline->states.polygon_mode = render_parameters.wireframe ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+  pipeline->states.cull_mode = cull_mode;
+  pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
   if (rdoc_api) {
@@ -219,17 +245,15 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsToCameraDeferred(
     EVOENGINE_LOG("RDOC API detected!");
   }
 #endif  //  USERENDERDOC
-  small_segments_render_pipeline->Bind(vk_command_buffer);
-  small_segments_render_pipeline->BindDescriptorSet(vk_command_buffer, 0,
-                                                    RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-  small_segments_render_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  small_segments_render_pipeline->BindDescriptorSet(vk_command_buffer, 2,
-                                                    RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
-  small_segments_render_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
+  pipeline->Bind(vk_command_buffer);
+  pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                              dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  pipeline->PushConstant(vk_command_buffer, 0, push_constant);
 
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  small_segments_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+  pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
@@ -264,6 +288,7 @@ struct SmallSegmentsVisualizationRenderPushConstant {
 
 uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
     const Handle& renderer_handle, const DynamicStrandsInitializeParameters& initialize_parameters,
+    const std::shared_ptr<GraphicsPipeline>& pipeline, const VkCullModeFlags cull_mode,
     const SmallSegmentsVisualizationRenderParameters& render_parameters, VkCommandBuffer vk_command_buffer,
     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
     const RenderLayer::DeferredRenderingView& view) const {
@@ -310,9 +335,10 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
     }
   }
 
-  small_segments_visualization_render_pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
-  small_segments_visualization_render_pipeline->states.SetViewportScissor(view.viewport);
-  small_segments_visualization_render_pipeline->states.ApplyAllStates(vk_command_buffer);
+  pipeline->states.ResetAllStates(geometry_pass_color_attachment_infos.size());
+  pipeline->states.SetViewportScissor(view.viewport);
+  pipeline->states.cull_mode = cull_mode;
+  pipeline->states.ApplyAllStates(vk_command_buffer);
 
 #ifdef USE_RENDERDOC
   if (rdoc_api) {
@@ -320,17 +346,15 @@ uint32_t DsAlphaShapeMeshing::RenderSmallSegmentsVisualizationToCameraDeferred(
     EVOENGINE_LOG("RDOC API detected!");
   }
 #endif  //  USERENDERDOC
-  small_segments_visualization_render_pipeline->Bind(vk_command_buffer);
-  small_segments_visualization_render_pipeline->BindDescriptorSet(
-      vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
-  small_segments_visualization_render_pipeline->BindDescriptorSet(
-      vk_command_buffer, 1, dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
-  small_segments_visualization_render_pipeline->BindDescriptorSet(
-      vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
-  small_segments_visualization_render_pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
+  pipeline->Bind(vk_command_buffer);
+  pipeline->BindDescriptorSet(vk_command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 1,
+                              dynamic_strands->strands_descriptor_sets[current_frame_index]->GetVkDescriptorSet());
+  pipeline->BindDescriptorSet(vk_command_buffer, 2, RenderLayer::GetLightingDescriptorSet()->GetVkDescriptorSet());
+  pipeline->PushConstant(vk_command_buffer, 0, segment_push_constant);
 
   const uint32_t count = Platform::DivUp(uniform_particles.size(), task_work_group_invocations);
-  small_segments_visualization_render_pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
+  pipeline->DrawMeshTasks(vk_command_buffer, count, 1, 1);
 #ifdef USE_RENDERDOC
   if (rdoc_api)
     rdoc_api->EndFrameCapture(NULL, NULL);
@@ -445,6 +469,10 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   render_range.offset = 0;
   render_range.stageFlags = VK_SHADER_STAGE_ALL;
   small_segments_render_pipeline->Initialize();
+  small_segments_masked_render_pipeline =
+      CreateMaskedRawPipeline(small_segments_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
+                                                                  "Shaders/Graphics/Fragment/DynamicStrands/Rendering/"
+                                                                  "SmallSegmentsMasked.slang");
 
   // Descriptor set layout
   small_segments_visualization_render_pipeline = std::make_shared<GraphicsPipeline>();
@@ -478,4 +506,8 @@ void DsAlphaShapeMeshing::BuildSmallSegmentsRenderingPipelines() {
   visualization_render.offset = 0;
   visualization_render.stageFlags = VK_SHADER_STAGE_ALL;
   small_segments_visualization_render_pipeline->Initialize();
+  small_segments_visualization_masked_render_pipeline = CreateMaskedRawPipeline(
+      small_segments_visualization_render_pipeline, std::filesystem::path("./EcoSysLabResources") /
+                                                        "Shaders/Graphics/Fragment/DynamicStrands/Rendering/"
+                                                        "SmallSegmentsVisualizationMasked.slang");
 }

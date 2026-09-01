@@ -20,9 +20,13 @@ chains are stored as disposable BC7 DDS pairs under `Cache/GltfMaterialConversio
 the next import regenerate them. No specular-glossiness state is stored, edited, serialized, or evaluated at runtime.
 `KHR_materials_specular` remains independently supported and is not used by this workflow conversion.
 
-Opaque/default-lit raster materials are evaluated during the geometry pass and stored in the GBuffer. Alpha masking is a
-deterministic geometry-pass discard. Blended, transmissive, and other forward-only materials use the transparent or
-forward path. Unlit materials return base color without adding lighting or emission first.
+The raster geometry pass writes UV0/UV1 and their gradients, the face-oriented geometric normal and tangent, stable
+instance/material/info metadata, and depth. Its opaque path performs no material-buffer or texture access. Its separate
+alpha-masked path evaluates only base-color alpha coverage before writing the same raw payload. GTAO consumes the raw
+geometric normal, then an in-place compute pass evaluates the full material and replaces the raw attributes with the
+resolved G-buffer surface consumed by deferred lighting and later effects. Blended, transmissive, and other forward-only
+materials use the transparent or forward path. Unlit materials return base color without adding lighting or emission
+first.
 
 The shared ray material path evaluates the same base inputs and supports advanced reflection and transmission behavior,
 including:

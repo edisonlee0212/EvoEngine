@@ -1162,7 +1162,8 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
                                                            vk_command_buffer, view);
         });
       }
-      if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
+      if (branches_render_pipeline && branches_masked_render_pipeline && branches_render_pipeline->Initialized() &&
+          branches_masked_render_pipeline->Initialized()) {
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = rendering_instance_handle;
@@ -1171,15 +1172,34 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
                                                        &bark_material_index);
         const auto inner_material_index = current_render_storage->RegisterMaterial(inner_wood_material);
         const auto snow_material_index = current_render_storage->RegisterMaterial(snow_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return RenderBranchesToCameraDeferred(renderer_handle, bark_material_index, inner_material_index,
-                                                    snow_material_index, render_settings.branches_render_parameters,
-                                                    vk_command_buffer, geometry_pass_color_attachment_infos, view,
-                                                    VK_POLYGON_MODE_FILL);
-            });
+        const auto register_material = [&](const std::shared_ptr<Material>& material, const int material_index) {
+          const auto material_data = material->BuildGltfMaterialData();
+          const auto material_class =
+              ClassifyGltfRasterMaterial(material_data.shade_material, material->draw_settings.blending);
+          const auto pipeline = material_class == GltfRasterMaterialClass::Masked ? branches_masked_render_pipeline
+                                                                                  : branches_render_pipeline;
+          auto render = [=](const VkCommandBuffer vk_command_buffer,
+                            const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                            const RenderLayer::DeferredRenderingView& view) {
+            return RenderBranchesToCameraDeferred(
+                renderer_handle, bark_material_index, inner_material_index, snow_material_index, material_index,
+                pipeline, material->draw_settings.cull_mode, render_settings.branches_render_parameters,
+                vk_command_buffer, geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_FILL);
+          };
+          if (material_class == GltfRasterMaterialClass::Opaque) {
+            render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+          } else if (material_class == GltfRasterMaterialClass::Masked) {
+            render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+          } else {
+            EVOENGINE_ERROR(
+                "Alpha-shape branch material requires forward rendering, which this procedural "
+                "renderer does not support.");
+          }
+        };
+        register_material(bark_material, bark_material_index);
+        if (inner_material_index != bark_material_index) {
+          register_material(inner_wood_material, inner_material_index);
+        }
       }
     }
   }
@@ -1196,22 +1216,37 @@ void eco_sys_lab_package::DsAlphaShapeMeshing::RegisterBranchesWireframeRenderIn
   if (const auto bark_material = dynamic_strands->materials.bark_material_ref.Get<Material>();
       bark_material && wireframe_material) {
     if (!dynamic_strands->segments.empty()) {
-      if (branches_render_pipeline && branches_render_pipeline->Initialized()) {
+      if (branches_render_pipeline && branches_masked_render_pipeline && branches_render_pipeline->Initialized() &&
+          branches_masked_render_pipeline->Initialized()) {
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = mesh_wireframe_rendering_instance_handle;
         // TODO: fix double registration
         current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, wireframe_material);
         const auto wireframe_material_index = current_render_storage->RegisterMaterial(wireframe_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return RenderBranchesToCameraDeferred(renderer_handle, wireframe_material_index, wireframe_material_index,
-                                                    wireframe_material_index,
-                                                    render_settings.branches_render_parameters, vk_command_buffer,
-                                                    geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_LINE);
-            });
+        const auto material_data = wireframe_material->BuildGltfMaterialData();
+        const auto material_class =
+            ClassifyGltfRasterMaterial(material_data.shade_material, wireframe_material->draw_settings.blending);
+        const auto pipeline = material_class == GltfRasterMaterialClass::Masked ? branches_masked_render_pipeline
+                                                                                : branches_render_pipeline;
+        auto render = [=](const VkCommandBuffer vk_command_buffer,
+                          const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                          const RenderLayer::DeferredRenderingView& view) {
+          return RenderBranchesToCameraDeferred(renderer_handle, wireframe_material_index, wireframe_material_index,
+                                                wireframe_material_index, wireframe_material_index, pipeline,
+                                                wireframe_material->draw_settings.cull_mode,
+                                                render_settings.branches_render_parameters, vk_command_buffer,
+                                                geometry_pass_color_attachment_infos, view, VK_POLYGON_MODE_LINE);
+        };
+        if (material_class == GltfRasterMaterialClass::Opaque) {
+          render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+        } else if (material_class == GltfRasterMaterialClass::Masked) {
+          render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+        } else {
+          EVOENGINE_ERROR(
+              "Alpha-shape wireframe material requires forward rendering, which this procedural "
+              "renderer does not support.");
+        }
       }
     }
   }
@@ -1248,20 +1283,44 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsRenderInstance(Handle& rendering_
         });
       }
 
-      if (small_segments_render_pipeline && small_segments_render_pipeline->Initialized()) {
+      if (small_segments_render_pipeline && small_segments_masked_render_pipeline &&
+          small_segments_render_pipeline->Initialized() && small_segments_masked_render_pipeline->Initialized()) {
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = small_segments_rendering_instance_handle;
-        current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material);
+        int bark_material_index = -1;
+        current_render_storage->RegisterRenderInstance(scene, owner, renderer_handle, bark_material,
+                                                       &bark_material_index);
         const auto splinter_material_index = current_render_storage->RegisterMaterial(splinter_material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return RenderSmallSegmentsToCameraDeferred(renderer_handle, splinter_material_index,
-                                                         render_settings.small_segments_render_parameters,
-                                                         vk_command_buffer, geometry_pass_color_attachment_infos, view);
-            });
+        const auto register_material = [&](const std::shared_ptr<Material>& material, const int material_index) {
+          const auto material_data = material->BuildGltfMaterialData();
+          const auto material_class =
+              ClassifyGltfRasterMaterial(material_data.shade_material, material->draw_settings.blending);
+          const auto pipeline = material_class == GltfRasterMaterialClass::Masked
+                                    ? small_segments_masked_render_pipeline
+                                    : small_segments_render_pipeline;
+          auto render = [=](const VkCommandBuffer vk_command_buffer,
+                            const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                            const RenderLayer::DeferredRenderingView& view) {
+            return RenderSmallSegmentsToCameraDeferred(renderer_handle, splinter_material_index, material_index,
+                                                       pipeline, material->draw_settings.cull_mode,
+                                                       render_settings.small_segments_render_parameters,
+                                                       vk_command_buffer, geometry_pass_color_attachment_infos, view);
+          };
+          if (material_class == GltfRasterMaterialClass::Opaque) {
+            render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+          } else if (material_class == GltfRasterMaterialClass::Masked) {
+            render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+          } else {
+            EVOENGINE_ERROR(
+                "Alpha-shape small-segment material requires forward rendering, which this procedural "
+                "renderer does not support.");
+          }
+        };
+        register_material(bark_material, bark_material_index);
+        if (splinter_material_index != bark_material_index) {
+          register_material(splinter_material, splinter_material_index);
+        }
       }
     }
   }
@@ -1296,7 +1355,9 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handl
                                                                 vk_command_buffer, view);
         });
       }
-      if (small_segments_visualization_render_pipeline && small_segments_visualization_render_pipeline->Initialized()) {
+      if (small_segments_visualization_render_pipeline && small_segments_visualization_masked_render_pipeline &&
+          small_segments_visualization_render_pipeline->Initialized() &&
+          small_segments_visualization_masked_render_pipeline->Initialized()) {
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = small_segments_rendering_instance_handle;
@@ -1304,15 +1365,29 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handl
 
         DynamicStrandsInitializeParameters initialize_parameters;  // I suppose this can be empty?!
 
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return RenderSmallSegmentsVisualizationToCameraDeferred(
-                  renderer_handle, initialize_parameters,
-                  render_settings.small_segments_visualization_render_parameters, vk_command_buffer,
-                  geometry_pass_color_attachment_infos, view);
-            });
+        const auto material_data = material->BuildGltfMaterialData();
+        const auto material_class =
+            ClassifyGltfRasterMaterial(material_data.shade_material, material->draw_settings.blending);
+        const auto pipeline = material_class == GltfRasterMaterialClass::Masked
+                                  ? small_segments_visualization_masked_render_pipeline
+                                  : small_segments_visualization_render_pipeline;
+        auto render = [=](const VkCommandBuffer vk_command_buffer,
+                          const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                          const RenderLayer::DeferredRenderingView& view) {
+          return RenderSmallSegmentsVisualizationToCameraDeferred(
+              renderer_handle, initialize_parameters, pipeline, material->draw_settings.cull_mode,
+              render_settings.small_segments_visualization_render_parameters, vk_command_buffer,
+              geometry_pass_color_attachment_infos, view);
+        };
+        if (material_class == GltfRasterMaterialClass::Opaque) {
+          render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+        } else if (material_class == GltfRasterMaterialClass::Masked) {
+          render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+        } else {
+          EVOENGINE_ERROR(
+              "Alpha-shape visualization material requires forward rendering, which this procedural "
+              "renderer does not support.");
+        }
       }
     }
   }

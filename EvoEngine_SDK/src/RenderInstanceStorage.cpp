@@ -395,8 +395,8 @@ uint64_t HashDdgiEmissiveInventorySignature(const Signatures& signatures) {
   return result;
 }
 
-bool UsesTransparentRasterPass(const Material& material, const GltfShadeMaterial& shade_material) {
-  return material.draw_settings.blending || GltfMaterialRequiresTransparentPass(shade_material);
+GltfRasterMaterialClass ResolveRasterMaterialClass(const Material& material, const GltfShadeMaterial& shade_material) {
+  return ClassifyGltfRasterMaterial(shade_material, material.draw_settings.blending);
 }
 
 std::shared_ptr<EnvironmentalMap> ResolveIndirectEnvironmentMap(
@@ -508,15 +508,13 @@ size_t CountRenderInstances(const std::shared_ptr<RenderInstanceStorage::IRender
   return count;
 }
 
-void ValidateDeferredMeshIndirectCommandCount(
-    const std::shared_ptr<RenderInstanceStorage::IRenderInstanceCollection>& deferred_render_instances,
-    const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
-    const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands,
-    const std::vector<uint32_t>& draw_instance_indices) {
+void ValidateDeferredMeshIndirectCommandCount(const size_t deferred_count,
+                                              const std::vector<VkDrawIndexedIndirectCommand>& indexed_commands,
+                                              const std::vector<VkDrawMeshTasksIndirectCommandEXT>& mesh_task_commands,
+                                              const std::vector<uint32_t>& draw_instance_indices) {
   if (!ApplicationContext::Get().GetLayer<RenderLayer>()) {
     return;
   }
-  const auto deferred_count = CountRenderInstances(deferred_render_instances);
   const auto indexed_count = indexed_commands.size();
   const auto mesh_task_count = mesh_task_commands.size();
   const auto draw_instance_count = draw_instance_indices.size();
@@ -1890,7 +1888,10 @@ RenderInstanceStorage::ShadowViewIndirectCommands RenderInstanceStorage::BuildSh
   const auto visible_entries = QueryRasterSpatialEntries(BuildClipSpaceBoundIntersector(light_space_matrix, false));
   for (const auto& entry : visible_entries) {
     const auto& render_instance = entry.render_instance;
-    if (!render_instance || entry.category != SpatialRenderCategory::Deferred || !render_instance->cast_shadow) {
+    if (!render_instance ||
+        (entry.category != SpatialRenderCategory::Deferred &&
+         entry.category != SpatialRenderCategory::DeferredMasked) ||
+        !render_instance->cast_shadow) {
       continue;
     }
     if (entry.deferred_mesh_command_index < 0) {
@@ -1982,6 +1983,7 @@ RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCamera
   visibility.draw_instance_index_offset = deferred_mesh_draw_instance_index_offset;
   visibility.instance_visibility.assign(instance_info_blocks_.size(), 1u);
   visibility.deferred_mesh_indirect_batches.clear();
+  visibility.deferred_masked_mesh_indirect_batches.clear();
   visibility.mesh_draw_indexed_indirect_commands.clear();
   visibility.mesh_draw_mesh_tasks_indirect_commands.clear();
   visibility.total_gaussian_splats = 0;
@@ -1989,6 +1991,10 @@ RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCamera
   ResetCompactCollection(visibility.deferred_skinned_render_instances);
   ResetCompactCollection(visibility.deferred_instanced_render_instances);
   ResetCompactCollection(visibility.deferred_strands_render_instances);
+  ResetCompactCollection(visibility.deferred_masked_render_instances);
+  ResetCompactCollection(visibility.deferred_masked_skinned_render_instances);
+  ResetCompactCollection(visibility.deferred_masked_instanced_render_instances);
+  ResetCompactCollection(visibility.deferred_masked_strands_render_instances);
   ResetCompactCollection(visibility.forward_render_instances);
   ResetCompactCollection(visibility.forward_skinned_render_instances);
   ResetCompactCollection(visibility.forward_instanced_render_instances);
@@ -2036,6 +2042,11 @@ RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCamera
         register_geometry(entry, visibility.deferred_render_instances, visibility.deferred_skinned_render_instances,
                           visibility.deferred_instanced_render_instances, visibility.deferred_strands_render_instances);
         break;
+      case SpatialRenderCategory::DeferredMasked:
+        register_geometry(
+            entry, visibility.deferred_masked_render_instances, visibility.deferred_masked_skinned_render_instances,
+            visibility.deferred_masked_instanced_render_instances, visibility.deferred_masked_strands_render_instances);
+        break;
       case SpatialRenderCategory::Forward:
         register_geometry(entry, visibility.forward_render_instances, visibility.forward_skinned_render_instances,
                           visibility.forward_instanced_render_instances, visibility.forward_strands_render_instances);
@@ -2056,39 +2067,45 @@ RenderInstanceStorage::CameraRasterVisibility RenderInstanceStorage::BuildCamera
     }
   });
   visibility.draw_instance_indices.reserve(mesh_draw_indexed_indirect_commands.size());
-  for (const auto& entry : visible_entries) {
-    if (entry.category != SpatialRenderCategory::Deferred || entry.deferred_mesh_command_index < 0) {
-      continue;
+  const auto append_mesh_commands = [&](const SpatialRenderCategory category,
+                                        std::vector<DeferredMeshIndirectBatch>& batches) {
+    for (const auto& entry : visible_entries) {
+      if (entry.category != category || entry.deferred_mesh_command_index < 0) {
+        continue;
+      }
+      const auto render_instance = std::dynamic_pointer_cast<MeshRenderInstance>(entry.render_instance);
+      const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
+      if (command_index >= mesh_draw_indexed_indirect_commands.size() ||
+          command_index >= mesh_draw_mesh_tasks_indirect_commands.size() || !render_instance) {
+        visibility.enabled = false;
+        return;
+      }
+      const auto compact_command_index = static_cast<uint32_t>(visibility.mesh_draw_indexed_indirect_commands.size());
+      visibility.mesh_draw_indexed_indirect_commands.emplace_back(mesh_draw_indexed_indirect_commands[command_index]);
+      visibility.mesh_draw_mesh_tasks_indirect_commands.emplace_back(
+          mesh_draw_mesh_tasks_indirect_commands[command_index]);
+      visibility.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+      const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+        return batch.material_index == render_instance->material_index &&
+               batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+               batch.polygon_mode == render_instance->polygon_mode;
+      };
+      if (batches.empty() || !same_batch(batches.back())) {
+        auto& batch = batches.emplace_back();
+        batch.material_index = render_instance->material_index;
+        batch.first_command = compact_command_index;
+        batch.line_width = render_instance->line_width;
+        batch.cull_mode = render_instance->cull_mode;
+        batch.polygon_mode = render_instance->polygon_mode;
+      }
+      auto& batch = batches.back();
+      batch.command_count++;
+      batch.triangle_count += mesh_draw_indexed_indirect_commands[command_index].indexCount / 3u;
     }
-    const auto render_instance = std::dynamic_pointer_cast<MeshRenderInstance>(entry.render_instance);
-    const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
-    if (command_index >= mesh_draw_indexed_indirect_commands.size() ||
-        command_index >= mesh_draw_mesh_tasks_indirect_commands.size() || !render_instance) {
-      visibility.enabled = false;
-      break;
-    }
-    const auto compact_command_index = static_cast<uint32_t>(visibility.mesh_draw_indexed_indirect_commands.size());
-    visibility.mesh_draw_indexed_indirect_commands.emplace_back(mesh_draw_indexed_indirect_commands[command_index]);
-    visibility.mesh_draw_mesh_tasks_indirect_commands.emplace_back(
-        mesh_draw_mesh_tasks_indirect_commands[command_index]);
-    visibility.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
-    const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
-      return batch.material_index == render_instance->material_index &&
-             batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
-             batch.polygon_mode == render_instance->polygon_mode;
-    };
-    if (visibility.deferred_mesh_indirect_batches.empty() ||
-        !same_batch(visibility.deferred_mesh_indirect_batches.back())) {
-      auto& batch = visibility.deferred_mesh_indirect_batches.emplace_back();
-      batch.material_index = render_instance->material_index;
-      batch.first_command = compact_command_index;
-      batch.line_width = render_instance->line_width;
-      batch.cull_mode = render_instance->cull_mode;
-      batch.polygon_mode = render_instance->polygon_mode;
-    }
-    auto& batch = visibility.deferred_mesh_indirect_batches.back();
-    batch.command_count++;
-    batch.triangle_count += mesh_draw_indexed_indirect_commands[command_index].indexCount / 3u;
+  };
+  append_mesh_commands(SpatialRenderCategory::Deferred, visibility.deferred_mesh_indirect_batches);
+  if (visibility.enabled) {
+    append_mesh_commands(SpatialRenderCategory::DeferredMasked, visibility.deferred_masked_mesh_indirect_batches);
   }
   if (!visibility.enabled) {
     return visibility;
@@ -2312,6 +2329,9 @@ void RenderInstanceStorage::UpdateRasterSpatialIndex() {
   deferred_render_instances->ForEachRenderInstance([&](const auto& instance) {
     register_entry(instance, SpatialRenderCategory::Deferred, deferred_mesh_command_index++);
   });
+  deferred_masked_render_instances->ForEachRenderInstance([&](const auto& instance) {
+    register_entry(instance, SpatialRenderCategory::DeferredMasked, deferred_mesh_command_index++);
+  });
   const auto register_collection = [&](const auto& collection, const SpatialRenderCategory category) {
     collection->ForEachRenderInstance([&](const auto& instance) {
       register_entry(instance, category);
@@ -2320,6 +2340,9 @@ void RenderInstanceStorage::UpdateRasterSpatialIndex() {
   register_collection(deferred_skinned_render_instances, SpatialRenderCategory::Deferred);
   register_collection(deferred_instanced_render_instances, SpatialRenderCategory::Deferred);
   register_collection(deferred_strands_render_instances, SpatialRenderCategory::Deferred);
+  register_collection(deferred_masked_skinned_render_instances, SpatialRenderCategory::DeferredMasked);
+  register_collection(deferred_masked_instanced_render_instances, SpatialRenderCategory::DeferredMasked);
+  register_collection(deferred_masked_strands_render_instances, SpatialRenderCategory::DeferredMasked);
   register_collection(forward_render_instances, SpatialRenderCategory::Forward);
   register_collection(forward_skinned_render_instances, SpatialRenderCategory::Forward);
   register_collection(forward_instanced_render_instances, SpatialRenderCategory::Forward);
@@ -2558,16 +2581,20 @@ uint64_t RenderInstanceStorage::CalculateCanonicalStructureSignature() const {
   append_collection(deferred_skinned_render_instances, 1u);
   append_collection(deferred_instanced_render_instances, 2u);
   append_collection(deferred_strands_render_instances, 3u);
-  append_collection(forward_render_instances, 4u);
-  append_collection(forward_skinned_render_instances, 5u);
-  append_collection(forward_instanced_render_instances, 6u);
-  append_collection(forward_strands_render_instances, 7u);
-  append_collection(transparent_render_instances, 8u);
-  append_collection(transparent_skinned_render_instances, 9u);
-  append_collection(transparent_instanced_render_instances, 10u);
-  append_collection(transparent_strands_render_instances, 11u);
-  append_collection(gaussian_splat_render_instances, 12u);
-  append_collection(external_render_instances, 13u);
+  append_collection(deferred_masked_render_instances, 4u);
+  append_collection(deferred_masked_skinned_render_instances, 5u);
+  append_collection(deferred_masked_instanced_render_instances, 6u);
+  append_collection(deferred_masked_strands_render_instances, 7u);
+  append_collection(forward_render_instances, 8u);
+  append_collection(forward_skinned_render_instances, 9u);
+  append_collection(forward_instanced_render_instances, 10u);
+  append_collection(forward_strands_render_instances, 11u);
+  append_collection(transparent_render_instances, 12u);
+  append_collection(transparent_skinned_render_instances, 13u);
+  append_collection(transparent_instanced_render_instances, 14u);
+  append_collection(transparent_strands_render_instances, 15u);
+  append_collection(gaussian_splat_render_instances, 16u);
+  append_collection(external_render_instances, 17u);
   return MixDdgiInventorySignature(signature, entry_count);
 }
 
@@ -2582,6 +2609,7 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   deferred_mesh_draw_instance_index_offset = 0;
   if (canonical_structure_changed_this_frame_) {
     deferred_mesh_indirect_batches.clear();
+    deferred_masked_mesh_indirect_batches.clear();
     mesh_draw_indexed_indirect_commands.clear();
     mesh_draw_mesh_tasks_indirect_commands.clear();
     opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
@@ -2678,7 +2706,8 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
   };
   uint32_t deferred_mesh_command_index = 0;
-  const auto register_deferred_mesh_indirect_batch = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
+  const auto register_deferred_mesh_indirect_batch = [&](const std::shared_ptr<MeshRenderInstance>& render_instance,
+                                                         std::vector<DeferredMeshIndirectBatch>& batches) {
     if (!render_instance || !render_instance->mesh ||
         deferred_mesh_command_index >= mesh_draw_indexed_indirect_commands.size() ||
         deferred_mesh_command_index >= mesh_draw_mesh_tasks_indirect_commands.size()) {
@@ -2690,36 +2719,42 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
              batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
              batch.polygon_mode == render_instance->polygon_mode;
     };
-    if (deferred_mesh_indirect_batches.empty() || !same_batch(deferred_mesh_indirect_batches.back())) {
-      auto& batch = deferred_mesh_indirect_batches.emplace_back();
+    if (batches.empty() || !same_batch(batches.back())) {
+      auto& batch = batches.emplace_back();
       batch.material_index = render_instance->material_index;
       batch.first_command = deferred_mesh_command_index;
       batch.line_width = render_instance->line_width;
       batch.cull_mode = render_instance->cull_mode;
       batch.polygon_mode = render_instance->polygon_mode;
     }
-    auto& batch = deferred_mesh_indirect_batches.back();
+    auto& batch = batches.back();
     batch.command_count++;
     batch.triangle_count += render_instance->mesh->triangle_range_->prev_frame_index_count;
     deferred_mesh_command_index++;
   };
-  deferred_render_instances->ForEachMeshRenderInstance([&](const auto& render_instance) {
-    if (canonical_structure_changed_this_frame_ && render_instance && render_instance->mesh) {
-      AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
-                                 render_instance->mesh->triangle_range_->prev_frame_offset,
-                                 render_instance->mesh->triangle_range_->prev_frame_index_count,
-                                 render_instance->mesh->meshlet_range_->prev_frame_range);
-    }
-    register_render_instance(render_instance, true);
-    register_mesh_tlas_input(render_instance);
-    raster_draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
-    if (canonical_structure_changed_this_frame_) {
-      register_deferred_mesh_indirect_batch(render_instance);
-    }
-    register_shadow_mesh_indirect_command(render_instance);
-  });
-  ValidateDeferredMeshIndirectCommandCount(deferred_render_instances, mesh_draw_indexed_indirect_commands,
-                                           mesh_draw_mesh_tasks_indirect_commands, raster_draw_instance_indices);
+  const auto register_deferred_mesh_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection,
+                                                     std::vector<DeferredMeshIndirectBatch>& batches) {
+    collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
+      if (canonical_structure_changed_this_frame_ && render_instance && render_instance->mesh) {
+        AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
+                                   render_instance->mesh->triangle_range_->prev_frame_offset,
+                                   render_instance->mesh->triangle_range_->prev_frame_index_count,
+                                   render_instance->mesh->meshlet_range_->prev_frame_range);
+      }
+      register_render_instance(render_instance, true);
+      register_mesh_tlas_input(render_instance);
+      raster_draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+      if (canonical_structure_changed_this_frame_) {
+        register_deferred_mesh_indirect_batch(render_instance, batches);
+      }
+      register_shadow_mesh_indirect_command(render_instance);
+    });
+  };
+  register_deferred_mesh_collection(deferred_render_instances, deferred_mesh_indirect_batches);
+  register_deferred_mesh_collection(deferred_masked_render_instances, deferred_masked_mesh_indirect_batches);
+  ValidateDeferredMeshIndirectCommandCount(
+      CountRenderInstances(deferred_render_instances) + CountRenderInstances(deferred_masked_render_instances),
+      mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands, raster_draw_instance_indices);
   deferred_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
     register_skinned_tlas_input(render_instance);
@@ -2728,6 +2763,17 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     register_render_instance(render_instance, false);
   });
   deferred_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance, false);
+    register_strands_tlas_input(render_instance);
+  });
+  deferred_masked_skinned_render_instances->ForEachSkinnedMeshRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance, false);
+    register_skinned_tlas_input(render_instance);
+  });
+  deferred_masked_instanced_render_instances->ForEachInstancedRenderInstance([&](const auto& render_instance) {
+    register_render_instance(render_instance, false);
+  });
+  deferred_masked_strands_render_instances->ForEachStrandsRenderInstance([&](const auto& render_instance) {
     register_render_instance(render_instance, false);
     register_strands_tlas_input(render_instance);
   });
@@ -2805,6 +2851,7 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     }
   };
   deferred_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
+  deferred_masked_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
   forward_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
   transparent_instanced_render_instances->ForEachInstancedRenderInstance(append_particle_ray_instances);
 }
@@ -2978,6 +3025,9 @@ void RenderInstanceStorage::BuildEmissiveTriangleInfoBlocks() {
   append_mesh_collection(deferred_render_instances);
   append_skinned_collection(deferred_skinned_render_instances);
   append_instanced_collection(deferred_instanced_render_instances);
+  append_mesh_collection(deferred_masked_render_instances);
+  append_skinned_collection(deferred_masked_skinned_render_instances);
+  append_instanced_collection(deferred_masked_instanced_render_instances);
   append_mesh_collection(forward_render_instances);
   append_skinned_collection(forward_skinned_render_instances);
   append_instanced_collection(forward_instanced_render_instances);
@@ -3621,6 +3671,11 @@ RenderInstanceStorage::RenderInstanceStorage() {
   deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
 
+  deferred_masked_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  deferred_masked_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  deferred_masked_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  deferred_masked_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+
   forward_render_instances = std::make_shared<MeshRenderInstanceCollection>();
   forward_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
   forward_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
@@ -3656,6 +3711,10 @@ void RenderInstanceStorage::Clear() {
   deferred_skinned_render_instances->Clear();
   deferred_instanced_render_instances->Clear();
   deferred_strands_render_instances->Clear();
+  deferred_masked_render_instances->Clear();
+  deferred_masked_skinned_render_instances->Clear();
+  deferred_masked_instanced_render_instances->Clear();
+  deferred_masked_strands_render_instances->Clear();
   forward_render_instances->Clear();
   forward_skinned_render_instances->Clear();
   forward_instanced_render_instances->Clear();
@@ -3681,6 +3740,7 @@ void RenderInstanceStorage::Clear() {
     visibility.draw_instance_index_offset = 0;
     visibility.instance_visibility.clear();
     visibility.deferred_mesh_indirect_batches.clear();
+    visibility.deferred_masked_mesh_indirect_batches.clear();
     visibility.mesh_draw_indexed_indirect_commands.clear();
     visibility.mesh_draw_mesh_tasks_indirect_commands.clear();
   }
@@ -4069,10 +4129,16 @@ bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>&
   render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, model.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
-    transparent_render_instances->Register(render_instance);
-  } else {
-    deferred_render_instances->Register(render_instance);
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_render_instances->Register(render_instance);
+      break;
   }
 
   return true;
@@ -4110,10 +4176,16 @@ bool RenderInstanceStorage::RegisterMeshDrawInstancedCommand(
                                                                      particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
   render_instance->entity_selected = false;
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
-    transparent_instanced_render_instances->Register(render_instance);
-  } else {
-    deferred_instanced_render_instances->Register(render_instance);
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_instanced_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_instanced_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_instanced_render_instances->Register(render_instance);
+      break;
   }
 
   return true;
@@ -4372,10 +4444,16 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
-    transparent_strands_render_instances->Register(render_instance);
-  } else {
-    deferred_strands_render_instances->Register(render_instance);
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_strands_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_strands_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_strands_render_instances->Register(render_instance);
+      break;
   }
 
   if (raster_ready) {
@@ -4460,7 +4538,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   const auto material_version = material->GetVersion();
   const bool cacheable = target_scene->IsEntityStatic(source_owner) && renderer_handle != 0;
   std::shared_ptr<MeshRenderInstance> render_instance;
-  bool transparent = false;
+  GltfRasterMaterialClass raster_class = GltfRasterMaterialClass::Opaque;
   if (cacheable) {
     if (const auto found = static_mesh_render_instance_cache_.find(renderer_handle);
         found != static_mesh_render_instance_cache_.end()) {
@@ -4476,7 +4554,7 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
           cached->ray_tracing_triangle_range == mesh_renderer->ray_tracing_triangle_range_ &&
           cached->ray_tracing_blas == mesh_renderer->ray_tracing_blas_) {
         render_instance = cached;
-        transparent = record.transparent;
+        raster_class = record.raster_class;
       }
     }
   }
@@ -4519,18 +4597,24 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
     render_instance->line_width = material->draw_settings.line_width;
     render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
     render_instance->polygon_mode = material->draw_settings.polygon_mode;
-    transparent = UsesTransparentRasterPass(*material, material_data.shade_material);
+    raster_class = ResolveRasterMaterialClass(*material, material_data.shade_material);
     if (cacheable) {
-      static_mesh_render_instance_cache_[renderer_handle] = {source_owner, local_bound, render_instance, transparent};
+      static_mesh_render_instance_cache_[renderer_handle] = {source_owner, local_bound, render_instance, raster_class};
     }
   } else {
     render_instance->material_index = RegisterMaterial(material);
   }
   render_instance->entity_selected = IsEntitySelectionHighlighted(owner);
-  if (transparent) {
-    transparent_render_instances->Register(render_instance);
-  } else {
-    deferred_render_instances->Register(render_instance);
+  switch (raster_class) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_render_instances->Register(render_instance);
+      break;
   }
   return true;
 }
@@ -4605,10 +4689,16 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
   render_instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, gt.value);
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
-    transparent_skinned_render_instances->Register(render_instance);
-  } else {
-    deferred_skinned_render_instances->Register(render_instance);
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_skinned_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_skinned_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_skinned_render_instances->Register(render_instance);
+      break;
   }
 
   total_skinned_mesh_triangles += skinned_mesh->skinned_triangle_range_->prev_frame_index_count;
@@ -4672,10 +4762,16 @@ bool RenderInstanceStorage::RegisterEntity(const std::shared_ptr<Scene>& target_
                                                                      particle_info_list->PeekParticleInfoList());
   render_instance->polygon_mode = material->draw_settings.polygon_mode;
 
-  if (UsesTransparentRasterPass(*material, material_data.shade_material)) {
-    transparent_instanced_render_instances->Register(render_instance);
-  } else {
-    deferred_instanced_render_instances->Register(render_instance);
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_instanced_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_instanced_render_instances->Register(render_instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_instanced_render_instances->Register(render_instance);
+      break;
   }
 
   total_instanced_mesh_triangles +=

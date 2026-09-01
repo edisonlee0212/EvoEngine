@@ -4,12 +4,12 @@ public static const uint EE_GBUFFER_NEGATIVE_TANGENT_HANDEDNESS_BIT = 0x80000000
 public static const uint EE_GBUFFER_CLEAR_VALUE = 0xffffffffu;
 
 public struct EeGBufferMetadata {
-  uint instance_index;
-  uint material_index;
-  uint info_index;
-  float4 vertex_color;
-  bool vertex_color_replaces_base_color;
-  bool negative_tangent_handedness;
+  public uint instance_index;
+  public uint material_index;
+  public uint info_index;
+  public float4 vertex_color;
+  public bool vertex_color_replaces_base_color;
+  public bool negative_tangent_handedness;
 }
 
 public uint EE_GBUFFER_PACK_UNORM8(float4 value) {

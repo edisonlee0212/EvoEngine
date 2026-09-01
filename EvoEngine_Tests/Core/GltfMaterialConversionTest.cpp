@@ -1631,3 +1631,16 @@ TEST(GltfMaterialConversion, TransmissiveMaterialSynchronizesTransparentPass) {
   EXPECT_FALSE(GltfMaterialRequiresTransparentPass(shade_material));
   EXPECT_FALSE(material.draw_settings.blending);
 }
+
+TEST(GltfMaterialConversion, RasterClassificationPrioritizesForwardThenMask) {
+  GltfShadeMaterial material;
+  material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Opaque);
+
+  material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Masked);
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, true), GltfRasterMaterialClass::Forward);
+
+  material.transmission_factor = 0.5f;
+  EXPECT_EQ(ClassifyGltfRasterMaterial(material, false), GltfRasterMaterialClass::Forward);
+}

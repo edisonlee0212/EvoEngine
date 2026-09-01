@@ -290,6 +290,45 @@ bool SpirvDeclaresComputeDerivativeCapability(const std::vector<uint32_t>& words
   return false;
 }
 
+std::vector<std::pair<uint32_t, uint32_t>> CollectSpirvDescriptorBindings(const std::vector<uint32_t>& words) {
+  constexpr uint32_t kOpDecorate = 71;
+  constexpr uint32_t kBindingDecoration = 33;
+  constexpr uint32_t kDescriptorSetDecoration = 34;
+  if (words.size() < 5) {
+    return {};
+  }
+  const auto id_bound = static_cast<size_t>(words[3]);
+  std::vector<std::optional<uint32_t>> sets(id_bound);
+  std::vector<std::optional<uint32_t>> bindings(id_bound);
+  for (size_t word_index = 5; word_index < words.size();) {
+    const uint32_t instruction = words[word_index];
+    const uint32_t word_count = instruction >> 16;
+    const uint32_t op_code = instruction & 0xffffu;
+    if (word_count == 0 || word_index + word_count > words.size()) {
+      break;
+    }
+    if (op_code == kOpDecorate && word_count >= 4) {
+      const auto target = static_cast<size_t>(words[word_index + 1]);
+      const uint32_t decoration = words[word_index + 2];
+      if (target < id_bound && decoration == kBindingDecoration) {
+        bindings[target] = words[word_index + 3];
+      } else if (target < id_bound && decoration == kDescriptorSetDecoration) {
+        sets[target] = words[word_index + 3];
+      }
+    }
+    word_index += word_count;
+  }
+  std::vector<std::pair<uint32_t, uint32_t>> result;
+  for (size_t id = 0; id < id_bound; ++id) {
+    if (sets[id] && bindings[id]) {
+      result.emplace_back(*sets[id], *bindings[id]);
+    }
+  }
+  std::sort(result.begin(), result.end());
+  result.erase(std::unique(result.begin(), result.end()), result.end());
+  return result;
+}
+
 struct SpirvMatrixDecorationCounts {
   size_t row_major = 0;
   size_t column_major = 0;
@@ -1163,6 +1202,34 @@ TEST(ShaderCache, CameraRaygenSerCompileUsesExtInvocationReorder) {
   EXPECT_EQ(binary_bytes.find("SPV_NV_shader_invocation_reorder"), std::string::npos);
 }
 
+TEST(ShaderCache, DeferredGeometrySpirvEnforcesMaterialAccessPolicy) {
+  ShaderCacheScope scope;
+  RegisterDefaultShaderIncludePath();
+  const auto shader_root = RepoPath("EvoEngine_SDK/Internals/DefaultResources/Shaders");
+  const auto compile_bindings = [&](const std::filesystem::path& path) {
+    std::vector<uint32_t> binaries;
+    EXPECT_TRUE(Shader::CompileToSpirv(ShaderType::Fragment, ShaderGlobalDefinesForTests() + ReadTextFile(path),
+                                       binaries, path))
+        << path.string();
+    return CollectSpirvDescriptorBindings(binaries);
+  };
+  const auto opaque_bindings = compile_bindings(shader_root / "Graphics/Fragment/Standard/StandardDeferredRaw.slang");
+  const auto masked_bindings =
+      compile_bindings(shader_root / "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang");
+  const auto contains = [](const auto& bindings, const uint32_t set, const uint32_t binding) {
+    return std::find(bindings.begin(), bindings.end(), std::pair{set, binding}) != bindings.end();
+  };
+
+  EXPECT_TRUE(contains(opaque_bindings, 0u, 4u));
+  for (const uint32_t binding : {9u, 10u, 11u, 12u}) {
+    EXPECT_FALSE(contains(opaque_bindings, 0u, binding)) << binding;
+  }
+  for (const uint32_t binding : {4u, 9u, 11u, 12u}) {
+    EXPECT_TRUE(contains(masked_bindings, 0u, binding)) << binding;
+  }
+  EXPECT_FALSE(contains(masked_bindings, 0u, 10u));
+}
+
 TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
   ShaderCacheScope scope;
   RegisterDefaultShaderIncludePath();
@@ -1177,6 +1244,7 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Compute, shader_root / "Compute/RayQueryCamera.slang"},
       {ShaderType::Compute, shader_root / "Compute/DepthPyramid.slang"},
       {ShaderType::Compute, shader_root / "Compute/MotionVectors.slang"},
+      {ShaderType::Compute, shader_root / "Compute/DeferredMaterialResolve.slang"},
       {ShaderType::Compute, shader_root / "Compute/VolumetricClouds.slang"},
       {ShaderType::Compute, shader_root / "Compute/VolumetricCloudsComposite.slang"},
       {ShaderType::Compute, shader_root / "Compute/GaussianSplatCull.slang"},
@@ -1216,6 +1284,8 @@ TEST(ShaderCache, ProductionSdkSlangShaderInventoryCompiles) {
       {ShaderType::Vertex, shader_root / "Graphics/Vertex/Standard/TransparentMotionVectors.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Empty.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferred.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredRaw.slang"},
+      {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLighting.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"},
       {ShaderType::Fragment, shader_root / "Graphics/Fragment/Standard/StandardTransparent.slang"},
@@ -1293,16 +1363,17 @@ TEST(ShaderCache, ProductionEcoSysLabNativeSlangInventoryCompiles) {
                                         }));
   EXPECT_EQ(sdk_glsl_count, 0u);
   const auto shader_root = RepoPath("EvoEngine_Packages/EcoSysLab/Internals/EcoSysLabResources/Shaders");
-  EXPECT_EQ(CollectSlangStageFiles(shader_root).size(), 118u);
+  const auto stage_count = CollectSlangStageFiles(shader_root).size();
+  EXPECT_EQ(stage_count, 123u);
   ExpectSlangStageFilesCompile(shader_root);
   auto stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.native_slang_frontend_invocations, 118u);
+  EXPECT_EQ(stats.native_slang_frontend_invocations, stage_count);
 
   Shader::ClearInMemoryCompileCache();
   Shader::ResetCompileCacheStats();
   ExpectSlangStageFilesCompile(shader_root);
   stats = Shader::GetCompileCacheStats();
-  EXPECT_EQ(stats.disk_hits, 118u);
+  EXPECT_EQ(stats.disk_hits, stage_count);
   EXPECT_EQ(stats.compilations, 0u);
   EXPECT_EQ(stats.native_slang_frontend_invocations, 0u);
 }

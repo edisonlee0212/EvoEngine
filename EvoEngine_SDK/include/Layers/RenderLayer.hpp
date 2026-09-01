@@ -234,13 +234,26 @@ class EVOENGINE_API RenderLayer final : public ILayer {
           func);
 
   /**
-   * \brief Register per-frame function to render to all cameras using deferred rendering.
-   * \param func Render function targeting deferred rendering cameras. Return primitive count.
+   * \brief Register per-frame raw opaque geometry rendering for all deferred cameras.
+   *
+   * The callback must write the raw G-buffer ABI without evaluating materials or sampling textures.
+   * \param func Raw opaque geometry callback. Return primitive count.
    */
-  void DeferredRenderingAllCameras(
+  void RawOpaqueRenderingAllCameras(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                              const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                             const DeferredRenderingView& forward_rendering_view)>&& func);
+                             const DeferredRenderingView& deferred_rendering_view)>&& func);
+
+  /**
+   * \brief Register per-frame alpha-masked raw geometry rendering for all deferred cameras.
+   *
+   * The callback may evaluate only material alpha and must otherwise write the raw G-buffer ABI.
+   * \param func Alpha-masked raw geometry callback. Return primitive count.
+   */
+  void AlphaMaskedRenderingAllCameras(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                             const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                             const DeferredRenderingView& deferred_rendering_view)>&& func);
 
   /**
    * \brief Register per-frame function to render to all cameras using forward rendering.
@@ -375,6 +388,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     std::shared_ptr<DescriptorSet> lighting_descriptor_set{};
     std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set{};
     RenderCommandRecorder record_commands{};
+    RenderGraphTransientResourceStore* transient_resources = nullptr;
     int camera_index = -1;
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
@@ -587,7 +601,11 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                                      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
                                      const DeferredRenderingView& forward_rendering_view)>>
-      deferred_rendering_external_functions;
+      raw_opaque_rendering_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                                     const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                                     const DeferredRenderingView& deferred_rendering_view)>>
+      alpha_masked_rendering_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const std::shared_ptr<Camera>& target_camera,
                                      const ForwardRenderingView& forward_rendering_view)>>
@@ -653,6 +671,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> particle_instanced_data_layout_;
   std::shared_ptr<DescriptorSetLayout> bone_matrices_layout_;
   std::shared_ptr<DescriptorSetLayout> camera_g_buffer_layout_;
+  std::shared_ptr<DescriptorSetLayout> deferred_material_resolve_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_storage_layout_;
   std::shared_ptr<DescriptorSetLayout> render_texture_present_layout_;
   std::shared_ptr<DescriptorSetLayout> raster_lighting_texture_layout_;
@@ -931,18 +950,23 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using normal meshes.
   std::shared_ptr<GraphicsPipeline> deferred_geometry_pipeline_normal;
+  std::shared_ptr<GraphicsPipeline> deferred_masked_geometry_pipeline_normal;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using mesh shaders.
   std::shared_ptr<GraphicsPipeline> deferred_geometry_pipeline_mesh;
+  std::shared_ptr<GraphicsPipeline> deferred_masked_geometry_pipeline_mesh;
 
   /// Graphics pipeline for rendering instanced deferred shading GBuffer pre-pass.
   std::shared_ptr<GraphicsPipeline> instanced_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> instanced_deferred_masked_geometry_pipeline;
 
   /// Graphics pipeline for rendering deferred shading GBuffer pre-pass with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> skinned_deferred_masked_geometry_pipeline;
 
   /// Graphics pipeline for rendering deferred shading GBuffer pre-pass with hair strands.
   std::shared_ptr<GraphicsPipeline> strands_deferred_geometry_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_deferred_masked_geometry_pipeline;
 
   /// Graphics pipeline for performing the deferred shading lighting pass.
   std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline;
@@ -988,6 +1012,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   std::shared_ptr<ComputePipeline> depth_pyramid_pipeline_;
   std::shared_ptr<ComputePipeline> motion_vectors_pipeline_;
+  std::shared_ptr<ComputePipeline> deferred_material_resolve_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_pipeline_;
   std::shared_ptr<ComputePipeline> volumetric_clouds_composite_pipeline_;
   std::shared_ptr<ComputePipeline> gaussian_splat_cull_pipeline_;

@@ -20,4 +20,5 @@
 
   public int use_polar_coordinates_for_uv;
   public int bark_material_index;
+  public int render_material_index;
 };

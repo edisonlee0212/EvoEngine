@@ -2121,8 +2121,9 @@ TEST(DdgiVolume, DdgiContributorFilterMatchesTlasAdmission) {
   }
   for (const auto* collection :
        {"deferred_render_instances", "deferred_skinned_render_instances", "deferred_instanced_render_instances",
-        "forward_render_instances", "forward_skinned_render_instances", "forward_instanced_render_instances",
-        "transparent_render_instances", "transparent_skinned_render_instances",
+        "deferred_masked_render_instances", "deferred_masked_skinned_render_instances",
+        "deferred_masked_instanced_render_instances", "forward_render_instances", "forward_skinned_render_instances",
+        "forward_instanced_render_instances", "transparent_render_instances", "transparent_skinned_render_instances",
         "transparent_instanced_render_instances", "external_render_instances"}) {
     EXPECT_NE(render_layer_source.find("collect_ddgi_geometry_signatures(current_render_instances->" +
                                        std::string(collection) + ")"),
@@ -2142,7 +2143,7 @@ TEST(DdgiVolume, DdgiEmissiveFingerprintUsesStableSemanticKeys) {
   const auto render_instance_source = ReadTextFile(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" /
                                                    "src" / "RenderInstanceStorage.cpp");
   const auto semantic_hash = ExtractBetween(render_instance_source, "uint64_t HashDdgiEmissiveInventorySignature",
-                                            "bool UsesTransparentRasterPass");
+                                            "GltfRasterMaterialClass ResolveRasterMaterialClass");
   const auto cache_equality = ExtractBetween(
       render_instance_source, "bool RenderInstanceStorage::EmissiveTriangleInstanceSignature::operator==",
       "std::vector<RenderInstanceStorage::EmissiveTriangleInfoBlock>");

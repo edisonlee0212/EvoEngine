@@ -1435,19 +1435,36 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParame
                                                                                 view);
         });
       }
-      if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_render_pipeline->Initialized()) {
+      if (DynamicStrands::foliage_render_pipeline && DynamicStrands::foliage_masked_render_pipeline &&
+          DynamicStrands::foliage_render_pipeline->Initialized() &&
+          DynamicStrands::foliage_masked_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
         const auto current_render_storage =
             ApplicationContext::Get().GetLayer<RenderLayer>()->GetCurrentRenderInstanceStorage();
         const auto renderer_handle = foliage_rendering_instance_handle;
         current_render_storage->RegisterRenderInstance(GetScene(), GetOwner(), renderer_handle, material);
-        render_layer->DeferredRenderingAllCameras(
-            [=](const VkCommandBuffer vk_command_buffer,
-                const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                const RenderLayer::DeferredRenderingView& view) {
-              return dynamic_strands_copy->RenderFoliageToCameraDeferred(
-                  renderer_handle, render_parameters, vk_command_buffer, geometry_pass_color_attachment_infos, view);
-            });
+        const auto material_data = material->BuildGltfMaterialData();
+        const auto material_class =
+            ClassifyGltfRasterMaterial(material_data.shade_material, material->draw_settings.blending);
+        const auto pipeline = material_class == GltfRasterMaterialClass::Masked
+                                  ? DynamicStrands::foliage_masked_render_pipeline
+                                  : DynamicStrands::foliage_render_pipeline;
+        auto render = [=](const VkCommandBuffer vk_command_buffer,
+                          const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                          const RenderLayer::DeferredRenderingView& view) {
+          return dynamic_strands_copy->RenderFoliageToCameraDeferred(
+              renderer_handle, render_parameters, pipeline, material->draw_settings.cull_mode, vk_command_buffer,
+              geometry_pass_color_attachment_infos, view);
+        };
+        if (material_class == GltfRasterMaterialClass::Opaque) {
+          render_layer->RawOpaqueRenderingAllCameras(std::move(render));
+        } else if (material_class == GltfRasterMaterialClass::Masked) {
+          render_layer->AlphaMaskedRenderingAllCameras(std::move(render));
+        } else {
+          EVOENGINE_ERROR(
+              "Foliage material requires forward rendering, which this procedural renderer does not "
+              "support.");
+        }
       }
     }
   }

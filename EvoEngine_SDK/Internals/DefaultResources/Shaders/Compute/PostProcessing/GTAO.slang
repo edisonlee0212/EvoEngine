@@ -1,5 +1,6 @@
 import EvoEngine.PerFrame;
 import EvoEngine.VogelDisk;
+import EvoEngine.GBuffer;
 
 [[vk::binding(17, 1)]]
 Sampler2D inDepth;
@@ -26,7 +27,7 @@ struct EeAoConstants {
 ConstantBuffer<EeAoConstants> constants;
 
 float3 GetNormal(float2 texCoord) {
-  return inNormalRoughness.SampleLevel(texCoord, 0.0f).rgb;
+  return EE_GBUFFER_OCT_DECODE(inNormalRoughness.SampleLevel(texCoord, 0.0f).xy);
 }
 
 float3 GetViewNormal(float2 texCoord) {

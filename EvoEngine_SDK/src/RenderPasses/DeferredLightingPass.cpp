@@ -24,7 +24,7 @@ RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_o
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_g_buffer, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::ColorAttachment}},
-      {depth_pyramid_enabled ? RenderPassNames::depth_pyramid : RenderPassNames::deferred_geometry}};
+      {RenderPassNames::deferred_material_resolve}};
   descriptor.profiler_group = RenderPassProfilerGroup::Lighting;
   descriptor.profiler_display_name = "Deferred Lighting";
   if (depth_pyramid_enabled) {
@@ -34,7 +34,6 @@ RenderPassDescriptor DeferredLightingPass::CreateDescriptor(const bool ambient_o
   if (ambient_occlusion_enabled) {
     descriptor.resources.push_back(
         {RenderResourceNames::camera_ambient_occlusion, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
-    descriptor.dependencies = {RenderPassNames::ambient_occlusion};
   }
   return descriptor;
 }

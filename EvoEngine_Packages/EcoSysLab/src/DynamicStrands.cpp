@@ -106,6 +106,7 @@ void DynamicStrands::ReleaseStaticGpuResources() {
   segment_visualization_render_pipeline.reset();
 
   foliage_render_pipeline.reset();
+  foliage_masked_render_pipeline.reset();
   foliage_directional_light_render_pipeline.reset();
   foliage_spot_light_render_pipeline.reset();
   foliage_point_light_render_pipeline.reset();

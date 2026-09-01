@@ -1,7 +1,7 @@
 {
   "counts": {
-    "files": 178,
-    "imports": 301,
+    "files": 184,
+    "imports": 318,
     "macro_control_files": 15
   },
   "macro_adapters": [
@@ -90,6 +90,10 @@
     {
       "module": "EvoEngine.EntryPoints.Compute.DDGIProbeVariabilityReduce",
       "path": "Compute/DDGIProbeVariabilityReduce.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Compute.DeferredMaterialResolve",
+      "path": "Compute/DeferredMaterialResolve.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Compute.DepthPyramid",
@@ -294,6 +298,14 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredLightingSceneCamera",
       "path": "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredMaskedRaw",
+      "path": "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang"
+    },
+    {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredRaw",
+      "path": "Graphics/Fragment/Standard/StandardDeferredRaw.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardTransparent",
@@ -584,8 +596,16 @@
       "path": "Modules/EvoEngine/GaussianSplat.slang"
     },
     {
+      "module": "EvoEngine.GBuffer",
+      "path": "Modules/EvoEngine/GBuffer.slang"
+    },
+    {
       "module": "EvoEngine.GizmosConstants",
       "path": "Modules/EvoEngine/GizmosConstants.slang"
+    },
+    {
+      "module": "EvoEngine.GltfAlphaMask",
+      "path": "Modules/EvoEngine/GltfAlphaMask.slang"
     },
     {
       "module": "EvoEngine.GltfBindlessMaterial",
@@ -674,6 +694,10 @@
     {
       "module": "EvoEngine.RasterVertex",
       "path": "Modules/EvoEngine/RasterVertex.slang"
+    },
+    {
+      "module": "EvoEngine.RawGBuffer",
+      "path": "Modules/EvoEngine/RawGBuffer.slang"
     },
     {
       "module": "EvoEngine.RayTracingBasic",

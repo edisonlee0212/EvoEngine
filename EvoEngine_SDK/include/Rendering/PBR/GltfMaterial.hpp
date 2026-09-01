@@ -263,6 +263,23 @@ inline bool GltfMaterialRequiresTransparentPass(const GltfShadeMaterial& materia
   return false;
 }
 
+enum class GltfRasterMaterialClass : uint8_t {
+  Opaque,
+  Masked,
+  Forward,
+};
+
+inline GltfRasterMaterialClass ClassifyGltfRasterMaterial(const GltfShadeMaterial& material,
+                                                          const bool blending_enabled) {
+  if (blending_enabled || GltfMaterialRequiresTransparentPass(material)) {
+    return GltfRasterMaterialClass::Forward;
+  }
+  if (material.alpha_mode == static_cast<int32_t>(GltfAlphaMode::Mask)) {
+    return GltfRasterMaterialClass::Masked;
+  }
+  return GltfRasterMaterialClass::Opaque;
+}
+
 inline bool operator!=(const GltfShadeMaterial& lhs, const GltfShadeMaterial& rhs) {
   if (lhs.pbr_base_color_factor != rhs.pbr_base_color_factor)
     return true;

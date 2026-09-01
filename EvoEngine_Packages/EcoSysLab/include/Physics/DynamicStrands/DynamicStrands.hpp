@@ -508,7 +508,7 @@ class DynamicStrands {
                                                     const RenderLayer::DirectionalLightShadowMapView& view) const;
   uint32_t RenderFoliageToCameraDeferred(
       const Handle& renderer_handle, const FoliageRenderParameters& render_parameters,
-      VkCommandBuffer vk_command_buffer,
+      const std::shared_ptr<GraphicsPipeline>& pipeline, VkCullModeFlags cull_mode, VkCommandBuffer vk_command_buffer,
       const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
       const RenderLayer::DeferredRenderingView& view) const;
 
@@ -533,6 +533,7 @@ class DynamicStrands {
   inline static std::shared_ptr<GraphicsPipeline> foliage_spot_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_directional_light_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> foliage_render_pipeline{};
+  inline static std::shared_ptr<GraphicsPipeline> foliage_masked_render_pipeline{};
 
   inline static std::shared_ptr<GraphicsPipeline> segment_visualization_render_pipeline{};
   inline static std::shared_ptr<GraphicsPipeline> segment_pairs_visualization_render_pipeline{};

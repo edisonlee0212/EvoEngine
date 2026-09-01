@@ -997,6 +997,7 @@ class EVOENGINE_API RenderInstanceStorage {
     VkDeviceSize mesh_task_indirect_buffer_offset = 0;
     std::vector<uint8_t> instance_visibility;
     std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
+    std::vector<DeferredMeshIndirectBatch> deferred_masked_mesh_indirect_batches;
     std::vector<VkDrawIndexedIndirectCommand> mesh_draw_indexed_indirect_commands;
     std::shared_ptr<Buffer> mesh_draw_indexed_indirect_commands_buffer;
     std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands;
@@ -1006,6 +1007,10 @@ class EVOENGINE_API RenderInstanceStorage {
     std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
     std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
     std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+    std::shared_ptr<MeshRenderInstanceCollection> deferred_masked_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_masked_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> deferred_masked_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> deferred_masked_strands_render_instances;
     std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
     std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;
     std::shared_ptr<InstancedRenderInstanceCollection> forward_instanced_render_instances;
@@ -1038,6 +1043,7 @@ class EVOENGINE_API RenderInstanceStorage {
   };
 
   std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
+  std::vector<DeferredMeshIndirectBatch> deferred_masked_mesh_indirect_batches;
 
   uint32_t deferred_mesh_draw_instance_index_offset = 0;
   std::vector<uint32_t> raster_draw_instance_indices;
@@ -1272,7 +1278,7 @@ class EVOENGINE_API RenderInstanceStorage {
     Entity source_owner{};
     Bound local_bound{};
     std::shared_ptr<MeshRenderInstance> render_instance{};
-    bool transparent = false;
+    GltfRasterMaterialClass raster_class = GltfRasterMaterialClass::Opaque;
   };
   std::weak_ptr<Scene> static_mesh_cache_scene_{};
   uint64_t static_mesh_cache_structure_revision_ = 0;
@@ -1292,6 +1298,7 @@ class EVOENGINE_API RenderInstanceStorage {
   bool material_cache_changed_this_frame_ = false;
   enum class SpatialRenderCategory : uint8_t {
     Deferred,
+    DeferredMasked,
     Forward,
     Transparent,
     Gaussian,
@@ -1350,6 +1357,11 @@ class EVOENGINE_API RenderInstanceStorage {
   std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
   std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
   std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+
+  std::shared_ptr<MeshRenderInstanceCollection> deferred_masked_render_instances;
+  std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_masked_skinned_render_instances;
+  std::shared_ptr<InstancedRenderInstanceCollection> deferred_masked_instanced_render_instances;
+  std::shared_ptr<StrandsRenderInstanceCollection> deferred_masked_strands_render_instances;
 
   std::shared_ptr<MeshRenderInstanceCollection> forward_render_instances;
   std::shared_ptr<SkinnedMeshRenderInstanceCollection> forward_skinned_render_instances;

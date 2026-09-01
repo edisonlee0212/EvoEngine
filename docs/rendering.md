@@ -95,9 +95,11 @@ invalidate the affected history. An unchanged camera continues accumulating samp
 
 ## Raster Path
 
-Opaque and alpha-masked meshes normally write evaluated material attributes into the GBuffer. Deferred lighting combines
-punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion. Forward-only and blended
-geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and post-processing.
+Opaque meshes write only raw geometry attributes and stable IDs into the GBuffer. A separate alpha-masked geometry path
+samples only base-color alpha to determine coverage, then writes the same raw layout. GTAO reads the geometric normal
+before an in-place compute pass evaluates full materials and publishes the resolved G-buffer surface. Deferred lighting
+then combines punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion. Forward-only
+and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and post-processing.
 
 Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
 environment, and reflection-probe assets share bindless 2D and cubemap index spaces across raster and ray paths;

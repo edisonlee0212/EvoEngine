@@ -36,6 +36,7 @@
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
 #include "RenderPasses/DeferredLightingPass.hpp"
+#include "RenderPasses/DeferredMaterialResolvePass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
 #include "RenderPasses/EntitySelectionHighlightPass.hpp"
@@ -305,6 +306,30 @@ void PushPerFrameBindlessTextureDescriptorBindings(
 void PushPerFrameMaterialBufferDescriptorBindings(const std::shared_ptr<DescriptorSetLayout>& layout) {
   layout->PushDescriptorBinding(11, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
   layout->PushDescriptorBinding(12, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_ALL, 0);
+}
+
+std::shared_ptr<GraphicsPipeline> CreateMaskedDeferredVariant(const std::shared_ptr<GraphicsPipeline>& opaque) {
+  if (!opaque) {
+    return {};
+  }
+  auto pipeline = std::make_shared<GraphicsPipeline>();
+  pipeline->vertex_shader = opaque->vertex_shader;
+  pipeline->task_shader = opaque->task_shader;
+  pipeline->mesh_shader = opaque->mesh_shader;
+  pipeline->fragment_shader = Shader::CreateTemporary(
+      ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
+      Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang");
+  pipeline->geometry_type = opaque->geometry_type;
+  pipeline->vertex_input_attribute_set = opaque->vertex_input_attribute_set;
+  pipeline->vertex_input_enabled = opaque->vertex_input_enabled;
+  pipeline->primitive_topology = opaque->primitive_topology;
+  pipeline->descriptor_set_layouts = opaque->descriptor_set_layouts;
+  pipeline->color_attachment_formats = opaque->color_attachment_formats;
+  pipeline->depth_attachment_format = opaque->depth_attachment_format;
+  pipeline->stencil_attachment_format = opaque->stencil_attachment_format;
+  pipeline->push_constant_ranges = opaque->push_constant_ranges;
+  pipeline->Initialize();
+  return pipeline;
 }
 
 std::shared_ptr<GraphicsPipeline> CreateShadowVertexPipeline(
@@ -1731,6 +1756,16 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
                                                    VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT, 0);
     camera_g_buffer_layout_->Initialize();
   }
+  if (!deferred_material_resolve_layout_) {
+    deferred_material_resolve_layout_ = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 4; ++binding) {
+      deferred_material_resolve_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                               VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    }
+    deferred_material_resolve_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    deferred_material_resolve_layout_->Initialize();
+  }
   if (!render_texture_storage_layout_) {
     render_texture_storage_layout_ = std::make_shared<DescriptorSetLayout>();
     render_texture_storage_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_ALL, 0);
@@ -1889,11 +1924,18 @@ void RenderLayer::RenderToDirectionalLightShadowMap(
   directional_light_shadow_map_external_functions.emplace_back(func);
 }
 
-void RenderLayer::DeferredRenderingAllCameras(
+void RenderLayer::RawOpaqueRenderingAllCameras(
     std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                            const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
-                           const DeferredRenderingView& forward_rendering_view)>&& func) {
-  deferred_rendering_external_functions.emplace_back(func);
+                           const DeferredRenderingView& deferred_rendering_view)>&& func) {
+  raw_opaque_rendering_external_functions.emplace_back(std::move(func));
+}
+
+void RenderLayer::AlphaMaskedRenderingAllCameras(
+    std::function<uint32_t(VkCommandBuffer vk_command_buffer,
+                           const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
+                           const DeferredRenderingView& deferred_rendering_view)>&& func) {
+  alpha_masked_rendering_external_functions.emplace_back(std::move(func));
 }
 
 void RenderLayer::ForwardRenderingAllCameras(
@@ -2006,6 +2048,20 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     motion_vectors_pipeline_->Initialize();
+  }
+  if (!deferred_material_resolve_pipeline_) {
+    deferred_material_resolve_pipeline_ = std::make_shared<ComputePipeline>();
+    deferred_material_resolve_pipeline_->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute/DeferredMaterialResolve.slang");
+    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
+    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(deferred_material_resolve_layout_);
+    auto& push_constant_range = deferred_material_resolve_pipeline_->push_constant_ranges.emplace_back();
+    push_constant_range.size = sizeof(int32_t);
+    push_constant_range.offset = 0;
+    push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    deferred_material_resolve_pipeline_->Initialize();
   }
   if (!volumetric_clouds_pipeline_) {
     volumetric_clouds_pipeline_ = std::make_shared<ComputePipeline>();
@@ -2342,7 +2398,7 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/Standard.slang");
     deferred_geometry_pipeline_normal->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredRaw.slang");
     deferred_geometry_pipeline_normal->geometry_type = GeometryType::Mesh;
     deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_geometry_pipeline_normal->descriptor_set_layouts.emplace_back(empty_descriptor_set_layout_);
@@ -2366,7 +2422,7 @@ void RenderLayer::OnCreate() {
                                 Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/Standard.slang");
     deferred_geometry_pipeline_mesh->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredRaw.slang");
     deferred_geometry_pipeline_mesh->geometry_type = GeometryType::Mesh;
     deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_geometry_pipeline_mesh->descriptor_set_layouts.emplace_back(meshlet_layout_);
@@ -2387,7 +2443,7 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardInstanced.slang");
     instanced_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredRaw.slang");
     instanced_deferred_geometry_pipeline->geometry_type = GeometryType::Mesh;
     instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     instanced_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(particle_instanced_data_layout_);
@@ -2408,7 +2464,7 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Vertex/Standard/StandardSkinned.slang");
     skinned_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredRaw.slang");
     skinned_deferred_geometry_pipeline->geometry_type = GeometryType::SkinnedMesh;
     skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     skinned_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(bone_matrices_layout_);
@@ -2476,7 +2532,7 @@ void RenderLayer::OnCreate() {
         Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Mesh/Standard/StandardStrands.slang");
     strands_deferred_geometry_pipeline->fragment_shader = Shader::CreateTemporary(
         ShaderType::Fragment, Platform::GetShaderGlobalDefines(),
-        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferred.slang");
+        Resources::GetDefaultResourcesPath() / "Shaders/Graphics/Fragment/Standard/StandardDeferredRaw.slang");
     strands_deferred_geometry_pipeline->vertex_input_enabled = false;
     strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(per_frame_layout_);
     strands_deferred_geometry_pipeline->descriptor_set_layouts.emplace_back(strand_meshlet_layout_);
@@ -2489,6 +2545,21 @@ void RenderLayer::OnCreate() {
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_ALL;
     strands_deferred_geometry_pipeline->Initialize();
+  }
+  if (!deferred_masked_geometry_pipeline_normal) {
+    deferred_masked_geometry_pipeline_normal = CreateMaskedDeferredVariant(deferred_geometry_pipeline_normal);
+  }
+  if (!deferred_masked_geometry_pipeline_mesh && deferred_geometry_pipeline_mesh) {
+    deferred_masked_geometry_pipeline_mesh = CreateMaskedDeferredVariant(deferred_geometry_pipeline_mesh);
+  }
+  if (!instanced_deferred_masked_geometry_pipeline) {
+    instanced_deferred_masked_geometry_pipeline = CreateMaskedDeferredVariant(instanced_deferred_geometry_pipeline);
+  }
+  if (!skinned_deferred_masked_geometry_pipeline) {
+    skinned_deferred_masked_geometry_pipeline = CreateMaskedDeferredVariant(skinned_deferred_geometry_pipeline);
+  }
+  if (!strands_deferred_masked_geometry_pipeline && strands_deferred_geometry_pipeline) {
+    strands_deferred_masked_geometry_pipeline = CreateMaskedDeferredVariant(strands_deferred_geometry_pipeline);
   }
   if (!deferred_lighting_pass_pipeline) {
     deferred_lighting_pass_pipeline = std::make_shared<GraphicsPipeline>();
@@ -4591,6 +4662,8 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
         const auto& capture = *reflection_probe_capture_graph_context_;
         const auto& geometry_pipeline =
             capture.use_mesh_shader ? deferred_geometry_pipeline_mesh : deferred_geometry_pipeline_normal;
+        const auto& masked_geometry_pipeline =
+            capture.use_mesh_shader ? deferred_masked_geometry_pipeline_mesh : deferred_masked_geometry_pipeline_normal;
         DeferredGeometryPass::Execute(
             context, {capture.camera,
                       capture.render_instances,
@@ -4598,6 +4671,10 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       instanced_deferred_geometry_pipeline,
                       skinned_deferred_geometry_pipeline,
                       capture.use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
+                      masked_geometry_pipeline,
+                      instanced_deferred_masked_geometry_pipeline,
+                      skinned_deferred_masked_geometry_pipeline,
+                      capture.use_mesh_shader ? strands_deferred_masked_geometry_pipeline : nullptr,
                       per_frame_descriptor_sets_[capture.current_frame_index],
                       meshlet_descriptor_sets_[capture.current_frame_index],
                       capture.use_mesh_shader ? strand_meshlet_descriptor_sets_[capture.current_frame_index] : nullptr,
@@ -4608,7 +4685,16 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       false,
                       false,
                       {},
+                      {},
                       capture.record_commands});
+      });
+  reflection_probe_capture_render_graph_.AddPass(
+      DeferredMaterialResolvePass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
+        const auto& capture = *reflection_probe_capture_graph_context_;
+        DeferredMaterialResolvePass::Execute(
+            context, {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index],
+                      deferred_material_resolve_pipeline_, deferred_material_resolve_layout_,
+                      capture.transient_resources, capture.camera_index, capture.record_commands});
       });
   reflection_probe_capture_render_graph_.AddPass(
       DeferredLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
@@ -4731,6 +4817,7 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
             lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr,
             capture_lighting_descriptor_set,
             recorder,
+            &transient_resources,
             face_camera_indices[face_index],
             directional_shadow_camera_index,
             current_frame_index,
@@ -5298,6 +5385,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
             lighting_ ? lighting_->lighting_descriptor_sets_.at(current_frame_index) : nullptr,
             capture_lighting_descriptor_set,
             recorder,
+            &transient_resources,
             face_camera_indices[camera_offset],
             directional_shadow_camera_index,
             current_frame_index,
@@ -6104,7 +6192,8 @@ void RenderLayer::RenderAll() {
   point_light_shadow_map_external_functions.clear();
   spot_light_shadow_map_external_functions.clear();
   directional_light_shadow_map_external_functions.clear();
-  deferred_rendering_external_functions.clear();
+  raw_opaque_rendering_external_functions.clear();
+  alpha_masked_rendering_external_functions.clear();
   forward_rendering_external_functions.clear();
   camera_render_pass_external_functions.clear();
 }
@@ -6329,7 +6418,8 @@ bool RenderLayer::IsSceneLightingReadyForPresentation(
 bool RenderLayer::RequiresCameraWideTemporalHistoryRejection() const {
   const auto render_instances = GetCurrentRenderInstanceStorage();
   return (render_instances && render_instances->RequiresCameraWideTemporalHistoryRejection()) ||
-         !deferred_rendering_external_functions.empty() || !forward_rendering_external_functions.empty();
+         !raw_opaque_rendering_external_functions.empty() || !alpha_masked_rendering_external_functions.empty() ||
+         !forward_rendering_external_functions.empty();
 }
 
 RayCameraShaderVariantStats RenderLayer::GetRayCameraShaderVariantStats(
@@ -6840,6 +6930,9 @@ bool RenderLayer::UpdateRenderInstanceStorage(
     collect_ddgi_geometry_signatures(current_render_instances->deferred_render_instances);
     collect_ddgi_geometry_signatures(current_render_instances->deferred_skinned_render_instances);
     collect_ddgi_geometry_signatures(current_render_instances->deferred_instanced_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_masked_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_masked_skinned_render_instances);
+    collect_ddgi_geometry_signatures(current_render_instances->deferred_masked_instanced_render_instances);
     collect_ddgi_geometry_signatures(current_render_instances->forward_render_instances);
     collect_ddgi_geometry_signatures(current_render_instances->forward_skinned_render_instances);
     collect_ddgi_geometry_signatures(current_render_instances->forward_instanced_render_instances);
@@ -7237,18 +7330,45 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
         std::move(deferred_geometry_descriptor), [&](const RenderGraphExecutionContext& context) {
           const auto& deferred_geometry_pipeline =
               use_mesh_shader ? deferred_geometry_pipeline_mesh : deferred_geometry_pipeline_normal;
+          const auto& deferred_masked_geometry_pipeline =
+              use_mesh_shader ? deferred_masked_geometry_pipeline_mesh : deferred_masked_geometry_pipeline_normal;
           DeferredGeometryPass::Execute(
               context,
-              {camera, current_render_instances, deferred_geometry_pipeline, instanced_deferred_geometry_pipeline,
-               skinned_deferred_geometry_pipeline, use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
-               per_frame_descriptor_sets_[current_frame_index], meshlet_descriptor_sets_[current_frame_index],
-               use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr, camera_index,
-               current_frame_index, use_mesh_shader, enable_indirect_rendering, count_draw_calls,
+              {camera,
+               current_render_instances,
+               deferred_geometry_pipeline,
+               instanced_deferred_geometry_pipeline,
+               skinned_deferred_geometry_pipeline,
+               use_mesh_shader ? strands_deferred_geometry_pipeline : nullptr,
+               deferred_masked_geometry_pipeline,
+               instanced_deferred_masked_geometry_pipeline,
+               skinned_deferred_masked_geometry_pipeline,
+               use_mesh_shader ? strands_deferred_masked_geometry_pipeline : nullptr,
+               per_frame_descriptor_sets_[current_frame_index],
+               meshlet_descriptor_sets_[current_frame_index],
+               use_mesh_shader ? strand_meshlet_descriptor_sets_[current_frame_index] : nullptr,
+               camera_index,
+               current_frame_index,
+               use_mesh_shader,
+               enable_indirect_rendering,
+               count_draw_calls,
                reflection_probe_capture ? false : wire_frame,
                [&](const VkCommandBuffer vk_command_buffer,
                    const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
                  if (!reflection_probe_capture) {
-                   for (const auto& func : deferred_rendering_external_functions) {
+                   for (const auto& func : raw_opaque_rendering_external_functions) {
+                     const auto prim_count = func(vk_command_buffer, color_attachment_infos, {camera_index, viewport});
+                     if (count_draw_calls) {
+                       Platform::CountRenderPassDraw(RenderPassDrawBucket::DeferredGeometry, RenderDrawCallKind::Direct,
+                                                     current_frame_index, prim_count);
+                     }
+                   }
+                 }
+               },
+               [&](const VkCommandBuffer vk_command_buffer,
+                   const std::vector<VkRenderingAttachmentInfo>& color_attachment_infos, const glm::ivec4& viewport) {
+                 if (!reflection_probe_capture) {
+                   for (const auto& func : alpha_masked_rendering_external_functions) {
                      const auto prim_count = func(vk_command_buffer, color_attachment_infos, {camera_index, viewport});
                      if (count_draw_calls) {
                        Platform::CountRenderPassDraw(RenderPassDrawBucket::DeferredGeometry, RenderDrawCallKind::Direct,
@@ -7287,6 +7407,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                     AmbientOcclusionPass::Execute(context, {camera, active_camera_transient_resources});
                                   });
     }
+    camera_render_graph.AddPass(
+        DeferredMaterialResolvePass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
+        [&](const RenderGraphExecutionContext& context) {
+          DeferredMaterialResolvePass::Execute(
+              context,
+              {camera, per_frame_descriptor_sets_[current_frame_index], deferred_material_resolve_pipeline_,
+               deferred_material_resolve_layout_, active_camera_transient_resources, camera_index, record_commands});
+        });
     camera_render_graph.AddPass(
         DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
         [&](const RenderGraphExecutionContext& context) {
