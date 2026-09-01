@@ -1,3 +1,5 @@
+import EvoEngine.GBuffer;
+
 struct EntitySelectionHighlightInput {
   [[vk::location(0)]] float2 tex_coord : TEXCOORD0;
 };
@@ -7,12 +9,13 @@ struct EntitySelectionHighlightPushConstant {
   float4 settings;
 };
 
-[[vk::binding(24, 1)]] Sampler2D<float4> inUtility;
+[[vk::binding(24, 1)]] Texture2D<uint4> inUtility;
 [[vk::push_constant]] EntitySelectionHighlightPushConstant push_constant;
 
 bool IsSelected(int2 pixel, int2 dimensions) {
   int2 texel = clamp(pixel, int2(0), dimensions - int2(1));
-  return (int(round(inUtility.Load(int3(texel, 0)).y)) & 1) != 0;
+  uint info_index = inUtility.Load(int3(texel, 0)).z;
+  return info_index != EE_GBUFFER_CLEAR_VALUE && (info_index & 1u) != 0u;
 }
 
 [shader("fragment")]

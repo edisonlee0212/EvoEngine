@@ -76,9 +76,11 @@ bool HasSlangLocationAttribute(const std::string& source, const int location) {
 
 bool HasFragmentOutputLocation(const std::string& source, const int location, const std::string& name) {
   const auto glsl_location = "layout(location = " + std::to_string(location) + ") out vec4 " + name;
-  const auto slang_field = "float4 " + name + " ";
+  const auto slang_float_field = "float4 " + name + " ";
+  const auto slang_uint_field = "uint4 " + name + " ";
   return source.find(glsl_location) != std::string::npos ||
-         (HasSlangLocationAttribute(source, location) && source.find(slang_field) != std::string::npos);
+         (HasSlangLocationAttribute(source, location) &&
+          (source.find(slang_float_field) != std::string::npos || source.find(slang_uint_field) != std::string::npos));
 }
 
 std::string ExtractStructIgnoringWhitespace(const std::string& source, const std::string& name) {
@@ -1152,9 +1154,9 @@ TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
   EXPECT_NE(deferred.find("output.pbr_flags = float4(surface.metallic, surface.specular_f0)"), std::string::npos);
   EXPECT_NE(deferred.find("float encoded_specular_f90"), std::string::npos);
   EXPECT_NE(deferred.find("output.emissive = float4(coated_emissive, encoded_specular_f90)"), std::string::npos);
-  EXPECT_NE(deferred.find("output.utility = float4(float(instance_index), float(instance.info_index), "
-                          "float(instance.material_index), 0.0f)"),
-            std::string::npos);
+  EXPECT_NE(deferred.find("[[vk::location(4)]] uint4 utility : SV_Target4"), std::string::npos);
+  EXPECT_NE(deferred.find("output.utility = EE_GBUFFER_PACK_METADATA"), std::string::npos);
+  EXPECT_NE(deferred.find("input.tangent_handedness * facing_sign < 0.0f"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
@@ -1172,12 +1174,13 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(platform.find("g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT"), std::string::npos);
-  EXPECT_NE(platform.find("g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT"), std::string::npos);
+  EXPECT_NE(platform.find("g_buffer_utility = raw_g_buffer::kMetadataFormat"), std::string::npos);
   EXPECT_EQ(platform.find("g_buffer_color"), std::string::npos);
   EXPECT_EQ(platform.find("g_buffer_material"), std::string::npos);
   EXPECT_NE(render_layer.find("CreateDeferredGBufferColorAttachmentFormats"), std::string::npos);
   EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(18"), std::string::npos);
   EXPECT_EQ(render_layer.find("camera_g_buffer_layout_->PushDescriptorBinding(19"), std::string::npos);
+  EXPECT_NE(render_layer.find("PushDescriptorBinding(24, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE"), std::string::npos);
 
   for (uint32_t binding = 20; binding <= 24; binding++) {
     EXPECT_NE(render_layer.find("PushDescriptorBinding(" + std::to_string(binding)), std::string::npos);
@@ -1186,17 +1189,43 @@ TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {
   EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(18"), std::string::npos);
   EXPECT_EQ(camera.find("UpdateImageDescriptorBinding(19"), std::string::npos);
 
-  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_)"),
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_, "
+                        "clear_value)"),
             std::string::npos);
-  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_)"),
+  EXPECT_NE(camera.find("AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_, "
+                        "clear_value)"),
             std::string::npos);
+  EXPECT_NE(camera.find("clear_value.color.uint32[0] = raw_g_buffer::kClearValue"), std::string::npos);
+  EXPECT_NE(camera.find("image_info.sampler = VK_NULL_HANDLE"), std::string::npos);
   EXPECT_EQ(camera.find("g_buffer_material_"), std::string::npos);
   EXPECT_EQ(camera_header.find("g_buffer_material_"), std::string::npos);
   EXPECT_NE(editor.find("GetGBufferUtilityImage()"), std::string::npos);
-  EXPECT_NE(editor.find("val = glm::round(ptr[0])"), std::string::npos);
+  EXPECT_NE(editor.find("static_cast<const uint32_t*>(mapped_entity_index_data_)[0]"), std::string::npos);
+  EXPECT_NE(editor.find("instance_index != raw_g_buffer::kClearValue"), std::string::npos);
   EXPECT_EQ(editor.find("GetGBufferNormalImage()"), std::string::npos);
   EXPECT_EQ(inspection.find("GetGBufferMaterialTexCoordImTextureId"), std::string::npos);
   EXPECT_EQ(inspection.find("GetGBufferMaterialIndicesImTextureId"), std::string::npos);
+  EXPECT_EQ(camera_header.find("GetGBufferUtilityImTextureId"), std::string::npos);
+  EXPECT_NE(inspection.find("Integer instance, material, info, flags, and packed vertex-color data"),
+            std::string::npos);
+
+  const auto motion_vectors = ReadTextFile(ShaderPath("Compute/MotionVectors.slang"));
+  const auto deferred_lighting =
+      ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"));
+  const auto selection = ReadTextFile(ShaderPath("Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang"));
+  for (const auto* source : {&motion_vectors, &deferred_lighting, &selection}) {
+    EXPECT_NE(source->find("Texture2D<uint4> inUtility"), std::string::npos);
+    EXPECT_EQ(source->find("Sampler2D inUtility"), std::string::npos);
+    EXPECT_EQ(source->find("Sampler2D<float4> inUtility"), std::string::npos);
+  }
+  EXPECT_NE(motion_vectors.find("uint instance_index = inUtility.Load(int3(texel, 0)).x"), std::string::npos);
+  EXPECT_NE(deferred_lighting.find("uint material_index = utility.y & EE_GBUFFER_MATERIAL_INDEX_MASK"),
+            std::string::npos);
+  EXPECT_NE(deferred_lighting.find("uint info_index = utility.z"), std::string::npos);
+  EXPECT_NE(selection.find("info_index != EE_GBUFFER_CLEAR_VALUE && (info_index & 1u) != 0u"), std::string::npos);
+
+  const auto render_graph = ReadTextFile(SdkPath("src/RenderGraph.cpp"));
+  EXPECT_NE(render_graph.find("format_name == \"GBufferMetadata\""), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
@@ -1226,8 +1255,11 @@ TEST(GltfRasterMaterial, EcoSysLabDeferredShadersWriteExpandedGBuffer) {
     EXPECT_NE(source.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos) << path.string();
     EXPECT_NE(source.find("EE_GLTF_RASTER_COATED_EMISSION"), std::string::npos) << path.string();
     EXPECT_NE(source.find("encoded_specular_f90"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("output.outGBufferUtility = float4(float(EE_INSTANCE_INDEX)"), std::string::npos)
+    EXPECT_NE(source.find("[[vk::location(4)]] uint4 outGBufferUtility : SV_Target4"), std::string::npos)
         << path.string();
+    EXPECT_NE(source.find("EE_GBUFFER_PACK_METADATA"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("fs_in.Color"), std::string::npos) << path.string();
+    EXPECT_NE(source.find("facing_sign < 0.0f"), std::string::npos) << path.string();
   }
 
   const std::filesystem::path pipeline_paths[] = {

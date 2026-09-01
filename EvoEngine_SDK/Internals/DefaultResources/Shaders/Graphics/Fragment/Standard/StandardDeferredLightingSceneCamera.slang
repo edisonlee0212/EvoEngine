@@ -1,4 +1,5 @@
 import EvoEngine.LightingFixedSet3;
+import EvoEngine.GBuffer;
 
 struct DeferredLightingInput {
   [[vk::location(0)]] float2 tex_coord : TEXCOORD0;
@@ -9,7 +10,7 @@ struct DeferredLightingInput {
 [[vk::binding(21, 1)]] Sampler2D inNormalRoughness;
 [[vk::binding(22, 1)]] Sampler2D inPbrFlags;
 [[vk::binding(23, 1)]] Sampler2D inEmissive;
-[[vk::binding(24, 1)]] Sampler2D inUtility;
+[[vk::binding(24, 1)]] Texture2D<uint4> inUtility;
 [[vk::binding(4, 3)]] Sampler2D inAmbientOcclusion;
 
 [shader("fragment")]
@@ -17,10 +18,15 @@ float4 main(DeferredLightingInput input) : SV_Target {
   int camera_index = EE_BASIC_CONSTANTS.camera_index;
   int indirect_debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   float ndc_depth = inDepth.Sample(input.tex_coord).x;
-  float4 utility = inUtility.Sample(input.tex_coord);
-  int instance_index = int(round(utility.x));
-  int info_index = int(round(utility.y));
-  int material_index = int(round(utility.z));
+  uint utility_width;
+  uint utility_height;
+  inUtility.GetDimensions(utility_width, utility_height);
+  int2 utility_texel = clamp(int2(input.tex_coord * float2(utility_width, utility_height)), int2(0),
+                             int2(utility_width, utility_height) - int2(1));
+  uint4 utility = inUtility.Load(int3(utility_texel, 0));
+  uint instance_index = utility.x;
+  uint material_index = utility.y & EE_GBUFFER_MATERIAL_INDEX_MASK;
+  uint info_index = utility.z;
   float4 base_color_ao = inBaseColorAO.Sample(input.tex_coord);
   float4 normal_roughness = inNormalRoughness.Sample(input.tex_coord);
   float4 pbr_flags = inPbrFlags.Sample(input.tex_coord);
@@ -46,7 +52,7 @@ float4 main(DeferredLightingInput input) : SV_Target {
   float3 instance_kernel = abs(EE_KERNEL_BLOCK.uniform_kernel[instance_index % EE_MAX_KERNEL_AMOUNT].xyz);
   float3 info_kernel = abs(EE_KERNEL_BLOCK.uniform_kernel[info_index % EE_MAX_KERNEL_AMOUNT].xyz);
   int debug_visualization = EE_RENDER_INFO.debug_visualization;
-  float mode0 = float(debug_visualization == 0 && info_index > 1);
+  float mode0 = float(debug_visualization == 0 && info_index > 1u);
   float mode1 = float(debug_visualization == 1);
   float mode2 = float(debug_visualization == 2);
   float mode3 = float(debug_visualization == 3);

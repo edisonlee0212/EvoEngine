@@ -2,13 +2,14 @@ import EvoEngine.PerFrame;
 import EvoEngine.BasicConstants;
 import EvoEngine.RasterVertex;
 import EvoEngine.GltfRasterMaterial;
+import EvoEngine.GBuffer;
 
 struct StandardDeferredOutput {
   [[vk::location(0)]] float4 base_color_ao : SV_Target0;
   [[vk::location(1)]] float4 normal_roughness : SV_Target1;
   [[vk::location(2)]] float4 pbr_flags : SV_Target2;
   [[vk::location(3)]] float4 emissive : SV_Target3;
-  [[vk::location(4)]] float4 utility : SV_Target4;
+  [[vk::location(4)]] uint4 utility : SV_Target4;
 };
 
 [shader("fragment")] StandardDeferredOutput main(StandardRasterOutput input, bool is_front_face : SV_IsFrontFace) {
@@ -37,6 +38,7 @@ struct StandardDeferredOutput {
   output.pbr_flags = float4(surface.metallic, surface.specular_f0);
   float encoded_specular_f90 = EE_GLTF_MATERIALS[material_index].unlit != 0 ? -1.0f : surface.specular_f90;
   output.emissive = float4(coated_emissive, encoded_specular_f90);
-  output.utility = float4(float(instance_index), float(instance.info_index), float(instance.material_index), 0.0f);
+  output.utility = EE_GBUFFER_PACK_METADATA(uint(instance_index), material_index, uint(instance.info_index), input.color,
+                                            false, input.tangent_handedness * facing_sign < 0.0f);
   return output;
 }

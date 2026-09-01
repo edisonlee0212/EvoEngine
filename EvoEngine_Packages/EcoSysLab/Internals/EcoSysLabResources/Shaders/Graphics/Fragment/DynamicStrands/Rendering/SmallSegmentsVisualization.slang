@@ -1,6 +1,7 @@
 import EvoEngine.PerFrame;
 import EcoSysLab.DynamicStrandsSmallSegmentsRenderingVisualizationConstants;
 import EvoEngine.GltfBindlessMaterial;
+import EvoEngine.GBuffer;
 
 struct EcoSysLabRasterInput {
   [[vk::location(0)]] float3 FragPos : TEXCOORD0;
@@ -15,7 +16,7 @@ struct EcoSysLabFragmentOutput {
   [[vk::location(1)]] float4 outGBufferNormalRoughness : SV_Target1;
   [[vk::location(2)]] float4 outGBufferPbrFlags : SV_Target2;
   [[vk::location(3)]] float4 outGBufferEmissive : SV_Target3;
-  [[vk::location(4)]] float4 outGBufferUtility : SV_Target4;
+  [[vk::location(4)]] uint4 outGBufferUtility : SV_Target4;
 };
 [shader("fragment")]
 EcoSysLabFragmentOutput main(EcoSysLabRasterInput fs_in, bool is_front_face : SV_IsFrontFace) {
@@ -45,6 +46,8 @@ EcoSysLabFragmentOutput main(EcoSysLabRasterInput fs_in, bool is_front_face : SV
       uint(instance.material_index), surface, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, 1.0, facing_sign,
       view_direction);
   output.outGBufferEmissive = float4(coated_emissive, encoded_specular_f90);
-  output.outGBufferUtility = float4(float(EE_INSTANCE_INDEX), float(instance.info_index + 2), float(instance.material_index), 0.0);
+  output.outGBufferUtility =
+      EE_GBUFFER_PACK_METADATA(uint(EE_INSTANCE_INDEX), uint(instance.material_index), uint(instance.info_index + 2),
+                               fs_in.Color, true, facing_sign < 0.0f);
   return output;
 }

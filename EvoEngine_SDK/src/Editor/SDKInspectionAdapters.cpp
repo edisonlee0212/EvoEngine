@@ -4180,8 +4180,10 @@ void evo_engine::DrawCameraDebugViews(const Camera& camera, const float debug_sc
     ImGui::Image(camera.GetGBufferEmissiveImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
     ImGui::TreePop();
   }
-  if (ImGui::TreeNode("Utility")) {
-    ImGui::Image(camera.GetGBufferUtilityImTextureId(), image_size, ImVec2(0, 1), ImVec2(1, 0));
+  if (ImGui::TreeNode("Metadata")) {
+    ImGui::TextWrapped(
+        "Integer instance, material, info, flags, and packed vertex-color data. Use the scene debug "
+        "views or viewport picking to inspect decoded values.");
     ImGui::TreePop();
   }
   if (ImGui::TreeNode("Depth")) {

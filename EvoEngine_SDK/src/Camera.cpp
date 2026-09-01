@@ -246,8 +246,9 @@ std::shared_ptr<Sampler> CreateGBufferSampler() {
 }
 
 void AppendGBufferAttachmentInfo(std::vector<VkRenderingAttachmentInfo>& attachment_infos,
-                                 VkRenderingAttachmentInfo attachment, const std::shared_ptr<ImageView>& view) {
-  attachment.clearValue = {0, 0, 0, 0};
+                                 VkRenderingAttachmentInfo attachment, const std::shared_ptr<ImageView>& view,
+                                 const VkClearValue& clear_value) {
+  attachment.clearValue = clear_value;
   attachment.imageView = view->GetVkImageView();
   attachment_infos.push_back(attachment);
 }
@@ -496,8 +497,6 @@ void Camera::UpdateGBuffer() {
                                g_buffer_pbr_flags_view_->GetVkImageView(), g_buffer_pbr_flags_->GetLayout());
   EditorLayer::UpdateTextureId(g_buffer_emissive_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
                                g_buffer_emissive_view_->GetVkImageView(), g_buffer_emissive_->GetLayout());
-  EditorLayer::UpdateTextureId(g_buffer_utility_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
-                               g_buffer_utility_view_->GetVkImageView(), g_buffer_utility_->GetLayout());
   {
     VkDescriptorImageInfo image_info{};
     image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -513,6 +512,7 @@ void Camera::UpdateGBuffer() {
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(22, image_info);
     image_info.imageView = g_buffer_emissive_view_->GetVkImageView();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(23, image_info);
+    image_info.sampler = VK_NULL_HANDLE;
     image_info.imageView = g_buffer_utility_view_->GetVkImageView();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(24, image_info);
   }
@@ -649,11 +649,16 @@ void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachment
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_);
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_roughness_view_);
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_pbr_flags_view_);
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_emissive_view_);
-  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_);
+  VkClearValue clear_value{};
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_base_color_ao_view_, clear_value);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_normal_roughness_view_, clear_value);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_pbr_flags_view_, clear_value);
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_emissive_view_, clear_value);
+  clear_value.color.uint32[0] = raw_g_buffer::kClearValue;
+  clear_value.color.uint32[1] = raw_g_buffer::kClearValue;
+  clear_value.color.uint32[2] = raw_g_buffer::kClearValue;
+  clear_value.color.uint32[3] = raw_g_buffer::kClearValue;
+  AppendGBufferAttachmentInfo(attachment_infos, attachment, g_buffer_utility_view_, clear_value);
 }
 
 float Camera::GetSizeRatio() const {
@@ -956,10 +961,6 @@ ImTextureID Camera::GetGBufferPbrFlagsImTextureId() const {
 
 ImTextureID Camera::GetGBufferEmissiveImTextureId() const {
   return g_buffer_emissive_im_texture_id_;
-}
-
-ImTextureID Camera::GetGBufferUtilityImTextureId() const {
-  return g_buffer_utility_im_texture_id_;
 }
 
 void Camera::SetRendered() {

@@ -835,8 +835,8 @@ class EVOENGINE_API Platform final {
     /// Attribute format for expanded G-buffer attachments.
     constexpr static VkFormat g_buffer_attribute = VK_FORMAT_R16G16B16A16_SFLOAT;
 
-    /// Utility format for expanded G-buffer attachments.
-    constexpr static VkFormat g_buffer_utility = VK_FORMAT_R32G32B32A32_SFLOAT;
+    /// Exact integer metadata format for expanded G-buffer attachments.
+    constexpr static VkFormat g_buffer_utility = raw_g_buffer::kMetadataFormat;
 
     /// Fixed formats for the raw geometry G-buffer ABI.
     constexpr static VkFormat raw_g_buffer_attribute = raw_g_buffer::kAttributeFormat;

@@ -45,6 +45,10 @@ metallic-roughness base color.
 Deferred rendering stores vertex color as clamped, rounded UNORM8 RGBA metadata. Negative and HDR vertex colors are
 therefore not preserved by the deferred path; forward-only paths retain full-float interpolation.
 
+The stable G-buffer metadata attachment is `R32G32B32A32_UINT`: instance and info IDs retain all 32 bits, while the
+material word reserves its high two bits for procedural base-color replacement and tangent handedness. Consumers use
+integer texel loads; the attachment is never filtered or converted through floating point.
+
 Color textures use sRGB decoding while alpha and data channels remain linear. Imported wrap, magnification,
 minification, and mip-filter settings are preserved. Authored DDS/BC7 mip chains are preferred when available; common
 glTF image sources remain supported fallbacks.

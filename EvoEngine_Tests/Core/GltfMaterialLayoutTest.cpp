@@ -75,6 +75,23 @@ TEST(GltfMaterialLayout, RawGBufferFormatsAndMetadataRoundTripExactly) {
   EXPECT_EQ(ClearMetadata(), glm::uvec4(std::numeric_limits<uint32_t>::max()));
 }
 
+TEST(GltfMaterialLayout, RawGBufferMetadataPreservesIdsBeyondFloatPrecision) {
+  using namespace evo_engine::raw_g_buffer;
+
+  Metadata source;
+  source.instance_index = 16777217u;
+  source.material_index = 16777219u;
+  source.info_index = 16777221u;
+  const auto packed = PackMetadata(source);
+  const auto restored = UnpackMetadata(packed);
+
+  EXPECT_EQ(packed.x, 16777217u);
+  EXPECT_EQ(packed.z, 16777221u);
+  EXPECT_EQ(restored.instance_index, 16777217u);
+  EXPECT_EQ(restored.material_index, 16777219u);
+  EXPECT_EQ(restored.info_index, 16777221u);
+}
+
 TEST(GltfMaterialLayout, RawGBufferOctahedralFrameRoundTrips) {
   using namespace evo_engine::raw_g_buffer;
 

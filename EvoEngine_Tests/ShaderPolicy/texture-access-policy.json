@@ -24,10 +24,10 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang:Sampler2D:inUtility:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang:Texture2D:inUtility:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/MotionVectors.slang",
-      "resource_type": "Sampler2D",
+      "resource_type": "Texture2D",
       "symbol": "inUtility",
       "classification": "TransientPassResource"
     },
@@ -432,10 +432,10 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang:Sampler2D:inUtility:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang:Texture2D:inUtility:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang",
-      "resource_type": "Sampler2D",
+      "resource_type": "Texture2D",
       "symbol": "inUtility",
       "classification": "TransientPassResource"
     },
@@ -672,10 +672,10 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Sampler2D:inUtility:0",
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang:Texture2D:inUtility:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
-      "resource_type": "Sampler2D",
+      "resource_type": "Texture2D",
       "symbol": "inUtility",
       "classification": "TransientPassResource"
     },
@@ -1044,12 +1044,12 @@
       "classification": "TransientPassResource"
     },
     {
-      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:24:VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:0",
+      "id": "host:EvoEngine_SDK/src/RenderLayer.cpp:camera_g_buffer_layout_:24:VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:0",
       "kind": "host-binding",
       "path": "EvoEngine_SDK/src/RenderLayer.cpp",
       "owner": "camera_g_buffer_layout_",
       "binding": "24",
-      "descriptor_type": "VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER",
+      "descriptor_type": "VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE",
       "classification": "TransientPassResource"
     },
     {

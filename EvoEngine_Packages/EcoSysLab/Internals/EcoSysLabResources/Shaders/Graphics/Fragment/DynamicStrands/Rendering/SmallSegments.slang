@@ -1,6 +1,7 @@
 import EvoEngine.PerFrame;
 import EcoSysLab.DynamicStrandsSmallSegmentsRenderingConstants;
 import EvoEngine.GltfBindlessMaterial;
+import EvoEngine.GBuffer;
 
 struct EcoSysLabRasterInput {
   [[vk::location(0)]] float3 FragPos : TEXCOORD0;
@@ -15,7 +16,7 @@ struct EcoSysLabFragmentOutput {
   [[vk::location(1)]] float4 outGBufferNormalRoughness : SV_Target1;
   [[vk::location(2)]] float4 outGBufferPbrFlags : SV_Target2;
   [[vk::location(3)]] float4 outGBufferEmissive : SV_Target3;
-  [[vk::location(4)]] float4 outGBufferUtility : SV_Target4;
+  [[vk::location(4)]] uint4 outGBufferUtility : SV_Target4;
 };
 [shader("fragment")]
 EcoSysLabFragmentOutput main(EcoSysLabRasterInput fs_in, bool is_front_face : SV_IsFrontFace) {
@@ -38,10 +39,11 @@ EcoSysLabFragmentOutput main(EcoSysLabRasterInput fs_in, bool is_front_face : SV
   float facing_sign = (is_front_face ? 1.0 : -1.0) * EE_TRANSFORM_HANDEDNESS(instance.model);
   float3 world_normal = normalize(facing_sign * normal);
   float3 base_color = max(surface.base_color.rgb, float3(0.0));
-  float info_index = float(instance.info_index);
-  if (fs_in.Color.a > 0.9f) {
+  bool vertex_color_replaces_base_color = fs_in.Color.a > 0.9f;
+  uint info_index = uint(instance.info_index);
+  if (vertex_color_replaces_base_color) {
     base_color = max(fs_in.Color.rgb, float3(0.0));
-    info_index = float(instance.info_index + 2);
+    info_index = uint(instance.info_index + 2);
   }
   surface.specular_f0 = EE_GLTF_RASTER_REBASE_SPECULAR_F0(uint(material_index), surface, base_color);
   output.outGBufferBaseColorAO = float4(base_color, max(surface.occlusion, 0.0));
@@ -53,6 +55,8 @@ EcoSysLabFragmentOutput main(EcoSysLabRasterInput fs_in, bool is_front_face : SV
       uint(material_index), surface, tex_coord, tex_coord, fs_in.Normal, fs_in.Tangent, 1.0, facing_sign,
       view_direction);
   output.outGBufferEmissive = float4(coated_emissive, encoded_specular_f90);
-  output.outGBufferUtility = float4(float(EE_INSTANCE_INDEX), info_index, float(material_index), 0.0);
+  output.outGBufferUtility =
+      EE_GBUFFER_PACK_METADATA(uint(EE_INSTANCE_INDEX), uint(material_index), info_index, fs_in.Color,
+                               vertex_color_replaces_base_color, facing_sign < 0.0f);
   return output;
 }

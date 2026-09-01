@@ -113,6 +113,9 @@ VkFormat ToVkFormat(const std::string& format_name) {
   if (format_name == "GBuffer") {
     return Platform::Constants::g_buffer_attribute;
   }
+  if (format_name == "GBufferMetadata") {
+    return Platform::Constants::g_buffer_utility;
+  }
   if (format_name == "RG16F") {
     return VK_FORMAT_R16G16_SFLOAT;
   }
