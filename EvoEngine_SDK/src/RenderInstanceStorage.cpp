@@ -1885,6 +1885,10 @@ RenderInstanceStorage::ShadowViewIndirectCommands RenderInstanceStorage::BuildSh
   result.deferred_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
   result.deferred_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
   result.deferred_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
+  result.deferred_masked_render_instances = std::make_shared<MeshRenderInstanceCollection>();
+  result.deferred_masked_skinned_render_instances = std::make_shared<SkinnedMeshRenderInstanceCollection>();
+  result.deferred_masked_instanced_render_instances = std::make_shared<InstancedRenderInstanceCollection>();
+  result.deferred_masked_strands_render_instances = std::make_shared<StrandsRenderInstanceCollection>();
   const auto visible_entries = QueryRasterSpatialEntries(BuildClipSpaceBoundIntersector(light_space_matrix, false));
   for (const auto& entry : visible_entries) {
     const auto& render_instance = entry.render_instance;
@@ -1895,31 +1899,62 @@ RenderInstanceStorage::ShadowViewIndirectCommands RenderInstanceStorage::BuildSh
       continue;
     }
     if (entry.deferred_mesh_command_index < 0) {
+      const bool masked = entry.category == SpatialRenderCategory::DeferredMasked;
       if (std::dynamic_pointer_cast<SkinnedMeshRenderInstance>(render_instance)) {
-        result.deferred_skinned_render_instances->Register(render_instance);
+        (masked ? result.deferred_masked_skinned_render_instances : result.deferred_skinned_render_instances)
+            ->Register(render_instance);
       } else if (std::dynamic_pointer_cast<InstancedRenderInstance>(render_instance)) {
-        result.deferred_instanced_render_instances->Register(render_instance);
+        (masked ? result.deferred_masked_instanced_render_instances : result.deferred_instanced_render_instances)
+            ->Register(render_instance);
       } else if (std::dynamic_pointer_cast<StrandsRenderInstance>(render_instance)) {
-        result.deferred_strands_render_instances->Register(render_instance);
+        (masked ? result.deferred_masked_strands_render_instances : result.deferred_strands_render_instances)
+            ->Register(render_instance);
       }
-      continue;
-    }
-    const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
-    if (command_index >= opaque_shadow_mesh_draw_indexed_indirect_commands.size() ||
-        command_index >= opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size()) {
-      continue;
-    }
-    const auto& indexed_command = opaque_shadow_mesh_draw_indexed_indirect_commands[command_index];
-    const auto& mesh_task_command = opaque_shadow_mesh_draw_mesh_tasks_indirect_commands[command_index];
-    if (indexed_command.indexCount != 0u) {
-      const uint32_t primitive_count = indexed_command.indexCount / 3u;
-      result.indexed_commands.emplace_back(indexed_command);
-      result.mesh_task_commands.emplace_back(mesh_task_command);
-      result.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
-      result.deferred_render_instances->Register(render_instance);
-      result.submitted_primitives += primitive_count;
     }
   }
+  const auto append_mesh_commands = [&](const SpatialRenderCategory category,
+                                        const std::shared_ptr<MeshRenderInstanceCollection>& collection,
+                                        std::vector<DeferredMeshIndirectBatch>& batches) {
+    for (const auto& entry : visible_entries) {
+      if (entry.category != category || entry.deferred_mesh_command_index < 0 || !entry.render_instance ||
+          !entry.render_instance->cast_shadow) {
+        continue;
+      }
+      const auto render_instance = std::dynamic_pointer_cast<MeshRenderInstance>(entry.render_instance);
+      const auto command_index = static_cast<size_t>(entry.deferred_mesh_command_index);
+      if (!render_instance || command_index >= shadow_mesh_draw_indexed_indirect_commands.size() ||
+          command_index >= shadow_mesh_draw_mesh_tasks_indirect_commands.size()) {
+        continue;
+      }
+      const auto& indexed_command = shadow_mesh_draw_indexed_indirect_commands[command_index];
+      if (indexed_command.indexCount == 0u) {
+        continue;
+      }
+      const auto compact_command_index = static_cast<uint32_t>(result.indexed_commands.size());
+      result.indexed_commands.emplace_back(indexed_command);
+      result.mesh_task_commands.emplace_back(shadow_mesh_draw_mesh_tasks_indirect_commands[command_index]);
+      result.draw_instance_indices.emplace_back(static_cast<uint32_t>(render_instance->instance_index));
+      collection->Register(render_instance);
+      const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+        return batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+               batch.polygon_mode == render_instance->polygon_mode;
+      };
+      if (batches.empty() || !same_batch(batches.back())) {
+        auto& batch = batches.emplace_back();
+        batch.first_command = compact_command_index;
+        batch.line_width = render_instance->line_width;
+        batch.cull_mode = render_instance->cull_mode;
+        batch.polygon_mode = render_instance->polygon_mode;
+      }
+      auto& batch = batches.back();
+      batch.command_count++;
+      batch.triangle_count += indexed_command.indexCount / 3u;
+    }
+  };
+  append_mesh_commands(SpatialRenderCategory::Deferred, result.deferred_render_instances,
+                       result.opaque_mesh_indirect_batches);
+  append_mesh_commands(SpatialRenderCategory::DeferredMasked, result.deferred_masked_render_instances,
+                       result.masked_mesh_indirect_batches);
   return result;
 }
 
@@ -2605,15 +2640,18 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
   canonical_structure_initialized_ = true;
   canonical_structure_signature_ = structure_signature;
   total_opaque_shadow_mesh_triangles = 0;
+  total_masked_shadow_mesh_triangles = 0;
   raster_draw_instance_indices.clear();
   deferred_mesh_draw_instance_index_offset = 0;
   if (canonical_structure_changed_this_frame_) {
     deferred_mesh_indirect_batches.clear();
     deferred_masked_mesh_indirect_batches.clear();
+    opaque_shadow_mesh_indirect_batches.clear();
+    masked_shadow_mesh_indirect_batches.clear();
     mesh_draw_indexed_indirect_commands.clear();
     mesh_draw_mesh_tasks_indirect_commands.clear();
-    opaque_shadow_mesh_draw_indexed_indirect_commands.clear();
-    opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
+    shadow_mesh_draw_indexed_indirect_commands.clear();
+    shadow_mesh_draw_mesh_tasks_indirect_commands.clear();
   }
 
   const auto register_render_instance = [&](const std::shared_ptr<IRenderInstance>& render_instance,
@@ -2687,22 +2725,39 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
           }
         }
       };
-  const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<MeshRenderInstance>& render_instance) {
-    VkDrawIndexedIndirectCommand opaque_draw{};
-    VkDrawMeshTasksIndirectCommandEXT opaque_mesh_task{};
+  const auto register_shadow_mesh_indirect_command = [&](const std::shared_ptr<MeshRenderInstance>& render_instance,
+                                                         std::vector<DeferredMeshIndirectBatch>& batches,
+                                                         uint32_t& total_triangles) {
+    VkDrawIndexedIndirectCommand draw{};
+    VkDrawMeshTasksIndirectCommandEXT mesh_task{};
 
     if (render_instance && render_instance->cast_shadow && render_instance->mesh) {
       const auto triangle_offset = render_instance->mesh->triangle_range_->prev_frame_offset;
       const auto triangle_index_count = render_instance->mesh->triangle_range_->prev_frame_index_count;
       const auto meshlet_range = render_instance->mesh->meshlet_range_->prev_frame_range;
-      opaque_draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
-      opaque_mesh_task = CreateMeshTaskCommand(meshlet_range);
-      total_opaque_shadow_mesh_triangles += triangle_index_count;
+      draw = CreateIndexedCommand(triangle_offset, triangle_index_count);
+      mesh_task = CreateMeshTaskCommand(meshlet_range);
+      total_triangles += triangle_index_count / 3u;
     }
 
     if (canonical_structure_changed_this_frame_) {
-      opaque_shadow_mesh_draw_indexed_indirect_commands.emplace_back(opaque_draw);
-      opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(opaque_mesh_task);
+      const auto command_index = static_cast<uint32_t>(shadow_mesh_draw_indexed_indirect_commands.size());
+      shadow_mesh_draw_indexed_indirect_commands.emplace_back(draw);
+      shadow_mesh_draw_mesh_tasks_indirect_commands.emplace_back(mesh_task);
+      const auto same_batch = [&](const DeferredMeshIndirectBatch& batch) {
+        return batch.line_width == render_instance->line_width && batch.cull_mode == render_instance->cull_mode &&
+               batch.polygon_mode == render_instance->polygon_mode;
+      };
+      if (batches.empty() || !same_batch(batches.back())) {
+        auto& batch = batches.emplace_back();
+        batch.first_command = command_index;
+        batch.line_width = render_instance->line_width;
+        batch.cull_mode = render_instance->cull_mode;
+        batch.polygon_mode = render_instance->polygon_mode;
+      }
+      auto& batch = batches.back();
+      batch.command_count++;
+      batch.triangle_count += draw.indexCount / 3u;
     }
   };
   uint32_t deferred_mesh_command_index = 0;
@@ -2733,7 +2788,9 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
     deferred_mesh_command_index++;
   };
   const auto register_deferred_mesh_collection = [&](const std::shared_ptr<MeshRenderInstanceCollection>& collection,
-                                                     std::vector<DeferredMeshIndirectBatch>& batches) {
+                                                     std::vector<DeferredMeshIndirectBatch>& batches,
+                                                     std::vector<DeferredMeshIndirectBatch>& shadow_batches,
+                                                     uint32_t& total_shadow_triangles) {
     collection->ForEachMeshRenderInstance([&](const auto& render_instance) {
       if (canonical_structure_changed_this_frame_ && render_instance && render_instance->mesh) {
         AppendMeshIndirectCommands(mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands,
@@ -2747,11 +2804,13 @@ void RenderInstanceStorage::BuildRenderInstanceBlocks() {
       if (canonical_structure_changed_this_frame_) {
         register_deferred_mesh_indirect_batch(render_instance, batches);
       }
-      register_shadow_mesh_indirect_command(render_instance);
+      register_shadow_mesh_indirect_command(render_instance, shadow_batches, total_shadow_triangles);
     });
   };
-  register_deferred_mesh_collection(deferred_render_instances, deferred_mesh_indirect_batches);
-  register_deferred_mesh_collection(deferred_masked_render_instances, deferred_masked_mesh_indirect_batches);
+  register_deferred_mesh_collection(deferred_render_instances, deferred_mesh_indirect_batches,
+                                    opaque_shadow_mesh_indirect_batches, total_opaque_shadow_mesh_triangles);
+  register_deferred_mesh_collection(deferred_masked_render_instances, deferred_masked_mesh_indirect_batches,
+                                    masked_shadow_mesh_indirect_batches, total_masked_shadow_mesh_triangles);
   ValidateDeferredMeshIndirectCommandCount(
       CountRenderInstances(deferred_render_instances) + CountRenderInstances(deferred_masked_render_instances),
       mesh_draw_indexed_indirect_commands, mesh_draw_mesh_tasks_indirect_commands, raster_draw_instance_indices);
@@ -3651,16 +3710,14 @@ RenderInstanceStorage::RenderInstanceStorage() {
   mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  buffer_create_info.size =
-      glm::max(static_cast<size_t>(1),
-               sizeof(VkDrawIndexedIndirectCommand) * opaque_shadow_mesh_draw_indexed_indirect_commands.size());
-  opaque_shadow_mesh_draw_indexed_indirect_commands_buffer =
+  buffer_create_info.size = glm::max(
+      static_cast<size_t>(1), sizeof(VkDrawIndexedIndirectCommand) * shadow_mesh_draw_indexed_indirect_commands.size());
+  shadow_mesh_draw_indexed_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
 
-  buffer_create_info.size =
-      glm::max(static_cast<size_t>(1),
-               sizeof(VkDrawMeshTasksIndirectCommandEXT) * opaque_shadow_mesh_draw_mesh_tasks_indirect_commands.size());
-  opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
+  buffer_create_info.size = glm::max(static_cast<size_t>(1), sizeof(VkDrawMeshTasksIndirectCommandEXT) *
+                                                                 shadow_mesh_draw_mesh_tasks_indirect_commands.size());
+  shadow_mesh_draw_mesh_tasks_indirect_commands_buffer =
       std::make_shared<Buffer>(buffer_create_info, buffer_vma_allocation_create_info);
   packed_shadow_indirect_buffer = CreateIndirectBuffer();
   packed_camera_indexed_buffer = CreateIndirectBuffer();
@@ -3830,10 +3887,10 @@ void RenderInstanceStorage::Upload(const bool immediate) {
                            storage_indirect_options);
     upload_batch.AddVector(mesh_draw_mesh_tasks_indirect_commands_buffer, mesh_draw_mesh_tasks_indirect_commands,
                            storage_indirect_options);
-    upload_batch.AddVector(opaque_shadow_mesh_draw_indexed_indirect_commands_buffer,
-                           opaque_shadow_mesh_draw_indexed_indirect_commands, storage_indirect_options);
-    upload_batch.AddVector(opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
-                           opaque_shadow_mesh_draw_mesh_tasks_indirect_commands, storage_indirect_options);
+    upload_batch.AddVector(shadow_mesh_draw_indexed_indirect_commands_buffer,
+                           shadow_mesh_draw_indexed_indirect_commands, storage_indirect_options);
+    upload_batch.AddVector(shadow_mesh_draw_mesh_tasks_indirect_commands_buffer,
+                           shadow_mesh_draw_mesh_tasks_indirect_commands, storage_indirect_options);
   }
   add_vector_if_changed(packed_camera_indexed_buffer, packed_camera_indexed_commands, indirect_options);
   add_vector_if_changed(packed_camera_mesh_task_buffer, packed_camera_mesh_task_commands, indirect_options);

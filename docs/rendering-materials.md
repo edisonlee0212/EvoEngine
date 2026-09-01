@@ -28,6 +28,10 @@ resolved G-buffer surface, evaluates deferred lighting, and writes camera color.
 surface. Blended, transmissive, and other forward-only materials use the transparent or forward path. Unlit materials
 return base color without adding lighting or emission first.
 
+Directional, point, and spot shadow maps use the same opaque/masked classification. Opaque shadow shaders access only
+geometry. Masked shadow shaders evaluate the shared base-color alpha coverage helper and no other material inputs before
+writing depth. Masked skinned motion coverage uses that helper as well, so discarded pixels do not contribute motion.
+
 The shared ray material path evaluates the same base inputs and supports advanced reflection and transmission behavior,
 including:
 
@@ -66,13 +70,10 @@ than silently sampling another coordinate set.
 
 ## Raster And Ray Resource Models
 
-Raster materials use fixed texture descriptors. This keeps rasterization available on devices that do not expose the
-descriptor-indexing features used by ray traversal. Renderer-owned descriptor state is updated as material indices or
-textures change.
-
-Ray tracing and ray query use bindless texture storage because a ray can encounter any material after traversal begins.
-They share the same host material and texture-info buffers, scene feature detection, and specialized shader variants.
-Missing variants compile asynchronously while an all-feature fallback remains available.
+Raster deferred evaluation, ray tracing, and ray query share renderer-owned bindless texture arrays because each shader
+invocation can resolve an arbitrary material index. They share the same host material and texture-info buffers. Ray
+traversal additionally uses scene feature detection and specialized shader variants; missing variants compile
+asynchronously while an all-feature fallback remains available.
 
 Material and mesh thumbnails render through the normal fixed-descriptor raster path in a temporary scene. They disable
 DDGI and do not maintain a separate material implementation.
@@ -95,8 +96,8 @@ by a ray camera but are not part of the triangle sampling distribution.
 
 - Raster and ray cameras share authored material meaning, but their integrators and temporal histories are not expected
   to produce pixel-identical images.
-- Built-in raster shadow-map passes treat mesh materials as opaque and do not sample alpha textures for cutout
-  silhouettes.
+- Built-in raster shadow maps preserve alpha-cutout silhouettes with the shared base-color alpha coverage test. They do
+  not evaluate normal, roughness, metallic, occlusion, emission, or other material properties.
 - DDGI transports diffuse irradiance with a bounded material model; it is not a full camera-path BSDF integrator.
 - Ray-camera strand traversal is optional and capability-gated. Unsupported devices keep the raster strand path.
 - Gaussian splats do not enter triangle acceleration structures, DDGI, or ray-camera traversal.

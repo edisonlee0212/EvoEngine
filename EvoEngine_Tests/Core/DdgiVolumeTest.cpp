@@ -1394,26 +1394,20 @@ TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
 TEST(DdgiVolume, DdgiRasterPathsKeepScalarAoInputsOutOfDirectAndEmission) {
   const auto shader_root =
       std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK" / "Internals" / "DefaultResources" / "Shaders";
-  const auto deferred =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLighting.slang");
-  const auto scene_camera =
-      ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardDeferredLightingSceneCamera.slang");
+  const auto deferred = ReadTextFile(shader_root / "Compute" / "DeferredMaterialResolve.slang");
   const auto transparent =
       ReadTextFile(shader_root / "Graphics" / "Fragment" / "Standard" / "StandardTransparent.slang");
   ASSERT_FALSE(deferred.empty());
-  ASSERT_FALSE(scene_camera.empty());
   ASSERT_FALSE(transparent.empty());
 
-  EXPECT_NE(deferred.find("pbr_flags.x, normal_roughness.a, pbr_flags.yzw"), std::string::npos);
-  EXPECT_NE(scene_camera.find("pbr_flags.x, normal_roughness.a, pbr_flags.yzw"), std::string::npos);
+  EXPECT_NE(deferred.find("resolved_material_ao,"), std::string::npos);
+  EXPECT_NE(deferred.find("inAmbientOcclusion.SampleLevel"), std::string::npos);
   EXPECT_NE(transparent.find("surface.specular_f90, surface.occlusion,"), std::string::npos);
   EXPECT_NE(transparent.find("surface.occlusion, 1.0f"), std::string::npos);
   EXPECT_EQ(transparent.find("inAmbientOcclusion"), std::string::npos);
   EXPECT_EQ(deferred.find("ambient * ao"), std::string::npos);
-  EXPECT_EQ(scene_camera.find("ambient * ao"), std::string::npos);
   EXPECT_EQ(transparent.find("ambient * surface.occlusion"), std::string::npos);
   EXPECT_NE(deferred.find("indirect_debug_view != 0"), std::string::npos);
-  EXPECT_NE(scene_camera.find("indirect_debug_view != 0"), std::string::npos);
   EXPECT_NE(transparent.find("indirect_lighting_debug_view != 0"), std::string::npos);
 }
 

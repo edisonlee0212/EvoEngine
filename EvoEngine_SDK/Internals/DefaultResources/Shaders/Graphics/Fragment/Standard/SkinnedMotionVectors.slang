@@ -1,7 +1,9 @@
 import EvoEngine.PerFrame;
 import EvoEngine.BasicConstants;
 import EvoEngine.RasterMotionVectors;
-import EvoEngine.GltfRasterMaterial;
+#if defined(EE_ALPHA_MASKED_MOTION)
+import EvoEngine.GltfAlphaMask;
+#endif
 
 float NormalizedLinearDepth(float4 clip) {
   float4x4 projection = EE_CAMERAS[EE_BASIC_CONSTANTS.camera_index].projection;
@@ -10,13 +12,13 @@ float NormalizedLinearDepth(float4 clip) {
 }
 
 [shader("fragment")] float4 main(RasterMotionVectorOutput input) : SV_Target {
-  GltfTexCoords tex_coords = EE_GLTF_MAKE_TEX_COORDS_WITH_GRADIENTS(
+#if defined(EE_ALPHA_MASKED_MOTION)
+  const GltfAlphaTexCoords tex_coords = EE_GLTF_MAKE_ALPHA_TEX_COORDS(
       input.tex_coord0, input.tex_coord1, ddx(input.tex_coord0), ddx(input.tex_coord1), ddy(input.tex_coord0),
       ddy(input.tex_coord1));
-  GltfRasterMaterial surface =
-      EE_EVALUATE_GLTF_RASTER_SURFACE(uint(EE_INSTANCES[input.instance_index].material_index), tex_coords, input.color);
-  if (EE_GLTF_RASTER_SHOULD_DISCARD(surface))
+  if (!EE_GLTF_ALPHA_MASK_PASSES(uint(EE_INSTANCES[input.instance_index].material_index), tex_coords, input.color.a))
     discard;
+#endif
   if (input.previous_pose_valid == 0u || input.current_clip.w <= 0.0001f || input.previous_clip.w <= 0.0001f)
     return float4(65000.0f, 65000.0f, 0.0f, 0.0f);
   float3 current_ndc = input.current_clip.xyz / input.current_clip.w;

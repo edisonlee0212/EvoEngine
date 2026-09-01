@@ -1,8 +1,8 @@
 {
   "counts": {
-    "files": 184,
-    "imports": 318,
-    "macro_control_files": 15
+    "files": 183,
+    "imports": 328,
+    "macro_control_files": 31
   },
   "macro_adapters": [
     {
@@ -32,6 +32,70 @@
     {
       "macro_controls": 5,
       "path": "Graphics/Fragment/PostProcessing/SMAAEdge.slang"
+    },
+    {
+      "macro_controls": 4,
+      "path": "Graphics/Fragment/Standard/SkinnedMotionVectors.slang"
+    },
+    {
+      "macro_controls": 8,
+      "path": "Graphics/Mesh/Lighting/DirectionalLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang"
+    },
+    {
+      "macro_controls": 8,
+      "path": "Graphics/Mesh/Lighting/PointLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Mesh/Lighting/PointLightStrandsShadowMap.slang"
+    },
+    {
+      "macro_controls": 8,
+      "path": "Graphics/Mesh/Lighting/SpotLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMapInstanced.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Vertex/Lighting/PointLightShadowMapSkinned.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMap.slang"
+    },
+    {
+      "macro_controls": 10,
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.slang"
+    },
+    {
+      "macro_controls": 12,
+      "path": "Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.slang"
     },
     {
       "macro_controls": 5,
@@ -220,6 +284,10 @@
       "path": "Graphics/Fragment/Gizmos/GizmosColored.slang"
     },
     {
+      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.AlphaMaskedShadow",
+      "path": "Graphics/Fragment/Lighting/AlphaMaskedShadow.slang"
+    },
+    {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Lighting.AtmosphereToCubemap",
       "path": "Graphics/Fragment/Lighting/AtmosphereToCubemap.slang"
     },
@@ -286,18 +354,6 @@
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.SkinnedMotionVectors",
       "path": "Graphics/Fragment/Standard/SkinnedMotionVectors.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferred",
-      "path": "Graphics/Fragment/Standard/StandardDeferred.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredLighting",
-      "path": "Graphics/Fragment/Standard/StandardDeferredLighting.slang"
-    },
-    {
-      "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredLightingSceneCamera",
-      "path": "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"
     },
     {
       "module": "EvoEngine.EntryPoints.Graphics.Fragment.Standard.StandardDeferredMaskedRaw",
@@ -710,6 +766,10 @@
     {
       "module": "EvoEngine.RenderInfo",
       "path": "Modules/EvoEngine/RenderInfo.slang"
+    },
+    {
+      "module": "EvoEngine.ShadowRaster",
+      "path": "Modules/EvoEngine/ShadowRaster.slang"
     },
     {
       "module": "EvoEngine.Skinning",

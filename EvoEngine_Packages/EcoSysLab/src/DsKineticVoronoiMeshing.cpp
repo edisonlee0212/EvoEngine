@@ -1204,20 +1204,20 @@ void DsKineticVoronoiMeshing::RegisterSegmentMeshletsRenderInstance(Handle& rend
       bark_material && inner_wood_material && snow_material) {
     if (!dynamic_strands->segments.empty()) {
       if (segment_meshlet_point_light_render_pipeline && segment_meshlet_point_light_render_pipeline->Initialized()) {
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToPointLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                             vk_command_buffer, view);
         });
       }
       if (segment_meshlet_spot_light_render_pipeline && segment_meshlet_spot_light_render_pipeline->Initialized()) {
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToSpotLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                            vk_command_buffer, view);
         });
       }
       if (segment_meshlet_directional_light_render_pipeline &&
           segment_meshlet_directional_light_render_pipeline->Initialized()) {
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSegmentMeshletsToDirectionalLightShadowMap(render_settings.segment_meshlet_render_parameters,
                                                                   vk_command_buffer, view);
         });

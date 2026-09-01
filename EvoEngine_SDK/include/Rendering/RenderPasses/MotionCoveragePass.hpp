@@ -18,7 +18,8 @@ class EVOENGINE_API MotionCoveragePass final {
     std::shared_ptr<Camera> camera;
     std::shared_ptr<RenderInstanceStorage> render_instances;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
-    std::shared_ptr<GraphicsPipeline> skinned_pipeline;
+    std::shared_ptr<GraphicsPipeline> skinned_opaque_pipeline;
+    std::shared_ptr<GraphicsPipeline> skinned_masked_pipeline;
     std::shared_ptr<GraphicsPipeline> transparent_pipeline;
     std::shared_ptr<DescriptorSetLayout> motion_coverage_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;

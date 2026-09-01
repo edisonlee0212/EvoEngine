@@ -1031,6 +1031,8 @@ class EVOENGINE_API RenderInstanceStorage {
   struct ShadowViewIndirectCommands {
     uint32_t draw_instance_index_offset = 0;
     VkDeviceSize indirect_buffer_offset = 0;
+    std::vector<DeferredMeshIndirectBatch> opaque_mesh_indirect_batches;
+    std::vector<DeferredMeshIndirectBatch> masked_mesh_indirect_batches;
     std::vector<VkDrawIndexedIndirectCommand> indexed_commands;
     std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_task_commands;
     std::shared_ptr<Buffer> indirect_buffer;
@@ -1038,8 +1040,11 @@ class EVOENGINE_API RenderInstanceStorage {
     std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_skinned_render_instances;
     std::shared_ptr<InstancedRenderInstanceCollection> deferred_instanced_render_instances;
     std::shared_ptr<StrandsRenderInstanceCollection> deferred_strands_render_instances;
+    std::shared_ptr<MeshRenderInstanceCollection> deferred_masked_render_instances;
+    std::shared_ptr<SkinnedMeshRenderInstanceCollection> deferred_masked_skinned_render_instances;
+    std::shared_ptr<InstancedRenderInstanceCollection> deferred_masked_instanced_render_instances;
+    std::shared_ptr<StrandsRenderInstanceCollection> deferred_masked_strands_render_instances;
     std::vector<uint32_t> draw_instance_indices;
-    uint64_t submitted_primitives = 0;
   };
 
   std::vector<DeferredMeshIndirectBatch> deferred_mesh_indirect_batches;
@@ -1055,11 +1060,14 @@ class EVOENGINE_API RenderInstanceStorage {
   std::vector<VkDrawMeshTasksIndirectCommandEXT> mesh_draw_mesh_tasks_indirect_commands;
   std::shared_ptr<Buffer> mesh_draw_mesh_tasks_indirect_commands_buffer;
 
-  std::vector<VkDrawIndexedIndirectCommand> opaque_shadow_mesh_draw_indexed_indirect_commands;
-  std::shared_ptr<Buffer> opaque_shadow_mesh_draw_indexed_indirect_commands_buffer;
+  std::vector<DeferredMeshIndirectBatch> opaque_shadow_mesh_indirect_batches;
+  std::vector<DeferredMeshIndirectBatch> masked_shadow_mesh_indirect_batches;
 
-  std::vector<VkDrawMeshTasksIndirectCommandEXT> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands;
-  std::shared_ptr<Buffer> opaque_shadow_mesh_draw_mesh_tasks_indirect_commands_buffer;
+  std::vector<VkDrawIndexedIndirectCommand> shadow_mesh_draw_indexed_indirect_commands;
+  std::shared_ptr<Buffer> shadow_mesh_draw_indexed_indirect_commands_buffer;
+
+  std::vector<VkDrawMeshTasksIndirectCommandEXT> shadow_mesh_draw_mesh_tasks_indirect_commands;
+  std::shared_ptr<Buffer> shadow_mesh_draw_mesh_tasks_indirect_commands_buffer;
   std::vector<VkDrawIndexedIndirectCommand> packed_shadow_indexed_commands;
   std::vector<VkDrawMeshTasksIndirectCommandEXT> packed_shadow_mesh_task_commands;
   std::shared_ptr<Buffer> packed_shadow_indirect_buffer;
@@ -1076,6 +1084,7 @@ class EVOENGINE_API RenderInstanceStorage {
   uint32_t directional_shadow_light_count_ = 0;
 
   uint32_t total_opaque_shadow_mesh_triangles = 0;
+  uint32_t total_masked_shadow_mesh_triangles = 0;
   uint32_t total_skinned_mesh_triangles = 0;
   uint32_t total_instanced_mesh_triangles = 0;
   uint32_t total_strands_segments = 0;

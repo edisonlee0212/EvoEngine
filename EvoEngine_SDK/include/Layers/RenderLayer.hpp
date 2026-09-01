@@ -215,21 +215,30 @@ class EVOENGINE_API RenderLayer final : public ILayer {
    * \brief Register per-frame function to render to all point light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToPointLightShadowMap(std::function<uint32_t(VkCommandBuffer vk_command_buffer,
-                                                          const PointLightShadowMapView& shadow_map_view)>&& func);
+  void RenderOpaqueToPointLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&&
+          func);
+  void RenderAlphaMaskedToPointLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>&&
+          func);
 
   /**
    * \brief Register per-frame function to render to all spot light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToSpotLightShadowMap(
+  void RenderOpaqueToSpotLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
+  void RenderAlphaMaskedToSpotLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>&& func);
 
   /**
    * \brief Register per-frame function to render to all directional light shadow maps.
    * \param func Render function targeting point light shadow map. Return primitive count.
    */
-  void RenderToDirectionalLightShadowMap(
+  void RenderOpaqueToDirectionalLightShadowMap(
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
+          func);
+  void RenderAlphaMaskedToDirectionalLightShadowMap(
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>&&
           func);
 
@@ -589,14 +598,22 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
-      point_light_shadow_map_external_functions;
+      opaque_point_light_shadow_map_external_functions;
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const PointLightShadowMapView& shadow_map_view)>>
+      alpha_masked_point_light_shadow_map_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>>
-      spot_light_shadow_map_external_functions;
+      opaque_spot_light_shadow_map_external_functions;
+  std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer, const SpotLightShadowMapView& shadow_map_view)>>
+      alpha_masked_spot_light_shadow_map_external_functions;
 
   std::vector<
       std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
-      directional_light_shadow_map_external_functions;
+      opaque_directional_light_shadow_map_external_functions;
+  std::vector<
+      std::function<uint32_t(VkCommandBuffer vk_command_buffer, const DirectionalLightShadowMapView& shadow_map_view)>>
+      alpha_masked_directional_light_shadow_map_external_functions;
 
   std::vector<std::function<uint32_t(VkCommandBuffer vk_command_buffer,
                                      const std::vector<VkRenderingAttachmentInfo>& geometry_pass_color_attachment_infos,
@@ -905,48 +922,63 @@ class EVOENGINE_API RenderLayer final : public ILayer {
 #pragma region Graphics Pipelines
   /// Depth-only pipeline for rendering point light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering point light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> point_light_shadow_pipeline_mesh_shader_masked;
 
   /// Depth-only pipeline for rendering spot light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering spot light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> spot_light_shadow_pipeline_mesh_shader_masked;
 
   /// Depth-only pipeline for rendering directional light shadows with normal meshes.
   std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_opaque;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_normal_masked;
 
   /// Graphics pipeline for rendering directional light shadows with mesh shaders.
-  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_opaque;
+  std::shared_ptr<GraphicsPipeline> directional_light_shadow_pipeline_mesh_shader_masked;
 
   /// Mesh-shader pipeline for rendering directional light shadows from strands.
-  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_directional_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced point light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_point_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced spot light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_spot_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering instanced directional light shadows.
   std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> instanced_directional_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering point light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_point_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering spot light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_spot_light_shadow_pipeline_masked;
 
   /// Depth-only pipeline for rendering directional light shadows with skinned meshes.
   std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> skinned_directional_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for rendering point light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_point_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for rendering spot light shadows with hair strands.
-  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline;
+  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline_opaque;
+  std::shared_ptr<GraphicsPipeline> strands_spot_light_shadow_pipeline_masked;
 
   /// Graphics pipeline for the deferred shading GBuffer pre-pass using normal meshes.
   std::shared_ptr<GraphicsPipeline> deferred_geometry_pipeline_normal;
@@ -968,17 +1000,13 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<GraphicsPipeline> strands_deferred_geometry_pipeline;
   std::shared_ptr<GraphicsPipeline> strands_deferred_masked_geometry_pipeline;
 
-  /// Graphics pipeline for performing the deferred shading lighting pass.
-  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline;
-
-  /// Graphics pipeline for performing the deferred shading lighting pass with scene cameras.
-  std::shared_ptr<GraphicsPipeline> deferred_lighting_pass_pipeline_scene_camera;
   std::shared_ptr<GraphicsPipeline> entity_selection_highlight_pipeline_;
 
   /// Graphics pipeline for rendering transparent normal meshes after deferred lighting.
   std::shared_ptr<GraphicsPipeline> transparent_geometry_pipeline_normal;
 
-  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_pipeline_;
+  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_opaque_pipeline_;
+  std::shared_ptr<GraphicsPipeline> skinned_motion_vectors_masked_pipeline_;
   std::shared_ptr<GraphicsPipeline> transparent_motion_vectors_pipeline_;
 
   /// Graphics pipeline for rendering gizmos.

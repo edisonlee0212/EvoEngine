@@ -146,7 +146,9 @@ Valid DDGI visibility may reduce rough probe leakage, but DDGI irradiance does n
 Directional lights use four cascades with Stable Sphere fitting by default; Tight Light-Space AABB fitting is available
 for comparison. Directional shadows use Vogel-disc percentage-closer filtering. Point and spot lights use their own
 shadow atlases and filtering paths. The quality override changes directional, point, and spot shadow-map resolution
-together.
+together. Every shadow type separates opaque and alpha-masked rigid, meshlet, instanced, skinned, and strand casters.
+Opaque depth shaders perform no material or texture access; masked depth shaders evaluate only base-color alpha
+coverage. External shadow renderers register explicitly for one of those two contracts.
 
 Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, bloom, tone mapping, and related post
 effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
@@ -168,7 +170,8 @@ Packages and services extend rendering through explicit APIs rather than by modi
 
 - register logical resources and frame- or camera-level render-graph passes;
 - register external render instances and, when applicable, compatible acceleration-structure metadata;
-- use deferred, forward, transparent, shadow, and gizmo callbacks exposed by `RenderLayer`;
+- use raw opaque or alpha-only masked deferred callbacks, forward/transparent callbacks, explicit opaque or alpha-only
+  masked shadow callbacks, and gizmo callbacks exposed by `RenderLayer`;
 - provide package-owned shaders, descriptors, and resources for package-specific rendering.
 
 External geometry participates only in the paths for which it supplies the required draw or traversal contract. For

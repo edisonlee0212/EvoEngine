@@ -1,9 +1,9 @@
 {
   "compiled_spirv": {
-    "aggregate_manifest_sha256": "19383949800820235796d71117598f15438bcfdcd4fb40b37f23a1adb543f659",
-    "aggregate_spirv_bytes": 4020980,
-    "compiler": "unavailable",
-    "entry_point_count": 116,
+    "aggregate_manifest_sha256": "2c27cf78e57b872a2b83c98585caf631964874943edcb8034ab6b7b16b56295d",
+    "aggregate_spirv_bytes": 3598560,
+    "compiler": "1788159859",
+    "entry_point_count": 117,
     "shaders": [
       {
         "compute_thread_group_size": [
@@ -131,6 +131,26 @@
           16,
           1
         ],
+        "path": "Compute/DeferredMaterialResolve.slang",
+        "reflection_counts": {
+          "descriptor_bindings": 27,
+          "push_constant_ranges": 1,
+          "stage_inputs": 0,
+          "stage_outputs": 0
+        },
+        "reflection_sha256": "db1ae01526e42163e19ea963747d69be8ee5ab62e310af55f5865ca22eea2c12",
+        "spirv_bytes": 198724,
+        "spirv_sha256": "80587b2452bcb37bb6ff568beb36c1c8006cdbf0964b1de4b7e5babc0d007dd5",
+        "spirv_word_count": 49681,
+        "stage": "compute",
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "compute_thread_group_size": [
+          16,
+          16,
+          1
+        ],
         "path": "Compute/DepthPyramid.slang",
         "reflection_counts": {
           "descriptor_bindings": 2,
@@ -238,10 +258,10 @@
           "stage_inputs": 0,
           "stage_outputs": 0
         },
-        "reflection_sha256": "4072408cde6a6de8b0a51ff47f2008f8ca20b99381fab5c75e5c267a43be2bcd",
-        "spirv_bytes": 11796,
-        "spirv_sha256": "450ffd58b5bfc5bc8dab54e1043d540773c5a83a68cd3b0d2459e3a28463463f",
-        "spirv_word_count": 2949,
+        "reflection_sha256": "47b01e364b496bcc391ef807cb10358adcf63507084db44fdbc4e44291961431",
+        "spirv_bytes": 11680,
+        "spirv_sha256": "96aad4a5532c4ca3c36d86b8bbc5c325ee5438478960321f79006b1086e68e98",
+        "spirv_word_count": 2920,
         "stage": "compute",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -379,9 +399,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "61d514b9ca6e9861153de198abed6fd454334712b1235f9499c088ca33a5496c",
-        "spirv_bytes": 15276,
-        "spirv_sha256": "cd37f5dc6b741effbce87ba7697fc9f68e6f4ed878bf3d738ccc47b27a665aa8",
-        "spirv_word_count": 3819,
+        "spirv_bytes": 16148,
+        "spirv_sha256": "cbbb41aec14e4590314025102ad215e8eb54ebcbc85b64ed65f0bb2c9d13ff7f",
+        "spirv_word_count": 4037,
         "stage": "compute",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -413,15 +433,15 @@
         ],
         "path": "Compute/PostProcessing/SSRCombine.slang",
         "reflection_counts": {
-          "descriptor_bindings": 33,
+          "descriptor_bindings": 28,
           "push_constant_ranges": 1,
           "stage_inputs": 0,
           "stage_outputs": 0
         },
-        "reflection_sha256": "79fba4b8e7cb8109c593736317dc89f647ef129cea216dd4cfb55cafb394eac3",
-        "spirv_bytes": 116324,
-        "spirv_sha256": "4d4cb1d1f0148c8c14e7f1401df28914303b5a2226ec958e0939079b4dd389bc",
-        "spirv_word_count": 29081,
+        "reflection_sha256": "4b4c9b2f63aa8d2ffc314da1aebe1a35bdc20767335158adc0723ef87dcf9d05",
+        "spirv_bytes": 78916,
+        "spirv_sha256": "fd4c70c2ac022328cd72a60c6da31b3636ac2da9d6e2ec35305f8782964f0e0c",
+        "spirv_word_count": 19729,
         "stage": "compute",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -559,9 +579,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "2ac8649b7ee5d51cd14eea2066ed32a6ff3be2f1d0dffdee4d112d36d5d3cbe2",
-        "spirv_bytes": 927780,
-        "spirv_sha256": "d52a7f44115f056383ade4c4fa41a4622a889fe6934215212866783c248bb853",
-        "spirv_word_count": 231945,
+        "spirv_bytes": 921116,
+        "spirv_sha256": "1670ba6eba10b2620d39909c20a60368ba27619bb3c4287ce7a2c471a0be7798",
+        "spirv_word_count": 230279,
         "stage": "compute",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -580,7 +600,7 @@
         },
         "reflection_sha256": "d917e13ae6d1df45cec7f938595b29847066419c7ac5932e68d71c1ede519bb6",
         "spirv_bytes": 17020,
-        "spirv_sha256": "b0dbd157b8b17e3e9c99bc79a96da74f3ccb8d287b07b5937e2f9a5a1b64006d",
+        "spirv_sha256": "e35106e2ba0093197ff567eb384e18d5a3cb2f2080f3bb3c4ca07d10180ea88a",
         "spirv_word_count": 4255,
         "stage": "compute",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -742,6 +762,26 @@
         "spirv_bytes": 368,
         "spirv_sha256": "089a35c98467e72ade81caf62dce206ac9b7963dcc40bea7c2e5e5d50349596c",
         "spirv_word_count": 92,
+        "stage": "fragment",
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "compute_thread_group_size": [
+          0,
+          0,
+          0
+        ],
+        "path": "Graphics/Fragment/Lighting/AlphaMaskedShadow.slang",
+        "reflection_counts": {
+          "descriptor_bindings": 13,
+          "push_constant_ranges": 0,
+          "stage_inputs": 4,
+          "stage_outputs": 0
+        },
+        "reflection_sha256": "3b6f67f4f8b47ef6b0e753ce95d27494d9d4ddcd0f3b1acad3dff82c9673daba",
+        "spirv_bytes": 8400,
+        "spirv_sha256": "90a12ce8461ec5ded46963432b3c1d36dbd25338b8d283e94eba11a385fffa19",
+        "spirv_word_count": 2100,
         "stage": "fragment",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -958,10 +998,10 @@
           "stage_inputs": 1,
           "stage_outputs": 0
         },
-        "reflection_sha256": "2118f0c2d945faaa462e4c20798510094a2b754f545af64fb387fcca598d8c62",
-        "spirv_bytes": 3956,
-        "spirv_sha256": "86b1f5b970516ab03da7174689ef6dddca70fa978cf95093dcc1d6812952240d",
-        "spirv_word_count": 989,
+        "reflection_sha256": "79ad6dc2f3033e9712382787059f34b459e5d42f8af37ed5c46e9aacc6039638",
+        "spirv_bytes": 4152,
+        "spirv_sha256": "8babdf0145b398b81c20ba55ae833d0de73f1964baa4bd1e3cd3f62576d7217a",
+        "spirv_word_count": 1038,
         "stage": "fragment",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1033,15 +1073,15 @@
         ],
         "path": "Graphics/Fragment/PostProcessing/SSRCombine.slang",
         "reflection_counts": {
-          "descriptor_bindings": 32,
+          "descriptor_bindings": 27,
           "push_constant_ranges": 2,
           "stage_inputs": 1,
           "stage_outputs": 0
         },
-        "reflection_sha256": "b717e46c48d4505580bce5104656ae41a7831a6daf3f8cc34064f3800958626d",
-        "spirv_bytes": 116472,
-        "spirv_sha256": "8a62f0e8384a3dde201f9da5fd62015680a68deb89c158062f64b3e0785dea97",
-        "spirv_word_count": 29118,
+        "reflection_sha256": "e907988c7ec14a0768b809757bbdc6042030735a96f3e60291257cbfee9499f3",
+        "spirv_bytes": 79064,
+        "spirv_sha256": "e819893812b8388a8e365db73ccb2ece077558f26f0c075a84a0917d4103d55f",
+        "spirv_word_count": 19766,
         "stage": "fragment",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1073,17 +1113,17 @@
         ],
         "path": "Graphics/Fragment/Standard/SkinnedMotionVectors.slang",
         "reflection_counts": {
-          "descriptor_bindings": 21,
+          "descriptor_bindings": 13,
           "push_constant_ranges": 1,
-          "stage_inputs": 9,
+          "stage_inputs": 7,
           "stage_outputs": 0
         },
-        "reflection_sha256": "c3429122fd9f111de62e7b2e60010a1779742ac4ed1ffd1b6d83923adfdf13af",
-        "spirv_bytes": 36224,
-        "spirv_sha256": "29c814df3db67820c9c703fc471e989a7c4ed082944bee1e82825e1033050cc0",
-        "spirv_word_count": 9056,
+        "reflection_sha256": "6f0180011c5182d4dd1394a65f423090fafcc9dd3dd815c010f2d9175369bbd8",
+        "spirv_bytes": 6168,
+        "spirv_sha256": "124451a574afdd1502169129bd9220acc0f23790d3da194f24f0400dd3e04176",
+        "spirv_word_count": 1542,
         "stage": "fragment",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1091,19 +1131,19 @@
           0,
           0
         ],
-        "path": "Graphics/Fragment/Standard/StandardDeferred.slang",
+        "path": "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang",
         "reflection_counts": {
-          "descriptor_bindings": 21,
-          "push_constant_ranges": 1,
-          "stage_inputs": 9,
+          "descriptor_bindings": 13,
+          "push_constant_ranges": 0,
+          "stage_inputs": 8,
           "stage_outputs": 0
         },
-        "reflection_sha256": "8868ed50a7a2d45c46f590e715c99060b43c4bfd63a230179dc9556e27d0ae43",
-        "spirv_bytes": 98960,
-        "spirv_sha256": "4d70408364b2d5a9ddb7f2f5a199a7228092d6127bb3f3bae5ee55e93e1f1848",
-        "spirv_word_count": 24740,
+        "reflection_sha256": "46a6d737a76e27bbd0467a63adaea0cea9ef2a1bacf6c313e090e974bf856b09",
+        "spirv_bytes": 13316,
+        "spirv_sha256": "44721fe5d287f3163d84e259b04d6aa4e1cf6b65b1e63bcb9362b2f648107345",
+        "spirv_word_count": 3329,
         "stage": "fragment",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1111,39 +1151,19 @@
           0,
           0
         ],
-        "path": "Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+        "path": "Graphics/Fragment/Standard/StandardDeferredRaw.slang",
         "reflection_counts": {
-          "descriptor_bindings": 30,
-          "push_constant_ranges": 1,
-          "stage_inputs": 1,
+          "descriptor_bindings": 13,
+          "push_constant_ranges": 0,
+          "stage_inputs": 8,
           "stage_outputs": 0
         },
-        "reflection_sha256": "7c1a9b3b6922a01d93eab9e48f591f2f7a9882c24c4c2c7f38461b650165e6aa",
-        "spirv_bytes": 177516,
-        "spirv_sha256": "c8e0255df662451627f58a1a3a255a9362dc3b09f99b6e099e7cfa045e735f56",
-        "spirv_word_count": 44379,
+        "reflection_sha256": "46a6d737a76e27bbd0467a63adaea0cea9ef2a1bacf6c313e090e974bf856b09",
+        "spirv_bytes": 6524,
+        "spirv_sha256": "ff552a7642eb878cb769652a38854739ef6e7537b9c22a4373c1d674661c7575",
+        "spirv_word_count": 1631,
         "stage": "fragment",
-        "variant_defines_sha256": "9dcdcc3e1b72420b3d1a436b006fcadad560aedbcc90a9a4a51ca4b055de7a67"
-      },
-      {
-        "compute_thread_group_size": [
-          0,
-          0,
-          0
-        ],
-        "path": "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
-        "reflection_counts": {
-          "descriptor_bindings": 31,
-          "push_constant_ranges": 1,
-          "stage_inputs": 1,
-          "stage_outputs": 0
-        },
-        "reflection_sha256": "675cefe50fb67a6744ce309154ce06c78ac7134b35167d1c0f04094b0acfd5e2",
-        "spirv_bytes": 179868,
-        "spirv_sha256": "29b268c16b617a78503b838afde724d6dca5b4c578fefe2f6357611fd8daa860",
-        "spirv_word_count": 44967,
-        "stage": "fragment",
-        "variant_defines_sha256": "9dcdcc3e1b72420b3d1a436b006fcadad560aedbcc90a9a4a51ca4b055de7a67"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1153,17 +1173,17 @@
         ],
         "path": "Graphics/Fragment/Standard/StandardTransparent.slang",
         "reflection_counts": {
-          "descriptor_bindings": 32,
+          "descriptor_bindings": 19,
           "push_constant_ranges": 1,
-          "stage_inputs": 9,
+          "stage_inputs": 8,
           "stage_outputs": 0
         },
-        "reflection_sha256": "6041a22a7350c21b4d3fff43c2e0da3b551e08c549001de156d8dbdd954c3f73",
-        "spirv_bytes": 255624,
-        "spirv_sha256": "80537eedd0c087d5acfc1c5cfdd1e8c5f0a1f52b85993c633f0714a7bb660422",
-        "spirv_word_count": 63906,
+        "reflection_sha256": "af7476e7593ea49dcfd26d3b68b3a1e3eecbc907d8b6cbd6cf37f8ca47d634f2",
+        "spirv_bytes": 184888,
+        "spirv_sha256": "b4a851eb8ef79540e37d5b7c5f352de56ea035d4f987323c822beae235bfab74",
+        "spirv_word_count": 46222,
         "stage": "fragment",
-        "variant_defines_sha256": "37c1b570896f03d96ece2eacb265fe78dd6db6c23c7b38ca4d0a911ab4a6e648"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1173,17 +1193,17 @@
         ],
         "path": "Graphics/Fragment/Standard/TransparentMotionVectors.slang",
         "reflection_counts": {
-          "descriptor_bindings": 21,
+          "descriptor_bindings": 13,
           "push_constant_ranges": 1,
-          "stage_inputs": 9,
+          "stage_inputs": 7,
           "stage_outputs": 0
         },
-        "reflection_sha256": "c3429122fd9f111de62e7b2e60010a1779742ac4ed1ffd1b6d83923adfdf13af",
-        "spirv_bytes": 35328,
-        "spirv_sha256": "5ac3e2c67fe5977d4909bff1e34cef4a6dd7a4be2cdf69c92830b3449e93a8ef",
-        "spirv_word_count": 8832,
+        "reflection_sha256": "6f0180011c5182d4dd1394a65f423090fafcc9dd3dd815c010f2d9175369bbd8",
+        "spirv_bytes": 24960,
+        "spirv_sha256": "d362c60ee02a9e28a0b9849329b4dd87bc14775d46d36fe8dfea2d8f4cf7984d",
+        "spirv_word_count": 6240,
         "stage": "fragment",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1259,9 +1279,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "00d872e2f0a64ed9fd89fd9b21a91526daa0beecc0313d4bb3783fb0cf116351",
-        "spirv_bytes": 8488,
-        "spirv_sha256": "806652a0d3c0357df1652eec80ce9adc92b08c6e8384d8e8ca42a65b149f0fc6",
-        "spirv_word_count": 2122,
+        "spirv_bytes": 8336,
+        "spirv_sha256": "0a9014a41cb711d66782729be9fac6d62ca2fe5f385447c0bd25bc5225d9cdc5",
+        "spirv_word_count": 2084,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1280,7 +1300,7 @@
         },
         "reflection_sha256": "c8a713f82c8c93d33be5ebe7d7a6ad1cfe293c4ea406a295be1d5651971eefba",
         "spirv_bytes": 13884,
-        "spirv_sha256": "c251362224eccf6c0fbe108af2f992043fdea6908cf0ca9782641fb2f0075513",
+        "spirv_sha256": "deee3dc1ec21acbe498c7bd07748c5d695a1afb557330b57db69d8476633c014",
         "spirv_word_count": 3471,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -1299,9 +1319,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "00d872e2f0a64ed9fd89fd9b21a91526daa0beecc0313d4bb3783fb0cf116351",
-        "spirv_bytes": 8368,
-        "spirv_sha256": "bd545825808bb2e43522d0879c16844d1fb65c3836f4b83c8853476b30a47d20",
-        "spirv_word_count": 2092,
+        "spirv_bytes": 8216,
+        "spirv_sha256": "d395dda4f3bbbe9a084f95a5c0cc87e1f284cf848237a22d451df572a7c7f6fd",
+        "spirv_word_count": 2054,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1320,7 +1340,7 @@
         },
         "reflection_sha256": "c8a713f82c8c93d33be5ebe7d7a6ad1cfe293c4ea406a295be1d5651971eefba",
         "spirv_bytes": 13780,
-        "spirv_sha256": "a8f7c35f3d4210d9103059e8ec042ad1cc833f9f49dc75ceb43cd2b9ed167269",
+        "spirv_sha256": "04ba458b68f268cee86c0492238b592a43fb096361385d3fcc75c5dde65ccae9",
         "spirv_word_count": 3445,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -1339,9 +1359,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "00d872e2f0a64ed9fd89fd9b21a91526daa0beecc0313d4bb3783fb0cf116351",
-        "spirv_bytes": 8288,
-        "spirv_sha256": "7253cd37c43a8dbb068167817ea8a2303c92b7773134e63e74f4a67ed3377ae5",
-        "spirv_word_count": 2072,
+        "spirv_bytes": 8136,
+        "spirv_sha256": "0e5390fd9ca34a2acf18eb5f4a171c73f4108b818beb9e2dffaef42104336261",
+        "spirv_word_count": 2034,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1360,7 +1380,7 @@
         },
         "reflection_sha256": "c8a713f82c8c93d33be5ebe7d7a6ad1cfe293c4ea406a295be1d5651971eefba",
         "spirv_bytes": 13684,
-        "spirv_sha256": "07451d220e566af4158547bbc780d1278637125647b2d25eff3e84111a2a6c1c",
+        "spirv_sha256": "97c1f1f82221ab1fbcf22a2fda424fb2559efe8308384c8d75b984f719554004",
         "spirv_word_count": 3421,
         "stage": "mesh",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
@@ -1379,11 +1399,11 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "00d872e2f0a64ed9fd89fd9b21a91526daa0beecc0313d4bb3783fb0cf116351",
-        "spirv_bytes": 12964,
-        "spirv_sha256": "0ee988c510a7ed7b0834931c7c1557248084840f00018dfd7cdf37645d788ded",
-        "spirv_word_count": 3241,
+        "spirv_bytes": 12652,
+        "spirv_sha256": "462730026bcc5e76b7c88083caa5d833e2aaaa47e897d1bfaa3fb8ebe13a2192",
+        "spirv_word_count": 3163,
         "stage": "mesh",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1399,11 +1419,11 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "00d872e2f0a64ed9fd89fd9b21a91526daa0beecc0313d4bb3783fb0cf116351",
-        "spirv_bytes": 12964,
-        "spirv_sha256": "0ee988c510a7ed7b0834931c7c1557248084840f00018dfd7cdf37645d788ded",
-        "spirv_word_count": 3241,
+        "spirv_bytes": 12652,
+        "spirv_sha256": "462730026bcc5e76b7c88083caa5d833e2aaaa47e897d1bfaa3fb8ebe13a2192",
+        "spirv_word_count": 3163,
         "stage": "mesh",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1419,11 +1439,11 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "961ab80e740ec0bfeaa5bf211ff2888c9aca561ef9a3353586bf2f042b1d6cc4",
-        "spirv_bytes": 30384,
-        "spirv_sha256": "4836cfe060cfb84bab53454ea68185e114cf83982600d6bbaac15aa866d936f1",
-        "spirv_word_count": 7596,
+        "spirv_bytes": 30244,
+        "spirv_sha256": "770eede44739e39cef64cb2b072c6730d5b84c51a014799dcc39a4d81ecfea2d",
+        "spirv_word_count": 7561,
         "stage": "mesh",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1543,7 +1563,7 @@
         "spirv_sha256": "0be56dbc6a76c08e5040c241596a97f9d43a515641fff03cf793509996d7bc6f",
         "spirv_word_count": 4637,
         "stage": "task",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1563,7 +1583,7 @@
         "spirv_sha256": "3af20e7f5d2f5f5037aefa12375247a9a72729850ceab68333065b0ed0bd1ca4",
         "spirv_word_count": 4778,
         "stage": "task",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -1756,12 +1776,12 @@
           "descriptor_bindings": 13,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "3321d0bb439a4fbe6037788075d3d0f0b7d82eacb110528ed3fcef4d9ec003f2",
-        "spirv_bytes": 4080,
-        "spirv_sha256": "bb05632578a4aefcbd1d77e4e95581b64544c162709275934a9ceb54a8db94ed",
-        "spirv_word_count": 1020,
+        "reflection_sha256": "f70af9ce20e7b08fc6f984ebb17b6299c077fbc8e098f4b5420b0ab5395907da",
+        "spirv_bytes": 4112,
+        "spirv_sha256": "bbb11a839371dd4a0594969c0df239a6c1919b38789be1464b4cac266f7650ec",
+        "spirv_word_count": 1028,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1776,12 +1796,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "9d658b3becad260ec3916f2cd84f1a39e8bc09d5aa0991c5570558094053d762",
-        "spirv_bytes": 4292,
-        "spirv_sha256": "4d97f0911b8f4c7ede5f0d62671a8c19e028fee0a50517002f3e1a0150809637",
-        "spirv_word_count": 1073,
+        "reflection_sha256": "415b9832561cd5ee73e63f205c17c83c63dea919864d51666175babe71bb6a7d",
+        "spirv_bytes": 4324,
+        "spirv_sha256": "6210f7cf0b75ae39742237edb29465ddff55f555984d103a7ea177c9286c4e65",
+        "spirv_word_count": 1081,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1796,12 +1816,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 5,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "703cf331e0e0fa182ad6dcefca878df8fdbb6da59b2704f53f76bdcd72288c97",
-        "spirv_bytes": 8104,
-        "spirv_sha256": "d8357b2691d0198e37be26669a8e70ee16065b9026c9b0f6a3ef8e1ad5b32c75",
-        "spirv_word_count": 2026,
+        "reflection_sha256": "0d608661b5e39db08f8e26329b7f52158af19d5d961de65a6e90fc9df2948673",
+        "spirv_bytes": 8136,
+        "spirv_sha256": "93f3d88e30eb863152e5b282065a60a4cb0d0d31dc2616026bf5ed9cd2c296e8",
+        "spirv_word_count": 2034,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1816,12 +1836,12 @@
           "descriptor_bindings": 13,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "3321d0bb439a4fbe6037788075d3d0f0b7d82eacb110528ed3fcef4d9ec003f2",
-        "spirv_bytes": 3976,
-        "spirv_sha256": "dc6c14d1a93ed1d4bf63128d10e1bc286b278d4d5ab246aa99008f2acda46500",
-        "spirv_word_count": 994,
+        "reflection_sha256": "f70af9ce20e7b08fc6f984ebb17b6299c077fbc8e098f4b5420b0ab5395907da",
+        "spirv_bytes": 4008,
+        "spirv_sha256": "57f7d24316e6ba7dba2544672c1ad82be3e5715482633b8a554f37328b97c190",
+        "spirv_word_count": 1002,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1836,12 +1856,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "9d658b3becad260ec3916f2cd84f1a39e8bc09d5aa0991c5570558094053d762",
-        "spirv_bytes": 4172,
-        "spirv_sha256": "d0e75447fc3a8a391b72ec2b5b803d6dbb5c9ed88af2f4afd08bf5f3826fb48a",
-        "spirv_word_count": 1043,
+        "reflection_sha256": "415b9832561cd5ee73e63f205c17c83c63dea919864d51666175babe71bb6a7d",
+        "spirv_bytes": 4204,
+        "spirv_sha256": "c87dc65cb1f67b7e368fb9cba7d258a3e04fbb8aac2cd7c029ba06866bcbb48c",
+        "spirv_word_count": 1051,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1856,12 +1876,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 5,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "703cf331e0e0fa182ad6dcefca878df8fdbb6da59b2704f53f76bdcd72288c97",
-        "spirv_bytes": 7984,
-        "spirv_sha256": "ec1600eb1a7b67b888605c408a5133ac115981ca4352f4bd349f2cb595449314",
-        "spirv_word_count": 1996,
+        "reflection_sha256": "0d608661b5e39db08f8e26329b7f52158af19d5d961de65a6e90fc9df2948673",
+        "spirv_bytes": 8016,
+        "spirv_sha256": "c0c186c3afad41b4cb209ffc428fc8f1dc9af3025c6143de87bb490560a96e11",
+        "spirv_word_count": 2004,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1876,12 +1896,12 @@
           "descriptor_bindings": 13,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "3321d0bb439a4fbe6037788075d3d0f0b7d82eacb110528ed3fcef4d9ec003f2",
-        "spirv_bytes": 3880,
-        "spirv_sha256": "52e6aa3d5221d5a7ae13df463f123d56d390f5b8e891bbeb303e34559ce748a9",
-        "spirv_word_count": 970,
+        "reflection_sha256": "f70af9ce20e7b08fc6f984ebb17b6299c077fbc8e098f4b5420b0ab5395907da",
+        "spirv_bytes": 3912,
+        "spirv_sha256": "8bc2d0fb33fc29067651c6fb539e33ec27789fed884e7ffc3c57c109e6a8c991",
+        "spirv_word_count": 978,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1896,12 +1916,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 1,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "9d658b3becad260ec3916f2cd84f1a39e8bc09d5aa0991c5570558094053d762",
-        "spirv_bytes": 4076,
-        "spirv_sha256": "2733a48ec3fe41bd0afa675d18446766079d1675796178bd7a15eb6f67979401",
-        "spirv_word_count": 1019,
+        "reflection_sha256": "415b9832561cd5ee73e63f205c17c83c63dea919864d51666175babe71bb6a7d",
+        "spirv_bytes": 4108,
+        "spirv_sha256": "2c2dfdf633d12963b8dd8715e387e88cbb87ed51cffba5ddccf2700c3de3cf2f",
+        "spirv_word_count": 1027,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1916,12 +1936,12 @@
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
           "stage_inputs": 5,
-          "stage_outputs": 0
+          "stage_outputs": 1
         },
-        "reflection_sha256": "703cf331e0e0fa182ad6dcefca878df8fdbb6da59b2704f53f76bdcd72288c97",
-        "spirv_bytes": 7888,
-        "spirv_sha256": "ce2c0c69e5726cfeb2ba5d193c98af62d294ec99865563fb8d3bed6756c3f806",
-        "spirv_word_count": 1972,
+        "reflection_sha256": "0d608661b5e39db08f8e26329b7f52158af19d5d961de65a6e90fc9df2948673",
+        "spirv_bytes": 7920,
+        "spirv_sha256": "e766da136a64323e69c78e2966551720f0baf86d7e393f7f69989acafd376974",
+        "spirv_word_count": 1980,
         "stage": "vertex",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -1995,15 +2015,15 @@
         "reflection_counts": {
           "descriptor_bindings": 16,
           "push_constant_ranges": 1,
-          "stage_inputs": 10,
-          "stage_outputs": 9
+          "stage_inputs": 8,
+          "stage_outputs": 7
         },
-        "reflection_sha256": "2a217f49aa57b9135fede65cf112e31e4c171b26547bf992656ee173a8fbd86b",
-        "spirv_bytes": 16216,
-        "spirv_sha256": "59c5636a5341c9ba53109b0aab6b6b69b4af23a6ad85cbfe0fad268cb0bf124a",
-        "spirv_word_count": 4054,
+        "reflection_sha256": "6d85e4107ed5b6be499b3161e2e7452530748b97d5c3258a6903bbbf0189c5ed",
+        "spirv_bytes": 15880,
+        "spirv_sha256": "928a6534426ff7fad6be70bd895f47480a1214db300b2748ef8d0ec5dc34c7af",
+        "spirv_word_count": 3970,
         "stage": "vertex",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -2015,15 +2035,15 @@
         "reflection_counts": {
           "descriptor_bindings": 13,
           "push_constant_ranges": 1,
-          "stage_inputs": 9,
-          "stage_outputs": 9
+          "stage_inputs": 7,
+          "stage_outputs": 8
         },
-        "reflection_sha256": "1e5d574c5f586916cd0bd3223127885e1973f795feef1e6aa1896fba3d55e9f0",
-        "spirv_bytes": 8940,
-        "spirv_sha256": "fd4e403a9188a6652a2206469cc913585396a441ba7b37bc6a263b06cb96e579",
-        "spirv_word_count": 2235,
+        "reflection_sha256": "b860aaed506fb3ec69ffb56a7facbac81d80dce854a94e6461d281cc32f8d36e",
+        "spirv_bytes": 8668,
+        "spirv_sha256": "9d31dac22b66da01f35ec590107a33ded70256d21c7aa45d1c3268a89c0210a6",
+        "spirv_word_count": 2167,
         "stage": "vertex",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -2035,15 +2055,15 @@
         "reflection_counts": {
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
-          "stage_inputs": 9,
-          "stage_outputs": 9
+          "stage_inputs": 7,
+          "stage_outputs": 8
         },
-        "reflection_sha256": "eb3dd03ed692e9cd51550eb0cbd3935eaed521ebd628b7744dbfaef228169da7",
-        "spirv_bytes": 9144,
-        "spirv_sha256": "0b8e4ea2455d132eb4e9964d423bbcf7a61b125129af46b2e1af482f78a955f5",
-        "spirv_word_count": 2286,
+        "reflection_sha256": "8ef164cdf6b0e812681087de716796c80cae94ca2c053a9e32fbdaf09d862863",
+        "spirv_bytes": 8872,
+        "spirv_sha256": "5c70d39c1dbdcaa323d890517f63da5e3230e86af72bb96420fb02db6c16d550",
+        "spirv_word_count": 2218,
         "stage": "vertex",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -2055,15 +2075,15 @@
         "reflection_counts": {
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
-          "stage_inputs": 13,
-          "stage_outputs": 9
+          "stage_inputs": 11,
+          "stage_outputs": 8
         },
-        "reflection_sha256": "b42c5c610d8fd8d39f3e304a54eaa3f042a122e5b29d9c8c9bd4c090343fe91d",
-        "spirv_bytes": 12932,
-        "spirv_sha256": "3901b537e12225bdce1ad25d9ea460eb0f8f2a7b96726740cd12fc2ff2860c90",
-        "spirv_word_count": 3233,
+        "reflection_sha256": "3b24c06641c32b5e29fe4b8bc347e090978d0c7d18071bb7bb68f6021cc328af",
+        "spirv_bytes": 12660,
+        "spirv_sha256": "3dfdc19c9d5e10e4dfa506a0448a94c78514b9ae8b71030e5eebc1cb07ff4e62",
+        "spirv_word_count": 3165,
         "stage": "vertex",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -2075,15 +2095,15 @@
         "reflection_counts": {
           "descriptor_bindings": 14,
           "push_constant_ranges": 1,
-          "stage_inputs": 6,
-          "stage_outputs": 9
+          "stage_inputs": 4,
+          "stage_outputs": 7
         },
-        "reflection_sha256": "d31e0ff502083fa6da693e5acd1373f70cd15f421db63b501e5aca273d3076e0",
-        "spirv_bytes": 7368,
-        "spirv_sha256": "cb52f017ed968809e950660792b604a9af0ab7db5b5d8855a5ff36eef0b9cc2a",
-        "spirv_word_count": 1842,
+        "reflection_sha256": "b9a3adec4dc71cf1049db7fee018ff2b517fabc1ab792a144cf7a2b053a966fe",
+        "spirv_bytes": 7032,
+        "spirv_sha256": "55c7f944b94846473a26ebeda65550b7815ed03dfdbe4bedce98713f7b8eb3d6",
+        "spirv_word_count": 1758,
         "stage": "vertex",
-        "variant_defines_sha256": "0bb76cb3acf61324ba1124b02c919cb5571804e0f161012353d80bf52eaa091c"
+        "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
       {
         "compute_thread_group_size": [
@@ -2119,9 +2139,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "be8e9d9479495dd497d611f1bb96362587915fb31872a76541729a991f2431d5",
-        "spirv_bytes": 41688,
-        "spirv_sha256": "aa7610f5a91b373476f5ee084046f9484d1259aa9c7ed8116588f3a6ac836fb6",
-        "spirv_word_count": 10422,
+        "spirv_bytes": 38824,
+        "spirv_sha256": "cfa6a0739f1061370efaa270f16fcd3f178d684ddefbf0f7a8cf69bb98848a85",
+        "spirv_word_count": 9706,
         "stage": "any_hit",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2139,9 +2159,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "32ea9151f16dc49e25bfac0ba2e5d5112f9d9aa8545aada0784446739c3b216c",
-        "spirv_bytes": 54440,
-        "spirv_sha256": "6025d64d5ef22fe17e58c48651bc48cd85a4b2ec087e87a5c1b5eae2d5d6254f",
-        "spirv_word_count": 13610,
+        "spirv_bytes": 52424,
+        "spirv_sha256": "a64f032ec89979d7124a4094b7acce3bce805bb37b0ce912cc3e76564b287f5b",
+        "spirv_word_count": 13106,
         "stage": "any_hit",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2179,9 +2199,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "0c1a3e65e8de2ea27054e85d2b1aa24d09e59eb54db07e8e0d85e3590a248ca6",
-        "spirv_bytes": 146220,
-        "spirv_sha256": "93cfe2ca8654e303106ab152e16a2d496f1a86d373700c249c5fb89b04725602",
-        "spirv_word_count": 36555,
+        "spirv_bytes": 147140,
+        "spirv_sha256": "baa813b8d820ca9707af8aff5b02445f772f9fd51bd6732dbad5794fd05b28ea",
+        "spirv_word_count": 36785,
         "stage": "closest_hit",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2199,9 +2219,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "4a25f96fd5f51ef933e2207df2bca9329da7d690fe71f9d291764402f52fea5b",
-        "spirv_bytes": 27872,
-        "spirv_sha256": "8aa1f8d562df100ea9e78aa0f637141586b33762bc5cb9223c1bd465a1a20fef",
-        "spirv_word_count": 6968,
+        "spirv_bytes": 29160,
+        "spirv_sha256": "9a36515fec64b0a80a55ede4ecce7bb40fc8a7cf114b00a5880dfad3c1e8c32d",
+        "spirv_word_count": 7290,
         "stage": "closest_hit",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2279,9 +2299,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "73cca9a1ce3f29bc2af51e5a60668d0faee799a664d07c08a3b661aeb8f4faf7",
-        "spirv_bytes": 796084,
-        "spirv_sha256": "3df56bc9ee958e4ba75c7bcc51936a5537c8c7269c414584117b98719992820c",
-        "spirv_word_count": 199021,
+        "spirv_bytes": 800768,
+        "spirv_sha256": "99e6706390773400b8da6941c4cd0c8dbdbac7bd110299d434eb17eda3dbc7ee",
+        "spirv_word_count": 200192,
         "stage": "raygen",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2299,9 +2319,9 @@
           "stage_outputs": 0
         },
         "reflection_sha256": "2d3924e8f9926c2773f7a849f5b4a283c846bfeab33928e6e4489bee75c6ea25",
-        "spirv_bytes": 68388,
-        "spirv_sha256": "5db1316ee81e5f3527fe6e037ac86a86ae420069831a4c14590601a6d5844fac",
-        "spirv_word_count": 17097,
+        "spirv_bytes": 67444,
+        "spirv_sha256": "a35e1cad99e71bbe8abbfc7d3ac2f4375f0cbcf1cfa2111f00a6ba33975eeda3",
+        "spirv_word_count": 16861,
         "stage": "raygen",
         "variant_defines_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
       },
@@ -2331,24 +2351,24 @@
   "schema": 1,
   "scope": "EvoEngine_SDK current native Slang shader baseline",
   "source_inventory": {
-    "aggregate_source_sha256": "c7e616bed27656aa0d257f8d02e6d151852ae142739d06f666625f599aa627f3",
+    "aggregate_source_sha256": "63c693c00cf5679bcb8b3c53a70fcafed567508ade357fb3e25a1a230c2f0fb9",
     "counts": {
-      "cone:Compute": 31,
+      "cone:Compute": 32,
       "cone:Graphics": 74,
-      "cone:Modules": 62,
+      "cone:Modules": 66,
       "cone:RayTracing": 11,
-      "entry_points": 116,
-      "extension:.slang": 178,
-      "files": 178,
-      "files_with_macro_controls": 15,
-      "files_with_preprocessor_directives": 15,
-      "imports": 254,
+      "entry_points": 117,
+      "extension:.slang": 183,
+      "files": 183,
+      "files_with_macro_controls": 31,
+      "files_with_preprocessor_directives": 31,
+      "imports": 281,
       "includes": 0,
-      "macro_controls": 82,
-      "preprocessor_directives": 82,
+      "macro_controls": 242,
+      "preprocessor_directives": 242,
       "stage:any_hit": 2,
       "stage:closest_hit": 3,
-      "stage:compute": 31,
+      "stage:compute": 32,
       "stage:fragment": 29,
       "stage:mesh": 11,
       "stage:miss": 3,
@@ -2390,6 +2410,14 @@
       },
       "Compute/DDGIProbeVariabilityReduce.slang": {
         "imports": [],
+        "includes": []
+      },
+      "Compute/DeferredMaterialResolve.slang": {
+        "imports": [
+          "EvoEngine.GBuffer",
+          "EvoEngine.GltfRasterMaterial",
+          "EvoEngine.LightingFixedSet3"
+        ],
         "includes": []
       },
       "Compute/DepthPyramid.slang": {
@@ -2455,6 +2483,7 @@
       },
       "Compute/PostProcessing/GTAO.slang": {
         "imports": [
+          "EvoEngine.GBuffer",
           "EvoEngine.PerFrame",
           "EvoEngine.VogelDisk"
         ],
@@ -2565,6 +2594,14 @@
         "imports": [],
         "includes": []
       },
+      "Graphics/Fragment/Lighting/AlphaMaskedShadow.slang": {
+        "imports": [
+          "EvoEngine.GltfAlphaMask",
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
+        ],
+        "includes": []
+      },
       "Graphics/Fragment/Lighting/AtmosphereToCubemap.slang": {
         "imports": [
           "EvoEngine.Atmosphere"
@@ -2610,7 +2647,9 @@
         "includes": []
       },
       "Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang": {
-        "imports": [],
+        "imports": [
+          "EvoEngine.GBuffer"
+        ],
         "includes": []
       },
       "Graphics/Fragment/PostProcessing/SMAABlendWeight.slang": {
@@ -2648,30 +2687,26 @@
       "Graphics/Fragment/Standard/SkinnedMotionVectors.slang": {
         "imports": [
           "EvoEngine.BasicConstants",
-          "EvoEngine.GltfRasterMaterial",
+          "EvoEngine.GltfAlphaMask",
           "EvoEngine.PerFrame",
           "EvoEngine.RasterMotionVectors"
         ],
         "includes": []
       },
-      "Graphics/Fragment/Standard/StandardDeferred.slang": {
+      "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang": {
         "imports": [
-          "EvoEngine.BasicConstants",
-          "EvoEngine.GltfRasterMaterial",
+          "EvoEngine.GltfAlphaMask",
           "EvoEngine.PerFrame",
-          "EvoEngine.RasterVertex"
+          "EvoEngine.RasterVertex",
+          "EvoEngine.RawGBuffer"
         ],
         "includes": []
       },
-      "Graphics/Fragment/Standard/StandardDeferredLighting.slang": {
+      "Graphics/Fragment/Standard/StandardDeferredRaw.slang": {
         "imports": [
-          "EvoEngine.LightingFixedSet3"
-        ],
-        "includes": []
-      },
-      "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang": {
-        "imports": [
-          "EvoEngine.LightingFixedSet3"
+          "EvoEngine.PerFrame",
+          "EvoEngine.RasterVertex",
+          "EvoEngine.RawGBuffer"
         ],
         "includes": []
       },
@@ -2679,7 +2714,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.GltfRasterMaterial",
-          "EvoEngine.LightingFixedSet4",
+          "EvoEngine.LightingFixedSet3",
           "EvoEngine.PerFrame",
           "EvoEngine.RasterVertex"
         ],
@@ -2717,7 +2752,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.Meshlet",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2725,6 +2761,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.StrandMeshlet",
           "EvoEngine.Strands"
         ],
@@ -2734,7 +2771,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.Meshlet",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2742,6 +2780,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.StrandMeshlet",
           "EvoEngine.Strands"
         ],
@@ -2751,7 +2790,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.Meshlet",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2759,6 +2799,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.StrandMeshlet",
           "EvoEngine.Strands"
         ],
@@ -2919,7 +2960,8 @@
       "Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang": {
         "imports": [
           "EvoEngine.BasicConstants",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2927,7 +2969,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.InstancedData",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2935,6 +2978,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.Skinning"
         ],
         "includes": []
@@ -2942,7 +2986,8 @@
       "Graphics/Vertex/Lighting/PointLightShadowMap.slang": {
         "imports": [
           "EvoEngine.BasicConstants",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2950,7 +2995,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.InstancedData",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2958,6 +3004,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.Skinning"
         ],
         "includes": []
@@ -2965,7 +3012,8 @@
       "Graphics/Vertex/Lighting/SpotLightShadowMap.slang": {
         "imports": [
           "EvoEngine.BasicConstants",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2973,7 +3021,8 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.InstancedData",
-          "EvoEngine.PerFrame"
+          "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster"
         ],
         "includes": []
       },
@@ -2981,6 +3030,7 @@
         "imports": [
           "EvoEngine.BasicConstants",
           "EvoEngine.PerFrame",
+          "EvoEngine.ShadowRaster",
           "EvoEngine.Skinning"
         ],
         "includes": []
@@ -3157,6 +3207,10 @@
         "imports": [],
         "includes": []
       },
+      "Modules/EvoEngine/GBuffer.slang": {
+        "imports": [],
+        "includes": []
+      },
       "Modules/EvoEngine/GaussianSplat.slang": {
         "imports": [],
         "includes": []
@@ -3165,8 +3219,17 @@
         "imports": [],
         "includes": []
       },
+      "Modules/EvoEngine/GltfAlphaMask.slang": {
+        "imports": [
+          "EvoEngine.GltfMaterial",
+          "EvoEngine.Textures"
+        ],
+        "includes": []
+      },
       "Modules/EvoEngine/GltfBindlessMaterial.slang": {
-        "imports": [],
+        "imports": [
+          "EvoEngine.Textures"
+        ],
         "includes": []
       },
       "Modules/EvoEngine/GltfMaterial.slang": {
@@ -3182,9 +3245,7 @@
         "includes": []
       },
       "Modules/EvoEngine/GltfRayTracingMaterial.slang": {
-        "imports": [
-          "EvoEngine.Textures"
-        ],
+        "imports": [],
         "includes": []
       },
       "Modules/EvoEngine/GltfRayTracingMath.slang": {
@@ -3261,6 +3322,12 @@
         ],
         "includes": []
       },
+      "Modules/EvoEngine/RawGBuffer.slang": {
+        "imports": [
+          "EvoEngine.GBuffer"
+        ],
+        "includes": []
+      },
       "Modules/EvoEngine/RayTracingBasic.slang": {
         "imports": [],
         "includes": []
@@ -3284,6 +3351,10 @@
         "includes": []
       },
       "Modules/EvoEngine/SSRConstants.slang": {
+        "imports": [],
+        "includes": []
+      },
+      "Modules/EvoEngine/ShadowRaster.slang": {
         "imports": [],
         "includes": []
       },
@@ -3500,6 +3571,18 @@
         "stage": "compute"
       },
       {
+        "bytes": 7273,
+        "cone": "Compute",
+        "extension": ".slang",
+        "import_count": 3,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Compute/DeferredMaterialResolve.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "0b11596b7c5e6c097e5bcc1d1df96af6f390a268d560a4cdcb861996ecce3ed4",
+        "stage": "compute"
+      },
+      {
         "bytes": 1209,
         "cone": "Compute",
         "extension": ".slang",
@@ -3560,7 +3643,7 @@
         "stage": "compute"
       },
       {
-        "bytes": 3870,
+        "bytes": 3849,
         "cone": "Compute",
         "extension": ".slang",
         "import_count": 1,
@@ -3568,7 +3651,7 @@
         "macro_control_count": 0,
         "path": "Compute/MotionVectors.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "9623ad669a3c2f1d21769cec0a7495be24fd723086b6cf8c6024c4c76eaeadb1",
+        "sha256": "020435360aef0e5ba1549fef25a5993a71bcef37b39aca5fb2f29cf0e57e2e58",
         "stage": "compute"
       },
       {
@@ -3644,15 +3727,15 @@
         "stage": "compute"
       },
       {
-        "bytes": 6712,
+        "bytes": 6760,
         "cone": "Compute",
         "extension": ".slang",
-        "import_count": 2,
+        "import_count": 3,
         "include_count": 0,
         "macro_control_count": 0,
         "path": "Compute/PostProcessing/GTAO.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "a02b56577ee599a6946819c38b9588376ac0ffebd4b053e81208fe4eb8f39ba9",
+        "sha256": "cf6783c288de50b0c81b7bb468c0033b141c4c3e8a9d267e1e69566d76e3b80d",
         "stage": "compute"
       },
       {
@@ -3668,7 +3751,7 @@
         "stage": "compute"
       },
       {
-        "bytes": 3658,
+        "bytes": 3664,
         "cone": "Compute",
         "extension": ".slang",
         "import_count": 1,
@@ -3676,7 +3759,7 @@
         "macro_control_count": 0,
         "path": "Compute/PostProcessing/SSRCombine.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "379269766866d932996de55ccebdfa865991b0554b8a09be0eeb1be81fac6def",
+        "sha256": "4a155ebbe4c186aa303bfd92ab331bf3594443649ec5ce89e62876e625ee7bd6",
         "stage": "compute"
       },
       {
@@ -3872,6 +3955,18 @@
         "stage": "fragment"
       },
       {
+        "bytes": 501,
+        "cone": "Graphics",
+        "extension": ".slang",
+        "import_count": 3,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Graphics/Fragment/Lighting/AlphaMaskedShadow.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "cda8b50cdd0d31932ccd876e0a723b21171f7b32fac5b94290792bacd22ff254",
+        "stage": "fragment"
+      },
+      {
         "bytes": 857,
         "cone": "Graphics",
         "extension": ".slang",
@@ -3992,15 +4087,15 @@
         "stage": "fragment"
       },
       {
-        "bytes": 1399,
+        "bytes": 1487,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 0,
+        "import_count": 1,
         "include_count": 0,
         "macro_control_count": 0,
         "path": "Graphics/Fragment/PostProcessing/EntitySelectionHighlight.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "9fda083e616e15fd8fd8d469515ebb0c99323130af533b5bc48a71a51f54689b",
+        "sha256": "9442fe235c19ea070c998eb4688cee489bbd3205e1971f36c74574a53e3d3795",
         "stage": "fragment"
       },
       {
@@ -4040,7 +4135,7 @@
         "stage": "fragment"
       },
       {
-        "bytes": 3357,
+        "bytes": 3363,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 2,
@@ -4048,7 +4143,7 @@
         "macro_control_count": 0,
         "path": "Graphics/Fragment/PostProcessing/SSRCombine.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "d5b1758472a14ffae870414de69a9711dce8838abd79b6491ccd99b2d0de2501",
+        "sha256": "b3a3b5dcc171bd6afcd47bb0a0d8a8e85ad9aac8ea7b25f9e5f105becab778c7",
         "stage": "fragment"
       },
       {
@@ -4064,55 +4159,43 @@
         "stage": "fragment"
       },
       {
-        "bytes": 1676,
+        "bytes": 1698,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 4,
         "path": "Graphics/Fragment/Standard/SkinnedMotionVectors.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "136b50505d9e81a37114e96036e6d63e0a0be0be6d2818078d7010b25ef9f817",
+        "preprocessor_directive_count": 4,
+        "sha256": "81b3c66701dd46fb30bc4441006259d750802ac67ddf3f4940dc6968ba1ee364",
         "stage": "fragment"
       },
       {
-        "bytes": 2386,
+        "bytes": 1135,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
         "include_count": 0,
         "macro_control_count": 0,
-        "path": "Graphics/Fragment/Standard/StandardDeferred.slang",
+        "path": "Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "5385d106bb4a07e1de23307098fe4d9315b8f0050ae52513336b07386b6df4e2",
+        "sha256": "cb65b18062732c2644d7d44da92e19ee108c0c7a8cb746e406aba5305f65c2f8",
         "stage": "fragment"
       },
       {
-        "bytes": 2664,
+        "bytes": 725,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 1,
+        "import_count": 3,
         "include_count": 0,
         "macro_control_count": 0,
-        "path": "Graphics/Fragment/Standard/StandardDeferredLighting.slang",
+        "path": "Graphics/Fragment/Standard/StandardDeferredRaw.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "e2ed6aa78c62e3d4db9b80405d58c5d93ffd85af4958f5728fa0a6f694abe1c1",
+        "sha256": "f869f8784a6f73d441ede2056fcceb6616f16805e345f5dfd0c1d37d3917d17f",
         "stage": "fragment"
       },
       {
-        "bytes": 3943,
-        "cone": "Graphics",
-        "extension": ".slang",
-        "import_count": 1,
-        "include_count": 0,
-        "macro_control_count": 0,
-        "path": "Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "caacbf5ffd8cbd2cf16eb494a4feb41d1a8fdfed354ada9aa7266c33ff1940c7",
-        "stage": "fragment"
-      },
-      {
-        "bytes": 2538,
+        "bytes": 2598,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 5,
@@ -4120,11 +4203,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Fragment/Standard/StandardTransparent.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "9bfc45ba6cd03ef930c9e1fdef27cf1af16bc11ce155b723d21f70c8f564336a",
+        "sha256": "687728336dfc24636bbce5e4c46235e0719ba1bfc034801e74be298d8aa8164a",
         "stage": "fragment"
       },
       {
-        "bytes": 1233,
+        "bytes": 1252,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4132,7 +4215,7 @@
         "macro_control_count": 0,
         "path": "Graphics/Fragment/Standard/TransparentMotionVectors.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "af6195b4b2ca9d1b0c059a07e9f3c5d22e192a00e6fe79d91e2b76ccb433d690",
+        "sha256": "2a4fe4f7c0d63fbc133311d9452108d3384b657dd53b84914b5d0822727bfc83",
         "stage": "fragment"
       },
       {
@@ -4172,79 +4255,79 @@
         "stage": "mesh"
       },
       {
-        "bytes": 2288,
+        "bytes": 2712,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 8,
         "path": "Graphics/Mesh/Lighting/DirectionalLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "81def2f3ba6783d68089def3de34538763d586ed6159554f5c7d19f739f95bd9",
+        "preprocessor_directive_count": 8,
+        "sha256": "23af26139cb691dc0badff13c613d278e1f36f89c8d5dae52d7961aaff92274c",
         "stage": "mesh"
       },
       {
-        "bytes": 3579,
+        "bytes": 4775,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 4,
+        "import_count": 5,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 12,
         "path": "Graphics/Mesh/Lighting/DirectionalLightStrandsShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "bc39aaa2fe152743e950943d77594275001ecda7df31f0c298388e520bfd3dc0",
+        "preprocessor_directive_count": 12,
+        "sha256": "82f9d0ae57a927e49607289ff3770c5528884a97d94f5d40f04c9df82fff05df",
         "stage": "mesh"
       },
       {
-        "bytes": 2253,
+        "bytes": 2677,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 8,
         "path": "Graphics/Mesh/Lighting/PointLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "1ba8551a2e9737bd106cb2d2ca89729358d7bb3693389a4dc1aeefba1d111eee",
+        "preprocessor_directive_count": 8,
+        "sha256": "c01c67b80164236156d6a06b26aa2fbbd9407bf229f67fcc17aa2dc1bb9b8d09",
         "stage": "mesh"
       },
       {
-        "bytes": 3573,
+        "bytes": 4769,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 4,
+        "import_count": 5,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 12,
         "path": "Graphics/Mesh/Lighting/PointLightStrandsShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "28252f982e475cdcfee470ea01b5fec327ed5ca03f814bc2118a663b97fa11b8",
+        "preprocessor_directive_count": 12,
+        "sha256": "535876f8b2f2308259f291051b2442030416c0035364c2acb9dc83d172a06905",
         "stage": "mesh"
       },
       {
-        "bytes": 2208,
-        "cone": "Graphics",
-        "extension": ".slang",
-        "import_count": 3,
-        "include_count": 0,
-        "macro_control_count": 0,
-        "path": "Graphics/Mesh/Lighting/SpotLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "03735daefa3e0910cd62c17ab63ea35cf0dda2974ff2327315de0dd6755a721c",
-        "stage": "mesh"
-      },
-      {
-        "bytes": 3534,
+        "bytes": 2632,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
-        "path": "Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "c69b8492594942617645dc1a09ff7259d632ad11ec21759eaae1dfa603ff32a1",
+        "macro_control_count": 8,
+        "path": "Graphics/Mesh/Lighting/SpotLightShadowMap.slang",
+        "preprocessor_directive_count": 8,
+        "sha256": "5424dae49c23248d5634d4bf187aa53cf8280b90dc758738eed2a6fa82bddbdc",
         "stage": "mesh"
       },
       {
-        "bytes": 2353,
+        "bytes": 4730,
+        "cone": "Graphics",
+        "extension": ".slang",
+        "import_count": 5,
+        "include_count": 0,
+        "macro_control_count": 12,
+        "path": "Graphics/Mesh/Lighting/SpotLightStrandsShadowMap.slang",
+        "preprocessor_directive_count": 12,
+        "sha256": "3c619a3a3e4f19fbb27bd5fb723c621ce0557cc0b520f61622397d0cfbb60ff2",
+        "stage": "mesh"
+      },
+      {
+        "bytes": 2313,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4252,11 +4335,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Mesh/Standard/Standard.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "c216b02ef0db8bbd8d3e21baf79851b46ae5a7f4a83cbe9f9a9b681733df0fe3",
+        "sha256": "9c84a0e08c8ced33af813576838c102993259453a9f44aca6c73e2a004be1b8a",
         "stage": "mesh"
       },
       {
-        "bytes": 2353,
+        "bytes": 2313,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4264,11 +4347,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Mesh/Standard/StandardMeshletColored.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "c216b02ef0db8bbd8d3e21baf79851b46ae5a7f4a83cbe9f9a9b681733df0fe3",
+        "sha256": "9c84a0e08c8ced33af813576838c102993259453a9f44aca6c73e2a004be1b8a",
         "stage": "mesh"
       },
       {
-        "bytes": 5622,
+        "bytes": 5594,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 5,
@@ -4276,7 +4359,7 @@
         "macro_control_count": 0,
         "path": "Graphics/Mesh/Standard/StandardStrands.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "7ec2bc245f9449c8a5267c66195dc68483036d33fae51e15c84ff5ebd1763525",
+        "sha256": "10e03b1b7469dc92311cf192b3fc94618cb930353147558c5814a2451b98c1fb",
         "stage": "mesh"
       },
       {
@@ -4472,111 +4555,111 @@
         "stage": "vertex"
       },
       {
-        "bytes": 648,
+        "bytes": 1240,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 2,
+        "import_count": 3,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "ab63550faa692bbe0946a01947df4282346a6f99390934d8894c40496d0255b0",
+        "preprocessor_directive_count": 10,
+        "sha256": "f54ca3b3e9ad97b5001eb9022251ae5d307d30b976f75771a3aed40a62e32dc9",
         "stage": "vertex"
       },
       {
-        "bytes": 722,
+        "bytes": 1343,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapInstanced.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "4cbf9164125bc4ded0adcc884e60410e3398b5837df362bbad54cd18db100b81",
+        "preprocessor_directive_count": 10,
+        "sha256": "3c8225509acf74d799f26351eb2f6ff79f3ff4f0ad869e3c7349caf43a248f6a",
         "stage": "vertex"
       },
       {
-        "bytes": 967,
+        "bytes": 1602,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 12,
         "path": "Graphics/Vertex/Lighting/DirectionalLightShadowMapSkinned.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "f3b0b54f01e113a6437115d5b4405731739ce135d9f20fc2593084a4e421ad7a",
+        "preprocessor_directive_count": 12,
+        "sha256": "062a1893731bf9faf862383385dd9c71f2edaa079e7953ad10232471d43273cc",
         "stage": "vertex"
       },
       {
-        "bytes": 627,
+        "bytes": 1207,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 2,
+        "import_count": 3,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/PointLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "0edfd779e174b3632bc9d60238997cc7206fbe40aaa77ec48be60eca727a7848",
+        "preprocessor_directive_count": 10,
+        "sha256": "f9a09c7ddb59c4ef530456145cebd8229df2f7d814c7f495ce72d77a4a66be8c",
         "stage": "vertex"
       },
       {
-        "bytes": 701,
+        "bytes": 1310,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/PointLightShadowMapInstanced.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "c52d9b5e3fc25973e3874efc2ce0200a381bf436a44a8b3ff9d3edfb422d32d2",
+        "preprocessor_directive_count": 10,
+        "sha256": "29a767da17cc6f337e3d5f43ce382a62283a312f45506d106071c0740d5e7121",
         "stage": "vertex"
       },
       {
-        "bytes": 946,
+        "bytes": 1569,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 12,
         "path": "Graphics/Vertex/Lighting/PointLightShadowMapSkinned.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "71fe65e25f08c67aa81b0f06ac2a9222268e9686dcb77954d5968f65036ba05a",
+        "preprocessor_directive_count": 12,
+        "sha256": "a1cc2ba3626f80a1d4dba3731799ee46658ec1c9764446880ea51d38c20b54c4",
         "stage": "vertex"
       },
       {
-        "bytes": 575,
+        "bytes": 1152,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 2,
+        "import_count": 3,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/SpotLightShadowMap.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "cee2dc4e9cc4f9c1d374914ceab16dcffa866a388322a761741644918d9b3db4",
+        "preprocessor_directive_count": 10,
+        "sha256": "4eedddd648e224e1877a7241d90053cf7e175543308636e7acfb8b114947a644",
         "stage": "vertex"
       },
       {
-        "bytes": 649,
+        "bytes": 1255,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 10,
         "path": "Graphics/Vertex/Lighting/SpotLightShadowMapInstanced.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "1c8fa799534d19d294b56e27cadd3d7d9c937a330c977c8c2a556c53be4cda72",
+        "preprocessor_directive_count": 10,
+        "sha256": "0abc1d0092e201ec5e76029334b7d773ed38ee3f95d790de16d5920098a17717",
         "stage": "vertex"
       },
       {
-        "bytes": 894,
+        "bytes": 1514,
         "cone": "Graphics",
         "extension": ".slang",
-        "import_count": 3,
+        "import_count": 4,
         "include_count": 0,
-        "macro_control_count": 0,
+        "macro_control_count": 12,
         "path": "Graphics/Vertex/Lighting/SpotLightShadowMapSkinned.slang",
-        "preprocessor_directive_count": 0,
-        "sha256": "3570f43168f20302f6614a1ae7eaf0836f3b9d5b2f091a1e20034e174520e012",
+        "preprocessor_directive_count": 12,
+        "sha256": "f50f678515a2ef37065dbca4bcf31c992aaff429f1a81e887619e5681e193c63",
         "stage": "vertex"
       },
       {
@@ -4616,7 +4699,7 @@
         "stage": "vertex"
       },
       {
-        "bytes": 3072,
+        "bytes": 2884,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4624,11 +4707,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Vertex/Standard/SkinnedMotionVectors.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "3a911397fc27c3d23a26a7149fbfa2b26c6719017d5504e33493ac9997a40ddc",
+        "sha256": "d035e97df8c4831353f31fe1f1db2f311e8edd73dfed5d2da0831599041baed0",
         "stage": "vertex"
       },
       {
-        "bytes": 1171,
+        "bytes": 1021,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 3,
@@ -4636,11 +4719,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Vertex/Standard/Standard.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "0d30fe65281b839c345b71ffde894144623a71757d25267dbabd795fbcb81b9b",
+        "sha256": "bff1f883b94d1a0424d5b6a3bc5b992d4875f15308cd7ceacc95bf51c05dc995",
         "stage": "vertex"
       },
       {
-        "bytes": 1282,
+        "bytes": 1132,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4648,11 +4731,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Vertex/Standard/StandardInstanced.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "8871c2543b0b1d127db0cb32b47675388d6a149da6d3adb6140f57f2f9d9e20c",
+        "sha256": "b49fa5afa4eff7889e97db838f953ea8e8a0091f01b1a631ee8168230429ae1b",
         "stage": "vertex"
       },
       {
-        "bytes": 1509,
+        "bytes": 1359,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 4,
@@ -4660,11 +4743,11 @@
         "macro_control_count": 0,
         "path": "Graphics/Vertex/Standard/StandardSkinned.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "d25b328dc3dfaee5f96e5bba4a08670cef4e9152aa6f54b6d2feac64bcacf8d7",
+        "sha256": "c64b0b0a228f1079ee63b8a3461136778c7e6995ee40def552ff9155950f3d45",
         "stage": "vertex"
       },
       {
-        "bytes": 1638,
+        "bytes": 1450,
         "cone": "Graphics",
         "extension": ".slang",
         "import_count": 3,
@@ -4672,7 +4755,7 @@
         "macro_control_count": 0,
         "path": "Graphics/Vertex/Standard/TransparentMotionVectors.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "9f4758bcafb677ec18ddacaced072e8eab7ccb7f992ba718f942a0a90f8f13dd",
+        "sha256": "02191753f66e5dc96d3861b584cbd20bac06e9a0d21e8edef707cb3fa50d3bbf",
         "stage": "vertex"
       },
       {
@@ -4748,7 +4831,7 @@
         "stage": null
       },
       {
-        "bytes": 89715,
+        "bytes": 88733,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 7,
@@ -4756,7 +4839,7 @@
         "macro_control_count": 4,
         "path": "Modules/EvoEngine/CameraRayIntegrator.slang",
         "preprocessor_directive_count": 4,
-        "sha256": "d50aa488f7fb5f6bc0d1055927837353db4281b4288c7cf02556527e56825ab4",
+        "sha256": "800d16cf727cada8384492814b2c88cad2126c3a18b9d9ca76e90d8ddf54c66d",
         "stage": null
       },
       {
@@ -4784,7 +4867,7 @@
         "stage": null
       },
       {
-        "bytes": 15419,
+        "bytes": 14445,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 1,
@@ -4792,7 +4875,7 @@
         "macro_control_count": 10,
         "path": "Modules/EvoEngine/CameraRayQueryTraversal.slang",
         "preprocessor_directive_count": 10,
-        "sha256": "13d6ff0b9e67e44e405c43b8e24db5832d83faa0bc2b8c54ea5213c9742a4ac0",
+        "sha256": "7fed7a89781d388b39725aec3521109515331edc257f860de32a6bb542b4540a",
         "stage": null
       },
       {
@@ -4948,7 +5031,7 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/EmissiveTriangleSampling.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "bdafa8451eb61f8309bfe7470d9e26d9536dc9dc1e4677e89039387e241cb337",
+        "sha256": "a21ae891fe955c64c749cb10ef23c8e5301d8754682d3433ef6d827e144cde36",
         "stage": null
       },
       {
@@ -4976,6 +5059,18 @@
         "stage": null
       },
       {
+        "bytes": 3024,
+        "cone": "Modules",
+        "extension": ".slang",
+        "import_count": 0,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Modules/EvoEngine/GBuffer.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "d0d3fb7ab40e20a1dfe5efdcc24dbf20f00070a812e819726aa7166233422089",
+        "stage": null
+      },
+      {
         "bytes": 560,
         "cone": "Modules",
         "extension": ".slang",
@@ -4988,15 +5083,27 @@
         "stage": null
       },
       {
-        "bytes": 52,
+        "bytes": 1926,
         "cone": "Modules",
         "extension": ".slang",
-        "import_count": 0,
+        "import_count": 2,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Modules/EvoEngine/GltfAlphaMask.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "6a72b58d3cead0546a72c6a0ead25cba8f33a270cc8e3e09f03736f9ed0687f1",
+        "stage": null
+      },
+      {
+        "bytes": 40645,
+        "cone": "Modules",
+        "extension": ".slang",
+        "import_count": 1,
         "include_count": 0,
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/GltfBindlessMaterial.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "945bff941bedd12026961beb43efa782759d5f4d49e7c176dd81c4b262039280",
+        "sha256": "64308aae307ac0707aed4292907b7afd5a74e551fc3438003eb48ff601595714",
         "stage": null
       },
       {
@@ -5012,7 +5119,7 @@
         "stage": null
       },
       {
-        "bytes": 37810,
+        "bytes": 50,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5020,11 +5127,11 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/GltfRasterMaterial.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "b9725d48f057465cb2d2eb1f0d88b1dd823ff3ae6c6fa1b6144a05173acc26d6",
+        "sha256": "f6c90b076a79db638df8650d88cfab7c2db8455bb0c7fb90463ebfbed845681d",
         "stage": null
       },
       {
-        "bytes": 72830,
+        "bytes": 70024,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5032,19 +5139,19 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/GltfRayTracingBsdf.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "fb27ecedd74f7abb01670f461cb0a93ca428daf5ca29093c7cd77c74a99bfb0e",
+        "sha256": "799fc44e053770fdbf4e2c6e3afe8b1f165317da8493fb6271ec788560dd8ed2",
         "stage": null
       },
       {
-        "bytes": 43813,
+        "bytes": 50,
         "cone": "Modules",
         "extension": ".slang",
-        "import_count": 1,
+        "import_count": 0,
         "include_count": 0,
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/GltfRayTracingMaterial.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "5b5359a8b6d41bf0c1996a869d5475223dac8cd5a9c226de134ee2098a206d2f",
+        "sha256": "f6c90b076a79db638df8650d88cfab7c2db8455bb0c7fb90463ebfbed845681d",
         "stage": null
       },
       {
@@ -5096,7 +5203,7 @@
         "stage": null
       },
       {
-        "bytes": 42607,
+        "bytes": 44312,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 1,
@@ -5104,11 +5211,11 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/Lighting.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "6f357e922d32ede5985a27f6ce5015eced7af9ec919e68e5d4cd765cf216b6f8",
+        "sha256": "0ad5be922d926b8501516a7d63a3278bcea572418f1e9193c0e4e677e66545d7",
         "stage": null
       },
       {
-        "bytes": 8788,
+        "bytes": 3520,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5116,11 +5223,11 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/LightingFixedSet3.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "b88e8a544f912d359eeff664934e2d5448633e1e20f3ba5a872140d1f57dd161",
+        "sha256": "c7216c09a3e3b04b8cf97062b399a34e96c21de394aadf1f570c08d1eb8c2ba2",
         "stage": null
       },
       {
-        "bytes": 8182,
+        "bytes": 2947,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5128,7 +5235,7 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/LightingFixedSet4.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "0c589e80da0519caf0e698459554f7e610b635df80bae35dd4ed6d7693ac6c7a",
+        "sha256": "cfa704cd545db4e7180a8fe2f40832d544d31e8ddfc0113997ebb549abf4499e",
         "stage": null
       },
       {
@@ -5216,7 +5323,7 @@
         "stage": null
       },
       {
-        "bytes": 755,
+        "bytes": 635,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5224,7 +5331,7 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/RasterMotionVectors.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "9f99ffdc98b91bcebb8954828ea5b8574b1f3328c327cfad1a8a752bb3e5b879",
+        "sha256": "5ec466448826dba2093d9cf18ef03f76d48b0fa1957e349b5584d6b64c3bad86",
         "stage": null
       },
       {
@@ -5240,7 +5347,7 @@
         "stage": null
       },
       {
-        "bytes": 2105,
+        "bytes": 1947,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 1,
@@ -5248,7 +5355,19 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/RasterVertex.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "0af74ffe56acb7394fcf7aa7c4634c2b1a25f1ab5235cd3558c13670ba10e418",
+        "sha256": "dd39804c313c14da5e27348c9526be5a9794c6d711c220229fdf94264be36f8d",
+        "stage": null
+      },
+      {
+        "bytes": 1250,
+        "cone": "Modules",
+        "extension": ".slang",
+        "import_count": 1,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Modules/EvoEngine/RawGBuffer.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "9acd26ca12c93c364c33837a67a0401b752f4756ced2c1b2e0e275fddb7f56ee",
         "stage": null
       },
       {
@@ -5264,7 +5383,7 @@
         "stage": null
       },
       {
-        "bytes": 12706,
+        "bytes": 12058,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 1,
@@ -5272,7 +5391,7 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/RayTracingMaterial.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "1095f10a2c857a9d76106516a4e73f027856bcfd9dc30e316d46a47c14389c29",
+        "sha256": "662d22d4038de716593d0cdae79e2475ada52718f07b09a5fe5eaece40aedd79",
         "stage": null
       },
       {
@@ -5285,6 +5404,18 @@
         "path": "Modules/EvoEngine/RenderInfo.slang",
         "preprocessor_directive_count": 0,
         "sha256": "2b652fb64852f83bb119fb6609053dd895ec9dba5eaf8b42cc302fd7f64eecbb",
+        "stage": null
+      },
+      {
+        "bytes": 746,
+        "cone": "Modules",
+        "extension": ".slang",
+        "import_count": 0,
+        "include_count": 0,
+        "macro_control_count": 0,
+        "path": "Modules/EvoEngine/ShadowRaster.slang",
+        "preprocessor_directive_count": 0,
+        "sha256": "19bf9182db3786ab03a128cbd775a6b0af2d5047cb75f162878154d886615303",
         "stage": null
       },
       {
@@ -5392,11 +5523,11 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/Trace.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "b574dd85ce3d5a55ee5a12463f0394f022bd64f12bab675484684192e62bd730",
+        "sha256": "c7dbe9dcf51037527efd73a33a7c36261f99fa62fb72c3695514ad0151794d3e",
         "stage": null
       },
       {
-        "bytes": 380,
+        "bytes": 322,
         "cone": "Modules",
         "extension": ".slang",
         "import_count": 0,
@@ -5404,7 +5535,7 @@
         "macro_control_count": 0,
         "path": "Modules/EvoEngine/Vertex.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "ceb5553caef65eab1b86a7c5f49bbfe6d922e49a1352fea566c05a88b9840913",
+        "sha256": "186790fd943ffc4f4df666fd37db1964302b26351eea1652aff862222069197a",
         "stage": null
       },
       {
@@ -5432,7 +5563,7 @@
         "stage": null
       },
       {
-        "bytes": 6456,
+        "bytes": 5990,
         "cone": "RayTracing",
         "extension": ".slang",
         "import_count": 7,
@@ -5440,7 +5571,7 @@
         "macro_control_count": 5,
         "path": "RayTracing/AnyHit/Camera.slang",
         "preprocessor_directive_count": 5,
-        "sha256": "8389587f7b82a3386dbdb457ddfe6b01d62ed684a61d48eac90bc2d11d3fd473",
+        "sha256": "294db71d3888efd40d59bbc75125e3c960a166f0cbf039a640071273c5c3a455",
         "stage": "any_hit"
       },
       {
@@ -5452,7 +5583,7 @@
         "macro_control_count": 0,
         "path": "RayTracing/AnyHit/DDGIProbeTrace.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "c99e4c9f775ebcd4922ad187ed4c6e4fb53a66f831e5305bd20842bb366bb81f",
+        "sha256": "8b16d72790a9c35bb068708c71b827786f539eeb24d6ae257e8a1df31f0027d5",
         "stage": "any_hit"
       },
       {
@@ -5476,7 +5607,7 @@
         "macro_control_count": 0,
         "path": "RayTracing/ClosestHit/DDGIProbeTrace.slang",
         "preprocessor_directive_count": 0,
-        "sha256": "71d127df05efba637222703f9bb9c6fc45f2564ed6c358839d6cce56f1ea1cf7",
+        "sha256": "1dbece22982bc709c3ac3029773c28030109a707d68261ce385b90ed00788f78",
         "stage": "closest_hit"
       },
       {

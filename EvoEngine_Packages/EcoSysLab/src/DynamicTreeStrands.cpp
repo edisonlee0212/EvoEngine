@@ -1416,21 +1416,21 @@ void DynamicTreeStrands::RegisterFoliageRenderInstance(const FoliageRenderParame
       if (DynamicStrands::foliage_point_light_render_pipeline &&
           DynamicStrands::foliage_point_light_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return dynamic_strands_copy->RenderFoliageToPointLightShadowMap(render_parameters, vk_command_buffer, view);
         });
       }
       if (DynamicStrands::foliage_spot_light_render_pipeline &&
           DynamicStrands::foliage_spot_light_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return dynamic_strands_copy->RenderFoliageToSpotLightShadowMap(render_parameters, vk_command_buffer, view);
         });
       }
       if (DynamicStrands::foliage_directional_light_render_pipeline &&
           DynamicStrands::foliage_directional_light_render_pipeline->Initialized()) {
         const auto dynamic_strands_copy = dynamic_strands;
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return dynamic_strands_copy->RenderFoliageToDirectionalLightShadowMap(render_parameters, vk_command_buffer,
                                                                                 view);
         });

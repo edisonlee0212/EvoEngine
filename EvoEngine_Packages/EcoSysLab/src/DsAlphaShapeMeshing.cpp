@@ -1145,19 +1145,19 @@ void DsAlphaShapeMeshing::RegisterBranchesRenderInstance(Handle& rendering_insta
       bark_material && inner_wood_material && snow_material) {
     if (!dynamic_strands->segments.empty()) {
       if (branches_point_light_render_pipeline && branches_point_light_render_pipeline->Initialized()) {
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderBranchesToPointLightShadowMap(render_settings.branches_render_parameters, vk_command_buffer,
                                                      view);
         });
       }
       if (branches_spot_light_render_pipeline && branches_spot_light_render_pipeline->Initialized()) {
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderBranchesToSpotLightShadowMap(render_settings.branches_render_parameters, vk_command_buffer,
                                                     view);
         });
       }
       if (branches_directional_light_render_pipeline && branches_directional_light_render_pipeline->Initialized()) {
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderBranchesToDirectionalLightShadowMap(render_settings.branches_render_parameters,
                                                            vk_command_buffer, view);
         });
@@ -1264,20 +1264,20 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsRenderInstance(Handle& rendering_
       bark_material && splinter_material) {
     if (!dynamic_strands->segments.empty()) {
       if (small_segments_point_light_render_pipeline && small_segments_point_light_render_pipeline->Initialized()) {
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToPointLightShadowMap(render_settings.small_segments_render_parameters,
                                                           vk_command_buffer, view);
         });
       }
       if (small_segments_spot_light_render_pipeline && small_segments_spot_light_render_pipeline->Initialized()) {
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToSpotLightShadowMap(render_settings.small_segments_render_parameters,
                                                          vk_command_buffer, view);
         });
       }
       if (small_segments_directional_light_render_pipeline &&
           small_segments_directional_light_render_pipeline->Initialized()) {
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToDirectionalLightShadowMap(render_settings.small_segments_render_parameters,
                                                                 vk_command_buffer, view);
         });
@@ -1337,20 +1337,20 @@ void DsAlphaShapeMeshing::RegisterSmallSegmentsVisualizationRenderInstance(Handl
   if (const auto material = dynamic_strands->materials.splinter_material_ref.Get<Material>()) {
     if (!dynamic_strands->segments.empty()) {
       if (small_segments_point_light_render_pipeline && small_segments_point_light_render_pipeline->Initialized()) {
-        render_layer->RenderToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToPointLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToPointLightShadowMap(render_settings.small_segments_render_parameters,
                                                           vk_command_buffer, view);
         });
       }
       if (small_segments_spot_light_render_pipeline && small_segments_spot_light_render_pipeline->Initialized()) {
-        render_layer->RenderToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToSpotLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToSpotLightShadowMap(render_settings.small_segments_render_parameters,
                                                          vk_command_buffer, view);
         });
       }
       if (small_segments_directional_light_render_pipeline &&
           small_segments_directional_light_render_pipeline->Initialized()) {
-        render_layer->RenderToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
+        render_layer->RenderOpaqueToDirectionalLightShadowMap([=](VkCommandBuffer vk_command_buffer, const auto& view) {
           return RenderSmallSegmentsToDirectionalLightShadowMap(render_settings.small_segments_render_parameters,
                                                                 vk_command_buffer, view);
         });

@@ -285,7 +285,7 @@ TEST(StrandsMeshShader, DirectionalShadowUsesFixedMeshTopologyAndGenericAccounti
   EXPECT_NE(task.find("DispatchMesh(meshlet.segment_size, 1, 1, strand_shadow_task)"), std::string::npos);
   EXPECT_NE(mesh.find("SetMeshOutputCounts(10u, 8u)"), std::string::npos);
   EXPECT_NE(mesh.find("const uint STRAND_SHADOW_RING_SIZE = 4u"), std::string::npos);
-  EXPECT_NE(mesh.find("OutputVertices<EEStrandShadowOutput, 10>"), std::string::npos);
+  EXPECT_NE(mesh.find("OutputVertices<EE_STRAND_SHADOW_OUTPUT, 10>"), std::string::npos);
   EXPECT_NE(mesh.find("OutputIndices<uint3, 8>"), std::string::npos);
   EXPECT_NE(mesh.find("EE_DIRECTIONAL_LIGHTS[EE_BASIC_CONSTANTS.camera_index]"), std::string::npos);
   EXPECT_NE(mesh.find("EE_BASIC_CONSTANTS.light_split_index"), std::string::npos);
@@ -316,13 +316,12 @@ TEST(StrandsMeshShader, PunctualShadowsUseMeshPipelinesAndCaptureFixture) {
   EXPECT_EQ(render_layer.find("PointLightShadowMapStrands"), std::string::npos);
   EXPECT_EQ(render_layer.find("SpotLightShadowMapStrands"), std::string::npos);
   EXPECT_NE(render_layer.find("strand_meshlet_descriptor_sets_[current_frame_index]"), std::string::npos);
-  EXPECT_NE(render_layer.find("use_mesh_shader ? strands_point_light_shadow_pipeline : nullptr"), std::string::npos);
-  EXPECT_NE(render_layer.find("use_mesh_shader ? strands_spot_light_shadow_pipeline : nullptr"), std::string::npos);
+  EXPECT_NE(render_layer.find("strands_point_light_shadow_pipeline_opaque"), std::string::npos);
+  EXPECT_NE(render_layer.find("strands_point_light_shadow_pipeline_masked"), std::string::npos);
+  EXPECT_NE(render_layer.find("strands_spot_light_shadow_pipeline_opaque"), std::string::npos);
+  EXPECT_NE(render_layer.find("strands_spot_light_shadow_pipeline_masked"), std::string::npos);
   EXPECT_NE(render_layer.find("pipeline->states.cull_mode = render_instance->cull_mode"), std::string::npos);
-  EXPECT_NE(render_layer.find("render_strands_shadow_collection(RenderPassDrawBucket::PointLightShadow"),
-            std::string::npos);
-  EXPECT_NE(render_layer.find("render_strands_shadow_collection(RenderPassDrawBucket::SpotLightShadow"),
-            std::string::npos);
+  EXPECT_NE(render_layer.find("render_strands_shadow_collection("), std::string::npos);
   EXPECT_NE(render_layer.find("Platform::CountRenderPassDraw(bucket, RenderDrawCallKind::Direct"), std::string::npos);
   EXPECT_NE(scene.find("ConfigureStrandPunctualShadowValidation"), std::string::npos);
   EXPECT_NE(scene.find("const std::array point_directions"), std::string::npos);
