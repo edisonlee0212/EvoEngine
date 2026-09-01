@@ -18,6 +18,35 @@ using namespace eco_sys_lab_plugin;
 
 namespace {
 
+constexpr float kLogExperimentPivotDuration = 60.f;
+constexpr float kLogExperimentMaxBreakAngle = glm::pi<float>() * 0.5f;
+
+void ApplyLogExperimentPivotTransforms(const GlobalTransform& owner_gt, const GlobalTransform& root_transform,
+                                       const float board_distance, const float simulated_time,
+                                       GlobalTransform& left_transform, GlobalTransform& right_transform) {
+  const float rotation_t = glm::clamp(simulated_time / kLogExperimentPivotDuration, 0.f, 1.f);
+  const float angle = rotation_t * kLogExperimentMaxBreakAngle;
+
+  left_transform.SetPosition(root_transform.TransformPoint(glm::vec3(0.f, 0.f, 0.f)));
+  right_transform.SetPosition(root_transform.TransformPoint(glm::vec3(board_distance, 0.f, 0.f)));
+  left_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, -angle)));
+  right_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, angle)));
+}
+
+void ApplyLogBreakPivotTransforms(const GlobalTransform& owner_gt, const GlobalTransform& root_transform,
+                                  const float board_distance, const float progress, const float target_factor0,
+                                  const float target_factor1, const float separation_scale,
+                                  GlobalTransform& left_transform, GlobalTransform& right_transform) {
+  const float left_x = board_distance * 0.5f * progress * target_factor0 * separation_scale;
+  const float right_x = board_distance * (1.f - 0.5f * progress * target_factor0 * separation_scale);
+  const float angle = glm::acos(glm::clamp(1.f - progress * target_factor1, -1.f, 1.f));
+
+  left_transform.SetPosition(root_transform.TransformPoint(glm::vec3(left_x, 0.f, 0.f)));
+  right_transform.SetPosition(root_transform.TransformPoint(glm::vec3(right_x, 0.f, 0.f)));
+  left_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, -angle)));
+  right_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, angle)));
+}
+
 void ApplyOakTrunkFullProcessTreePreset(const std::shared_ptr<Tree>& tree) {
   tree->strand_model_parameters.end_node_strands = 3200;
   tree->strand_model_parameters.strand_radius_distribution.mean.max_value = 0.004f;
@@ -1231,6 +1260,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
       target_factor0 = 1.f;
       target_factor1 = 1.f;
+      target_simulation_time = kLogExperimentPivotDuration;
       automated_export_upper = 15.f;
       automated_export_stepsize = 1.f;
       ResetAutomatedExportSchedule();
@@ -1278,6 +1308,7 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
       target_factor0 = 1.f;
       target_factor1 = 1.f;
+      target_simulation_time = kLogExperimentPivotDuration;
       DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
       physics_parameters.enable_fungus = false;
       physics_parameters.enable_segment_collision = false;
@@ -1402,24 +1433,26 @@ void DynamicStrandsDemo::Update() {
   const float progress = simulated_time / target_simulation_time;
 
   switch (demo_type) {
-    case DemoType::LogBreak:
-    case DemoType::LogCut:
-    case DemoType::LogSpoon: {
-      // Same pivot pull-apart + rotation as Board break, driven by log length.
+    case DemoType::LogBreak: {
       const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
                                    log_experiment_setup_settings.segment_length;
-      const float left_distance = board_distance * 0.5f * progress * target_factor0;
-      const float right_distance = board_distance * (1.f - 0.5f * progress * target_factor0);
-
       auto left_operator_root_transform = GlobalTransform();
-      left_operator_root_transform.SetPosition(
-          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(left_distance, 0, 0)));
       auto right_operator_root_transform = GlobalTransform();
-      right_operator_root_transform.SetPosition(
-          dts->initialize_parameters.root_transform.TransformPoint(glm::vec3(right_distance, 0, 0)));
-      const float angle = glm::acos(1.f - progress * target_factor1);
-      left_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, -angle)));
-      right_operator_root_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0, 0, angle)));
+      ApplyLogBreakPivotTransforms(owner_gt, dts->initialize_parameters.root_transform, board_distance, progress,
+                                   target_factor0, target_factor1, 1.f, left_operator_root_transform,
+                                   right_operator_root_transform);
+      scene->SetDataComponent(left_pivot, left_operator_root_transform);
+      scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
+    } break;
+    case DemoType::LogCut:
+    case DemoType::LogSpoon: {
+      const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
+                                   log_experiment_setup_settings.segment_length;
+      auto left_operator_root_transform = GlobalTransform();
+      auto right_operator_root_transform = GlobalTransform();
+      ApplyLogExperimentPivotTransforms(owner_gt, dts->initialize_parameters.root_transform, board_distance,
+                                        simulated_time, left_operator_root_transform, right_operator_root_transform);
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
       dts->PhysicsStep(physics_parameters);

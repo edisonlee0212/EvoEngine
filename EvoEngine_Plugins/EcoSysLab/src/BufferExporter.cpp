@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <iostream>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <unordered_map>
 #include <unordered_set>
@@ -117,117 +120,528 @@ bool AreSegmentsStillConnected(const int segment_a, const int segment_b,
   return false;
 }
 
-struct TriangleSmoothingGroupKey {
-  int segment_pair_index = -1;
+struct SegmentPairSheetKey {
   int owner_segment_index = -1;
-  int neighbor_segment_index = -1;
+  int segment_pair_index = -1;
 
-  bool operator==(const TriangleSmoothingGroupKey& other) const {
-    return segment_pair_index == other.segment_pair_index && owner_segment_index == other.owner_segment_index &&
-           neighbor_segment_index == other.neighbor_segment_index;
+  bool operator==(const SegmentPairSheetKey& other) const {
+    return owner_segment_index == other.owner_segment_index &&
+           segment_pair_index == other.segment_pair_index;
   }
 };
 
-struct TriangleSmoothingGroupKeyHash {
-  size_t operator()(const TriangleSmoothingGroupKey& key) const {
-    size_t h = static_cast<size_t>(key.segment_pair_index + 2);
-    h ^= static_cast<size_t>(key.owner_segment_index + 1) + 0x9e3779b9 + (h << 6) + (h >> 2);
-    h ^= static_cast<size_t>(key.neighbor_segment_index + 3) + 0x9e3779b9 + (h << 6) + (h >> 2);
+struct SegmentPairSheetKeyHash {
+  size_t operator()(const SegmentPairSheetKey& key) const {
+    size_t h = static_cast<size_t>(key.owner_segment_index + 1);
+    h ^= static_cast<size_t>(key.segment_pair_index + 2) + 0x9e3779b9 + (h << 6) + (h >> 2);
     return h;
   }
 };
 
-TriangleSmoothingGroupKey SmoothingGroupKeyFromTriangle(
-    const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle,
-    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices) {
-  const int owner_segment_index = static_cast<int>(vertices[triangle.vertex_index0].segment_index);
-  if (triangle.segment_pair_index >= 0) {
-    return TriangleSmoothingGroupKey{triangle.segment_pair_index, owner_segment_index, triangle.neighbor_segment_index};
-  }
-  return TriangleSmoothingGroupKey{-1, owner_segment_index, triangle.neighbor_segment_index};
+void AddTriangleVertices(std::unordered_set<size_t>& dst,
+                         const DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle& triangle) {
+  dst.insert(triangle.vertex_index0);
+  dst.insert(triangle.vertex_index1);
+  dst.insert(triangle.vertex_index2);
 }
 
-/// Seam anchor: one matched @c x0 location on a triangle sheet and its mean displacement after smoothing.
-struct SeamAnchor {
-  ExactX0Key x0_key{};
-  glm::vec3 reference_position{0.f};
-  glm::vec3 displacement{0.f};
+struct SimilarityTransform3D {
+  glm::vec3 center_before{0.f};
+  glm::vec3 center_after{0.f};
+  glm::mat3 rotation{1.f};
+  float scale = 1.f;
+  bool translation_only = true;
+
+  glm::vec3 Apply(const glm::vec3& x) const {
+    return scale * (rotation * (x - center_before)) + center_after;
+  }
 };
+
+enum class SimilarityFitMode {
+  Empty,
+  TranslationOnlyTooFewPoints,
+  TranslationOnlyLowVariance,
+  TranslationOnlySvdFailed,
+  TranslationOnlyScaleOutOfRange,
+  TranslationOnlyHighError,
+  Similarity,
+};
+
+struct SimilarityFitResult {
+  SimilarityTransform3D transform;
+  SimilarityFitMode mode = SimilarityFitMode::Empty;
+};
+
+struct SmoothingPropagationStats {
+  size_t sheet_fit_count = 0;
+  size_t sheets_skipped_no_matched = 0;
+  size_t fallback_count = 0;
+  size_t similarity_count = 0;
+  size_t identity_rotation_scale_count = 0;
+  size_t similarity_identity_rotation_scale_count = 0;
+  size_t too_few_points = 0;
+  size_t low_variance = 0;
+  size_t svd_failed = 0;
+  size_t scale_out_of_range = 0;
+  size_t high_error = 0;
+  size_t unmatched_vertices_updated = 0;
+  size_t min_pair_count = std::numeric_limits<size_t>::max();
+  size_t max_pair_count = 0;
+  size_t sheets_with_at_least_4_matched = 0;
+  size_t segment_pair_triangle_count = 0;
+  size_t segment_pair_vertex_count = 0;
+  size_t segment_pair_matched_vertex_count = 0;
+  size_t segment_pair_unmatched_vertex_count = 0;
+  size_t segment_pair_sheet_count = 0;
+  size_t unmatched_segment_sheet_count = 0;
+
+  void RecordSheetFit(const SimilarityFitResult& fit, const size_t pair_count) {
+    ++sheet_fit_count;
+    min_pair_count = std::min(min_pair_count, pair_count);
+    max_pair_count = std::max(max_pair_count, pair_count);
+    if (pair_count >= 4) {
+      ++sheets_with_at_least_4_matched;
+    }
+    if (fit.mode == SimilarityFitMode::Similarity) {
+      ++similarity_count;
+    } else if (fit.mode != SimilarityFitMode::Empty) {
+      ++fallback_count;
+      switch (fit.mode) {
+        case SimilarityFitMode::TranslationOnlyTooFewPoints:
+          ++too_few_points;
+          break;
+        case SimilarityFitMode::TranslationOnlyLowVariance:
+          ++low_variance;
+          break;
+        case SimilarityFitMode::TranslationOnlySvdFailed:
+          ++svd_failed;
+          break;
+        case SimilarityFitMode::TranslationOnlyScaleOutOfRange:
+          ++scale_out_of_range;
+          break;
+        case SimilarityFitMode::TranslationOnlyHighError:
+          ++high_error;
+          break;
+        default:
+          break;
+      }
+    }
+
+    if (IsNearIdentityRotationAndScale(fit.transform)) {
+      ++identity_rotation_scale_count;
+      if (fit.mode == SimilarityFitMode::Similarity) {
+        ++similarity_identity_rotation_scale_count;
+      }
+    }
+  }
+
+  void LogSummary() const {
+    if (sheet_fit_count == 0 && sheets_skipped_no_matched == 0) {
+      return;
+    }
+    std::cout << "ApplySmoothing propagation: " << sheet_fit_count << " sheet fit(s), " << sheets_skipped_no_matched
+              << " sheet(s) skipped (no matched control points), " << fallback_count
+              << " fallback (translation-only), " << similarity_count << " similarity fit(s), "
+              << identity_rotation_scale_count << " with identity rotation and scale=1";
+    if (similarity_count > 0) {
+      std::cout << " (" << similarity_identity_rotation_scale_count
+                << " of similarity fits are numerically identity)";
+    }
+    std::cout << ", " << unmatched_vertices_updated << " unmatched vertex update(s)";
+    if (sheet_fit_count > 0) {
+      std::cout << ", matched-pair range [" << min_pair_count << ", " << max_pair_count << "], "
+                << sheets_with_at_least_4_matched << " sheet(s) with >= 4 matched point(s)";
+    }
+    std::cout << std::endl;
+    std::cout << "  segment-pair sheets: " << segment_pair_sheet_count << ", unmatched segment sheets: "
+              << unmatched_segment_sheet_count << ", segment-pair triangles=" << segment_pair_triangle_count
+              << ", vertices=" << segment_pair_vertex_count << " (matched=" << segment_pair_matched_vertex_count
+              << ", unmatched=" << segment_pair_unmatched_vertex_count << ")" << std::endl;
+    if (fallback_count > 0) {
+      std::cout << "  fallback reasons: too_few_points=" << too_few_points << ", low_variance=" << low_variance
+                << ", svd_failed=" << svd_failed << ", scale_out_of_range=" << scale_out_of_range
+                << ", high_error=" << high_error << std::endl;
+    }
+  }
+
+ private:
+  static bool IsNearIdentityRotation(const glm::mat3& rotation, const float epsilon = 1e-4f) {
+    const glm::mat3 identity(1.f);
+    for (int column = 0; column < 3; ++column) {
+      for (int row = 0; row < 3; ++row) {
+        if (std::abs(rotation[column][row] - identity[column][row]) > epsilon) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  static bool IsNearIdentityRotationAndScale(const SimilarityTransform3D& transform, const float rotation_epsilon = 1e-4f,
+                                             const float scale_epsilon = 1e-4f) {
+    return std::abs(transform.scale - 1.f) <= scale_epsilon && IsNearIdentityRotation(transform.rotation, rotation_epsilon);
+  }
+};
+
+SimilarityTransform3D MakeTranslationOnlyTransform(const glm::vec3& center_before, const glm::vec3& center_after) {
+  SimilarityTransform3D transform;
+  transform.center_before = center_before;
+  transform.center_after = center_after;
+  transform.rotation = glm::mat3(1.f);
+  transform.scale = 1.f;
+  transform.translation_only = true;
+  return transform;
+}
+
+bool SymmetricEigen3x3(glm::dmat3& matrix, glm::dmat3& eigenvectors, glm::dvec3& eigenvalues) {
+  eigenvectors = glm::dmat3(1.0);
+  for (int sweep = 0; sweep < 32; ++sweep) {
+    int p = 0;
+    int q = 1;
+    double max_off_diagonal = std::abs(matrix[1][0]);
+    if (std::abs(matrix[2][0]) > max_off_diagonal) {
+      p = 0;
+      q = 2;
+      max_off_diagonal = std::abs(matrix[2][0]);
+    }
+    if (std::abs(matrix[2][1]) > max_off_diagonal) {
+      p = 1;
+      q = 2;
+      max_off_diagonal = std::abs(matrix[2][1]);
+    }
+    if (max_off_diagonal < 1e-15) {
+      break;
+    }
+
+    const double app = matrix[p][p];
+    const double aqq = matrix[q][q];
+    const double apq = matrix[q][p];
+    const double tau = (aqq - app) / (2.0 * apq);
+    const double t = (tau >= 0.0 ? 1.0 : -1.0) / (std::abs(tau) + std::sqrt(1.0 + tau * tau));
+    const double c = 1.0 / std::sqrt(1.0 + t * t);
+    const double s = t * c;
+
+    matrix[p][p] = app - t * apq;
+    matrix[q][q] = aqq + t * apq;
+    matrix[q][p] = 0.0;
+    matrix[p][q] = 0.0;
+
+    for (int k = 0; k < 3; ++k) {
+      if (k == p || k == q) {
+        continue;
+      }
+      const double akp = matrix[p][k];
+      const double akq = matrix[q][k];
+      matrix[p][k] = c * akp - s * akq;
+      matrix[q][k] = s * akp + c * akq;
+      matrix[k][p] = matrix[p][k];
+      matrix[k][q] = matrix[q][k];
+    }
+
+    for (int k = 0; k < 3; ++k) {
+      const double vip = eigenvectors[p][k];
+      const double viq = eigenvectors[q][k];
+      eigenvectors[p][k] = c * vip - s * viq;
+      eigenvectors[q][k] = s * vip + c * viq;
+    }
+  }
+
+  eigenvalues = glm::dvec3(matrix[0][0], matrix[1][1], matrix[2][2]);
+  return std::isfinite(eigenvalues.x) && std::isfinite(eigenvalues.y) && std::isfinite(eigenvalues.z);
+}
+
+bool Svd3x3(const glm::dmat3& matrix, glm::dmat3& u, glm::dvec3& singular_values, glm::dmat3& v) {
+  const glm::dmat3 normal_matrix = glm::transpose(matrix) * matrix;
+  glm::dmat3 v_candidate = glm::dmat3(1.0);
+  glm::dvec3 eigenvalues{0.0};
+  glm::dmat3 normal_copy = normal_matrix;
+  if (!SymmetricEigen3x3(normal_copy, v_candidate, eigenvalues)) {
+    return false;
+  }
+
+  singular_values = glm::dvec3(std::sqrt(std::max(0.0, eigenvalues.x)), std::sqrt(std::max(0.0, eigenvalues.y)),
+                               std::sqrt(std::max(0.0, eigenvalues.z)));
+  v = v_candidate;
+
+  u = glm::dmat3(1.0);
+  for (int i = 0; i < 3; ++i) {
+    const double sigma = singular_values[i];
+    if (sigma < 1e-12) {
+      continue;
+    }
+    const glm::dvec3 column = matrix * glm::dvec3(v[0][i], v[1][i], v[2][i]) / sigma;
+    u[0][i] = column.x;
+    u[1][i] = column.y;
+    u[2][i] = column.z;
+  }
+
+  for (int i = 0; i < 3; ++i) {
+    if (singular_values[i] >= 1e-12) {
+      continue;
+    }
+    glm::dvec3 fallback{0.0, 0.0, 0.0};
+    fallback[i] = 1.0;
+    for (int j = 0; j < i; ++j) {
+      if (singular_values[j] < 1e-12) {
+        continue;
+      }
+      const glm::dvec3 uj(u[0][j], u[1][j], u[2][j]);
+      fallback -= glm::dot(fallback, uj) * uj;
+    }
+    const double length = glm::length(fallback);
+    if (length < 1e-12) {
+      fallback = glm::dvec3(1.0, 0.0, 0.0);
+      for (int j = 0; j < i; ++j) {
+        if (singular_values[j] < 1e-12) {
+          continue;
+        }
+        const glm::dvec3 uj(u[0][j], u[1][j], u[2][j]);
+        fallback -= glm::dot(fallback, uj) * uj;
+      }
+    }
+    const glm::dvec3 column = glm::normalize(fallback);
+    u[0][i] = column.x;
+    u[1][i] = column.y;
+    u[2][i] = column.z;
+  }
+
+  return std::isfinite(singular_values.x) && std::isfinite(singular_values.y) && std::isfinite(singular_values.z);
+}
+
+SimilarityFitResult FitSimilarityTransform(const std::vector<std::pair<glm::vec3, glm::vec3>>& pairs) {
+  SimilarityFitResult result;
+  if (pairs.empty()) {
+    return result;
+  }
+
+  glm::dvec3 mean_before{0.0};
+  glm::dvec3 mean_after{0.0};
+  for (const auto& [before, after] : pairs) {
+    mean_before += glm::dvec3(before);
+    mean_after += glm::dvec3(after);
+  }
+  mean_before /= static_cast<double>(pairs.size());
+  mean_after /= static_cast<double>(pairs.size());
+  result.transform.center_before = glm::vec3(mean_before);
+  result.transform.center_after = glm::vec3(mean_after);
+
+  if (pairs.size() < 3) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyTooFewPoints;
+    return result;
+  }
+
+  glm::dmat3 covariance{0.0};
+  double source_variance = 0.0;
+  glm::dvec3 min_before{std::numeric_limits<double>::max()};
+  glm::dvec3 max_before{std::numeric_limits<double>::lowest()};
+  for (const auto& [before, after] : pairs) {
+    const glm::dvec3 centered_before = glm::dvec3(before) - mean_before;
+    const glm::dvec3 centered_after = glm::dvec3(after) - mean_after;
+    covariance += glm::transpose(glm::outerProduct(centered_after, centered_before));
+    source_variance += glm::dot(centered_before, centered_before);
+    min_before = glm::min(min_before, glm::dvec3(before));
+    max_before = glm::max(max_before, glm::dvec3(before));
+  }
+
+  if (source_variance < 1e-12) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyLowVariance;
+    return result;
+  }
+
+  glm::dmat3 u;
+  glm::dmat3 v;
+  glm::dvec3 singular_values;
+  if (!Svd3x3(covariance, u, singular_values, v)) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlySvdFailed;
+    return result;
+  }
+
+  const glm::dmat3 v_transpose = glm::transpose(v);
+  const double reflection_sign = glm::determinant(u * v_transpose) < 0.0 ? -1.0 : 1.0;
+  glm::dmat3 correction(1.0);
+  correction[2][2] = reflection_sign;
+  const glm::dmat3 rotation = u * correction * v_transpose;
+  const double scale = (singular_values.x + singular_values.y + reflection_sign * singular_values.z) / source_variance;
+  if (!std::isfinite(scale) || scale < 0.25 || scale > 4.0) {
+    result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+    result.mode = SimilarityFitMode::TranslationOnlyScaleOutOfRange;
+    return result;
+  }
+
+  result.transform.rotation = glm::mat3(rotation);
+  result.transform.scale = static_cast<float>(scale);
+  result.transform.translation_only = false;
+
+  const glm::dvec3 extent = max_before - min_before;
+  const double reference_extent = std::max({extent.x, extent.y, extent.z, 1e-6});
+  const double max_error_tolerance = 0.05 * reference_extent;
+  const double max_error_tolerance_sq = max_error_tolerance * max_error_tolerance;
+  for (const auto& [before, after] : pairs) {
+    const glm::vec3 predicted = result.transform.Apply(before);
+    const glm::vec3 error = predicted - after;
+    if (static_cast<double>(glm::dot(error, error)) > max_error_tolerance_sq) {
+      result.transform = MakeTranslationOnlyTransform(result.transform.center_before, result.transform.center_after);
+      result.mode = SimilarityFitMode::TranslationOnlyHighError;
+      return result;
+    }
+  }
+
+  result.mode = SimilarityFitMode::Similarity;
+  return result;
+}
+
+std::vector<std::pair<glm::vec3, glm::vec3>> BuildSeamPairsFromVertices(
+    const std::unordered_set<size_t>& vertex_indices, const std::vector<glm::vec3>& x_before,
+    const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices) {
+  std::vector<std::pair<glm::vec3, glm::vec3>> pairs;
+  pairs.reserve(vertex_indices.size());
+  for (const size_t vertex_index : vertex_indices) {
+    pairs.emplace_back(x_before[vertex_index], vertices[vertex_index].x);
+  }
+  return pairs;
+}
+
+std::unordered_set<size_t> CollectMatchedVertices(const std::unordered_set<size_t>& vertex_indices,
+                                                  const std::vector<uint8_t>& was_smoothed) {
+  std::unordered_set<size_t> matched_vertices;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index < was_smoothed.size() && was_smoothed[vertex_index]) {
+      matched_vertices.insert(vertex_index);
+    }
+  }
+  return matched_vertices;
+}
+
+std::optional<SimilarityFitResult> FitSheetTransform(const std::unordered_set<size_t>& matched_vertices,
+                                                     const std::vector<glm::vec3>& x_before,
+                                                     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                                     SmoothingPropagationStats& stats) {
+  if (matched_vertices.empty()) {
+    ++stats.sheets_skipped_no_matched;
+    return std::nullopt;
+  }
+  const std::vector<std::pair<glm::vec3, glm::vec3>> pairs =
+      BuildSeamPairsFromVertices(matched_vertices, x_before, vertices);
+  const SimilarityFitResult fit = FitSimilarityTransform(pairs);
+  stats.RecordSheetFit(fit, pairs.size());
+  return fit;
+}
+
+size_t ApplyTransformToUnmatchedVertices(std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
+                                         const std::vector<glm::vec3>& x_before,
+                                         const std::vector<uint8_t>& was_smoothed,
+                                         const std::unordered_set<size_t>& vertex_indices,
+                                         const SimilarityTransform3D& transform) {
+  size_t updated_count = 0;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
+      continue;
+    }
+    vertices[vertex_index].x = transform.Apply(x_before[vertex_index]);
+    ++updated_count;
+  }
+  return updated_count;
+}
+
+size_t ApplyNearestTransformToUnmatchedVertices(
+    std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices, const std::vector<glm::vec3>& x_before,
+    const std::vector<uint8_t>& was_smoothed, const std::unordered_set<size_t>& vertex_indices,
+    const std::vector<SimilarityTransform3D>& transforms) {
+  if (transforms.empty()) {
+    return 0;
+  }
+
+  size_t updated_count = 0;
+  for (const size_t vertex_index : vertex_indices) {
+    if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
+      continue;
+    }
+
+    const glm::vec3 query = x_before[vertex_index];
+    float best_distance_sq = std::numeric_limits<float>::max();
+    const SimilarityTransform3D* best_transform = &transforms.front();
+    for (const SimilarityTransform3D& transform : transforms) {
+      const glm::vec3 delta = query - transform.center_before;
+      const float distance_sq = glm::dot(delta, delta);
+      if (distance_sq < best_distance_sq) {
+        best_distance_sq = distance_sq;
+        best_transform = &transform;
+      }
+    }
+    vertices[vertex_index].x = best_transform->Apply(query);
+    ++updated_count;
+  }
+  return updated_count;
+}
 
 void PropagateSmoothingToUnmatchedVertices(
     std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletVertex>& vertices,
     const std::vector<glm::vec3>& x_before,
     const std::vector<uint8_t>& was_smoothed,
     const std::vector<DsKineticVoronoiMeshing::GpuSegmentMeshletTriangle>& triangles) {
-  std::unordered_map<TriangleSmoothingGroupKey, std::unordered_set<size_t>, TriangleSmoothingGroupKeyHash> group_vertices;
-  group_vertices.reserve(triangles.size());
+  SmoothingPropagationStats stats;
+
+  struct SegmentPairSheetGroup {
+    size_t triangle_count = 0;
+    std::unordered_set<size_t> vertices;
+  };
+
+  std::unordered_map<SegmentPairSheetKey, SegmentPairSheetGroup, SegmentPairSheetKeyHash> segment_pair_sheet_groups;
+  std::unordered_map<int, std::unordered_set<size_t>> unmatched_segment_vertices;
+  std::unordered_map<int, std::vector<SimilarityTransform3D>> pair_sheet_transforms_by_owner;
 
   for (const auto& triangle : triangles) {
-    const TriangleSmoothingGroupKey key = SmoothingGroupKeyFromTriangle(triangle, vertices);
-    auto& members = group_vertices[key];
-    members.insert(triangle.vertex_index0);
-    members.insert(triangle.vertex_index1);
-    members.insert(triangle.vertex_index2);
-  }
-
-  for (const auto& [key, member_indices] : group_vertices) {
-    (void)key;
-
-    std::unordered_map<ExactX0Key, std::pair<glm::vec3, glm::vec3>, ExactX0KeyHash> seam_accum;
-    seam_accum.reserve(member_indices.size());
-    std::unordered_map<ExactX0Key, size_t, ExactX0KeyHash> seam_counts;
-
-    for (const size_t vertex_index : member_indices) {
-      if (vertex_index >= was_smoothed.size() || !was_smoothed[vertex_index]) {
-        continue;
-      }
-      const ExactX0Key x0_key = ExactX0Key::From(vertices[vertex_index].x0);
-      auto& sums = seam_accum[x0_key];
-      sums.first += x_before[vertex_index];
-      sums.second += vertices[vertex_index].x;
-      ++seam_counts[x0_key];
-    }
-
-    if (seam_accum.empty()) {
+    if (triangle.segment_pair_index >= 0) {
+      const SegmentPairSheetKey sheet_key{static_cast<int>(vertices[triangle.vertex_index0].segment_index),
+                                          triangle.segment_pair_index};
+      SegmentPairSheetGroup& group = segment_pair_sheet_groups[sheet_key];
+      ++group.triangle_count;
+      AddTriangleVertices(group.vertices, triangle);
       continue;
     }
 
-    std::vector<SeamAnchor> anchors;
-    anchors.reserve(seam_accum.size());
-    for (const auto& [x0_key, sums] : seam_accum) {
-      const size_t count = seam_counts[x0_key];
-      if (count == 0) {
-        continue;
-      }
-      const float inv = 1.f / static_cast<float>(count);
-      SeamAnchor anchor;
-      anchor.x0_key = x0_key;
-      anchor.reference_position = sums.first * inv;
-      anchor.displacement = sums.second * inv - anchor.reference_position;
-      anchors.push_back(anchor);
-    }
-
-    for (const size_t vertex_index : member_indices) {
-      if (vertex_index >= was_smoothed.size() || was_smoothed[vertex_index]) {
-        continue;
-      }
-
-      const glm::vec3 query = x_before[vertex_index];
-      float best_distance_sq = std::numeric_limits<float>::max();
-      const SeamAnchor* best_anchor = nullptr;
-      for (const SeamAnchor& anchor : anchors) {
-        const glm::vec3 delta = query - anchor.reference_position;
-        const float distance_sq = glm::dot(delta, delta);
-        if (distance_sq < best_distance_sq) {
-          best_distance_sq = distance_sq;
-          best_anchor = &anchor;
-        }
-      }
-      if (best_anchor != nullptr) {
-        vertices[vertex_index].x = query + best_anchor->displacement;
-      }
-    }
+    const int owner_segment_index = static_cast<int>(vertices[triangle.vertex_index0].segment_index);
+    AddTriangleVertices(unmatched_segment_vertices[owner_segment_index], triangle);
   }
+
+  for (const auto& [sheet_key, group] : segment_pair_sheet_groups) {
+    ++stats.segment_pair_sheet_count;
+    stats.segment_pair_triangle_count += group.triangle_count;
+    stats.segment_pair_vertex_count += group.vertices.size();
+
+    const std::unordered_set<size_t> matched_vertices = CollectMatchedVertices(group.vertices, was_smoothed);
+    stats.segment_pair_matched_vertex_count += matched_vertices.size();
+    stats.segment_pair_unmatched_vertex_count += group.vertices.size() - matched_vertices.size();
+
+    const std::optional<SimilarityFitResult> fit = FitSheetTransform(matched_vertices, x_before, vertices, stats);
+    if (!fit.has_value()) {
+      continue;
+    }
+
+    pair_sheet_transforms_by_owner[sheet_key.owner_segment_index].push_back(fit->transform);
+    stats.unmatched_vertices_updated +=
+        ApplyTransformToUnmatchedVertices(vertices, x_before, was_smoothed, group.vertices, fit->transform);
+  }
+
+  for (const auto& [owner_segment_index, segment_vertices] : unmatched_segment_vertices) {
+    ++stats.unmatched_segment_sheet_count;
+
+    std::vector<SimilarityTransform3D> transforms =
+        pair_sheet_transforms_by_owner[owner_segment_index];
+    const std::unordered_set<size_t> matched_vertices = CollectMatchedVertices(segment_vertices, was_smoothed);
+    if (const std::optional<SimilarityFitResult> fit = FitSheetTransform(matched_vertices, x_before, vertices, stats);
+        fit.has_value()) {
+      transforms.push_back(fit->transform);
+    }
+
+    stats.unmatched_vertices_updated += ApplyNearestTransformToUnmatchedVertices(
+        vertices, x_before, was_smoothed, segment_vertices, transforms);
+  }
+
+  stats.LogSummary();
 }
 
 constexpr int kNeighborMatGrey = 0;
