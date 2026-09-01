@@ -1,6 +1,7 @@
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include "Camera.hpp"
+#include "DsConstraints.hpp"
 #include "DynamicStrandsBundleDiagnostics.hpp"
 #include "DynamicStrandsBundleMath.hpp"
 #include "RenderLayer.hpp"
@@ -8,6 +9,19 @@
 #include <gtest/gtest.h>
 
 using namespace eco_sys_lab_package;
+
+TEST(DynamicStrandsBundle, ShaderAbiMatchesStd430Layouts) {
+  EXPECT_EQ(sizeof(DsBundle::CoupledPairState), 32);
+  EXPECT_EQ(sizeof(DsBundle::CoupledPairCorrection), 64);
+  EXPECT_EQ(sizeof(DsBundle::SliceMember), 16);
+  EXPECT_EQ(sizeof(DsBundle::SliceRange), 16);
+  EXPECT_EQ(sizeof(DsBundle::SliceTransform), 112);
+  EXPECT_EQ(sizeof(DsBundle::SliceConstant), 32);
+  EXPECT_EQ(sizeof(DsBundle::CoarseEdgeCandidate), 16);
+  EXPECT_EQ(sizeof(DsBundle::CoarseEdge), 64);
+  EXPECT_EQ(sizeof(DsBundle::CoarseConstant), 32);
+  EXPECT_EQ(sizeof(VkDispatchIndirectCommand), 12);
+}
 
 TEST(DynamicStrandsBundle, LegacySettingsRemainTheMissingSceneDefault) {
   BundleSolverSettings settings;
@@ -170,4 +184,43 @@ TEST(DynamicStrandsBundle, CoarseEdgesSplitImmediatelyFromLiveConnectivity) {
   EXPECT_EQ(BuildBundleCoarseEdges(slices, {4, 4, 4, 4}, pairs).size(), 2);
   EXPECT_TRUE(BuildBundleCoarseEdges(slices, {4, 9, 9, 4}, pairs).empty());
   EXPECT_TRUE(BuildBundleCoarseEdges(slices, {4, 4, 4, 4}, {{0, 1, 0.f}, {2, 3, 0.f}}).empty());
+}
+
+TEST(DynamicStrandsBundle, ReferenceSolverRemainsFiniteForTenThousandSteps) {
+  BundleRigidBodyState fixed{{0.f, 0.f, 0.f}, glm::quat(1.f, 0.f, 0.f, 0.f), 0.f, glm::mat3(0.f)};
+  BundleRigidBodyState moving{
+      {1.f, .3f, -.2f}, glm::angleAxis(.4f, glm::normalize(glm::vec3(1.f, 2.f, 3.f))), 1.f, glm::mat3(1.f)};
+  BundlePairReferenceState constraint;
+  constraint.segment0_midpoint_offset = {.5f, 0.f, 0.f};
+  constraint.segment1_midpoint_offset = {-.5f, 0.f, 0.f};
+  constraint.positional_compliance = glm::vec3(1e-5f);
+  constraint.angular_compliance = {1e-5f, 2e-5f, 4e-5f};
+
+  for (int step = 0; step < 10000; ++step) {
+    ApplyBundlePairCorrection(fixed, moving, SolveBundlePairReference(fixed, moving, constraint));
+    ASSERT_TRUE(std::isfinite(moving.position.x) && std::isfinite(moving.position.y) &&
+                std::isfinite(moving.position.z));
+    ASSERT_TRUE(std::isfinite(moving.rotation.x) && std::isfinite(moving.rotation.y) &&
+                std::isfinite(moving.rotation.z) && std::isfinite(moving.rotation.w));
+  }
+  EXPECT_NEAR(glm::length(moving.rotation), 1.f, 1e-5f);
+}
+
+TEST(DynamicStrandsBundle, XpbdComplianceScalesWithInverseTimestepSquared) {
+  const auto solve = [](const float time_step) {
+    BundleRigidBodyState fixed{{0.f, 0.f, 0.f}, glm::quat(1.f, 0.f, 0.f, 0.f), 0.f, glm::mat3(0.f)};
+    BundleRigidBodyState moving{{1.f, 0.f, 0.f}, glm::angleAxis(.5f, glm::vec3(0.f, 0.f, 1.f)), 1.f, glm::mat3(1.f)};
+    BundlePairReferenceState constraint;
+    constraint.segment0_midpoint_offset = {.5f, 0.f, 0.f};
+    constraint.segment1_midpoint_offset = {-.5f, 0.f, 0.f};
+    const glm::vec3 physical_compliance(1e-8f);
+    constraint.positional_compliance = physical_compliance / (time_step * time_step);
+    constraint.angular_compliance = physical_compliance / (time_step * time_step);
+    ApplyBundlePairCorrection(fixed, moving, SolveBundlePairReference(fixed, moving, constraint));
+    return glm::length(BundleQuaternionLog(moving.rotation));
+  };
+
+  const float coarse_correction = glm::abs(solve(1.f / 60.f) - .5f);
+  const float refined_correction = glm::abs(solve(1.f / 120.f) - .5f);
+  EXPECT_LT(refined_correction, coarse_correction);
 }

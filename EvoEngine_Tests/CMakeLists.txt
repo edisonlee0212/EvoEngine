@@ -134,6 +134,9 @@ if(TARGET EcoSysLabPackage)
 		WORKING_DIRECTORY "$<TARGET_FILE_DIR:EcoSysLab_Tests>"
 		PROPERTIES LABELS "ecosyslab,dynamic-strands"
 		)
+	add_test(NAME DynamicStrandsBundle.ShaderInventory
+		COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/Scripts/check_dynamic_strands_bundle_shaders.py")
+	set_tests_properties(DynamicStrandsBundle.ShaderInventory PROPERTIES LABELS "ecosyslab,dynamic-strands,shaders")
 endif()
 
 add_custom_target(EvoEngine_RenderTests)

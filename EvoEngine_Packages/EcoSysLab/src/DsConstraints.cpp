@@ -387,40 +387,6 @@ glm::vec3 DsStiffRod::ComputeDarbouxVector(const glm::quat& q0, const glm::quat&
 }
 
 DsBundle::DsBundle() {
-  if (!coupled_layout) {
-    coupled_layout = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding < 12; ++binding)
-      coupled_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-    coupled_layout->Initialize();
-  }
-  const auto initialize_coupled_pipeline = [](std::shared_ptr<ComputePipeline>& pipeline, const char* shader_name) {
-    if (pipeline)
-      return;
-    const auto shader = std::make_shared<Shader>();
-    shader->TryCompile(
-        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
-        std::filesystem::path("./EcoSysLabResources/Shaders/Compute/DynamicStrands/Constraints/Position/Bundle") /
-            shader_name);
-    pipeline = std::make_shared<ComputePipeline>();
-    pipeline->compute_shader = shader;
-    pipeline->descriptor_set_layouts = {DynamicStrands::strands_layout, coupled_layout};
-    auto& range = pipeline->push_constant_ranges.emplace_back();
-    range.size = sizeof(CoupledPairConstant);
-    range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
-    pipeline->Initialize();
-  };
-  initialize_coupled_pipeline(coupled_pair_pipeline, "SolveCoupledPairs.slang");
-  initialize_coupled_pipeline(coupled_gather_pipeline, "GatherCoupledPairs.slang");
-  initialize_coupled_pipeline(slice_key_pipeline, "BuildSliceMembers.slang");
-  initialize_coupled_pipeline(slice_sort_pipeline, "SortSliceMembers.slang");
-  initialize_coupled_pipeline(slice_range_pipeline, "BuildSliceRanges.slang");
-  initialize_coupled_pipeline(slice_fit_pipeline, "FitSlices.slang");
-  initialize_coupled_pipeline(slice_apply_pipeline, "ApplySlices.slang");
-  initialize_coupled_pipeline(coarse_key_pipeline, "BuildCoarseEdges.slang");
-  initialize_coupled_pipeline(coarse_sort_pipeline, "SortCoarseEdges.slang");
-  initialize_coupled_pipeline(coarse_reduce_pipeline, "ReduceCoarseEdges.slang");
-  initialize_coupled_pipeline(coarse_solve_pipeline, "SolveCoarseEdges.slang");
-
   if (!stretch_shear_pipeline) {
     static std::shared_ptr<Shader> shader{};
     shader = std::make_shared<Shader>();
@@ -579,6 +545,41 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   sub_iteration = solver_settings.legacy_iterations;
   if (solver_settings.mode == BundleSolverMode::Legacy)
     return;
+  if (!coupled_layout) {
+    coupled_layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 12; ++binding)
+      coupled_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    coupled_layout->Initialize();
+  }
+  const auto initialize_coupled_pipeline = [](std::shared_ptr<ComputePipeline>& pipeline, const char* shader_name) {
+    if (pipeline)
+      return;
+    const auto shader = std::make_shared<Shader>();
+    shader->TryCompile(
+        ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+        std::filesystem::path("./EcoSysLabResources/Shaders/Compute/DynamicStrands/Constraints/Position/Bundle") /
+            shader_name);
+    pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader = shader;
+    pipeline->descriptor_set_layouts = {DynamicStrands::strands_layout, coupled_layout};
+    auto& range = pipeline->push_constant_ranges.emplace_back();
+    range.size = sizeof(CoupledPairConstant);
+    range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+    pipeline->Initialize();
+  };
+  initialize_coupled_pipeline(coupled_pair_pipeline, "SolveCoupledPairs.slang");
+  initialize_coupled_pipeline(coupled_gather_pipeline, "GatherCoupledPairs.slang");
+  if (solver_settings.mode == BundleSolverMode::Hybrid) {
+    initialize_coupled_pipeline(slice_key_pipeline, "BuildSliceMembers.slang");
+    initialize_coupled_pipeline(slice_sort_pipeline, "SortSliceMembers.slang");
+    initialize_coupled_pipeline(slice_range_pipeline, "BuildSliceRanges.slang");
+    initialize_coupled_pipeline(slice_fit_pipeline, "FitSlices.slang");
+    initialize_coupled_pipeline(slice_apply_pipeline, "ApplySlices.slang");
+    initialize_coupled_pipeline(coarse_key_pipeline, "BuildCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_sort_pipeline, "SortCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_reduce_pipeline, "ReduceCoarseEdges.slang");
+    initialize_coupled_pipeline(coarse_solve_pipeline, "SolveCoarseEdges.slang");
+  }
   VkBufferCreateInfo buffer_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   buffer_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
   buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
@@ -590,6 +591,14 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   coupled_pair_state_buffer->UploadVector(std::vector<CoupledPairState>(target_dynamic_strands.segment_pairs.size()));
   coupled_pair_correction_buffer->UploadVector(
       std::vector<CoupledPairCorrection>(target_dynamic_strands.segment_pairs.size()));
+  coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
+  for (auto& descriptor_set : coupled_descriptor_sets) {
+    descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
+    descriptor_set->UpdateBufferDescriptorBinding(0, coupled_pair_state_buffer);
+    descriptor_set->UpdateBufferDescriptorBinding(1, coupled_pair_correction_buffer);
+  }
+  if (solver_settings.mode != BundleSolverMode::Hybrid)
+    return;
   float average_length = 0.f;
   for (const auto& segment : target_dynamic_strands.segments)
     average_length += segment.rest_length;
@@ -611,17 +620,17 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   coarse_padded_count = 1;
   while (coarse_padded_count < target_dynamic_strands.connection_segment_pair_size)
     coarse_padded_count *= 2;
-  buffer_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
   base_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_member_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_range_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   segment_slice_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_transform_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   slice_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
-  slice_dispatch_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   coarse_candidate_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   coarse_edge_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   coarse_edge_count_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
+  buffer_info.usage |= VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT;
+  slice_dispatch_buffer = std::make_shared<Buffer>(buffer_info, allocation_info);
   base_slice_buffer->UploadVector(base_slices);
   slice_member_buffer->UploadVector(std::vector<SliceMember>(slice_padded_count));
   slice_range_buffer->UploadVector(std::vector<SliceRange>(target_dynamic_strands.segments.size()));
@@ -630,13 +639,10 @@ void DsBundle::InitializeData(const DynamicStrandsInitializeParameters& initiali
   slice_count_buffer->UploadVector(std::vector<uint32_t>(1));
   slice_dispatch_buffer->UploadVector(std::vector<VkDispatchIndirectCommand>(1, {0, 1, 1}));
   coarse_candidate_buffer->UploadVector(std::vector<CoarseEdgeCandidate>(coarse_padded_count));
-  coarse_edge_buffer->UploadVector(std::vector<CoarseEdge>(target_dynamic_strands.connection_segment_pair_size));
+  coarse_edge_buffer->UploadVector(
+      std::vector<CoarseEdge>(glm::max(target_dynamic_strands.connection_segment_pair_size, 1u)));
   coarse_edge_count_buffer->UploadVector(std::vector<uint32_t>(1));
-  coupled_descriptor_sets.resize(Platform::GetMaxFramesInFlight());
   for (auto& descriptor_set : coupled_descriptor_sets) {
-    descriptor_set = std::make_shared<DescriptorSet>(coupled_layout);
-    descriptor_set->UpdateBufferDescriptorBinding(0, coupled_pair_state_buffer);
-    descriptor_set->UpdateBufferDescriptorBinding(1, coupled_pair_correction_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(2, base_slice_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(3, slice_member_buffer);
     descriptor_set->UpdateBufferDescriptorBinding(4, slice_range_buffer);
