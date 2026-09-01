@@ -5,6 +5,7 @@
 #include "Console.hpp"
 #include "GraphicsResources.hpp"
 #include "Platform.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "RenderTexture.hpp"
 
@@ -18,24 +19,33 @@ RenderPassDescriptor DeferredMaterialResolvePass::CreateDescriptor(const bool am
   } else if (depth_pyramid_enabled) {
     dependency = RenderPassNames::depth_pyramid;
   }
-  return {
-      RenderPassNames::deferred_material_resolve,
+  RenderPassDescriptor descriptor{
+      RenderPassNames::deferred_camera,
       RenderPassQueue::Graphics,
       RenderPassScope::Camera,
       {{RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceUsage::Read, RenderResourceState::General},
+       {RenderResourceNames::lighting_directional_shadow_map, RenderResourceUsage::Read,
+        RenderResourceState::ShaderRead},
        {RenderResourceNames::camera_depth, RenderResourceUsage::Read, RenderResourceState::ShaderRead},
-       {RenderResourceNames::camera_g_buffer, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite}},
+       {RenderResourceNames::camera_g_buffer, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite},
+       {RenderResourceNames::camera_color, RenderResourceUsage::Write, RenderResourceState::StorageReadWrite}},
       {dependency},
       RenderPassProfilerGroup::Lighting,
-      "Deferred Material Resolve"};
+      "Deferred Compute Lighting"};
+  if (ambient_occlusion_enabled) {
+    descriptor.resources.push_back(
+        {RenderResourceNames::camera_ambient_occlusion, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
+  }
+  return descriptor;
 }
 
 void DeferredMaterialResolvePass::Execute(const RenderGraphExecutionContext& context, const Parameters& parameters) {
   if (!parameters.record_commands || !parameters.camera || !parameters.camera->GetRenderTexture() ||
-      !parameters.per_frame_descriptor_set || !parameters.pipeline || !parameters.pipeline->Initialized() ||
-      !parameters.descriptor_set_layout || !parameters.transient_resources || parameters.camera_index < 0 ||
-      !parameters.camera->GetGBufferDescriptorSet()) {
-    EVOENGINE_ERROR("Deferred material resolve pass prerequisites are unavailable.");
+      !parameters.per_frame_descriptor_set || !parameters.lighting_descriptor_set ||
+      !parameters.raster_lighting_texture_descriptor_set || !parameters.pipeline ||
+      !parameters.pipeline->Initialized() || !parameters.descriptor_set_layout || !parameters.transient_resources ||
+      parameters.camera_index < 0 || !parameters.camera->GetGBufferDescriptorSet()) {
+    EVOENGINE_ERROR("Deferred compute lighting pass prerequisites are unavailable.");
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
@@ -47,7 +57,7 @@ void DeferredMaterialResolvePass::Execute(const RenderGraphExecutionContext& con
     parameters.camera->AppendGBufferColorAttachmentInfos(g_buffer_attachments, VK_ATTACHMENT_LOAD_OP_LOAD,
                                                          VK_ATTACHMENT_STORE_OP_STORE);
     if (g_buffer_attachments.size() != 5u) {
-      EVOENGINE_ERROR("Deferred material resolve requires exactly five G-buffer attachments.");
+      EVOENGINE_ERROR("Deferred compute lighting requires exactly five G-buffer attachments.");
       ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
       return;
     }
@@ -62,14 +72,26 @@ void DeferredMaterialResolvePass::Execute(const RenderGraphExecutionContext& con
     }
     image_info.imageView = g_buffer_attachments[4].imageView;
     descriptor_set->UpdateImageDescriptorBinding(4, image_info);
+    image_info.imageView = parameters.camera->GetRenderTexture()->GetColorImageView()->GetVkImageView();
+    descriptor_set->UpdateImageDescriptorBinding(5, image_info);
 
     parameters.pipeline->Bind(vk_command_buffer);
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 0,
                                            parameters.per_frame_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 1,
                                            parameters.camera->GetGBufferDescriptorSet()->GetVkDescriptorSet());
-    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2, descriptor_set->GetVkDescriptorSet());
-    parameters.pipeline->PushConstant(vk_command_buffer, 0, parameters.camera_index);
+    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 2,
+                                           parameters.lighting_descriptor_set->GetVkDescriptorSet());
+    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 3,
+                                           parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
+    parameters.pipeline->BindDescriptorSet(vk_command_buffer, 4, descriptor_set->GetVkDescriptorSet());
+    RenderInstancePushConstant push_constant;
+    push_constant.instance_index = parameters.reflection_probe_capture ? 2 : 0;
+    push_constant.camera_index = parameters.camera_index;
+    push_constant.light_split_index =
+        parameters.directional_shadow_camera_index >= 0 ? -parameters.directional_shadow_camera_index - 1 : 256;
+    push_constant.meshlet_culling_flags = parameters.scene_camera ? 1u : 0u;
+    parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto extent = parameters.camera->GetRenderTexture()->GetExtent();
     parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),
                                   Platform::DivUp(extent.height, 16));

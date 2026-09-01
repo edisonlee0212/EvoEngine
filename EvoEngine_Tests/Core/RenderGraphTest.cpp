@@ -14,7 +14,6 @@
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
-#include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DeferredMaterialResolvePass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
@@ -221,7 +220,7 @@ TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
       DdgiProbeVisualizationPass::CreateDescriptor(),
       DdgiProbeTracePass::CreateDescriptor(),
       DeferredGeometryPass::CreateDescriptor(),
-      DeferredLightingPass::CreateDescriptor(),
+      DeferredMaterialResolvePass::CreateDescriptor(false, false),
       DepthPyramidPass::CreateDescriptor(),
       DirectionalLightShadowPass::CreateDescriptor(),
       EntitySelectionHighlightPass::CreateDescriptor(),
@@ -1598,7 +1597,7 @@ TEST(RenderGraph, DefaultRasterCameraGraphPlansDepthPyramidProducerBoundary) {
   EXPECT_EQ(plan.resources[depth_pyramid_index].resolved_dimensions.mip_levels, 11);
 }
 
-TEST(RenderGraph, AmbientOcclusionPrecedesMaterialResolveAndDeferredLighting) {
+TEST(RenderGraph, AmbientOcclusionPrecedesFusedDeferredCompute) {
   RenderGraph graph;
   AddDefaultRasterCameraResources(graph);
   AddAdvancedCameraResources(graph);
@@ -1623,24 +1622,22 @@ TEST(RenderGraph, AmbientOcclusionPrecedesMaterialResolveAndDeferredLighting) {
   });
   graph.AddPass(DeferredMaterialResolvePass::CreateDescriptor(true, true), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredLightingPass::CreateDescriptor(true), [](const RenderGraphExecutionContext&) {
-  });
 
   RenderGraphCompileContext context;
   context.camera_width = 640;
   context.camera_height = 360;
   const auto plan = graph.Compile(context);
   ASSERT_TRUE(plan.valid);
-  ASSERT_EQ(plan.passes.size(), 5);
+  ASSERT_EQ(plan.passes.size(), 4);
   EXPECT_TRUE(plan.passes[2].dependency_indices.empty());
   EXPECT_EQ(plan.passes[2].resource_dependency_indices, std::vector<size_t>({0}));
   EXPECT_EQ(plan.passes[3].dependency_indices, std::vector<size_t>({2}));
-  EXPECT_EQ(plan.passes[4].dependency_indices, std::vector<size_t>({3}));
+  EXPECT_EQ(graph.GetPasses()[3].name, RenderPassNames::deferred_camera);
 
   const auto transition = std::find_if(plan.transitions.begin(), plan.transitions.end(), [](const auto& candidate) {
-    return candidate.pass_index == 4 && candidate.previous_pass_index == 3 &&
-           candidate.previous_state == RenderResourceState::StorageReadWrite &&
-           candidate.next_state == RenderResourceState::ShaderRead;
+    return candidate.pass_index == 3 && candidate.previous_pass_index == 2 &&
+           candidate.previous_state == RenderResourceState::ShaderRead &&
+           candidate.next_state == RenderResourceState::StorageReadWrite;
   });
   ASSERT_NE(transition, plan.transitions.end());
   EXPECT_TRUE(transition->memory_dependency);
@@ -1662,16 +1659,13 @@ TEST(RenderGraph, AmbientOcclusionDoesNotRequireDepthPyramid) {
   });
   graph.AddPass(DeferredMaterialResolvePass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DeferredLightingPass::CreateDescriptor(true, false), [](const RenderGraphExecutionContext&) {
-  });
 
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
-  ASSERT_EQ(plan.passes.size(), 4);
+  ASSERT_EQ(plan.passes.size(), 3);
   EXPECT_TRUE(plan.passes[1].dependency_indices.empty());
   EXPECT_EQ(plan.passes[1].resource_dependency_indices, std::vector<size_t>({0}));
   EXPECT_EQ(plan.passes[2].dependency_indices, std::vector<size_t>({1}));
-  EXPECT_EQ(plan.passes[3].dependency_indices, std::vector<size_t>({2}));
 }
 
 TEST(RenderGraph, CompileResolvesCameraRelativeAllocationDimensions) {

@@ -16,6 +16,14 @@
       "classification": "TransientPassResource"
     },
     {
+      "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Sampler2D:inAmbientOcclusion:0",
+      "kind": "shader-resource",
+      "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",
+      "resource_type": "Sampler2D",
+      "symbol": "inAmbientOcclusion",
+      "classification": "TransientPassResource"
+    },
+    {
       "id": "shader:EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang:Texture2D:inMetadata:0",
       "kind": "shader-resource",
       "path": "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DeferredMaterialResolve.slang",

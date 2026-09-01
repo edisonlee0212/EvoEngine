@@ -16,10 +16,15 @@ class EVOENGINE_API DeferredMaterialResolvePass final {
   struct Parameters {
     std::shared_ptr<Camera> camera;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
+    std::shared_ptr<DescriptorSet> lighting_descriptor_set;
+    std::shared_ptr<DescriptorSet> raster_lighting_texture_descriptor_set;
     std::shared_ptr<ComputePipeline> pipeline;
     std::shared_ptr<DescriptorSetLayout> descriptor_set_layout;
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     int camera_index = -1;
+    int directional_shadow_camera_index = -1;
+    bool reflection_probe_capture = false;
+    bool scene_camera = false;
     RecordCommands record_commands;
   };
 

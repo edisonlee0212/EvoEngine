@@ -35,7 +35,6 @@
 #include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
-#include "RenderPasses/DeferredLightingPass.hpp"
 #include "RenderPasses/DeferredMaterialResolvePass.hpp"
 #include "RenderPasses/DepthPyramidPass.hpp"
 #include "RenderPasses/DirectionalLightShadowPass.hpp"
@@ -1764,6 +1763,8 @@ void RenderLayer::InitializeCommonDescriptorSetLayouts(
     }
     deferred_material_resolve_layout_->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,
                                                              VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    deferred_material_resolve_layout_->PushDescriptorBinding(5, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                                             VK_SHADER_STAGE_COMPUTE_BIT, 0);
     deferred_material_resolve_layout_->Initialize();
   }
   if (!render_texture_storage_layout_) {
@@ -2056,9 +2057,11 @@ void RenderLayer::OnCreate() {
                                 Resources::GetDefaultResourcesPath() / "Shaders/Compute/DeferredMaterialResolve.slang");
     deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(per_frame_layout_);
     deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(camera_g_buffer_layout_);
+    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(lighting_layout_);
+    deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(raster_lighting_texture_layout_);
     deferred_material_resolve_pipeline_->descriptor_set_layouts.emplace_back(deferred_material_resolve_layout_);
     auto& push_constant_range = deferred_material_resolve_pipeline_->push_constant_ranges.emplace_back();
-    push_constant_range.size = sizeof(int32_t);
+    push_constant_range.size = sizeof(RenderInstancePushConstant);
     push_constant_range.offset = 0;
     push_constant_range.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
     deferred_material_resolve_pipeline_->Initialize();
@@ -4692,25 +4695,11 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
       DeferredMaterialResolvePass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
         DeferredMaterialResolvePass::Execute(
-            context, {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index],
-                      deferred_material_resolve_pipeline_, deferred_material_resolve_layout_,
-                      capture.transient_resources, capture.camera_index, capture.record_commands});
-      });
-  reflection_probe_capture_render_graph_.AddPass(
-      DeferredLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
-        const auto& capture = *reflection_probe_capture_graph_context_;
-        DeferredLightingPass::Execute(context, {capture.camera,
-                                                deferred_lighting_pass_pipeline,
-                                                per_frame_descriptor_sets_[capture.current_frame_index],
-                                                capture.lighting_descriptor_set,
-                                                capture.raster_lighting_texture_descriptor_set,
-                                                capture.camera_index,
-                                                capture.directional_shadow_camera_index,
-                                                capture.current_frame_index,
-                                                false,
-                                                true,
-                                                {},
-                                                capture.record_commands});
+            context,
+            {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index], capture.lighting_descriptor_set,
+             capture.raster_lighting_texture_descriptor_set, deferred_material_resolve_pipeline_,
+             deferred_material_resolve_layout_, capture.transient_resources, capture.camera_index,
+             capture.directional_shadow_camera_index, true, false, capture.record_commands});
       });
   if (!reflection_probe_capture_render_graph_.Validate()) {
     throw std::runtime_error("Invalid reflection probe capture render graph.");
@@ -7411,33 +7400,41 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
         DeferredMaterialResolvePass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
         [&](const RenderGraphExecutionContext& context) {
           DeferredMaterialResolvePass::Execute(
-              context,
-              {camera, per_frame_descriptor_sets_[current_frame_index], deferred_material_resolve_pipeline_,
-               deferred_material_resolve_layout_, active_camera_transient_resources, camera_index, record_commands});
+              context, {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
+                        raster_lighting_texture_descriptor_set, deferred_material_resolve_pipeline_,
+                        deferred_material_resolve_layout_, active_camera_transient_resources, camera_index,
+                        directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands});
         });
-    camera_render_graph.AddPass(
-        DeferredLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
-        [&](const RenderGraphExecutionContext& context) {
-          const auto& deferred_lighting_pipeline =
-              is_scene_camera ? deferred_lighting_pass_pipeline_scene_camera : deferred_lighting_pass_pipeline;
-          DeferredLightingPass::Execute(
-              context,
-              {camera, deferred_lighting_pipeline, per_frame_descriptor_sets_[current_frame_index],
-               lighting_descriptor_set, raster_lighting_texture_descriptor_set, camera_index,
-               directional_shadow_camera_index, current_frame_index, count_draw_calls, reflection_probe_capture,
-               [&](const VkCommandBuffer vk_command_buffer, const glm::ivec4& viewport) {
-                 if (!reflection_probe_capture) {
-                   for (const auto& func : forward_rendering_external_functions) {
-                     const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
-                     if (count_draw_calls) {
-                       Platform::CountRenderPassDraw(RenderPassDrawBucket::ForwardExternal, RenderDrawCallKind::Direct,
-                                                     current_frame_index, prim_count);
-                     }
-                   }
-                 }
-               },
-               record_commands});
-        });
+    const bool forward_external_rendering_enabled =
+        !reflection_probe_capture && !forward_rendering_external_functions.empty();
+    if (forward_external_rendering_enabled) {
+      camera_render_graph.AddPass(
+          {RenderPassNames::forward_external,
+           RenderPassQueue::Graphics,
+           RenderPassScope::Camera,
+           {{RenderResourceNames::camera_depth, RenderResourceUsage::ReadWrite, RenderResourceState::DepthAttachment},
+            {RenderResourceNames::camera_color, RenderResourceUsage::ReadWrite, RenderResourceState::ColorAttachment}},
+           {RenderPassNames::deferred_camera},
+           RenderPassProfilerGroup::Geometry,
+           "Forward External"},
+          [&](const RenderGraphExecutionContext& context) {
+            record_commands([&](const VkCommandBuffer vk_command_buffer) {
+              ApplyGraphResourceBarriers(vk_command_buffer, context);
+              const RenderPassGpuTimestampScope gpu_timestamp(
+                  vk_command_buffer, context, camera->GetHandle().GetValue(), static_cast<uint64_t>(camera_index));
+              const glm::ivec4 viewport{0, 0, static_cast<int>(camera->GetSize().x),
+                                        static_cast<int>(camera->GetSize().y)};
+              for (const auto& func : forward_rendering_external_functions) {
+                const auto prim_count = func(vk_command_buffer, camera, {camera_index, viewport});
+                if (count_draw_calls) {
+                  Platform::CountRenderPassDraw(RenderPassDrawBucket::ForwardExternal, RenderDrawCallKind::Direct,
+                                                current_frame_index, prim_count);
+                }
+              }
+              ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+            });
+          });
+    }
     if (!reflection_probe_capture) {
       for (const auto& external_pass : camera_render_pass_external_functions) {
         ImportMissingPassResources(camera_render_graph, external_pass.descriptor);
@@ -7473,7 +7470,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     const bool transparent_mesh_rendering_enabled = !reflection_probe_capture && current_render_instances &&
                                                     current_render_instances->transparent_render_instances &&
                                                     !current_render_instances->transparent_render_instances->Empty();
-    const char* post_lighting_dependency = RenderPassNames::deferred_camera;
+    const char* post_lighting_dependency =
+        forward_external_rendering_enabled ? RenderPassNames::forward_external : RenderPassNames::deferred_camera;
     if (volumetric_clouds_enabled) {
       camera_render_graph.AddPass(
           VolumetricCloudsPass::CreateRasterDescriptor(post_lighting_dependency),

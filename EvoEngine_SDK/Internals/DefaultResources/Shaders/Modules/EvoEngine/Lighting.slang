@@ -764,7 +764,7 @@ float EE_FUNC_DIRECTIONAL_SHADOW_SAMPLE(DirectionalLight light, int splitIndex, 
   if (any(lightUv < halfTexel) || any(lightUv > float2(1.0f) - halfTexel)) {
     return 1.0f;
   }
-  return EE_DIRECTIONAL_LIGHT_SM.SampleCmp(
+  return EE_DIRECTIONAL_LIGHT_SM.SampleCmpLevelZero(
       float3(EE_FUNC_DIRECTIONAL_SHADOW_ATLAS_UV(light, lightUv), float(splitIndex)), receiverDepth);
 }
 
@@ -842,17 +842,19 @@ float2 EE_FUNC_SHADOW_ATLAS_UV(float2 lightUv, int viewportXOffset, int viewport
 public
 float EE_FUNC_SPOT_SHADOW_DEPTH(SpotLight light, float2 lightUv) {
   return EE_SPOT_LIGHT_SM
-      .Sample(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset, light.viewport_x_size,
-                                      light.viewport_y_size, EeSpotShadowMapSize()))
+      .SampleLevel(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
+                                           light.viewport_x_size, light.viewport_y_size, EeSpotShadowMapSize()),
+                   0.0f)
       .r;
 }
 
 public
 float EE_FUNC_POINT_SHADOW_DEPTH(PointLight light, int slice, float2 lightUv) {
   return EE_POINT_LIGHT_SM
-      .Sample(float3(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
-                                             light.viewport_x_size, light.viewport_y_size, EePointShadowMapSize()),
-                     float(slice)))
+      .SampleLevel(float3(EE_FUNC_SHADOW_ATLAS_UV(lightUv, light.viewport_x_offset, light.viewport_y_offset,
+                                                  light.viewport_x_size, light.viewport_y_size, EePointShadowMapSize()),
+                          float(slice)),
+                   0.0f)
       .r;
 }
 

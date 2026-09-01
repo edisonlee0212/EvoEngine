@@ -82,7 +82,7 @@ addresses, and BLAS content versions are unchanged, TLAS preparation is an exact
 
 | Technique | Rendering path | Availability behavior |
 | --- | --- | --- |
-| Rasterization | Opaque GBuffer, deferred lighting, forward/transparent rendering, then post-processing. | Always available. |
+| Rasterization | Raw opaque/masked GBuffer, fused compute material evaluation and lighting, forward/transparent rendering, then post-processing. | Always available. |
 | Ray tracing | Vulkan ray-tracing pipeline running the shared path-tracing integrator. | Falls back to ray query when available, otherwise rasterization. |
 | Ray query | Compute pipeline using inline ray queries with the shared path-tracing integrator. | Falls back to ray tracing when available, otherwise rasterization. |
 
@@ -97,9 +97,10 @@ invalidate the affected history. An unchanged camera continues accumulating samp
 
 Opaque meshes write only raw geometry attributes and stable IDs into the GBuffer. A separate alpha-masked geometry path
 samples only base-color alpha to determine coverage, then writes the same raw layout. GTAO reads the geometric normal
-before an in-place compute pass evaluates full materials and publishes the resolved G-buffer surface. Deferred lighting
-then combines punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion. Forward-only
-and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and post-processing.
+before an in-place compute pass evaluates full materials, publishes the resolved G-buffer surface, and writes scene
+color by combining punctual lights, shadows, diffuse indirect lighting, reflection probes, and ambient occlusion.
+Forward-only and blended geometry is rendered afterward, followed by optional Gaussian splats, gizmos, and
+post-processing.
 
 Persistent sampled assets and transient pass resources follow different descriptor policies. Standard material,
 environment, and reflection-probe assets share bindless 2D and cubemap index spaces across raster and ray paths;

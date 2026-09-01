@@ -1113,34 +1113,15 @@ TEST(GltfRasterMaterial, ScreenSpaceReflectionTemporalResolveRejectsInvalidHisto
   EXPECT_NE(pass.find("motion_vectors_view"), std::string::npos);
 }
 
-TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
-  const std::filesystem::path paths[] = {
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLighting.slang"),
-      ShaderPath("Graphics/Fragment/Standard/StandardDeferredLightingSceneCamera.slang"),
-  };
-
-  for (const auto& path : paths) {
-    const auto source = ReadTextFile(path);
-    ASSERT_FALSE(source.empty()) << path.string();
-    EXPECT_EQ(source.find("#include \"GltfRasterMaterial.slangh\""), std::string::npos) << path.string();
-    EXPECT_EQ(source.find("EE_EVALUATE_GLTF_RASTER_SURFACE"), std::string::npos) << path.string();
-    for (uint32_t binding = 20; binding <= 23; ++binding) {
-      EXPECT_NE(source.find("[[vk::binding(" + std::to_string(binding) + ", 1)]]"), std::string::npos) << path.string();
-    }
-    EXPECT_NE(source.find("[[vk::binding(4, 3)]]"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("pbr_flags.x, normal_roughness.a, pbr_flags.yzw"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("emissive_sample.a, base_color_ao.a"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("inAmbientOcclusion.Sample(input.tex_coord).r"), std::string::npos) << path.string();
-    EXPECT_NE(source.find("float4 base_color_ao = inBaseColorAO.Sample(input.tex_coord)"), std::string::npos)
-        << path.string();
-  }
-
+TEST(GltfRasterMaterial, FusedDeferredComputeResolvesAndLightsExpandedGBuffer) {
   const auto opaque = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredRaw.slang"));
   const auto masked = ReadTextFile(ShaderPath("Graphics/Fragment/Standard/StandardDeferredMaskedRaw.slang"));
   const auto resolve = ReadTextFile(ShaderPath("Compute/DeferredMaterialResolve.slang"));
+  const auto render_layer = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
   ASSERT_FALSE(opaque.empty());
   ASSERT_FALSE(masked.empty());
   ASSERT_FALSE(resolve.empty());
+  ASSERT_FALSE(render_layer.empty());
 
   EXPECT_NE(opaque.find("import EvoEngine.RawGBuffer;"), std::string::npos);
   EXPECT_NE(opaque.find("EE_BUILD_RAW_GBUFFER"), std::string::npos);
@@ -1159,6 +1140,17 @@ TEST(GltfRasterMaterial, DeferredPassesReadAndWriteExpandedGBuffer) {
   EXPECT_NE(resolve.find("EE_GLTF_RASTER_REBASE_SPECULAR_F0"), std::string::npos);
   EXPECT_NE(resolve.find("if (!isfinite(depth) || depth >= 1.0f)"), std::string::npos);
   EXPECT_EQ(resolve.find("packed_metadata.x == EE_GBUFFER_CLEAR_VALUE"), std::string::npos);
+  for (uint32_t binding = 0; binding <= 5; ++binding) {
+    EXPECT_NE(resolve.find("[[vk::binding(" + std::to_string(binding) + ", 4)]]"), std::string::npos) << binding;
+  }
+  EXPECT_NE(resolve.find("[[vk::binding(4, 3)]]"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_FUNC_CALCULATE_LIGHTS"), std::string::npos);
+  EXPECT_NE(resolve.find("EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT"), std::string::npos);
+  EXPECT_NE(resolve.find("outColor[pixel]"), std::string::npos);
+  EXPECT_NE(resolve.find("inOutUvBaseColorAo[pixel] = float4(resolved_base_color"), std::string::npos);
+  EXPECT_NE(resolve.find("inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r"), std::string::npos);
+  EXPECT_EQ(render_layer.find("DeferredLightingPass::Execute"), std::string::npos);
+  EXPECT_EQ(render_layer.find("DeferredLightingPass::CreateDescriptor"), std::string::npos);
 }
 
 TEST(GltfRasterMaterial, DeferredGBufferUsesCurrentBindings) {

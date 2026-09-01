@@ -162,6 +162,7 @@ inline constexpr const char* motion_coverage = "MotionCoverage";
 inline constexpr const char* depth_pyramid = "DepthPyramid";
 inline constexpr const char* ambient_occlusion = "AmbientOcclusion";
 inline constexpr const char* deferred_camera = "DeferredCamera";
+inline constexpr const char* forward_external = "ForwardExternal";
 inline constexpr const char* transparent_geometry = "TransparentGeometry";
 inline constexpr const char* volumetric_clouds = "VolumetricClouds";
 inline constexpr const char* gaussian_splat_cull = "GaussianSplatCull";
