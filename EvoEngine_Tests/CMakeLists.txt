@@ -52,6 +52,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/EntityBatchInspectorTest.cpp
 	Core/StaticSceneRenderTest.cpp
 	Core/EditorConsoleContractTest.cpp
+	Core/EditorViewportInputTest.cpp
 	Core/RenderingDocumentationTest.cpp
 	Core/VolumetricCloudSettingsTest.cpp
 	Core/VolumetricCloudShaderTest.cpp
@@ -117,7 +118,7 @@ if(TARGET DigitalAgriculturePackage)
 endif()
 
 if(TARGET UniversePackage)
-	add_executable(UniversePackage_Tests Core/UniverseStarClusterTest.cpp)
+	add_executable(UniversePackage_Tests Core/UniverseStarClusterTest.cpp Core/UniverseStarPickingTest.cpp Core/UniverseStarFollowTest.cpp Core/UniverseStarDemoTest.cpp)
 	target_link_libraries(UniversePackage_Tests PRIVATE UniversePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
 	target_include_directories(UniversePackage_Tests PRIVATE
 		${EVOENGINE_SDK_INCLUDES}
@@ -363,6 +364,11 @@ gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER EditorConsole.*
 	PROPERTIES LABELS "core,editor,console"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER EditorViewportInput.*
+	PROPERTIES LABELS "core,editor,input"
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"

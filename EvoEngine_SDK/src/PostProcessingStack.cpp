@@ -489,9 +489,13 @@ void Bloom::Serialize(YAML::Emitter& out) const {
   out << YAML::Key << "threshold" << YAML::Value << threshold;
   out << YAML::Key << "knee" << YAML::Value << knee;
   out << YAML::Key << "intensity" << YAML::Value << intensity;
+  out << YAML::Key << "compression_start" << YAML::Value << compression_start;
+  out << YAML::Key << "source_ceiling" << YAML::Value << source_ceiling;
 }
 
 void Bloom::Deserialize(const YAML::Node& in) {
+  compression_start = in["compression_start"] ? in["compression_start"].as<float>() : 2.0f;
+  source_ceiling = in["source_ceiling"] ? in["source_ceiling"].as<float>() : 8.0f;
   if (in["filter_radius"])
     filter_radius = in["filter_radius"].as<float>();
   if (in["threshold"])
@@ -576,6 +580,8 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
     push_constant.target_resolution = bloom_size;
     push_constant.threshold = threshold;
     push_constant.knee = knee;
+    push_constant.compression_start = std::isfinite(compression_start) ? compression_start : 2.0f;
+    push_constant.source_ceiling = std::isfinite(source_ceiling) ? source_ceiling : 8.0f;
     renderer.copy_pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     renderer.copy_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(bloom_size.x, 16),
                                      Platform::DivUp(bloom_size.y, 16));

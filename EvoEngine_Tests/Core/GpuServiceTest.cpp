@@ -2266,3 +2266,82 @@ TEST(GpuService, StagingBudgetThrottlesQueuedUploads) {
 
   SUCCEED();
 }
+
+TEST(GpuService, BloomBoundedSourcePreservesHueAndLimitsExtremeEmission) {
+  ScopedGpuPlatform platform;
+  Shader::RegisterShaderIncludePath(std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                    "EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules");
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  layout->Initialize();
+  constexpr size_t count = 21;
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = count * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  VmaAllocationCreateInfo allocation{};
+  allocation.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  auto output = std::make_shared<Buffer>(info, allocation);
+  auto descriptor = std::make_shared<DescriptorSet>(layout);
+  descriptor->UpdateBufferDescriptorBinding(0, output);
+  auto shader = std::make_shared<Shader>();
+  ASSERT_TRUE(shader->TryCompile(ShaderType::Compute, std::string(R"(
+import EvoEngine.PostProcessing;
+[[vk::binding(0, 0)]] RWStructuredBuffer<float4> output;
+[shader("compute")]
+[numthreads(1, 1, 1)]
+void main() {
+  const float brightness[12] = {0, 1, 2, 2.001, 3, 8, 20, 100, 10000, 1e20, 1e30, 1e38};
+  for (uint i = 0; i < 12; ++i)
+    output[i] = float4(EeLimitBloomSource(float3(1, 0.25, 0.5) * brightness[i], 2, 8), 1);
+  output[12] = float4(EeLimitBloomSource(float3(20, 5, 10), 4, 4), 1);
+  output[13] = float4(EeLimitBloomSource(float3(20, 5, 10), 0, 0), 1);
+  output[14] = float4(EeLimitBloomSource(float3(-1, 2, 0), 2, 8), 1);
+  output[15] = float4(EePrefilterBloom(float3(0.5, 0.25, 0.125), 1, 0.1, 2, 8), 1);
+  output[16] = float4(EePrefilterBloom(float3(4, 2, 1), 1, 0.1, 2, 8), 1);
+  output[17] = float4(EeLimitBloomSource(float3(20, 5, 10), 2, 4), 1);
+  output[18] = float4(EeLimitBloomSource(float3(20, 5, 10), 9, -1), 1);
+  output[19] = float4(EeLimitBloomSource(float3(asfloat(0x7f800000u), 0, 0), 2, 8), 1);
+  output[20] = float4(EePrefilterBloom(float3(asfloat(0x7f800000u), 0, 0), 1, 0.1, 2, 8), 1);
+})")));
+  ComputePipeline pipeline;
+  pipeline.compute_shader = shader;
+  pipeline.descriptor_set_layouts.push_back(layout);
+  pipeline.Initialize();
+  ASSERT_TRUE(pipeline.Initialized());
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+    pipeline.Bind(command);
+    pipeline.BindDescriptorSet(command, 0, descriptor->GetVkDescriptorSet());
+    pipeline.Dispatch(command, 1);
+    Platform::BufferMemoryBarrier(command, *output, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                  VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                  VK_ACCESS_2_TRANSFER_READ_BIT);
+  });
+  std::array<glm::vec4, count> values{};
+  output->Download(values);
+  const std::array<double, 12> brightness{0, 1, 2, 2.001, 3, 8, 20, 100, 10000, 1e20, 1e30, 1e38};
+  for (size_t i = 0; i < brightness.size(); ++i) {
+    const double x = brightness[i];
+    const double expected = x <= 2 ? x : 2 + 6 * ((x - 2) / (6 + x - 2));
+    EXPECT_NEAR(values[i].x, expected, 2e-6);
+    EXPECT_NEAR(values[i].y, expected * 0.25, 2e-6);
+    EXPECT_NEAR(values[i].z, expected * 0.5, 2e-6);
+    EXPECT_LE(values[i].x, 8);
+    if (i != 0)
+      EXPECT_GE(values[i].x, values[i - 1].x);
+  }
+  for (const auto& value : values)
+    for (int channel = 0; channel < 4; ++channel)
+      EXPECT_TRUE(std::isfinite(value[channel]));
+  EXPECT_EQ(values[12], glm::vec4(4, 1, 2, 1));
+  EXPECT_EQ(values[13], glm::vec4(0, 0, 0, 1));
+  EXPECT_EQ(values[14], glm::vec4(0, 2, 0, 1));
+  EXPECT_EQ(values[15], glm::vec4(0, 0, 0, 1));
+  EXPECT_NEAR(values[16].x, 2 + 6.0 / 7, 2e-6);
+  EXPECT_NEAR(values[16].y, values[16].x * 0.5, 2e-6);
+  EXPECT_NEAR(values[16].z, values[16].x * 0.25, 2e-6);
+  EXPECT_LT(values[17].x, values[6].x);
+  EXPECT_LT(values[17].x, 4);
+  EXPECT_EQ(values[18], glm::vec4(0, 0, 0, 1));
+  EXPECT_EQ(values[19], glm::vec4(8, 0, 0, 1));
+  EXPECT_EQ(values[20], glm::vec4(8, 0, 0, 1));
+}

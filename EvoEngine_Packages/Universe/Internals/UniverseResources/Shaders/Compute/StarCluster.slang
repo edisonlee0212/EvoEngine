@@ -39,11 +39,18 @@ struct StarClusterResult
 [[vk::binding(1, 0)]] StructuredBuffer<StarBaseSample> baseSamples;
 [[vk::binding(2, 0)]] RWStructuredBuffer<StarClusterResult> results;
 
+struct DispatchParameters
+{
+  uint parameterIndex;
+  uint starOffset;
+};
+[[vk::push_constant]] ConstantBuffer<DispatchParameters> dispatchParameters;
+
 void sinCos64(double angle, out double sine, out double cosine)
 {
-  const double pi = 3.1415926535897932384626433832795;
-  const double halfPi = 1.5707963267948966192313216916398;
-  const double twoPi = 6.283185307179586476925286766559;
+  const double pi = 3.1415926535897932384626433832795L;
+  const double halfPi = 1.5707963267948966192313216916398L;
+  const double twoPi = 6.283185307179586476925286766559L;
   angle -= double(int(angle / twoPi)) * twoPi;
   if (angle > pi)
     angle -= twoPi;
@@ -63,13 +70,13 @@ void sinCos64(double angle, out double sine, out double cosine)
   }
 
   const double x2 = angle * angle;
-  sine = angle * (1.0 + x2 * (-0.16666666666666666667 + x2 * (0.00833333333333333333 +
-         x2 * (-0.00019841269841269841 + x2 * (0.00000275573192239859 +
-         x2 * (-0.00000002505210838544 + x2 * 0.00000000016059043837))))));
-  cosine = cosineSign * (1.0 + x2 * (-0.5 + x2 * (0.04166666666666666667 +
-           x2 * (-0.00138888888888888889 + x2 * (0.00002480158730158730 +
-           x2 * (-0.00000027557319223986 + x2 * (0.00000000208767569879 +
-           x2 * -0.00000000001147074560)))))));
+  sine = angle * (1.0 + x2 * (-0.16666666666666666667L + x2 * (0.00833333333333333333L +
+         x2 * (-0.00019841269841269841L + x2 * (0.00000275573192239859L +
+         x2 * (-0.00000002505210838544L + x2 * 0.00000000016059043837L))))));
+  cosine = cosineSign * (1.0 + x2 * (-0.5 + x2 * (0.04166666666666666667L +
+           x2 * (-0.00138888888888888889L + x2 * (0.00002480158730158730L +
+           x2 * (-0.00000027557319223986L + x2 * (0.00000000208767569879L +
+           x2 * -0.00000000001147074560L)))))));
 }
 
 double sqrt64(double value)
@@ -83,7 +90,7 @@ double3 rotateX(double3 point, double degrees)
 {
   double s;
   double c;
-  sinCos64(degrees * 0.01745329251994329576923690768489, s, c);
+  sinCos64(degrees * 0.01745329251994329576923690768489L, s, c);
   return double3(point.x, c * point.y - s * point.z, s * point.y + c * point.z);
 }
 
@@ -91,7 +98,7 @@ double3 rotateY(double3 point, double degrees)
 {
   double s;
   double c;
-  sinCos64(degrees * 0.01745329251994329576923690768489, s, c);
+  sinCos64(degrees * 0.01745329251994329576923690768489L, s, c);
   return double3(c * point.x + s * point.z, point.y, -s * point.x + c * point.z);
 }
 
@@ -99,7 +106,7 @@ double3 rotateZ(double3 point, double degrees)
 {
   double s;
   double c;
-  sinCos64(degrees * 0.01745329251994329576923690768489, s, c);
+  sinCos64(degrees * 0.01745329251994329576923690768489L, s, c);
   return double3(c * point.x - s * point.y, s * point.x + c * point.y, point.z);
 }
 
@@ -107,12 +114,12 @@ double3 rotateZ(double3 point, double degrees)
 [numthreads(256, 1, 1)]
 void main(uint3 dispatchThreadId : SV_DispatchThreadID)
 {
-  const StarClusterParameters p = parameters[0];
+  const StarClusterParameters p = parameters[dispatchParameters.parameterIndex];
   const uint index = dispatchThreadId.x;
   if (index >= p.starCount)
     return;
 
-  const StarBaseSample sample = baseSamples[index];
+  const StarBaseSample sample = baseSamples[dispatchParameters.starOffset + index];
   const double proportion = sample.orbitalProportion;
   double a;
   double b;
@@ -161,5 +168,5 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
   result.worldPositionRadius = double4(world.xyz, p.tiltRadius.w);
   result.colorEmission = colorEmission;
   result.alphaPadding = float4(float(p.timePadding.y), 0.0, 0.0, 0.0);
-  results[index] = result;
+  results[dispatchParameters.starOffset + index] = result;
 }

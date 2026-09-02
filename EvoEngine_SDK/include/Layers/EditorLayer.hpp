@@ -174,6 +174,20 @@ struct EditorCameraFreeFlyState {
   float look_response = 0.0f;
 };
 
+struct EditorViewportInput {
+  std::weak_ptr<Camera> camera;
+  std::weak_ptr<Scene> scene;
+  bool focused = false;
+  bool visible = false;
+  bool cursor_valid = false;
+  glm::vec2 image_origin = {0.0f, 0.0f};
+  glm::vec2 image_size = {0.0f, 0.0f};
+  // Texture/framebuffer UV: the displayed ImGui image reverses Y.
+  glm::vec2 cursor_uv = {0.0f, 0.0f};
+  uint64_t click_sequence = 0;          // Zero unless this frame contains a valid left press.
+  uint64_t follow_toggle_sequence = 0;  // Zero unless this frame contains an uncaptured Space press.
+};
+
 /**
  * @brief Structure representing a gizmo mesh task.
  */
@@ -242,6 +256,12 @@ class EVOENGINE_API EditorLayer : public ILayer {
   [[nodiscard]] bool SceneCameraWindowFocused() const; /**< Checks if the Scene Camera window is focused. */
   [[nodiscard]] bool MainCameraWindowFocused() const;  /**< Checks if the Main Camera window is focused. */
 
+  // Refreshed during PreUpdate, before layers run Update. Image coordinates are ImGui display pixels.
+  [[nodiscard]] const EditorViewportInput& GetSceneViewportInput() const;
+  [[nodiscard]] const EditorViewportInput& GetMainCameraViewportInput() const;
+  static bool MapViewportCursor(const glm::vec2& image_origin, const glm::vec2& image_size,
+                                const glm::vec2& cursor_position, glm::vec2& texture_uv);
+
   bool enable_gizmos = true;        /**< Indicates if gizmos are enabled. */
   bool transform_read_only = false; /**< Indicates if transformations are read-only. */
 
@@ -300,6 +320,9 @@ class EVOENGINE_API EditorLayer : public ILayer {
    * @param target_rotation The new rotation of the scene camera.
    */
   void SetSceneCameraRotation(const glm::quat& target_rotation);
+
+  // Changes the scene camera's coordinate frame without changing its physical view or transition progress.
+  void RebaseSceneCamera(const glm::dmat4& old_to_new);
 
   /**
    * @brief Moves the camera to a new position and rotation over a specified transition time.
@@ -900,6 +923,7 @@ class EVOENGINE_API EditorLayer : public ILayer {
   void RequestDefaultEditorLayout();
 
  private:
+  friend struct EditorCameraRebaseTestAccess;
   struct AssetInspectorWindow {
     std::shared_ptr<IAsset> asset;
     bool open = true;
@@ -973,6 +997,8 @@ class EVOENGINE_API EditorLayer : public ILayer {
   void PrepareFrameState();
   void CaptureSceneWindowMousePosition();
   void CaptureMainCameraWindowMousePosition();
+  void CaptureViewportImage(EditorViewportInput& input);
+  void FinalizeViewportInput(EditorViewportInput& input, bool blocked = false);
   void UpdateSceneState(const std::shared_ptr<Scene>& scene);
   void ClearEntitySelectionState();
   void DrawEntityExplorerWindow(const std::shared_ptr<Scene>& scene);
@@ -1212,6 +1238,7 @@ class EVOENGINE_API EditorLayer : public ILayer {
   float transition_time_;       /**< Transition time for camera movement. */
   float transition_timer_;      /**< Timer for camera movement transition. */
   bool transition_preserves_world_up_ = false;
+  glm::vec3 transition_up_ = {0.0f, 1.0f, 0.0f};
 
 #pragma endregion
 
@@ -1229,6 +1256,10 @@ class EVOENGINE_API EditorLayer : public ILayer {
 
   glm::vec2 mouse_scene_window_position_;  /**< Mouse position in the scene window. */
   glm::vec2 mouse_camera_window_position_; /**< Mouse position in the camera window. */
+  EditorViewportInput scene_viewport_input_;
+  EditorViewportInput main_camera_viewport_input_;
+  uint64_t viewport_click_sequence_ = 0;
+  uint64_t viewport_follow_toggle_sequence_ = 0;
   EditorCameraFreeFlyState scene_camera_free_fly_state_;
 
   float main_camera_resolution_multiplier_ = 1.0f; /**< Multiplier for main camera resolution. */

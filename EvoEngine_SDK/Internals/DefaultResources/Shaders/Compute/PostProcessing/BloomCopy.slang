@@ -5,7 +5,8 @@ struct BloomPrefilterPushConstant {
   uint2 target_resolution;
   float threshold;
   float knee;
-  float2 padding;
+  float compression_start;
+  float source_ceiling;
 };
 
 [[vk::push_constant]]
@@ -22,32 +23,28 @@ Sampler2D inColor;
 [[vk::binding(1, 0)]]
 RWTexture2D<float4> outColor;
 
-float3 DownsampleBox13(float2 uv) {
-  float2 texel = 0.5f / float2(constants.source_resolution);
-  float3 a = inColor.SampleLevel(uv, 0.0f).xyz;
-  float3 b = inColor.SampleLevel(uv + texel * float2(-1.0f, -1.0f), 0.0f).xyz;
-  float3 c = inColor.SampleLevel(uv + texel * float2(-1.0f, 1.0f), 0.0f).xyz;
-  float3 d = inColor.SampleLevel(uv + texel * float2(1.0f, 1.0f), 0.0f).xyz;
-  float3 e = inColor.SampleLevel(uv + texel * float2(1.0f, -1.0f), 0.0f).xyz;
-  float3 f = inColor.SampleLevel(uv + texel * float2(-2.0f, -2.0f), 0.0f).xyz;
-  float3 g = inColor.SampleLevel(uv + texel * float2(-2.0f, 0.0f), 0.0f).xyz;
-  float3 h = inColor.SampleLevel(uv + texel * float2(0.0f, 2.0f), 0.0f).xyz;
-  float3 i = inColor.SampleLevel(uv + texel * float2(2.0f, 2.0f), 0.0f).xyz;
-  float3 j = inColor.SampleLevel(uv + texel * float2(2.0f, -2.0f), 0.0f).xyz;
-  float3 k = inColor.SampleLevel(uv + texel * float2(2.0f, 0.0f), 0.0f).xyz;
-  float3 l = inColor.SampleLevel(uv + texel * float2(-2.0f, 2.0f), 0.0f).xyz;
-  float3 m = inColor.SampleLevel(uv + texel * float2(0.0f, -2.0f), 0.0f).xyz;
-  return ((b + c + d + e) * 0.5f + (f + g + a + m) * 0.125f + (g + h + i + a) * 0.125f +
-          (a + i + j + k) * 0.125f + (m + a + k + l) * 0.125f) * 0.25f;
+float3 SampleBloom(float2 uv) {
+  return EePrefilterBloom(inColor.SampleLevel(uv, 0.0f).xyz, constants.threshold, constants.knee,
+                          constants.compression_start, constants.source_ceiling);
 }
 
-float3 ApplySoftKnee(float3 color) {
-  color = clamp(color, float3(0.0f), float3(20.0f));
-  float brightness = max(color.x, max(color.y, color.z));
-  float knee = max(constants.knee, 0.0001f);
-  float soft = clamp(brightness - (constants.threshold - knee), 0.0f, 2.0f * knee);
-  soft = soft * soft * (0.25f / knee);
-  return color * (max(soft, brightness - constants.threshold) / max(brightness, 0.0001f));
+float3 DownsampleBox13(float2 uv) {
+  float2 texel = 0.5f / float2(constants.source_resolution);
+  float3 a = SampleBloom(uv);
+  float3 b = SampleBloom(uv + texel * float2(-1.0f, -1.0f));
+  float3 c = SampleBloom(uv + texel * float2(-1.0f, 1.0f));
+  float3 d = SampleBloom(uv + texel * float2(1.0f, 1.0f));
+  float3 e = SampleBloom(uv + texel * float2(1.0f, -1.0f));
+  float3 f = SampleBloom(uv + texel * float2(-2.0f, -2.0f));
+  float3 g = SampleBloom(uv + texel * float2(-2.0f, 0.0f));
+  float3 h = SampleBloom(uv + texel * float2(0.0f, 2.0f));
+  float3 i = SampleBloom(uv + texel * float2(2.0f, 2.0f));
+  float3 j = SampleBloom(uv + texel * float2(2.0f, -2.0f));
+  float3 k = SampleBloom(uv + texel * float2(2.0f, 0.0f));
+  float3 l = SampleBloom(uv + texel * float2(-2.0f, 2.0f));
+  float3 m = SampleBloom(uv + texel * float2(0.0f, -2.0f));
+  return ((b + c + d + e) * 0.5f + (f + g + a + m) * 0.125f + (g + h + i + a) * 0.125f +
+          (a + i + j + k) * 0.125f + (m + a + k + l) * 0.125f) * 0.25f;
 }
 
 [shader("compute")]
@@ -59,5 +56,5 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   }
 
   float2 uv = (float2(pixel) + 0.5f) / float2(constants.target_resolution);
-  outColor[EeTexel(pixel)] = float4(ApplySoftKnee(DownsampleBox13(uv)), 1.0f);
+  outColor[EeTexel(pixel)] = float4(DownsampleBox13(uv), 1.0f);
 }

@@ -10,6 +10,8 @@ struct StarClusterResult
 struct StarRenderPushConstant
 {
   int cameraIndex;
+  float subpixelBrightnessLimit;
+  float2 viewportSize;
 };
 
 struct StarVertexOutput
@@ -44,6 +46,16 @@ StarVertexOutput main(uint vertexIndex : SV_VertexID, uint instanceIndex : SV_In
   StarVertexOutput output;
   output.position = mul(viewPosition, EE_CAMERAS[cameraIndex].projection);
   output.discPosition = corner;
-  output.radiance = star.colorEmission.xyz * star.colorEmission.w * star.alphaPadding.x;
+  output.radiance = star.colorEmission.xyz * star.colorEmission.w;
+  // A diameter below one pixel must not feed bloom; the result buffer stays camera-independent.
+  const float2 diameterPixels = abs(float(star.worldPositionRadius.w) *
+    float2(EE_CAMERAS[cameraIndex].projection[0][0], EE_CAMERAS[cameraIndex].projection[1][1])) *
+    constants.viewportSize / max(abs(output.position.w), 1e-6);
+  if (max(diameterPixels.x, diameterPixels.y) < 1.0)
+  {
+    const float3 baseColor = max(star.colorEmission.xyz, float3(0.0));
+    const float brightness = max(baseColor.x, max(baseColor.y, baseColor.z));
+    output.radiance = baseColor * min(1.0, constants.subpixelBrightnessLimit / max(brightness, 1e-6));
+  }
   return output;
 }

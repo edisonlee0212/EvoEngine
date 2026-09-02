@@ -28,12 +28,20 @@ ProfilerItemDescriptor GpuItem(const std::string& id, const std::string& name) {
 
 bool RegisterItems(PackageRegistrar& registrar) {
   items.compute = registrar.RegisterProfilerItem(GpuItem("Universe.ClusterCompute", "Star Cluster Compute"));
-  items.inspection_copy = registrar.RegisterProfilerItem(GpuItem("Universe.InspectionCopy", "Star Inspection Copy"));
-  items.readback = registrar.RegisterProfilerItem(CpuItem("Universe.Readback", "Star Cluster Readback"));
+  items.parameters = registrar.RegisterProfilerItem(CpuItem("Universe.Parameters", "Star Batch Parameters"));
   items.render_registration =
       registrar.RegisterProfilerItem(CpuItem("Universe.RenderRegistration", "Star Render Registration"));
   items.forward_render = registrar.RegisterProfilerItem(GpuItem("Universe.ForwardRender", "Star Forward Render"));
-  return items.compute && items.inspection_copy && items.readback && items.render_registration && items.forward_render;
+  items.pick_intersection =
+      registrar.RegisterProfilerItem(GpuItem("Universe.PickIntersection", "Star Pick Intersection"));
+  items.pick_reduction = registrar.RegisterProfilerItem(GpuItem("Universe.PickReduction", "Star Pick Reduction"));
+  items.pick_input = registrar.RegisterProfilerItem(CpuItem("Universe.PickInput", "Star Pick Input"));
+  items.pick_readback = registrar.RegisterProfilerItem(CpuItem("Universe.PickReadback", "Star Pick Readback"));
+  items.follow_cpu = registrar.RegisterProfilerItem(CpuItem("Universe.FollowCpu", "Star Follow CPU"));
+  items.hover_render = registrar.RegisterProfilerItem(GpuItem("Universe.HoverRender", "Star Hover Ring"));
+  return items.compute && items.parameters && items.render_registration && items.forward_render &&
+         items.pick_intersection && items.pick_reduction && items.pick_input && items.pick_readback &&
+         items.follow_cpu && items.hover_render;
 }
 
 const Items& GetItems() {

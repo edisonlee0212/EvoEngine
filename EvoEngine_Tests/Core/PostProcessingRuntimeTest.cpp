@@ -170,10 +170,37 @@ TEST_F(PostProcessingRuntime, ApplyDefaultSettingsRestoresEffectsAndEnableFlags)
   EXPECT_NE(stack.bloom, previous_bloom);
   EXPECT_FLOAT_EQ(stack.bloom->threshold, Bloom{}.threshold);
   EXPECT_FLOAT_EQ(stack.bloom->intensity, 0.05f);
+  EXPECT_FLOAT_EQ(stack.bloom->compression_start, 2.0f);
+  EXPECT_FLOAT_EQ(stack.bloom->source_ceiling, 8.0f);
   EXPECT_FLOAT_EQ(stack.tone_mapping->exposure, ToneMapping{}.exposure);
   EXPECT_TRUE(stack.enable_ambient_occlusion);
   EXPECT_TRUE(stack.enable_bloom);
   EXPECT_TRUE(stack.enable_screen_space_reflection);
   EXPECT_TRUE(stack.enable_anti_aliasing);
   EXPECT_TRUE(stack.enable_tone_mapping);
+}
+
+TEST_F(PostProcessingRuntime, BloomSourceLimiterSerializesAndDefaultsLegacyAssets) {
+  Bloom bloom;
+  bloom.compression_start = 3.5f;
+  bloom.source_ceiling = 12.0f;
+  YAML::Emitter emitter;
+  emitter << YAML::BeginMap;
+  bloom.Serialize(emitter);
+  emitter << YAML::EndMap;
+  Bloom restored;
+  restored.Deserialize(YAML::Load(emitter.c_str()));
+  EXPECT_FLOAT_EQ(restored.compression_start, 3.5f);
+  EXPECT_FLOAT_EQ(restored.source_ceiling, 12.0f);
+  restored.Deserialize(YAML::Load("threshold: 4\nintensity: 0.2"));
+  EXPECT_FLOAT_EQ(restored.compression_start, 2.0f);
+  EXPECT_FLOAT_EQ(restored.source_ceiling, 8.0f);
+  EXPECT_FLOAT_EQ(restored.threshold, 4.0f);
+  EXPECT_FLOAT_EQ(restored.intensity, 0.2f);
+}
+
+TEST_F(PostProcessingRuntime, BloomSourceLimiterReusesPrefilterPadding) {
+  EXPECT_EQ(sizeof(Bloom::PrefilterPushConstant), 32u);
+  EXPECT_EQ(offsetof(Bloom::PrefilterPushConstant, compression_start), 24u);
+  EXPECT_EQ(offsetof(Bloom::PrefilterPushConstant, source_ceiling), 28u);
 }

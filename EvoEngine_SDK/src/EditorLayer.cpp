@@ -2575,14 +2575,15 @@ bool IsValid(const Bound& bound) {
          bound.min.z <= bound.max.z;
 }
 
-bool WorldUpCameraRotation(const glm::vec3& front, const glm::quat& fallback_rotation, glm::quat& camera_rotation) {
+bool WorldUpCameraRotation(const glm::vec3& front, const glm::quat& fallback_rotation, glm::quat& camera_rotation,
+                           const glm::vec3& reference_up = glm::vec3(0.0f, 1.0f, 0.0f)) {
   if (!IsFinite(front) || glm::length(front) <= glm::epsilon<float>())
     return false;
   const auto front_direction = glm::normalize(front);
-  auto right = glm::cross(front_direction, glm::vec3(0.0f, 1.0f, 0.0f));
+  auto right = glm::cross(front_direction, reference_up);
   if (!IsFinite(right) || glm::length(right) <= glm::epsilon<float>()) {
     right = fallback_rotation * glm::vec3(1.0f, 0.0f, 0.0f);
-    right.y = 0.0f;
+    right -= reference_up * glm::dot(right, reference_up);
   }
   if (!IsFinite(right) || glm::length(right) <= glm::epsilon<float>())
     right = glm::vec3(1.0f, 0.0f, 0.0f);
@@ -2953,6 +2954,9 @@ bool EditorLayer::IsPlantVisualSplitLayoutReady() const {
 }
 
 void EditorLayer::OnDestroy() {
+  scene_viewport_input_ = {};
+  main_camera_viewport_input_ = {};
+  viewport_click_sequence_ = 0;
   CancelEntityGizmoSession();
   transform_inspector_drag_session_.reset();
   TitleBarSearchBuffers().erase(this);
@@ -2984,6 +2988,13 @@ void EditorLayer::PreUpdate() {
   const auto scene = ApplicationContext::Get().GetActiveScene();
   UpdateCameraTransition();
   PrepareFrameState();
+  scene_viewport_input_ = {};
+  main_camera_viewport_input_ = {};
+  scene_viewport_input_.scene = scene;
+  main_camera_viewport_input_.scene = scene;
+  scene_viewport_input_.camera = GetSceneCamera();
+  if (scene)
+    main_camera_viewport_input_.camera = scene->main_camera.Get<Camera>();
   CaptureSceneWindowMousePosition();
   CaptureMainCameraWindowMousePosition();
   UpdateSceneState(scene);
@@ -3310,8 +3321,8 @@ void EditorLayer::UpdateCameraTransition() {
   const auto interpolated_rotation = glm::mix(previous_rotation_, target_rotation_, a);
   sceneCameraRotation = interpolated_rotation;
   if (transition_preserves_world_up_)
-    WorldUpCameraRotation(interpolated_rotation * glm::vec3(0.0f, 0.0f, -1.0f), previous_rotation_,
-                          sceneCameraRotation);
+    WorldUpCameraRotation(interpolated_rotation * glm::vec3(0.0f, 0.0f, -1.0f), previous_rotation_, sceneCameraRotation,
+                          transition_up_);
   sceneCameraPosition = glm::mix(previous_position_, target_position_, a);
   if (a >= 1.0f) {
     lock_camera = false;
@@ -3350,6 +3361,39 @@ void EditorLayer::CaptureSceneWindowMousePosition() {
     ImGui::End();
     ImGui::PopStyleVar();
   }
+}
+
+bool EditorLayer::MapViewportCursor(const glm::vec2& image_origin, const glm::vec2& image_size,
+                                    const glm::vec2& cursor_position, glm::vec2& texture_uv) {
+  texture_uv = {};
+  const auto local = cursor_position - image_origin;
+  if (!std::isfinite(image_size.x) || !std::isfinite(image_size.y) || !std::isfinite(local.x) ||
+      !std::isfinite(local.y) || image_size.x <= 0.0f || image_size.y <= 0.0f || local.x < 0.0f || local.y < 0.0f ||
+      local.x >= image_size.x || local.y >= image_size.y)
+    return false;
+  texture_uv = {local.x / image_size.x, 1.0f - local.y / image_size.y};
+  return true;
+}
+
+void EditorLayer::CaptureViewportImage(EditorViewportInput& input) {
+  const auto origin = ImGui::GetItemRectMin();
+  const auto size = ImGui::GetItemRectSize();
+  const auto cursor = ImGui::GetMousePos();
+  input.visible = ImGui::IsItemVisible();
+  input.image_origin = {origin.x, origin.y};
+  input.image_size = {size.x, size.y};
+  input.cursor_valid = input.visible && ImGui::IsItemHovered() &&
+                       MapViewportCursor(input.image_origin, input.image_size, {cursor.x, cursor.y}, input.cursor_uv);
+}
+
+void EditorLayer::FinalizeViewportInput(EditorViewportInput& input, const bool blocked) {
+  input.cursor_valid &= !blocked && ImGui::IsWindowHovered() && !ImGui::GetIO().WantTextInput;
+  if (input.cursor_valid && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+    input.click_sequence = ++viewport_click_sequence_;
+  if (input.focused && input.visible && !blocked && !ImGui::GetIO().WantTextInput && !ImGui::IsAnyItemActive() &&
+      !ImGui::IsPopupOpen(nullptr, ImGuiPopupFlags_AnyPopupId | ImGuiPopupFlags_AnyPopupLevel) &&
+      ImGui::IsKeyPressed(ImGuiKey_Space, false))
+    input.follow_toggle_sequence = ++viewport_follow_toggle_sequence_;
 }
 
 void EditorLayer::ApplySceneCameraPreviewWindowLayout() {
@@ -6975,6 +7019,7 @@ void EditorLayer::SceneCameraWindow() {
   scene_camera_window_focused_ = false;
   suppress_scene_camera_selection_ = false;
   if (ImGui::Begin("Scene")) {
+    scene_viewport_input_.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
       ImVec2 view_port_size;
@@ -6998,6 +7043,7 @@ void EditorLayer::SceneCameraWindow() {
           // Because I use the texture from OpenGL, I need to invert the V from the UV.
           ImGui::Image(scene_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(view_port_size.x, view_port_size.y), ImVec2(0, 1), ImVec2(1, 0));
+          CaptureViewportImage(scene_viewport_input_);
           CameraWindowDragAndDrop();
         } else {
           ImGui::Text("No active scene camera!");
@@ -7146,6 +7192,7 @@ void EditorLayer::SceneCameraWindow() {
         GlobalTransform gl;
         gl.value = glm::inverse(camera_view);
         sceneCameraRotation = gl.GetRotation();
+        FinalizeViewportInput(scene_viewport_input_, suppress_scene_camera_selection_ || gizmo_using_);
       }
 #pragma endregion
 
@@ -7192,6 +7239,7 @@ void EditorLayer::MainCameraWindow() {
 #pragma region Window
   main_camera_window_focused_ = false;
   if (ImGui::Begin("Camera")) {
+    main_camera_viewport_input_.focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
     if (scene) {
       ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2{0, 0});
       static int corner = 1;
@@ -7215,6 +7263,7 @@ void EditorLayer::MainCameraWindow() {
               {overlay_pos.x + main_camera_fit_rect.offset.x, overlay_pos.y + main_camera_fit_rect.offset.y});
           ImGui::Image(main_camera->GetRenderTexture()->GetColorImTextureId(),
                        ImVec2(main_camera_fit_rect.size.x, main_camera_fit_rect.size.y), ImVec2(0, 1), ImVec2(1, 0));
+          CaptureViewportImage(main_camera_viewport_input_);
           CameraWindowDragAndDrop();
           ImGui::SetCursorScreenPos(overlay_pos);
         } else {
@@ -7260,6 +7309,7 @@ void EditorLayer::MainCameraWindow() {
           ImGui::PopStyleVar();
         }
 
+        FinalizeViewportInput(main_camera_viewport_input_);
         if (main_camera_window_focused_ && !GetLockEntitySelection() &&
             Input::GetKey(GLFW_KEY_ESCAPE) == Input::KeyActionType::Press) {
           SetSelectedEntity(Entity());
@@ -7348,6 +7398,14 @@ void EditorLayer::SetConsoleMessageFilters(const bool info, const bool warning, 
 
 bool EditorLayer::SceneCameraWindowFocused() const {
   return scene_camera_window_focused_;
+}
+
+const EditorViewportInput& EditorLayer::GetSceneViewportInput() const {
+  return scene_viewport_input_;
+}
+
+const EditorViewportInput& EditorLayer::GetMainCameraViewportInput() const {
+  return main_camera_viewport_input_;
 }
 
 bool EditorLayer::MainCameraWindowFocused() const {
@@ -7515,6 +7573,23 @@ void EditorLayer::SetSceneCameraPosition(const glm::vec3& target_position) {
 
 void EditorLayer::SetSceneCameraRotation(const glm::quat& target_rotation) {
   editor_cameras_.at(scene_camera_handle_).rotation = target_rotation;
+}
+
+void EditorLayer::RebaseSceneCamera(const glm::dmat4& old_to_new) {
+  auto& camera = editor_cameras_.at(scene_camera_handle_);
+  const auto rotation = glm::normalize(glm::quat_cast(glm::dmat3(old_to_new)));
+  const auto rebase_pose = [&](glm::vec3& position, glm::quat& orientation) {
+    position = glm::vec3(old_to_new * glm::dvec4(position, 1.0));
+    orientation = glm::quat(glm::normalize(rotation * glm::dquat(orientation)));
+  };
+  rebase_pose(camera.position, camera.rotation);
+  if (lock_camera) {
+    rebase_pose(previous_position_, previous_rotation_);
+    rebase_pose(target_position_, target_rotation_);
+    transition_up_ = glm::vec3(rotation * glm::dvec3(transition_up_));
+  }
+  scene_camera_free_fly_state_.smoothed_move_velocity =
+      glm::vec3(rotation * glm::dvec3(scene_camera_free_fly_state_.smoothed_move_velocity));
 }
 
 void EditorLayer::UpdateTextureId(ImTextureID& target, const VkSampler image_sampler, const VkImageView image_view,
@@ -8015,6 +8090,7 @@ void EditorLayer::MoveCamera(const glm::quat& target_rotation, const glm::vec3& 
   target_position_ = target_position;
   transition_preserves_world_up_ = false;
   lock_camera = true;
+  transition_up_ = {0.0f, 1.0f, 0.0f};
 }
 
 bool EditorLayer::FocusSceneCameraOnSelection(const std::shared_ptr<Scene>& scene,

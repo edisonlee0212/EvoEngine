@@ -154,6 +154,15 @@ Raster cameras can use GTAO ambient occlusion, screen-space reflections, SMAA, b
 effects from their `PostProcessingStack`. Ray cameras apply bloom and tone mapping after path tracing. Post-processing
 resources and temporal histories are camera-owned. Assets must use the current flat GTAO and SMAA schemas.
 
+Bloom exposes **Compression start** (default 2) and **Source ceiling** (default 8) in linear HDR bloom-source units.
+After threshold/soft-knee extraction, each sampled contribution is limited before the initial downsample accumulation.
+Below the start, brightness is unchanged; above it, a bounded rational curve smoothly approaches the ceiling.
+The maximum RGB channel determines brightness, and RGB is scaled uniformly to preserve color ratios.
+The scene's original HDR color/emission is untouched. This replaces the old per-channel hard clamp at 20.
+Setting the start equal to the ceiling gives a hard cap; a zero ceiling suppresses bloom. Final bloom intensity and
+threshold/knee remain independent controls. Mip contributions still add during upsampling, so this limits the bloom
+source, not the final composited halo. The settings serialize with the stack; older assets use the new defaults.
+
 ## Geometry And Optional Features
 
 Regular, skinned, instanced, transparent, strand, Gaussian-splat, and externally registered geometry enter the renderer

@@ -211,7 +211,8 @@ class EVOENGINE_API Bloom : public IPostProcessing {
     glm::uvec2 target_resolution = glm::uvec2(1);
     float threshold = 1.0f;
     float knee = 0.1f;
-    glm::vec2 padding = glm::vec2(0.0f);
+    float compression_start = 2.0f;
+    float source_ceiling = 8.0f;
   };
 
   struct DownsamplingPushConstant {
@@ -239,6 +240,8 @@ class EVOENGINE_API Bloom : public IPostProcessing {
   float threshold = 1.0f;
   float knee = 0.1f;
   float intensity = 0.05f;
+  float compression_start = 2.0f;
+  float source_ceiling = 8.0f;
   void Process(const PostProcessingStack& post_processing_stack, const std::shared_ptr<Camera>& target_camera,
                PostProcessingExecutionContext& context) const override;
   void BuildPipelines(PostProcessingRendererResources& resources, bool force_rebuild = false) const override;

@@ -717,6 +717,23 @@ bool InspectBloom(Bloom& bloom) {
     changed = true;
   if (ImGui::DragFloat("Intensity", &bloom.intensity, 0.01f, 0.0f, 100.0f))
     changed = true;
+  if (ImGui::DragFloat("Source ceiling", &bloom.source_ceiling, 0.05f, 0.0f, 1000.0f, "%.3f",
+                       ImGuiSliderFlags_AlwaysClamp)) {
+    bloom.compression_start = glm::clamp(bloom.compression_start, 0.0f, bloom.source_ceiling);
+    changed = true;
+  }
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip(
+        "Maximum extracted bloom-source brightness (linear HDR). Does not clamp scene color. Zero disables bloom.");
+  if (ImGui::DragFloat("Compression start", &bloom.compression_start, 0.05f, 0.0f, bloom.source_ceiling, "%.3f",
+                       ImGuiSliderFlags_AlwaysClamp)) {
+    bloom.compression_start = glm::clamp(bloom.compression_start, 0.0f, bloom.source_ceiling);
+    changed = true;
+  }
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip(
+        "Bloom is unchanged below this brightness and smoothly approaches the ceiling above it. Equal values give a "
+        "hard cap.");
   return changed;
 }
 
