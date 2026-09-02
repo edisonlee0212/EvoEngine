@@ -20,8 +20,17 @@ struct StarFollowCameraPose {
   glm::dquat rotation{1, 0, 0, 0};
   bool valid = false;
 };
-StarFollowCameraPose CalculateStarFollowCameraPose(const glm::dvec3& position, const glm::dquat& rotation,
-                                                   double radius);
+StarFollowCameraPose CalculateStarFollowCameraPose(double radius);
+StarFollowCameraPose CalculateStarOverviewCameraPose(const glm::dvec3& position, const glm::dquat& rotation,
+                                                     double bounding_radius, const glm::dmat4& projection,
+                                                     double near_distance);
+double StarClusterBoundingRadius(const StarClusterGpuParameters& parameters, const glm::dvec3& gaussian_bound);
+
+struct StarViewTransition {
+  double disk_scale = 1, start_scale = 1, target_scale = 1, start_time = 0;
+  void Update(double now);
+  void SetLocked(bool locked, double now);
+};
 
 struct StarFollowState {
   bool following = false, available = false;

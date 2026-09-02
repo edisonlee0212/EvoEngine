@@ -38,9 +38,13 @@ TEST_F(UniverseStarDemo, CameraOverridesDeepCopySettingsAndRestoreOriginalRefere
   const auto scene_camera = std::make_shared<Camera>();
   main_camera->post_processing_stack_ref = original;
   scene_camera->post_processing_stack_ref = original;
+  main_camera->camera_settings.far_distance = 321;
+  scene_camera->camera_settings.far_distance = 654;
   StarDemoCameraOverride main_override, scene_override;
   main_override.Apply(main_camera);
   scene_override.Apply(scene_camera);
+  EXPECT_FLOAT_EQ(main_camera->camera_settings.far_distance, 1000000);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.far_distance, 1000000);
   const auto main_stack = main_camera->post_processing_stack_ref.Get<PostProcessingStack>();
   const auto scene_stack = scene_camera->post_processing_stack_ref.Get<PostProcessingStack>();
   ASSERT_TRUE(main_stack);
@@ -75,6 +79,8 @@ TEST_F(UniverseStarDemo, CameraOverridesDeepCopySettingsAndRestoreOriginalRefere
   EXPECT_FLOAT_EQ(0.17f, scene_stack->bloom->intensity);
   main_override.Restore();
   scene_override.Restore();
+  EXPECT_FLOAT_EQ(main_camera->camera_settings.far_distance, 321);
+  EXPECT_FLOAT_EQ(scene_camera->camera_settings.far_distance, 654);
   EXPECT_EQ(original, main_camera->post_processing_stack_ref.Get<PostProcessingStack>());
   EXPECT_EQ(original, scene_camera->post_processing_stack_ref.Get<PostProcessingStack>());
 }
@@ -121,7 +127,9 @@ TEST_F(UniverseStarDemo, NullCamerasAndMissingStacksRestoreSafely) {
 
 TEST(UniverseStarDemoDefaults, AuthoringDefaultsAndExplicitSerializedValues) {
   StarCluster cluster;
-  EXPECT_DOUBLE_EQ(1, cluster.time_scale);
+  EXPECT_DOUBLE_EQ(0.1, cluster.time_scale);
+  EXPECT_DOUBLE_EQ(1, cluster.visual_radius);
+  EXPECT_DOUBLE_EQ(30000, cluster.disk_diameter);
   EXPECT_FLOAT_EQ(8, cluster.disk_emission_intensity);
   EXPECT_FLOAT_EQ(8, cluster.core_emission_intensity);
   EXPECT_FLOAT_EQ(8, cluster.center_emission_intensity);

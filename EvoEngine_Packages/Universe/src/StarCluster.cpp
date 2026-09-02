@@ -52,6 +52,9 @@ void StarCluster::ResetAuthoringState() {
   center_emission_intensity = defaults.center_emission_intensity;
   alpha = defaults.alpha;
   visual_radius = defaults.visual_radius;
+  radius_standard_deviation = defaults.radius_standard_deviation;
+  radius_min = defaults.radius_min;
+  radius_max = defaults.radius_max;
   time_scale = defaults.time_scale;
   phase = defaults.phase;
   paused = defaults.paused;
@@ -73,7 +76,25 @@ bool universe_package::InspectStarCluster(InspectorContext&, StarCluster& cluste
   changed |= ImGui::Checkbox("Paused", &cluster.paused);
   changed |= ImGui::DragScalar("Time scale", ImGuiDataType_Double, &cluster.time_scale, 0.1f);
   changed |= ImGui::DragScalar("Phase", ImGuiDataType_Double, &cluster.phase, 1.0f);
-  changed |= ImGui::DragScalar("Visual radius", ImGuiDataType_Double, &cluster.visual_radius, 0.01f);
+  if (ImGui::TreeNode("Star size")) {
+    const double zero = 0;
+    const double maximum = (std::numeric_limits<double>::max)();
+    changed |= ImGui::DragScalar("Mean radius", ImGuiDataType_Double, &cluster.visual_radius, 0.01f, &zero, &maximum,
+                                 "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    changed |= ImGui::DragScalar("Standard deviation", ImGuiDataType_Double, &cluster.radius_standard_deviation, 0.01f,
+                                 &zero, &maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    changed |= ImGui::DragScalar("Minimum radius", ImGuiDataType_Double, &cluster.radius_min, 0.01f, &zero, &maximum,
+                                 "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    changed |= ImGui::DragScalar("Maximum radius", ImGuiDataType_Double, &cluster.radius_max, 0.01f,
+                                 &cluster.radius_min, &maximum, "%.3f", ImGuiSliderFlags_AlwaysClamp);
+    if (cluster.radius_max < cluster.radius_min) {
+      cluster.radius_max = cluster.radius_min;
+      changed = true;
+    }
+    ImGui::TextUnformatted(
+        "Zero deviation: uniform mean radius (limits unused). Otherwise: clamped normal distribution.");
+    ImGui::TreePop();
+  }
   if (ImGui::TreeNode("Density wave")) {
     changed |= ImGui::DragScalar("Disk diameter", ImGuiDataType_Double, &cluster.disk_diameter, 1.0f);
     changed |= ImGui::DragScalar("Disk eccentricity", ImGuiDataType_Double, &cluster.disk_eccentricity, 0.01f);
@@ -145,6 +166,9 @@ void universe_package::SerializeStarCluster(YAML::Emitter& out, const StarCluste
   WRITE_VALUE(center_emission_intensity);
   WRITE_VALUE(alpha);
   WRITE_VALUE(visual_radius);
+  WRITE_VALUE(radius_standard_deviation);
+  WRITE_VALUE(radius_min);
+  WRITE_VALUE(radius_max);
   WRITE_VALUE(time_scale);
   WRITE_VALUE(phase);
   WRITE_VALUE(paused);
@@ -190,6 +214,9 @@ void universe_package::DeserializeStarCluster(const YAML::Node& in, StarCluster&
   READ_VALUE(center_emission_intensity);
   READ_VALUE(alpha);
   READ_VALUE(visual_radius);
+  READ_VALUE(radius_standard_deviation);
+  READ_VALUE(radius_min);
+  READ_VALUE(radius_max);
   READ_VALUE(time_scale);
   READ_VALUE(phase);
   READ_VALUE(paused);

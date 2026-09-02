@@ -6,7 +6,7 @@ using namespace universe_package;
 
 namespace {
 bool ValidFollowRadius(const double radius) {
-  const double distance = radius * 50;
+  const double distance = radius * 20;
   return std::isfinite(radius) && radius > 0 && distance >= std::numeric_limits<float>::denorm_min() &&
          distance <= (std::numeric_limits<float>::max)();
 }
@@ -45,7 +45,10 @@ StarClusterGpuResult universe_package::EvaluateStar(const StarClusterGpuParamete
   point /= 20;
   const glm::dvec4 world = glm::dmat4(p.world0, p.world1, p.world2, p.world3) * glm::dvec4(point, 1);
   StarClusterGpuResult result;
-  result.world_position_radius = glm::dvec4(glm::dvec3(world), p.tilt_radius.w);
+  const double radius = p.center_offset.w > 0 ? glm::clamp(p.tilt_radius.w + p.center_offset.w * sample.gaussian_radius,
+                                                           p.time_padding.z, p.time_padding.w)
+                                              : p.tilt_radius.w;
+  result.world_position_radius = glm::dvec4(glm::dvec3(world), radius);
   result.color_emission = disk ? glm::mix(p.core_color_intensity, p.disk_color_intensity, float(t))
                                : glm::mix(p.center_color_intensity, p.core_color_intensity, float(t));
   result.alpha_padding.x = static_cast<float>(p.time_padding.y);
@@ -75,17 +78,80 @@ glm::dmat4 universe_package::StarReferenceFrame(const glm::dvec3& position, cons
   return frame;
 }
 
-StarFollowCameraPose universe_package::CalculateStarFollowCameraPose(const glm::dvec3& position,
-                                                                     const glm::dquat& rotation, const double radius) {
-  StarFollowCameraPose result{position, rotation, false};
+StarFollowCameraPose universe_package::CalculateStarFollowCameraPose(const double radius) {
+  StarFollowCameraPose result;
   if (!ValidFollowRadius(radius))
+    return result;
+  result.position = {0, 0, radius * 20};
+  result.valid = true;
+  return result;
+}
+
+StarFollowCameraPose universe_package::CalculateStarOverviewCameraPose(const glm::dvec3& position,
+                                                                       const glm::dquat& rotation,
+                                                                       const double bounding_radius,
+                                                                       const glm::dmat4& projection,
+                                                                       const double near_distance) {
+  StarFollowCameraPose result{position, rotation, false};
+  if (!std::isfinite(bounding_radius) || bounding_radius <= 0)
     return result;
   const auto direction =
       glm::dot(position, position) > 0 ? glm::normalize(position) : glm::normalize(rotation * glm::dvec3(0, 0, 1));
-  result.position = direction * (radius * 50);
+  const double cotangent = (std::max)(std::abs(projection[0][0]), std::abs(projection[1][1]));
+  const double distance =
+      (std::max)(bounding_radius * 1.02 * std::sqrt(1 + cotangent * cotangent), bounding_radius + near_distance);
+  if (!std::isfinite(distance) || distance > (std::numeric_limits<float>::max)())
+    return result;
+  result.position = direction * distance;
   result.rotation = glm::quat_cast(glm::dmat3(StarReferenceFrame(direction, glm::dmat4(1), glm::mat3_cast(rotation))));
   result.valid = true;
   return result;
+}
+
+double universe_package::StarClusterBoundingRadius(const StarClusterGpuParameters& p,
+                                                   const glm::dvec3& gaussian_bound) {
+  double orbit_radius = 0;
+  for (int i = 0; i < 4; ++i)
+    orbit_radius = (std::max)(orbit_radius, std::abs(p.ellipse0[i]));
+  orbit_radius = (std::max)(orbit_radius, (std::max)(std::abs(p.ellipse1.x), std::abs(p.ellipse1.y)));
+  const auto spread = gaussian_bound * glm::abs(glm::dvec3(p.spread_speed.y, p.spread_speed.x, p.spread_speed.y)) *
+                      std::abs(p.ellipse0.x + p.ellipse0.y);
+  const double horizontal = glm::length(glm::dvec2(spread.x, spread.z)) +
+                            glm::length(glm::dvec2(p.center_offset.x, p.center_offset.z)) +
+                            glm::length(glm::dvec2(p.center_position.x, p.center_position.z));
+  const double vertical = spread.y + std::abs(p.center_offset.y) + std::abs(p.center_position.y);
+  const double tilt_x = (std::max)({std::abs(p.speed_tilt.y), std::abs(p.speed_tilt.w), std::abs(p.tilt_radius.y)});
+  const double tilt_z = (std::max)({std::abs(p.speed_tilt.z), std::abs(p.tilt_radius.x), std::abs(p.tilt_radius.z)});
+  const double orbital_y = (std::min)(1.0, std::sin(glm::radians((std::min)(90.0, tilt_x))) +
+                                               std::sin(glm::radians((std::min)(90.0, tilt_z))));
+  const double offset_length = std::hypot(horizontal, vertical);
+  // An untilted orbit is horizontal: vertical Gaussian tails do not add directly to its radius.
+  const double along_orbit = vertical <= orbital_y * offset_length
+                                 ? offset_length
+                                 : horizontal * std::sqrt(1 - orbital_y * orbital_y) + vertical * orbital_y;
+  const double local_radius =
+      std::sqrt(orbit_radius * orbit_radius + offset_length * offset_length + 2 * orbit_radius * along_orbit) / 20;
+  const glm::dmat3 world(glm::dvec3(p.world0), glm::dvec3(p.world1), glm::dvec3(p.world2));
+  double norm_one = 0, norm_inf = 0;
+  for (int i = 0; i < 3; ++i) {
+    norm_one = (std::max)(norm_one, std::abs(world[i][0]) + std::abs(world[i][1]) + std::abs(world[i][2]));
+    norm_inf = (std::max)(norm_inf, std::abs(world[0][i]) + std::abs(world[1][i]) + std::abs(world[2][i]));
+  }
+  // Bound every orbital phase, including the actual population's Gaussian tails and entity transforms.
+  const double maximum_radius = p.center_offset.w > 0 ? p.time_padding.w : std::abs(p.tilt_radius.w);
+  return glm::length(glm::dvec3(p.world3)) + local_radius * std::sqrt(norm_one * norm_inf) + maximum_radius;
+}
+
+void StarViewTransition::Update(const double now) {
+  const double remaining = 1 - glm::clamp(now - start_time, 0.0, 1.0);
+  disk_scale = glm::mix(start_scale, target_scale, 1 - remaining * remaining * remaining * remaining);
+}
+
+void StarViewTransition::SetLocked(const bool locked, const double now) {
+  Update(now);
+  start_scale = disk_scale;
+  target_scale = locked ? 100 : 1;
+  start_time = now;
 }
 
 StarFollowChange StarFollowState::Update(const StarPickSnapshot& selection, const StarClusterBatch& batch,
@@ -101,9 +167,9 @@ StarFollowChange StarFollowState::Update(const StarPickSnapshot& selection, cons
       if (range.identity != selection.identity || range.seed != selection.seed || selection.ordinal >= range.count)
         continue;
       const auto& p = batch.parameters[i];
-      selected_radius = p.tilt_radius.w;
-      selected_world_position =
-          glm::dvec3(EvaluateStar(p, batch.samples[range.offset + selection.ordinal]).world_position_radius);
+      const auto star = EvaluateStar(p, batch.samples[range.offset + selection.ordinal]);
+      selected_radius = star.world_position_radius.w;
+      selected_world_position = glm::dvec3(star.world_position_radius);
       selected_frame = StarReferenceFrame(selected_world_position, glm::dmat4(p.world0, p.world1, p.world2, p.world3),
                                           glm::dmat3(selected_frame));
       available = true;

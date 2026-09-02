@@ -44,22 +44,54 @@ TEST(UniverseStarFollow, ReferenceFrameCentersStarAndPointsAtClusterOrigin) {
   EXPECT_DOUBLE_EQ(example.z, -1000);
 }
 
-TEST(UniverseStarFollow, FocusPoseUsesFiftyRadiiAndPreservesApproachDirection) {
-  for (const auto position : {glm::dvec3(3, 4, 5), glm::dvec3(0, 10, 0), glm::dvec3(0, -10, 0)}) {
-    const auto pose = CalculateStarFollowCameraPose(position, glm::dquat(1, 0, 0, 0), 0.25);
+TEST(UniverseStarFollow, FocusPoseAlignsStarAndClusterAtTwentyRadii) {
+  for (const double radius : {0.25, 1.0, 2.0}) {
+    const auto pose = CalculateStarFollowCameraPose(radius);
     ASSERT_TRUE(pose.valid);
-    EXPECT_NEAR(glm::length(pose.position), 12.5, 1e-10);
-    EXPECT_LT(glm::length(glm::normalize(pose.position) - glm::normalize(position)), 1e-10);
-    EXPECT_LT(glm::length(pose.rotation * glm::dvec3(0, 0, -1) + glm::normalize(position)), 1e-10);
+    EXPECT_EQ(pose.position, glm::dvec3(0, 0, 20 * radius));
+    EXPECT_EQ(pose.rotation * glm::dvec3(0, 0, -1), glm::dvec3(0, 0, -1));
+    for (const auto star : {glm::dvec3(10, 20, 30), glm::dvec3(0), glm::dvec3(0, 100, 0)}) {
+      const auto frame = StarReferenceFrame(star, glm::dmat4(1));
+      const auto center = glm::inverse(frame) * glm::dvec4(0, 0, 0, 1);
+      EXPECT_NEAR(center.x, 0, 1e-10);
+      EXPECT_NEAR(center.y, 0, 1e-10);
+      EXPECT_LE(center.z, 0);
+    }
   }
 }
 
-TEST(UniverseStarFollow, FocusPoseAtOriginUsesCurrentCameraBackwardDirection) {
+TEST(UniverseStarFollow, DistributedRadiusDrivesFollowDistanceAndOverviewBounds) {
+  const auto cluster = Cluster();
+  cluster->radius_standard_deviation = 0.5;
+  cluster->radius_min = 0.1;
+  cluster->radius_max = 3;
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  StarFollowState follow;
+  follow.Update(Select(batch, cluster, 2), batch, true);
+  ASSERT_TRUE(follow.following);
+  const auto& p = batch.parameters[0];
+  const double expected = EvaluateStar(p, batch.samples[2]).world_position_radius.w;
+  EXPECT_DOUBLE_EQ(follow.selected_radius, expected);
+  EXPECT_DOUBLE_EQ(CalculateStarFollowCameraPose(follow.selected_radius).position.z, 20 * expected);
+  auto uniform = p;
+  uniform.center_offset.w = 0;
+  EXPECT_DOUBLE_EQ(StarClusterBoundingRadius(p, batch.gaussian_bounds[0]) -
+                       StarClusterBoundingRadius(uniform, batch.gaussian_bounds[0]),
+                   cluster->radius_max - cluster->visual_radius);
+  for (const auto& sample : batch.samples) {
+    const auto star = EvaluateStar(p, sample).world_position_radius;
+    EXPECT_LE(glm::length(glm::dvec3(star)) + star.w, StarClusterBoundingRadius(p, batch.gaussian_bounds[0]));
+  }
+}
+
+TEST(UniverseStarFollow, OverviewAtOriginUsesCurrentCameraBackwardDirection) {
   const auto rotation = glm::angleAxis(0.75, glm::normalize(glm::dvec3(1, 2, 3)));
-  const auto pose = CalculateStarFollowCameraPose({}, rotation, 2);
+  const auto projection = glm::perspective(glm::radians(60.0), 16.0 / 9, 0.1, 1000000.0);
+  const auto pose = CalculateStarOverviewCameraPose({}, rotation, 100, projection, 0.1);
   ASSERT_TRUE(pose.valid);
-  EXPECT_NEAR(glm::length(pose.position), 100, 1e-10);
-  EXPECT_LT(glm::length(pose.position / 100.0 - rotation * glm::dvec3(0, 0, 1)), 1e-10);
+  EXPECT_NEAR(glm::length(pose.position), 204, 1e-10);
+  EXPECT_LT(glm::length(glm::normalize(pose.position) - rotation * glm::dvec3(0, 0, 1)), 1e-10);
   EXPECT_LT(glm::length(pose.rotation * glm::dvec3(0, 0, -1) + glm::normalize(pose.position)), 1e-10);
 }
 
@@ -70,9 +102,8 @@ TEST(UniverseStarFollow, InvalidRadiusRejectsFocusAndFollowEntryWithoutLosingSel
   const auto selected = Select(batch, cluster);
   for (const double radius : {0.0, -0.25, 1e100, 1e-100, std::numeric_limits<double>::infinity(),
                               std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::max()}) {
-    const auto pose = CalculateStarFollowCameraPose({0, 0, 3}, glm::dquat(1, 0, 0, 0), radius);
+    const auto pose = CalculateStarFollowCameraPose(radius);
     EXPECT_FALSE(pose.valid);
-    EXPECT_EQ(pose.position, glm::dvec3(0, 0, 3));
     batch.parameters[0].tilt_radius.w = radius;
     StarFollowState follow;
     const auto change = follow.Update(selected, batch, true);
@@ -86,14 +117,14 @@ TEST(UniverseStarFollow, InvalidRadiusRejectsFocusAndFollowEntryWithoutLosingSel
 }
 
 TEST(UniverseStarFollow, SmallRepresentableRadiusProducesNonzeroCameraPose) {
-  const auto pose = CalculateStarFollowCameraPose({1, 1, 1}, glm::dquat(1, 0, 0, 0), 1e-40);
+  const auto pose = CalculateStarFollowCameraPose(1e-40);
   ASSERT_TRUE(pose.valid);
   const auto position = glm::vec3(pose.position);
   EXPECT_NE(position, glm::vec3(0));
-  EXPECT_GT(position.x, 0);
-  EXPECT_GT(position.y, 0);
+  EXPECT_EQ(position.x, 0);
+  EXPECT_EQ(position.y, 0);
   EXPECT_GT(position.z, 0);
-  EXPECT_NEAR(glm::length(pose.position) / 1e-40, 50, 1e-10);
+  EXPECT_NEAR(glm::length(pose.position) / 1e-40, 20, 1e-10);
   const auto cluster = Cluster();
   cluster->visual_radius = 1e-40;
   StarClusterBatch batch;
@@ -230,4 +261,85 @@ TEST(UniverseStarFollow, UnavailableTargetsDetachWithoutAutomaticResumeAndResetC
     EXPECT_FALSE(follow.available);
     ExpectMatrix(follow.reference_to_world, glm::dmat4(1));
   }
+}
+
+TEST(UniverseStarFollow, ViewScaleEasesAndReversesWithoutJumpOrPopulationChanges) {
+  StarViewTransition view;
+  view.SetLocked(true, 10);
+  EXPECT_DOUBLE_EQ(view.disk_scale, 1);
+  view.Update(10.5);
+  EXPECT_DOUBLE_EQ(view.disk_scale, 1 + 99 * 0.9375);
+  const double halfway = view.disk_scale;
+  view.SetLocked(false, 10.5);
+  EXPECT_DOUBLE_EQ(view.disk_scale, halfway);
+  view.Update(11.5);
+  EXPECT_DOUBLE_EQ(view.disk_scale, 1);
+  view.SetLocked(true, 12);
+  view.Update(13);
+  EXPECT_DOUBLE_EQ(view.disk_scale, 100);
+  const auto cluster = Cluster();
+  StarClusterBatch batch;
+  ASSERT_TRUE(batch.Update({{cluster}}, 0));
+  const auto samples = batch.samples;
+  const auto bounds = batch.gaussian_bounds;
+  const auto revision = batch.population_revision;
+  for (const double scale : {1.0, halfway, 100.0, 1.0}) {
+    EXPECT_FALSE(batch.Update({{cluster}}, 0, scale));
+    EXPECT_EQ(batch.population_revision, revision);
+    EXPECT_EQ(batch.gaussian_bounds, bounds);
+    EXPECT_EQ(std::memcmp(samples.data(), batch.samples.data(), samples.size() * sizeof(StarBaseSample)), 0);
+    EXPECT_DOUBLE_EQ(batch.parameters[0].ellipse0.x + batch.parameters[0].ellipse0.y, 30000 * scale);
+    EXPECT_DOUBLE_EQ(batch.parameters[0].tilt_radius.w, 1);
+    EXPECT_DOUBLE_EQ(cluster->disk_diameter, 30000);
+  }
+}
+
+TEST(UniverseStarFollow, OverviewBoundsEveryStarAcrossPhasesTransformsAndViewportShapes) {
+  const auto cluster = Cluster();
+  cluster->SetStarCount(1000);
+  cluster->center_offset = {300, -200, 100};
+  cluster->center_position = {-500, 800, 90};
+  const auto world = glm::translate(glm::dmat4(1), glm::dvec3(100, 200, 300)) *
+                     glm::rotate(glm::dmat4(1), 0.7, glm::normalize(glm::dvec3(1, 2, 3))) *
+                     glm::scale(glm::dmat4(1), glm::dvec3(2, 3, 4));
+  StarClusterBatch batch;
+  batch.Update({{cluster, world}}, 0);
+  for (const double time : {0.0, 100.0, 1000000.0}) {
+    cluster->disk_tilt_x = time == 0 ? 0 : time == 100 ? 35 : 179;
+    cluster->core_tilt_z = time == 100 ? -70 : 0;
+    cluster->center_tilt_x = time == 100 ? -20 : 0;
+    const auto parameters = BuildStarClusterParameters(*cluster, world, time);
+    const double bound = StarClusterBoundingRadius(parameters, batch.gaussian_bounds[0]);
+    for (const double aspect : {0.5, 1.0, 16.0 / 9}) {
+      const auto projection = glm::perspective(glm::radians(60.0), aspect, 0.1, 1000000.0);
+      const auto pose = CalculateStarOverviewCameraPose({3, 4, 5}, glm::dquat(1, 0, 0, 0), bound, projection, 0.1);
+      ASSERT_TRUE(pose.valid);
+      const auto view = glm::inverse(glm::translate(glm::dmat4(1), pose.position) * glm::mat4_cast(pose.rotation));
+      for (const auto& sample : batch.samples) {
+        const auto star = EvaluateStar(parameters, sample).world_position_radius;
+        EXPECT_LE(glm::length(glm::dvec3(star)) + star.w, bound);
+        const auto clip = projection * view * glm::dvec4(glm::dvec3(star), 1);
+        EXPECT_GT(clip.w, 0);
+        EXPECT_LT(std::abs(clip.x / clip.w), 1);
+        EXPECT_LT(std::abs(clip.y / clip.w), 1);
+        EXPECT_LT(clip.z / clip.w, 1);
+      }
+    }
+  }
+}
+
+TEST(UniverseStarFollow, OverviewCombinesVerticalTailsWithHorizontalOrbitForCloserFit) {
+  const auto cluster = Cluster();
+  cluster->SetStarCount(500000);
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  const auto& p = batch.parameters[0];
+  const auto spread = batch.gaussian_bounds[0] * glm::dvec3(cluster->xz_spread, cluster->y_spread, cluster->xz_spread) *
+                      cluster->disk_diameter;
+  const double old_bound = ((std::max)(p.ellipse0.x, p.ellipse0.y) + glm::length(spread)) / 20 + cluster->visual_radius;
+  const double tighter_bound = StarClusterBoundingRadius(p, batch.gaussian_bounds[0]);
+  EXPECT_LT(tighter_bound, old_bound * 0.9);
+  for (const auto& sample : batch.samples)
+    EXPECT_LE(glm::length(glm::dvec3(EvaluateStar(p, sample).world_position_radius)) + cluster->visual_radius,
+              tighter_bound);
 }

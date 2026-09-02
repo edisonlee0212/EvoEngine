@@ -18,7 +18,7 @@ class StarCluster final : public IPrivateComponent {
   uint64_t seed = 1;
   double y_spread = 0.05;
   double xz_spread = 0.015;
-  double disk_diameter = 3000.0;
+  double disk_diameter = 30000.0;
   double disk_eccentricity = 0.5;
   double core_proportion = 0.4;
   double core_eccentricity = 0.7;
@@ -43,8 +43,11 @@ class StarCluster final : public IPrivateComponent {
   float core_emission_intensity = 8.0f;
   float center_emission_intensity = 8.0f;
   float alpha = 1.0f;
-  double visual_radius = 0.25;
-  double time_scale = 1.0;
+  double visual_radius = 1.0;
+  double radius_standard_deviation = 0.0;
+  double radius_min = 0.1;
+  double radius_max = 2.0;
+  double time_scale = 0.1;
   double phase = 1000000.0;
   bool paused = false;
 

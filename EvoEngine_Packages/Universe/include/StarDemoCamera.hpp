@@ -19,6 +19,7 @@ struct StarDemoCameraOverride {
 
  private:
   std::weak_ptr<evo_engine::Camera> camera_;
+  float original_far_distance_ = 0;
   evo_engine::AssetRef original_;
   std::shared_ptr<evo_engine::PostProcessingStack> override_;
 };

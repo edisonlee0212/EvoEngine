@@ -16,6 +16,7 @@ struct alignas(8) StarBaseSample {
   double gaussian_x = 0.0;
   double gaussian_y = 0.0;
   double gaussian_z = 0.0;
+  double gaussian_radius = 0.0;
 };
 
 struct alignas(16) StarClusterGpuParameters {
@@ -27,7 +28,7 @@ struct alignas(16) StarClusterGpuParameters {
   glm::dvec4 spread_speed{};
   glm::dvec4 speed_tilt{};
   glm::dvec4 tilt_radius{};
-  glm::dvec4 center_offset{};
+  glm::dvec4 center_offset{};  // w: radius standard deviation.
   glm::dvec4 center_position{};
   glm::dvec4 world0{1.0, 0.0, 0.0, 0.0};
   glm::dvec4 world1{0.0, 1.0, 0.0, 0.0};
@@ -36,7 +37,7 @@ struct alignas(16) StarClusterGpuParameters {
   glm::vec4 disk_color_intensity{};
   glm::vec4 core_color_intensity{};
   glm::vec4 center_color_intensity{};
-  glm::dvec4 time_padding{};
+  glm::dvec4 time_padding{};  // time, alpha, minimum radius, maximum radius.
 };
 
 struct alignas(16) StarClusterGpuResult {
@@ -45,7 +46,7 @@ struct alignas(16) StarClusterGpuResult {
   glm::vec4 alpha_padding{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
-static_assert(sizeof(StarBaseSample) == 32);
+static_assert(sizeof(StarBaseSample) == 40);
 static_assert(sizeof(StarClusterGpuParameters) == 448);
 static_assert(sizeof(StarClusterGpuResult) == 64);
 
@@ -84,14 +85,15 @@ struct StarClusterBatch {
   std::vector<StarBaseSample> samples;
   std::vector<StarClusterRange> ranges;
   std::vector<StarClusterGpuParameters> parameters;
+  std::vector<glm::dvec3> gaussian_bounds;
   uint64_t population_revision = 0;
   uint64_t next_identity = 1;
-  bool Update(const std::vector<StarClusterInput>& inputs, double global_time);
+  bool Update(const std::vector<StarClusterInput>& inputs, double global_time, double disk_scale = 1);
 };
 
 StarBaseSample GenerateStarBaseSample(uint64_t seed, uint32_t ordinal);
 StarClusterGpuParameters BuildStarClusterParameters(const StarCluster& cluster, const glm::dmat4& world_transform,
-                                                    double simulation_time);
+                                                    double simulation_time, double disk_scale = 1);
 void ConfigureStarRenderStates(GraphicsPipeline& pipeline, const glm::ivec4& viewport, bool depth_write);
 
 struct StarBatchFrameSlot {
@@ -107,6 +109,7 @@ struct StarBatchRenderPacket {
   uint32_t frame_slot = 0;
   uint32_t star_count = 0;
   bool depth_write = true;
+  float fade_strength = 1.0f;
 };
 
 bool InspectUniverseLayer(InspectorContext& context, class UniverseLayer& layer);
@@ -117,6 +120,7 @@ class UniverseLayer final : public ILayer {
  public:
   void RegisterTypes(Application& application) override;
   bool depth_write = true;
+  float star_fade_strength = 1.0f;
 
  private:
   std::shared_ptr<DescriptorSetLayout> star_cluster_layout_;
@@ -145,6 +149,8 @@ class UniverseLayer final : public ILayer {
   uint32_t draws_this_frame_ = 0;
   StarPicker star_picker_;
   StarFollowState star_follow_;
+  StarViewTransition star_view_;
+  bool demo_needs_framing_ = false;
   StarDemoCameraOverride demo_main_camera_, demo_scene_camera_;
   std::shared_ptr<GraphicsPipeline> star_hover_pipeline_;
   float pick_minimum_radius_ = 3.0f;

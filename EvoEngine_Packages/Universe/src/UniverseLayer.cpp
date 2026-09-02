@@ -53,8 +53,9 @@ struct StarRenderPushConstant {
   int32_t camera_index = 0;
   float subpixel_brightness_limit = 1.0f;
   glm::vec2 viewport_size = glm::vec2(1.0f);
+  float fade_strength = 1.0f;
 };
-static_assert(sizeof(StarRenderPushConstant) == 16);
+static_assert(sizeof(StarRenderPushConstant) == 20);
 
 bool IsProceduralGalaxyProjectPath() {
   const auto project_path = ProjectManager::GetProjectPath();
@@ -103,14 +104,15 @@ StarBaseSample universe_package::GenerateStarBaseSample(const uint64_t seed, con
   const uint64_t id = static_cast<uint64_t>(ordinal) + 1;
   const auto xy = GaussianPair(seed, id, 1u);
   const auto z = GaussianPair(seed, id, 3u);
-  return {UnitSample(seed, id, 0u), xy.first, xy.second, z.first};
+  return {UnitSample(seed, id, 0u), xy.first, xy.second, z.first, z.second};
 }
 
 StarClusterGpuParameters universe_package::BuildStarClusterParameters(const StarCluster& cluster,
                                                                       const glm::dmat4& world_transform,
-                                                                      const double simulation_time) {
-  const double disk_a = cluster.disk_diameter * cluster.disk_eccentricity;
-  const double disk_b = cluster.disk_diameter * (1.0 - cluster.disk_eccentricity);
+                                                                      const double simulation_time,
+                                                                      const double disk_scale) {
+  const double disk_a = cluster.disk_diameter * disk_scale * cluster.disk_eccentricity;
+  const double disk_b = cluster.disk_diameter * disk_scale * (1.0 - cluster.disk_eccentricity);
   const double center_a = cluster.center_diameter * cluster.center_eccentricity;
   const double center_b = cluster.center_diameter * (1.0 - cluster.center_eccentricity);
   const double core_diameter =
@@ -125,7 +127,7 @@ StarClusterGpuParameters universe_package::BuildStarClusterParameters(const Star
   result.spread_speed = {cluster.y_spread, cluster.xz_spread, cluster.disk_speed, cluster.core_speed};
   result.speed_tilt = {cluster.center_speed, cluster.disk_tilt_x, cluster.disk_tilt_z, cluster.core_tilt_x};
   result.tilt_radius = {cluster.core_tilt_z, cluster.center_tilt_x, cluster.center_tilt_z, cluster.visual_radius};
-  result.center_offset = glm::dvec4(cluster.center_offset, 0.0);
+  result.center_offset = glm::dvec4(cluster.center_offset, (std::max)(0.0, cluster.radius_standard_deviation));
   result.center_position = glm::dvec4(cluster.center_position, 0.0);
   result.world0 = world_transform[0];
   result.world1 = world_transform[1];
@@ -134,11 +136,14 @@ StarClusterGpuParameters universe_package::BuildStarClusterParameters(const Star
   result.disk_color_intensity = glm::vec4(cluster.disk_color, cluster.disk_emission_intensity);
   result.core_color_intensity = glm::vec4(cluster.core_color, cluster.core_emission_intensity);
   result.center_color_intensity = glm::vec4(cluster.center_color, cluster.center_emission_intensity);
-  result.time_padding = {simulation_time, static_cast<double>(cluster.alpha), 0.0, 0.0};
+  const double minimum_radius = (std::max)(0.0, cluster.radius_min);
+  result.time_padding = {simulation_time, static_cast<double>(cluster.alpha), minimum_radius,
+                         (std::max)(minimum_radius, cluster.radius_max)};
   return result;
 }
 
-bool StarClusterBatch::Update(const std::vector<StarClusterInput>& inputs, const double global_time) {
+bool StarClusterBatch::Update(const std::vector<StarClusterInput>& inputs, const double global_time,
+                              const double disk_scale) {
   std::vector<StarClusterRange> next_ranges;
   std::unordered_set<const StarCluster*> live;
   parameters.clear();
@@ -161,7 +166,8 @@ bool StarClusterBatch::Update(const std::vector<StarClusterInput>& inputs, const
       throw std::length_error("Star batch exceeds 32-bit draw addressing");
     next_ranges.push_back({clock.identity, cluster.seed, static_cast<uint32_t>(total), cluster.GetStarCount()});
     total += cluster.GetStarCount();
-    parameters.emplace_back(BuildStarClusterParameters(cluster, input.world_transform, cluster.phase + clock.elapsed));
+    parameters.emplace_back(
+        BuildStarClusterParameters(cluster, input.world_transform, cluster.phase + clock.elapsed, disk_scale));
   }
   for (auto it = clocks.begin(); it != clocks.end();) {
     if (live.find(it->first) == live.end())
@@ -188,6 +194,13 @@ bool StarClusterBatch::Update(const std::vector<StarClusterInput>& inputs, const
     }
     samples = std::move(next_samples);
     ranges = std::move(next_ranges);
+    gaussian_bounds.assign(ranges.size(), glm::dvec3(0));
+    for (size_t i = 0; i < ranges.size(); ++i)
+      for (uint32_t j = 0; j < ranges[i].count; ++j) {
+        const auto& sample = samples[ranges[i].offset + j];
+        gaussian_bounds[i] =
+            glm::max(gaussian_bounds[i], glm::abs(glm::dvec3(sample.gaussian_x, sample.gaussian_y, sample.gaussian_z)));
+      }
     ++population_revision;
   }
   for (auto& parameter : parameters)
@@ -214,6 +227,11 @@ bool universe_package::InspectUniverseLayer(InspectorContext&, UniverseLayer& la
   ImGui::Text("Registered clusters: %u, stars: %u", layer.registered_render_cluster_count_,
               layer.registered_render_star_count_);
   ImGui::Checkbox("Write star depth", &layer.depth_write);
+  ImGui::SliderFloat("Star fade strength", &layer.star_fade_strength, 0.0f, 4.0f, "%.2f", ImGuiSliderFlags_AlwaysClamp);
+  if (ImGui::IsItemHovered())
+    ImGui::SetTooltip(
+        "Fade stars enlarged to one pixel. 0: no fade; 1: area compensation; higher: stronger fade. Bloom suppression "
+        "remains enabled.");
   ImGui::Text("Capacity: %zu stars, %zu clusters", layer.star_capacity_, layer.cluster_capacity_);
   ImGui::Text("Population / computed / rendered revision: %llu / %llu / %llu",
               static_cast<unsigned long long>(layer.batch_.population_revision),
@@ -256,6 +274,10 @@ bool universe_package::InspectUniverseLayer(InspectorContext&, UniverseLayer& la
                 layer.star_follow_.available ? "available" : "unavailable",
                 layer.star_follow_.following ? "yes" : "no");
     ImGui::TextWrapped("%s", layer.star_follow_.status.c_str());
+    ImGui::Text("View disk scale: %.3f -> %.0f", layer.star_view_.disk_scale, layer.star_view_.target_scale);
+    if (layer.batch_.parameters.size() == 1)
+      ImGui::Text("Effective disk diameter: %.1f",
+                  layer.batch_.parameters[0].ellipse0.x + layer.batch_.parameters[0].ellipse0.y);
     if (layer.star_follow_.following)
       ImGui::TextUnformatted("Star-local view: hover and selection locked; Space exits.");
     if (layer.star_follow_.available) {
@@ -279,6 +301,7 @@ bool universe_package::InspectUniverseLayer(InspectorContext&, UniverseLayer& la
 
 void UniverseLayer::OnCreate() {
   depth_write = true;
+  star_fade_strength = 1.0f;
   global_simulation_time_ = 0.0;
   frame_number_ = 0;
   pick_minimum_radius_ = 3.0f;
@@ -426,22 +449,11 @@ void UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
   if (owners && !owners->empty())
     return;
 
-  const auto first_entity = scene->CreateEntity("Star Cluster A");
+  const auto first_entity = scene->CreateEntity("Star Cluster");
   const auto first = scene->GetOrSetPrivateComponent<StarCluster>(first_entity).lock();
   first->seed = 1;
-  first->SetStarCount(250000);
-
-  const auto second_entity = scene->CreateEntity("Star Cluster B");
-  Transform second_transform;
-  second_transform.SetPosition(glm::vec3(180.0f, 20.0f, -80.0f));
-  scene->SetDataComponent(second_entity, second_transform);
-  const auto second = scene->GetOrSetPrivateComponent<StarCluster>(second_entity).lock();
-  second->seed = 2;
-  second->disk_color = glm::vec3(1.0f, 0.15f, 0.05f);
-  second->core_color = glm::vec3(0.7f, 0.25f, 1.0f);
-  second->disk_diameter = first->disk_diameter;
-  second->disk_eccentricity = 0.65;
-  second->SetStarCount(250000);
+  first->SetStarCount(500000);
+  demo_needs_framing_ = true;
 }
 
 void UniverseLayer::ResetSimulation() {
@@ -451,6 +463,8 @@ void UniverseLayer::ResetSimulation() {
     if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>())
       editor->RebaseSceneCamera(star_follow_.reference_to_world);
   star_follow_ = {};
+  star_view_ = {};
+  demo_needs_framing_ = false;
   last_follow_toggle_ = 0;
   if (base_sample_buffer_)
     Platform::WaitForFrameSubmissions("Reset Universe star batch");
@@ -574,6 +588,7 @@ void UniverseLayer::RegisterForwardRendering(StarBatchRenderPacket packet) {
           StarRenderPushConstant constants;
           constants.camera_index = view.camera_index;
           constants.viewport_size = {view.viewport.z, view.viewport.w};
+          constants.fade_strength = packet.fade_strength;
           if (const auto stack = camera->post_processing_stack_ref.Get<PostProcessingStack>();
               stack && stack->enable_bloom && stack->bloom) {
             // Leave a rounding margin below the bloom soft-knee onset, including FP16 targets.
@@ -751,8 +766,44 @@ void UniverseLayer::Update() {
   }
   {
     const ProfilerScope parameters_scope(universe_profiler::GetItems().parameters);
-    const bool changed = batch_.Update(inputs, global_simulation_time_);
+    star_view_.Update(ApplicationContext::Get().GetTimes().Now());
+    const bool changed = batch_.Update(inputs, global_simulation_time_, star_view_.disk_scale);
     EnsureBatchResources(changed);
+  }
+  const auto overview_pose = [&](const std::shared_ptr<Camera>& camera, const glm::dvec3& position,
+                                 const glm::dquat& rotation) {
+    double radius = 0;
+    for (size_t i = 0; i < batch_.ranges.size(); ++i) {
+      const auto& range = batch_.ranges[i];
+      for (const auto& input : inputs) {
+        const auto& clock = batch_.clocks.at(input.cluster.get());
+        if (clock.identity == range.identity) {
+          const auto parameters = BuildStarClusterParameters(*input.cluster, input.world_transform, 0);
+          radius = (std::max)(radius, StarClusterBoundingRadius(parameters, batch_.gaussian_bounds[i]));
+          break;
+        }
+      }
+    }
+    return CalculateStarOverviewCameraPose(position, rotation, radius, glm::dmat4(camera->GetProjection()),
+                                           camera->camera_settings.near_distance);
+  };
+  if (demo_needs_framing_ && !batch_.ranges.empty()) {
+    if (const auto camera = scene->main_camera.Get<Camera>()) {
+      auto transform = scene->GetDataComponent<Transform>(camera->GetOwner());
+      const auto pose = overview_pose(camera, glm::dvec3(transform.GetPosition()), glm::dquat(transform.GetRotation()));
+      if (pose.valid) {
+        transform.SetPosition(glm::vec3(pose.position));
+        transform.SetRotation(glm::quat(pose.rotation));
+        scene->SetDataComponent(camera->GetOwner(), transform);
+      }
+    }
+    if (const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>()) {
+      const auto pose = overview_pose(editor->GetSceneCamera(), glm::dvec3(editor->GetSceneCameraPosition()),
+                                      glm::dquat(editor->GetSceneCameraRotation()));
+      if (pose.valid)
+        editor->MoveCamera(glm::quat(pose.rotation), glm::vec3(pose.position));
+    }
+    demo_needs_framing_ = false;
   }
   UpdatePickingInput(scene);
   star_picker_.Consume(Platform::GetCurrentFrameIndex());
@@ -774,15 +825,15 @@ void UniverseLayer::Update() {
     }
     const auto change = star_follow_.Update(star_picker_.state.selected, batch_, toggle);
     if (change.rebase) {
+      star_view_.SetLocked(star_follow_.following, ApplicationContext::Get().GetTimes().Now());
       if (editor) {
         editor->RebaseSceneCamera(change.camera_transform);
-        if (change.look_at) {
-          const auto pose =
-              CalculateStarFollowCameraPose(glm::dvec3(editor->GetSceneCameraPosition()),
-                                            glm::dquat(editor->GetSceneCameraRotation()), star_follow_.selected_radius);
-          if (pose.valid)
-            editor->MoveCamera(glm::quat(pose.rotation), glm::vec3(pose.position));
-        }
+        const auto pose = star_follow_.following
+                              ? CalculateStarFollowCameraPose(star_follow_.selected_radius)
+                              : overview_pose(editor->GetSceneCamera(), glm::dvec3(editor->GetSceneCameraPosition()),
+                                              glm::dquat(editor->GetSceneCameraRotation()));
+        if (pose.valid)
+          editor->MoveCamera(glm::quat(pose.rotation), glm::vec3(pose.position));
       }
       auto request = star_picker_.state.current;
       request.reference_generation = star_follow_.generation;
@@ -834,5 +885,5 @@ void UniverseLayer::Update() {
   computed_revision_ = batch_.population_revision;
   gpu_status_ = "Batched FP64 compute submitted; direct forward rendering registered";
   RegisterForwardRendering({slot.render_descriptor_set, batch_.population_revision, frame_index,
-                            static_cast<uint32_t>(batch_.samples.size()), depth_write});
+                            static_cast<uint32_t>(batch_.samples.size()), depth_write, star_fade_strength});
 }

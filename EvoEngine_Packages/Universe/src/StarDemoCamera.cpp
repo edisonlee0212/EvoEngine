@@ -22,6 +22,7 @@ void StarDemoCameraOverride::Apply(const std::shared_ptr<Camera>& camera) {
   if (camera && camera_.lock() == camera && override_ &&
       camera->post_processing_stack_ref.Peek<PostProcessingStack>() == override_) {
     override_->enable_tone_mapping = false;
+    camera->camera_settings.far_distance = 1000000;
     return;
   }
   Restore();
@@ -45,14 +46,19 @@ void StarDemoCameraOverride::Apply(const std::shared_ptr<Camera>& camera) {
   replacement->enable_tone_mapping = false;
   original_ = camera->post_processing_stack_ref;
   camera_ = camera;
+  original_far_distance_ = camera->camera_settings.far_distance;
+  camera->camera_settings.far_distance = 1000000;
   override_ = std::move(replacement);
   camera->post_processing_stack_ref = override_;
 }
 
 void StarDemoCameraOverride::Restore() {
-  if (const auto camera = camera_.lock();
-      camera && override_ && camera->post_processing_stack_ref.Peek<PostProcessingStack>() == override_)
-    camera->post_processing_stack_ref = original_;
+  if (const auto camera = camera_.lock()) {
+    if (override_ && camera->post_processing_stack_ref.Peek<PostProcessingStack>() == override_)
+      camera->post_processing_stack_ref = original_;
+    if (camera->camera_settings.far_distance == 1000000)
+      camera->camera_settings.far_distance = original_far_distance_;
+  }
   camera_.reset();
   original_.Clear();
   override_.reset();

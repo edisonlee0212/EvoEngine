@@ -4,6 +4,7 @@ struct StarBaseSample
   double gaussianX;
   double gaussianY;
   double gaussianZ;
+  double gaussianRadius;
 };
 
 struct StarClusterParameters
@@ -72,11 +73,12 @@ void sinCos64(double angle, out double sine, out double cosine)
   const double x2 = angle * angle;
   sine = angle * (1.0 + x2 * (-0.16666666666666666667L + x2 * (0.00833333333333333333L +
          x2 * (-0.00019841269841269841L + x2 * (0.00000275573192239859L +
-         x2 * (-0.00000002505210838544L + x2 * 0.00000000016059043837L))))));
+         x2 * (-0.00000002505210838544L + x2 * (0.00000000016059043837L +
+         x2 * -0.00000000000076471637318198L)))))));
   cosine = cosineSign * (1.0 + x2 * (-0.5 + x2 * (0.04166666666666666667L +
            x2 * (-0.00138888888888888889L + x2 * (0.00002480158730158730L +
            x2 * (-0.00000027557319223986L + x2 * (0.00000000208767569879L +
-           x2 * -0.00000000001147074560L)))))));
+           x2 * (-0.00000000001147074560L + x2 * 0.00000000000004779477332387L))))))));
 }
 
 double sqrt64(double value)
@@ -165,7 +167,10 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
   const double4 world = p.world0 * local.x + p.world1 * local.y + p.world2 * local.z + p.world3 * local.w;
 
   StarClusterResult result;
-  result.worldPositionRadius = double4(world.xyz, p.tiltRadius.w);
+  const double radius = p.centerOffset.w > 0.0
+    ? clamp(p.tiltRadius.w + p.centerOffset.w * sample.gaussianRadius, p.timePadding.z, p.timePadding.w)
+    : p.tiltRadius.w;
+  result.worldPositionRadius = double4(world.xyz, radius);
   result.colorEmission = colorEmission;
   result.alphaPadding = float4(float(p.timePadding.y), 0.0, 0.0, 0.0);
   results[dispatchParameters.starOffset + index] = result;
