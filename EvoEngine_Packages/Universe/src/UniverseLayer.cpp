@@ -1,120 +1,68 @@
 #include "UniverseLayer.hpp"
 
 #include "Application.hpp"
+#include "ComputePipeline.hpp"
+#include "EditorLayer.hpp"
+#include "GpuProfiler.hpp"
+#include "GraphicsPipeline.hpp"
 #include "ProjectManager.hpp"
+#include "RenderTexture.hpp"
+#include "Shader.hpp"
 #include "Times.hpp"
-#include "UniverseInspectionAdapters.hpp"
+#include "UniverseProfiler.hpp"
 
 using namespace universe_package;
 
-void UniverseLayer::RegisterTypes(Application &application) {
-  application.RegisterDataComponent<StarPosition>("StarPosition");
-  application.RegisterDataComponent<SelectionStatus>("SelectionStatus");
-  application.RegisterDataComponent<StarInfo>("StarInfo");
-  application.RegisterDataComponent<SurfaceColor>("SurfaceColor");
-  application.RegisterDataComponent<DisplayColor>("DisplayColor");
-  application.RegisterDataComponent<OriginalColor>("OriginalColor");
-  application.RegisterDataComponent<StarOrbitOffset>("StarOrbitOffset");
-  application.RegisterDataComponent<StarOrbitProportion>("StarOrbitProportion");
-  application.RegisterDataComponent<StarOrbit>("StarOrbit");
-  application.RegisterDataComponent<StarClusterIndex>("StarClusterIndex");
+namespace {
+constexpr uint32_t kWorkgroupSize = 256;
+
+std::shared_ptr<Buffer> CreateDeviceBuffer(const VkDeviceSize size, const VkBufferUsageFlags usage) {
+  VkBufferCreateInfo create_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  create_info.size = (std::max)(size, VkDeviceSize{1});
+  create_info.usage = usage;
+  create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+  return std::make_shared<Buffer>(create_info, allocation_info);
 }
 
-namespace {
-void DrawStarClusterPatternGui(StarClusterPattern &pattern);
+std::shared_ptr<Buffer> CreateHostReadbackBuffer(const VkDeviceSize size) {
+  VkBufferCreateInfo create_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  create_info.size = (std::max)(size, VkDeviceSize{1});
+  create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  create_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  VmaAllocationCreateInfo allocation_info{};
+  allocation_info.usage = VMA_MEMORY_USAGE_AUTO;
+  allocation_info.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+  return std::make_shared<Buffer>(create_info, allocation_info);
+}
+
+struct StarRenderPushConstant {
+  int32_t camera_index = 0;
+};
+
+bool UsesHostCoherentMemory(const Buffer& buffer) {
+  const auto memory_type = buffer.GetVmaAllocationInfo().memoryType;
+  const auto physical_device = Platform::GetSelectedPhysicalDevice();
+  return physical_device && memory_type < physical_device->vk_physical_device_memory_properties.memoryTypeCount &&
+         (physical_device->vk_physical_device_memory_properties.memoryTypes[memory_type].propertyFlags &
+          VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
+}
 
 bool IsProceduralGalaxyProjectPath() {
   const auto project_path = ProjectManager::GetProjectPath();
   return project_path.filename() == "ProceduralGalaxy.eveproj" && project_path.parent_path().filename() == "Universe" &&
          project_path.parent_path().parent_path().filename() == "EvoEngine-DemoProjects";
 }
-}  // namespace
 
-bool universe_package::InspectUniverseLayer(InspectorContext &context, UniverseLayer &layer) {
-  const auto &editor_layer = context.editor_layer;
-  const auto window_title = layer.GetLayerName();
-  bool open = layer.enable_inspection;
-  if (!ImGui::Begin(window_title.c_str(), &open)) {
-    ImGui::End();
-    layer.enable_inspection = open;
-    return false;
-  }
-  ImGui::Checkbox("Cast shadow", &layer.cast_shadow);
-
-  editor_layer->DragAndDropButton<Material>(layer.star_material_ref, "Star material");
-
-  ImGui::InputFloat("Time", &layer.galaxy_time_);
-  static int amount = 10000;
-  ImGui::DragInt("Amount", &amount, 1, 1, 100000);
-  if (amount < 1)
-    amount = 1;
-  if (ImGui::CollapsingHeader("Star clusters", ImGuiTreeNodeFlags_DefaultOpen)) {
-    int i = 0;
-    for (auto &pattern : layer.star_cluster_patterns_) {
-      i++;
-      if (ImGui::TreeNodeEx((std::to_string(i) + ": " + pattern.name).c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::TreeNodeEx("Properties", ImGuiTreeNodeFlags_DefaultOpen)) {
-          DrawStarClusterPatternGui(pattern);
-          ImGui::TreePop();
-        }
-        if (ImGui::Button(("Add " + std::to_string(amount) + " stars").c_str())) {
-          layer.PushStars(pattern, amount);
-        }
-        ImGui::TreePop();
-      }
-    }
-  }
-  if (ImGui::CollapsingHeader("Star removal", ImGuiTreeNodeFlags_DefaultOpen)) {
-    if (ImGui::Button(("Remove " + std::to_string(amount) + " stars").c_str()))
-      layer.RandomlyRemoveStars(amount);
-    if (ImGui::Button("Remove all stars"))
-      layer.ClearAllStars();
-  }
-  if (ImGui::CollapsingHeader("Start time control", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragFloat("Speed", &layer.speed_, 1.0f, 0.0f, 40000.0f);
-    ImGui::DragFloat("Star Size", &layer.size_, 0.01f, 0.01f, 10.0f);
-  }
-  ImGui::Text("Status:");
-  ImGui::InputFloat("Apply time", &layer.apply_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
-  ImGui::InputFloat("Copy time", &layer.copy_position_timer_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
-  ImGui::InputFloat("Calculation time", &layer.calc_position_result_, 0, 0, "%.5f", ImGuiInputTextFlags_ReadOnly);
-  ImGui::End();
-  layer.enable_inspection = open;
-  return false;
-}
-
-void UniverseLayer::OnCreate() {
-  particle_info_list_ref = AssetManager::CreateTemporaryAsset<ParticleInfoList>();
-  const auto star_material = AssetManager::CreateTemporaryAsset<Material>();
-  star_material->material_data.shade_material.emissive_factor = glm::vec3(3.f);
-  star_material->MarkDirty();
-  star_material_ref = star_material;
-  star_cluster_patterns_.resize(2);
-  auto &star_cluster_pattern1 = star_cluster_patterns_[0];
-  auto &star_cluster_pattern2 = star_cluster_patterns_[1];
-  star_cluster_pattern1.star_cluster_index.m_value = 0;
-  star_cluster_pattern2.star_cluster_index.m_value = 1;
-  star_query_ = Entities::CreateEntityQuery();
-  star_query_.SetAllFilters(StarInfo());
-
-  star_archetype_ = Entities::CreateEntityArchetype(
-      "Star", GlobalTransform(), StarClusterIndex(), StarInfo(), StarOrbit(), StarOrbitOffset(), StarOrbitProportion(),
-      StarPosition(), SelectionStatus(), OriginalColor(), SurfaceColor(), DisplayColor());
-  first_time_ = true;
-}
-
-void UniverseLayer::OnDestroy() {
-}
-
-void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, const PlanetInfo &info,
-              const GlobalTransform &planet_transform, const GlobalTransform &camera_transform) {
+void CheckLod(std::mutex& mutex, const std::shared_ptr<TerrainChunk>& chunk, const PlanetInfo& info,
+              const GlobalTransform& planet_transform, const GlobalTransform& camera_transform) {
   if (glm::distance(glm::dvec3(chunk->ChunkCenterPosition(planet_transform.GetPosition(), info.radius,
                                                           planet_transform.GetRotation())),
                     glm::dvec3(camera_transform.GetPosition())) <
       info.lod_distance * info.radius / glm::pow(2, chunk->detail_level + 1)) {
-    if (chunk->detail_level < info.max_lod_level) {
+    if (chunk->detail_level < info.max_lod_level)
       chunk->Expand(mutex);
-    }
   }
   if (chunk->c0)
     CheckLod(mutex, chunk->c0, info, planet_transform, camera_transform);
@@ -127,22 +75,362 @@ void CheckLod(std::mutex &mutex, const std::shared_ptr<TerrainChunk> &chunk, con
   if (glm::distance(glm::dvec3(chunk->ChunkCenterPosition(planet_transform.GetPosition(), info.radius,
                                                           planet_transform.GetRotation())),
                     glm::dvec3(camera_transform.GetPosition())) >
-      info.lod_distance * info.radius / glm::pow(2, chunk->detail_level + 1)) {
+      info.lod_distance * info.radius / glm::pow(2, chunk->detail_level + 1))
     chunk->Collapse();
-  }
 }
 
-void RenderChunk(const std::shared_ptr<TerrainChunk> &chunk, const std::shared_ptr<Material> &material,
-                 const GlobalTransform &matrix, const bool receive_shadow) {
-  if (chunk->active) {
-    const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-    render_layer->DrawMesh(chunk->mesh, material, matrix, true);
-  }
+void RenderChunk(const std::shared_ptr<TerrainChunk>& chunk, const std::shared_ptr<Material>& material,
+                 const GlobalTransform& transform) {
+  if (chunk->active)
+    ApplicationContext::Get().GetLayer<RenderLayer>()->DrawMesh(chunk->mesh, material, transform, true);
   if (chunk->children_active) {
-    RenderChunk(chunk->c0, material, matrix, receive_shadow);
-    RenderChunk(chunk->c1, material, matrix, receive_shadow);
-    RenderChunk(chunk->c2, material, matrix, receive_shadow);
-    RenderChunk(chunk->c3, material, matrix, receive_shadow);
+    RenderChunk(chunk->c0, material, transform);
+    RenderChunk(chunk->c1, material, transform);
+    RenderChunk(chunk->c2, material, transform);
+    RenderChunk(chunk->c3, material, transform);
+  }
+}
+}  // namespace
+
+void UniverseLayer::RegisterTypes(Application&) {
+}
+
+bool universe_package::InspectUniverseLayer(InspectorContext&, UniverseLayer& layer) {
+  const auto window_title = layer.GetLayerName();
+  bool open = layer.enable_inspection;
+  if (!ImGui::Begin(window_title.c_str(), &open)) {
+    ImGui::End();
+    layer.enable_inspection = open;
+    return false;
+  }
+  ImGui::Text("Global simulation time: %.3f", layer.global_simulation_time_);
+  ImGui::Text("Frame: %llu", static_cast<unsigned long long>(layer.frame_number_));
+  ImGui::Text("FP64 compute: %s", layer.fp64_supported_ ? "supported" : "unavailable");
+  ImGui::Text("Compute pipeline: %s", layer.compute_ready_ ? "ready" : "unavailable");
+  ImGui::Text("Forward pipeline: %s", layer.render_ready_ ? "ready" : "unavailable");
+  ImGui::Text("Registered clusters: %u, stars: %u", layer.registered_render_cluster_count_,
+              layer.registered_render_star_count_);
+  ImGui::TextWrapped("GPU status: %s", layer.gpu_status_.c_str());
+  ImGui::End();
+  layer.enable_inspection = open;
+  return false;
+}
+
+void UniverseLayer::OnCreate() {
+  global_simulation_time_ = 0.0;
+  frame_number_ = 0;
+  registered_render_cluster_count_ = 0;
+  registered_render_star_count_ = 0;
+  procedural_galaxy_scene_.reset();
+  parameter_upload_arena_ = std::make_unique<BufferUploadArena>();
+  InitializeGpuResources();
+}
+
+void UniverseLayer::InitializeGpuResources() {
+  compute_ready_ = false;
+  render_ready_ = false;
+  const auto physical_device = Platform::GetSelectedPhysicalDevice();
+  fp64_supported_ = physical_device && physical_device->features.shaderFloat64 == VK_TRUE;
+  if (!fp64_supported_) {
+    gpu_status_ = "Disabled: Vulkan shaderFloat64 is unavailable; FP32 fallback is intentionally unsupported.";
+    EVOENGINE_ERROR(gpu_status_);
+    return;
+  }
+
+  star_cluster_layout_ = std::make_shared<DescriptorSetLayout>();
+  star_cluster_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  star_cluster_layout_->PushDescriptorBinding(1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  star_cluster_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  star_cluster_layout_->Initialize();
+
+  const auto shader = std::make_shared<Shader>();
+  const auto shader_path = std::filesystem::path("./UniverseResources/Shaders/Compute/StarCluster.slang");
+  if (!shader->TryCompile(ShaderType::Compute, Platform::GetShaderGlobalDefines(), shader_path)) {
+    gpu_status_ = "Disabled: failed to compile " + shader_path.string();
+    EVOENGINE_ERROR(gpu_status_);
+    star_cluster_layout_.reset();
+    return;
+  }
+  star_cluster_pipeline_ = std::make_shared<ComputePipeline>();
+  star_cluster_pipeline_->compute_shader = shader;
+  star_cluster_pipeline_->descriptor_set_layouts.emplace_back(star_cluster_layout_);
+  star_cluster_pipeline_->Initialize();
+
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer) {
+    gpu_status_ = "Disabled: RenderLayer is unavailable.";
+    EVOENGINE_ERROR(gpu_status_);
+    return;
+  }
+  star_render_layout_ = std::make_shared<DescriptorSetLayout>();
+  star_render_layout_->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_VERTEX_BIT, 0);
+  star_render_layout_->Initialize();
+
+  const auto vertex_path = std::filesystem::path("./UniverseResources/Shaders/Graphics/StarCluster.vert.slang");
+  const auto fragment_path = std::filesystem::path("./UniverseResources/Shaders/Graphics/StarCluster.frag.slang");
+  auto vertex_shader = std::make_shared<Shader>();
+  auto fragment_shader = std::make_shared<Shader>();
+  if (!vertex_shader->TryCompile(ShaderType::Vertex, Platform::GetShaderGlobalDefines(), vertex_path) ||
+      !fragment_shader->TryCompile(ShaderType::Fragment, Platform::GetShaderGlobalDefines(), fragment_path)) {
+    gpu_status_ = "Disabled: failed to compile Star Cluster forward shaders.";
+    EVOENGINE_ERROR(gpu_status_);
+    star_render_layout_.reset();
+    return;
+  }
+  star_render_pipeline_ = std::make_shared<GraphicsPipeline>();
+  star_render_pipeline_->vertex_shader = vertex_shader;
+  star_render_pipeline_->fragment_shader = fragment_shader;
+  star_render_pipeline_->geometry_type = GeometryType::Mesh;
+  star_render_pipeline_->vertex_input_enabled = false;
+  star_render_pipeline_->primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+  star_render_pipeline_->descriptor_set_layouts.emplace_back(render_layer->GetPerFrameDescriptorSetLayout());
+  star_render_pipeline_->descriptor_set_layouts.emplace_back(star_render_layout_);
+  star_render_pipeline_->depth_attachment_format = Platform::Constants::render_texture_depth;
+  star_render_pipeline_->stencil_attachment_format = VK_FORMAT_UNDEFINED;
+  star_render_pipeline_->color_attachment_formats = {Platform::Constants::render_texture_color};
+  auto& push_constant = star_render_pipeline_->push_constant_ranges.emplace_back();
+  push_constant.size = sizeof(StarRenderPushConstant);
+  push_constant.offset = 0;
+  push_constant.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+  star_render_pipeline_->Initialize();
+  compute_ready_ = star_cluster_pipeline_->Initialized();
+  render_ready_ = star_render_pipeline_->Initialized();
+  gpu_status_ = compute_ready_ && render_ready_ ? "FP64 compute and direct forward pipelines ready"
+                                                : "Disabled: Star Cluster GPU pipeline initialization failed.";
+}
+
+void UniverseLayer::OnDestroy() {
+  Platform::WaitForFrameSubmissions("Destroy Universe star-cluster resources");
+  star_cluster_pipeline_.reset();
+  star_cluster_layout_.reset();
+  star_render_pipeline_.reset();
+  star_render_layout_.reset();
+  parameter_upload_arena_.reset();
+  compute_ready_ = false;
+  render_ready_ = false;
+  procedural_galaxy_scene_.reset();
+}
+
+void UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
+  const auto scene = GetScene();
+  if (!scene || procedural_galaxy_scene_.lock() == scene || !IsProceduralGalaxyProjectPath())
+    return;
+  procedural_galaxy_scene_ = scene;
+  const auto owners = scene->UnsafeGetPrivateComponentOwnersList<StarCluster>();
+  if (owners && !owners->empty())
+    return;
+
+  const auto first_entity = scene->CreateEntity("Star Cluster A");
+  const auto first = scene->GetOrSetPrivateComponent<StarCluster>(first_entity).lock();
+  first->seed = 1;
+  (void)first->AddStars(25000);
+
+  const auto second_entity = scene->CreateEntity("Star Cluster B");
+  Transform second_transform;
+  second_transform.SetPosition(glm::vec3(180.0f, 20.0f, -80.0f));
+  scene->SetDataComponent(second_entity, second_transform);
+  const auto second = scene->GetOrSetPrivateComponent<StarCluster>(second_entity).lock();
+  second->seed = 2;
+  second->disk_color = glm::vec3(1.0f, 0.15f, 0.05f);
+  second->core_color = glm::vec3(0.7f, 0.25f, 1.0f);
+  second->disk_diameter = 1800.0;
+  second->disk_eccentricity = 0.65;
+  second->time_scale = -35.0;
+  (void)second->AddStars(25000);
+}
+
+void UniverseLayer::EnsureClusterResources(StarCluster& cluster) {
+  if (!compute_ready_ || !render_ready_ || !star_cluster_layout_ || !star_render_layout_)
+    return;
+  const size_t frame_count = static_cast<size_t>((std::max)(Platform::GetMaxFramesInFlight(), 1));
+  const size_t required_count = cluster.GetStarCount();
+  const bool initialize_slots = cluster.frame_slots_.size() != frame_count;
+  const bool population_changed = cluster.gpu_resources_dirty_;
+  if (!initialize_slots && !population_changed)
+    return;
+
+  if (population_changed && (cluster.base_sample_buffer_ || !cluster.frame_slots_.empty()))
+    Platform::WaitForFrameSubmissions("Edit Star Cluster population");
+
+  size_t capacity = (std::max)(cluster.capacity_, size_t{1});
+  while (capacity < required_count)
+    capacity *= 2;
+  const bool replace_allocations = initialize_slots || capacity != cluster.capacity_;
+  cluster.capacity_ = capacity;
+  if (replace_allocations) {
+    cluster.inspection_readback_supported_ = true;
+    cluster.base_sample_buffer_ = CreateDeviceBuffer(
+        capacity * sizeof(StarBaseSample), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+    cluster.frame_slots_.assign(frame_count, {});
+    for (auto& slot : cluster.frame_slots_) {
+      slot.parameter_buffer = CreateDeviceBuffer(sizeof(StarClusterGpuParameters),
+                                                 VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+      slot.result_buffer = CreateDeviceBuffer(capacity * sizeof(StarClusterGpuResult),
+                                              VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT);
+      slot.inspection_readback_buffer = CreateHostReadbackBuffer(capacity * sizeof(StarClusterGpuResult));
+      if (!UsesHostCoherentMemory(*slot.inspection_readback_buffer)) {
+        cluster.inspection_readback_supported_ = false;
+        cluster.last_readback_status_ = "Unavailable: inspection requires host-coherent readback memory";
+        EVOENGINE_WARNING(cluster.last_readback_status_);
+      }
+      slot.compute_descriptor_set = std::make_shared<DescriptorSet>(star_cluster_layout_);
+      slot.compute_descriptor_set->UpdateBufferDescriptorBinding(0, slot.parameter_buffer);
+      slot.compute_descriptor_set->UpdateBufferDescriptorBinding(1, cluster.base_sample_buffer_);
+      slot.compute_descriptor_set->UpdateBufferDescriptorBinding(2, slot.result_buffer);
+      slot.render_descriptor_set = std::make_shared<DescriptorSet>(star_render_layout_);
+      slot.render_descriptor_set->UpdateBufferDescriptorBinding(0, slot.result_buffer);
+    }
+  }
+  if (!cluster.base_samples_.empty())
+    cluster.base_sample_buffer_->UploadData(cluster.base_samples_.size() * sizeof(StarBaseSample),
+                                            cluster.base_samples_.data());
+  cluster.gpu_resources_dirty_ = false;
+}
+
+void UniverseLayer::ConsumeCompletedSlot(StarCluster& cluster, const uint32_t frame_index) {
+  if (frame_index >= cluster.frame_slots_.size())
+    return;
+  auto& slot = cluster.frame_slots_[frame_index];
+  if (!slot.readback_pending)
+    return;
+  if (slot.submitted_population_revision != cluster.population_revision_) {
+    slot.readback_pending = false;
+    cluster.last_readback_status_ = "Discarded stale population readback";
+    return;
+  }
+
+  std::vector<StarClusterGpuResult> results(slot.submitted_count);
+  {
+    const ProfilerScope readback_scope(universe_profiler::GetItems().readback);
+    if (!results.empty())
+      slot.inspection_readback_buffer->DownloadData(results.size() * sizeof(StarClusterGpuResult), results.data());
+  }
+  cluster.completed_world_positions_.resize(results.size());
+  for (size_t i = 0; i < results.size(); ++i)
+    cluster.completed_world_positions_[i] = glm::dvec3(results[i].world_position_radius);
+  cluster.completed_simulation_time_ = slot.submitted_simulation_time;
+  ++cluster.completed_update_count_;
+  cluster.last_readback_status_ = "Completed " + std::to_string(results.size()) + " stars";
+  slot.readback_pending = false;
+}
+
+std::function<void(VkCommandBuffer)> UniverseLayer::PrepareClusterCompute(StarCluster& cluster,
+                                                                          const uint32_t frame_index) {
+  auto& slot = cluster.frame_slots_.at(frame_index);
+  slot.submitted_population_revision = cluster.population_revision_;
+  slot.submitted_count = cluster.GetStarCount();
+  slot.submitted_frame = frame_number_;
+  cluster.computed_population_revision_ = slot.submitted_population_revision;
+  const bool request_readback = cluster.position_readback_requested_ && cluster.inspection_readback_supported_;
+  cluster.position_readback_requested_ = false;
+  slot.readback_pending = request_readback;
+  if (slot.submitted_count == 0) {
+    cluster.last_compute_status_ = "Submitted empty population";
+    slot.readback_pending = false;
+    return {};
+  }
+
+  const auto pipeline = star_cluster_pipeline_;
+  const auto descriptor_set = slot.compute_descriptor_set;
+  const auto result_buffer = slot.result_buffer;
+  const auto readback_buffer = slot.inspection_readback_buffer;
+  const VkDeviceSize result_size = slot.submitted_count * sizeof(StarClusterGpuResult);
+  cluster.last_compute_status_ = "Submitted " + std::to_string(slot.submitted_count) + " stars";
+  cluster.last_readback_status_ = request_readback ? "Inspection copy submitted" : "Idle (positions collapsed)";
+  return [pipeline, descriptor_set, result_buffer, readback_buffer, result_size,
+          request_readback](const VkCommandBuffer command_buffer) {
+    {
+      const GpuProfilerCommandScope compute_scope(command_buffer, universe_profiler::GetItems().compute);
+      pipeline->Bind(command_buffer);
+      pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
+      pipeline->Dispatch(
+          command_buffer,
+          Platform::DivUp(static_cast<uint32_t>(result_size / sizeof(StarClusterGpuResult)), kWorkgroupSize), 1, 1);
+    }
+    Platform::BufferMemoryBarrier(command_buffer, *result_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                  VK_ACCESS_2_SHADER_WRITE_BIT,
+                                  VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                  VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_TRANSFER_READ_BIT);
+    if (request_readback) {
+      const GpuProfilerCommandScope copy_scope(command_buffer, universe_profiler::GetItems().inspection_copy);
+      Platform::CopyBuffer(command_buffer, *result_buffer, *readback_buffer, result_size);
+      Platform::BufferMemoryBarrier(command_buffer, *readback_buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                    VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
+                                    VK_ACCESS_2_HOST_READ_BIT);
+    }
+  };
+}
+
+void UniverseLayer::RegisterForwardRendering(std::vector<StarClusterRenderPacket> render_packets) {
+  registered_render_cluster_count_ = static_cast<uint32_t>(render_packets.size());
+  registered_render_star_count_ = 0;
+  for (const auto& packet : render_packets)
+    registered_render_star_count_ += packet.star_count;
+  if (render_packets.empty() || !render_ready_ || !star_render_pipeline_)
+    return;
+  const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
+  if (!render_layer)
+    return;
+  const ProfilerScope registration_scope(universe_profiler::GetItems().render_registration);
+  const auto pipeline = star_render_pipeline_;
+  render_layer->ForwardRenderingAllCameras([pipeline, render_packets = std::move(render_packets)](
+                                               const VkCommandBuffer command_buffer,
+                                               const std::shared_ptr<Camera>& camera,
+                                               const RenderLayer::ForwardRenderingView& view) -> uint32_t {
+    if (!camera || !camera->GetRenderTexture() || !RenderLayer::GetPerFrameDescriptorSet())
+      return 0;
+    pipeline->states.ResetAllStates(1);
+    pipeline->states.SetViewportScissor(view.viewport);
+    pipeline->states.cull_mode = VK_CULL_MODE_NONE;
+    pipeline->states.depth_test = true;
+    pipeline->states.depth_write = false;
+    pipeline->states.depth_compare = VK_COMPARE_OP_LESS_OR_EQUAL;
+    auto& blend = pipeline->states.color_blend_attachment_states[0];
+    blend.blendEnable = VK_TRUE;
+    blend.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend.colorBlendOp = VK_BLEND_OP_ADD;
+    blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    blend.alphaBlendOp = VK_BLEND_OP_ADD;
+    blend.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    uint32_t primitive_count = 0;
+    camera->GetRenderTexture()->Render(command_buffer, VK_ATTACHMENT_LOAD_OP_LOAD, VK_ATTACHMENT_STORE_OP_STORE, [&] {
+      const GpuProfilerCommandScope render_scope(command_buffer, universe_profiler::GetItems().forward_render);
+      pipeline->states.ApplyAllStates(command_buffer);
+      pipeline->Bind(command_buffer);
+      pipeline->BindDescriptorSet(command_buffer, 0, RenderLayer::GetPerFrameDescriptorSet()->GetVkDescriptorSet());
+      pipeline->PushConstant(command_buffer, 0, StarRenderPushConstant{view.camera_index});
+      for (const auto& packet : render_packets)
+        primitive_count += StarCluster::RecordForwardDraw(packet, command_buffer, *pipeline);
+    });
+    return primitive_count;
+  });
+}
+
+void UniverseLayer::UpdatePlanetTerrain(const std::shared_ptr<Scene>& scene) const {
+  const auto terrains = scene->UnsafeGetPrivateComponentOwnersList<PlanetTerrain>();
+  const auto main_camera = scene->main_camera.Get<Camera>();
+  if (!terrains || !main_camera)
+    return;
+  std::mutex mesh_gen_lock;
+  const auto camera_transform = scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner());
+  for (const auto entity : *terrains) {
+    const auto terrain = scene->GetOrSetPrivateComponent<PlanetTerrain>(entity).lock();
+    if (!scene->IsEntityEnabled(entity) || !terrain || !terrain->IsEnabled())
+      continue;
+    const auto planet_transform = scene->GetDataComponent<GlobalTransform>(entity);
+    for (auto& chunk : terrain->chunks_)
+      CheckLod(mesh_gen_lock, chunk, terrain->info_, planet_transform, camera_transform);
+    GlobalTransform render_transform;
+    render_transform.value =
+        glm::translate(glm::mat4_cast(planet_transform.GetRotation()), glm::vec3(planet_transform.GetPosition()));
+    if (const auto material = terrain->surface_material.Get<Material>()) {
+      for (const auto& chunk : terrain->chunks_)
+        RenderChunk(chunk, material, render_transform);
+    }
   }
 }
 
@@ -150,325 +438,55 @@ void UniverseLayer::Update() {
   const auto scene = GetScene();
   if (!scene)
     return;
-  const bool configured_procedural_galaxy = ConfigureProceduralGalaxyDemoIfNeeded();
-  const std::vector<Entity> *const planet_terrain_list = scene->UnsafeGetPrivateComponentOwnersList<PlanetTerrain>();
-  if (const auto main_camera = scene->main_camera.Get<Camera>(); planet_terrain_list && main_camera) {
-    std::mutex mesh_gen_lock;
-    const auto camera_ltw = scene->GetDataComponent<GlobalTransform>(main_camera->GetOwner());
-    for (auto planet_terrain_entity : *planet_terrain_list) {
-      const auto planet_terrain = scene->GetOrSetPrivateComponent<PlanetTerrain>(planet_terrain_entity).lock();
-      if (!scene->IsEntityEnabled(planet_terrain_entity) || !planet_terrain->IsEnabled())
-        continue;
-      auto &planet_info = planet_terrain->info_;
-      auto planet_transform = scene->GetDataComponent<GlobalTransform>(planet_terrain_entity);
-      auto &planet_chunks = planet_terrain->chunks_;
-      // 1. Scan and expand.
-      for (auto &chunk : planet_chunks) {
-        // futures.push_back(_PrimaryWorkers->Share([&, this](int id) { CheckLod(meshGenLock, chunk, planetInfo,
-        // planetTransform, cameraLtw); }).share());
-        CheckLod(mesh_gen_lock, chunk, planet_info, planet_transform, camera_ltw);
-      }
-      GlobalTransform global_transform;
-      global_transform.value = glm::scale(
-          glm::translate(glm::mat4_cast(planet_transform.GetRotation()), glm::vec3(planet_transform.GetPosition())),
-          glm::vec3(1.0f));
-      if (auto material = planet_terrain->surface_material.Get<Material>()) {
-        for (const auto &planet_chunk : planet_chunks) {
-          RenderChunk(planet_chunk, material, global_transform, true);
-        }
-      }
-    }
-  }
+  ConfigureProceduralGalaxyDemoIfNeeded();
+  UpdatePlanetTerrain(scene);
+  global_simulation_time_ += ApplicationContext::Get().GetTimes().DeltaTime();
+  ++frame_number_;
+  registered_render_cluster_count_ = 0;
+  registered_render_star_count_ = 0;
+  if (!compute_ready_ || !render_ready_)
+    return;
 
-  if (!configured_procedural_galaxy) {
-    galaxy_time_ += ApplicationContext::Get().GetTimes().DeltaTime() * speed_;
-  }
-  // This method calculate the position for each star. Remove this line if you use your own implementation.
-  CalculateStarPositionSync();
-  // Do not touch below functions.
-  counter_++;
-  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
-    if (const auto material = star_material_ref.Get<Material>()) {
-      render_layer->DrawMeshInstanced(Resources::GetInstance().GetPrimitives().sphere, material, {},
-                                      particle_info_list_ref.Get<ParticleInfoList>(), cast_shadow);
-    }
-  }
-}
-
-bool UniverseLayer::ConfigureProceduralGalaxyDemoIfNeeded() {
-  const auto scene = GetScene();
-  if (!scene || procedural_galaxy_scene_.lock() == scene || !IsProceduralGalaxyProjectPath() ||
-      star_cluster_patterns_.empty()) {
-    return false;
-  }
-
-  ClearAllStars();
-  galaxy_time_ = 1000000.0f;
-  speed_ = 50.0f;
-  size_ = 0.25f;
-  PushStars(star_cluster_patterns_.front(), 50000);
-  procedural_galaxy_scene_ = scene;
-  return true;
-}
-
-void UniverseLayer::PushStars(StarClusterPattern &pattern, const size_t &amount) {
-  const auto scene = GetScene();
-  counter_ = 0;
-  const auto stars = scene->CreateEntities(star_archetype_, amount, "Star");
-  for (auto i = 0; i < amount; i++) {
-    auto star_entity = stars[i];
-    StarOrbitProportion proportion;
-    proportion.value = glm::linearRand(0.0, 1.0);
-    StarInfo star_info;
-    scene->SetDataComponent(star_entity, star_info);
-    scene->SetDataComponent(star_entity, proportion);
-    scene->SetDataComponent(star_entity, pattern.star_cluster_index);
-  }
-  pattern.Apply();
-}
-
-void UniverseLayer::RandomlyRemoveStars(const size_t &amount) {
-  counter_ = 0;
-  std::vector<Entity> stars;
-
-  const auto scene = GetScene();
-
-  scene->GetEntityArray(star_query_, stars);
-  size_t residue = amount;
-  for (const auto &i : stars) {
-    if (residue > 0)
-      residue--;
-    else
+  const uint32_t frame_index = Platform::GetCurrentFrameIndex();
+  const auto owners = scene->UnsafeGetPrivateComponentOwnersList<StarCluster>();
+  if (!owners)
+    return;
+  std::vector<std::function<void(VkCommandBuffer)>> dispatches;
+  dispatches.reserve(owners->size());
+  std::vector<StarClusterRenderPacket> render_packets;
+  render_packets.reserve(owners->size());
+  std::vector<StarClusterGpuParameters> parameter_payloads;
+  parameter_payloads.reserve(owners->size());
+  BufferUploadBatch parameter_uploads;
+  for (const auto entity : *owners) {
+    const auto cluster = scene->GetOrSetPrivateComponent<StarCluster>(entity).lock();
+    if (!cluster || !scene->IsEntityEnabled(entity) || !cluster->IsEnabled())
+      continue;
+    EnsureClusterResources(*cluster);
+    if (!compute_ready_)
       break;
-    scene->DeleteEntity(i);
+    ConsumeCompletedSlot(*cluster, frame_index);
+    if (cluster->GetStarCount() != 0) {
+      const double simulation_time = cluster->AdvanceClock(global_simulation_time_);
+      parameter_payloads.emplace_back(cluster->BuildGpuParameters(
+          glm::dmat4(scene->GetDataComponent<GlobalTransform>(entity).value), simulation_time));
+      cluster->frame_slots_.at(frame_index).submitted_simulation_time = simulation_time;
+      parameter_uploads.Add(cluster->frame_slots_.at(frame_index).parameter_buffer, parameter_payloads.back());
+    } else {
+      (void)cluster->AdvanceClock(global_simulation_time_);
+    }
+    if (auto dispatch = PrepareClusterCompute(*cluster, frame_index))
+      dispatches.emplace_back(std::move(dispatch));
+    if (auto packet = cluster->BuildRenderPacket(frame_index); packet.star_count != 0)
+      render_packets.emplace_back(std::move(packet));
   }
-}
-
-void UniverseLayer::ClearAllStars() {
-  counter_ = 0;
-  std::vector<Entity> stars;
-  const auto scene = GetScene();
-  scene->GetEntityArray(star_query_, stars);
-  for (const auto &i : stars)
-    scene->DeleteEntity(i);
-}
-
-void UniverseLayer::CalculateStarPositionSync() {
-  const auto scene = GetScene();
-  calc_position_timer_ = ApplicationContext::Get().GetTimes().Now();
-  // StarOrbitProportion: The relative position of the star, here it is used to calculate the speed of the star
-  // around its orbit. StarPosition: The final output of this operation, records the position of the star in the
-  // galaxy. StarOrbit: The orbit which contains the function for calculating the position based on current time
-  // and proportion value. StarOrbitOffset: The position offset of the star, used to add irregularity to the
-  // position.
-  Jobs::Wait(scene->ForEach<StarOrbitProportion, StarPosition, StarOrbit, StarOrbitOffset>(
-      {}, star_query_,
-      [=](int i, Entity entity, const StarOrbitProportion &star_proportion, StarPosition &star_position,
-          const StarOrbit &star_orbit, const StarOrbitOffset &star_orbit_offset) {
-        // Code here will be exec in parallel
-        star_position.value =
-            star_orbit.GetPoint(star_orbit_offset.value, star_proportion.value * 360.0f + galaxy_time_, true);
-      },
-      false));
-  const auto used_time = ApplicationContext::Get().GetTimes().Now() - calc_position_timer_;
-  calc_position_result_ = calc_position_result_ * counter_ / (counter_ + 1) + used_time / (counter_ + 1);
-
-  // Copy data for rendering.
-  ApplyPosition();
-  CopyPosition();
-}
-
-void UniverseLayer::CopyPosition() {
-  const auto scene = GetScene();
-  const auto particle_info_list = particle_info_list_ref.Get<ParticleInfoList>();
-  const auto star_amount = scene->GetEntityAmount(star_query_);
-  std::vector<ParticleInfo> particle_infos;
-  particle_infos.resize(star_amount);
-  Jobs::Wait(scene->ForEach<GlobalTransform, DisplayColor>(
-      {}, star_query_,
-      [&](int i, Entity entity, const GlobalTransform &global_transform, const DisplayColor &display_color) {
-        particle_infos[i].instance_matrix.value = global_transform.value;
-        particle_infos[i].instance_color = glm::vec4(display_color.value * display_color.intensity, 1.0f);
-      },
-      false));
-  particle_info_list->SetParticleInfos(particle_infos);
-}
-void UniverseLayer::ApplyPosition() {
-  const auto scene = GetScene();
-  apply_position_timer_ = ApplicationContext::Get().GetTimes().Now();
-  Jobs::Wait(scene->ForEach<StarPosition, GlobalTransform, Transform, SurfaceColor, DisplayColor>(
-      {}, star_query_,
-      [this](int i, Entity entity, const StarPosition &position, GlobalTransform &global_transform,
-             Transform &transform, const SurfaceColor &surface_color, DisplayColor &display_color) {
-        // Code here will be exec in parallel
-        global_transform.value =
-            glm::translate(glm::vec3(position.value) / 20.0f) * glm::scale(size_ * glm::vec3(1.0f));
-        transform.value = global_transform.value;
-        display_color.value = surface_color.value;
-        display_color.intensity = surface_color.intensity;
-      },
-      false));
-  apply_position_timer_ = ApplicationContext::Get().GetTimes().Now() - apply_position_timer_;
-}
-
-namespace {
-void DrawStarClusterPatternGui(StarClusterPattern &pattern) {
-  static bool auto_apply = true;
-  ImGui::Checkbox("Auto apply", &auto_apply);
-  if (!auto_apply && ImGui::Button("Apply"))
-    pattern.Apply();
-  bool need_update = false;
-  float y_spread = pattern.y_spread;
-  float xz_spread = pattern.xz_spread;
-  float disk_diameter = pattern.disk_diameter;
-  float disk_eccentricity = pattern.disk_eccentricity;
-  float core_proportion = pattern.core_proportion;
-  float core_eccentricity = pattern.core_eccentricity;
-  float center_diameter = pattern.center_diameter;
-  float center_eccentricity = pattern.center_eccentricity;
-  float disk_speed = pattern.disk_speed;
-  float core_speed = pattern.core_speed;
-  float center_speed = pattern.center_speed;
-  float disk_tilt_x = pattern.disk_tilt_x;
-  float disk_tilt_z = pattern.disk_tilt_z;
-  float core_tilt_x = pattern.core_tilt_x;
-  float core_tilt_z = pattern.core_tilt_z;
-  float center_tilt_x = pattern.center_tilt_x;
-  float center_tilt_z = pattern.center_tilt_z;
-  float twist = pattern.twist;
-  glm::vec3 center_offset = pattern.center_offset;
-  glm::vec3 center_position = pattern.center_position;
-  if (ImGui::TreeNode("Shape")) {
-    if (ImGui::DragFloat("Y Spread", &y_spread, 0.001f, 0.0f, 1.0f, "%.3f")) {
-      pattern.y_spread = y_spread;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("XZ Spread", &xz_spread, 0.001f, 0.0f, 1.0f, "%.3f")) {
-      pattern.xz_spread = xz_spread;
-      need_update = true;
-    }
-
-    if (ImGui::DragFloat("Disk size", &disk_diameter, 1.0f, 1.0f, 10000.0f)) {
-      pattern.disk_diameter = disk_diameter;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Disk eccentricity", &disk_eccentricity, 0.01f, 0.0f, 1.0f)) {
-      pattern.disk_eccentricity = disk_eccentricity;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Core proportion", &core_proportion, 0.01f, 0.0f, 1.0f)) {
-      pattern.core_proportion = core_proportion;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Core eccentricity", &core_eccentricity, 0.01f, 0, 1)) {
-      pattern.core_eccentricity = core_eccentricity;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Center size", &center_diameter, 1.0f, 0, 9999)) {
-      pattern.center_diameter = center_diameter;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Center eccentricity", &center_eccentricity, 0.01f, 0, 1)) {
-      pattern.center_eccentricity = center_eccentricity;
-      need_update = true;
-    }
-    ImGui::TreePop();
-    if (ImGui::DragFloat3("Center offset", &center_offset.x, 1.0f, -10000.0f, 10000.0f)) {
-      center_offset = center_offset;
-      need_update = true;
-    }
-    if (ImGui::DragFloat3("Center position", &center_position.x, 1.0f, -10000.0f, 10000.0f)) {
-      center_position = center_position;
-      need_update = true;
-    }
+  if (parameter_upload_arena_)
+    parameter_uploads.Record(*parameter_upload_arena_);
+  if (!dispatches.empty()) {
+    Platform::RecordCommandsMainQueue([dispatches = std::move(dispatches)](const VkCommandBuffer command_buffer) {
+      for (const auto& dispatch : dispatches)
+        dispatch(command_buffer);
+    });
   }
-  if (ImGui::TreeNode("Movement")) {
-    if (ImGui::DragFloat("Disk speed", &disk_speed, 0.1f, -100, 100)) {
-      pattern.disk_speed = disk_speed;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Core speed", &core_speed, 0.1f, -100, 100)) {
-      pattern.core_speed = core_speed;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Center speed", &center_speed, 0.1f, -100, 100)) {
-      pattern.center_speed = center_speed;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Disk X tilt", &disk_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      pattern.disk_tilt_x = disk_tilt_x;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Disk Z tilt", &disk_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      pattern.disk_tilt_z = disk_tilt_z;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Core X tilt", &core_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      pattern.core_tilt_x = core_tilt_x;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Core Z tilt", &core_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      pattern.core_tilt_z = core_tilt_z;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Center X tilt", &center_tilt_x, 1.0f, -180.0f, 180.0f)) {
-      pattern.center_tilt_x = center_tilt_x;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Center Z tilt", &center_tilt_z, 1.0f, -180.0f, 180.0f)) {
-      pattern.center_tilt_z = center_tilt_z;
-      need_update = true;
-    }
-    if (ImGui::DragFloat("Twist", &twist, 1.0f, -720.0f, 720.0f)) {
-      pattern.twist = twist;
-      need_update = true;
-    }
-    ImGui::TreePop();
-  }
-  bool color_update = false;
-  if (ImGui::TreeNode("Rendering")) {
-    if (ImGui::ColorEdit3("Disk Color", &pattern.disk_color.x, 0.1))
-      color_update = true;
-    if (ImGui::DragFloat("Disk Color Intensity", &pattern.disk_emission_intensity, 0.01f, 1.0f, 10.0f))
-      color_update = true;
-    if (ImGui::ColorEdit3("Core Color", &pattern.core_color.x, 0.1))
-      color_update = true;
-    if (ImGui::DragFloat("Core Color Intensity", &pattern.core_emission_intensity, 0.01f, 1.0f, 10.0f))
-      color_update = true;
-    if (ImGui::ColorEdit3("Center Color", &pattern.center_color.x, 0.1))
-      color_update = true;
-    if (ImGui::DragFloat("Center Color Intensity", &pattern.center_emission_intensity, 0.01f, 1.0f, 10.0f))
-      color_update = true;
-    ImGui::TreePop();
-  }
-
-  if (need_update) {
-    pattern.Apply(true);
-  } else if (color_update) {
-    pattern.Apply(true, true);
-  }
-}
-}  // namespace
-
-void StarClusterPattern::Apply(const bool &force_update_all_stars, const bool &only_update_colors) {
-  SetAb();
-  Jobs::Wait(ApplicationContext::Get()
-                 .GetActiveScene()
-                 ->ForEach<StarInfo, StarClusterIndex, StarOrbit, StarOrbitOffset, StarOrbitProportion, SurfaceColor>(
-                     {}, [&](int i, Entity entity, StarInfo &star_info, const StarClusterIndex &star_cluster_index,
-                             StarOrbit &star_orbit, StarOrbitOffset &star_orbit_offset,
-                             StarOrbitProportion &star_orbit_proportion, SurfaceColor &surface_color) {
-                       if (!force_update_all_stars && star_info.initialized)
-                         return;
-                       if (star_cluster_index.m_value != this->star_cluster_index.m_value)
-                         return;
-                       star_info.initialized = true;
-                       const auto proportion = star_orbit_proportion.value;
-                       if (!only_update_colors) {
-                         star_orbit_offset = GetOrbitOffset(proportion);
-                         star_orbit = GetOrbit(proportion);
-                       }
-                       surface_color.value = GetColor(proportion);
-                       surface_color.intensity = GetIntensity(proportion);
-                     }));
+  RegisterForwardRendering(std::move(render_packets));
 }

@@ -871,6 +871,18 @@ void Platform::DrawIndexed(const VkCommandBuffer vk_command_buffer, const uint32
   vkCmdDrawIndexed(vk_command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
+void Platform::Draw(const VkCommandBuffer vk_command_buffer, const uint32_t vertex_count, const uint32_t instance_count,
+                    const uint32_t first_vertex, const uint32_t first_instance) {
+  vkCmdDraw(vk_command_buffer, vertex_count, instance_count, first_vertex, first_instance);
+}
+
+void Platform::CopyBuffer(const VkCommandBuffer vk_command_buffer, const Buffer& source, const Buffer& destination,
+                          const VkDeviceSize size, const VkDeviceSize source_offset,
+                          const VkDeviceSize destination_offset) {
+  const VkBufferCopy region{source_offset, destination_offset, size};
+  vkCmdCopyBuffer(vk_command_buffer, source.GetVkBuffer(), destination.GetVkBuffer(), 1, &region);
+}
+
 void Platform::DrawIndexedIndirect(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
                                    const VkDeviceSize offset, const uint32_t draw_count, const uint32_t stride) {
   vkCmdDrawIndexedIndirect(vk_command_buffer, buffer.GetVkBuffer(), offset, draw_count, stride);
@@ -2752,6 +2764,29 @@ void Platform::BufferMemoryBarrier(const VkCommandBuffer vk_command_buffer, cons
   dependency_info.bufferMemoryBarrierCount = 1;
   dependency_info.pBufferMemoryBarriers = &buffer_barrier;
 
+  vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
+}
+
+void Platform::BufferMemoryBarrier(const VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                   const VkPipelineStageFlags2 source_stages, const VkAccessFlags2 source_access,
+                                   const VkPipelineStageFlags2 destination_stages,
+                                   const VkAccessFlags2 destination_access) {
+  VkBufferMemoryBarrier2 buffer_barrier{};
+  buffer_barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
+  buffer_barrier.srcStageMask = source_stages;
+  buffer_barrier.srcAccessMask = source_access;
+  buffer_barrier.dstStageMask = destination_stages;
+  buffer_barrier.dstAccessMask = destination_access;
+  buffer_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  buffer_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  buffer_barrier.buffer = buffer.GetVkBuffer();
+  buffer_barrier.offset = 0;
+  buffer_barrier.size = VK_WHOLE_SIZE;
+
+  VkDependencyInfo dependency_info{};
+  dependency_info.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
+  dependency_info.bufferMemoryBarrierCount = 1;
+  dependency_info.pBufferMemoryBarriers = &buffer_barrier;
   vkCmdPipelineBarrier2(vk_command_buffer, &dependency_info);
 }
 

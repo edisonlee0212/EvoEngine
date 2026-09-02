@@ -26,4 +26,6 @@ target_link_libraries(UniversePackage
 	PRIVATE
 	EvoEngine_SDK
 	)
-evoengine_configure_runtime_package(UniversePackage)
+evoengine_configure_runtime_package(UniversePackage
+	RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/Internals
+	)

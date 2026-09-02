@@ -745,6 +745,14 @@ class EVOENGINE_API Platform final {
   static void DrawIndexed(VkCommandBuffer vk_command_buffer, uint32_t index_count, uint32_t instance_count,
                           uint32_t first_index = 0, int32_t vertex_offset = 0, uint32_t first_instance = 0);
 
+  /** Records a non-indexed draw through the SDK-owned Vulkan dispatch table. */
+  static void Draw(VkCommandBuffer vk_command_buffer, uint32_t vertex_count, uint32_t instance_count,
+                   uint32_t first_vertex = 0, uint32_t first_instance = 0);
+
+  /** Records a buffer copy through the SDK-owned Vulkan dispatch table. */
+  static void CopyBuffer(VkCommandBuffer vk_command_buffer, const Buffer& source, const Buffer& destination,
+                         VkDeviceSize size, VkDeviceSize source_offset = 0, VkDeviceSize destination_offset = 0);
+
   /**
    * @brief Records an indexed indirect draw through the SDK binary.
    */
@@ -877,6 +885,11 @@ class EVOENGINE_API Platform final {
                                   uint32_t src_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
                                   uint32_t dst_queue_family_index = VK_QUEUE_FAMILY_IGNORED,
                                   bool release_barrier = false);
+
+  /** Inserts a buffer barrier with explicit synchronization2 stage and access masks. */
+  static void BufferMemoryBarrier(VkCommandBuffer vk_command_buffer, const Buffer& buffer,
+                                  VkPipelineStageFlags2 source_stages, VkAccessFlags2 source_access,
+                                  VkPipelineStageFlags2 destination_stages, VkAccessFlags2 destination_access);
 
   /**
    * @brief Transits the layout of an image within a Vulkan command buffer.

@@ -2,19 +2,19 @@
 
 [Back to package index](../README.md)
 
-Universe is a simulation and rendering demo runtime package focused on large ECS workloads, star clusters, and planet terrain. It is useful as a compact example of data-component-heavy scene simulation.
+Universe is a simulation and rendering demo runtime package focused on GPU-driven star clusters and planet terrain.
 
 ## Build Status
 
 - Registered by default from `EvoEngine_Packages/CMakeLists.txt`.
 - Builds as the shared library target `UniversePackage`.
-- Registers Universe data components, `PlanetTerrain`, and `UniverseLayer` through `PackageRegistrar`.
+- Registers the `Star Cluster` and `PlanetTerrain` private components plus `UniverseLayer` through `PackageRegistrar`.
 
 ## Main Responsibilities
 
-- Star cluster creation and removal.
-- Parallel star position calculation and rendering through particles.
-- ECS data components for star simulation state.
+- Stable per-cluster star IDs and deterministic authoring samples.
+- Independent FP64 compute dispatch and direct-GPU forward billboard rendering for every enabled cluster.
+- Per-cluster density-wave, color, emission, timing, transform, and visual-radius parameters.
 - Planet terrain chunks with dynamic LOD behavior.
 - Editor UI for simulation parameters.
 
@@ -22,30 +22,24 @@ Universe is a simulation and rendering demo runtime package focused on large ECS
 
 | Source | Role |
 | --- | --- |
-| `UniverseLayer` | Main package layer for star cluster controls, ECS queries, star archetype creation, and planet terrain updates. |
+| `UniverseLayer` | Owns the shared FP64 compute/forward pipelines and clock, schedules each cluster, and updates planet terrain. |
+| `StarCluster` | Serializable private component and custom renderer that owns one cluster's authoring state, population, and frame-ring GPU buffers. |
 | `PlanetTerrain` | Private component for planet terrain behavior and inspection. |
 | `TerrainChunk` | Terrain chunk state used by planet LOD. |
 
 ## Registered Types
 
-The package entrypoint registers several data components:
-
-- `StarPosition`
-- `SelectionStatus`
-- `StarInfo`
-- `SurfaceColor`
-- `DisplayColor`
-- `OriginalColor`
-- `StarOrbitOffset`
-- `StarOrbitProportion`
-- `StarOrbit`
-- `StarClusterIndex`
-
-`PlanetTerrain` is registered by the package entrypoint instead of app code.
+The package entrypoint registers `Star Cluster` and `PlanetTerrain` as private components. Stars are dense slots inside
+their owning cluster rather than individual ECS entities. The legacy per-star data components are no longer registered.
 
 ## SDK Integration
 
-Universe is a strong example of SDK data components, archetypes, entity queries, temporary particle assets, editor layer inspection, and render-layer draw calls.
+Universe uses the SDK's compute pipeline, descriptor, buffer, profiling, and `ForwardExternal` APIs. Compute writes each
+frame slot's device-local result buffer and the forward vertex shader consumes the same buffer without CPU particle
+assembly or upload. Stars are additive, depth-tested emissive billboards rendered before volumetric clouds and
+transparent geometry; they do not write the G-buffer, depth, motion vectors, or shadows. Position inspection requests an
+asynchronous staging copy only while the inspector tree is expanded. Devices without Vulkan `shaderFloat64` receive a
+clear diagnostic and do not run a lower-precision fallback.
 
 ## Design Documentation
 
@@ -55,4 +49,4 @@ gameplay.
 
 ## Future Work Notes
 
-Use this package as a reference for ECS-scale demos. Features that are specifically about stars, orbital visualization, or planet terrain belong here; general ECS or renderer improvements belong in the SDK.
+Per-star culling, indirect drawing, motion vectors, and optional shadow rendering remain future work.

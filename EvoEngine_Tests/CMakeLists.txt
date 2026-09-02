@@ -116,6 +116,28 @@ if(TARGET DigitalAgriculturePackage)
 		)
 endif()
 
+if(TARGET UniversePackage)
+	add_executable(UniversePackage_Tests Core/UniverseStarClusterTest.cpp)
+	target_link_libraries(UniversePackage_Tests PRIVATE UniversePackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
+	target_include_directories(UniversePackage_Tests PRIVATE
+		${EVOENGINE_SDK_INCLUDES}
+		${CMAKE_SOURCE_DIR}/EvoEngine_Packages/Universe/include
+		)
+	target_compile_definitions(UniversePackage_Tests PRIVATE ${EVOENGINE_SDK_DEFS})
+	target_precompile_headers(UniversePackage_Tests PRIVATE
+		${EVOENGINE_SDK_PCH}
+		${EVOENGINE_PACKAGE_PCH}
+		)
+	add_custom_command(TARGET UniversePackage_Tests POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			$<TARGET_FILE:EvoEngine_SDK>
+			$<TARGET_FILE:UniversePackage>
+			$<TARGET_FILE_DIR:UniversePackage_Tests>
+		VERBATIM)
+	set_property(TARGET UniversePackage_Tests PROPERTY FOLDER Tests)
+	gtest_discover_tests(UniversePackage_Tests)
+endif()
+
 if(TARGET EcoSysLabPackage)
 	add_executable(EcoSysLab_Tests Core/DynamicStrandsBundleTest.cpp)
 	target_link_libraries(EcoSysLab_Tests PRIVATE EcoSysLabPackage EvoEngine_SDK yaml-cpp GTest::gtest_main)
