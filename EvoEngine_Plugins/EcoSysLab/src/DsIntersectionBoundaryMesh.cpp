@@ -129,46 +129,38 @@ bool DsIntersectionBoundaryMesh::OnInspect(const std::shared_ptr<EditorLayer>& e
     ImGui::BeginDisabled();
   }
   if (ImGui::Button("Intersect")) {
-    // Walk up through group → DynamicTreeStrands entity.
     const auto scene = GetScene();
     const Entity owner = GetOwner();
     if (scene && scene->IsEntityValid(owner)) {
-      // owner → group → DTS entity
-      const Entity group = scene->GetParent(owner);
-      const Entity parent = scene->IsEntityValid(group) ? scene->GetParent(group) : Entity{};
-      if (scene->IsEntityValid(parent) && scene->HasPrivateComponent<DynamicTreeStrands>(parent)) {
-        const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(parent).lock();
-        if (dts && dts->dynamic_strands && dts->dynamic_strands->meshing) {
-          auto* dskvm = dynamic_cast<DsKineticVoronoiMeshing*>(dts->dynamic_strands->meshing.get());
-          if (dskvm) {
-            const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(owner);
-            const auto tree_gt = scene->GetDataComponent<GlobalTransform>(parent);
-            DsKineticVoronoiMeshing::IntersectionRunStats intersection_stats;
-            const bool collect_stats = DsKineticVoronoiMeshing::meshing_settings.collect_meshing_statistics;
-            if (dskvm->IntersectMeshletsWithBoundary(mesh_, boundary_gt, tree_gt,
-                                                     collect_stats ? &intersection_stats : nullptr)) {
-              if (collect_stats) {
-                std::string name = path_.stem().string();
-                if (name.empty()) {
-                  name = "entity_" + std::to_string(owner.GetIndex());
-                }
-                std::filesystem::path stats_base = path_.empty()
-                                                       ? std::filesystem::path(name + "_intersection_stats.csv")
-                                                       : path_.parent_path() / (name + "_intersection_stats.csv");
-                DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(stats_base,
-                                                                        {{std::move(name), intersection_stats}});
-              }
-              // Hide the preview after intersection (re-enable to reposition and intersect again).
-              scene->SetEnable(owner, false);
-              changed = true;
+      const auto owner_meshing = DsKineticVoronoiMeshing::FindForEntity(scene, owner);
+      auto* dskvm = owner_meshing.meshing;
+      const Entity dts_owner = owner_meshing.dts_owner;
+      if (dskvm && scene->IsEntityValid(dts_owner)) {
+        const auto boundary_gt = scene->GetDataComponent<GlobalTransform>(owner);
+        const auto tree_gt = scene->GetDataComponent<GlobalTransform>(dts_owner);
+        DsKineticVoronoiMeshing::IntersectionRunStats intersection_stats;
+        const bool collect_stats = DsKineticVoronoiMeshing::meshing_settings.collect_meshing_statistics;
+        if (dskvm->IntersectMeshletsWithBoundary(mesh_, boundary_gt, tree_gt,
+                                                 collect_stats ? &intersection_stats : nullptr)) {
+          if (collect_stats) {
+            std::string name = path_.stem().string();
+            if (name.empty()) {
+              name = "entity_" + std::to_string(owner.GetIndex());
             }
-          } else {
-            EVOENGINE_ERROR(
-                "DsIntersectionBoundaryMesh: parent DynamicTreeStrands does not use DsKineticVoronoiMeshing.");
+            std::filesystem::path stats_base = path_.empty()
+                                                   ? std::filesystem::path(name + "_intersection_stats.csv")
+                                                   : path_.parent_path() / (name + "_intersection_stats.csv");
+            DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(stats_base,
+                                                                    {{std::move(name), intersection_stats}});
           }
+          // Hide the preview after intersection (re-enable to reposition and intersect again).
+          scene->SetEnable(owner, false);
+          changed = true;
         }
       } else {
-        EVOENGINE_ERROR("DsIntersectionBoundaryMesh: parent entity does not have a DynamicTreeStrands component.");
+        EVOENGINE_ERROR(
+            "DsIntersectionBoundaryMesh: could not find DynamicTreeStrands with Kinetic Voronoi meshing "
+            "on this entity or its parents.");
       }
     }
   }

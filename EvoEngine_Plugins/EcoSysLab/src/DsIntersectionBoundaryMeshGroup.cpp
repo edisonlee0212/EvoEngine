@@ -11,25 +11,6 @@
 
 using namespace eco_sys_lab_plugin;
 
-namespace {
-
-DsKineticVoronoiMeshing* FindKineticVoronoiMeshing(const std::shared_ptr<Scene>& scene, const Entity& group) {
-  if (!scene || !scene->IsEntityValid(group)) {
-    return nullptr;
-  }
-  const Entity parent = scene->GetParent(group);
-  if (!scene->IsEntityValid(parent) || !scene->HasPrivateComponent<DynamicTreeStrands>(parent)) {
-    return nullptr;
-  }
-  const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(parent).lock();
-  if (!dts || !dts->dynamic_strands || !dts->dynamic_strands->meshing) {
-    return nullptr;
-  }
-  return dynamic_cast<DsKineticVoronoiMeshing*>(dts->dynamic_strands->meshing.get());
-}
-
-}  // namespace
-
 bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLayer>& editor_layer) {
   bool changed = false;
   const auto scene = GetScene();
@@ -37,8 +18,9 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
   if (!scene || !scene->IsEntityValid(group)) {
     return false;
   }
-  const Entity dts_owner = scene->GetParent(group);
-  auto* dskvm = FindKineticVoronoiMeshing(scene, group);
+  const auto owner_meshing = DsKineticVoronoiMeshing::FindForEntity(scene, group);
+  auto* dskvm = owner_meshing.meshing;
+  const Entity dts_owner = owner_meshing.dts_owner;
 
   FileUtils::OpenFile(
       "Add intersection boundary mesh", "OBJ", {".obj"},
@@ -175,10 +157,16 @@ bool DsIntersectionBoundaryMeshGroup::OnInspect(const std::shared_ptr<EditorLaye
     ImGui::EndDisabled();
   }
   if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-    ImGui::SetTooltip(
-        "For each boundary mesh in this group, compute the intersection and export all results as a single OBJ "
-        "(one object per boundary mesh). Does not modify simulation physics; restores pristine meshlets afterward. "
-        "Requires a completed meshing run.");
+    if (!dskvm || !scene->IsEntityValid(dts_owner)) {
+      ImGui::SetTooltip(
+          "Could not find DynamicTreeStrands with Kinetic Voronoi meshing on this group or its parents.");
+    } else if (!dskvm->HasMeshedSegmentMeshlets()) {
+      ImGui::SetTooltip("No meshlets available on the parent DynamicTreeStrands. Run meshing first.");
+    } else {
+      ImGui::SetTooltip(
+          "For each boundary mesh in this group, compute the intersection and export all results as a single OBJ "
+          "(one object per boundary mesh). Does not modify simulation physics; restores pristine meshlets afterward.");
+    }
   }
 
   return changed;

@@ -10,6 +10,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_inverse.hpp>  // for inverse()
 #include <glm/gtx/norm.hpp>            // for length2()
+#include <exception>
+#include <functional>
 #include <iomanip>
 #include <limits>
 #include <optional>
@@ -1763,7 +1765,222 @@ void DsKineticVoronoiMeshing::WriteIntersectionStatisticsCsv(
 }
 
 bool DsKineticVoronoiMeshing::HasMeshedSegmentMeshlets() const {
-  return tree_mesher_ && !segment_meshlets_.empty();
+  if (!tree_mesher_) {
+    return false;
+  }
+  return !segment_meshlets_.empty() || !tree_mesher_->getSegmentMeshlets().empty();
+}
+
+bool DsKineticVoronoiMeshing::EnsureCpuMeshletsFromGpu() {
+  if (!segment_meshlets_.empty()) {
+    if (tree_mesher_ && tree_mesher_->getSegmentMeshlets().empty()) {
+      tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+      tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+    }
+    return tree_mesher_ != nullptr;
+  }
+  if (tree_mesher_ && !tree_mesher_->getSegmentMeshlets().empty()) {
+    segment_meshlets_ = tree_mesher_->getSegmentMeshlets();
+    if (meshing_neighbor_indices_.empty()) {
+      meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+    }
+    return true;
+  }
+  if (segment_meshlet_vertices.empty() || segment_meshlet_triangles.empty()) {
+    return false;
+  }
+  if (!tree_mesher_) {
+    if (!strand_tree) {
+      return false;
+    }
+    tree_mesher_ = std::make_shared<kinDS::TreeMesher>(*strand_tree, [](size_t count, std::function<void(size_t)> func) {
+      Jobs::RunParallelFor(count, [&](size_t i) {
+        func(i);
+      });
+    });
+    tree_mesher_->getSettings().transform_mesh_at_construction = true;
+    tree_mesher_->getSettings().mesh_cap_at_start = true;
+  }
+
+  GlobalTransform inv_root;
+  inv_root.value = glm::inverse(meshlets_root_transform_.value);
+
+  const auto& meshing_to_physics = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+  int max_physics = -1;
+  for (const auto& vertex : segment_meshlet_vertices) {
+    max_physics = glm::max(max_physics, static_cast<int>(vertex.segment_index));
+  }
+  for (const size_t physics_id : meshing_to_physics) {
+    if (physics_id != static_cast<size_t>(-1)) {
+      max_physics = glm::max(max_physics, static_cast<int>(physics_id));
+    }
+  }
+  if (max_physics < 0) {
+    return false;
+  }
+
+  std::vector<int> physics_to_meshing(static_cast<size_t>(max_physics) + 1, -1);
+  if (!meshing_to_physics.empty()) {
+    segment_meshlets_.assign(meshing_to_physics.size(), kinDS::VoronoiMesh({}, kinDS::PerTriangleCorner));
+    meshing_neighbor_indices_.assign(meshing_to_physics.size(), {});
+    for (size_t meshing_id = 0; meshing_id < meshing_to_physics.size(); ++meshing_id) {
+      const size_t physics_id = meshing_to_physics[meshing_id];
+      if (physics_id != static_cast<size_t>(-1) && physics_id < physics_to_meshing.size()) {
+        physics_to_meshing[physics_id] = static_cast<int>(meshing_id);
+      }
+    }
+  } else {
+    segment_meshlets_.assign(static_cast<size_t>(max_physics) + 1, kinDS::VoronoiMesh({}, kinDS::PerTriangleCorner));
+    meshing_neighbor_indices_.assign(static_cast<size_t>(max_physics) + 1, {});
+    std::vector<size_t> identity(static_cast<size_t>(max_physics) + 1);
+    for (int physics_id = 0; physics_id <= max_physics; ++physics_id) {
+      physics_to_meshing[static_cast<size_t>(physics_id)] = physics_id;
+      identity[static_cast<size_t>(physics_id)] = static_cast<size_t>(physics_id);
+    }
+    tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(identity));
+  }
+
+  auto meshlet_index_for_physics = [&](const int physics_id) -> int {
+    if (physics_id < 0 || static_cast<size_t>(physics_id) >= physics_to_meshing.size()) {
+      return physics_id;
+    }
+    return physics_to_meshing[static_cast<size_t>(physics_id)];
+  };
+
+  std::vector<size_t> global_to_local(segment_meshlet_vertices.size(), static_cast<size_t>(-1));
+  std::vector<std::vector<glm::dvec3>> corner_normals(segment_meshlets_.size());
+  for (auto& mesh : segment_meshlets_) {
+    mesh.setStoreMetadata(false);
+  }
+
+  for (size_t vertex_index = 0; vertex_index < segment_meshlet_vertices.size(); ++vertex_index) {
+    const int meshlet_id = meshlet_index_for_physics(static_cast<int>(segment_meshlet_vertices[vertex_index].segment_index));
+    if (meshlet_id < 0 || static_cast<size_t>(meshlet_id) >= segment_meshlets_.size()) {
+      continue;
+    }
+    const glm::vec3 local = inv_root.TransformPoint(segment_meshlet_vertices[vertex_index].x0);
+    global_to_local[vertex_index] = segment_meshlets_[static_cast<size_t>(meshlet_id)].addVertex(
+        glm::dvec3(local.x, local.y, local.z));
+  }
+
+  for (const auto& triangle : segment_meshlet_triangles) {
+    if (triangle.vertex_index0 >= segment_meshlet_vertices.size() ||
+        triangle.vertex_index1 >= segment_meshlet_vertices.size() ||
+        triangle.vertex_index2 >= segment_meshlet_vertices.size()) {
+      continue;
+    }
+    const int meshlet_id =
+        meshlet_index_for_physics(static_cast<int>(segment_meshlet_vertices[triangle.vertex_index0].segment_index));
+    if (meshlet_id < 0 || static_cast<size_t>(meshlet_id) >= segment_meshlets_.size()) {
+      continue;
+    }
+    const size_t i0 = global_to_local[triangle.vertex_index0];
+    const size_t i1 = global_to_local[triangle.vertex_index1];
+    const size_t i2 = global_to_local[triangle.vertex_index2];
+    if (i0 == static_cast<size_t>(-1) || i1 == static_cast<size_t>(-1) || i2 == static_cast<size_t>(-1)) {
+      continue;
+    }
+    auto& mesh = segment_meshlets_[static_cast<size_t>(meshlet_id)];
+    const size_t uv0 = mesh.addUV(glm::dvec3(triangle.uv[0].x, triangle.uv[0].y, triangle.uv[0].z));
+    const size_t uv1 = mesh.addUV(glm::dvec3(triangle.uv[1].x, triangle.uv[1].y, triangle.uv[1].z));
+    const size_t uv2 = mesh.addUV(glm::dvec3(triangle.uv[2].x, triangle.uv[2].y, triangle.uv[2].z));
+    mesh.addTriangle(i0, i1, i2, uv0, uv1, uv2);
+    auto& normals = corner_normals[static_cast<size_t>(meshlet_id)];
+    for (int corner = 0; corner < 3; ++corner) {
+      const glm::vec3 local_n = inv_root.TransformVector(glm::vec3(triangle.normal[corner]));
+      normals.emplace_back(local_n.x, local_n.y, local_n.z);
+    }
+    const int neighbor = meshlet_index_for_physics(triangle.neighbor_segment_index);
+    meshing_neighbor_indices_[static_cast<size_t>(meshlet_id)].push_back(neighbor);
+  }
+
+  for (size_t meshlet_id = 0; meshlet_id < segment_meshlets_.size(); ++meshlet_id) {
+    if (!corner_normals[meshlet_id].empty()) {
+      segment_meshlets_[meshlet_id].setCornerNormals(std::move(corner_normals[meshlet_id]));
+    }
+  }
+
+  bool have_strand_map = false;
+  try {
+    have_strand_map = !tree_mesher_->getMeshingStrandToSegmentIndices().empty();
+  } catch (const std::exception&) {
+    have_strand_map = false;
+  }
+  if (strand_tree && !have_strand_map) {
+    const auto& physics_strands = strand_tree->getPhysicsStrandToSegmentIndices();
+    std::vector<std::vector<size_t>> meshing_strands(physics_strands.size());
+    for (size_t strand_id = 0; strand_id < physics_strands.size(); ++strand_id) {
+      for (const int physics_id : physics_strands[strand_id]) {
+        const int meshlet_id = meshlet_index_for_physics(physics_id);
+        if (meshlet_id >= 0) {
+          meshing_strands[strand_id].push_back(static_cast<size_t>(meshlet_id));
+        }
+      }
+    }
+    tree_mesher_->setMeshingStrandToSegmentIndices(std::move(meshing_strands));
+  }
+
+  tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+  tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+  EVOENGINE_LOG("Rebuilt CPU meshlets from GPU buffers (" << segment_meshlets_.size() << " meshlets, "
+                                                          << segment_meshlet_vertices.size() << " vertices).");
+  return !segment_meshlets_.empty();
+}
+
+DsKineticVoronoiMeshing::OwnerMeshing DsKineticVoronoiMeshing::FindForEntity(const std::shared_ptr<Scene>& scene,
+                                                                            const Entity& entity) {
+  OwnerMeshing result;
+  if (!scene || !scene->IsEntityValid(entity)) {
+    return result;
+  }
+
+  const auto try_entity = [&](const Entity& candidate) -> OwnerMeshing {
+    OwnerMeshing found;
+    if (!scene->IsEntityValid(candidate) || !scene->HasPrivateComponent<DynamicTreeStrands>(candidate)) {
+      return found;
+    }
+    const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(candidate).lock();
+    if (!dts || !dts->dynamic_strands || !dts->dynamic_strands->meshing) {
+      return found;
+    }
+    found.meshing = dynamic_cast<DsKineticVoronoiMeshing*>(dts->dynamic_strands->meshing.get());
+    if (found.meshing) {
+      found.dts_owner = candidate;
+    }
+    return found;
+  };
+
+  Entity current = entity;
+  OwnerMeshing first;
+  while (scene->IsEntityValid(current)) {
+    OwnerMeshing found = try_entity(current);
+    if (found.meshing) {
+      // Prefer the nearest DynamicTreeStrands ancestor (PhysicsDemo in demos), matching
+      // scripted LoadIntersectionSetup(scene, owner, ...). Do not jump to another entity's DTS.
+      found.meshing->EnsureCpuMeshletsFromGpu();
+      return found;
+    }
+    current = scene->GetParent(current);
+  }
+
+  // Only if the group is unparented: fall back to a meshed DTS, else any KVM.
+  const auto* dts_owners = scene->UnsafeGetPrivateComponentOwnersList<DynamicTreeStrands>();
+  if (dts_owners) {
+    for (const auto& owner : *dts_owners) {
+      OwnerMeshing found = try_entity(owner);
+      if (!found.meshing) {
+        continue;
+      }
+      found.meshing->EnsureCpuMeshletsFromGpu();
+      if (found.meshing->HasMeshedSegmentMeshlets()) {
+        return found;
+      }
+      if (!first.meshing) {
+        first = found;
+      }
+    }
+  }
+  return first;
 }
 
 bool DsKineticVoronoiMeshing::LoadIntersectionSetup(const std::shared_ptr<Scene>& scene, const Entity& owner,
@@ -1849,7 +2066,7 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
                                                             const GlobalTransform& tree_world_transform,
                                                             IntersectionRunStats* stats,
                                                             const bool apply_to_simulation) {
-  if (!HasMeshedSegmentMeshlets()) {
+  if (!HasMeshedSegmentMeshlets() && !EnsureCpuMeshletsFromGpu()) {
     EVOENGINE_ERROR("Intersect: no meshed segment meshlets available. Run meshing first.");
     return false;
   }
@@ -1871,6 +2088,10 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
   boundary_mesh.applyTransform(clip_transform);
 
   // Restore pristine meshlets so Intersect can be re-run after moving the boundary.
+  if (segment_meshlets_.empty() && tree_mesher_ && !tree_mesher_->getSegmentMeshlets().empty()) {
+    segment_meshlets_ = tree_mesher_->getSegmentMeshlets();
+    meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+  }
   tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
   tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
 
@@ -1928,7 +2149,7 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
 }
 
 bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
-  if (!HasMeshedSegmentMeshlets()) {
+  if (!HasMeshedSegmentMeshlets() && !EnsureCpuMeshletsFromGpu()) {
     EVOENGINE_ERROR("Reset meshlets: no meshed segment meshlets available. Run meshing first.");
     return false;
   }
@@ -1937,6 +2158,10 @@ bool DsKineticVoronoiMeshing::ResetMeshletsToGpu() {
     return false;
   }
 
+  if (segment_meshlets_.empty() && tree_mesher_ && !tree_mesher_->getSegmentMeshlets().empty()) {
+    segment_meshlets_ = tree_mesher_->getSegmentMeshlets();
+    meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
+  }
   tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
   tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
 
@@ -2677,22 +2902,34 @@ void DsKineticVoronoiMeshing::RunMeshingAlgorithm(
     std::vector<std::vector<size_t>> strand_to_segment;
     if (LoadMeshingBuffer(bin_path, root_transform, gpu_vertices, gpu_triangles, meshlets, neighbors,
                           meshing_to_physics, strand_to_segment)) {
-      tree_mesher_->getSegmentMeshlets() = std::move(meshlets);
-      tree_mesher_->getMeshingNeighborIndices() = std::move(neighbors);
-      tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
-      tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
-      segment_meshlets_ = tree_mesher_->getSegmentMeshlets();
-      meshing_neighbor_indices_ = tree_mesher_->getMeshingNeighborIndices();
       meshlets_root_transform_ = root_transform;
       segment_meshlet_vertices = std::move(gpu_vertices);
       segment_meshlet_triangles = std::move(gpu_triangles);
-      warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
-      EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
-                                                << " vertices, " << segment_meshlet_triangles.size() << " triangles).");
-      if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
-        EVOENGINE_LOG("Updated meshing buffer metadata for " << input_hash << ".");
+      tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
+      tree_mesher_->setMeshingStrandToSegmentIndices(std::move(strand_to_segment));
+      if (!meshlets.empty()) {
+        segment_meshlets_ = std::move(meshlets);
+        meshing_neighbor_indices_ = std::move(neighbors);
+        tree_mesher_->getSegmentMeshlets() = segment_meshlets_;
+        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+      } else {
+        meshing_neighbor_indices_ = std::move(neighbors);
+        tree_mesher_->getMeshingNeighborIndices() = meshing_neighbor_indices_;
+        EnsureCpuMeshletsFromGpu();
       }
-      loaded_from_cache = true;
+      if (HasMeshedSegmentMeshlets()) {
+        warn_segment_count_mismatch(tree_mesher_->getMeshingStrandToSegmentIndices());
+        EVOENGINE_LOG("Meshing buffer cache hit " << input_hash << " (" << segment_meshlet_vertices.size()
+                                                  << " vertices, " << segment_meshlet_triangles.size()
+                                                  << " triangles).");
+        if (UpdateMeshingBufferYmlOnCacheHit(yml_path, hash_stats, meshing_settings.meshing_buffer_description)) {
+          EVOENGINE_LOG("Updated meshing buffer metadata for " << input_hash << ".");
+        }
+        loaded_from_cache = true;
+      } else {
+        EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
+                                            << " loaded GPU data but CPU meshlets could not be restored; remeshing.");
+      }
     } else {
       EVOENGINE_WARNING("Meshing buffer " << bin_path.string()
                                           << " exists but could not be loaded; remeshing (cache miss).");
@@ -3403,6 +3640,7 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
     if (!dts_owners) {
       return Entity{};
     }
+    Entity this_owner{};
     for (const auto& e : *dts_owners) {
       const auto dts = scene->GetOrSetPrivateComponent<DynamicTreeStrands>(e).lock();
       if (dts && dts->dynamic_strands && dts->dynamic_strands->meshing.get() == this) {

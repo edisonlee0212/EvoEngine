@@ -208,6 +208,16 @@ class DsKineticVoronoiMeshing : public DsMeshing {
 
   void RecomputeSegmentPairs(const kinDS::TreeMesher& tree_mesher);
   bool HasMeshedSegmentMeshlets() const;
+  /// If CPU Voronoi meshlets are missing, rebuild them from the GPU vertex/triangle buffers
+  /// (same geometry, different layout). Needed so intersection works after a mesh-buffer cache hit.
+  bool EnsureCpuMeshletsFromGpu();
+  /// Locate Kinetic Voronoi meshing for @p entity: nearest DynamicTreeStrands on the entity or its
+  /// ancestors (same parent used by scripted LoadIntersectionSetup). Scene-wide fallback only if unparented.
+  struct OwnerMeshing {
+    DsKineticVoronoiMeshing* meshing = nullptr;
+    Entity dts_owner{};
+  };
+  static OwnerMeshing FindForEntity(const std::shared_ptr<Scene>& scene, const Entity& entity);
   struct IntersectionRunStats {
     size_t inside_meshlets = 0;
     size_t intersecting_meshlets = 0;
