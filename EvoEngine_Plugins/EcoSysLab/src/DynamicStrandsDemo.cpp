@@ -1,17 +1,23 @@
 #include "DynamicStrandsDemo.hpp"
 
 #include <chrono>
+#include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <filesystem>
 #include <iomanip>
+#include <limits>
 #include <sstream>
 
 #include "BufferExporter.hpp"
 #include "DsColliders.hpp"
+#include "DsIntersectionBoundaryMesh.hpp"
+#include "DsIntersectionBoundaryMeshGroup.hpp"
 #include "DsKineticVoronoiMeshing.hpp"
 #include "DynamicTreeStrands.hpp"
 #include "EcoSysLabLayer.hpp"
 #include "ProjectManager.hpp"
+#include "kinDS/kinDS/ObjExporter.hpp"
 #include "Tree.hpp"
 
 using namespace eco_sys_lab_plugin;
@@ -31,6 +37,102 @@ void ApplyLogExperimentPivotTransforms(const GlobalTransform& owner_gt, const Gl
   right_transform.SetPosition(root_transform.TransformPoint(glm::vec3(board_distance, 0.f, 0.f)));
   left_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, -angle)));
   right_transform.SetRotation(owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, angle)));
+}
+
+void ApplyLogCutUprightPivotTransforms(const GlobalTransform& owner_gt, const GlobalTransform& root_transform,
+                                        const float board_distance, const float simulated_time,
+                                        GlobalTransform& lower_transform, GlobalTransform& upper_transform) {
+  const float rotation_t = glm::clamp(simulated_time / kLogExperimentPivotDuration, 0.f, 1.f);
+  // Negative sign: with the "upright" owner rotation (+90° around world Z), this swings towards +X.
+  const float angle = -rotation_t * kLogExperimentMaxBreakAngle;
+
+  const glm::vec3 lower_pos = root_transform.TransformPoint(glm::vec3(0.f, 0.f, 0.f));
+  lower_transform.SetPosition(lower_pos);
+  lower_transform.SetRotation(owner_gt.GetRotation());
+
+  const glm::quat upper_rotation = owner_gt.GetRotation() * glm::quat(glm::vec3(0.f, 0.f, angle));
+  upper_transform.SetRotation(upper_rotation);
+  const glm::vec3 upper_offset_world = upper_rotation * glm::vec3(board_distance, 0.f, 0.f);
+  upper_transform.SetPosition(lower_pos + upper_offset_world);
+}
+
+void SetupLogCutUprightBunnyIntersectionBoundary(const std::shared_ptr<Scene>& scene, const Entity& owner,
+                                                  const GlobalTransform& owner_gt, const float log_length) {
+  if (!scene) {
+    return;
+  }
+
+  const glm::vec3 lower_pivot_world = owner_gt.GetPosition();
+
+  const auto bunny_path = ProjectManager::GetAssetsFolderPath() / "Models/bunny_simple.obj";
+  kinDS::VoronoiMesh bunny_mesh = kinDS::ObjExporter::readMesh(bunny_path);
+  const auto& verts = bunny_mesh.getVertices();
+  if (verts.empty()) {
+    EVOENGINE_ERROR("Upright log experiment: bunny OBJ has no vertices: " << bunny_path.string());
+    return;
+  }
+
+  double min_x = std::numeric_limits<double>::max();
+  double min_y = std::numeric_limits<double>::max();
+  double min_z = std::numeric_limits<double>::max();
+  double max_x = std::numeric_limits<double>::lowest();
+  double max_y = std::numeric_limits<double>::lowest();
+  double max_z = std::numeric_limits<double>::lowest();
+  for (const auto& v : verts) {
+    const double x = static_cast<double>(v.x);
+    const double y = static_cast<double>(v.y);
+    const double z = static_cast<double>(v.z);
+    if (x < min_x)
+      min_x = x;
+    if (y < min_y)
+      min_y = y;
+    if (z < min_z)
+      min_z = z;
+    if (x > max_x)
+      max_x = x;
+    if (y > max_y)
+      max_y = y;
+    if (z > max_z)
+      max_z = z;
+  }
+
+  const double bunny_height = max_y - min_y;
+  if (bunny_height <= std::numeric_limits<double>::epsilon()) {
+    EVOENGINE_ERROR("Upright log experiment: bunny OBJ has degenerate Y span: " << bunny_path.string());
+    return;
+  }
+  const double bunny_scale = static_cast<double>(log_length) / bunny_height;
+
+  const double bunny_center_x = (min_x + max_x) * 0.5;
+  const double bunny_center_z = (min_z + max_z) * 0.5;
+
+  glm::mat4 bunny_transform(1.0f);
+  bunny_transform[0][0] = static_cast<float>(bunny_scale);
+  bunny_transform[1][1] = static_cast<float>(bunny_scale);
+  bunny_transform[2][2] = static_cast<float>(bunny_scale);
+  bunny_transform[3][0] = static_cast<float>(lower_pivot_world.x - bunny_scale * bunny_center_x);
+  bunny_transform[3][1] = static_cast<float>(lower_pivot_world.y - bunny_scale * min_y);
+  bunny_transform[3][2] = static_cast<float>(lower_pivot_world.z - bunny_scale * bunny_center_z);
+
+  const Entity group = scene->CreateEntity("Intersection Meshes (Log cut upright + bunny)");
+  scene->SetParent(group, owner);
+  GlobalTransform group_gt{};
+  group_gt.value = glm::mat4(1.0f);
+  scene->SetDataComponent(group, group_gt);
+  scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMeshGroup>(group);
+
+  const auto child = scene->CreateEntity("Intersection Mesh (bunny_simple)");
+  scene->SetParent(child, group);
+  GlobalTransform child_gt{};
+  child_gt.value = bunny_transform;
+  scene->SetDataComponent(child, child_gt);
+
+  auto ibm = scene->GetOrSetPrivateComponent<DsIntersectionBoundaryMesh>(child).lock();
+  if (!ibm) {
+    EVOENGINE_ERROR("Upright log experiment: failed to create DsIntersectionBoundaryMesh for bunny.");
+    return;
+  }
+  ibm->LoadMesh(std::move(bunny_mesh), bunny_path);
 }
 
 void ApplyLogBreakPivotTransforms(const GlobalTransform& owner_gt, const GlobalTransform& root_transform,
@@ -1366,6 +1468,72 @@ bool DynamicStrandsDemo::OnInspect(const std::shared_ptr<EditorLayer>& editor_la
           "then pull pivots apart on Play.");
     }
 
+    if (ImGui::Button("Log cut upright + bunny")) {
+      ResetEnvironment(editor_layer);
+      camera_pose.SetPosition(glm::vec3(-0.3, kVolumetricLogExperimentCameraHeight, 0.2));
+      camera_pose.SetEulerRotation(glm::radians(glm::vec3(-30, -60, 0)));
+
+      // Half-length log so the bunny fits between bottom/top.
+      log_experiment_setup_settings.rod_segment_count = 20;
+      log_experiment_setup_settings.rod_size = 3200;
+      log_experiment_setup_settings.segment_length = 0.0125f;
+      // 20% wider than the default radius (0.002) to better match the bunny width.
+      log_experiment_setup_settings.radius = 0.0024f;
+      log_experiment_setup_settings.fungus_test = false;
+      log_experiment_setup_settings.cube_pattern = false;
+      log_experiment_setup_settings.internal_pattern = false;
+      log_experiment_setup_settings.competition_setting = false;
+      // Transform pivots + break motion (same pivot type as Log/Board break).
+      log_experiment_setup_settings.left_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+      log_experiment_setup_settings.right_pivot_type =
+          static_cast<unsigned>(DynamicTreeStrands::PivotType::Transform);
+
+      target_factor0 = 1.f;
+      target_factor1 = 1.f;
+      target_simulation_time = kLogExperimentPivotDuration;
+      automated_export_upper = 15.f;
+      automated_export_stepsize = 1.f;
+      ResetAutomatedExportSchedule();
+
+      // Disable crack opening offset (x - fracture_distance * shift) for volumetric demos.
+      DsKineticVoronoiMeshing::render_settings.segment_meshlet_render_parameters.fracture_distance = 0.f;
+
+      physics_parameters.enable_fungus = false;
+      physics_parameters.enable_segment_collision = false;
+      // Coarser random subdivision than Fungus [Cubical] (0.005–0.01) for longer physics segments.
+      dts->initialize_parameters.min_segment_length = 0.02f;
+      dts->initialize_parameters.max_segment_length = 0.04f;
+      dts->initialize_parameters.meshing_type = MeshingType::KineticVoronoi;
+
+      // Rotate owner so the log's local +X rod axis becomes world +Y (upright).
+      GlobalTransform owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
+      owner_gt.SetEulerRotation(glm::radians(glm::vec3(0.f, 0.f, 90.f)));
+      scene->SetDataComponent(owner, owner_gt);
+
+      SetupVolumetricLogExperimentHeight(scene, owner, dts);
+
+      log_experiment_setup_settings.meshing_buffer_description =
+          "created from DynamicStrandsDemo scripted experiment: Log cut upright + bunny";
+
+      RunLogExperimentSetup(dts);
+
+      const float log_length = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
+                                 log_experiment_setup_settings.segment_length;
+      const auto upright_owner_gt = scene->GetDataComponent<GlobalTransform>(owner);
+      SetupLogCutUprightBunnyIntersectionBoundary(scene, owner, upright_owner_gt, log_length);
+
+      editor_layer->SetSceneCameraRotation(camera_pose.GetRotation());
+      editor_layer->SetSceneCameraPosition(camera_pose.GetPosition());
+      demo_type = DemoType::LogCutUprightBunny;
+      demo_status = DemoStatus::Simulation;
+    }
+    if (ImGui::IsItemHovered()) {
+      ImGui::SetTooltip(
+          "Half-length log cut with a bunny boundary mesh. The lower pivot stays fixed; only the upper pivot "
+          "rotates downwards around it.");
+    }
+
     if (ImGui::Button("Small Trunk")) {
       ResetEnvironment(editor_layer);
       demo_type = DemoType::SmallTrunk;
@@ -1474,6 +1642,18 @@ void DynamicStrandsDemo::Update() {
                                    right_operator_root_transform);
       scene->SetDataComponent(left_pivot, left_operator_root_transform);
       scene->SetDataComponent(right_pivot, right_operator_root_transform);
+      dts->PhysicsStep(physics_parameters);
+    } break;
+    case DemoType::LogCutUprightBunny: {
+      const float board_distance = static_cast<float>(log_experiment_setup_settings.rod_segment_count) *
+                                   log_experiment_setup_settings.segment_length;
+      GlobalTransform lower_operator_root_transform = GlobalTransform();
+      GlobalTransform upper_operator_root_transform = GlobalTransform();
+      ApplyLogCutUprightPivotTransforms(owner_gt, dts->initialize_parameters.root_transform, board_distance,
+                                        simulated_time, lower_operator_root_transform,
+                                        upper_operator_root_transform);
+      scene->SetDataComponent(left_pivot, lower_operator_root_transform);
+      scene->SetDataComponent(right_pivot, upper_operator_root_transform);
       dts->PhysicsStep(physics_parameters);
     } break;
     case DemoType::LogCut:
@@ -1754,6 +1934,8 @@ const char* DynamicStrandsDemo::DemoTypeExportFolderName(const DemoType type) {
       return "Log cut";
     case DemoType::LogSpoon:
       return "Log Spoon";
+    case DemoType::LogCutUprightBunny:
+      return "Log cut upright + bunny";
     case DemoType::Empty:
     default:
       return "Unknown";
