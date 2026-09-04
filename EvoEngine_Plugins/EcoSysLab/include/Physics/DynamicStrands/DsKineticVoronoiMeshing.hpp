@@ -250,7 +250,15 @@ class DsKineticVoronoiMeshing : public DsMeshing {
   void DownloadPhysicsSegmentsAndPairs();
   void UploadPhysicsSegmentsAndPairs();
   /// Remove OUTSIDE physics segments and densely remap survivors after boundary intersection.
-  void CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices);
+  /// When @p rebuild_pairs is false, segment/map compaction still runs but pair topology is left
+  /// empty for a subsequent @ref RecomputeSegmentPairs.
+  void CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices, bool rebuild_pairs = true);
+  /// Split INTERSECT meshlets with multiple triangle connected components into separate meshlets
+  /// and physics segments (length-fitted on the parent axis). Requires CPU physics already downloaded.
+  /// @return number of extra physics segments created.
+  size_t SplitIntersectingMeshletsByConnectedComponents(const std::vector<size_t>& intersecting_meshing_indices);
+  /// After @ref RecomputeSegmentPairs: refresh strand prev/next/begin/end and initialize pair materials.
+  void FinalizeStrandConnectivityAndPairMaterials();
   void PopulateGpuMeshletBuffers(const std::vector<kinDS::VoronoiMesh>& meshes,
                                  const std::vector<std::vector<int>>& physics_strand_to_segment_indices,
                                  const std::vector<std::vector<size_t>>& meshing_strand_to_segment_indices,

@@ -14,10 +14,12 @@
 #include <functional>
 #include <iomanip>
 #include <limits>
+#include <numeric>
 #include <optional>
 #include <queue>
 #include <sstream>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -2127,18 +2129,37 @@ bool DsKineticVoronoiMeshing::IntersectMeshletsWithBoundary(const kinDS::Voronoi
 
   segment_meshlet_vertices.clear();
   segment_meshlet_triangles.clear();
-  PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
-                            tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
-                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
   if (!apply_to_simulation) {
+    PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+                              tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+                              tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
     EVOENGINE_LOG("Intersection complete (export-only). " << segment_meshlet_vertices.size() << " vertices, "
                 << segment_meshlet_triangles.size() << " triangles.");
     return true;
   }
-  Upload();
+
   DownloadPhysicsSegmentsAndPairs();
-  CompactSurvivingPhysicsSegments(truncate_result.outside_meshlet_indices);
-  Upload();  // remapped meshlet segment / neighbor / pair indices
+  if (meshing_settings.recompute_segment_pairs) {
+    SplitIntersectingMeshletsByConnectedComponents(truncate_result.intersecting_meshlet_indices);
+  }
+
+  PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+                            tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+                            tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  Upload();
+  CompactSurvivingPhysicsSegments(truncate_result.outside_meshlet_indices,
+                                  /*rebuild_pairs=*/!meshing_settings.recompute_segment_pairs);
+  if (meshing_settings.recompute_segment_pairs) {
+    RecomputeSegmentPairs(*tree_mesher_);
+    FinalizeStrandConnectivityAndPairMaterials();
+    // Rebuild GPU meshlets so segment_pair_index matches the recomputed pairs.
+    segment_meshlet_vertices.clear();
+    segment_meshlet_triangles.clear();
+    PopulateGpuMeshletBuffers(tree_mesher_->getSegmentMeshlets(), strand_tree->getPhysicsStrandToSegmentIndices(),
+                              tree_mesher_->getMeshingStrandToSegmentIndices(), tree_mesher_->getMeshingNeighborIndices(),
+                              tree_mesher_->getMeshingToPhysicsSegmentIndices(), meshlets_root_transform_);
+  }
+  Upload();  // remapped / rebuilt meshlet segment / neighbor / pair indices
   UploadPhysicsSegmentsAndPairs();
   UpdateBindings();
   EVOENGINE_LOG("Intersection complete. GPU meshlet buffers updated ("
@@ -2218,7 +2239,380 @@ void DsKineticVoronoiMeshing::UploadPhysicsSegmentsAndPairs() {
   dynamic_strands->device_foliage_buffer->SetDebugName("Foliage Buffer");
 }
 
-void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices) {
+void DsKineticVoronoiMeshing::FinalizeStrandConnectivityAndPairMaterials() {
+  if (!dynamic_strands || !strand_tree) {
+    return;
+  }
+  auto& segments = dynamic_strands->segments;
+  auto& segment_data_list = dynamic_strands->segment_data_list;
+  auto& segment_pairs = dynamic_strands->segment_pairs;
+  auto& strands = dynamic_strands->strands;
+  const auto& physics_strand_map = strand_tree->getPhysicsStrandToSegmentIndices();
+
+  // Refresh prev/next and strand endpoints from physics strand maps.
+  for (auto& segment : segments) {
+    segment.prev_handle = -1;
+    segment.next_handle = -1;
+  }
+  for (size_t strand_id = 0; strand_id < physics_strand_map.size(); ++strand_id) {
+    if (strand_id >= strands.size()) {
+      continue;
+    }
+    auto& strand = strands[strand_id];
+    const auto& slots = physics_strand_map[strand_id];
+    if (slots.empty()) {
+      strand.begin_segment_handle = -1;
+      strand.end_segment_handle = -1;
+      strand.front_propagate_begin_segment_handle = -1;
+      strand.back_propagate_begin_segment_handle = -1;
+      strand.alternative_front_propagate_begin_segment_handle = -1;
+      strand.alternative_back_propagate_begin_segment_handle = -1;
+      continue;
+    }
+    strand.begin_segment_handle = slots.front();
+    strand.end_segment_handle = slots.back();
+    strand.front_propagate_begin_segment_handle = strand.begin_segment_handle;
+    strand.back_propagate_begin_segment_handle = strand.end_segment_handle;
+    strand.alternative_front_propagate_begin_segment_handle = strand.begin_segment_handle;
+    strand.alternative_back_propagate_begin_segment_handle = strand.end_segment_handle;
+    for (size_t slot = 0; slot < slots.size(); ++slot) {
+      const int id = slots[slot];
+      if (id < 0 || static_cast<size_t>(id) >= segments.size()) {
+        continue;
+      }
+      if (slot > 0) {
+        const int prev = slots[slot - 1];
+        if (prev >= 0 && static_cast<size_t>(prev) < segments.size()) {
+          segments[static_cast<size_t>(id)].prev_handle = prev;
+          segments[static_cast<size_t>(prev)].next_handle = id;
+        }
+      }
+    }
+  }
+
+  // Initialize pair materials / rest pose for all recomputed pairs.
+  const uint32_t vertical_count = dynamic_strands->connection_segment_pair_size;
+  for (size_t pair_index = 0; pair_index < segment_pairs.size(); ++pair_index) {
+    auto& pair = segment_pairs[pair_index];
+    if (pair.segment0_handle < 0 || pair.segment1_handle < 0 ||
+        static_cast<size_t>(pair.segment0_handle) >= segments.size() ||
+        static_cast<size_t>(pair.segment1_handle) >= segments.size()) {
+      continue;
+    }
+    const bool direct_connection = pair_index < vertical_count;
+    InitializeCompactedSegmentPair(pair, segments[static_cast<size_t>(pair.segment0_handle)],
+                                   segments[static_cast<size_t>(pair.segment1_handle)], direct_connection,
+                                   initialize_parameters_, nullptr);
+  }
+  RecountSegmentPairHandles(segments, segment_data_list);
+}
+
+namespace {
+
+using QuantizedVec3 = std::tuple<int64_t, int64_t, int64_t>;
+using QuantizedEdge = std::pair<QuantizedVec3, QuantizedVec3>;
+
+QuantizedVec3 QuantizePosition(const glm::dvec3& p) {
+  constexpr double kScale = 1.0e5;
+  return {static_cast<int64_t>(std::llround(p.x * kScale)), static_cast<int64_t>(std::llround(p.y * kScale)),
+          static_cast<int64_t>(std::llround(p.z * kScale))};
+}
+
+QuantizedEdge MakeQuantizedEdge(const glm::dvec3& a, const glm::dvec3& b) {
+  QuantizedVec3 qa = QuantizePosition(a);
+  QuantizedVec3 qb = QuantizePosition(b);
+  if (qb < qa) {
+    std::swap(qa, qb);
+  }
+  return {qa, qb};
+}
+
+void FitSegmentLengthToMeshOnParentAxis(DynamicStrands::GpuSegment& segment, const kinDS::VoronoiMesh& mesh,
+                                        const GlobalTransform& root_transform) {
+  const glm::vec3 p0 = segment.particle0.x0;
+  const glm::vec3 p1 = segment.particle1.x0;
+  glm::vec3 axis = p1 - p0;
+  const float axis_len = glm::length(axis);
+  if (axis_len < 1e-8f || mesh.getVertexCount() == 0) {
+    return;
+  }
+  axis /= axis_len;
+
+  float t_min = std::numeric_limits<float>::max();
+  float t_max = std::numeric_limits<float>::lowest();
+  for (const auto& v : mesh.getVertices()) {
+    const glm::vec3 world = root_transform.TransformPoint(glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y),
+                                                                   static_cast<float>(v.z)));
+    const float t = glm::dot(world - p0, axis);
+    t_min = std::min(t_min, t);
+    t_max = std::max(t_max, t);
+  }
+  t_min = glm::clamp(t_min, 0.f, axis_len);
+  t_max = glm::clamp(t_max, 0.f, axis_len);
+  if (t_max - t_min < 1e-5f) {
+    const float mid = 0.5f * (t_min + t_max);
+    t_min = glm::max(0.f, mid - 5e-5f);
+    t_max = glm::min(axis_len, mid + 5e-5f);
+  }
+
+  const glm::vec3 new_p0 = p0 + axis * t_min;
+  const glm::vec3 new_p1 = p0 + axis * t_max;
+  segment.particle0.x0 = segment.particle0.x = segment.particle0.last_x = new_p0;
+  segment.particle1.x0 = segment.particle1.x = segment.particle1.last_x = new_p1;
+  segment.rest_length = glm::length(new_p1 - new_p0);
+}
+
+float MeshAxialCenterOnParentAxis(const kinDS::VoronoiMesh& mesh, const glm::vec3& p0, const glm::vec3& axis,
+                                  const GlobalTransform& root_transform) {
+  if (mesh.getVertexCount() == 0) {
+    return 0.f;
+  }
+  double sum = 0.0;
+  for (const auto& v : mesh.getVertices()) {
+    const glm::vec3 world = root_transform.TransformPoint(glm::vec3(static_cast<float>(v.x), static_cast<float>(v.y),
+                                                                   static_cast<float>(v.z)));
+    sum += static_cast<double>(glm::dot(world - p0, axis));
+  }
+  return static_cast<float>(sum / static_cast<double>(mesh.getVertexCount()));
+}
+
+}  // namespace
+
+size_t DsKineticVoronoiMeshing::SplitIntersectingMeshletsByConnectedComponents(
+    const std::vector<size_t>& intersecting_meshing_indices) {
+  if (!dynamic_strands || !tree_mesher_ || !strand_tree || intersecting_meshing_indices.empty()) {
+    return 0;
+  }
+
+  auto& meshes = tree_mesher_->getSegmentMeshlets();
+  auto& neighbor_lists = tree_mesher_->getMeshingNeighborIndices();
+  auto meshing_to_physics = tree_mesher_->getMeshingToPhysicsSegmentIndices();
+  auto meshing_strand_map = tree_mesher_->getMeshingStrandToSegmentIndices();
+  auto& physics_strand_map = strand_tree->getPhysicsStrandToSegmentIndices();
+  auto& segments = dynamic_strands->segments;
+  auto& segment_data_list = dynamic_strands->segment_data_list;
+
+  size_t meshlets_split = 0;
+  size_t extra_segments = 0;
+
+  struct EdgeHash {
+    size_t operator()(const QuantizedEdge& e) const noexcept {
+      size_t h = 0;
+      const auto mix = [&](const QuantizedVec3& v) {
+        h ^= std::hash<int64_t>{}(std::get<0>(v)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(std::get<1>(v)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+        h ^= std::hash<int64_t>{}(std::get<2>(v)) + 0x9e3779b9 + (h << 6) + (h >> 2);
+      };
+      mix(e.first);
+      mix(e.second);
+      return h;
+    }
+  };
+
+  for (const size_t meshing_id : intersecting_meshing_indices) {
+    if (meshing_id >= meshes.size() || meshing_id >= neighbor_lists.size()) {
+      continue;
+    }
+    if (meshes[meshing_id].getTriangleCount() == 0) {
+      continue;
+    }
+
+    auto split = kinDS::VoronoiMesh::splitIntoConnectedComponents(meshes[meshing_id], neighbor_lists[meshing_id]);
+    if (split.meshes.size() <= 1) {
+      continue;
+    }
+
+    if (meshing_id >= meshing_to_physics.size()) {
+      continue;
+    }
+    const size_t parent_physics_id = meshing_to_physics[meshing_id];
+    if (parent_physics_id == static_cast<size_t>(-1) || parent_physics_id >= segments.size()) {
+      continue;
+    }
+
+    // Find strand + slot for this meshing id.
+    size_t strand_id = static_cast<size_t>(-1);
+    size_t slot_index = static_cast<size_t>(-1);
+    for (size_t s = 0; s < meshing_strand_map.size(); ++s) {
+      for (size_t slot = 0; slot < meshing_strand_map[s].size(); ++slot) {
+        if (meshing_strand_map[s][slot] == meshing_id) {
+          strand_id = s;
+          slot_index = slot;
+          break;
+        }
+      }
+      if (strand_id != static_cast<size_t>(-1)) {
+        break;
+      }
+    }
+    if (strand_id == static_cast<size_t>(-1) || strand_id >= physics_strand_map.size() ||
+        slot_index >= physics_strand_map[strand_id].size()) {
+      EVOENGINE_WARNING("SplitIntersectingMeshlets: could not find strand slot for meshing id " << meshing_id);
+      continue;
+    }
+
+    const DynamicStrands::GpuSegment parent_segment = segments[parent_physics_id];
+    const DynamicStrands::GpuSegmentData parent_data = segment_data_list[parent_physics_id];
+    const glm::vec3 axis_origin = parent_segment.particle0.x0;
+    glm::vec3 axis = parent_segment.particle1.x0 - parent_segment.particle0.x0;
+    const float axis_len = glm::length(axis);
+    if (axis_len > 1e-8f) {
+      axis /= axis_len;
+    } else {
+      axis = glm::vec3(1.f, 0.f, 0.f);
+    }
+
+    // Sort components along the parent axis.
+    std::vector<size_t> order(split.meshes.size());
+    std::iota(order.begin(), order.end(), 0);
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+      return MeshAxialCenterOnParentAxis(split.meshes[a], axis_origin, axis, meshlets_root_transform_) <
+             MeshAxialCenterOnParentAxis(split.meshes[b], axis_origin, axis, meshlets_root_transform_);
+    });
+
+    std::vector<size_t> child_meshing_ids(order.size());
+    std::vector<size_t> child_physics_ids(order.size());
+    std::vector<std::unordered_set<QuantizedEdge, EdgeHash>> child_edges(order.size());
+
+    // Component 0 (sorted) replaces the original meshlet/physics segment.
+    {
+      const size_t src = order[0];
+      meshes[meshing_id] = std::move(split.meshes[src]);
+      neighbor_lists[meshing_id] = std::move(split.face_neighbors[src]);
+      child_meshing_ids[0] = meshing_id;
+      child_physics_ids[0] = parent_physics_id;
+      FitSegmentLengthToMeshOnParentAxis(segments[parent_physics_id], meshes[meshing_id], meshlets_root_transform_);
+      child_edges[0] = [&]() {
+        std::unordered_set<QuantizedEdge, EdgeHash> edges;
+        const auto& verts = meshes[meshing_id].getVertices();
+        const auto& tris = meshes[meshing_id].getTriangles();
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+          edges.insert(MakeQuantizedEdge(verts[tris[i]], verts[tris[i + 1]]));
+          edges.insert(MakeQuantizedEdge(verts[tris[i + 1]], verts[tris[i + 2]]));
+          edges.insert(MakeQuantizedEdge(verts[tris[i + 2]], verts[tris[i]]));
+        }
+        return edges;
+      }();
+    }
+
+    for (size_t ci = 1; ci < order.size(); ++ci) {
+      const size_t src = order[ci];
+      const size_t new_meshing_id = meshes.size();
+      meshes.push_back(std::move(split.meshes[src]));
+      neighbor_lists.push_back(std::move(split.face_neighbors[src]));
+
+      DynamicStrands::GpuSegment child_segment = parent_segment;
+      FitSegmentLengthToMeshOnParentAxis(child_segment, meshes.back(), meshlets_root_transform_);
+      child_segment.prev_handle = -1;
+      child_segment.next_handle = -1;
+      const size_t new_physics_id = segments.size();
+      segments.push_back(child_segment);
+      DynamicStrands::GpuSegmentData child_data = parent_data;
+      for (int& handle : child_data.pair_handles) {
+        handle = -1;
+      }
+      segment_data_list.push_back(child_data);
+
+      meshing_to_physics.push_back(new_physics_id);
+      child_meshing_ids[ci] = new_meshing_id;
+      child_physics_ids[ci] = new_physics_id;
+      {
+        std::unordered_set<QuantizedEdge, EdgeHash> edges;
+        const auto& verts = meshes.back().getVertices();
+        const auto& tris = meshes.back().getTriangles();
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) {
+          edges.insert(MakeQuantizedEdge(verts[tris[i]], verts[tris[i + 1]]));
+          edges.insert(MakeQuantizedEdge(verts[tris[i + 1]], verts[tris[i + 2]]));
+          edges.insert(MakeQuantizedEdge(verts[tris[i + 2]], verts[tris[i]]));
+        }
+        child_edges[ci] = std::move(edges);
+      }
+      ++extra_segments;
+    }
+
+    // Insert sibling slots into strand maps (replace parent slot with sorted children).
+    {
+      auto& physics_slots = physics_strand_map[strand_id];
+      auto& meshing_slots = meshing_strand_map[strand_id];
+      std::vector<int> new_physics_slots;
+      std::vector<size_t> new_meshing_slots;
+      new_physics_slots.reserve(physics_slots.size() + child_meshing_ids.size());
+      new_meshing_slots.reserve(meshing_slots.size() + child_meshing_ids.size());
+      for (size_t slot = 0; slot < physics_slots.size(); ++slot) {
+        if (slot == slot_index) {
+          for (size_t ci = 0; ci < child_meshing_ids.size(); ++ci) {
+            new_physics_slots.push_back(static_cast<int>(child_physics_ids[ci]));
+            new_meshing_slots.push_back(child_meshing_ids[ci]);
+          }
+        } else {
+          new_physics_slots.push_back(physics_slots[slot]);
+          if (slot < meshing_slots.size()) {
+            new_meshing_slots.push_back(meshing_slots[slot]);
+          }
+        }
+      }
+      physics_slots = std::move(new_physics_slots);
+      meshing_slots = std::move(new_meshing_slots);
+    }
+
+    // Retarget reverse neighbor tags that still point at the original meshing id.
+    for (size_t other = 0; other < neighbor_lists.size(); ++other) {
+      if (std::find(child_meshing_ids.begin(), child_meshing_ids.end(), other) != child_meshing_ids.end()) {
+        continue;
+      }
+      if (other >= meshes.size()) {
+        continue;
+      }
+      auto& other_neighbors = neighbor_lists[other];
+      const auto& other_mesh = meshes[other];
+      const auto& other_verts = other_mesh.getVertices();
+      const auto& other_tris = other_mesh.getTriangles();
+      for (size_t face = 0; face < other_neighbors.size(); ++face) {
+        if (other_neighbors[face] != static_cast<int>(meshing_id)) {
+          continue;
+        }
+        if (face * 3 + 2 >= other_tris.size()) {
+          continue;
+        }
+        const QuantizedEdge e0 = MakeQuantizedEdge(other_verts[other_tris[face * 3]], other_verts[other_tris[face * 3 + 1]]);
+        const QuantizedEdge e1 =
+            MakeQuantizedEdge(other_verts[other_tris[face * 3 + 1]], other_verts[other_tris[face * 3 + 2]]);
+        const QuantizedEdge e2 = MakeQuantizedEdge(other_verts[other_tris[face * 3 + 2]], other_verts[other_tris[face * 3]]);
+
+        int best_ci = 0;
+        int best_hits = -1;
+        for (size_t ci = 0; ci < child_edges.size(); ++ci) {
+          int hits = 0;
+          if (child_edges[ci].count(e0))
+            ++hits;
+          if (child_edges[ci].count(e1))
+            ++hits;
+          if (child_edges[ci].count(e2))
+            ++hits;
+          if (hits > best_hits) {
+            best_hits = hits;
+            best_ci = static_cast<int>(ci);
+          }
+        }
+        other_neighbors[face] = static_cast<int>(child_meshing_ids[static_cast<size_t>(best_ci)]);
+      }
+    }
+
+    ++meshlets_split;
+  }
+
+  tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(meshing_to_physics));
+  tree_mesher_->setMeshingStrandToSegmentIndices(std::move(meshing_strand_map));
+
+  if (meshlets_split > 0) {
+    EVOENGINE_LOG("SplitIntersectingMeshlets: split " << meshlets_split << " INTERSECT meshlet(s), created "
+                                                      << extra_segments << " extra segment(s).");
+  }
+  return extra_segments;
+}
+
+void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<size_t>& outside_meshing_indices,
+                                                              const bool rebuild_pairs) {
   if (!dynamic_strands || !tree_mesher_ || !strand_tree) {
     return;
   }
@@ -2306,20 +2700,23 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
   }
 
   // Compact pairs: keep only pairs whose both endpoints survive; preserve integrity/strain.
+  // Skipped when rebuild_pairs is false — @ref RecomputeSegmentPairs will rebuild from mesh.
   std::vector<DynamicStrands::GpuSegmentPair> new_pairs;
-  new_pairs.reserve(segment_pairs.size());
+  if (rebuild_pairs) {
+    new_pairs.reserve(segment_pairs.size());
 
-  for (size_t old_pair = 0; old_pair < segment_pairs.size(); ++old_pair) {
-    const auto& pair = segment_pairs[old_pair];
-    const int s0 = remap_segment(pair.segment0_handle);
-    const int s1 = remap_segment(pair.segment1_handle);
-    if (s0 < 0 || s1 < 0) {
-      continue;
+    for (size_t old_pair = 0; old_pair < segment_pairs.size(); ++old_pair) {
+      const auto& pair = segment_pairs[old_pair];
+      const int s0 = remap_segment(pair.segment0_handle);
+      const int s1 = remap_segment(pair.segment1_handle);
+      if (s0 < 0 || s1 < 0) {
+        continue;
+      }
+      DynamicStrands::GpuSegmentPair kept = pair;
+      kept.segment0_handle = s0;
+      kept.segment1_handle = s1;
+      new_pairs.push_back(kept);
     }
-    DynamicStrands::GpuSegmentPair kept = pair;
-    kept.segment0_handle = s0;
-    kept.segment1_handle = s1;
-    new_pairs.push_back(kept);
   }
 
   // Rebuild pair_handles from strand order for [0]/[1], then pack laterals into [2+].
@@ -2375,7 +2772,7 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
   }
   tree_mesher_->setMeshingToPhysicsSegmentIndices(std::move(new_meshing_to_physics));
 
-  // Rebuild pair_handles: [0]=below, [1]=above from strand order; laterals in [2+].
+  // Clear / rebuild pair_handles.
   for (auto& data : new_segment_data) {
     data.particle0_position_correction = glm::vec3(0.f);
     data.particle1_position_correction = glm::vec3(0.f);
@@ -2386,10 +2783,9 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
   }
 
   std::vector<DynamicStrands::GpuSegmentPair> ordered_pairs;
-  ordered_pairs.reserve(new_pairs.size());
   uint32_t vertical_pair_count = 0;
 
-  // Pass 1: vertical pairs from remapped strand maps.
+  // Always refresh strand begin/end segment handles from remapped maps.
   const auto& remapped_physics_strands = strand_tree->getPhysicsStrandToSegmentIndices();
   for (size_t strand_id = 0; strand_id < remapped_physics_strands.size(); ++strand_id) {
     if (strand_id >= strands.size()) {
@@ -2398,6 +2794,10 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
     auto& strand = strands[strand_id];
     strand.begin_segment_pair_handle = -1;
     strand.end_segment_pair_handle = -1;
+    strand.front_propagate_begin_segment_pair_handle = -1;
+    strand.back_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+    strand.alternative_back_propagate_begin_segment_pair_handle = -1;
 
     const auto& physics_slots = remapped_physics_strands[strand_id];
     if (physics_slots.empty()) {
@@ -2407,10 +2807,6 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
       strand.back_propagate_begin_segment_handle = -1;
       strand.alternative_front_propagate_begin_segment_handle = -1;
       strand.alternative_back_propagate_begin_segment_handle = -1;
-      strand.front_propagate_begin_segment_pair_handle = -1;
-      strand.back_propagate_begin_segment_pair_handle = -1;
-      strand.alternative_front_propagate_begin_segment_pair_handle = -1;
-      strand.alternative_back_propagate_begin_segment_pair_handle = -1;
       continue;
     }
 
@@ -2420,119 +2816,138 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
     strand.back_propagate_begin_segment_handle = strand.end_segment_handle;
     strand.alternative_front_propagate_begin_segment_handle = strand.begin_segment_handle;
     strand.alternative_back_propagate_begin_segment_handle = strand.end_segment_handle;
+  }
 
-    for (size_t slot = 0; slot + 1 < physics_slots.size(); ++slot) {
-      const int below = physics_slots[slot];
-      const int above = physics_slots[slot + 1];
-      if (below < 0 || above < 0 || static_cast<size_t>(below) >= new_segment_data.size() ||
-          static_cast<size_t>(above) >= new_segment_data.size()) {
+  if (rebuild_pairs) {
+    ordered_pairs.reserve(new_pairs.size());
+
+    // Pass 1: vertical pairs from remapped strand maps.
+    for (size_t strand_id = 0; strand_id < remapped_physics_strands.size(); ++strand_id) {
+      if (strand_id >= strands.size()) {
         continue;
       }
-      // Prefer an existing surviving pair with matching endpoints (preserve integrity).
-      int found_old_pair = -1;
-      for (size_t p = 0; p < new_pairs.size(); ++p) {
-        const auto& cand = new_pairs[p];
-        if ((cand.segment0_handle == below && cand.segment1_handle == above) ||
-            (cand.segment0_handle == above && cand.segment1_handle == below)) {
-          found_old_pair = static_cast<int>(p);
-          break;
-        }
+      auto& strand = strands[strand_id];
+      const auto& physics_slots = remapped_physics_strands[strand_id];
+      if (physics_slots.empty()) {
+        continue;
       }
-      const bool direct_connection = found_old_pair >= 0;
-      DynamicStrands::GpuSegmentPair vertical{};
-      const DynamicStrands::GpuSegmentPair* material_template = nullptr;
-      if (found_old_pair >= 0) {
-        vertical = new_pairs[static_cast<size_t>(found_old_pair)];
-        // Mark consumed so lateral pass can skip.
-        new_pairs[static_cast<size_t>(found_old_pair)].segment0_handle = -1;
-        new_pairs[static_cast<size_t>(found_old_pair)].segment1_handle = -1;
-      } else {
-        for (const auto& cand : new_pairs) {
-          if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
-            continue;
+
+      for (size_t slot = 0; slot + 1 < physics_slots.size(); ++slot) {
+        const int below = physics_slots[slot];
+        const int above = physics_slots[slot + 1];
+        if (below < 0 || above < 0 || static_cast<size_t>(below) >= new_segment_data.size() ||
+            static_cast<size_t>(above) >= new_segment_data.size()) {
+          continue;
+        }
+        // Prefer an existing surviving pair with matching endpoints (preserve integrity).
+        int found_old_pair = -1;
+        for (size_t p = 0; p < new_pairs.size(); ++p) {
+          const auto& cand = new_pairs[p];
+          if ((cand.segment0_handle == below && cand.segment1_handle == above) ||
+              (cand.segment0_handle == above && cand.segment1_handle == below)) {
+            found_old_pair = static_cast<int>(p);
+            break;
           }
-          if (cand.segment0_handle == below || cand.segment1_handle == below || cand.segment0_handle == above ||
-              cand.segment1_handle == above) {
-            if (!SegmentPairNeedsMaterialInit(cand)) {
-              material_template = &cand;
-              break;
+        }
+        const bool direct_connection = found_old_pair >= 0;
+        DynamicStrands::GpuSegmentPair vertical{};
+        const DynamicStrands::GpuSegmentPair* material_template = nullptr;
+        if (found_old_pair >= 0) {
+          vertical = new_pairs[static_cast<size_t>(found_old_pair)];
+          // Mark consumed so lateral pass can skip.
+          new_pairs[static_cast<size_t>(found_old_pair)].segment0_handle = -1;
+          new_pairs[static_cast<size_t>(found_old_pair)].segment1_handle = -1;
+        } else {
+          for (const auto& cand : new_pairs) {
+            if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
+              continue;
+            }
+            if (cand.segment0_handle == below || cand.segment1_handle == below || cand.segment0_handle == above ||
+                cand.segment1_handle == above) {
+              if (!SegmentPairNeedsMaterialInit(cand)) {
+                material_template = &cand;
+                break;
+              }
             }
           }
         }
+        vertical.segment0_handle = below;
+        vertical.segment1_handle = above;
+        InitializeCompactedSegmentPair(vertical, new_segments[static_cast<size_t>(below)],
+                                       new_segments[static_cast<size_t>(above)], direct_connection, initialize_parameters_,
+                                       material_template);
+        const int pair_handle = static_cast<int>(ordered_pairs.size());
+        ordered_pairs.push_back(vertical);
+        new_segment_data[static_cast<size_t>(below)].pair_handles[1] = pair_handle;
+        new_segment_data[static_cast<size_t>(above)].pair_handles[0] = pair_handle;
+        if (strand.begin_segment_pair_handle == -1) {
+          strand.begin_segment_pair_handle = pair_handle;
+        }
+        strand.end_segment_pair_handle = pair_handle;
+        ++vertical_pair_count;
       }
-      vertical.segment0_handle = below;
-      vertical.segment1_handle = above;
-      InitializeCompactedSegmentPair(vertical, new_segments[static_cast<size_t>(below)],
-                                     new_segments[static_cast<size_t>(above)], direct_connection, initialize_parameters_,
-                                     material_template);
+
+      // Propagate pair bookkeeping (same as RecomputeSegmentPairs).
+      strand.front_propagate_begin_segment_pair_handle = -1;
+      strand.back_propagate_begin_segment_pair_handle = -1;
+      strand.alternative_front_propagate_begin_segment_pair_handle = -1;
+      strand.alternative_back_propagate_begin_segment_pair_handle = -1;
+      if (strand.begin_segment_handle == -1 || strand.begin_segment_pair_handle == -1) {
+        continue;
+      }
+      strand.front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+      if (strand.begin_segment_pair_handle == strand.end_segment_pair_handle) {
+        strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
+        continue;
+      }
+      strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle + 1;
+      const int connection_size = strand.end_segment_pair_handle - strand.begin_segment_pair_handle + 1;
+      strand.back_propagate_begin_segment_pair_handle =
+          connection_size % 2 == 0 ? strand.end_segment_pair_handle : strand.end_segment_pair_handle - 1;
+      strand.alternative_back_propagate_begin_segment_pair_handle =
+          connection_size % 2 == 0 ? strand.end_segment_pair_handle - 1 : strand.end_segment_pair_handle;
+    }
+
+    // Pass 2: remaining pairs as laterals into slots >= 2.
+    std::vector<uint32_t> pair_slot_offsets(new_segment_data.size(), 2);
+    for (const auto& cand : new_pairs) {
+      if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
+        continue;  // consumed as vertical
+      }
+      const int a = cand.segment0_handle;
+      const int b = cand.segment1_handle;
+      if (static_cast<size_t>(a) >= new_segment_data.size() || static_cast<size_t>(b) >= new_segment_data.size()) {
+        continue;
+      }
+      auto& first_slot = pair_slot_offsets[static_cast<size_t>(a)];
+      auto& second_slot = pair_slot_offsets[static_cast<size_t>(b)];
+      if (first_slot >= BUNDLE_MAX_CONNECTION || second_slot >= BUNDLE_MAX_CONNECTION) {
+        continue;
+      }
       const int pair_handle = static_cast<int>(ordered_pairs.size());
-      ordered_pairs.push_back(vertical);
-      new_segment_data[static_cast<size_t>(below)].pair_handles[1] = pair_handle;
-      new_segment_data[static_cast<size_t>(above)].pair_handles[0] = pair_handle;
-      if (strand.begin_segment_pair_handle == -1) {
-        strand.begin_segment_pair_handle = pair_handle;
+      ordered_pairs.push_back(cand);
+      new_segment_data[static_cast<size_t>(a)].pair_handles[first_slot] = pair_handle;
+      new_segment_data[static_cast<size_t>(b)].pair_handles[second_slot] = pair_handle;
+      ++first_slot;
+      ++second_slot;
+    }
+
+    // Refresh lateral-pair rest pose / zero strains; material props were copied with the pair.
+    for (size_t pair_index = vertical_pair_count; pair_index < ordered_pairs.size(); ++pair_index) {
+      auto& pair = ordered_pairs[pair_index];
+      if (pair.segment0_handle < 0 || pair.segment1_handle < 0) {
+        continue;
       }
-      strand.end_segment_pair_handle = pair_handle;
-      ++vertical_pair_count;
+      InitializeCompactedSegmentPair(pair, new_segments[static_cast<size_t>(pair.segment0_handle)],
+                                     new_segments[static_cast<size_t>(pair.segment1_handle)], false, initialize_parameters_,
+                                     nullptr);
     }
 
-    // Propagate pair bookkeeping (same as RecomputeSegmentPairs).
-    strand.front_propagate_begin_segment_pair_handle = -1;
-    strand.back_propagate_begin_segment_pair_handle = -1;
-    strand.alternative_front_propagate_begin_segment_pair_handle = -1;
-    strand.alternative_back_propagate_begin_segment_pair_handle = -1;
-    if (strand.begin_segment_handle == -1 || strand.begin_segment_pair_handle == -1) {
-      continue;
-    }
-    strand.front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
-    if (strand.begin_segment_pair_handle == strand.end_segment_pair_handle) {
-      strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle;
-      continue;
-    }
-    strand.alternative_front_propagate_begin_segment_pair_handle = strand.begin_segment_pair_handle + 1;
-    const int connection_size = strand.end_segment_pair_handle - strand.begin_segment_pair_handle + 1;
-    strand.back_propagate_begin_segment_pair_handle =
-        connection_size % 2 == 0 ? strand.end_segment_pair_handle : strand.end_segment_pair_handle - 1;
-    strand.alternative_back_propagate_begin_segment_pair_handle =
-        connection_size % 2 == 0 ? strand.end_segment_pair_handle - 1 : strand.end_segment_pair_handle;
+    RecountSegmentPairHandles(new_segments, new_segment_data);
+  } else {
+    ordered_pairs.clear();
+    segment_pairs.clear();
   }
-
-  // Pass 2: remaining pairs as laterals into slots >= 2.
-  std::vector<uint32_t> pair_slot_offsets(new_segment_data.size(), 2);
-  for (const auto& cand : new_pairs) {
-    if (cand.segment0_handle < 0 || cand.segment1_handle < 0) {
-      continue;  // consumed as vertical
-    }
-    const int a = cand.segment0_handle;
-    const int b = cand.segment1_handle;
-    if (static_cast<size_t>(a) >= new_segment_data.size() || static_cast<size_t>(b) >= new_segment_data.size()) {
-      continue;
-    }
-    auto& first_slot = pair_slot_offsets[static_cast<size_t>(a)];
-    auto& second_slot = pair_slot_offsets[static_cast<size_t>(b)];
-    if (first_slot >= BUNDLE_MAX_CONNECTION || second_slot >= BUNDLE_MAX_CONNECTION) {
-      continue;
-    }
-    const int pair_handle = static_cast<int>(ordered_pairs.size());
-    ordered_pairs.push_back(cand);
-    new_segment_data[static_cast<size_t>(a)].pair_handles[first_slot] = pair_handle;
-    new_segment_data[static_cast<size_t>(b)].pair_handles[second_slot] = pair_handle;
-    ++first_slot;
-    ++second_slot;
-  }
-
-  // Refresh lateral-pair rest pose / zero strains; material props were copied with the pair.
-  for (size_t pair_index = vertical_pair_count; pair_index < ordered_pairs.size(); ++pair_index) {
-    auto& pair = ordered_pairs[pair_index];
-    if (pair.segment0_handle < 0 || pair.segment1_handle < 0) {
-      continue;
-    }
-    InitializeCompactedSegmentPair(pair, new_segments[static_cast<size_t>(pair.segment0_handle)],
-                                   new_segments[static_cast<size_t>(pair.segment1_handle)], false, initialize_parameters_,
-                                   nullptr);
-  }
-
-  RecountSegmentPairHandles(new_segments, new_segment_data);
 
   for (auto& segment : new_segments) {
     segment.shear_stretch_strain = 0.f;
@@ -2566,9 +2981,8 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
       const int mapped = remap_segment(triangle.neighbor_segment_index);
       triangle.neighbor_segment_index = mapped < 0 ? -3 : mapped;
     }
-    // Re-resolve segment_pair_index against remapped pair_handles.
     triangle.segment_pair_index = -1;
-    if (triangle.neighbor_segment_index >= 0) {
+    if (rebuild_pairs && triangle.neighbor_segment_index >= 0) {
       // Find owning segment from first vertex.
       if (triangle.vertex_index0 < segment_meshlet_vertices.size()) {
         const int owner = static_cast<int>(segment_meshlet_vertices[triangle.vertex_index0].segment_index);
@@ -2591,7 +3005,11 @@ void DsKineticVoronoiMeshing::CompactSurvivingPhysicsSegments(const std::vector<
 
   segments = std::move(new_segments);
   segment_data_list = std::move(new_segment_data);
-  segment_pairs = std::move(ordered_pairs);
+  if (rebuild_pairs) {
+    segment_pairs = std::move(ordered_pairs);
+  } else {
+    segment_pairs.clear();
+  }
   foliage = std::move(new_foliage);
   dynamic_strands->connection_segment_pair_size = vertical_pair_count;
 
@@ -3593,7 +4011,9 @@ bool eco_sys_lab_plugin::DsKineticVoronoiMeshing::OnInspect(const std::shared_pt
   if (ImGui::IsItemHovered()) {
     ImGui::SetTooltip(
         "Rebuild the physics segment-pair graph from meshlet adjacency. pair_handles[0]/[1] are reserved for "
-        "same-strand below/above neighbors (-1 if missing); other neighbors start at index 2.");
+        "same-strand below/above neighbors (-1 if missing); other neighbors start at index 2. "
+        "Also enables post-intersection splitting of INTERSECT meshlets that have multiple connected components "
+        "(length-fitted; radius unchanged).");
   }
   ImGui::Checkbox("Debug SVG", &meshing_settings.debug_svg);
   if (ImGui::IsItemHovered()) {
