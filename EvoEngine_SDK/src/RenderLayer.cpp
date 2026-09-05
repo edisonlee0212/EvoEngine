@@ -50,6 +50,7 @@
 #include "Resources.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
+#include "SdfgiVoxelizer.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "SkinnedMeshRenderer.hpp"
@@ -5692,6 +5693,49 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             resources->Clear(command_buffer, context);
           });
         });
+      if (resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
+          runtime->placement_failure.empty()) {
+        auto pending = runtime->pending_regions;
+        if (!resources->voxelization_recorded) {
+          auto cascades = runtime->cascades;
+          for (auto& cascade : cascades)
+            cascade.full_redraw = true;
+          pending = GetSdfgiPendingRegions(cascades, SdfgiYMultiplier(runtime->settings.vertical_scale));
+        }
+        if (resources->voxel_debug_request) {
+          const auto index = resources->voxel_debug_request->x;
+          auto cascades = runtime->cascades;
+          cascades[index].full_redraw = true;
+          pending.erase(std::remove_if(pending.begin(), pending.end(),
+                                       [&](const auto& region) {
+                                         return region.cascade == index;
+                                       }),
+                        pending.end());
+          for (const auto& region :
+               GetSdfgiPendingRegions(cascades, SdfgiYMultiplier(runtime->settings.vertical_scale)))
+            if (region.cascade == index)
+              pending.push_back(region);
+        }
+        if (!pending.empty()) {
+          try {
+            auto frame = SdfgiVoxelFrame::Create(*resources, runtime->contributors, runtime->cascades, pending);
+            if (resources->voxel_debug_request)
+              frame->debug = std::make_shared<SdfgiVoxelDebug>(resources->voxel_debug_request->x,
+                                                               resources->voxel_debug_request->y);
+            resources->voxel_frames[current_frame_index] = frame;
+            resources->last_voxel_frame = scene_frame;
+            frame->AddPasses(scene_graph, registry, resources);
+            if (frame->debug) {
+              resources->voxel_debug = frame->debug;
+              resources->voxel_debug_request.reset();
+            }
+            resources->voxel_failure.clear();
+          } catch (const std::exception& error) {
+            resources->voxel_failure = error.what();
+            runtime->fallback_reason = resources->voxel_failure;
+          }
+        }
+      }
     }
   } else if (scene) {
     scene->sdfgi_runtime_.reset();

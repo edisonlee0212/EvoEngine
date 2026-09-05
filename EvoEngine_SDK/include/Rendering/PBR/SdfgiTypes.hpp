@@ -151,10 +151,19 @@ static_assert(sizeof(SdfgiCascadeBlock) == 384);
 
 struct alignas(16) SdfgiVoxelData {
   float view_projection[4][4]{};
-  float region_min[4]{};
-  float region_max[4]{};
+  float cascade_min_cell[4]{};
+  float region_offset_y_mult[4]{};
 };
 static_assert(sizeof(SdfgiVoxelData) == 96);
+
+struct alignas(16) SdfgiVoxelPushConstant {
+  float model[4][4]{};
+  float normal_basis[9]{};
+  uint32_t material_index{};
+  uint32_t pad[2]{};
+};
+static_assert(sizeof(SdfgiVoxelPushConstant) == 112);
+static_assert(offsetof(SdfgiVoxelPushConstant, material_index) == 100);
 
 static_assert(offsetof(SdfgiLight, host_photometry) == 112);
 static_assert(offsetof(SdfgiGatherData, cascades) == 112);

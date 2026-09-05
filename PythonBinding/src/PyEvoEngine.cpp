@@ -8,6 +8,7 @@
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
+#include "SdfgiVoxelizer.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 using namespace py_evo_engine;
@@ -478,6 +479,17 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         py::arg("output_path"), py::arg("warmup_frames") = 1, py::arg("require_accumulated_frames") = false,
         py::arg("require_stable_texture_registrations") = false);
   m.def("CaptureSecondarySceneCamera", &CaptureSecondarySceneCamera, py::arg("output_path"));
+  m.def("ResizeCurrentSceneCameraForCapture", [](const uint32_t width, const uint32_t height) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+    if (!camera || width == 0 || height == 0)
+      throw py::value_error("A main camera and positive capture resolution are required");
+    camera->Resize({width, height});
+  });
+  m.def("IsCurrentSceneReadyForCapture", []() {
+    return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
+           !TextureStorage::HasPendingUploads();
+  });
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
   m.def("SharedTextureDescriptorArraysEnabled", []() {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
@@ -529,6 +541,26 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     lighting->sdfgi_settings = settings;
     lighting->SetUnsaved();
   });
+  m.def(
+      "RequestCurrentSceneSdfgiVoxelDebug",
+      [](const uint32_t cascade, const uint32_t slice) {
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+        if (!runtime || !runtime->resources)
+          throw py::value_error("Automatic SDFGI resources are not available");
+        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+          throw py::value_error("SDFGI cascade or slice is out of range");
+        runtime->resources->voxel_debug_request = glm::uvec2(cascade, slice);
+      },
+      py::arg("cascade") = 0, py::arg("slice") = 64);
+  m.def("CaptureCurrentSceneSdfgiVoxelDebug", [](const std::filesystem::path& path) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    const auto resources = runtime ? runtime->resources : nullptr;
+    if (!resources || resources->voxel_debug_request || !resources->voxel_debug)
+      throw py::value_error("Request a voxel diagnostic and render a frame before capture");
+    resources->voxel_debug->StoreToPng(path);
+  });
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = ResolveEnvironmentalLighting(scene);
@@ -553,8 +585,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     py::dict memory;
     const char* memory_names[]{"field", "scratch", "upload", "diagnostic"};
     for (size_t i = 0; i < 4; ++i)
-      memory[memory_names[i]] = resources ? resources->allocated_bytes[i] : 0;
+      memory[memory_names[i]] = resources ? resources->GetAllocationBytes(static_cast<SdfgiMemoryClass>(i)) : 0;
     result["active_allocation_bytes"] = memory;
+    result["voxelization_recorded"] = resources && resources->voxelization_recorded;
+    result["voxel_failure"] = resources ? resources->voxel_failure : std::string{};
+    result["voxel_debug_recorded"] = resources && resources->voxel_debug && resources->voxel_debug->recorded;
     result["maintenance_count"] = runtime ? runtime->maintenance_count : 0;
     result["published"] = runtime && runtime->published;
     result["missing_anchor"] = !runtime || runtime->missing_anchor;
@@ -570,8 +605,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     py::dict lights;
     uint32_t static_lights = 0, dynamic_lights = 0;
     if (runtime) {
-      result["cascade_input_changes"] =
-          runtime->contributors.AffectedCascades(runtime->cascades, SdfgiYMultiplier(runtime->settings.vertical_scale));
+      py::list changes;
+      for (const auto flags : runtime->contributors.AffectedCascades(
+               runtime->cascades, SdfgiYMultiplier(runtime->settings.vertical_scale)))
+        changes.append(flags);
+      result["cascade_input_changes"] = changes;
       for (const auto& [reason, count] : runtime->scene_snapshot.excluded)
         exclusions[GetSdfgiExclusionName(reason)] = count;
       for (const auto& light : runtime->scene_snapshot.lights)

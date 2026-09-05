@@ -1,9 +1,9 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, the opt-in provider shell, GPU storage, and CPU placement/scene inputs are implemented. SDFGI rendering is
-not yet available: Automatic SDFGI allocates and clears storage when it has an eligible anchor, but reports Environment
-fallback and publishes no lighting. Shader entry points are explicitly ABI-only until their algorithm milestones.
+Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, and static voxelization are
+implemented. Automatic SDFGI rasterizes surface payloads when it has an eligible anchor, but reports Environment fallback
+and publishes no lighting. Preprocess, direct-light, integration, and gather entry points remain ABI-only.
 
 ## Reference
 
@@ -27,7 +27,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `Shaders/Compute/SdfgiPreprocess.slang` (ABI only) | `shaders/environment/sdfgi_preprocess.glsl` |
 | `Shaders/Compute/SdfgiDirectLight.slang` (ABI only) | `shaders/environment/sdfgi_direct_light.glsl` |
 | `Shaders/Compute/SdfgiIntegrate.slang` (ABI only) | `shaders/environment/sdfgi_integrate.glsl` |
-| `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` (ABI only) | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF` |
+| `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
 | Planned `Shaders/Modules/EvoEngine/Sdfgi.slang` | `shaders/scene_forward_gi_inc.glsl::sdfgi_process` |
@@ -108,8 +108,9 @@ the settings UI is build-verified, and visual/manual acceptance remains at the a
 
 The enabled field owns persistent cascade data and one shared scratch set, independent of ordinary camera count.
 Defaults allocate 46 images (including a black sky filler), persistent solid-cell/dispatch/status buffers, and separate
-per-frame cascade/gather/voxel metadata and static/dynamic light inputs. Unused cascade descriptor entries point to valid
-compatible existing views and remain outside `max_cascades`; no partially-bound descriptors are required.
+per-frame cascade/gather metadata and static/dynamic light inputs. Voxel metadata is immutable per pending region/axis.
+Unused cascade descriptor entries point to valid compatible existing views and remain outside `max_cascades`; the field
+arrays need no partially-bound descriptors. Voxel materials use the host's existing partially-bound texture layout.
 
 Packed light and probe images use `R32_UINT` storage and `E5B9G9R9_UFLOAT_PACK32` sampled views. Packed occlusion uses
 `R16_UINT` storage and `R4G4B4A4_UNORM_PACK16` sampled views. Each pair shares one image and graph identity, with explicit
@@ -131,9 +132,10 @@ it is not retried every frame. Changing provider or incompatible settings create
 
 `GetCurrentSceneGiStatus()` reports allocation and initialization-recorded state plus `active_allocation_bytes`, split
 into field, scratch, upload, and diagnostic categories using actual VMA allocation sizes. These are active-owner totals,
-not driver-pool usage or a peak that includes temporarily retiring old fields. Diagnostic allocation is currently zero;
-payload staging is not yet owned by this initialization-only path. The ABI-only shaders are compiled/layout-checked but never dispatched by
-normal rendering; focused GPU tests use explicitly compiled resource-check variants.
+not driver-pool usage or a peak that includes temporarily retiring old fields. Upload includes immutable voxel material,
+texture-info, region/axis buffers and their retained staging arenas. Diagnostic is zero unless a snapshot is requested.
+The remaining ABI-only compute shaders are compiled/layout-checked but never dispatched by normal rendering; focused GPU
+tests use explicitly compiled resource-check variants.
 
 M2 verification (2026-09-05): SDK, Python binding, and tests built in `vs2026-x64-tests`, RelWithDebInfo.
 All eight `SdfgiResources.*:SdfgiRuntime.*` checks passed (2.98 seconds), including a forced partial-allocation failure,
@@ -197,3 +199,75 @@ against the pinned reference loops and a live CPU scene covering base LOD, bound
 The existing scene-frame test again ran on the RTX 5070 with all effective RT facilities disabled, Vulkan/synchronization
 validation enabled, and no reported validation errors. No additional shader/GPU-storage, image, editor UI, or full-suite
 run was needed for these CPU-only changes. Field publication and rendering remain disabled.
+
+## Static voxelization and diagnostic capture
+
+The scene graph records `SdfgiVoxelInputs`, one `SdfgiVoxelCascadeN` for each pending cascade, and completion before any
+ordinary camera. Each cascade clears shared albedo/emission/anisotropy/facing scratch, then draws its intersecting static
+contributors through three attachment-free orthographic views. There is no depth attachment, depth test, camera culling,
+shadow dependency, or material evaluation in the ordinary opaque G-buffer. As in Godot's SDF pass, culling is always
+disabled, including for materials that are single-sided in ordinary rendering. Facing uses the normalized interpolated
+geometry normal, not the normal map or a back-face-flipped BRDF normal.
+
+The port retains RGB555 plus solid-bit albedo, RGBE8985 emission, six 5-bit emission-anisotropy weights, and atomic six-axis
+facing bits. Only base color, vertex color, UV0/UV1 and transforms, base/emissive textures, and masked alpha are evaluated.
+Native host texture sampling/color interpretation is reused, not DDGI material/signature behavior. Metallic, roughness,
+normal, and other receiver BRDF textures are not voxel payload. Explicit out-of-grid discard implements the reference's
+out-of-range storage-write behavior. Missing GPU geometry/texture readiness is diagnosed; incomplete initial voxelization
+is retried without publishing a field.
+
+Necessary host adaptations against `_render_sdfgi` and `MODE_RENDER_SDF`:
+
+- Use the existing packed vertex/index buffers and GLTF material ABI in set 0. An immutable SDFGI descriptor version binds
+  only used textures plus frozen material/texture-info buffers; it does not borrow camera-selected material indices or
+  DDGI resources. Godot's voxel set-1 binding numbers are unchanged.
+- Replace Godot's render-scene UBO with a 96-byte per-region/axis block: projection columns, cascade minimum/cell size,
+  and region offset/vertical multiplier. A 112-byte draw push block carries model columns, inverse-transpose normal basis
+  at byte 64, and material index at byte 100. This is host plumbing, not a coordinate/packing algorithm change.
+- Record uploads, scratch clears, all axes, and optional diagnostic copies on the normal main queue. Immutable inputs,
+  sampled images/views/samplers, and diagnostic buffers are retained through the submitting frame fence. Cross-frame
+  barriers include prior shader/transfer readers before scratch reuse. No maintenance path uses immediate submission.
+
+`RequestCurrentSceneSdfgiVoxelDebug(cascade=0, slice=64)` queues an explicit diagnostic, and
+`CaptureCurrentSceneSdfgiVoxelDebug(path)` exports it after a rendered frame. Capturing requests a full rasterization of
+the chosen cascade because M4 scratch is shared, not persistent. Three planes are copied immediately after that cascade,
+before another clears scratch. Readback waits only when explicitly exporting; normal rendering does not wait for it.
+This early host-only view precedes the later SDF/probe inspector. No field is published and scrolling reconstruction is
+not implemented yet.
+
+The PNG is always 2560 x 1440. Columns are albedo, tone-mapped emission, facing, and occupancy; rows are X-, Y-, and
+Z-normal slices. Within a row, horizontal/vertical axes are cyclic `(Y,Z)`, `(Z,X)`, `(X,Y)`, with positive vertical upward.
+Each 128-cell plane uses 3 pixels/cell. Albedo uses display gamma 2.2; emission uses `radiance/(1+radiance)` and that gamma.
+Facing maps X/Y/Z to red/green/blue; positive bits are full intensity and negative bits 40%; multiple bits combine.
+This is a surface-payload diagnostic, not a beauty image or a DDGI comparison.
+
+To reproduce using a freshly built Python binding, copy `Resources/EvoEngine-DemoProjects/Rendering/Assets` into a fresh
+disposable `<capture-resources>/EvoEngine-DemoProjects/Rendering/Assets` folder without a `Rendering.eveproj`, then run:
+
+```powershell
+python Scripts/capture_sdfgi_voxels.py --module-dir out/build/vs2026-x64-tests/PythonBinding/RelWithDebInfo --resources <capture-resources> --output <output.png>
+```
+
+The script creates the Rendering demo in that disposable project, explicitly disables all RT facilities, selects
+Automatic SDFGI, resizes the main raster camera to 1440p, waits for actual asset readiness, and captures one voxel snapshot.
+It prints GPU/driver/reference, settings-derived cascade state, memory, participation, readiness, and fallback provenance.
+It rejects previously generated projects and empty contributor sets instead of accepting an empty scene as Sponza.
+
+M4 image evidence (2026-09-05): current RTX 5070, driver `2496774144`, all four effective RT flags false, Vulkan and
+synchronization validation enabled. Default four-cascade settings, anchor `(0,0,3)`, cascade 0 at `(0,0,16)` grid center,
+slice 64, 524 static contributors, one dynamic and two deforming exclusions. The 1440p slice capture was inspected and
+contains explainable Sponza occupancy/color/facing and an emissive sample, with no validation errors. Local artifact:
+`tasks/m4-sponza-voxels.png`, SHA256 `b452d18df60e016443ebcb7d09465f9396033e8b8d43931cc18865f819799323`.
+This establishes only the voxel diagnostic baseline; distance fields, transport, ordinary lighting, and user manual
+acceptance remain later milestones. Application installation remains at implementation completion.
+
+M4 technical verification: SDK, Python binding, tests, and editor built in `vs2026-x64-tests`, RelWithDebInfo. The combined
+resource/voxel GPU check passed 2/2 tests in 3.61 seconds with RT disabled and Vulkan/synchronization validation. The voxel
+fixture covers all axes, RGB555/RGBE8985/anisotropy/facing packing, vertex color, UV1 with transformed masked texture,
+opaque alpha, reversed winding, two-sided geometry, repeated clear/emission reset, and retained diagnostic snapshots.
+The initial fixture needed the host's geometry-upload readiness barrier; no maintenance wait was added. A Python status
+list-conversion error found by the Sponza run was corrected. The final capture and GPU runs have no validation errors;
+the host full vertex layout only emits harmless unused-tangent attribute performance warnings.
+Both final voxel SPIR-V stages pass `spirv-val --target-env vulkan1.3 --scalar-block-layout`, matching the host GLTF scalar
+buffer layout enabled by device creation. Inspection confirms draw offsets 0/64/100/104 and scalar normal-array stride 4.
+Unchanged earlier CPU evidence is reused; there was no full-suite run, ordinary beauty comparison, or manual checkpoint.

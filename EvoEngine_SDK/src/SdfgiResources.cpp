@@ -1,6 +1,7 @@
 // Allocation and bindings adapted from Godot renderer_rd/environment/gi.cpp::SDFGI::create,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiResources.hpp"
+#include "SdfgiVoxelizer.hpp"
 
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -8,6 +9,7 @@
 #include "Shader.hpp"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 
 using namespace evo_engine;
@@ -217,12 +219,11 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT, SdfgiMemoryClass::Field);
   }
   add_buffer("Status", sizeof(SdfgiFieldStatus), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
+  voxel_frames.resize(Platform::GetMaxFramesInFlight());
   for (uint32_t f = 0; f < Platform::GetMaxFramesInFlight(); ++f) {
     add_buffer(FrameName(f, "Cascades"), sizeof(SdfgiCascadeBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                SdfgiMemoryClass::Upload);
     add_buffer(FrameName(f, "Gather"), sizeof(SdfgiGatherData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-               SdfgiMemoryClass::Upload);
-    add_buffer(FrameName(f, "Voxel"), sizeof(SdfgiVoxelData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                SdfgiMemoryClass::Upload);
     for (uint32_t c = 0; c < settings.cascade_count; ++c) {
       add_buffer(FrameName(f, CascadeName(c, "StaticLights")), sizeof(SdfgiLight) * 1024,
@@ -406,12 +407,6 @@ void SdfgiResources::CreateDescriptors() {
     image(set, 2, "Occlusion", true);
     sampler(set, 3);
     buffer(set, 4, "Status");
-    set = make_set(FrameName(f, "Voxel"), SdfgiLayout::Voxel);
-    buffer(set, 0, FrameName(f, "Voxel"));
-    image(set, 1, "Albedo");
-    image(set, 2, "Emission");
-    image(set, 3, "EmissionAniso");
-    image(set, 4, "Facing");
     for (uint32_t c = 0; c < settings.cascade_count; ++c) {
       for (const std::string kind : {"StaticLights", "DynamicLights"}) {
         set = make_set(FrameName(f, CascadeName(c, kind)), SdfgiLayout::DirectLight);
@@ -474,6 +469,25 @@ void SdfgiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& reg
   }
 }
 
+uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class) const {
+  uint64_t result = allocated_bytes[static_cast<size_t>(memory_class)];
+  if (memory_class == SdfgiMemoryClass::Upload)
+    for (const auto& frame : voxel_frames)
+      if (frame)
+        result += frame->AllocationBytes();
+  if (memory_class == SdfgiMemoryClass::Diagnostic) {
+    std::set<const SdfgiVoxelDebug*> snapshots;
+    if (voxel_debug)
+      snapshots.insert(voxel_debug.get());
+    for (const auto& frame : voxel_frames)
+      if (frame && frame->debug)
+        snapshots.insert(frame->debug.get());
+    for (const auto* snapshot : snapshots)
+      result += snapshot->AllocationBytes();
+  }
+  return result;
+}
+
 void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<DescriptorSetLayout>>& deferred_host_layouts) {
   const auto root = Resources::GetDefaultResourcesPath() / "Shaders";
   Shader::RegisterShaderIncludePath(root / "Modules");
@@ -524,18 +538,20 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
   deferred.push_back(layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
   compute("GatherAbi", "SdfgiGatherAbi.slang", "", std::move(deferred), 0);
   voxel_pipeline = std::make_shared<GraphicsPipeline>();
-  voxel_pipeline->vertex_input_enabled = false;
+  voxel_pipeline->vertex_input_enabled = true;
   voxel_pipeline->view_mask = 0;
   voxel_pipeline->depth_attachment_format = VK_FORMAT_UNDEFINED;
   voxel_pipeline->stencil_attachment_format = VK_FORMAT_UNDEFINED;
   voxel_pipeline->descriptor_set_layouts = {deferred_host_layouts[0], layouts[static_cast<size_t>(SdfgiLayout::Voxel)]};
+  voxel_pipeline->push_constant_ranges.push_back(
+      {VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(SdfgiVoxelPushConstant)});
   voxel_pipeline->vertex_shader =
-      Shader::CreateTemporary(ShaderType::Vertex, header, root / "Graphics/Vertex/SDFGI/SdfgiVoxelize.slang");
+      Shader::CreateTemporary(ShaderType::Vertex, "", root / "Graphics/Vertex/SDFGI/SdfgiVoxelize.slang");
   voxel_pipeline->fragment_shader =
-      Shader::CreateTemporary(ShaderType::Fragment, header, root / "Graphics/Fragment/SDFGI/SdfgiVoxelize.slang");
+      Shader::CreateTemporary(ShaderType::Fragment, "", root / "Graphics/Fragment/SDFGI/SdfgiVoxelize.slang");
   voxel_pipeline->Initialize();
   if (!voxel_pipeline->Initialized())
-    throw std::runtime_error("voxel ABI pipeline creation failed");
+    throw std::runtime_error("SDFGI voxel pipeline creation failed");
 }
 
 RenderPassDescriptor SdfgiResources::ClearDescriptor() const {

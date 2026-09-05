@@ -21,6 +21,7 @@
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
+#include "SdfgiVoxelizer.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "Strands.hpp"
@@ -388,7 +389,7 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   auto field = SdfgiResources::TryCreate({}, host_layouts, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
-  EXPECT_EQ(field->buffers.size(), 13u + Platform::GetMaxFramesInFlight() * 11u);
+  EXPECT_EQ(field->buffers.size(), 13u + Platform::GetMaxFramesInFlight() * 10u);
   EXPECT_EQ(field->pipelines.size(), 16u);
   EXPECT_TRUE(field->voxel_pipeline->Initialized());
   EXPECT_FALSE(field->initialization_recorded);
@@ -546,6 +547,122 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   ASSERT_TRUE(field) << failure;
   EXPECT_FALSE(field->initialization_recorded);
   field.reset();
+}
+
+TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  SdfgiSettings settings;
+  settings.cascade_count = 1;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  const auto pending = GetSdfgiPendingRegions(cascades, 1);
+  const auto mask_texture = std::make_shared<Texture2D>();
+  mask_texture->SetRgbaChannelData({glm::vec4(1, 1, 1, 0), glm::vec4(1)}, {2, 1});
+  Platform::GetGpuService().WaitIdle();
+  TextureStorage::DeviceSync();
+  SdfgiTextureInput texture;
+  texture.texture = mask_texture;
+  texture.image = mask_texture->GetImage();
+  texture.image_view = mask_texture->PeekTexture2DStorage().image_view;
+  texture.sampler = mask_texture->PeekTexture2DStorage().sampler;
+  texture.mapping.tex_coord = 1;
+  texture.mapping.uv_transform[2].x = 0.5f;
+  SdfgiContributorRegistry contributors;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    for (uint32_t kind = 0; kind < 4; ++kind) {
+      SdfgiContributor contributor;
+      contributor.id = {axis * 4 + kind + 1, 1};
+      contributor.mesh = std::make_shared<Mesh>();
+      contributor.mesh->OnCreate();
+      const auto right = (axis + 1) % 3, up = (axis + 2) % 3;
+      std::vector<Vertex> vertices(4);
+      for (uint32_t corner = 0; corner < 4; ++corner) {
+        auto& vertex = vertices[corner];
+        vertex.position[axis] = 0.5f;
+        vertex.position[right] = -52.0f + 12 * kind + (corner & 1 ? 8 : 0);
+        vertex.position[up] = corner & 2 ? 4 : -4;
+        vertex.normal[axis] = kind == 2 ? -1 : 1;
+        vertex.color = glm::vec4(0.5f, 0.5f, 0.5f, 1);
+        vertex.tex_coord_1 = glm::vec2(corner & 1 ? 1 : 0, 0.5f);
+      }
+      VertexAttributes attributes{};
+      attributes.normal = attributes.color = true;
+      attributes.tex_coord_1 = true;
+      const std::vector<glm::uvec3> triangles =
+          kind == 2 ? std::vector<glm::uvec3>{{0, 2, 1}, {1, 2, 3}} : std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}};
+      contributor.mesh->SetVertices(attributes, vertices, triangles);
+      contributor.world_bounds = contributor.mesh->GetBound();
+      contributor.material.base_color = glm::vec4(0.8f, 0.4f, 0.2f, 0.1f);
+      contributor.material.masked = kind == 1;
+      if (kind == 1) {
+        contributor.material.base_color.a = 1;
+        contributor.material.base_texture = texture;
+      }
+      contributor.material.double_sided = kind == 2;
+      contributor.material.cull_mode = VK_CULL_MODE_BACK_BIT;
+      contributor.material.emission = kind == 3 ? glm::vec3(2, 0, 0) : glm::vec3(0);
+      contributors.entries.emplace(contributor.id, std::move(contributor));
+    }
+  std::array<std::shared_ptr<SdfgiVoxelFrame>, 2> frames;
+  GeometryStorage::WaitForPendingUploads();
+  for (uint32_t iteration = 0; iteration < frames.size(); ++iteration) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    if (iteration == 1)
+      for (auto& [id, contributor] : contributors.entries) {
+        contributor.material.masked = false;
+        contributor.material.emission = glm::vec3(0);
+      }
+    auto& frame = frames[iteration];
+    ASSERT_NO_THROW(frame = SdfgiVoxelFrame::Create(*field, contributors, cascades, pending));
+    frame->debug = std::make_shared<SdfgiVoxelDebug>(0, 64);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (!field->initialization_recorded)
+      graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    frame->AddPasses(graph, registry, field);
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+  }
+  for (uint32_t iteration = 0; iteration < frames.size(); ++iteration) {
+    const auto data = frames[iteration]->debug->Read();
+    for (uint32_t axis = 0; axis < 3; ++axis)
+      for (uint32_t kind = 0; kind < 4; ++kind) {
+        SCOPED_TRACE(::testing::Message() << "frame=" << iteration << " axis=" << axis << " kind=" << kind);
+        const uint32_t right = 16 + 12 * kind, up = 65;
+        const uint32_t index = axis * 128 * 128 + (axis == 1 ? up + right * 128 : right + up * 128);
+        const bool empty = iteration == 0 && kind == 1;
+        EXPECT_EQ(data[0][index], empty ? 0u : 1u | (12u << 11) | (6u << 6) | (3u << 1));
+        EXPECT_EQ(data[3][index], empty ? 0u : 1u << (axis + (kind == 2 ? 3 : 0)));
+        EXPECT_EQ(data[1][index], iteration == 0 && kind == 3 ? (17u << 25) | 128u : 0u);
+        EXPECT_EQ(data[2][index], iteration == 0 && kind == 3 ? 31u << (axis * 5) : 0u);
+        if (kind == 1) {
+          const uint32_t visible_right = 13 + 12 * kind;
+          const uint32_t visible = axis * 128 * 128 + (axis == 1 ? up + visible_right * 128 : visible_right + up * 128);
+          EXPECT_EQ(data[0][visible], 1u | (12u << 11) | (6u << 6) | (3u << 1));
+        }
+      }
+  }
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

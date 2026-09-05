@@ -323,6 +323,11 @@ gtest_discover_tests(EvoEngine_Tests
 	)
 gtest_discover_tests(EvoEngine_Tests
 	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
+	TEST_FILTER SdfgiCapabilities.*:SdfgiRuntime.*:SdfgiResources.*:SdfgiScene.*:SdfgiVoxelization.*
+	PROPERTIES LABELS "render,sdfgi"
+	)
+gtest_discover_tests(EvoEngine_Tests
+	WORKING_DIRECTORY "$<TARGET_FILE_DIR:EvoEngine_Tests>"
 	TEST_FILTER RenderGraph.*
 	PROPERTIES LABELS "core,render"
 	)

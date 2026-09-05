@@ -129,8 +129,15 @@ struct SdfgiCascadeBlock {
 
 struct SdfgiVoxelData {
   float4 view_projection[4];
-  float4 region_min;
-  float4 region_max;
+  float4 cascade_min_cell;
+  float4 region_offset_y_mult;
+};
+
+struct SdfgiVoxelPushConstant {
+  float4 model[4];
+  float normal_basis[9];
+  uint material_index;
+  uint2 pad;
 };
 
 static const uint SDFGI_MAX_CASCADES = 8;

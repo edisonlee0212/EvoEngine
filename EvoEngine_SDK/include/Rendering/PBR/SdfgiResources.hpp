@@ -9,8 +9,12 @@
 
 #include <array>
 #include <map>
+#include <optional>
 
 namespace evo_engine {
+
+class SdfgiVoxelFrame;
+class SdfgiVoxelDebug;
 
 enum class SdfgiMemoryClass { Field, Scratch, Upload, Diagnostic, Count };
 enum class SdfgiLayout {
@@ -56,6 +60,13 @@ class EVOENGINE_API SdfgiResources {
   std::shared_ptr<Sampler> linear_sampler;
   std::shared_ptr<Sampler> mip_sampler;
   bool initialization_recorded = false;
+  bool voxelization_recorded = false;
+  uint32_t last_voxel_frame = UINT32_MAX;
+  std::vector<std::shared_ptr<SdfgiVoxelFrame>> voxel_frames;
+  std::optional<glm::uvec2> voxel_debug_request;
+  std::shared_ptr<SdfgiVoxelDebug> voxel_debug;
+  std::string voxel_failure;
+  [[nodiscard]] uint64_t GetAllocationBytes(SdfgiMemoryClass memory_class) const;
 
   // fail_after_allocations is a deterministic partial-allocation failure seam for focused tests only.
   static std::shared_ptr<SdfgiResources> TryCreate(

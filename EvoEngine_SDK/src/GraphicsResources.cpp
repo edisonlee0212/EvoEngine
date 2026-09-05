@@ -1669,6 +1669,13 @@ BufferUploadArena::~BufferUploadArena() {
   }
 }
 
+VkDeviceSize BufferUploadArena::GetAllocationBytes() const {
+  VkDeviceSize result = 0;
+  for (const auto& block : state_->blocks)
+    result += block.buffer->GetVmaAllocationInfo().size;
+  return result;
+}
+
 void BufferUploadBatch::Add(const std::shared_ptr<Buffer>& destination, const void* source, const size_t size,
                             const VkDeviceSize destination_offset, const BufferUploadOptions& options) {
   if (size == 0) {

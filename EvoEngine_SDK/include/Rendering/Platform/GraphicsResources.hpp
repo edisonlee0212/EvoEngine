@@ -784,6 +784,7 @@ class EVOENGINE_API BufferUploadArena final {
  public:
   explicit BufferUploadArena(VkDeviceSize initial_block_size = 4ull * 1024ull * 1024ull);
   ~BufferUploadArena();
+  [[nodiscard]] VkDeviceSize GetAllocationBytes() const;
   BufferUploadArena(const BufferUploadArena&) = delete;
   BufferUploadArena& operator=(const BufferUploadArena&) = delete;
 };
