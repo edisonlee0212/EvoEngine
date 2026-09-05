@@ -48,6 +48,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
@@ -5629,21 +5630,31 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
   sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+    const auto sdfgi_cpu_start = std::chrono::steady_clock::now();
     auto& runtime = scene->sdfgi_runtime_;
-    if (!runtime || !runtime->settings.HasSameLayout(lighting.sdfgi_settings) ||
-        runtime->settings.Validate().empty() != lighting.sdfgi_settings.Validate().empty()) {
+    const auto debug = runtime ? runtime->debug : std::make_shared<SdfgiDebugState>();
+    const bool update_field = debug->BeginFrame(scene_frame);
+    if (!runtime ||
+        (update_field && (!runtime->settings.HasSameLayout(lighting.sdfgi_settings) ||
+                          runtime->settings.Validate().empty() != lighting.sdfgi_settings.Validate().empty()))) {
       const auto capabilities =
           lighting.sdfgi_settings.Validate().empty()
               ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size)
               : SdfgiCapabilityReport{};
+      debug->Invalidate(runtime ? "settings" : "provider",
+                        runtime ? "Field layout/settings replaced" : "Automatic SDFGI activated");
       runtime = std::make_shared<SdfgiRuntime>(lighting.sdfgi_settings, capabilities);
+      runtime->debug = debug;
     }
-    const bool settings_changed = !(runtime->settings == lighting.sdfgi_settings);
+    const bool settings_changed = update_field && !(runtime->settings == lighting.sdfgi_settings);
+    if (settings_changed)
+      debug->Invalidate("settings", "Runtime SDFGI settings changed");
     if (settings_changed && !runtime->resources) {
       runtime->allocation_attempted = false;
       runtime->resource_failure.clear();
     }
-    runtime->settings = lighting.sdfgi_settings;
+    if (update_field)
+      runtime->settings = lighting.sdfgi_settings;
     const auto scene_camera_anchor = [&](const std::shared_ptr<Camera>& camera) -> SdfgiAnchor {
       if (!camera || camera->GetScene() != scene || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
           !scene->IsEntityEnabled(camera->GetOwner()))
@@ -5675,10 +5686,11 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     const auto anchor =
         SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor,
                           lighting.sdfgi_settings.anchor_camera_entity != 0, playable_view, editor != nullptr);
-    if (runtime->Maintain(scene_frame, anchor))
+    if (update_field && runtime->Maintain(scene_frame, anchor))
       runtime->UpdateSceneSnapshot(SnapshotSdfgiScene(scene, lighting));
-    if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
-        runtime->placement_failure.empty() && runtime->capabilities.Supported()) {
+    if (update_field && !runtime->allocation_attempted && !runtime->missing_anchor &&
+        runtime->settings.Validate().empty() && runtime->placement_failure.empty() &&
+        runtime->capabilities.Supported()) {
       runtime->allocation_attempted = true;
       runtime->resources =
           SdfgiResources::TryCreate(runtime->settings,
@@ -5694,6 +5706,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     if (const auto resources = runtime->resources) {
       resources->settings = runtime->settings;
       resources->gather_camera_ids.clear();
+      if (update_field || resources->last_transport_frame != scene_frame)
+        RetireSdfgiDebugFrame(*resources, current_frame_index);
       if (const auto& previous = resources->voxel_frames[current_frame_index];
           resources->last_voxel_frame != scene_frame && previous && previous->preprocess_readback)
         previous->preprocess_readback->ReadAfterFrameFence(*resources);
@@ -5702,7 +5716,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           field_failed &&
           ((resources->preprocess_status.failure_flags & kSdfgiFailurePayloadCoverage) || settings_changed ||
            runtime->anchor_replaced || runtime->anchor_recovered || !runtime->pending_regions.empty() ||
-           resources->voxel_debug_request ||
+           resources->voxel_debug_request || debug->full_redraw ||
            std::any_of(runtime->pending_changes.begin(), runtime->pending_changes.end(), [](uint32_t flags) {
              return flags != 0;
            }));
@@ -5715,15 +5729,20 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         runtime->fallback_reason = resources->preprocess_failure;
       sdfgi_frame_resources_[current_frame_index].push_back(resources);
       resources->Import(scene_graph, registry);
-      if (!resources->initialization_recorded)
+      if (update_field && !resources->initialization_recorded)
         scene_graph.AddPass(resources->ClearDescriptor(), [resources](const RenderGraphExecutionContext& context) {
           Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
             resources->Clear(command_buffer, context);
           });
         });
-      if (resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
+      if (update_field && debug->reset_history && resources->initialization_recorded)
+        AddSdfgiHistoryReset(scene_graph, runtime);
+      if (update_field)
+        resources->debug_seed = debug->seed;
+      if (update_field && resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
           runtime->placement_failure.empty() && (!field_failed || retry_field)) {
-        runtime->PrepareUpdates(resources->voxelization_recorded, retry_field || !resources->voxel_failure.empty());
+        runtime->PrepareUpdates(resources->voxelization_recorded,
+                                retry_field || debug->full_redraw || !resources->voxel_failure.empty());
         auto pending = runtime->pending_regions;
         if (resources->voxel_debug_request) {
           const auto index = resources->voxel_debug_request->x;
@@ -5772,7 +5791,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             payload_cascades |= 1u << c;
       const bool full_representation =
           (resources->preprocessed_cascades | rebuilt_cascades) == (1u << runtime->settings.cascade_count) - 1;
-      if (full_representation && !runtime->missing_anchor && runtime->placement_failure.empty() &&
+      if (update_field && full_representation && !runtime->missing_anchor && runtime->placement_failure.empty() &&
           resources->voxel_failure.empty() && resources->last_light_frame != scene_frame &&
           (!field_failed || retry_field)) {
         try {
@@ -5866,6 +5885,10 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         }
       }
     }
+    if (Platform::GpuTimestampCaptureEnabled())
+      Platform::RecordCpuTimingSample(
+          "SDFGI Planning",
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sdfgi_cpu_start).count());
   } else if (scene) {
     scene->sdfgi_runtime_.reset();
   }
@@ -5915,6 +5938,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   transient_resources.Allocate(scene_graph.GetResources(), plan);
   transient_resources.Bind(registry);
   scene_graph.Execute(plan, registry);
+  if (scene && scene->GetSdfgiRuntime())
+    UpdateSdfgiDebugMemory(*scene->GetSdfgiRuntime(), sdfgi_frame_resources_);
 }
 
 void RenderLayer::RenderAll() {
@@ -7554,7 +7579,27 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   const auto sdfgi_resources =
       sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources : nullptr;
   const auto sdfgi_publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
-  const bool volumetric_clouds_enabled = !reflection_probe_capture && volumetric_cloud_settings.enabled;
+  const bool sdfgi_debug_camera = sdfgi_runtime && sdfgi_runtime->debug->MatchesCamera(camera->GetHandle().GetValue(),
+                                                                                       is_scene_camera, sdfgi_eligible);
+  const auto sdfgi_debug_view = sdfgi_debug_camera ? static_cast<uint32_t>(sdfgi_runtime->debug->view) : 0u;
+  const bool sdfgi_isolation = sdfgi_debug_view >= 7u && sdfgi_debug_view <= 9u;
+  if (sdfgi_runtime && sdfgi_eligible) {
+    auto& views = sdfgi_runtime->debug->camera_views;
+    const auto id = camera->GetHandle().GetValue();
+    if (const auto previous = views.find(id); previous != views.end()) {
+      if (previous->second != sdfgi_debug_view)
+        camera->ResetFrameCount();
+      if (sdfgi_debug_view)
+        previous->second = sdfgi_debug_view;
+      else
+        views.erase(previous);
+    } else if (sdfgi_debug_view) {
+      camera->ResetFrameCount();
+      views[id] = sdfgi_debug_view;
+    }
+  }
+  const bool volumetric_clouds_enabled =
+      !reflection_probe_capture && !sdfgi_isolation && volumetric_cloud_settings.enabled;
   const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
   struct DdgiProbeVisualizationDraw {
     const DdgiVolumeRuntimeState* runtime = nullptr;
@@ -7816,10 +7861,10 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
            deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
            directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands,
            sdfgi_publication ? sdfgi_resources : nullptr,
-           sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr});
+           sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr, sdfgi_isolation ? sdfgi_debug_view : 0u});
     });
     const bool forward_external_rendering_enabled =
-        !reflection_probe_capture && !forward_rendering_external_functions.empty();
+        !reflection_probe_capture && !sdfgi_isolation && !forward_rendering_external_functions.empty();
     if (forward_external_rendering_enabled) {
       camera_render_graph.AddPass(
           {RenderPassNames::forward_external,
@@ -7848,7 +7893,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
           });
     }
-    if (!reflection_probe_capture) {
+    if (!reflection_probe_capture && !sdfgi_isolation) {
       for (const auto& external_pass : camera_render_pass_external_functions) {
         ImportMissingPassResources(camera_render_graph, external_pass.descriptor);
         camera_render_graph.AddPass(
@@ -7876,11 +7921,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
             });
       }
     }
-    const bool gaussian_splat_rendering_enabled = !reflection_probe_capture && current_render_instances &&
+    const bool gaussian_splat_rendering_enabled = !reflection_probe_capture && !sdfgi_isolation &&
+                                                  current_render_instances &&
                                                   current_render_instances->total_gaussian_splats != 0u &&
                                                   current_render_instances->gaussian_splat_render_instances &&
                                                   !current_render_instances->gaussian_splat_render_instances->Empty();
-    const bool transparent_mesh_rendering_enabled = !reflection_probe_capture && current_render_instances &&
+    const bool transparent_mesh_rendering_enabled = !reflection_probe_capture && !sdfgi_isolation &&
+                                                    current_render_instances &&
                                                     current_render_instances->transparent_render_instances &&
                                                     !current_render_instances->transparent_render_instances->Empty();
     const char* post_lighting_dependency =
@@ -7983,13 +8030,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     if (!reflection_probe_capture) {
       camera_render_graph.AddPass(PostProcessingPass::CreateDescriptor(ddgi_debug_post_processing_dependency),
                                   [&](const RenderGraphExecutionContext& context) {
-                                    PostProcessingPass::Execute(context,
-                                                                {camera, active_camera_transient_resources, immediate});
+                                    PostProcessingPass::Execute(context, {camera, active_camera_transient_resources,
+                                                                          immediate, false, sdfgi_isolation});
                                   });
     }
     if (is_scene_camera && !reflection_probe_capture) {
       auto presentation = editor_layer->GetEntitySelectionHighlightSnapshot();
-      presentation.active = presentation.active && current_render_instances->HasSelectionHighlightRenderInstances();
+      presentation.active =
+          presentation.active && !sdfgi_isolation && current_render_instances->HasSelectionHighlightRenderInstances();
       camera_render_graph.AddPass(EntitySelectionHighlightPass::CreateDescriptor(),
                                   [&, presentation](const RenderGraphExecutionContext& context) {
                                     EntitySelectionHighlightPass::Execute(
@@ -8001,6 +8049,18 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
         CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (sdfgi_publication)
       sdfgi_publication->ImportCamera(camera_render_graph, camera_render_graph_resources, *sdfgi_resources);
+    if (sdfgi_debug_camera) {
+      try {
+        AddSdfgiCameraDebug(
+            camera_render_graph, camera_render_graph_resources, sdfgi_runtime, camera,
+            current_render_instances->camera_info_blocks_.at(camera_index),
+            is_scene_camera ? RenderPassNames::entity_selection_highlight : RenderPassNames::post_processing);
+        sdfgi_runtime->debug->failure.clear();
+      } catch (const std::exception& error) {
+        sdfgi_runtime->debug->failure = error.what();
+        sdfgi_runtime->debug->enabled = false;
+      }
+    }
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid camera render graph.")
     }
@@ -8036,6 +8096,8 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
     }
     const ScopedRenderCameraDrawScope camera_draw_scope(current_frame_index, scene, camera, is_scene_camera);
     camera_render_graph.Execute(camera_render_graph_plan, camera_render_graph_resources);
+    if (sdfgi_debug_camera)
+      UpdateSdfgiDebugMemory(*sdfgi_runtime, sdfgi_frame_resources_);
     camera->rendered_ = true;
     camera->require_rendering_ = false;
     camera->frame_count_++;

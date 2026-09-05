@@ -115,7 +115,7 @@ void PostProcessingPass::Execute(const RenderGraphExecutionContext& context, con
           gpu_timestamp =
               BeginRenderPassGpuTimestamp(vk_command_buffer, context, parameters.camera->GetHandle().GetValue());
         },
-        motion_vectors_view);
+        motion_vectors_view, parameters.tone_mapping_only);
     if (parameters.transient_resources) {
       parameters.camera->RetainPostProcessingResources(*parameters.transient_resources);
     }

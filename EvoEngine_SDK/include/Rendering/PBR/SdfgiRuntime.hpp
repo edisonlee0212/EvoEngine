@@ -11,6 +11,7 @@
 namespace evo_engine {
 
 class SdfgiResources;
+struct SdfgiDebugState;
 
 enum class SdfgiAnchorSource : uint32_t { None, Explicit, MainCamera, EditorScene };
 
@@ -28,6 +29,7 @@ EVOENGINE_API SdfgiAnchor SelectSdfgiAnchor(const SdfgiAnchor& explicit_camera, 
 struct EVOENGINE_API SdfgiRuntime {
   SdfgiSettings settings;
   SdfgiCapabilityReport capabilities;
+  std::shared_ptr<SdfgiDebugState> debug;
   SdfgiAnchor anchor;
   uint64_t maintenance_count = 0;
   uint32_t last_scene_frame = std::numeric_limits<uint32_t>::max();

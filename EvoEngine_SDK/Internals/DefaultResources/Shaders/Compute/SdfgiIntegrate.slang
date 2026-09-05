@@ -154,7 +154,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
   }
 
   // quickly ensure each probe has a different "offset" for the vogel function, based on integer world position
-  uint3 h3 = hash3(uint3(params.world_offset + probe_cell));
+  uint3 h3 = hash3(uint3(params.world_offset + probe_cell) ^ uint3(params.pad)); // Zero preserves reference sampling.
   float offset = hashf3(float3(h3 & uint3(0xFFFFF)));
 
   //for a more homogeneous hemisphere, alternate based on history frames

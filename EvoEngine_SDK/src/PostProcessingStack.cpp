@@ -910,7 +910,8 @@ bool PostProcessingStack::BuildNextPipeline(PostProcessingRendererResources& res
 
 void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
                                   const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process,
-                                  const std::shared_ptr<ImageView>& motion_vectors_image_view) {
+                                  const std::shared_ptr<ImageView>& motion_vectors_image_view,
+                                  const bool tone_mapping_only) {
   if (!target_camera) {
     return;
   }
@@ -931,17 +932,17 @@ void PostProcessingStack::Process(const std::shared_ptr<Camera>& target_camera,
     Platform::RecordCommandsMainQueue(pre_process);
   }
 
-  if (enable_screen_space_reflection) {
+  if (enable_screen_space_reflection && !tone_mapping_only) {
     screen_space_reflection->Process(*this, target_camera, context);
   }
-  if (enable_bloom) {
+  if (enable_bloom && !tone_mapping_only) {
     bloom->Process(*this, target_camera, context);
   }
 
   if (enable_tone_mapping) {
     tone_mapping->Process(*this, target_camera, context);
   }
-  if (enable_anti_aliasing) {
+  if (enable_anti_aliasing && !tone_mapping_only) {
     anti_aliasing->Process(*this, target_camera, context);
   }
 }

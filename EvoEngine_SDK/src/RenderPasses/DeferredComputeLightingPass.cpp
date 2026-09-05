@@ -99,7 +99,7 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     push_constant.camera_index = parameters.camera_index;
     push_constant.light_split_index =
         parameters.directional_shadow_camera_index >= 0 ? -parameters.directional_shadow_camera_index - 1 : 256;
-    push_constant.meshlet_culling_flags = parameters.scene_camera ? 1u : 0u;
+    push_constant.meshlet_culling_flags = (parameters.scene_camera ? 1u : 0u) | (parameters.sdfgi_debug_view << 8u);
     parameters.pipeline->PushConstant(vk_command_buffer, 0, push_constant);
     const auto extent = parameters.camera->GetRenderTexture()->GetExtent();
     parameters.pipeline->Dispatch(vk_command_buffer, Platform::DivUp(extent.width, 16),

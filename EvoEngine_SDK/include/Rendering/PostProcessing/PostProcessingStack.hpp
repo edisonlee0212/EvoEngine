@@ -68,7 +68,7 @@ class EVOENGINE_API PostProcessingStack : public IAsset {
   void ApplyDefaultSettings();
   void Process(const std::shared_ptr<Camera>& target_camera,
                const std::function<void(VkCommandBuffer vk_command_buffer)>& pre_process = {},
-               const std::shared_ptr<ImageView>& motion_vectors_image_view = {});
+               const std::shared_ptr<ImageView>& motion_vectors_image_view = {}, bool tone_mapping_only = false);
   void ProcessBloomAndToneMappingImmediately(const std::shared_ptr<Camera>& target_camera);
   void ProcessAmbientOcclusion(const std::shared_ptr<Camera>& target_camera,
                                const std::shared_ptr<ImageView>& ambient_occlusion_image_view,

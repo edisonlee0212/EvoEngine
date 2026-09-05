@@ -19,6 +19,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
@@ -465,6 +466,14 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   export_spirv("DeferredEnvironment", environment->compute_shader);
   export_spirv("VoxelVertexAbi", field->voxel_pipeline->vertex_shader);
   export_spirv("VoxelFragmentAbi", field->voxel_pipeline->fragment_shader);
+  const auto debug_renderer = std::make_shared<SdfgiDebugRenderer>();
+  ASSERT_TRUE(debug_renderer->sdf->Initialized());
+  export_spirv("DebugSdf", debug_renderer->sdf->compute_shader);
+  for (uint32_t i = 0; i < debug_renderer->graphics.size(); ++i) {
+    ASSERT_TRUE(debug_renderer->graphics[i]->Initialized());
+    export_spirv("DebugVertex" + std::to_string(i), debug_renderer->graphics[i]->vertex_shader);
+    export_spirv("DebugFragment" + std::to_string(i), debug_renderer->graphics[i]->fragment_shader);
+  }
   BufferUploadArena uploads(4096);
   for (uint32_t iteration = 0; iteration < 2; ++iteration) {
     PlatformLifecycleTestAccess::PreUpdate();

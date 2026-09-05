@@ -5,10 +5,91 @@ The script does not compare against or update any DDGI baseline.
 """
 
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import sys
+
+
+def check_debug_session(engine, output):
+    """Exercise all diagnostics on one frozen 1440p field; exports never call Loop."""
+    debug = engine.GetCurrentSceneSdfgiDebug()
+    debug.enabled = True
+    debug.frozen = True
+    engine.SelectMainCameraForSdfgiDebug()
+    engine.Loop()
+    baseline = engine.GetCurrentSceneGiStatus()
+
+    def unchanged(before, after):
+        for key in ("transport_pass", "maintenance_count", "geometry_update_count", "payload_update_count"):
+            if before[key] != after[key]:
+                raise RuntimeError(f"Frozen/capture operation changed {key}: {before[key]} -> {after[key]}")
+
+    def capture(name):
+        before = engine.GetCurrentSceneGiStatus()
+        path = output.with_stem(output.stem + "-" + name)
+        engine.CaptureCurrentSceneSdfgiDebug(path)
+        after = engine.GetCurrentSceneGiStatus()
+        unchanged(before, after)
+        snapshot = path.with_suffix(".yaml").read_text()
+        if f"generation: {before['transport_pass']}\n" not in snapshot:
+            raise RuntimeError("Image and snapshot generation differ")
+        print(json.dumps({"debug_view": name, "output": str(path), "generation": before["transport_pass"],
+                          "sha256": hashlib.sha256(path.read_bytes()).hexdigest()}), flush=True)
+        return path
+
+    beauty = capture("frozen")
+    repeated = capture("frozen-repeat")
+    if beauty.read_bytes() != repeated.read_bytes():
+        raise RuntimeError("Repeated export changed the displayed image")
+    try:
+        engine.CaptureCurrentSceneSdfgiDebug(beauty)
+    except RuntimeError:
+        pass
+    else:
+        raise RuntimeError("Capture overwrote existing evidence")
+    for name in ("Cascades", "Sdf", "Probes", "Visibility", "DistanceSlice", "Diffuse", "Specular", "Fallback", "Contributors"):
+        debug.view = getattr(engine.SdfgiDebugView, name)
+        debug.depth_test = name not in ("Cascades", "Visibility", "Contributors")
+        engine.Loop()
+        unchanged(baseline, engine.GetCurrentSceneGiStatus())
+        capture(name.lower())
+    debug.single_step = True
+    engine.Loop()
+    stepped = engine.GetCurrentSceneGiStatus()
+    if stepped["transport_pass"] != baseline["transport_pass"] + 1 or stepped["maintenance_count"] != baseline["maintenance_count"] + 1:
+        raise RuntimeError("Single step did not process exactly one scene boundary")
+    engine.Loop()
+    unchanged(stepped, engine.GetCurrentSceneGiStatus())
+    debug.reset_history = True
+    engine.Loop()
+    reset = engine.GetCurrentSceneGiStatus()
+    if reset["transport_pass"] != 1 or reset["geometry_update_count"] != stepped["geometry_update_count"]:
+        raise RuntimeError("History reset rebuilt geometry or did not restart transport")
+    debug.full_redraw = True
+    debug.view = engine.SdfgiDebugView.DirtyRegions
+    engine.Loop()
+    redrawn = engine.GetCurrentSceneGiStatus()
+    if redrawn["geometry_update_count"] <= reset["geometry_update_count"]:
+        raise RuntimeError("Full redraw did not rebuild the field")
+    capture("dirty-redraw")
+    debug.seed = 123
+    engine.Loop()
+    if engine.GetCurrentSceneGiStatus()["transport_pass"] != 1:
+        raise RuntimeError("Seed change did not restart probe history")
+    debug.seed = 0
+    debug.frozen = False
+    debug.view = engine.SdfgiDebugView.Beauty
+    for _ in range(90):
+        engine.Loop()
+    debug.frozen = True
+    engine.Loop()
+    capture("recovered")
+    gpu = engine.ReadCurrentSceneSdfgiFieldStatus()
+    if not gpu["ready"] or gpu["failure_flags"]:
+        raise RuntimeError(f"Debug lifecycle left an invalid field: {gpu}")
+    print(json.dumps({"debug_checks": "passed", "gpu_status": gpu, "status": engine.GetCurrentSceneGiStatus()}), flush=True)
 
 
 def main():
@@ -23,6 +104,10 @@ def main():
     parser.add_argument("--occlusion-off-output", type=Path, help="Optional second beauty capture after disabling occlusion")
     parser.add_argument("--traverse", action="store_true", help="After beauty, exercise signed scrolls and a teleport/return")
     parser.add_argument("--edit-check", action="store_true", help="Check material/light edits and provider lifecycle after beauty")
+    parser.add_argument("--debug-check", action="store_true", help="One frozen-field diagnostics and nonperturbing capture session")
+    parser.add_argument("--debug-capture-view", choices=("Beauty", "Cascades", "Sdf", "Probes", "Visibility", "DirtyRegions",
+                                                       "DistanceSlice", "Diffuse", "Specular", "Fallback", "Contributors"),
+                        help="Export just one selected-camera debug view and matching state after beauty")
     args = parser.parse_args()
     if args.occlusion_off_output and args.view != "beauty":
         parser.error("--occlusion-off-output requires --view beauty")
@@ -30,6 +115,10 @@ def main():
         parser.error("--traverse requires --view beauty without an occlusion-off comparison")
     if args.edit_check and (args.view != "beauty" or args.traverse or args.occlusion_off_output):
         parser.error("--edit-check requires --view beauty without other comparison modes")
+    if args.debug_check and (args.view != "beauty" or args.edit_check or args.traverse or args.occlusion_off_output):
+        parser.error("--debug-check requires --view beauty without other comparison modes")
+    if args.debug_capture_view and (args.view != "beauty" or args.debug_check or args.edit_check or args.traverse or args.occlusion_off_output):
+        parser.error("--debug-capture-view requires --view beauty without other comparison modes")
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
     occlusion_off_output = args.occlusion_off_output.resolve() if args.occlusion_off_output else None
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
@@ -102,6 +191,28 @@ def main():
                 print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status,
                                   "view": args.view, "use_occlusion": False, "resolution": [2560, 1440],
                                   "output": str(occlusion_off_output)}), flush=True)
+            if args.debug_check:
+                check_debug_session(engine, output)
+            if args.debug_capture_view:
+                debug = engine.GetCurrentSceneSdfgiDebug()
+                debug.enabled, debug.frozen = True, True
+                debug.view = getattr(engine.SdfgiDebugView, args.debug_capture_view)
+                debug.cascade, debug.probe, debug.slice = args.cascade, args.probe, args.slice
+                debug.depth_test = False
+                engine.SelectMainCameraForSdfgiDebug()
+                engine.Loop()
+                before = engine.GetCurrentSceneGiStatus()
+                path = output.with_stem(output.stem + "-debug")
+                engine.CaptureCurrentSceneSdfgiDebug(path)
+                after = engine.GetCurrentSceneGiStatus()
+                for key in ("transport_pass", "maintenance_count", "geometry_update_count", "payload_update_count"):
+                    if before[key] != after[key]:
+                        raise RuntimeError(f"Capture changed {key}")
+                gpu = engine.ReadCurrentSceneSdfgiFieldStatus()
+                if gpu["generation"] != before["transport_pass"] or not gpu["ready"] or gpu["failure_flags"]:
+                    raise RuntimeError(f"Debug capture publication invalid: {gpu}")
+                print(json.dumps({"selected_view": args.debug_capture_view, "output": str(path), "gpu_status": gpu,
+                                  "clamped_selection": [debug.cascade, debug.probe, debug.slice]}), flush=True)
             if args.edit_check:
                 baseline = engine.GetCurrentSceneGiStatus()
                 materials = engine.ScaleCurrentSceneStaticMaterialsForCapture(0.75, 2.0)

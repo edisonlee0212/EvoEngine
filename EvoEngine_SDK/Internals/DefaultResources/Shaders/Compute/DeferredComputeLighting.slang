@@ -42,13 +42,14 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
 
   const int camera_index = EE_BASIC_CONSTANTS.camera_index;
   const int indirect_lighting_debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
+  const uint sdfgi_debug_view = EE_BASIC_CONSTANTS.meshlet_culling_flags >> 8u;
   const bool scene_camera = (EE_BASIC_CONSTANTS.meshlet_culling_flags & 1u) != 0u;
   const float2 tex_coord = (float2(pixel) + float2(0.5f)) / float2(width, height);
   const float depth = inDepth.SampleLevel(tex_coord, 0.0f).x;
   if (!isfinite(depth) || depth >= 1.0f) {
     const float3 world_position = EE_DEPTH_TO_WORLD_POS(camera_index, tex_coord, 1.0f);
     const float3 sky_color = EE_SKY_COLOR(world_position - EE_CAMERA_POSITION(camera_index));
-    outColor[pixel] = float4(indirect_lighting_debug_view == 0 ? sky_color : float3(0.0f), 1.0f);
+    outColor[pixel] = float4(indirect_lighting_debug_view == 0 && sdfgi_debug_view == 0u ? sky_color : float3(0.0f), 1.0f);
     return;
   }
 
@@ -90,6 +91,18 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
   inOutFrameNormalRoughness[pixel] = float4(shading_normal, surface.roughness);
   inOutDdxPbrFlags[pixel] = float4(surface.metallic, surface.specular_f0);
   inOutDdyEmissive[pixel] = float4(coated_emissive, encoded_specular_f90);
+
+  if (sdfgi_debug_view >= 7u && sdfgi_debug_view <= 9u) {
+    float3 isolated = sdfgi_debug_view == 9u ? float3(1, 0, 0) : float3(0);
+#ifdef EE_AUTOMATIC_SDFGI
+    if (encoded_specular_f90 >= 0.0f)
+      isolated = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(resolved_base_color, shading_normal,
+          view_direction, world_position, surface.metallic, surface.roughness, surface.specular_f0,
+          encoded_specular_f90, resolved_material_ao, inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);
+#endif
+    outColor[pixel] = float4(isolated, 1);
+    return;
+  }
 
   if (!scene_camera && encoded_specular_f90 < 0.0f) {
     outColor[pixel] = float4(indirect_lighting_debug_view == 0 ? resolved_base_color : float3(0.0f), 1.0f);

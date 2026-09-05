@@ -170,6 +170,7 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
   params.history_size = resources.settings.history_size;
   params.ray_count = resources.settings.ray_count;
   params.ray_bias = resources.settings.probe_bias;
+  params.pad = resources.debug_seed;
   params.image_size[0] = 17 * 17;
   params.image_size[1] = 17;
   params.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);

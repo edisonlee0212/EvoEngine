@@ -269,6 +269,10 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
       params.y_mult = SdfgiYMultiplier(frame->settings.vertical_scale);
       params.use_occlusion = frame->settings.use_occlusion;
       for (uint32_t kind = 0; kind < 2; ++kind) {
+        const auto kind_timing =
+            Platform::BeginGpuTimestampScope(command, {kind == 0 ? "SdfgiStaticLight" : "SdfgiDynamicLight",
+                                                       kind == 0 ? "SDFGI Static Light" : "SDFGI Dynamic Light",
+                                                       "SDFGI", GpuTimestampQueue::Graphics, 0, 0, false});
         const auto& pipeline = resources->pipelines.at(kind == 0 ? "DirectLightSTATIC" : "DirectLightDYNAMIC");
         pipeline->Bind(command);
         for (uint32_t c = 0; c < frame->lights.size(); ++c) {
@@ -290,6 +294,7 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
         }
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        Platform::EndGpuTimestampScope(command, kind_timing);
       }
       Platform::EndGpuTimestampScope(command, timing);
     });

@@ -13,6 +13,8 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float3 R = reflect(-viewDir, normal);
   const float3 diffuse_weight = (float3(1) - dielectricF) * (1 - clamp(metallic, 0.0f, 1.0f));
   const EeSdfgiLighting field = EE_SDFGI_GATHER(fragPos, normal, R, roughness);
+  const uint sdfgi_debug_view = EE_BASIC_CONSTANTS.meshlet_culling_flags >> 8u;
+  if (sdfgi_debug_view == 9u) return float3(1.0f - field.weight, field.weight, 0.0f);
   const float3 environment_diffuse = (EE_ENVIRONMENT.background_color.w == 1.0f
       ? EE_ENVIRONMENT.background_color.xyz
       : pow(resources.sampleIrradiance(EE_ENVIRONMENT_LOCAL_DIRECTION(normal)), float3(1.0f / EE_ENVIRONMENT.gamma))) *
@@ -22,6 +24,8 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float screen_visibility = gtao_available ? screenSpaceVisibility : 1.0f;
   const float3 diffuse = diffuse_weight * albedo * irradiance * clamp(materialOcclusion * screen_visibility, 0.0f, 1.0f) *
       EE_RENDER_INFO.indirect_lighting_intensity;
+  if (sdfgi_debug_view == 7u) return diffuse_weight * albedo * field.diffuse * field.weight *
+      clamp(materialOcclusion * screen_visibility, 0.0f, 1.0f) * EE_RENDER_INFO.indirect_lighting_intensity;
   const float lod_scale = float(max(int(resources.prefilteredLevelCount()) - 1, 0));
   const float3 environment_specular = (EE_ENVIRONMENT.background_color.w == 1.0f
       ? EE_ENVIRONMENT.background_color.xyz
@@ -33,6 +37,8 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
   const float3 unoccluded_specular = prefiltered * (F * brdf.x + float3(F90 * brdf.y));
   const float specular_visibility = EE_ROUGH_SPECULAR_VISIBILITY(materialOcclusion, screen_visibility, 1.0f, roughness, normalDotView);
   const float3 specular = unoccluded_specular * specular_visibility;
+  if (sdfgi_debug_view == 8u) return field.specular * field.specular_weight *
+      (F * brdf.x + float3(F90 * brdf.y)) * specular_visibility;
   const int debug_view = EE_INDIRECT_LIGHTING_DEBUG_VIEW();
   if (debug_view == 1) return diffuse;
   if (debug_view == 2) return unoccluded_specular;

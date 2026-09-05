@@ -2,6 +2,7 @@
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiResources.hpp"
 #include "RenderInstanceStorage.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
@@ -521,6 +522,7 @@ uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class)
       if (frame)
         result += frame->AllocationBytes();
   if (memory_class == SdfgiMemoryClass::Diagnostic) {
+    result += GetSdfgiDebugAllocationBytes(*this);
     std::set<const SdfgiVoxelDebug*> snapshots;
     if (voxel_debug)
       snapshots.insert(voxel_debug.get());

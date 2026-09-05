@@ -21,6 +21,7 @@ class SdfgiLightDebug;
 class SdfgiProbeFrame;
 class SdfgiProbeDebug;
 class SdfgiGatherFrame;
+class SdfgiDebugRenderer;
 
 enum class SdfgiMemoryClass { Field, Scratch, Upload, Diagnostic, Count };
 enum class SdfgiLayout {
@@ -64,6 +65,7 @@ class EVOENGINE_API SdfgiResources {
   std::map<std::string, std::shared_ptr<DescriptorSet>> sets;
   std::map<std::string, std::shared_ptr<ComputePipeline>> pipelines;
   std::shared_ptr<GraphicsPipeline> voxel_pipeline;
+  std::shared_ptr<SdfgiDebugRenderer> debug_renderer;
   std::shared_ptr<Sampler> linear_sampler;
   std::shared_ptr<Sampler> mip_sampler;
   bool initialization_recorded = false;
@@ -97,6 +99,7 @@ class EVOENGINE_API SdfgiResources {
   std::vector<std::shared_ptr<SdfgiLightDebug>> light_debug_frames;
   uint32_t last_transport_frame = UINT32_MAX;
   uint32_t transport_pass = 0;
+  uint32_t debug_seed = 0;
   bool transport_recorded = false;
   std::string transport_failure;
   std::vector<std::shared_ptr<SdfgiProbeFrame>> probe_frames;

@@ -14,12 +14,55 @@
 #include "MeshRenderer.hpp"
 #include "ResolvedEnvironmentalLighting.hpp"
 #include "Scene.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
 using namespace evo_engine;
+
+TEST(SdfgiDebug, FrozenStepAndCommandsRunOncePerSceneBoundary) {
+  SdfgiDebugState debug;
+  EXPECT_TRUE(debug.BeginFrame(0));
+  EXPECT_FALSE(debug.BeginFrame(0));
+  debug.frozen = true;
+  EXPECT_FALSE(debug.BeginFrame(1));
+  debug.single_step = true;
+  EXPECT_FALSE(debug.BeginFrame(1));
+  EXPECT_TRUE(debug.single_step);
+  EXPECT_TRUE(debug.BeginFrame(2));
+  EXPECT_FALSE(debug.single_step);
+  EXPECT_FALSE(debug.BeginFrame(3));
+  debug.reset_history = true;
+  EXPECT_TRUE(debug.BeginFrame(4));
+  EXPECT_FALSE(debug.BeginFrame(4));
+  debug.reset_history = false;
+  debug.full_redraw = true;
+  EXPECT_TRUE(debug.BeginFrame(5));
+  debug.full_redraw = false;
+  EXPECT_FALSE(debug.BeginFrame(6));
+  debug.frozen = false;
+  EXPECT_TRUE(debug.BeginFrame(7));
+}
+
+TEST(SdfgiDebug, SelectedCameraDoesNotAdoptUtilityViewsOrChangeTheAnchor) {
+  SdfgiRuntime runtime({}, {});
+  runtime.Maintain(0, {17, {1, 2, 3}});
+  auto& debug = *runtime.debug;
+  EXPECT_FALSE(debug.MatchesCamera(1, true, true));
+  debug.enabled = true;
+  EXPECT_TRUE(debug.MatchesCamera(1, true, true));
+  EXPECT_FALSE(debug.MatchesCamera(2, false, true));
+  EXPECT_FALSE(debug.MatchesCamera(1, true, false));
+  debug.camera_id = 2;
+  EXPECT_FALSE(debug.MatchesCamera(1, true, true));
+  EXPECT_TRUE(debug.MatchesCamera(2, false, true));
+  EXPECT_FALSE(debug.MatchesCamera(2, false, false));
+  EXPECT_EQ(runtime.anchor.camera_id, 17u);
+  EXPECT_EQ(runtime.maintenance_count, 1u);
+  EXPECT_THROW(CaptureSdfgiDebugImage(runtime, "unrendered.png"), std::runtime_error);
+}
 
 TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   SdfgiSettings settings;

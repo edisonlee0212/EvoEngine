@@ -7,6 +7,7 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiRuntime.hpp"
 #include "Texture2D.hpp"
@@ -356,6 +357,7 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
     previous = pass.name;
     graph.AddPass(pass, [frame = shared_from_this(), resources, cascade](const RenderGraphExecutionContext& context) {
       Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+        const RenderPassGpuTimestampScope timing(command_buffer, context);
         resources->OrderAccess(command_buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
         ApplyGraphResourceBarriers(command_buffer, context);
         const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
@@ -438,6 +440,10 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
                 [resources, runtime, frame = shared_from_this()](const RenderGraphExecutionContext&) {
                   resources->voxelization_recorded = true;
                   if (runtime) {
+                    if (runtime->debug->full_redraw) {
+                      runtime->debug->full_redraw = false;
+                      runtime->debug->Invalidate("reset", "Explicit full field redraw");
+                    }
                     uint32_t completed = 0;
                     for (const auto& region : frame->regions)
                       completed |= 1u << region.pending.cascade;

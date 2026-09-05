@@ -35,6 +35,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "Serialization.hpp"
@@ -2073,6 +2074,119 @@ void InspectRenderLayerDebugRendering(InspectorContext& context) {
   ImGui::TreePop();
 }
 
+void InspectSdfgiRuntime(InspectorContext& context) {
+  const auto scene = context.scene ? context.scene : ApplicationContext::Get().GetActiveScene();
+  const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+  ImGui::TextWrapped(
+      "Session-only diagnostics. Debug cameras never become GI anchors. Reference: GitHub/godot at %s. Check the "
+      "reference first when in doubt.",
+      kSdfgiReferenceCommit);
+  if (!runtime) {
+    ImGui::TextUnformatted("No Automatic SDFGI runtime. Select Automatic SDFGI in Environmental Lighting.");
+    return;
+  }
+  auto& debug = *runtime->debug;
+  ImGui::Text("Provider: Automatic SDFGI -> %s", runtime->published ? "Automatic SDFGI" : "Environment");
+  ImGui::Text("RT pipeline / ray query / AS: %s / %s / %s", Platform::RayTracingEnabled() ? "on" : "off",
+              Platform::RayQueryEnabled() ? "on" : "off", Platform::RayAccelerationStructureEnabled() ? "on" : "off");
+  ImGui::TextWrapped("%s", runtime->fallback_reason.c_str());
+  ImGui::Checkbox("Enable selected-camera diagnostics", &debug.enabled);
+  ImGui::Checkbox("Freeze field", &debug.frozen);
+  ImGui::SameLine();
+  if (ImGui::Button("Single step")) {
+    debug.frozen = true;
+    debug.single_step = true;
+  }
+  if (ImGui::Button("Full redraw"))
+    debug.full_redraw = true;
+  ImGui::SameLine();
+  if (ImGui::Button("Reset probe history"))
+    debug.reset_history = true;
+  if (ImGui::InputScalar("Deterministic seed", ImGuiDataType_U32, &debug.seed))
+    debug.reset_history = true;
+  ImGui::TextDisabled(
+      "Seed 0 preserves Godot. Freeze defers edits/settings; step/reset/redraw processes one boundary.");
+  if (ImGui::BeginCombo("Debug camera",
+                        debug.camera_id ? std::to_string(debug.camera_id).c_str() : "Editor Scene camera")) {
+    if (ImGui::Selectable("Editor Scene camera", debug.camera_id == 0))
+      debug.camera_id = 0;
+    if (scene)
+      if (const auto owners = scene->UnsafeGetPrivateComponentOwnersList<Camera>())
+        for (const auto entity : *owners) {
+          const auto camera = scene->GetOrSetPrivateComponent<Camera>(entity).lock();
+          if (camera &&
+              ImGui::Selectable(
+                  (scene->GetEntityName(entity) + "##" + std::to_string(camera->GetHandle().GetValue())).c_str(),
+                  debug.camera_id == camera->GetHandle().GetValue()))
+            debug.camera_id = camera->GetHandle().GetValue();
+        }
+    ImGui::EndCombo();
+  }
+  if (ImGui::BeginCombo("View", GetSdfgiDebugViewName(debug.view))) {
+    for (uint32_t i = 0; i <= static_cast<uint32_t>(SdfgiDebugView::Contributors); ++i)
+      if (ImGui::Selectable(GetSdfgiDebugViewName(static_cast<SdfgiDebugView>(i)),
+                            i == static_cast<uint32_t>(debug.view)))
+        debug.view = static_cast<SdfgiDebugView>(i);
+    ImGui::EndCombo();
+  }
+  const auto slider = [](const char* label, uint32_t& value, int maximum) {
+    int input = std::min(static_cast<int>(value), maximum);
+    if (ImGui::SliderInt(label, &input, 0, maximum))
+      value = static_cast<uint32_t>(input);
+  };
+  slider("Cascade", debug.cascade, std::max(0, static_cast<int>(runtime->cascades.size()) - 1));
+  slider("Probe (X, Z, Y order)", debug.probe, 4912);
+  slider("Distance slice Z", debug.slice, 127);
+  ImGui::Checkbox("Depth-test overlays", &debug.depth_test);
+  ImGui::TextDisabled("Cascade colors identify bounds; dim boxes mark the anchor-relative 5.5..7.5-probe blend zone.");
+  if (debug.cascade < runtime->cascades.size()) {
+    const auto& cascade = runtime->cascades[debug.cascade];
+    const glm::vec3 cell(debug.probe % 17, debug.probe / 289, (debug.probe / 17) % 17);
+    const auto position = (glm::vec3(cascade.position - glm::ivec3(64)) + cell * 8.0f) * cascade.cell_size /
+                          glm::vec3(1, SdfgiYMultiplier(runtime->settings.vertical_scale), 1);
+    ImGui::Text("Selected probe world: %.3f, %.3f, %.3f", position.x, position.y, position.z);
+  }
+  ImGui::TextWrapped(
+      "SDF traces all cascades. Probes/visibility/slice use the selected cascade. Visibility: red=hidden, "
+      "white=visible; toggle depth testing to see through geometry. Fallback: red=Environment, green=SDFGI. "
+      "Contributor bounds: green=static, cyan=dynamic/deforming receiver-only, red=excluded (see reasons below). "
+      "Diffuse/specular isolate SDFGI before local reflections/SSR, with only tone mapping.");
+  FileUtils::SaveFile(
+      "Capture image + state", "PNG and matching YAML", {".png"},
+      [runtime](const std::filesystem::path& path) {
+        try {
+          CaptureSdfgiDebugImage(*runtime, path);
+          runtime->debug->failure.clear();
+        } catch (const std::exception& error) {
+          runtime->debug->failure = error.what();
+        }
+      },
+      false);
+  ImGui::TextDisabled(
+      "Captures the last rendered selected view without advancing the field. Existing files are protected.");
+  if (!debug.failure.empty())
+    ImGui::TextWrapped("Debug/capture: %s", debug.failure.c_str());
+  auto capture_timing = Platform::GpuTimestampCaptureEnabled();
+  if (ImGui::Checkbox("Capture SDFGI timings", &capture_timing))
+    Platform::SetGpuTimestampCaptureEnabled(capture_timing);
+  ImGui::TextWrapped("Last invalidation: %s", debug.last_reason.c_str());
+  const auto snapshot = YAML::Load(BuildSdfgiDebugSnapshot(*runtime));
+  if (ImGui::TreeNode("Full runtime snapshot (fence-delayed GPU counters/timings)")) {
+    ImGui::TextUnformatted(YAML::Dump(snapshot).c_str());
+    ImGui::TreePop();
+  }
+  for (const auto key : {"settings", "anchor", "cascades", "cascade_lights", "invalidation_counts",
+                         "excluded_contributors", "memory_bytes", "cpu_ms", "gpu_ms"})
+    if (ImGui::TreeNode(key)) {
+      ImGui::TextUnformatted(YAML::Dump(snapshot[key]).c_str());
+      ImGui::TreePop();
+    }
+  ImGui::Text("Generation %u | history %u/%u | light phase %u/%u | contributors %zu",
+              runtime->resources ? runtime->resources->transport_pass : 0u, snapshot["history_index"].as<uint32_t>(),
+              runtime->settings.history_size, snapshot["light_phase"].as<uint32_t>(),
+              runtime->settings.light_update_frames, runtime->contributors.entries.size());
+}
+
 bool InspectRenderLayer(InspectorContext& context, RenderLayer& render_layer) {
   bool open = render_layer.enable_inspection;
   if (!ImGui::Begin(render_layer.GetLayerName().c_str(), &open)) {
@@ -2098,6 +2212,10 @@ bool InspectRenderLayer(InspectorContext& context, RenderLayer& render_layer) {
       ImGui::EndTabItem();
     }
     draw_ddgi_tab();
+    if (ImGui::BeginTabItem("Automatic SDFGI")) {
+      InspectSdfgiRuntime(context);
+      ImGui::EndTabItem();
+    }
     if (ImGui::BeginTabItem("Shadow")) {
       InspectShadowSettings(render_layer.render_settings);
       ImGui::EndTabItem();
@@ -2927,6 +3045,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
     if (ImGui::BeginTabItem("Automatic SDFGI")) {
       auto& settings = lighting.sdfgi_settings;
       ImGui::TextDisabled("128 cells per cascade; coverage follows one camera automatically.");
+      ImGui::TextWrapped(
+          "Changing cascades, minimum cell size, vertical scale, history frames, or Use Occlusion recreates the field "
+          "and restarts convergence. Other controls update at the next scene boundary; anchor changes scroll or redraw "
+          "as needed. Frozen diagnostics defer changes until resumed or stepped.");
       int cascades = static_cast<int>(settings.cascade_count);
       if (ImGui::SliderInt("Cascades", &cascades, 1, 8)) {
         settings.cascade_count = static_cast<uint32_t>(cascades);

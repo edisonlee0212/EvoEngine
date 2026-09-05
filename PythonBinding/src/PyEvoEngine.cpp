@@ -8,6 +8,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
@@ -698,6 +699,63 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["ready"] = status.ready;
     result["failure_flags"] = status.failure_flags;
     return result;
+  });
+  py::enum_<SdfgiDebugView>(m, "SdfgiDebugView")
+      .value("Beauty", SdfgiDebugView::None)
+      .value("Cascades", SdfgiDebugView::Cascades)
+      .value("Sdf", SdfgiDebugView::Sdf)
+      .value("Probes", SdfgiDebugView::Probes)
+      .value("Visibility", SdfgiDebugView::Visibility)
+      .value("DirtyRegions", SdfgiDebugView::DirtyRegions)
+      .value("DistanceSlice", SdfgiDebugView::DistanceSlice)
+      .value("Diffuse", SdfgiDebugView::Diffuse)
+      .value("Specular", SdfgiDebugView::Specular)
+      .value("Fallback", SdfgiDebugView::Fallback)
+      .value("Contributors", SdfgiDebugView::Contributors);
+  py::class_<SdfgiDebugState, std::shared_ptr<SdfgiDebugState>>(m, "SdfgiDebugState")
+      .def_readwrite("enabled", &SdfgiDebugState::enabled)
+      .def_readwrite("frozen", &SdfgiDebugState::frozen)
+      .def_readwrite("single_step", &SdfgiDebugState::single_step)
+      .def_readwrite("full_redraw", &SdfgiDebugState::full_redraw)
+      .def_readwrite("reset_history", &SdfgiDebugState::reset_history)
+      .def_readwrite("view", &SdfgiDebugState::view)
+      .def_readwrite("cascade", &SdfgiDebugState::cascade)
+      .def_readwrite("probe", &SdfgiDebugState::probe)
+      .def_readwrite("slice", &SdfgiDebugState::slice)
+      .def_readwrite("depth_test", &SdfgiDebugState::depth_test)
+      .def_readwrite("camera_id", &SdfgiDebugState::camera_id)
+      .def_property(
+          "seed",
+          [](const SdfgiDebugState& state) {
+            return state.seed;
+          },
+          [](SdfgiDebugState& state, uint32_t seed) {
+            if (state.seed != seed) {
+              state.seed = seed;
+              state.reset_history = true;
+            }
+          });
+  const auto debug_runtime = []() {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    if (!runtime)
+      throw py::value_error("Automatic SDFGI runtime unavailable");
+    return runtime;
+  };
+  m.def("GetCurrentSceneSdfgiDebug", [debug_runtime]() {
+    return debug_runtime()->debug;
+  });
+  m.def("SelectMainCameraForSdfgiDebug", [debug_runtime]() {
+    const auto camera = ApplicationContext::Get().GetActiveScene()->main_camera.Get<Camera>();
+    if (!camera)
+      throw py::value_error("Main camera unavailable");
+    debug_runtime()->debug->camera_id = camera->GetHandle().GetValue();
+  });
+  m.def("GetCurrentSceneSdfgiSnapshot", [debug_runtime]() {
+    return BuildSdfgiDebugSnapshot(*debug_runtime());
+  });
+  m.def("CaptureCurrentSceneSdfgiDebug", [debug_runtime](const std::filesystem::path& path) {
+    CaptureSdfgiDebugImage(*debug_runtime(), path);
   });
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();

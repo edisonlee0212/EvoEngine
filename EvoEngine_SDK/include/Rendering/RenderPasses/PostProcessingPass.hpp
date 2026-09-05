@@ -22,6 +22,7 @@ class EVOENGINE_API PostProcessingPass final {
     RenderGraphTransientResourceStore* transient_resources = nullptr;
     bool immediate = false;
     bool ray_camera = false;
+    bool tone_mapping_only = false;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(const char* dependency);

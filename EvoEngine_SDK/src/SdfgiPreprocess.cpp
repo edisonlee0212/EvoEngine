@@ -350,6 +350,7 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
   graph.AddPass(pass, [resources, readback, cascade, cascade_position, scroll, frame_slot,
                        payload_only](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
       ApplyGraphResourceBarriers(command, context);
       if (payload_only)

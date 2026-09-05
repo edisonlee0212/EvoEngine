@@ -29,6 +29,7 @@ class EVOENGINE_API DeferredComputeLightingPass final {
     RecordCommands record_commands;
     std::shared_ptr<SdfgiResources> sdfgi_resources;
     std::shared_ptr<DescriptorSet> sdfgi_descriptor_set;
+    uint32_t sdfgi_debug_view = 0;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled,

@@ -6,7 +6,8 @@ preprocessing, voxel lighting, probe transport/storage, deferred gather, automat
 implemented. The user has accepted M9 movement review. Eligible opaque/masked raster cameras share
 one complete field and use Environment fallback otherwise. M0-M9 are complete, committed as separate milestones, and the
 user accepted the occlusion-on stationary result. Occlusion stays on by default and Godot's sharp-reflection path remains
-enabled. M10 adds validated payload-only refresh and lifecycle recovery. M11-M12 remain.
+enabled. M9 movement review is accepted. M10 adds validated payload-only refresh and lifecycle recovery; M11 adds the
+manual diagnostics and capture workflow. M12 final installation/audit and user acceptance are the remaining closeout gate.
 
 ## Reference
 
@@ -31,6 +32,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `Shaders/Compute/SdfgiPayloadRefresh.slang`, runtime edit accumulation | Accepted EvoEngine occupancy-preserving edit extension; retains `sdfgi_preprocess.glsl::MODE_STORE` compact packing and Godot's normal probe reconvergence |
 | `SdfgiLight.hpp/.cpp`, `Shaders/Compute/SdfgiDirectLight.slang` | `gi.cpp::SDFGI::{render_static_lights,pre_process_gi,update_light}`, `LightStorage::light_get_aabb`, and `shaders/environment/sdfgi_direct_light.glsl` |
 | `SdfgiProbe.hpp/.cpp`, `Shaders/Compute/SdfgiIntegrate.slang` | `gi.cpp::SDFGI::{render_region,update_probes,store_probes}` and `shaders/environment/sdfgi_integrate.glsl`, including scroll variants; host cubemap and diagnostic readback adapters |
+| `SdfgiDebug.hpp/.cpp`, `SdfgiDebugRenderer.cpp`, `SdfgiDebug.slang`, `SdfgiDebugProbes.slang` | `gi.cpp::SDFGI::{debug_draw,debug_probes}`, `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl`; host-only session controls, camera selection, bounds/slices, and capture |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
@@ -581,10 +583,10 @@ camera/post-processing settings. From the repository root:
 The stationary M8/M8a result is user-accepted, with Use Occlusion retained on. The default settings turn Use Occlusion on.
 Inspect Environmental Lighting > Automatic SDFGI > Use Occlusion and allow reconvergence after changing it. Existing
 saved explicit false values are preserved when loading normally. M8 and M8a are committed as `93e868f5` and `29a76b4e`.
-The current M9 checkpoint adds translation across cascade margins and large relocation/return. Allow a history cycle
+The accepted M9 checkpoint added translation across cascade margins and large relocation/return. Allow a history cycle
 after returning, and inspect seams, lingering old lighting, sphere undersides, and reflection transitions. Interactive
-movement acceptance is required before M10. No full suite, additional image matrix, DDGI comparison, or app installation
-was run; installation is scheduled before M12 final review.
+movement acceptance was received before M10. No full suite or DDGI comparison was required. Final installed-editor
+instructions and the outstanding manual checkpoint are recorded under M12.
 
 ## Automatic scrolling and relocation (M9)
 
@@ -661,8 +663,7 @@ several margins in both directions, then make a large relocation and return. Rev
 old coordinates, recovery over several history cycles, and rough/sharp sphere reflections. The shared-field/secondary
 fallback contract is covered by the two-camera GPU fixture; no extra image scene or resolution was added. Interactive
 GUI movement has not been operated by the agent. The user confirmed the M9 review is complete and requested continuation.
-M9 is accepted. M10-M12 remain subsequent milestones; all-app installation is scheduled at implementation completion
-before M12.
+M9 is accepted. Subsequent edit/lifecycle and diagnostic work is recorded below.
 
 ## Scene edits and lifecycle recovery (M10)
 
@@ -739,4 +740,92 @@ Editing 156 static materials changed payload count 0 -> 4 while geometry count s
 caused no additional payload or geometry work. Environment/Automatic SDFGI cycles with 5, 10, and 30 history frames each
 returned to GPU generation 4, ready 1, failures 0. Images were inspected; this is edit/lifecycle evidence, not a numerical
 Godot/DDGI image comparison or a substitute for M12 user acceptance. M8/M9 user-approved baselines remain unchanged.
-All-app installation remains scheduled at implementation completion before M12 manual review.
+All-app installation follows implementation completion before M12 manual review.
+
+## Manual diagnostics and evidence capture (M11)
+
+Open **Render Layer > Automatic SDFGI** for session-only diagnostics. Durable controls remain in **Environmental Lighting
+> Automatic SDFGI**, with the field-recreation versus runtime-update distinction explained there. Debug state is neither
+serialized into scene/assets nor required for ordinary GI. Use Occlusion remains on by default; saved explicit false
+values remain respected.
+
+Enable selected-camera diagnostics and choose a view. The default target is only the canonical editor Scene camera;
+choosing an ordinary scene camera explicitly affects that camera, without making it an anchor. Disabled, preview,
+reflection, injected utility, and ray cameras are excluded. Changing views invalidates only that camera's temporal
+post-processing history, never the SDFGI field. Diagnostics compile on demand and their per-camera buffers retire with
+the normal frame fence. Turning diagnostics off leaves no additional debug draw/update pass.
+
+| View | Meaning |
+|---|---|
+| Beauty | Normal composition; enables matching image/state capture without an overlay. |
+| Cascades | Per-cascade colored world bounds. Dim boxes mark the anchor-relative 5.5-to-7.5-probe gather blend zone; exact spacing/extents are in the cascade panel. |
+| SDF | Godot's fine-to-coarse SDF raymarch, anisotropic voxel-light sampling, and sRGB output. Camera-outside-coverage clipping is a host debug adapter. |
+| Probes / Probe visibility | Reference 17-cubed probe spheres and 16-cubed selected-probe occlusion samples. Red samples are hidden, white visible. The probe index uses X/Z/Y order (`x + z*17 + y*289`); world position is displayed. |
+| Dirty regions | The most recent maintenance boundary's entering slabs or full-cascade redraw regions. Freeze holds those regions; a stationary normal update clears them. |
+| Distance slice | XY distance/occupancy at selected cascade/Z, with square cells and letterboxing. Orange denotes occupied samples. |
+| SDFGI diffuse / specular | The material/AO-weighted SDFGI contribution only, including the reference sharp-reflection path. Environment fallback, local reflection probes, SSR, direct/emissive light, and forward/external draws are excluded from this selected diagnostic camera. Only tone mapping remains. |
+| Environment fallback | Red is fallback-dominant, green SDFGI-dominant, with interpolation at the outer blend; black has no deferred surface. Captures also count dominant pixels. |
+| Contributors / receivers | Green bounds identify the static snapshot that contributed. Cyan identifies dynamic/deforming noncontributors, red other excluded mesh inputs. Skinned bounds are bind-pose approximations; only opaque/masked deferred receivers sample SDFGI. Specialized forward exclusions without mesh bounds remain visible in the category counts. |
+
+Depth-test overlays can be disabled to inspect probes/visibility through geometry. Dense probe views can obscure the scene,
+especially when the camera is near a probe; freeze and move the debug camera to inspect the selected location. These are
+reference diagnostic spheres, not newly authored GI regions or relocated probes. Cascade/probe/slice selection is clamped
+after a layout reduction, so exported selection matches what was rendered.
+
+Freeze holds placement, representation, lighting, probe history, and publication while ordinary cameras keep rendering.
+Pending scene/settings edits are evaluated on resume. Single step leaves freeze enabled and processes exactly one scene
+boundary. Full redraw rebuilds representation using normal reference reconvergence; Reset probe history clears only
+history/average/atlas transport state, preserving geometry/SDF/occlusion. Explicit redraw/reset also permits one boundary
+while frozen. Seed 0 preserves the reference sequence; changing the deterministic seed explicitly resets history. Provider
+disable/scene replacement still destroys the active runtime normally, regardless of freeze.
+
+The panel reports capability/RT/provider state, anchor source and fallback, effective settings, cascade coverage/dirty/full
+state, current transport/history/light phase, invalidations, contributor/light counts and overflow, latest failure, and
+active/retiring field, scratch, upload, and diagnostic bytes. Peak transient bytes count scratch/upload/diagnostic GPU
+allocations retained by frame owners, not driver pipeline memory or temporary CPU PNG buffers. Live compact-cell/status
+readbacks describe the last preprocessing update, not necessarily the currently displayed transport generation.
+
+Enable timing capture for CPU SDFGI planning and GPU voxelization, preprocessing, static/dynamic lighting, probe process,
+store, and debug scopes. Gather is reported as **Deferred Compute Lighting**, inclusive of material/direct/other deferred
+work, not as a fabricated isolated GI timing. GPU samples are fence-delayed; disabled/unexecuted scopes have no new sample.
+
+**Capture image + state** exports the currently rendered selected image as PNG and a same-stem YAML snapshot. It does not
+call the application loop, reset history, submit field maintenance, or change the anchor. The normal image-readback fence
+is allowed for this explicit capture. It rejects stale camera/view/selection/size and existing filenames, checks RGBA for
+NaN/Inf before conversion, and records the matching GPU publication status, CPU state, camera matrix, device/driver,
+reference pin, settings, memory, timing, invalidations, and fallback. A pending seed request is distinguished from the
+seed actually used by the field. Nothing is saved to the authored scene.
+
+Python exposes `GetCurrentSceneSdfgiDebug()`, `SelectMainCameraForSdfgiDebug()`, `GetCurrentSceneSdfgiSnapshot()`, and
+`CaptureCurrentSceneSdfgiDebug(path)` for the same workflow. Unlike the older `CaptureCurrentScene`, the last function
+never advances a frame. The existing capture driver supports a single view with `--debug-capture-view Contributors`, or
+the combined command/capture checks with `--debug-check`, both alongside `--view beauty` and fresh disposable assets.
+
+### M11 verification
+
+SDK, tests, editor, and Python built successfully (`tasks/m11-closeout-build.log`). Fourteen focused checks passed in
+5.859 s (`tasks/m11-final-tests.log/.xml`): settings/legacy round-trip and ranges, scene boundary ownership, command state,
+camera eligibility/publication, allocation/ABI, payload/history preservation, and GPU transport. All 32 exported shader
+variants validate, including seven debug variants. The new debug module's member visibility and overlay depth-state
+declaration were corrected after their focused failures; the affected Sponza session was repeated.
+
+`tasks/m11-verified-sponza.log` is the Vulkan-clean RTX 5070 / driver 2496774144 evidence, with RT pipeline/query/BLAS/TLAS
+all false, occlusion on, and every image at 2560 x 1440. Freeze holds generation/maintenance/geometry/payload counters;
+single-step increments transport and maintenance once; reset restarts at generation 1 without geometry work; full redraw
+increments geometry count 4 -> 8; seed reset/recovery returns GPU generation 90, ready 1, failures 0. All captured float
+images have zero nonfinite pixels. Frozen repeated PNG exports are byte-identical, SHA256
+`b197e8cf2f5deb702d9794cb3d1ac17948a209eaa1b3964372650c16f6057827`. The debug view set uses prefix
+`tasks/m11-verified-sponza-`; it is diagnostic evidence, not an extra scene/resolution or a DDGI baseline.
+
+The recovered snapshot reports 328,543,376 field bytes, 94,085,120 scratch bytes, 1,852,944 upload bytes, 80 retained
+diagnostic bytes, and zero retiring field bytes. Peak transient allocation in this session is 96,120,672 bytes.
+Fence-delayed mixed-session GPU medians are direct-light 0.133456 ms, probe-process 0.236496 ms, store 0.037920 ms;
+per-cascade voxelization/preprocessing samples have medians 0.359600 / 1.607776 ms. Inclusive deferred lighting is
+2.745216 ms. These observations include initialization/reset/recovery and diagnostic views; they are not steady-state
+performance promises, pass/fail budgets, or a comparison with DDGI. M8/M9 accepted image/movement evidence remains valid.
+
+The final installed-runtime spot check (`tasks/m12-installed-sponza.log`) additionally verifies current GPU status in the
+export, selection clamping from 99/9999/999 to 3/4912/127, and live excluded/skinned diagnostic bounds. Its 1440p PNG/YAML
+pair has generation 91, ready 1, failures 0, zero nonfinite pixels, and unchanged maintenance/transport/representation
+counters across export. This installed build has graphics validation off; the prior debug-pass session supplies Vulkan
+validation coverage. No interactive GUI operation or user acceptance is inferred from either automated capture.
