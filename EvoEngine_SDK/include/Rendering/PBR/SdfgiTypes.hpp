@@ -73,11 +73,12 @@ struct alignas(16) SdfgiIntegratePushConstant {
   float sky_energy{};
   float sky_color_or_orientation[3]{};
   float y_mult{};
-  float sky_irradiance_border_size[2]{};
+  float sky_lod_inverse_gamma[2]{};
   uint32_t store_ambient_texture{};
   uint32_t pad{};
 };
 static_assert(sizeof(SdfgiIntegratePushConstant) == 112);
+static_assert(offsetof(SdfgiIntegratePushConstant, sky_lod_inverse_gamma) == 96);
 
 struct alignas(16) SdfgiLight {
   float color[3]{};

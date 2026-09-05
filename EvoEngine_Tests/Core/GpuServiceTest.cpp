@@ -21,6 +21,7 @@
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiProbe.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -667,6 +668,246 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
   }
 }
 
+TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.cascade_count = 2;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  settings.history_size = 5;
+  settings.ray_count = 4;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::string failure;
+  const auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  const auto cascade_data = BuildSdfgiCascadeBlock(cascades);
+  auto shell = std::make_shared<ComputePipeline>();
+  shell->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Store)]};
+  shell->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(7,0)]] [vk::image_format("r8")] RWTexture3D<float> sdf;
+[numthreads(4,4,4)]
+void main(uint3 id : SV_DispatchThreadID) {
+  float3 p = abs(float3(id) + 0.5 - 64);
+  float d = max(0.0, abs(max(p.x, max(p.y, p.z)) - 48) - 1);
+  sdf[id] = d == 0 ? 0 : (d + 1) / 255.0;
+}
+)"));
+  shell->Initialize();
+  ASSERT_TRUE(shell->Initialized());
+  auto cube = std::make_shared<Cubemap>();
+  std::vector<glm::vec4> cube_data(6 * 21);
+  for (uint32_t face = 0; face < 6; ++face) {
+    std::fill_n(cube_data.begin() + face * 21, 16, glm::vec4(1, 0, 0, 1));
+    std::fill_n(cube_data.begin() + face * 21 + 16, 4, glm::vec4(0, 1, 0, 1));
+    cube_data[face * 21 + 20] = {0, 0, 4, 1};
+  }
+  ASSERT_TRUE(cube->SetRgbaChannelData(cube_data, 4, 3));
+  ASSERT_TRUE(cube->GetImage());  // Ordinary asset upload precedes SDFGI maintenance.
+  SdfgiSkyInput sky;
+  sky.constant_color = true;
+  sky.color = {1, 2, 100};
+  std::vector<glm::ivec4> first_average;
+  std::vector<uint32_t> first_atlas;
+  std::shared_ptr<SdfgiProbeFrame> retained_sky;
+  std::shared_ptr<SdfgiProbeDebug> retained_debug;
+  BufferUploadArena upload_arena;
+  for (uint32_t iteration = 0; iteration < 15; ++iteration) {
+    SCOPED_TRACE(iteration);
+    if (iteration == 10) {
+      sky.constant_color = false;
+      sky.cubemap = cube;
+      sky.gamma = 2;
+      sky.energy = 3;
+      sky.rotation = glm::half_pi<float>();
+    }
+    if (iteration == 11) {
+      ASSERT_TRUE(cube->SetRgbaChannelData(std::vector<glm::vec4>(6, glm::vec4(4, 0, 0, 1)), 1));
+      ASSERT_TRUE(cube->GetImage());
+      sky.energy = 0.5f;
+    }
+    if (iteration >= 12)
+      field->settings.read_sky_light = false;
+    const bool reset = iteration == 0 || iteration >= 10;
+    if (reset)
+      field->transport_pass = 0;
+    PlatformLifecycleTestAccess::PreUpdate();
+    const auto slot = Platform::GetCurrentFrameIndex();
+    auto frame = SdfgiProbeFrame::Create(*field, cascades, sky, iteration);
+    field->probe_frames[slot] = frame;
+    EXPECT_EQ(frame->constants[0].history_index, iteration < 10 ? iteration % 5 : 0);
+    EXPECT_EQ(frame->constants[0].world_offset[0], 0);
+    if (iteration == 10) {
+      retained_sky = frame;
+      EXPECT_FLOAT_EQ(frame->constants[0].sky_lod_inverse_gamma[0], 2);
+      EXPECT_FLOAT_EQ(frame->constants[0].sky_lod_inverse_gamma[1], 0.5f);
+      EXPECT_EQ(frame->constants[0].sky_flags, 6u);
+      const auto* q = frame->constants[0].sky_color_or_orientation;
+      const auto rotated =
+          glm::quat(std::sqrt(1 - q[0] * q[0] - q[1] * q[1] - q[2] * q[2]), q[0], q[1], q[2]) * glm::vec3(1, 0, 0);
+      EXPECT_NEAR(rotated.x, 0, 1e-6f);
+      EXPECT_NEAR(rotated.z, 1, 1e-6f);
+    }
+    if (iteration == 11) {
+      EXPECT_FLOAT_EQ(frame->constants[0].sky_lod_inverse_gamma[0], 0);
+      EXPECT_NE(frame->sky_image, retained_sky->sky_image);
+      EXPECT_EQ(retained_sky->sky_image->GetExtent().width, 4u);
+    }
+    if (iteration >= 12)
+      EXPECT_EQ(frame->constants[0].sky_flags, 0u);
+    BufferUploadBatch upload;
+    upload.Add(field->buffers.at("Frame" + std::to_string(slot) + ".Cascades").buffer, cascade_data,
+               {BufferUploadUsage::Uniform});
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (reset)
+      graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    graph.AddPass(
+        {"SdfgiTransportSeed",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Frame,
+         {},
+         {reset ? "SdfgiInitialize" : RenderPassNames::sdfgi_maintenance}},
+        [&](const RenderGraphExecutionContext&) {
+          upload.Record(upload_arena);
+          if (!reset)
+            return;
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkClearColorValue clear{};
+            clear.float32[0] = 1;
+            for (uint32_t c = 0; c < 2; ++c)
+              Platform::ClearColorImage(command, *field->textures.at("Cascade" + std::to_string(c) + ".Sdf").image,
+                                        clear, 1, &range);
+            if (iteration == 14) {
+              field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, failure_flags), 4, 1);
+              for (auto& value : clear.int32)
+                value = 1234;
+              Platform::ClearColorImage(command, *field->textures.at("Cascade0.Average").image, clear, 1, &range);
+            }
+            if (iteration == 13) {
+              clear.uint32[0] = 256 | (256 << 9) | (256 << 18) | (17u << 27);
+              Platform::ClearColorImage(command, *field->textures.at("Cascade1.Light").image, clear, 1, &range);
+              for (auto& value : clear.float32)
+                value = 1;
+              Platform::ClearColorImage(command, *field->textures.at("Cascade1.Aniso0").image, clear, 1, &range);
+              Platform::ClearColorImage(command, *field->textures.at("Cascade1.Aniso1").image, clear, 1, &range);
+              field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+              shell->Bind(command);
+              shell->BindDescriptorSet(command, 0, field->sets.at("Cascade1.Store")->GetVkDescriptorSet());
+              shell->Dispatch(command, 32, 32, 32);
+            }
+          });
+        });
+    field->lighting_recorded = true;
+    frame->AddPasses(graph, registry, field, "SdfgiTransportSeed");
+    if (iteration == 4) {
+      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, 2456);
+      retained_debug->AddPass(graph, registry, field, "SdfgiProbeStore");
+    }
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI focused transport readback");
+    EXPECT_TRUE(field->transport_recorded);
+    EXPECT_EQ(field->transport_pass, iteration < 10 ? iteration + 1 : 1);
+    SdfgiFieldStatus status;
+    field->buffers.at("Status").buffer->Download(status);
+    EXPECT_EQ(status.failure_flags, iteration == 14 ? 1u : 0u);
+    EXPECT_EQ(status.ready, 0u);
+    EXPECT_EQ(status.generation, field->transport_pass);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageOffset = {144, 128, 0};
+    copy.imageExtent = {1, 1, 1};
+    Buffer sample(sizeof(glm::ivec4));
+    sample.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
+    glm::ivec4 average;
+    sample.Download(average);
+    if (iteration < 10) {
+      const int count = std::min(iteration + 1, 5u);
+      EXPECT_EQ(average, glm::ivec4(1155, 2310, 32767, 1024) * count);
+    } else if (iteration == 10) {
+      EXPECT_EQ(average, glm::ivec4(0, 0, static_cast<int>(6 * 0.282095f * 4 * 1024), 1024));
+    } else if (iteration == 11) {
+      EXPECT_EQ(average, glm::ivec4(1155, 0, 0, 1024));
+    } else if (iteration == 12) {
+      EXPECT_EQ(average, glm::ivec4(0, 0, 0, 1024));
+    } else if (iteration == 13) {
+      EXPECT_GT(average.x, 1000);
+      EXPECT_EQ(average.x, average.y);
+      EXPECT_EQ(average.y, average.z);
+    } else {
+      EXPECT_EQ(average, glm::ivec4(1234));
+      EXPECT_EQ(retained_debug->ReadStatus().generation, 5u);
+      EXPECT_EQ(retained_debug->ReadStatus().failure_flags, 0u);
+      std::vector<glm::ivec4> old_average;
+      retained_debug->data[1]->DownloadVector(old_average, 289 * 272);
+      EXPECT_EQ(old_average, first_average);
+    }
+    if (iteration == 4 || iteration == 9) {
+      copy.imageOffset = {0, 0, 0};
+      copy.imageExtent = {289, 272, 1};
+      Buffer averages(289 * 272 * sizeof(glm::ivec4));
+      averages.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
+      std::vector<glm::ivec4> values;
+      averages.DownloadVector(values, 289 * 272);
+      if (iteration == 4)
+        first_average = values;
+      else
+        EXPECT_EQ(values, first_average);
+      EXPECT_TRUE(std::any_of(values.begin(), values.end(), [](const auto& value) {
+        return value.x < 0;
+      }));
+      copy.imageExtent = {2312, 136, 1};
+      copy.imageSubresource.layerCount = 4;
+      Buffer atlas(2312 * 136 * 4 * sizeof(uint32_t));
+      atlas.CopyFromImage(*field->textures.at("Atlas").image, copy);
+      std::vector<uint32_t> packed;
+      atlas.DownloadVector(packed, 2312 * 136 * 4);
+      if (iteration == 4)
+        first_atlas = packed;
+      else
+        EXPECT_EQ(packed, first_atlas);
+      bool distinct_layers = false;
+      for (uint32_t layer : {0u, 2u}) {
+        const auto at = [&](const uint32_t x, const uint32_t y) {
+          return packed[layer * 2312 * 136 + (64 + y) * 2312 + 1152 + x];
+        };
+        for (uint32_t i = 1; i <= 6; ++i) {
+          EXPECT_EQ(at(i, 0), at(7 - i, 1));
+          EXPECT_EQ(at(i, 7), at(7 - i, 6));
+          EXPECT_EQ(at(0, i), at(1, 7 - i));
+          EXPECT_EQ(at(7, i), at(6, 7 - i));
+        }
+        EXPECT_EQ(at(0, 0), at(6, 6));
+        EXPECT_EQ(at(7, 0), at(1, 6));
+        EXPECT_EQ(at(0, 7), at(6, 1));
+        EXPECT_EQ(at(7, 7), at(1, 1));
+      }
+      for (uint32_t i = 0; i < 2312 * 136; ++i)
+        distinct_layers |= packed[i] != packed[i + 2 * 2312 * 136];
+      EXPECT_TRUE(distinct_layers);
+    }
+  }
+}
+
 TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
@@ -708,7 +949,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   wall->Initialize();
   ASSERT_TRUE(wall->Initialized());
   std::shared_ptr<SdfgiLightDebug> debug;
-  for (uint32_t phase = 0; phase < 17; ++phase) {
+  for (uint32_t phase = 0; phase < 20; ++phase) {
     SCOPED_TRACE(phase);
     PlatformLifecycleTestAccess::PreUpdate();
     std::vector<SdfgiLightInput> inputs(1);
@@ -768,9 +1009,16 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     if (phase >= 15)
       expected = 0;
+    if (phase >= 17) {
+      inputs.clear();
+      field->transport_recorded = phase >= 18;
+      field->settings.bounce_feedback = phase == 18 ? 0.0f : 0.5f;
+      expected = phase == 19 ? 0.5f : 0;
+    }
     const auto scene_frame = phase == 1 ? 1 : phase * 4;
     auto frame = SdfgiLightFrame::Create(*field, cascades, inputs, scene_frame, phase == 0 || phase == 15 ? 1 : 0);
     field->light_frames[Platform::GetCurrentFrameIndex()] = frame;
+    EXPECT_FLOAT_EQ(frame->bounce_feedback, phase == 19 ? 0.5f : 0.0f);
     if (phase == 1 || phase == 8)
       EXPECT_EQ(frame->static_refresh, 0u);
     RenderGraph graph;
@@ -808,6 +1056,12 @@ void main(uint3 id : SV_DispatchThreadID) {
               VkClearColorValue clear{};
               clear.uint32[0] = 0xdeadbeefu;
               Platform::ClearColorImage(command, *field->textures.at("Cascade0.Light").image, clear, 1, &range);
+            }
+            if (phase == 17) {
+              const VkImageSubresourceRange atlas_range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 2};
+              VkClearColorValue clear{};
+              clear.uint32[0] = 256 | (256 << 9) | (256 << 18) | (16u << 27);
+              Platform::ClearColorImage(command, *field->textures.at("Atlas").image, clear, 1, &atlas_range);
             }
             if (phase == 11) {
               field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -850,7 +1104,7 @@ void main(uint3 id : SV_DispatchThreadID) {
       pixels.CopyFromImage(*field->textures.at("Cascade0.Aniso0").image, copy);
       pixels.DownloadVector(packed, 27);
       for (const auto value : packed)
-        EXPECT_EQ(value, phase >= 15 ? 0u : 255u);
+        EXPECT_EQ(value, phase >= 15 && phase != 19 ? 0u : 255u);
     }
     if (phase == 16) {
       ASSERT_TRUE(debug->recorded);

@@ -183,6 +183,8 @@ std::shared_ptr<SdfgiLightFrame> SdfgiLightFrame::Create(const SdfgiResources& r
   frame->frame_slot = Platform::GetCurrentFrameIndex();
   frame->scene_frame = frame_number;
   frame->rebuilt_cascades = rebuilt;
+  frame->settings = resources.settings;
+  frame->bounce_feedback = resources.transport_recorded ? resources.settings.bounce_feedback : 0;
   frame->cascades = BuildSdfgiCascadeBlock(cascade_inputs);
   frame->input_uploads.Add(resources.buffers.at(FrameName(frame->frame_slot, "Cascades")).buffer, frame->cascades,
                            {BufferUploadUsage::Uniform});
@@ -245,6 +247,8 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
       const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
       if (overflow)
         return;
+      const auto timing =
+          Platform::BeginGpuTimestampScope(command, {"SdfgiDirectLight", "SDFGI Direct Light", "SDFGI"});
       for (uint32_t c = 0; c < frame->lights.size(); ++c)
         if (frame->static_refresh & ~frame->rebuilt_cascades & (1u << c))
           vkCmdCopyBuffer(command, resources->buffers.at(CascadeName(c, "UnlitCells")).buffer->GetVkBuffer(),
@@ -255,10 +259,10 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
       SdfgiDirectLightPushConstant params{};
       for (auto& size : params.grid_size)
         size = 128;
-      params.max_cascades = resources->settings.cascade_count;
+      params.max_cascades = frame->settings.cascade_count;
       params.probe_axis_size = 17;
-      params.y_mult = SdfgiYMultiplier(resources->settings.vertical_scale);
-      params.use_occlusion = resources->settings.use_occlusion;
+      params.y_mult = SdfgiYMultiplier(frame->settings.vertical_scale);
+      params.use_occlusion = frame->settings.use_occlusion;
       for (uint32_t kind = 0; kind < 2; ++kind) {
         const auto& pipeline = resources->pipelines.at(kind == 0 ? "DirectLightSTATIC" : "DirectLightDYNAMIC");
         pipeline->Bind(command);
@@ -268,10 +272,9 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
           if (kind == 0 && (!(frame->static_refresh & (1u << c)) || params.light_count == 0))
             continue;
           params.process_increment =
-              kind == 0 || (frame->full_dynamic & (1u << c)) ? 1 : resources->settings.light_update_frames;
+              kind == 0 || (frame->full_dynamic & (1u << c)) ? 1 : frame->settings.light_update_frames;
           params.process_offset = frame->scene_frame % params.process_increment;
-          // M7 enables feedback only after a complete atlas exists; the current atlas is valid cleared black data.
-          params.bounce_feedback = 0;
+          params.bounce_feedback = kind == 0 ? 0 : frame->bounce_feedback;
           pipeline->PushConstant(command, 0, params);
           pipeline->BindDescriptorSet(
               command, 0,
@@ -283,6 +286,7 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
       }
+      Platform::EndGpuTimestampScope(command, timing);
     });
     resources->light_failure = overflow ? "SDFGI light-list capacity overflow" : "";
     resources->lighting_recorded = !overflow;

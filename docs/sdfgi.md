@@ -2,9 +2,9 @@
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
 Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, stationary
-SDF/occlusion preprocessing, and voxel direct-light injection are implemented. Automatic SDFGI builds the representation
-when it has an eligible anchor, but reports Environment fallback and publishes no ordinary lighting. Scrolling,
-integration, and gather entry points remain ABI-only.
+SDF/occlusion preprocessing, voxel direct-light injection, and stationary probe transport/storage are implemented.
+Automatic SDFGI builds the representation when it has an eligible anchor, but reports Environment fallback and publishes
+no ordinary lighting. Scrolling and gather entry points remain ABI-only.
 
 ## Reference
 
@@ -27,7 +27,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
 | `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl` |
 | `SdfgiLight.hpp/.cpp`, `Shaders/Compute/SdfgiDirectLight.slang` | `gi.cpp::SDFGI::{render_static_lights,pre_process_gi,update_light}`, `LightStorage::light_get_aabb`, and `shaders/environment/sdfgi_direct_light.glsl` |
-| `Shaders/Compute/SdfgiIntegrate.slang` (ABI only) | `shaders/environment/sdfgi_integrate.glsl` |
+| `SdfgiProbe.hpp/.cpp`, `Shaders/Compute/SdfgiIntegrate.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::{update_probes,store_probes}` and `shaders/environment/sdfgi_integrate.glsl`; host cubemap and diagnostic readback adapters |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
@@ -188,7 +188,7 @@ Directional lights always use the dynamic list, including static entities, as in
 the existing entity static flag. The scene snapshot retains host linear color times brightness, shadow intent, position,
 travel direction, effective range, all three distance-attenuation coefficients, and both cosine cone thresholds. It does
 not apply camera exposure or sort by camera distance. Scene-level constant color or environment cubemap identity,
-orientation, gamma, and energy are frozen alongside these inputs. M6 consumes the light snapshot; sky conversion remains M7.
+orientation, gamma, and energy are frozen alongside these inputs. M6 consumes the light snapshot; M7 consumes the sky snapshot.
 
 `GetCurrentSceneGiStatus()` additionally exposes cascade centers/dirty state, pending slab offsets/sizes, anchor replacement,
 eligible/excluded contributor counts, contributor change count, affected-cascade change masks, and static/dynamic light
@@ -361,8 +361,8 @@ publication gate. Every direct-light invocation independently rejects the GPU wh
 compact cells, so delayed diagnostic readback cannot permit out-of-capacity accesses. Uploaded inputs and descriptors
 are frame-slot versions retained through their fences. Uploads, static reseeding, both injection variants, and debug reads
 are ordered on the main queue, including previous-frame readers. No dedicated compute queue or immediate maintenance
-submission is used. The atlas binding is valid cleared black data and bounce feedback remains zero until M7 has a complete
-transport atlas, at which point the configured default 0.5 can be enabled.
+submission is used. The atlas binding starts as valid cleared black data. Bounce feedback stays zero until the first
+complete transport atlas has been recorded, then uses the configured default 0.5 on subsequent frames (M7).
 
 `RequestCurrentSceneSdfgiLightDebug` and `CaptureCurrentSceneSdfgiLightDebug` expose the persistent per-cascade light volume.
 Use the disposable Sponza driver with `--view lighting` if a light diagnostic is needed. Output remains 2560 x 1440, with
@@ -382,3 +382,69 @@ copy and retained light-debug planes. Both direct-light SPIR-V variants passed `
 synchronization validation reported no errors. The first zero-energy fixture reused an already-consumed upload batch;
 re-adding its changed seed fixed the fixture without modifying Godot's light equations. No full suite or app installation
 was run; installation and the agreed manual checkpoints remain later milestones.
+
+## Stationary probe transport and storage
+
+M7 ports the executed PROCESS/STORE bodies from the pinned `sdfgi_integrate.glsl` and their `gi.cpp` callers. Every frame
+processes the full 17-cubed probe grid in every cascade, then stores all cascades. Deterministic world-hashed Vogel
+directions interleave the reference ray count across the history cycle. Cross-cascade SDF sphere tracing, ray bias,
+SDF-gradient surface normal, and six-lobe voxel radiance remain reference equations. No DDGI ray/update/convergence path
+is used. The reference signed 16-coefficient SH values use 10 fractional bits and int16 saturation; each new history
+layer subtracts the old layer from the int32 average before addition. A complete cycle replaces every old sample.
+STORE applies the reference SH reconstruction and diffuse band factors, produces 6-by-6 octahedra with mirrored borders,
+and writes irradiance to layer `c` and rough-specular radiance to layer `C+c`. Reference normalization factors and
+octahedral texel positions are not retuned.
+
+The accepted host sky adapter samples the ready scene-level radiance cubemap, not a local reflection capture or a
+diffuse-prefiltered map. It uses explicit `min(2, mip_count-1)` LOD, host rotation in radians, host `pow(rgb, 1/gamma)`,
+and indirect-source energy. Constant-color mode bypasses cubemap gamma, matching the native host environment path;
+sky-disabled misses are black. Camera exposure never enters the field. The cubemap replaces Godot's octahedral sky;
+the otherwise-unused oct-border float2 at push offset 96 is named `sky_lod_inverse_gamma` for the host LOD/gamma metadata.
+The push block remains 112 bytes with every reference field offset preserved. An unready cubemap or nonpositive/nonfinite
+gamma is diagnosed rather than triggering an asset upload inside maintenance. Ready image/view/descriptor versions and
+all push inputs are retained by their submitting frame, including when the source cubemap is replaced.
+
+Direct lighting reads the previous complete atlas for reference bounce feedback, with both 0.0 and default 0.5 verified.
+PROCESS reads the resulting voxel lighting; STORE reads all updated averages. Main-queue barriers order these operations,
+atlas feedback across frames, history read/modify/write, shared status, and optional diagnostic readers. Each GPU producer
+rejects whole-field failure flags. STORE records a generation but leaves `Status.ready=0`: this milestone intentionally
+does not publish ordinary lighting. Runtime-only settings are propagated without reallocating the field, while light
+and probe frame records freeze their own inputs. No dedicated compute queue or immediate maintenance submission is added.
+
+`RequestCurrentSceneSdfgiProbeDebug(cascade=0, probe=2456)` records all atlas layers, the selected cascade's average SH,
+the selected probe's complete history, and generation/status into immutable host-coherent buffers. Probe flattening is
+`x + z*17 + y*289`; 2456 selects (8,8,8). `CaptureCurrentSceneSdfgiProbeDebug(path)` waits explicitly, exports a 1440p PNG,
+and returns the captured generation/status. Ordinary maintenance does not wait for readback. In the PNG, top-left is all
+irradiance layers and top-right all radiance layers, cascades top-to-bottom at half resolution. Bottom-left is the selected
+cascade's signed average SH (289 columns, 17 groups of 16 coefficient rows); bottom-middle is the selected probe's signed
+history (16 coefficients across, history phases down); bottom-right is SH-L0 over the selected Y probe plane, X across/Z
+down. Signed display maps `0.5 + 0.5*v/(1+abs(v))`, with gray zero. Radiance uses Reinhard then gamma 2.2; the L0 plane uses
+the reference 0.88622 ambient factor. These are diagnostic visualizations, not beauty output or performance thresholds.
+
+Reproduce with the M4 disposable-resource setup:
+
+```powershell
+python Scripts/capture_sdfgi_voxels.py --module-dir out/build/vs2026-x64-tests/PythonBinding/RelWithDebInfo --resources tasks/m4-resources --output tasks/m7-sponza-probes.png --view transport
+```
+
+The driver requires a fresh generated project, retains the disposable Sponza assets, warms three default 30-frame history
+cycles, and captures one frame. `GetCurrentSceneGiStatus()` reports transport/history/sky metadata, separated memory,
+failure diagnostics, and resolved SDFGI GPU stage samples. `SetGpuTimingCaptureEnabled(true)` enables those measurements.
+
+M7 evidence (2026-09-05): inspected 2560-by-1440 `tasks/m7-sponza-probes.png`, SHA256
+`f9a7af06456dfad57a4216198f558e8f67846fb61b116dd4e4bb3e22ddabcfbb`, RTX 5070/driver 2496774144, all RT facilities disabled.
+Default four cascades, H30, 16 rays, feedback 0.5; captured generation 91/history phase 0, GPU failure flags zero,
+ready zero, effective provider Environment. The 524 static contributors and compact counts match the M5 representation.
+Field/scratch/upload/diagnostic allocation bytes were 328,543,376 / 94,085,120 / 1,721,872 / 11,323,488.
+For application frames 61-90, median GPU milliseconds were injection 0.128816, PROCESS 0.278416, STORE 0.041040. These are
+stage observations from one validation-enabled capture, not a full-frame cost or optimization target; initialization,
+voxelization, preprocessing, uploads, and camera shading are not included in those three stage measurements.
+
+Four focused resource/transport/lighting tests passed in 5.34 seconds. Coverage includes two identical complete history
+cycles, signed saturation, explicit coarse sky LOD and single-mip clamp, gamma/energy/rotation metadata, retained replaced
+sky resources, sky-disabled misses, outer-cascade hits, both atlas layers and every border/corner, GPU failure rejection,
+retained diagnostic snapshots, and feedback disabled/before-atlas/default 0.5. The initial analytic cross-cascade fixture
+lacked zero-valued occupied voxels; correcting its encoding made it match the reference without altering production
+tracing. PROCESS and STORE passed Vulkan 1.3 scalar-layout SPIR-V validation. SDK, Python bindings, tests, and editor built
+successfully; GPU checks and the Sponza run had no Vulkan or synchronization errors. No full suite, extra image matrix,
+DDGI comparison, app installation, or user manual acceptance was performed. M8 is the first ordinary-lighting/manual gate.

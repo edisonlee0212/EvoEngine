@@ -35,6 +35,8 @@ class EVOENGINE_API SdfgiLightFrame : public std::enable_shared_from_this<SdfgiL
   uint32_t rebuilt_cascades = 0;
   uint32_t static_refresh = 0;
   uint32_t full_dynamic = 0;
+  SdfgiSettings settings;
+  float bounce_feedback = 0;
   SdfgiCascadeBlock cascades{};
   std::vector<SdfgiCascadeLights> lights;
   BufferUploadBatch input_uploads;

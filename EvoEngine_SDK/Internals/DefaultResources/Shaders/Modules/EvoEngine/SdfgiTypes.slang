@@ -58,7 +58,7 @@ struct SdfgiIntegratePushConstant {
   float sky_energy;
   float3 sky_color_or_orientation;
   float y_mult;
-  float2 sky_irradiance_border_size;
+  float2 sky_lod_inverse_gamma;
   uint store_ambient_texture;
   uint pad;
 };

@@ -8,6 +8,7 @@
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiProbe.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -606,6 +607,33 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       throw py::value_error("Request a lighting diagnostic and render a frame before capture");
     resources->light_debug->StoreToPng(path);
   });
+  m.def("SetGpuTimingCaptureEnabled", &Platform::SetGpuTimestampCaptureEnabled);
+  m.def(
+      "RequestCurrentSceneSdfgiProbeDebug",
+      [](const uint32_t cascade, const uint32_t probe) {
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+        if (!runtime || !runtime->resources)
+          throw py::value_error("Automatic SDFGI resources are not available");
+        if (cascade >= runtime->settings.cascade_count || probe >= 4913)
+          throw py::value_error("SDFGI cascade or probe is out of range");
+        runtime->resources->probe_debug_request = glm::uvec2(cascade, probe);
+      },
+      py::arg("cascade") = 0, py::arg("probe") = 2456);
+  m.def("CaptureCurrentSceneSdfgiProbeDebug", [](const std::filesystem::path& path) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    const auto resources = runtime ? runtime->resources : nullptr;
+    if (!resources || resources->probe_debug_request || !resources->probe_debug)
+      throw py::value_error("Request a probe diagnostic and render a frame before capture");
+    resources->probe_debug->StoreToPng(path);
+    const auto status = resources->probe_debug->ReadStatus();
+    py::dict result;
+    result["generation"] = status.generation;
+    result["ready"] = status.ready;
+    result["failure_flags"] = status.failure_flags;
+    return result;
+  });
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = ResolveEnvironmentalLighting(scene);
@@ -655,6 +683,41 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["light_failure"] = resources ? resources->light_failure : std::string{};
     result["light_debug_recorded"] = resources && resources->light_debug && resources->light_debug->recorded;
     result["light_debug_failure"] = resources ? resources->light_debug_failure : std::string{};
+    result["transport_recorded"] = resources && resources->transport_recorded;
+    result["transport_pass"] = resources ? resources->transport_pass : 0;
+    result["transport_failure"] = resources ? resources->transport_failure : std::string{};
+    result["probe_debug_recorded"] = resources && resources->probe_debug && resources->probe_debug->recorded;
+    result["probe_debug_failure"] = resources ? resources->probe_debug_failure : std::string{};
+    py::dict transport;
+    if (resources && resources->last_transport_frame != UINT32_MAX)
+      for (const auto& frame : resources->probe_frames)
+        if (frame && frame->scene_frame == resources->last_transport_frame && !frame->constants.empty()) {
+          const auto& params = frame->constants[0];
+          transport["history_index"] = params.history_index;
+          transport["history_size"] = params.history_size;
+          transport["ray_count"] = params.ray_count;
+          transport["sky_flags"] = params.sky_flags;
+          transport["sky_lod"] = params.sky_lod_inverse_gamma[0];
+          transport["sky_inverse_gamma"] = params.sky_lod_inverse_gamma[1];
+          transport["sky_energy"] = params.sky_energy;
+          transport["bounce_feedback"] = resources->settings.bounce_feedback;
+        }
+    result["transport"] = transport;
+    py::list timings;
+    for (const auto& frame : Platform::GetGpuTimestampFrameHistory())
+      if (frame.results_available) {
+        py::dict stages;
+        for (const auto& sample : frame.samples)
+          if (sample.metadata.group == "SDFGI")
+            stages[py::str(sample.metadata.stable_pass_id)] = sample.duration_milliseconds;
+        if (stages.size()) {
+          py::dict value;
+          value["application_frame"] = frame.application_frame_index;
+          value["stages_ms"] = stages;
+          timings.append(value);
+        }
+      }
+    result["sdfgi_gpu_timings"] = timings;
     py::list light_counts;
     if (resources && resources->last_light_frame != UINT32_MAX)
       for (const auto& frame : resources->light_frames)

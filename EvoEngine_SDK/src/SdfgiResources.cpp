@@ -3,6 +3,7 @@
 #include "SdfgiResources.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiProbe.hpp"
 #include "SdfgiVoxelizer.hpp"
 
 #include "Platform.hpp"
@@ -225,6 +226,7 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
   add_buffer("Status", sizeof(SdfgiFieldStatus), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
   voxel_frames.resize(Platform::GetMaxFramesInFlight());
   light_frames.resize(Platform::GetMaxFramesInFlight());
+  probe_frames.resize(Platform::GetMaxFramesInFlight());
   for (uint32_t f = 0; f < Platform::GetMaxFramesInFlight(); ++f) {
     add_buffer(FrameName(f, "Cascades"), sizeof(SdfgiCascadeBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                SdfgiMemoryClass::Upload);
@@ -513,6 +515,14 @@ uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class)
         light_snapshots.insert(snapshot.get());
     for (const auto* snapshot : light_snapshots)
       result += snapshot->AllocationBytes();
+    std::set<const SdfgiProbeDebug*> probe_snapshots;
+    if (probe_debug)
+      probe_snapshots.insert(probe_debug.get());
+    for (const auto& snapshot : probe_debug_frames)
+      if (snapshot)
+        probe_snapshots.insert(snapshot.get());
+    for (const auto* snapshot : probe_snapshots)
+      result += snapshot->AllocationBytes();
   }
   return result;
 }
@@ -562,7 +572,8 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
     compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
   for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
-    compute("Integrate" + mode, "SdfgiIntegrate.slang", header + "#define MODE_" + mode + " 1\n",
+    compute("Integrate" + mode, "SdfgiIntegrate.slang",
+            (mode == "PROCESS" || mode == "STORE" ? "" : header) + "#define MODE_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::Integrate)], layouts[static_cast<size_t>(SdfgiLayout::Sky)]},
             sizeof(SdfgiIntegratePushConstant));
   auto deferred = deferred_host_layouts;

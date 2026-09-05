@@ -50,6 +50,7 @@
 #include "Resources.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiProbe.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -5687,6 +5688,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
                         [](const RenderGraphExecutionContext&) {
                         });
     if (const auto resources = runtime->resources) {
+      resources->settings = runtime->settings;
       if (const auto& previous = resources->voxel_frames[current_frame_index];
           previous && previous->preprocess_readback)
         previous->preprocess_readback->ReadAfterFrameFence(*resources);
@@ -5761,6 +5763,18 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           resources->last_light_frame = scene_frame;
           frame->AddPasses(scene_graph, resources,
                            rebuilt_cascades ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+          if (resources->last_transport_frame != scene_frame) {
+            try {
+              auto probes =
+                  SdfgiProbeFrame::Create(*resources, runtime->cascades, runtime->scene_snapshot.sky, scene_frame);
+              resources->probe_frames[current_frame_index] = probes;
+              resources->last_transport_frame = scene_frame;
+              probes->AddPasses(scene_graph, registry, resources, "SdfgiDirectLight");
+            } catch (const std::exception& error) {
+              resources->transport_failure = error.what();
+              resources->transport_recorded = false;
+            }
+          }
         } catch (const std::exception& error) {
           resources->light_failure = error.what();
           resources->lighting_recorded = false;
@@ -5768,6 +5782,27 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       }
       if (!resources->light_failure.empty())
         runtime->fallback_reason = resources->light_failure;
+      if (!resources->transport_failure.empty())
+        runtime->fallback_reason = resources->transport_failure;
+      if (resources->probe_debug_request && resources->transport_recorded) {
+        try {
+          auto snapshot = std::make_shared<SdfgiProbeDebug>(resources->settings, resources->probe_debug_request->x,
+                                                            resources->probe_debug_request->y);
+          resources->probe_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->probe_debug_frames[current_frame_index] = snapshot;
+          resources->probe_debug = snapshot;
+          const bool transport_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiProbeStore";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            transport_pass ? "SdfgiProbeStore" : RenderPassNames::sdfgi_maintenance);
+          resources->probe_debug_request.reset();
+          resources->probe_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->probe_debug_failure = error.what();
+        }
+      }
       if (resources->light_debug_request && resources->lighting_recorded) {
         try {
           auto snapshot =
