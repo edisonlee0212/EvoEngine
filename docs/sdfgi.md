@@ -75,6 +75,14 @@ failure, and generation checks remain authoritative before any camera samples th
 
 Defaults are four 128-cell cascades, minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 0.5, sky read on, energy 1.0, and both biases 1.1.
+**Environmental Lighting > Automatic SDFGI > Positional light cascades** controls how many active cascades receive
+point/spot-light injection (1..8, default 8). The maximum covers every active cascade, including when the field count
+later increases; 3 reproduces Godot's default maximum index 2. Directional lights still reach every cascade and light
+bounds filtering is unchanged. This shared scene setting maps Godot's per-light `light_set_max_sdfgi_cascade` to count
+minus one. The all-cascade default is user-requested, not a change to SDFGI transport. Assets missing the serialized
+`positional_light_cascade_count` key inherit 8; explicit saved values are preserved. Changes use normal light-update
+cadence and probe convergence without rebuilding the geometry field. Frozen diagnostics defer changes until resumed.
+The same setting is available through Python and included in diagnostic state exports.
 The reference ray/history/cadence choices are retained. Malformed numeric settings are diagnosed before field allocation.
 Occlusion on is a user-requested default difference from Godot (off), not a change to its visibility algorithm.
 **Environmental Lighting > Automatic SDFGI > Use Occlusion** controls this serialized setting. Explicit saved false
@@ -346,8 +354,10 @@ The shader retains reference SDF visibility traversal, bias, cross-cascade advan
 dynamic encoding, and 26-neighbor fill. `has_shadow` remains in the ABI but does not bypass reference SDF visibility or
 introduce camera shadow-map sampling. Area/projector code is excluded as agreed.
 
-Godot's directional-first light classification, cascade AABB comparison, positional maximum cascade index 2, and one-cell
-subset per update phase are preserved. New/reseeded representations process every cell; subsequent dynamic updates use
+Godot's directional-first light classification, cascade AABB comparison, and one-cell subset per update phase are
+preserved. The original positional maximum cascade index 2 is now configurable through **Positional light cascades**,
+with a user-requested default of all eight levels. New/reseeded representations process every cell; subsequent dynamic
+updates use
 `scene_frame % light_update_frames` and the configured 1/2/4/8/16 increment. Directionals reach all cascades. Point AABBs
 and transformed spot AABBs follow reference `light_get_aabb`; the cascade comparison remains the reference's comparison
 before uploaded positional Y adjustment. No camera culling or camera-dependent light ordering is used.

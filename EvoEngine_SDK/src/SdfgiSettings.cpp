@@ -26,6 +26,8 @@ std::string SdfgiSettings::Validate() const {
   constexpr std::array light_frames{1u, 2u, 4u, 8u, 16u};
   if (cascade_count < 1 || cascade_count > 8)
     return "Cascade count must be 1..8";
+  if (positional_light_cascade_count < 1 || positional_light_cascade_count > 8)
+    return "Positional light cascade count must be 1..8";
   if (!std::isfinite(min_cell_size) || min_cell_size <= 0)
     return "Minimum cell size must be finite and positive";
   if (static_cast<uint32_t>(vertical_scale) > 2)
@@ -49,17 +51,19 @@ bool SdfgiSettings::HasSameLayout(const SdfgiSettings& other) const {
 }
 
 bool SdfgiSettings::operator==(const SdfgiSettings& other) const {
-  return std::tie(cascade_count, min_cell_size, vertical_scale, use_occlusion, ray_count, history_size,
-                  light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias, probe_bias,
-                  anchor_camera_entity) ==
-         std::tie(other.cascade_count, other.min_cell_size, other.vertical_scale, other.use_occlusion, other.ray_count,
-                  other.history_size, other.light_update_frames, other.bounce_feedback, other.read_sky_light,
-                  other.energy, other.normal_bias, other.probe_bias, other.anchor_camera_entity);
+  return std::tie(cascade_count, positional_light_cascade_count, min_cell_size, vertical_scale, use_occlusion,
+                  ray_count, history_size, light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias,
+                  probe_bias, anchor_camera_entity) ==
+         std::tie(other.cascade_count, other.positional_light_cascade_count, other.min_cell_size, other.vertical_scale,
+                  other.use_occlusion, other.ray_count, other.history_size, other.light_update_frames,
+                  other.bounce_feedback, other.read_sky_light, other.energy, other.normal_bias, other.probe_bias,
+                  other.anchor_camera_entity);
 }
 
 void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings& settings) {
   out << YAML::BeginMap;
   out << YAML::Key << "cascade_count" << YAML::Value << settings.cascade_count;
+  out << YAML::Key << "positional_light_cascade_count" << YAML::Value << settings.positional_light_cascade_count;
   out << YAML::Key << "min_cell_size" << YAML::Value << settings.min_cell_size;
   out << YAML::Key << "vertical_scale" << YAML::Value << static_cast<uint32_t>(settings.vertical_scale);
   out << YAML::Key << "use_occlusion" << YAML::Value << settings.use_occlusion;
@@ -79,6 +83,8 @@ void evo_engine::DeserializeSdfgiSettings(const YAML::Node& in, SdfgiSettings& s
   settings = {};
   if (in["cascade_count"])
     settings.cascade_count = in["cascade_count"].as<uint32_t>();
+  if (in["positional_light_cascade_count"])
+    settings.positional_light_cascade_count = in["positional_light_cascade_count"].as<uint32_t>();
   if (in["min_cell_size"])
     settings.min_cell_size = in["min_cell_size"].as<float>();
   if (in["vertical_scale"])

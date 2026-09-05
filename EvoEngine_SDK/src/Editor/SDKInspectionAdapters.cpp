@@ -3055,6 +3055,15 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         changed = true;
       }
       changed = ImGui::DragFloat("Minimum cell size", &settings.min_cell_size, 0.01f, 0.01f, 64.0f) || changed;
+      int light_cascades = static_cast<int>(settings.positional_light_cascade_count);
+      if (ImGui::SliderInt("Positional light cascades", &light_cascades, 1, 8)) {
+        settings.positional_light_cascade_count = static_cast<uint32_t>(light_cascades);
+        changed = true;
+      }
+      ImGui::SetItemTooltip(
+          "Point/spot lights inject into the first N active cascades. 8 covers all cascades; 3 matches Godot's "
+          "default. Directional lights are unaffected. Updates use normal light cadence and probe convergence; "
+          "no geometry-field rebuild is needed.");
       int vertical_scale = static_cast<int>(settings.vertical_scale);
       const char* vertical_scales[]{"50%", "75%", "100%"};
       if (ImGui::Combo("Vertical scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {

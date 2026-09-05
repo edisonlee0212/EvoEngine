@@ -136,7 +136,8 @@ uint64_t SdfgiLightDebug::AllocationBytes() const {
 
 SdfgiCascadeLights evo_engine::BuildSdfgiCascadeLights(const std::vector<SdfgiLightInput>& inputs,
                                                        const SdfgiCascade& cascade, const uint32_t index,
-                                                       const float y_mult) {
+                                                       const float y_mult,
+                                                       const uint32_t positional_light_cascade_count) {
   SdfgiCascadeLights result;
   std::array<std::vector<SdfgiLightInput>, 2> selected;
   // Preserve the reference cascade-AABB comparison before Y-adjusting uploaded light positions.
@@ -144,7 +145,8 @@ SdfgiCascadeLights evo_engine::BuildSdfgiCascadeLights(const std::vector<SdfgiLi
                      glm::vec3(cascade.position + glm::ivec3(64)) * cascade.cell_size};
   for (const auto& input : inputs) {
     const bool directional = input.type == SdfgiLightInput::Type::Directional;
-    if (!directional && (index > 2 || glm::any(glm::greaterThanEqual(input.world_bounds.min, bounds.max)) ||
+    if (!directional && (index >= positional_light_cascade_count ||
+                         glm::any(glm::greaterThanEqual(input.world_bounds.min, bounds.max)) ||
                          glm::any(glm::lessThanEqual(input.world_bounds.max, bounds.min))))
       continue;
     selected[directional || input.dynamic ? 1 : 0].push_back(input);
@@ -191,7 +193,8 @@ std::shared_ptr<SdfgiLightFrame> SdfgiLightFrame::Create(const SdfgiResources& r
   frame->lights.resize(cascade_inputs.size());
   for (uint32_t c = 0; c < cascade_inputs.size(); ++c) {
     auto& lights = frame->lights[c];
-    lights = BuildSdfgiCascadeLights(inputs, cascade_inputs[c], c, SdfgiYMultiplier(resources.settings.vertical_scale));
+    lights = BuildSdfgiCascadeLights(inputs, cascade_inputs[c], c, SdfgiYMultiplier(resources.settings.vertical_scale),
+                                     resources.settings.positional_light_cascade_count);
     if ((rebuilt & (1u << c)) || c >= resources.static_light_inputs.size() ||
         !SameLights(lights.data[0], resources.static_light_inputs[c]) || !resources.light_failure.empty())
       frame->static_refresh |= 1u << c;

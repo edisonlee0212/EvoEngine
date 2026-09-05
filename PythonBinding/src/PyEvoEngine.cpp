@@ -564,6 +564,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   py::class_<SdfgiSettings>(m, "SdfgiSettings")
       .def(py::init<>())
       .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
+      .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)

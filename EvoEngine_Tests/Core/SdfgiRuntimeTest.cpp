@@ -157,7 +157,7 @@ TEST(SdfgiLighting, CascadeClassificationAndHostPhotometry) {
   inputs[3].world_bounds = {glm::vec3(1000), glm::vec3(1001)};
   SdfgiCascade cascade;
   cascade.cell_size = 1;
-  const auto first_cascade = BuildSdfgiCascadeLights(inputs, cascade, 0, 1.5f);
+  const auto first_cascade = BuildSdfgiCascadeLights(inputs, cascade, 0, 1.5f, 3);
   ASSERT_EQ(first_cascade.data[0].size(), 1u);
   ASSERT_EQ(first_cascade.data[1].size(), 2u);
   EXPECT_EQ(first_cascade.data[1][0].type, 0u);
@@ -172,10 +172,21 @@ TEST(SdfgiLighting, CascadeClassificationAndHostPhotometry) {
   EXPECT_FLOAT_EQ(spot.host_photometry[2], 0.03f);
   EXPECT_FLOAT_EQ(spot.host_photometry[3], 0.9f);
   EXPECT_FLOAT_EQ(spot.cos_spot_angle, 0.6f);
-  const auto fourth_cascade = BuildSdfgiCascadeLights(inputs, cascade, 3, 1.5f);
+  const auto fourth_cascade = BuildSdfgiCascadeLights(inputs, cascade, 3, 1.5f, 3);
   EXPECT_TRUE(fourth_cascade.data[0].empty());
   ASSERT_EQ(fourth_cascade.data[1].size(), 1u);
   EXPECT_EQ(fourth_cascade.data[1][0].type, 0u);
+  EXPECT_EQ(SdfgiSettings{}.positional_light_cascade_count, 8u);
+  for (uint32_t limit = 1; limit <= 8; ++limit)
+    for (uint32_t index = 0; index < 8; ++index) {
+      SCOPED_TRACE(std::to_string(limit) + "/" + std::to_string(index));
+      const auto lights = BuildSdfgiCascadeLights(inputs, cascade, index, 1.5f, limit);
+      EXPECT_EQ(lights.data[0].size(), index < limit ? 1u : 0u);
+      ASSERT_EQ(lights.data[1].size(), index < limit ? 2u : 1u);
+      EXPECT_EQ(lights.data[1][0].type, 0u);
+      if (index < limit)
+        EXPECT_EQ(lights.data[1][1].type, 2u);
+    }
 }
 
 TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
@@ -194,6 +205,7 @@ TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
 TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);
+  EXPECT_EQ(settings.positional_light_cascade_count, 8u);
   EXPECT_EQ(settings.kCascadeSize, 128u);
   EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
   EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
@@ -209,6 +221,7 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   EXPECT_EQ(settings.anchor_camera_entity, 0u);
   EXPECT_TRUE(settings.Validate().empty());
   settings.cascade_count = 8;
+  settings.positional_light_cascade_count = 3;
   settings.min_cell_size = 0.4f;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent50;
   settings.use_occlusion = false;
@@ -231,11 +244,23 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings missing;
   DeserializeSdfgiSettings(YAML::Load("{}"), missing);
   EXPECT_TRUE(missing.use_occlusion);
+  EXPECT_EQ(missing.positional_light_cascade_count, 8u);
+  DeserializeSdfgiSettings(YAML::Load("cascade_count: 4"), missing);
+  EXPECT_EQ(missing.positional_light_cascade_count, 8u);
 }
 
 TEST(SdfgiRuntime, ReferenceLayoutChangesAndInvalidSettings) {
   const SdfgiSettings defaults;
   auto changed = defaults;
+  changed.positional_light_cascade_count = 3;
+  EXPECT_TRUE(defaults.HasSameLayout(changed));
+  EXPECT_FALSE(defaults == changed);
+  EXPECT_TRUE(changed.Validate().empty());
+  changed.positional_light_cascade_count = 0;
+  EXPECT_FALSE(changed.Validate().empty());
+  changed.positional_light_cascade_count = 9;
+  EXPECT_FALSE(changed.Validate().empty());
+  changed = defaults;
   changed.cascade_count = 2;
   EXPECT_FALSE(defaults.HasSameLayout(changed));
   changed = defaults;

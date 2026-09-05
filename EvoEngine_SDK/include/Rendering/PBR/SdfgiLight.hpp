@@ -26,7 +26,8 @@ struct SdfgiCascadeLights {
 };
 
 EVOENGINE_API SdfgiCascadeLights BuildSdfgiCascadeLights(const std::vector<SdfgiLightInput>& inputs,
-                                                         const SdfgiCascade& cascade, uint32_t index, float y_mult);
+                                                         const SdfgiCascade& cascade, uint32_t index, float y_mult,
+                                                         uint32_t positional_light_cascade_count);
 
 class EVOENGINE_API SdfgiLightFrame : public std::enable_shared_from_this<SdfgiLightFrame> {
  public:

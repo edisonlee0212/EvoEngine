@@ -18,6 +18,7 @@ struct EVOENGINE_API SdfgiSettings {
 
   static constexpr uint32_t kCascadeSize = 128;
   uint32_t cascade_count = 4;
+  uint32_t positional_light_cascade_count = 8;
   float min_cell_size = 0.2f;
   VerticalScale vertical_scale = VerticalScale::Percent75;
   bool use_occlusion = true;
