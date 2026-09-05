@@ -20,6 +20,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SdfgiCapabilities.hpp"
 #include "Shader.hpp"
 #include "StrandsRenderer.hpp"
 #include "TextureStorage.hpp"
@@ -56,6 +57,7 @@ using namespace evo_engine;
 namespace {
 // DDGI_VALIDATION_CAPTURE_PROTOCOL_BEGIN
 struct EditorCommandLine {
+  std::optional<std::filesystem::path> sdfgi_review_resources;
   std::optional<std::filesystem::path> project_path;
   std::optional<DemoProfileId> demo_profile_id;
   std::optional<std::filesystem::path> demo_preview_capture_path;
@@ -528,7 +530,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
   EditorCommandLine command_line;
   for (int arg_index = 1; arg_index < argc; ++arg_index) {
     const std::string argument = argv[arg_index] ? argv[arg_index] : "";
-    if (argument == "--project" || argument == "-p") {
+    if (argument == "--sdfgi-review") {
+      if (arg_index + 1 >= argc)
+        throw std::invalid_argument("--sdfgi-review requires a disposable Rendering resource directory.");
+      command_line.sdfgi_review_resources = std::filesystem::absolute(argv[++arg_index]);
+    } else if (argument == "--project" || argument == "-p") {
       if (arg_index + 1 >= argc) {
         throw std::invalid_argument(argument + " requires a project path.");
       }
@@ -798,6 +804,11 @@ EditorCommandLine ParseCommandLine(const int argc, char** argv) {
       continue;
     }
   }
+  if (command_line.sdfgi_review_resources &&
+      (command_line.demo_profile_id || command_line.project_path ||
+       command_line.application_mode != ApplicationMode::Editor || command_line.demo_preview_capture_path ||
+       command_line.material_thumbnail_output_path))
+    throw std::invalid_argument("--sdfgi-review is a standalone interactive editor launch.");
   if (command_line.demo_profile_id && command_line.project_path) {
     throw std::invalid_argument("EvoEngineEditor --demo cannot be combined with --project.");
   }
@@ -2513,6 +2524,54 @@ int main(const int argc, char** argv) {
     const auto command_line = ParseCommandLine(argc, argv);
     automated_capture = command_line.demo_preview_capture_path.has_value() ||
                         command_line.material_thumbnail_output_path.has_value() || command_line.bistro_smoke;
+    if (command_line.sdfgi_review_resources) {
+      const auto& resources = *command_line.sdfgi_review_resources;
+      const auto rendering = resources / "EvoEngine-DemoProjects/Rendering";
+      if (!std::filesystem::is_regular_file(rendering / "Assets/Models/Sponza_FBX/Sponza.fbx") ||
+          std::filesystem::exists(rendering / "Rendering.eveproj"))
+        throw std::invalid_argument(
+            "SDFGI review requires a fresh disposable Rendering/Assets copy without Rendering.eveproj.");
+      PushStandardApplicationLayers(ApplicationMode::Editor);
+      ApplicationInitializationSettings application_info{};
+      application_info.application_mode = ApplicationMode::Editor;
+      application_info.use_custom_title_bar = true;
+      SetupDemoScene(DemoSetup::Rendering, application_info, resources, false);
+      application_info.graphics_settings.use_ray_tracing = false;
+      ApplicationContext::Get().Initialize(application_info);
+      initialized = true;
+      ApplicationContext::Get().Start(false);
+      WaitForDemoProfileProjectIdle();
+      const auto scene = ApplicationContext::Get().GetActiveScene();
+      const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+      const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+      const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+      if (!lighting || !camera || !editor)
+        throw std::runtime_error("SDFGI review scene is unavailable.");
+      lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+      lighting->sdfgi_settings = {};
+      camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      camera->Resize({2560, 1440});
+      const auto transform = scene->GetDataComponent<GlobalTransform>(camera->GetOwner());
+      editor->SetSceneCameraPosition(transform.GetPosition());
+      editor->SetSceneCameraRotation(transform.GetRotation());
+      editor->SetSceneCameraResolutionOverride(glm::uvec2(2560, 1440));
+      editor->GetSceneCamera()->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+      editor->GetSceneCamera()->camera_settings = camera->camera_settings;
+      editor->GetSceneCamera()->post_processing_stack_ref = camera->post_processing_stack_ref;
+      EditorLayoutSettings layout;
+      layout.panels.scene = true;
+      layout.panels.camera = false;
+      layout.panels.render_layer_inspection = true;
+      editor->RequestEditorLayout(layout);
+      const auto capabilities = QuerySdfgiCapabilities(4, 30);
+      if (!capabilities.Supported() || Platform::RayTracingEnabled() || Platform::RayQueryEnabled() ||
+          Platform::RayAccelerationStructureEnabled())
+        throw std::runtime_error("SDFGI review requires all RT facilities disabled.");
+      std::cout << capabilities.ToString() << " SDFGI_REVIEW resolution=2560x1440" << std::endl;
+      ApplicationContext::Get().Run();
+      ApplicationContext::Get().Terminate();
+      return 0;
+    }
     const auto& project_path = command_line.project_path;
     if (!project_path) {
       if (command_line.demo_profile_id) {

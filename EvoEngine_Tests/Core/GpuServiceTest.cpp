@@ -19,6 +19,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiProbe.hpp"
@@ -393,7 +394,7 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
   EXPECT_EQ(field->buffers.size(), 17u + Platform::GetMaxFramesInFlight() * 10u);
-  EXPECT_EQ(field->pipelines.size(), 16u);
+  EXPECT_EQ(field->pipelines.size(), 18u);
   EXPECT_TRUE(field->voxel_pipeline->Initialized());
   EXPECT_FALSE(field->initialization_recorded);
   for (const auto& [name, texture] : field->textures) {
@@ -451,6 +452,17 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   export_spirv("LightResourceCheck", light_check->compute_shader);
   export_spirv("IntegrateResourceCheck", integrate_check->compute_shader);
   export_spirv("GatherResourceCheck", gather_check->compute_shader);
+  auto environment = std::make_shared<ComputePipeline>();
+  environment->descriptor_set_layouts = host_layouts;
+  environment->push_constant_ranges = field->pipelines.at("DeferredSdfgi")->push_constant_ranges;
+  environment->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              Resources::GetDefaultResourcesPath() / "Shaders/Compute/DeferredComputeLighting.slang");
+  environment->Initialize();
+  ASSERT_TRUE(environment->Initialized());
+  EXPECT_EQ(environment->descriptor_set_layouts.size(), 5u);
+  EXPECT_EQ(field->pipelines.at("DeferredSdfgi")->descriptor_set_layouts.size(), 6u);
+  export_spirv("DeferredEnvironment", environment->compute_shader);
   export_spirv("VoxelVertexAbi", field->voxel_pipeline->vertex_shader);
   export_spirv("VoxelFragmentAbi", field->voxel_pipeline->fragment_shader);
   BufferUploadArena uploads(4096);
@@ -665,6 +677,196 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
           EXPECT_EQ(data[0][visible], 1u | (12u << 11) | (6u << 6) | (3u << 1));
         }
       }
+  }
+}
+
+TEST(SdfgiGather, PublicationWeightsCoverageAndTwoCameraGraphsWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.cascade_count = 2;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  settings.normal_bias = 0;
+  auto runtime = std::make_shared<SdfgiRuntime>(settings, SdfgiCapabilityReport{});
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), runtime->cascades).empty());
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  runtime->resources = field;
+  auto seed = std::make_shared<ComputePipeline>();
+  seed->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Integrate)]};
+  seed->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, 4}};
+  seed->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(8,0)]] [vk::image_format("r32ui")] RWTexture2DArray<uint> atlas;
+[[vk::push_constant]] ConstantBuffer<uint> gradient;
+[numthreads(8,8,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  if (id.x >= 2312 || id.y >= 136) return;
+  uint value = gradient != 0 ? (id.x / 8 % 17) + 3 * (id.y / 8) + 5 * (id.x / 136) + 1 : (id.z % 2 == 0 ? 1 : 3);
+  if (id.z >= 2) value *= 2;
+  atlas[id] = value | (value << 9) | (value << 18) | (24u << 27);
+}
+)"));
+  seed->Initialize();
+  ASSERT_TRUE(seed->Initialized());
+  auto output_layout = std::make_shared<DescriptorSetLayout>();
+  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->Initialize();
+  VkBufferCreateInfo output_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  output_info.size = 20 * sizeof(glm::vec4);
+  output_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(output_info);
+  auto output_set = std::make_shared<DescriptorSet>(output_layout);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  auto gather = std::make_shared<ComputePipeline>();
+  gather->descriptor_set_layouts = SdfgiTestAccess::HostLayouts(*render);
+  gather->descriptor_set_layouts[4] = output_layout;
+  gather->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
+  gather->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, 4}};
+  gather->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.Sdfgi;
+[[vk::binding(0,4)]] RWStructuredBuffer<float4> result;
+[[vk::push_constant]] ConstantBuffer<uint> camera;
+[numthreads(1,1,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  const float3 positions[5] = {float3(0), float3(52,0,0), float3(112,0,0), float3(140,0,0), float3(2.4,3.2,4.8)};
+  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(1,0,0), float3(0,0,camera == 0 ? 1 : -1), id.x == 1 ? 0.75 : 0.5);
+  result[camera * 10 + id.x * 2] = float4(value.diffuse, value.weight);
+  result[camera * 10 + id.x * 2 + 1] = float4(value.specular, 0);
+}
+)"));
+  gather->Initialize();
+  ASSERT_TRUE(gather->Initialized());
+  for (uint32_t phase = 0; phase < 6; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    const uint32_t slot = Platform::GetCurrentFrameIndex(), generation = phase + 1;
+    runtime->settings.use_occlusion = phase == 2;
+    runtime->published = false;
+    auto publication = SdfgiGatherFrame::Create(*runtime, generation);
+    field->gather_frames[slot] = publication;
+    RenderGraph scene_graph;
+    RenderGraphResourceRegistry scene_registry;
+    field->Import(scene_graph, scene_registry);
+    scene_graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                        [](const RenderGraphExecutionContext&) {
+                        });
+    if (phase == 0)
+      scene_graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    scene_graph.AddPass(
+        {"SdfgiProbeStore",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Frame,
+         {},
+         {phase == 0 ? "SdfgiInitialize" : RenderPassNames::sdfgi_maintenance}},
+        [&](const RenderGraphExecutionContext&) {
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, ready), 4, 0);
+            field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, failure_flags), 4,
+                                                     phase == 4 ? 1 : 0);
+            field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, generation), 4,
+                                                     phase == 3 ? generation - 1 : generation);
+            const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VkClearColorValue clear{};
+            clear.uint32[0] = 0x0248;
+            Platform::ClearColorImage(command, *field->textures.at("Occlusion").image, clear, 1, &range);
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+            seed->Bind(command);
+            seed->BindDescriptorSet(
+                command, 0,
+                field->sets.at("Frame" + std::to_string(slot) + ".Cascade0.Integrate")->GetVkDescriptorSet());
+            seed->PushConstant(command, 0, phase == 2 ? 1u : 0u);
+            seed->Dispatch(command, 289, 17, 4);
+          });
+          field->transport_recorded = true;
+          field->transport_pass = generation;
+          if (phase == 0)
+            publication->input_upload.Record(publication->uploads);
+        });
+    if (phase != 0)
+      publication->AddPublication(scene_graph, runtime);
+    const auto scene_plan = scene_graph.Compile({});
+    ASSERT_TRUE(scene_plan.valid);
+    EXPECT_FALSE(scene_plan.uses_compute_queue);
+    scene_graph.Execute(scene_plan, scene_registry);
+    for (uint32_t order = 0; order < 2; ++order) {
+      const uint32_t camera = order ^ (phase & 1);
+      RenderGraph camera_graph;
+      RenderGraphResourceRegistry camera_registry;
+      publication->ImportCamera(camera_graph, camera_registry, *field);
+      RenderResourceDescriptor target;
+      target.name = "SdfgiGatherTestOutput";
+      target.type = RenderResourceType::Buffer;
+      target.lifetime = RenderResourceLifetime::Persistent;
+      target.byte_size = output_info.size;
+      camera_graph.AddResource(target);
+      camera_registry.BindBuffer(target.name, output);
+      RenderPassDescriptor pass{"SdfgiGatherTestCamera", RenderPassQueue::Graphics, RenderPassScope::Camera};
+      pass.resources = publication->CameraReads();
+      pass.resources.push_back({target.name, RenderResourceUsage::Write, RenderResourceState::General});
+      camera_graph.AddPass(pass, [&](const RenderGraphExecutionContext&) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+          gather->Bind(command);
+          gather->BindDescriptorSet(command, 4, output_set->GetVkDescriptorSet());
+          gather->BindDescriptorSet(command, 5, publication->descriptor_set->GetVkDescriptorSet());
+          gather->PushConstant(command, 0, camera);
+          gather->Dispatch(command, 5);
+        });
+      });
+      const auto plan = camera_graph.Compile({});
+      ASSERT_TRUE(plan.valid);
+      EXPECT_FALSE(plan.uses_compute_queue);
+      camera_graph.Execute(plan, camera_registry);
+    }
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI two-camera gather fixture readback");
+    std::vector<glm::vec4> values;
+    output->DownloadVector(values, 20);
+    SdfgiFieldStatus status;
+    field->buffers.at("Status").buffer->Download(status);
+    const bool ready = phase == 1 || phase == 2 || phase == 5;
+    EXPECT_EQ(status.ready, ready ? 1u : 0u);
+    for (uint32_t i = 0; i < 10; ++i)
+      EXPECT_EQ(values[i], values[10 + i]);
+    if (!ready) {
+      for (const auto value : values)
+        EXPECT_EQ(value, glm::vec4(0));
+    } else if (phase != 2) {
+      EXPECT_NEAR(values[0].x, 1, 1e-5f);
+      EXPECT_NEAR(values[1].x, 2, 1e-5f);
+      EXPECT_NEAR(values[2].x, 2, 1e-5f);
+      EXPECT_NEAR(values[3].x, 3, 1e-5f);
+      EXPECT_NEAR(values[4].x, 3, 1e-5f);
+      EXPECT_NEAR(values[4].w, 0.15625f, 1e-5f);
+      EXPECT_EQ(values[6], glm::vec4(0));
+    } else {
+      float total = 0, weighted = 0;
+      for (uint32_t j = 0; j < 8; ++j) {
+        const glm::ivec3 offset(j & 1, (j >> 1) & 1, (j >> 2) & 1);
+        const glm::vec3 delta = glm::vec3(0.3f, 0.4f, 0.6f) - glm::vec3(offset);
+        const glm::vec3 trilinear = 1.0f - glm::abs(delta);
+        const float occlusion[]{0, 2.0f / 15, 4.0f / 15, 8.0f / 15};
+        const float weight = trilinear.x * trilinear.y * trilinear.z * std::max(0.005f, glm::normalize(-delta).x) *
+                             std::max(0.01f, occlusion[j & 3]);
+        total += weight;
+        weighted += (73 + offset.x + 3 * offset.y + 5 * offset.z) * weight;
+      }
+      EXPECT_NEAR(values[8].x, weighted / total, 0.02f);
+      EXPECT_NEAR(values[9].x, weighted / total * 2, 0.04f);
+      EXPECT_FLOAT_EQ(values[8].w, 1);
+    }
   }
 }
 

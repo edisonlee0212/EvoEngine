@@ -1,6 +1,8 @@
 // Allocation and bindings adapted from Godot renderer_rd/environment/gi.cpp::SDFGI::create,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiResources.hpp"
+#include "RenderInstanceStorage.hpp"
+#include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiProbe.hpp"
@@ -227,6 +229,7 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
   voxel_frames.resize(Platform::GetMaxFramesInFlight());
   light_frames.resize(Platform::GetMaxFramesInFlight());
   probe_frames.resize(Platform::GetMaxFramesInFlight());
+  gather_frames.resize(Platform::GetMaxFramesInFlight());
   for (uint32_t f = 0; f < Platform::GetMaxFramesInFlight(); ++f) {
     add_buffer(FrameName(f, "Cascades"), sizeof(SdfgiCascadeBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                SdfgiMemoryClass::Upload);
@@ -478,6 +481,16 @@ void SdfgiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& reg
 
 uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class) const {
   uint64_t result = allocated_bytes[static_cast<size_t>(memory_class)];
+  if (memory_class == SdfgiMemoryClass::Upload) {
+    std::set<const SdfgiGatherFrame*> frames;
+    if (publication)
+      frames.insert(publication.get());
+    for (const auto& frame : gather_frames)
+      if (frame)
+        frames.insert(frame.get());
+    for (const auto* frame : frames)
+      result += frame->uploads.GetAllocationBytes();
+  }
   if (memory_class == SdfgiMemoryClass::Upload)
     for (const auto& frame : light_frames)
       if (frame)
@@ -532,8 +545,8 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
   Shader::RegisterShaderIncludePath(root / "Modules");
   const std::string header = "#define EE_SDFGI_ABI_ONLY 1\n";
   const auto compute = [&](const std::string& name, const std::string& file, const std::string& variant,
-                           std::vector<std::shared_ptr<DescriptorSetLayout>> pipeline_layouts,
-                           const uint32_t push_size) {
+                           std::vector<std::shared_ptr<DescriptorSetLayout>> pipeline_layouts, const uint32_t push_size,
+                           const bool source_layout_check = true) {
     auto pipeline = std::make_shared<ComputePipeline>();
     pipeline->descriptor_set_layouts = std::move(pipeline_layouts);
     if (push_size)
@@ -542,11 +555,13 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
     pipeline->Initialize();
     if (!pipeline->Initialized())
       throw std::runtime_error("pipeline creation failed: " + name);
-    const auto validation = Shader::ValidateSlangPipelineLayout(
-        ShaderType::Compute, pipeline->compute_shader->PeekShaderCode(), root / "Compute" / file,
-        pipeline->descriptor_set_layouts, pipeline->push_constant_ranges);
-    if (!validation.success)
-      throw std::runtime_error(name + ": " + validation.diagnostics);
+    if (source_layout_check) {
+      const auto validation = Shader::ValidateSlangPipelineLayout(
+          ShaderType::Compute, pipeline->compute_shader->PeekShaderCode(), root / "Compute" / file,
+          pipeline->descriptor_set_layouts, pipeline->push_constant_ranges);
+      if (!validation.success)
+        throw std::runtime_error(name + ": " + validation.diagnostics);
+    }
     pipelines.emplace(name, pipeline);
   };
   struct PreprocessVariant {
@@ -578,6 +593,10 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
             sizeof(SdfgiIntegratePushConstant));
   auto deferred = deferred_host_layouts;
   deferred.push_back(layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
+  // Shared scene-module reflection includes unused vertex-only bindings; validate the emitted deferred SPIR-V instead.
+  compute("DeferredSdfgi", "DeferredComputeLighting.slang", "#define EE_AUTOMATIC_SDFGI 1\n", deferred,
+          sizeof(RenderInstancePushConstant), false);
+  compute("Publish", "SdfgiPublish.slang", "", {layouts[static_cast<size_t>(SdfgiLayout::Gather)]}, 0);
   compute("GatherAbi", "SdfgiGatherAbi.slang", header, std::move(deferred), 0);
   voxel_pipeline = std::make_shared<GraphicsPipeline>();
   voxel_pipeline->vertex_input_enabled = true;

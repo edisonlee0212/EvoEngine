@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiProbe.hpp"
@@ -608,6 +609,20 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     resources->light_debug->StoreToPng(path);
   });
   m.def("SetGpuTimingCaptureEnabled", &Platform::SetGpuTimestampCaptureEnabled);
+  m.def("ReadCurrentSceneSdfgiFieldStatus", []() {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    if (!runtime || !runtime->resources)
+      throw py::value_error("Automatic SDFGI resources are unavailable");
+    Platform::WaitForFrameSubmissions("SDFGI explicit field-status readback");
+    SdfgiFieldStatus status;
+    runtime->resources->buffers.at("Status").buffer->Download(status);
+    py::dict result;
+    result["generation"] = status.generation;
+    result["ready"] = status.ready;
+    result["failure_flags"] = status.failure_flags;
+    return result;
+  });
   m.def(
       "RequestCurrentSceneSdfgiProbeDebug",
       [](const uint32_t cascade, const uint32_t probe) {
@@ -685,6 +700,13 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["light_debug_failure"] = resources ? resources->light_debug_failure : std::string{};
     result["transport_recorded"] = resources && resources->transport_recorded;
     result["transport_pass"] = resources ? resources->transport_pass : 0;
+    result["published_generation"] =
+        resources && resources->publication ? resources->publication->metadata.generation : 0;
+    py::list sdfgi_camera_ids;
+    if (resources)
+      for (const auto id : resources->gather_camera_ids)
+        sdfgi_camera_ids.append(id);
+    result["sdfgi_camera_ids"] = sdfgi_camera_ids;
     result["transport_failure"] = resources ? resources->transport_failure : std::string{};
     result["probe_debug_recorded"] = resources && resources->probe_debug && resources->probe_debug->recorded;
     result["probe_debug_failure"] = resources ? resources->probe_debug_failure : std::string{};

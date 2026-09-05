@@ -1,6 +1,9 @@
 import EvoEngine.GltfRasterMaterial;
 import EvoEngine.GBuffer;
 import EvoEngine.LightingFixedSet3;
+#ifdef EE_AUTOMATIC_SDFGI
+import EvoEngine.SdfgiLighting;
+#endif
 
 [[vk::binding(17, 1)]]
 Sampler2D inDepth;
@@ -126,7 +129,11 @@ void main(uint3 dispatch_thread_id : SV_DispatchThreadID) {
     const float3 direct = EE_FUNC_CALCULATE_LIGHTS(
         true, albedo, 1.0f, linear_depth, shading_normal, view_direction, world_position, surface.metallic,
         surface.roughness, surface.specular_f0, encoded_specular_f90);
+#ifdef EE_AUTOMATIC_SDFGI
+    const float3 ambient = EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
+#else
     const float3 ambient = EE_FUNC_CALCULATE_DDGI_ENVIRONMENTAL_LIGHT(
+#endif
         albedo, shading_normal, view_direction, world_position, surface.metallic, surface.roughness,
         surface.specular_f0, encoded_specular_f90, resolved_material_ao,
         inAmbientOcclusion.SampleLevel(tex_coord, 0.0f).r);

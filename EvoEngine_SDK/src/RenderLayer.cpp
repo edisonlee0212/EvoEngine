@@ -48,6 +48,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiProbe.hpp"
@@ -5673,6 +5674,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       runtime->scene_snapshot = SnapshotSdfgiScene(scene, lighting);
       runtime->contributors.Update(runtime->scene_snapshot.contributors);
     }
+    runtime->published = runtime->missing_anchor && runtime->published;
     if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
         runtime->placement_failure.empty() && runtime->capabilities.Supported()) {
       runtime->allocation_attempted = true;
@@ -5689,12 +5691,14 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
                         });
     if (const auto resources = runtime->resources) {
       resources->settings = runtime->settings;
+      resources->gather_camera_ids.clear();
       if (const auto& previous = resources->voxel_frames[current_frame_index];
           previous && previous->preprocess_readback)
         previous->preprocess_readback->ReadAfterFrameFence(*resources);
-      if (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow)
+      if (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow) {
         runtime->fallback_reason = "SDFGI solid-cell capacity overflow";
-      else if (!resources->preprocess_failure.empty())
+        runtime->published = false;
+      } else if (!resources->preprocess_failure.empty())
         runtime->fallback_reason = resources->preprocess_failure;
       sdfgi_frame_resources_[current_frame_index].push_back(resources);
       resources->Import(scene_graph, registry);
@@ -5770,6 +5774,9 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
               resources->probe_frames[current_frame_index] = probes;
               resources->last_transport_frame = scene_frame;
               probes->AddPasses(scene_graph, registry, resources, "SdfgiDirectLight");
+              auto publication = SdfgiGatherFrame::Create(*runtime, resources->transport_pass + 1);
+              resources->gather_frames[current_frame_index] = publication;
+              publication->AddPublication(scene_graph, runtime);
             } catch (const std::exception& error) {
               resources->transport_failure = error.what();
               resources->transport_recorded = false;
@@ -7524,6 +7531,13 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
   const auto editor_layer = ApplicationContext::Get().GetLayer<EditorLayer>();
   const bool is_scene_camera = editor_layer && camera.get() == editor_layer->GetSceneCamera().get();
   VolumetricCloudSettings volumetric_cloud_settings{};
+  const auto sdfgi_runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+  const bool sdfgi_eligible =
+      IsSdfgiCameraEligible(scene, camera, editor_layer ? editor_layer->GetSceneCamera() : nullptr, immediate,
+                            reflection_probe_capture, command_recorder != nullptr);
+  const auto sdfgi_resources =
+      sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources : nullptr;
+  const auto sdfgi_publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
   const bool volumetric_clouds_enabled = !reflection_probe_capture && volumetric_cloud_settings.enabled;
   const auto ddgi_settings = ResolveEnvironmentalLighting(scene).ddgi_settings;
   struct DdgiProbeVisualizationDraw {
@@ -7772,15 +7786,22 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                     AmbientOcclusionPass::Execute(context, {camera, active_camera_transient_resources});
                                   });
     }
-    camera_render_graph.AddPass(
-        DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture),
-        [&](const RenderGraphExecutionContext& context) {
-          DeferredComputeLightingPass::Execute(
-              context, {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
-                        raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
-                        deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
-                        directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands});
-        });
+    auto deferred_descriptor =
+        DeferredComputeLightingPass::CreateDescriptor(ambient_occlusion_enabled, !reflection_probe_capture);
+    if (sdfgi_publication)
+      for (const auto& access : sdfgi_publication->CameraReads())
+        deferred_descriptor.resources.push_back(access);
+    camera_render_graph.AddPass(deferred_descriptor, [&](const RenderGraphExecutionContext& context) {
+      DeferredComputeLightingPass::Execute(
+          context,
+          {camera, per_frame_descriptor_sets_[current_frame_index], lighting_descriptor_set,
+           raster_lighting_texture_descriptor_set,
+           sdfgi_publication ? sdfgi_resources->pipelines.at("DeferredSdfgi") : deferred_compute_lighting_pipeline_,
+           deferred_compute_lighting_layout_, active_camera_transient_resources, camera_index,
+           directional_shadow_camera_index, reflection_probe_capture, is_scene_camera, record_commands,
+           sdfgi_publication ? sdfgi_resources : nullptr,
+           sdfgi_publication ? sdfgi_publication->descriptor_set : nullptr});
+    });
     const bool forward_external_rendering_enabled =
         !reflection_probe_capture && !forward_rendering_external_functions.empty();
     if (forward_external_rendering_enabled) {
@@ -7960,12 +7981,14 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
                                         {camera, entity_selection_highlight_pipeline_, presentation, record_commands});
                                   });
     }
+    auto camera_render_graph_resources =
+        CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+    if (sdfgi_publication)
+      sdfgi_publication->ImportCamera(camera_render_graph, camera_render_graph_resources, *sdfgi_resources);
     if (!camera_render_graph.Validate()) {
       EVOENGINE_ERROR("Invalid camera render graph.")
     }
     const auto camera_render_graph_plan = camera_render_graph.Compile(CreateCameraRenderGraphCompileContext(camera));
-    auto camera_render_graph_resources =
-        CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
     if (camera) {
       camera_render_graph_resources.BindImages(
           RenderResourceNames::camera_g_buffer,

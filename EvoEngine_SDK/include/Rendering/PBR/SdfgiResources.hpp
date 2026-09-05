@@ -20,6 +20,7 @@ class SdfgiLightFrame;
 class SdfgiLightDebug;
 class SdfgiProbeFrame;
 class SdfgiProbeDebug;
+class SdfgiGatherFrame;
 
 enum class SdfgiMemoryClass { Field, Scratch, Upload, Diagnostic, Count };
 enum class SdfgiLayout {
@@ -98,6 +99,9 @@ class EVOENGINE_API SdfgiResources {
   std::shared_ptr<SdfgiProbeDebug> probe_debug;
   std::string probe_debug_failure;
   std::vector<std::shared_ptr<SdfgiProbeDebug>> probe_debug_frames;
+  std::vector<std::shared_ptr<SdfgiGatherFrame>> gather_frames;
+  std::shared_ptr<SdfgiGatherFrame> publication;
+  std::vector<uint64_t> gather_camera_ids;
   [[nodiscard]] uint64_t GetAllocationBytes(SdfgiMemoryClass memory_class) const;
 
   // fail_after_allocations is a deterministic partial-allocation failure seam for focused tests only.

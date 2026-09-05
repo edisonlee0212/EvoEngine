@@ -8,6 +8,7 @@
 #include "RenderInstanceStorage.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "RenderTexture.hpp"
+#include "SdfgiResources.hpp"
 
 using namespace evo_engine;
 
@@ -49,6 +50,9 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     return;
   }
   parameters.record_commands([&](const VkCommandBuffer vk_command_buffer) {
+    if (parameters.sdfgi_resources)
+      parameters.sdfgi_resources->OrderAccess(vk_command_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                              VK_ACCESS_2_SHADER_READ_BIT);
     ApplyGraphResourceBarriers(vk_command_buffer, context);
     const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context,
                                                     parameters.camera->GetHandle().GetValue(),
@@ -85,6 +89,11 @@ void DeferredComputeLightingPass::Execute(const RenderGraphExecutionContext& con
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 3,
                                            parameters.raster_lighting_texture_descriptor_set->GetVkDescriptorSet());
     parameters.pipeline->BindDescriptorSet(vk_command_buffer, 4, descriptor_set->GetVkDescriptorSet());
+    if (parameters.sdfgi_descriptor_set) {
+      parameters.pipeline->BindDescriptorSet(vk_command_buffer, 5,
+                                             parameters.sdfgi_descriptor_set->GetVkDescriptorSet());
+      parameters.sdfgi_resources->gather_camera_ids.push_back(parameters.camera->GetHandle().GetValue());
+    }
     RenderInstancePushConstant push_constant;
     push_constant.instance_index = parameters.reflection_probe_capture ? 2 : 0;
     push_constant.camera_index = parameters.camera_index;

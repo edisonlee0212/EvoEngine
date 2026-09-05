@@ -2,9 +2,10 @@
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
 Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, stationary
-SDF/occlusion preprocessing, voxel direct-light injection, and stationary probe transport/storage are implemented.
-Automatic SDFGI builds the representation when it has an eligible anchor, but reports Environment fallback and publishes
-no ordinary lighting. Scrolling and gather entry points remain ABI-only.
+SDF/occlusion preprocessing, voxel direct-light injection, stationary probe transport/storage, and deferred gather are
+implemented. Automatic SDFGI publishes a complete stationary field to eligible opaque/masked raster cameras and uses
+Environment fallback otherwise. M0-M7 are complete; M8 awaits the user's stationary manual review. Scrolling variants
+remain ABI-only, and M9-M12 have not started.
 
 ## Reference
 
@@ -31,7 +32,8 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
-| Planned `Shaders/Modules/EvoEngine/Sdfgi.slang` | `shaders/scene_forward_gi_inc.glsl::sdfgi_process` |
+| `SdfgiGather.hpp/.cpp`, `Shaders/Modules/EvoEngine/Sdfgi.slang` | `gi.cpp::SDFGI::pre_process_gi`, `shaders/scene_forward_gi_inc.glsl::sdfgi_process`, and forward/compute GI callers; shared-anchor/publication adapter |
+| `Shaders/Modules/EvoEngine/SdfgiLighting.slang`, `Shaders/Compute/SdfgiPublish.slang` | Accepted EvoEngine scene-linear material/AO/reflection composition and GPU publication guard; no DDGI gather or state |
 
 ## Capability report
 
@@ -64,7 +66,8 @@ normal main queue, with synchronization present as soon as each resource use exi
 
 Inspect the scene's Environmental Lighting asset and choose **Indirect GI provider > Automatic SDFGI**. Its tab exposes
 the reference controls; no GI entity, volume, or pack is needed. Requested and effective providers are shown separately.
-The shell always reports Environment until the later transport/gather milestones publish a complete field.
+Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
+failure, and generation checks remain authoritative before any camera samples the field.
 
 Defaults are four 128-cell cascades, minimum cell size 0.2, 75% vertical scale, occlusion off, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 0.5, sky read on, energy 1.0, and both biases 1.1.
@@ -122,8 +125,9 @@ during maintenance. The reference signed SH formats, 128-cell grid, 17-probe axe
 Preprocessing/direct-light/integration constants retain 48/48/112-byte layouts. Cascade records retain 48-byte stride.
 The light record appends `host_photometry` at byte 112 for a 128-byte stride; no area-light field is repurposed.
 Gather retains the 496-byte reference block and appends anchor origin/generation for 512 bytes. Status has separate
-readiness/failure/generation/capacity fields. The six-set gather ABI layout is created only for the opted-in SDFGI field;
-ordinary and excluded camera pipelines still have their existing five-set layouts and never bind the SDFGI set.
+readiness/failure/generation/capacity fields. The six-set gather layout is created only for the opted-in SDFGI field;
+eligible ordinary raster cameras use it after publication. No-SDFGI and excluded camera pipelines retain their existing
+five-set layouts and never bind the SDFGI set.
 
 `SdfgiInitialize` imports explicit unmanaged images/buffers into the scene graph, clears every used layer, and leaves
 readiness zero. Main-queue barriers cover prior shader/transfer/indirect users, clears, and subsequent consumers even
@@ -448,3 +452,92 @@ lacked zero-valued occupied voxels; correcting its encoding made it match the re
 tracing. PROCESS and STORE passed Vulkan 1.3 scalar-layout SPIR-V validation. SDK, Python bindings, tests, and editor built
 successfully; GPU checks and the Sponza run had no Vulkan or synchronization errors. No full suite, extra image matrix,
 DDGI comparison, app installation, or user manual acceptance was performed. M8 is the first ordinary-lighting/manual gate.
+
+## Stationary deferred gather and publication
+
+M8 translates the selected forward `scene_forward_gi_inc.glsl::sdfgi_process` path: eight-neighbor trilinear weights,
+normal-weight floor 0.005, normal bias in probe units, packed occlusion parity/weights with floor 0.01, octahedral
+irradiance/radiance addressing, cascade blending, and roughness-dependent radiance-to-irradiance mixing. Mixing starts at
+roughness 0.5 and the radiance fetch stops at 0.99. Godot's separate `gi.glsl` compute caller uses a different threshold
+and additional glossy SDF tracing; those are not the selected probe-gather behavior. The accepted host composition uses
+the `gi.glsl` coverage/energy convention: return outer-cascade weight `1-blend` and scale both incoming terms by SDFGI
+energy. This is an explicit caller adaptation, not a claim of exact forward-caller output parity. No gather equation,
+probe normalization, bias, or default energy has been tuned to match DDGI or the new beauty image.
+
+The 512-byte immutable metadata publishes the primary anchor in Y-scaled field coordinates, cascade minima relative to
+that anchor, reference world parity offsets, atlas/occlusion addressing, and one generation. Every receiver uses its own
+world position and view reflection direction against the same anchor. Gather normals and reflection directions receive
+Godot's Y scaling and normalization. Per-camera exposure is absent from field data; exposure normalization is one.
+No valid cascade, an unpublished/mismatched generation, or a whole-field GPU failure returns zero coverage before field
+sampling, selecting the ordinary Environment fallback.
+
+`SdfgiPublish` follows all probe STORE work. It uploads frame-slot metadata with explicit ordering against earlier
+readers, then sets GPU ready only for a nonzero matching generation with zero failure flags. CPU `published` describes
+the ordered recording, not synchronous GPU completion; the shader checks ready/failure/generation again. CPU-known
+light/transport/preprocess failures prevent publication. Missing anchors retain the last publication without moving
+coverage. The scene graph and every eligible camera graph import the same atlas, occlusion, status, and published UBO
+identities. Owner-level main-queue barriers cover publication-to-camera reads and all previous readers before the next
+frame's writes, including separately compiled graphs and reused metadata slots. Resources, metadata, descriptors, and
+staging survive all submitting fences. No dedicated compute queue or immediate maintenance submission is introduced.
+
+Only enabled ordinary scene raster cameras and the canonical editor Scene camera receive set 5. Immediate, reflection
+capture, custom-recorder, utility, and RT camera paths are excluded. Transparent paths retain ordinary Environment
+lighting. Static, dynamic, and skinned opaque/masked receivers share the same deferred shader; only static supported
+geometry contributes to the field. The non-SDFGI deferred pipeline remains five sets. `GetCurrentSceneGiStatus()` adds
+`published_generation` and the camera handles that actually bound set 5. `ReadCurrentSceneSdfgiFieldStatus()` explicitly
+waits and reads GPU generation/ready/failure for diagnostics; ordinary status inspection does not add that wait.
+
+`SdfgiLighting.slang` is a DDGI-free entry point. It replaces global environment diffuse and specular base by coverage,
+applies native dielectric/metallic/albedo/BRDF response once, preserves indirect-intensity semantics, and does not divide
+irradiance by pi again. Local reflection probes blend over the selected specular base. Material/GTAO diffuse visibility
+and native rough-specular AO each apply once; packed SDFGI occlusion stays in probe weights, never as a second AO term.
+Direct lighting, material emission, material-free opaque G-buffer, alpha-only masked coverage, and final SSR composition
+are unchanged. Ordinary material/BRDF/local-reflection helpers are exported without changing their equations; no DDGI
+gather, visibility, blend, atlas, or environmental-composition function is called by this entry point.
+
+The shared-module source layout validator includes unused vertex-only `set 0 / binding 14` in its compute reflection.
+Rather than widening the host binding's stage visibility, this one deferred variant uses Vulkan pipeline creation plus
+emitted SPIR-V verification; the dedicated Gather ABI shader still validates the new six-set layout. Disassembly confirms
+that the emitted SDFGI shader has all five set-5 bindings, read-only status, no DDGI resources, no unused vertex draw-index
+binding, and no RT capability. The ordinary deferred variant contains no set 5. Both variants and the publication shader
+pass `spirv-val --target-env vulkan1.3 --scalar-block-layout`.
+
+Three focused resource/gather tests passed in 4.86 seconds on the current RTX 5070 with all effective RT facilities
+disabled and Vulkan/synchronization validation enabled. The combined GPU fixture covers unpublished/published,
+generation mismatch, failure/recovery, normal/occlusion/trilinear weighting, cascade blend, outer fade/outside fallback,
+roughness mixing, and two separately compiled camera graphs in reversed order. The CPU check covers reference metadata,
+negative/shared anchor coordinates, Y scaling, and eligible/excluded camera selection. The resource fixture compiles the
+five- and six-set variants, checks packed views/ABI, and verifies retained resources. No Vulkan or synchronization errors
+were reported. A fixture initially assumed full renderer startup had created the ordinary pipeline; it now explicitly
+creates that variant with the actual host layouts. This correction does not change production behavior.
+
+The inspected first beauty baseline is `tasks/m8-sponza-beauty.png` (2560 x 1440), SHA256
+`1b359011b7f86254761154a67a2b6ce93c0db5b8b7d4398c7f2cb80914e56f27`. Reproduce with the disposable-resource driver above,
+using `--view beauty --output tasks/m8-sponza-beauty.png`. The final run completed 90 warmup transport passes and captured
+generation 91, with GPU ready 1, failure flags 0, effective Automatic SDFGI, and one ordinary camera binding set 5.
+RTX 5070/driver 2496774144; RT pipeline/query/BLAS/TLAS all false. Default C4/H30/rays16/feedback0.5 and compact counts
+68,792 / 19,148 / 3,926 / 886 were unchanged. Field/scratch/upload/diagnostic allocation bytes were
+328,543,376 / 94,085,120 / 1,852,944 / 80. No Vulkan or synchronization errors were reported. An earlier diagnostic attempt
+failed to convert the new camera-ID vector to Python; explicitly building a Python list corrected the status binding.
+The image has strong yellow illumination and bright floor highlights; the demo includes a yellow point light, but the
+visual response still needs user acceptance. This candidate is not yet an accepted visual baseline.
+
+### M8 manual review
+
+Build command: `cmake --build out/build/vs2026-x64-tests --config RelWithDebInfo --target EvoEngine_Tests EvoEngineEditor
+PyEvoEngine --parallel 8`. The built editor is
+`C:\Users\lllll\Documents\GitHub\EvoEngine\out\build\vs2026-x64-tests\EvoEngine_App\RelWithDebInfo\EvoEngineEditor.exe`.
+The dedicated review launch uses a disposable Rendering resource copy containing Sponza, with no generated
+`Rendering.eveproj`. It does not clear authored project files, enable the DDGI showcase, or enable RT. It selects
+Automatic SDFGI and opens the Scene view at the main camera pose, with a fixed 2560-by-1440 render target and the same
+camera/post-processing settings. From the repository root:
+
+```powershell
+& ./out/build/vs2026-x64-tests/EvoEngine_App/RelWithDebInfo/EvoEngineEditor.exe --sdfgi-review ./tasks/m4-resources
+```
+
+This interactive launch is build-verified; user review is pending. Keep the camera position stationary for M8; view
+rotation is fine. Crossing a scroll boundary can deliberately report fallback because scrolling is M9. Review first
+publication/convergence, diffuse and rough-specular response on static/dynamic receivers, and environment/local-reflection/
+AO/SSR composition. Report any defect before accepting. M8 remains uncommitted and M9 has not started. No full suite,
+additional image matrix, DDGI comparison, or app installation was run; installation is scheduled before M12 final review.

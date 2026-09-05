@@ -1,4 +1,4 @@
-"""Capture RT-disabled Sponza SDFGI volume slices at 2560x1440.
+"""Capture RT-disabled Sponza SDFGI diagnostics or beauty at 2560x1440.
 
 Use a disposable copy of Rendering demo resources, not the authored project.
 The script does not compare against or update any DDGI baseline.
@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cascade", type=int, default=0)
     parser.add_argument("--slice", type=int, default=64)
-    parser.add_argument("--view", choices=("voxels", "preprocess", "lighting", "transport"), default="voxels")
+    parser.add_argument("--view", choices=("voxels", "preprocess", "lighting", "transport", "beauty"), default="voxels")
     parser.add_argument("--probe", type=int, default=2456)
     args = parser.parse_args()
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
@@ -42,7 +42,7 @@ def main():
             raise RuntimeError("Could not configure the main raster camera")
         engine.ResizeCurrentSceneCameraForCapture(2560, 1440)
         engine.SetCurrentSceneGiProvider(engine.IndirectGiProvider.AutomaticSdfgi)
-        engine.SetGpuTimingCaptureEnabled(args.view == "transport")
+        engine.SetGpuTimingCaptureEnabled(args.view in ("transport", "beauty"))
         for frame in range(300):
             if not engine.Loop():
                 raise RuntimeError("Rendering demo ended before voxelization")
@@ -53,7 +53,7 @@ def main():
             raise RuntimeError(f"Voxelization did not become ready: {state}")
         if state["static_contributor_count"] == 0:
             raise RuntimeError(f"The Rendering demo has no static contributors: {state}")
-        if args.view == "transport":
+        if args.view in ("transport", "beauty"):
             for warmup in range(120):
                 if not engine.Loop():
                     raise RuntimeError("Rendering demo ended during probe warmup")
@@ -62,6 +62,15 @@ def main():
                     break
             else:
                 raise RuntimeError(f"Probe transport did not reach three history cycles: {state}")
+        if args.view == "beauty":
+            if not state["published"] or not engine.CaptureCurrentScene(2560, 1440, output, 1):
+                raise RuntimeError(f"SDFGI beauty capture failed: {state}")
+            field_status = engine.ReadCurrentSceneSdfgiFieldStatus()
+            if not field_status["ready"] or field_status["failure_flags"]:
+                raise RuntimeError(f"SDFGI GPU publication failed: {field_status}")
+            print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status, "view": args.view,
+                              "resolution": [2560, 1440], "output": str(output)}), flush=True)
+            return
         preprocess = args.view == "preprocess"
         request = engine.RequestCurrentSceneSdfgiPreprocessDebug if preprocess else engine.RequestCurrentSceneSdfgiVoxelDebug
         capture = engine.CaptureCurrentSceneSdfgiPreprocessDebug if preprocess else engine.CaptureCurrentSceneSdfgiVoxelDebug

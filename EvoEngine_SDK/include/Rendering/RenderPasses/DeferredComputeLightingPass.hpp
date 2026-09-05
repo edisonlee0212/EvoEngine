@@ -8,6 +8,7 @@ class EVOENGINE_API Camera;
 class EVOENGINE_API ComputePipeline;
 class EVOENGINE_API DescriptorSet;
 class EVOENGINE_API DescriptorSetLayout;
+class SdfgiResources;
 
 class EVOENGINE_API DeferredComputeLightingPass final {
  public:
@@ -26,6 +27,8 @@ class EVOENGINE_API DeferredComputeLightingPass final {
     bool reflection_probe_capture = false;
     bool scene_camera = false;
     RecordCommands record_commands;
+    std::shared_ptr<SdfgiResources> sdfgi_resources;
+    std::shared_ptr<DescriptorSet> sdfgi_descriptor_set;
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool ambient_occlusion_enabled,

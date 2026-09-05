@@ -6,6 +6,7 @@
 #include "Application.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "AssetManager.hpp"
+#include "Camera.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "Lights.hpp"
 #include "LodGroup.hpp"
@@ -13,11 +14,61 @@
 #include "MeshRenderer.hpp"
 #include "ResolvedEnvironmentalLighting.hpp"
 #include "Scene.hpp"
+#include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
 using namespace evo_engine;
+
+TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
+  SdfgiSettings settings;
+  std::vector<SdfgiCascade> cascades;
+  const glm::vec3 anchor(-13, 2, 9);
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, anchor, cascades).empty());
+  const auto data = BuildSdfgiGatherData(settings, cascades, anchor, 17);
+  EXPECT_EQ(data.generation, 17u);
+  EXPECT_EQ(data.max_cascades, 4u);
+  EXPECT_EQ(data.probe_axis_size, 17);
+  EXPECT_FLOAT_EQ(data.anchor_origin[1], 3);
+  EXPECT_FLOAT_EQ(data.normal_bias, 1.1f / 8);
+  EXPECT_FLOAT_EQ(data.occlusion_clamp[0], 0.9375f);
+  EXPECT_FLOAT_EQ(data.occlusion_renormalize[2], 0.25f);
+  EXPECT_FLOAT_EQ(data.lightprobe_tex_pixel_size[0], 1.0f / 2312);
+  EXPECT_FLOAT_EQ(data.lightprobe_uv_offset[2], 1.0f / 17);
+  for (uint32_t c = 0; c < 4; ++c) {
+    const auto& metadata = data.cascades[c];
+    for (uint32_t axis = 0; axis < 3; ++axis) {
+      EXPECT_FLOAT_EQ(metadata.position[axis] + data.anchor_origin[axis],
+                      (cascades[c].position[axis] - 64) * cascades[c].cell_size);
+      EXPECT_EQ(metadata.probe_world_offset[axis], cascades[c].position[axis] / 8);
+    }
+    EXPECT_FLOAT_EQ(metadata.to_probe, 1 / (8 * cascades[c].cell_size));
+    EXPECT_FLOAT_EQ(metadata.exposure_normalization, 1);
+  }
+  Application app;
+  ApplicationInitializationSettings initialization;
+  initialization.allow_empty_project = true;
+  initialization.load_default_resources = false;
+  initialization.load_project_assets = false;
+  initialization.load_project_start_scene = false;
+  initialization.enable_runtime_packages = false;
+  app.Initialize(initialization);
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto entity = scene->CreateEntity("SDFGI receiver camera");
+  const auto camera = scene->GetOrSetPrivateComponent<Camera>(entity).lock();
+  auto utility = std::make_shared<Camera>();
+  EXPECT_TRUE(IsSdfgiCameraEligible(scene, camera, utility, false, false, false));
+  EXPECT_TRUE(IsSdfgiCameraEligible(scene, utility, utility, false, false, false));
+  EXPECT_FALSE(IsSdfgiCameraEligible(scene, utility, {}, false, false, false));
+  EXPECT_FALSE(IsSdfgiCameraEligible(scene, camera, {}, true, false, false));
+  EXPECT_FALSE(IsSdfgiCameraEligible(scene, camera, {}, false, true, false));
+  EXPECT_FALSE(IsSdfgiCameraEligible(scene, camera, {}, false, false, true));
+  EXPECT_FALSE(IsSdfgiCameraEligible(AssetManager::CreateTemporaryAsset<Scene>(), camera, {}, false, false, false));
+  camera->SetEnabled(false);
+  EXPECT_FALSE(IsSdfgiCameraEligible(scene, camera, {}, false, false, false));
+  app.Terminate();
+}
 
 TEST(SdfgiScene, LightCapacitySelectionIsBoundedAndIndependentOfInputOrder) {
   for (const bool dynamic : {false, true}) {

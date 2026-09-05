@@ -118,7 +118,7 @@ float3 EE_FUNC_FRESNEL_SCHLICK_ROUGHNESS(float cosTheta, float3 F0, float F90, f
 }
 
 // The G-buffer stores lerp(dielectric F0, base color, metallic), while diffuse energy uses only dielectric Fresnel.
-float3 EE_RECOVER_DIELECTRIC_F0(float3 albedo, float metallic, float3 combinedF0) {
+public float3 EE_RECOVER_DIELECTRIC_F0(float3 albedo, float metallic, float3 combinedF0) {
   const float metalWeight = clamp(metallic, 0.0f, 1.0f);
   const float dielectricWeight = 1.0f - metalWeight;
   return dielectricWeight > 0.000001f
@@ -127,7 +127,7 @@ float3 EE_RECOVER_DIELECTRIC_F0(float3 albedo, float metallic, float3 combinedF0
              : float3(0.0f);
 }
 
-float EE_RECOVER_DIELECTRIC_F90(float metallic, float combinedF90) {
+public float EE_RECOVER_DIELECTRIC_F90(float metallic, float combinedF90) {
   const float metalWeight = clamp(metallic, 0.0f, 1.0f);
   const float dielectricWeight = 1.0f - metalWeight;
   return dielectricWeight > 0.000001f ? clamp((combinedF90 - metalWeight) / dielectricWeight, 0.0f, 1.0f) : 0.0f;
@@ -272,7 +272,7 @@ float3 EE_SAMPLE_REFLECTION_PROBE<T : ILightingResources>(T resources, Reflectio
   return blend_weight >= 1.0f ? target : lerp(source, target, blend_weight);
 }
 
-float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, float3 frag_pos,
+public float3 EE_SPATIAL_REFLECTION_PREFILTERED<T : ILightingResources>(T resources, float3 frag_pos,
                                                                  float3 reflection_direction, float roughness,
                                                                  float3 global_prefiltered) {
   int primary = -1;
