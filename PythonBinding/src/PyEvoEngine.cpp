@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
@@ -546,6 +547,14 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     }
     result["effective_provider"] = GetIndirectGiProviderName(effective);
     result["sdfgi_state_active"] = runtime != nullptr;
+    const auto resources = runtime ? runtime->resources : nullptr;
+    result["gpu_resources_allocated"] = resources != nullptr;
+    result["gpu_initialization_recorded"] = resources && resources->initialization_recorded;
+    py::dict memory;
+    const char* memory_names[]{"field", "scratch", "upload", "diagnostic"};
+    for (size_t i = 0; i < 4; ++i)
+      memory[memory_names[i]] = resources ? resources->allocated_bytes[i] : 0;
+    result["active_allocation_bytes"] = memory;
     result["maintenance_count"] = runtime ? runtime->maintenance_count : 0;
     result["published"] = runtime && runtime->published;
     result["missing_anchor"] = !runtime || runtime->missing_anchor;

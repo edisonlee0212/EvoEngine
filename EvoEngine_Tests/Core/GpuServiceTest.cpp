@@ -16,9 +16,12 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Resources.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
+#include "Serialization.hpp"
 #include "Shader.hpp"
 #include "Strands.hpp"
 #include "Texture2D.hpp"
@@ -40,6 +43,10 @@ using namespace evo_engine;
 namespace evo_engine {
 class SdfgiTestAccess {
  public:
+  static std::vector<std::shared_ptr<DescriptorSetLayout>> HostLayouts(const RenderLayer& render) {
+    return {render.per_frame_layout_, render.camera_g_buffer_layout_, render.lighting_layout_,
+            render.raster_lighting_texture_layout_, render.deferred_compute_lighting_layout_};
+  }
   static void ExecuteSceneFrame(RenderLayer& render, const std::shared_ptr<Scene>& scene) {
     render.per_frame_descriptor_sets_.resize(Platform::GetMaxFramesInFlight());
     render.render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
@@ -60,6 +67,10 @@ class PlatformLifecycleTestAccess final {
 
   static void PreUpdate() {
     Platform::PreUpdate();
+  }
+
+  static void LateUpdate() {
+    Platform::LateUpdate();
   }
 
   static void OnDestroy() {
@@ -360,6 +371,181 @@ TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeature
   EXPECT_FALSE(replacement->GetSdfgiRuntime());
   EXPECT_EQ(calls, 4u);
   EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
+}
+
+TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRayFeatures) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  ASSERT_TRUE(render);
+  const auto host_layouts = SdfgiTestAccess::HostLayouts(*render);
+  std::string failure;
+  EXPECT_FALSE(SdfgiResources::TryCreate({}, host_layouts, failure, 3));
+  EXPECT_NE(failure.find("forced allocation failure"), std::string::npos) << failure;
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  auto field = SdfgiResources::TryCreate({}, host_layouts, failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_EQ(field->textures.size(), 46u);
+  EXPECT_EQ(field->buffers.size(), 13u + Platform::GetMaxFramesInFlight() * 11u);
+  EXPECT_EQ(field->pipelines.size(), 16u);
+  EXPECT_TRUE(field->voxel_pipeline->Initialized());
+  EXPECT_FALSE(field->initialization_recorded);
+  for (const auto& [name, texture] : field->textures) {
+    SCOPED_TRACE(name);
+    EXPECT_EQ(texture.image->GetFormat(), texture.requirement.storage_format);
+    EXPECT_EQ(texture.image->GetExtent().depth, texture.requirement.extent.depth);
+    EXPECT_EQ(texture.storage_view->GetImage(), texture.sampled_view->GetImage());
+    EXPECT_GT(texture.image->GetVmaAllocationInfo().size, 0u);
+  }
+  EXPECT_EQ(field->textures.at("Atlas").requirement.layers, 8u);
+  EXPECT_EQ(field->textures.at("Cascade0.History").requirement.layers, 30u);
+  EXPECT_EQ(field->textures.at("Occlusion").requirement.extent.depth, 512u);
+  for (size_t i = 0; i < 4; ++i)
+    std::cout << "SDFGI allocated memory class " << i << ": " << field->allocated_bytes[i] << " bytes\n";
+
+  const auto make_check = [&](const char* filename, const SdfgiLayout layout, const uint32_t push_size,
+                              const bool sky) {
+    auto pipeline = std::make_shared<ComputePipeline>();
+    pipeline->compute_shader =
+        Shader::CreateTemporary(ShaderType::Compute, "#define EE_SDFGI_ABI_ONLY 1\n#define EE_SDFGI_RESOURCE_CHECK 1\n",
+                                Resources::GetDefaultResourcesPath() / "Shaders/Compute" / filename);
+    pipeline->descriptor_set_layouts = {field->layouts[static_cast<size_t>(layout)]};
+    if (sky)
+      pipeline->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Sky)]);
+    pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size});
+    pipeline->Initialize();
+    return pipeline;
+  };
+  const auto light_check =
+      make_check("SdfgiDirectLight.slang", SdfgiLayout::DirectLight, sizeof(SdfgiDirectLightPushConstant), false);
+  const auto integrate_check =
+      make_check("SdfgiIntegrate.slang", SdfgiLayout::Integrate, sizeof(SdfgiIntegratePushConstant), true);
+  ASSERT_TRUE(light_check->Initialized());
+  ASSERT_TRUE(integrate_check->Initialized());
+  const auto gather_check = std::make_shared<ComputePipeline>();
+  gather_check->descriptor_set_layouts = field->pipelines.at("GatherAbi")->descriptor_set_layouts;
+  gather_check->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, "#define EE_SDFGI_ABI_ONLY 1\n#define EE_SDFGI_RESOURCE_CHECK 1\n",
+                              Resources::GetDefaultResourcesPath() / "Shaders/Compute/SdfgiGatherAbi.slang");
+  gather_check->Initialize();
+  ASSERT_TRUE(gather_check->Initialized());
+  const auto export_spirv = [&](const std::string& name, const std::shared_ptr<Shader>& shader) {
+    if (const char* directory = std::getenv("EVOENGINE_SDFGI_SPIRV_OUTPUT_DIR"); directory && directory[0]) {
+      std::vector<uint32_t> words;
+      ASSERT_TRUE(Shader::CompileToSpirv(shader->GetShaderType(), shader->PeekShaderCode(), words,
+                                         std::filesystem::path(directory) / (name + ".slang")));
+      std::filesystem::create_directories(directory);
+      std::ofstream out(std::filesystem::path(directory) / (name + ".spv"), std::ios::binary);
+      out.write(reinterpret_cast<const char*>(words.data()), words.size() * sizeof(uint32_t));
+      ASSERT_TRUE(out.good());
+    }
+  };
+  for (const auto& [name, pipeline] : field->pipelines)
+    export_spirv(name, pipeline->compute_shader);
+  export_spirv("LightResourceCheck", light_check->compute_shader);
+  export_spirv("IntegrateResourceCheck", integrate_check->compute_shader);
+  export_spirv("GatherResourceCheck", gather_check->compute_shader);
+  export_spirv("VoxelVertexAbi", field->voxel_pipeline->vertex_shader);
+  export_spirv("VoxelFragmentAbi", field->voxel_pipeline->fragment_shader);
+  BufferUploadArena uploads(4096);
+  for (uint32_t iteration = 0; iteration < 2; ++iteration) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
+    });
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    EXPECT_FALSE(plan.uses_ray_tracing_queue);
+    EXPECT_TRUE(plan.allocations.empty());
+    graph.Execute(plan, registry);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+      for (const auto& [name, texture] : field->textures) {
+        if (name != "Atlas" && name != "Occlusion" && name.find(".Light") == std::string::npos)
+          continue;
+        VkClearColorValue color{};
+        color.uint32[0] = name == "Occlusion" ? 0xf0a5 : 0x84020100;
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, texture.requirement.layers};
+        Platform::ClearColorImage(command, *texture.image, color, 1, &range);
+      }
+    });
+    SdfgiCascadeBlock cascade_data{};
+    cascade_data.data[7].pad2[3] = 42.5f;
+    std::array<SdfgiLight, 2> lights{};
+    lights[1].host_photometry[3] = 13.25f;
+    BufferUploadBatch upload;
+    BufferUploadOptions uniform;
+    uniform.usage = BufferUploadUsage::Uniform;
+    upload.Add(field->buffers.at("Frame0.Cascades").buffer, cascade_data, uniform);
+    SdfgiGatherData gather_data{};
+    gather_data.cascades[7].exposure_normalization = 2;
+    gather_data.anchor_origin[2] = 3;
+    gather_data.generation = 5;
+    upload.Add(field->buffers.at("Frame0.Gather").buffer, gather_data, uniform);
+    upload.Add(field->buffers.at("Frame0.Cascade0.StaticLights").buffer, lights);
+    upload.Record(uploads);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      light_check->Bind(command);
+      light_check->BindDescriptorSet(command, 0, field->sets.at("Frame0.Cascade0.StaticLights")->GetVkDescriptorSet());
+      SdfgiDirectLightPushConstant light_params{};
+      light_params.max_cascades = 8;
+      light_check->PushConstant(command, 0, light_params);
+      light_check->Dispatch(command, 1);
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      integrate_check->Bind(command);
+      integrate_check->BindDescriptorSet(command, 1, field->sets.at("Sky")->GetVkDescriptorSet());
+      for (uint32_t c = 0; c < 4; ++c) {
+        integrate_check->BindDescriptorSet(
+            command, 0, field->sets.at("Frame0.Cascade" + std::to_string(c) + ".Integrate")->GetVkDescriptorSet());
+        SdfgiIntegratePushConstant params{};
+        params.history_size = 30;
+        params.max_cascades = 4;
+        integrate_check->PushConstant(command, 0, params);
+        integrate_check->Dispatch(command, 1);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      }
+      gather_check->Bind(command);
+      gather_check->BindDescriptorSet(command, 5, field->sets.at("Frame0.Gather")->GetVkDescriptorSet());
+      gather_check->Dispatch(command, 1);
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_READ_BIT);
+    });
+    PlatformLifecycleTestAccess::LateUpdate();
+  }
+  EXPECT_TRUE(field->initialization_recorded);
+  EXPECT_GT(Platform::GetPendingFrameSubmissionCount(), 0u);
+  const std::weak_ptr<SdfgiResources> weak_field = field;
+  auto retained = field;
+  field.reset();
+  EXPECT_FALSE(weak_field.expired());
+  Platform::WaitForFrameSubmissions("SDFGI focused lifetime test");
+  SdfgiFieldStatus status{};
+  retained->buffers.at("Status").buffer->Download(status);
+  EXPECT_EQ(status.ready, 0u);
+  EXPECT_EQ(status.failure_flags, 0u);
+  EXPECT_EQ(status.solid_cell_capacity, kSdfgiSolidCellCapacity);
+  EXPECT_EQ(status.generation, glm::floatBitsToUint(42.5f));
+  retained.reset();
+  EXPECT_TRUE(weak_field.expired());
+
+  field = SdfgiResources::TryCreate({}, host_layouts, failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_FALSE(field->initialization_recorded);
+  field.reset();
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

@@ -1,8 +1,9 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight and the opt-in provider shell are implemented. SDFGI rendering is not yet available; selecting
-Automatic SDFGI currently reports Environment fallback, with no GI field images allocated or published.
+Capability preflight, the opt-in provider shell, and initial GPU resource plumbing are implemented. SDFGI rendering is
+not yet available: Automatic SDFGI allocates and clears storage when it has an eligible anchor, but reports Environment
+fallback and publishes no lighting. Shader entry points are explicitly ABI-only until their algorithm milestones.
 
 ## Reference
 
@@ -21,11 +22,12 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 |---|---|
 | `EvoEngine_SDK/src/SdfgiCapabilities.cpp` | `servers/rendering/renderer_rd/environment/gi.cpp::SDFGI::create`, `gi.h`, and SDFGI shader resource/workgroup declarations |
 | `SdfgiSettings.hpp/.cpp`, `SdfgiRuntime.hpp/.cpp` (ownership shell) | Environment defaults; `render_forward_clustered.cpp::sdfgi_update`; later `gi.h::SDFGI` and `gi.cpp` cascade/update logic |
-| Planned `SdfgiResources.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
-| Planned `Shaders/Compute/SdfgiPreprocess.slang` | `shaders/environment/sdfgi_preprocess.glsl` |
-| Planned `Shaders/Compute/SdfgiDirectLight.slang` | `shaders/environment/sdfgi_direct_light.glsl` |
-| Planned `Shaders/Compute/SdfgiIntegrate.slang` | `shaders/environment/sdfgi_integrate.glsl` |
-| Planned `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF` |
+| `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
+| `Shaders/Compute/SdfgiPreprocess.slang` (ABI only) | `shaders/environment/sdfgi_preprocess.glsl` |
+| `Shaders/Compute/SdfgiDirectLight.slang` (ABI only) | `shaders/environment/sdfgi_direct_light.glsl` |
+| `Shaders/Compute/SdfgiIntegrate.slang` (ABI only) | `shaders/environment/sdfgi_integrate.glsl` |
+| `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` (ABI only) | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF` |
+| `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
 | Planned `Shaders/Modules/EvoEngine/Sdfgi.slang` | `shaders/scene_forward_gi_inc.glsl::sdfgi_process` |
 
@@ -74,6 +76,7 @@ Scene camera, and headless use falls back to the scene main camera. The override
 handle, not bounds. Invalid overrides fall through and report why; an absent anchor retains the previous position.
 Preview, reflection, and injected utility cameras are not implicit anchors. Scene replacement, provider changes, scene
 purge/clone, or incompatible layout settings discard the old CPU field state.
+GPU owners remain retained by every submitting frame slot until its fence is recycled, including replaced fields.
 
 `RenderAll` executes a separate scene frame graph once before ordinary cameras. The SDFGI maintenance hook uses Frame
 scope and the normal Graphics queue; cameras do not call it. External frame passes follow `SceneGiComplete`, with the
@@ -99,3 +102,43 @@ RelWithDebInfo. All 15 focused provider/settings/anchor/frame-boundary, existing
 checks passed. The live frame-boundary test used the current RTX 5070 with all four effective RT flags false and Vulkan
 and synchronization validation enabled; no validation errors were reported. No editor UI or image test was performed;
 the settings UI is build-verified, and visual/manual acceptance remains at the agreed working-render checkpoints.
+
+## GPU storage and initialization
+
+The enabled field owns persistent cascade data and one shared scratch set, independent of ordinary camera count.
+Defaults allocate 46 images (including a black sky filler), persistent solid-cell/dispatch/status buffers, and separate
+per-frame cascade/gather/voxel metadata and static/dynamic light inputs. Unused cascade descriptor entries point to valid
+compatible existing views and remain outside `max_cascades`; no partially-bound descriptors are required.
+
+Packed light and probe images use `R32_UINT` storage and `E5B9G9R9_UFLOAT_PACK32` sampled views. Packed occlusion uses
+`R16_UINT` storage and `R4G4B4A4_UNORM_PACK16` sampled views. Each pair shares one image and graph identity, with explicit
+format lists, mutable/extended image usage, and per-view storage-only or sampled-only usage. All views use `GENERAL`
+during maintenance. The reference signed SH formats, 128-cell grid, 17-probe axes, 25% solid-cell capacity, and
+2312-by-136 atlas with `2C` layers are unchanged.
+
+Preprocessing/direct-light/integration constants retain 48/48/112-byte layouts. Cascade records retain 48-byte stride.
+The light record appends `host_photometry` at byte 112 for a 128-byte stride; no area-light field is repurposed.
+Gather retains the 496-byte reference block and appends anchor origin/generation for 512 bytes. Status has separate
+readiness/failure/generation/capacity fields. The six-set gather ABI layout is created only for the opted-in SDFGI field;
+ordinary and excluded camera pipelines still have their existing five-set layouts and never bind the SDFGI set.
+
+`SdfgiInitialize` imports explicit unmanaged images/buffers into the scene graph, clears every used layer, and leaves
+readiness zero. Main-queue barriers cover prior shader/transfer/indirect users, clears, and subsequent consumers even
+across separate graph/frame executions. Initialization alone never publishes a lighting result. There is no SDFGI
+immediate submission, new queue, or device-idle wait. Allocation/layout/pipeline failure is diagnosed and leaves no field;
+it is not retried every frame. Changing provider or incompatible settings creates a fresh initialization attempt.
+
+`GetCurrentSceneGiStatus()` reports allocation and initialization-recorded state plus `active_allocation_bytes`, split
+into field, scratch, upload, and diagnostic categories using actual VMA allocation sizes. These are active-owner totals,
+not driver-pool usage or a peak that includes temporarily retiring old fields. Diagnostic allocation is currently zero;
+payload staging is not yet owned by this initialization-only path. The ABI-only shaders are compiled/layout-checked but never dispatched by
+normal rendering; focused GPU tests use explicitly compiled resource-check variants.
+
+M2 verification (2026-09-05): SDK, Python binding, and tests built in `vs2026-x64-tests`, RelWithDebInfo.
+All eight `SdfgiResources.*:SdfgiRuntime.*` checks passed (2.98 seconds), including a forced partial-allocation failure,
+two main-queue clear/read submissions on one field, packed RGB9E5/RGBA4 reads, all SH-history layers, ABI sentinels,
+six-set descriptor limits, and create/destroy repetition. The RTX 5070 run had all effective RT facilities disabled,
+with Vulkan and synchronization validation enabled and no reported errors. All 21 exported shader variants passed
+`spirv-val --target-env vulkan1.3`; disassembly confirms 128-byte lights, 48-byte cascades, and gather offsets 496/508.
+Actual active-owner allocations: field 294,988,944 bytes, scratch 94,085,120 bytes, input 1,181,696 bytes, diagnostic zero.
+No image, editor UI, or full-suite run was performed; this is storage/ABI evidence, not demonstrated lighting parity.

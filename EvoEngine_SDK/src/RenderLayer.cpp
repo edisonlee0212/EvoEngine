@@ -48,6 +48,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
@@ -5620,6 +5621,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   RenderGraph scene_graph;
   AddDefaultFrameResources(scene_graph);
   AddAdvancedFrameResources(scene_graph);
+  auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
+  sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
     auto& runtime = scene->sdfgi_runtime_;
     if (!runtime || !runtime->settings.HasSameLayout(lighting.sdfgi_settings) ||
@@ -5662,10 +5665,31 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     const auto anchor =
         SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor,
                           lighting.sdfgi_settings.anchor_camera_entity != 0, playable_view, editor != nullptr);
+    runtime->Maintain(scene_frame, anchor);
+    if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
+        runtime->capabilities.Supported()) {
+      runtime->allocation_attempted = true;
+      runtime->resources =
+          SdfgiResources::TryCreate(runtime->settings,
+                                    {per_frame_layout_, camera_g_buffer_layout_, lighting_layout_,
+                                     raster_lighting_texture_layout_, deferred_compute_lighting_layout_},
+                                    runtime->resource_failure);
+      if (!runtime->resource_failure.empty())
+        runtime->fallback_reason = runtime->resource_failure;
+    }
     scene_graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
-                        [runtime, anchor, scene_frame](const RenderGraphExecutionContext&) {
-                          runtime->Maintain(scene_frame, anchor);
+                        [](const RenderGraphExecutionContext&) {
                         });
+    if (const auto resources = runtime->resources) {
+      sdfgi_frame_resources_[current_frame_index].push_back(resources);
+      resources->Import(scene_graph, registry);
+      if (!resources->initialization_recorded)
+        scene_graph.AddPass(resources->ClearDescriptor(), [resources](const RenderGraphExecutionContext& context) {
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command_buffer) {
+            resources->Clear(command_buffer, context);
+          });
+        });
+    }
   } else if (scene) {
     scene->sdfgi_runtime_.reset();
   }
@@ -5711,7 +5735,6 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     return;
   }
   const auto plan = scene_graph.Compile(CreateFrameRenderGraphCompileContext());
-  auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
   auto& transient_resources = render_graph_transient_resource_stores_[current_frame_index].emplace_back();
   transient_resources.Allocate(scene_graph.GetResources(), plan);
   transient_resources.Bind(registry);
@@ -5729,6 +5752,8 @@ void RenderLayer::RenderAll() {
   PruneRayCameraHistories(current_render_instances);
   auto& current_frame_transient_resources = render_graph_transient_resource_stores_.at(current_frame_index);
   current_frame_transient_resources.clear();
+  if (current_frame_index < sdfgi_frame_resources_.size())
+    sdfgi_frame_resources_[current_frame_index].clear();
   if (!ddgi_fallback_probe_state_buffer_) {
     ddgi_fallback_probe_state_buffer_ = CreateDdgiFallbackProbeStateBuffer(sizeof(glm::vec4));
   }
@@ -8002,6 +8027,7 @@ void RenderLayer::OnDestroy() {
   if (const auto scene = sdfgi_scene_.lock())
     scene->sdfgi_runtime_.reset();
   sdfgi_scene_.reset();
+  sdfgi_frame_resources_.clear();
   for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {
     PublishSubmittedReflectionProbeBake(frame_index);
     PublishSubmittedDynamicReflectionProbeUpdate(frame_index);

@@ -4,9 +4,23 @@
 #include "Application.hpp"
 #include "ApplicationInitializationSettings.hpp"
 #include "EnvironmentalLighting.hpp"
+#include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
 using namespace evo_engine;
+
+TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
+  Application app;
+  auto layout = std::make_shared<DescriptorSetLayout>();
+  layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_SHADER_STAGE_COMPUTE_BIT, 0, 32);
+  VkPhysicalDeviceLimits limits{};
+  limits.maxBoundDescriptorSets = 6;
+  limits.maxDescriptorSetSamplers = limits.maxDescriptorSetSampledImages = 48;
+  limits.maxPerStageDescriptorSamplers = limits.maxPerStageDescriptorSampledImages = limits.maxPerStageResources = 48;
+  EXPECT_TRUE(SdfgiResources::ValidateDescriptorLimits({layout}, limits).empty());
+  EXPECT_FALSE(SdfgiResources::ValidateDescriptorLimits({layout, layout}, limits).empty());
+  EXPECT_FALSE(SdfgiResources::ValidateDescriptorLimits({nullptr}, limits).empty());
+}
 
 TEST(SdfgiRuntime, ReferenceDefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;

@@ -5,8 +5,11 @@
 
 #include <glm/glm.hpp>
 #include <limits>
+#include <memory>
 
 namespace evo_engine {
+
+class SdfgiResources;
 
 enum class SdfgiAnchorSource : uint32_t { None, Explicit, MainCamera, EditorScene };
 
@@ -29,6 +32,9 @@ struct EVOENGINE_API SdfgiRuntime {
   uint32_t last_scene_frame = std::numeric_limits<uint32_t>::max();
   bool missing_anchor = true;
   bool published = false;
+  bool allocation_attempted = false;
+  std::shared_ptr<SdfgiResources> resources;
+  std::string resource_failure;
   std::string fallback_reason = "No complete SDFGI field published";
 
   SdfgiRuntime(const SdfgiSettings& initial_settings, SdfgiCapabilityReport report);

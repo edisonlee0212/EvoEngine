@@ -36,6 +36,8 @@ bool SdfgiRuntime::Maintain(const uint32_t scene_frame, const SdfgiAnchor& selec
     anchor = selected_anchor;
   anchor.override_fell_back = selected_anchor.override_fell_back;
   fallback_reason = settings.Validate();
+  if (fallback_reason.empty())
+    fallback_reason = resource_failure;
   if (fallback_reason.empty() && !capabilities.Supported())
     fallback_reason = capabilities.ToString();
   if (fallback_reason.empty())
