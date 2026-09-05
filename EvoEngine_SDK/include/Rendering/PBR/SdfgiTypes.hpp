@@ -11,6 +11,7 @@ inline constexpr uint32_t kSdfgiMaxCascades = 8;
 inline constexpr uint32_t kSdfgiSolidCellCapacity = 128 * 128 * 128 / 4;
 inline constexpr uint32_t kSdfgiFailureSolidOverflow = 1;
 inline constexpr uint32_t kSdfgiFailureLightOverflow = 2;
+inline constexpr uint32_t kSdfgiFailurePayloadCoverage = 4;
 
 struct alignas(16) SdfgiCascadeData {
   float offset[3]{};

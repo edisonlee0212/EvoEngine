@@ -3,6 +3,8 @@
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
 #include "ImGuiLayer.hpp"
+#include "Lights.hpp"
+#include "MeshRenderer.hpp"
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
@@ -512,6 +514,37 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     scene->SetDataComponent(camera->GetOwner(), transform);
   });
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
+  m.def("ScaleCurrentSceneStaticMaterialsForCapture", [](const float color_scale, const float emission_scale) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    if (!scene || !std::isfinite(color_scale) || !std::isfinite(emission_scale) || color_scale < 0 ||
+        emission_scale < 0)
+      throw py::value_error("An active scene and finite nonnegative scales are required");
+    std::set<uint64_t> edited;
+    if (const auto owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>())
+      for (const auto entity : *owners) {
+        const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+        const auto material = renderer->material.Get<Material>();
+        if (!scene->IsEntityStatic(entity) || !material || !edited.insert(material->GetHandle().GetValue()).second)
+          continue;
+        auto& data = material->material_data.shade_material;
+        data.pbr_base_color_factor *= glm::vec4(color_scale, color_scale, color_scale, 1);
+        data.emissive_factor *= emission_scale;
+        material->SetUnsaved();
+      }
+    return edited.size();
+  });
+  m.def("ScaleCurrentSceneDirectionalLightsForCapture", [](const float scale) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    if (!scene || !std::isfinite(scale) || scale < 0)
+      throw py::value_error("An active scene and finite nonnegative scale are required");
+    uint32_t count = 0;
+    if (const auto owners = scene->UnsafeGetPrivateComponentOwnersList<DirectionalLight>())
+      for (const auto entity : *owners) {
+        scene->GetOrSetPrivateComponent<DirectionalLight>(entity).lock()->diffuse_brightness *= scale;
+        ++count;
+      }
+    return count;
+  });
   m.def("SharedTextureDescriptorArraysEnabled", []() {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
     return render_layer && render_layer->SharedTextureDescriptorArraysEnabled();
@@ -696,6 +729,15 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["voxel_failure"] = resources ? resources->voxel_failure : std::string{};
     result["voxel_debug_recorded"] = resources && resources->voxel_debug && resources->voxel_debug->recorded;
     result["preprocessed_cascades"] = resources ? resources->preprocessed_cascades : 0;
+    result["geometry_update_count"] = resources ? resources->geometry_update_count : 0;
+    result["payload_update_count"] = resources ? resources->payload_update_count : 0;
+    result["invalidation_reason"] = runtime ? runtime->invalidation_reason : std::string{};
+    py::list pending_changes;
+    if (runtime)
+      for (const auto flags : runtime->pending_changes)
+        pending_changes.append(flags);
+    result["pending_changes"] = pending_changes;
+    result["payload_cascades"] = runtime ? runtime->payload_cascades : 0;
     result["preprocess_status_available"] = resources && resources->preprocess_status_available;
     result["preprocess_failure_flags"] = resources ? resources->preprocess_status.failure_flags : 0;
     result["preprocess_failure"] = resources ? resources->preprocess_failure : std::string{};

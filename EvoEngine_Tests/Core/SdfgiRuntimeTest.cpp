@@ -460,6 +460,97 @@ TEST(SdfgiScene, RegistrySeparatesCoveragePayloadAndReceiverOnlyEdits) {
   EXPECT_TRUE(registry.changes.empty());
 }
 
+TEST(SdfgiRuntime, EditRoutingRetainsPendingWorkAndBoundsFailureIsNotRepeated) {
+  SdfgiSettings settings;
+  settings.cascade_count = 2;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  SdfgiRuntime runtime(settings, {});
+  uint32_t frame = 0;
+  SdfgiSceneSnapshot snapshot;
+  SdfgiContributor input;
+  input.id = {1, 1};
+  input.world_bounds = {{90, 0, 0}, {94, 4, 4}};
+  snapshot.contributors = {input};
+  const auto update = [&](const bool anchor = true, const glm::vec3 position = glm::vec3(0)) {
+    EXPECT_TRUE(runtime.Maintain(++frame, anchor ? SdfgiAnchor{1, position} : SdfgiAnchor{}));
+    runtime.UpdateSceneSnapshot(snapshot);
+    if (anchor)
+      runtime.PrepareUpdates(true, false);
+  };
+  update();
+  runtime.AcknowledgeChanges(3);
+  update();
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  snapshot.contributors[0].material.emission = glm::vec3(2);
+  update();
+  EXPECT_EQ(runtime.payload_cascades, 2u);
+  EXPECT_FALSE(runtime.cascades[0].full_redraw);
+  EXPECT_FALSE(runtime.cascades[1].full_redraw);
+  ASSERT_EQ(runtime.pending_regions.size(), 1u);
+  EXPECT_EQ(runtime.pending_regions[0].size, glm::ivec3(128));
+  update();  // No acknowledgment models a failed preparation; the edit must not be lost.
+  EXPECT_EQ(runtime.payload_cascades, 2u);
+  runtime.published = true;
+  update(false);
+  EXPECT_FALSE(runtime.published);
+  EXPECT_EQ(runtime.pending_changes[1], SdfgiPayloadChanged);
+  update();
+  EXPECT_EQ(runtime.payload_cascades, 2u);
+  runtime.AcknowledgeChanges(2);
+  snapshot.contributors[0].world_bounds = {glm::vec3(-1), glm::vec3(1)};
+  snapshot.contributors[0].transform[3].x = -90;
+  update();
+  EXPECT_TRUE(runtime.cascades[0].full_redraw);
+  EXPECT_TRUE(runtime.cascades[1].full_redraw);
+  EXPECT_EQ(runtime.payload_cascades, 0u);
+  runtime.AcknowledgeChanges(3);
+  for (uint32_t kind = 0; kind < 3; ++kind) {
+    if (kind == 0)
+      ++snapshot.contributors[0].geometry_version;
+    if (kind == 1)
+      snapshot.contributors[0].material.masked = true;
+    if (kind == 2)
+      snapshot.contributors[0].material.double_sided = true;
+    update();
+    EXPECT_TRUE(runtime.cascades[0].full_redraw);
+    EXPECT_EQ(runtime.payload_cascades, 0u);
+    runtime.AcknowledgeChanges(3);
+  }
+  snapshot.contributors[0].material.base_color.r = 0.5f;
+  update(true, {17, 0, 0});  // Both cascades scroll; an edit plus scrolling needs a full rebuild.
+  EXPECT_EQ(runtime.payload_cascades, 0u);
+  EXPECT_TRUE(runtime.cascades[0].full_redraw);
+  runtime.AcknowledgeChanges(3);
+  snapshot.contributors[0].exclusion = SdfgiExclusion::InvalidBounds;
+  update();
+  EXPECT_TRUE(runtime.cascades[0].full_redraw);
+  EXPECT_TRUE(runtime.cascades[1].full_redraw);
+  EXPECT_NE(runtime.invalidation_reason.find("Unknown"), std::string::npos);
+  runtime.AcknowledgeChanges(3);
+  update();
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  snapshot.contributors.clear();
+  update();
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  input.exclusion = SdfgiExclusion::Dynamic;
+  snapshot.contributors = {input};
+  update();
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  snapshot.contributors[0].transform[3].x = 100;
+  update();
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  runtime.allocation_attempted = true;
+  runtime.resource_failure = "forced pipeline failure";
+  update();
+  EXPECT_TRUE(runtime.allocation_attempted);
+  EXPECT_FALSE(runtime.resource_failure.empty());
+  update(false);
+  update();
+  EXPECT_FALSE(runtime.allocation_attempted);
+  EXPECT_TRUE(runtime.resource_failure.empty());
+}
+
 TEST(SdfgiScene, MaterialSnapshotIgnoresUnrelatedBrdfAndBindlessIndices) {
   Application app;
   const auto material = std::make_shared<Material>();

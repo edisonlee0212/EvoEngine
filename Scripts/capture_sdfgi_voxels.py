@@ -22,11 +22,14 @@ def main():
     parser.add_argument("--probe", type=int, default=2456)
     parser.add_argument("--occlusion-off-output", type=Path, help="Optional second beauty capture after disabling occlusion")
     parser.add_argument("--traverse", action="store_true", help="After beauty, exercise signed scrolls and a teleport/return")
+    parser.add_argument("--edit-check", action="store_true", help="Check material/light edits and provider lifecycle after beauty")
     args = parser.parse_args()
     if args.occlusion_off_output and args.view != "beauty":
         parser.error("--occlusion-off-output requires --view beauty")
     if args.traverse and (args.view != "beauty" or args.occlusion_off_output):
         parser.error("--traverse requires --view beauty without an occlusion-off comparison")
+    if args.edit_check and (args.view != "beauty" or args.traverse or args.occlusion_off_output):
+        parser.error("--edit-check requires --view beauty without other comparison modes")
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
     occlusion_off_output = args.occlusion_off_output.resolve() if args.occlusion_off_output else None
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
@@ -99,6 +102,50 @@ def main():
                 print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status,
                                   "view": args.view, "use_occlusion": False, "resolution": [2560, 1440],
                                   "output": str(occlusion_off_output)}), flush=True)
+            if args.edit_check:
+                baseline = engine.GetCurrentSceneGiStatus()
+                materials = engine.ScaleCurrentSceneStaticMaterialsForCapture(0.75, 2.0)
+                if not materials or not engine.Loop():
+                    raise RuntimeError("No static material edit was exercised")
+                material_state = engine.GetCurrentSceneGiStatus()
+                if (material_state["geometry_update_count"] != baseline["geometry_update_count"] or
+                        material_state["payload_update_count"] <= baseline["payload_update_count"]):
+                    raise RuntimeError(f"Material edit did not take the payload-only path: {material_state}")
+                lights = engine.ScaleCurrentSceneDirectionalLightsForCapture(0.5)
+                if not lights:
+                    raise RuntimeError("No directional light edit was exercised")
+                for _ in range(settings.history_size * 3):
+                    if not engine.Loop():
+                        raise RuntimeError("Demo ended during edit reconvergence")
+                edited = engine.GetCurrentSceneGiStatus()
+                if (edited["geometry_update_count"] != material_state["geometry_update_count"] or
+                        edited["payload_update_count"] != material_state["payload_update_count"] or not edited["published"]):
+                    raise RuntimeError(f"Unrelated work or light edit caused representation rebuilding: {edited}")
+                path = output.with_stem(output.stem + "-edited")
+                if not engine.CaptureCurrentScene(2560, 1440, path, 1):
+                    raise RuntimeError("Edited scene capture failed")
+                gpu = engine.ReadCurrentSceneSdfgiFieldStatus()
+                if not gpu["ready"] or gpu["failure_flags"]:
+                    raise RuntimeError(f"Edited publication failed: {gpu}")
+                print(json.dumps({"view": "edited", "output": str(path), "capture_status": gpu,
+                                  "materials_edited": materials, "lights_edited": lights,
+                                  "before": baseline, "after_material": material_state, "status": edited}), flush=True)
+                for history in (5, 10, settings.history_size):
+                    engine.SetCurrentSceneGiProvider(engine.IndirectGiProvider.Environment)
+                    engine.Loop()
+                    if engine.GetCurrentSceneGiStatus()["sdfgi_state_active"]:
+                        raise RuntimeError("Disabled SDFGI retained active state")
+                    settings.history_size = history
+                    engine.SetCurrentSceneSdfgiSettings(settings)
+                    engine.SetCurrentSceneGiProvider(engine.IndirectGiProvider.AutomaticSdfgi)
+                    for _ in range(4):
+                        engine.Loop()
+                    gpu = engine.ReadCurrentSceneSdfgiFieldStatus()
+                    state = engine.GetCurrentSceneGiStatus()
+                    if not state["published"] or not gpu["ready"] or gpu["failure_flags"]:
+                        raise RuntimeError(f"Provider/layout recovery failed: {state}, {gpu}")
+                    print(json.dumps({"lifecycle_history": history, "capture_status": gpu,
+                                      "status": state}), flush=True)
             if args.traverse:
                 origin = engine.GetCurrentSceneCameraPositionForCapture()
                 movement = []

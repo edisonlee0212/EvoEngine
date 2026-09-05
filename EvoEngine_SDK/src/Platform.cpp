@@ -858,6 +858,7 @@ void Platform::RecordRenderCommands(const VkRenderingInfo& rendering_info, const
 }
 
 void Platform::BeginRendering(const VkCommandBuffer vk_command_buffer, const VkRenderingInfo& rendering_info) {
+  GetInstance().PrepareGpuTimestampCommands(vk_command_buffer);
   vkCmdBeginRendering(vk_command_buffer, &rendering_info);
 }
 
@@ -1327,10 +1328,7 @@ GpuTimestampScopeToken Platform::BeginGpuTimestampScope(const VkCommandBuffer vk
     }
     return token;
   }
-  if (!frame.reset_recorded) {
-    vkCmdResetQueryPool(vk_command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
-    frame.reset_recorded = true;
-  }
+  graphics.PrepareGpuTimestampCommands(vk_command_buffer);
   token.metadata = metadata;
   if (token.metadata.stable_pass_id.empty())
     token.metadata.stable_pass_id = token.metadata.display_name;
@@ -2611,6 +2609,18 @@ void Platform::DestroyGpuTimestampResources() {
   {
     const std::scoped_lock stats_lock(cpu_timing_stats_mutex_);
     cpu_timing_stats_.clear();
+  }
+}
+
+void Platform::PrepareGpuTimestampCommands(const VkCommandBuffer command_buffer) {
+  if (!gpu_timestamp_capture_enabled_ || !gpu_timestamp_capture_available_ ||
+      current_frame_index_ >= gpu_timestamp_frames_.size())
+    return;
+  auto& frame = gpu_timestamp_frames_[current_frame_index_];
+  if (!frame.reset_recorded && frame.query_pool != VK_NULL_HANDLE) {
+    // The first timed scope may be inside rendering, where query resets are forbidden.
+    vkCmdResetQueryPool(command_buffer, frame.query_pool, 0, kGpuTimestampQueriesPerFrame);
+    frame.reset_recorded = true;
   }
 }
 

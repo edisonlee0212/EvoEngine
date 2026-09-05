@@ -10,6 +10,7 @@
 #include <map>
 #include <memory>
 #include <optional>
+#include <set>
 
 namespace evo_engine {
 
@@ -103,6 +104,7 @@ enum SdfgiChangeFlags : uint32_t {
   SdfgiGeometryChanged = 8,
   SdfgiCoverageChanged = 16,
   SdfgiPayloadChanged = 32,
+  SdfgiUncertainBounds = 64,
 };
 
 struct SdfgiContributorChange {
@@ -156,6 +158,7 @@ EVOENGINE_API SdfgiSceneSnapshot SnapshotSdfgiScene(const std::shared_ptr<Scene>
 struct EVOENGINE_API SdfgiContributorRegistry {
   std::map<SdfgiContributorId, SdfgiContributor> entries;
   std::vector<SdfgiContributorChange> changes;
+  std::set<SdfgiContributorId> invalid_bounds;
 
   void Update(const std::vector<SdfgiContributor>& snapshot);
   [[nodiscard]] std::vector<uint32_t> AffectedCascades(const std::vector<SdfgiCascade>& cascades, float y_mult) const;

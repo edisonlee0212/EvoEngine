@@ -16,6 +16,14 @@ std::string CascadeName(const uint32_t cascade, const std::string& name) {
   return "Cascade" + std::to_string(cascade) + "." + name;
 }
 constexpr auto kComputeAccess = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT;
+void ClearLighting(const VkCommandBuffer command, const SdfgiResources& resources, const uint32_t cascade) {
+  const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  for (const auto name : {"Light", "Aniso0", "Aniso1"})
+    Platform::ClearColorImage(command, *resources.textures.at(CascadeName(cascade, name)).image, VkClearColorValue{}, 1,
+                              &range);
+  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                        kComputeAccess | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+}
 }  // namespace
 
 SdfgiPreprocessDebug::SdfgiPreprocessDebug(const uint32_t cascade_index, const uint32_t slice_index)
@@ -144,7 +152,7 @@ SdfgiPreprocessReadback::SdfgiPreprocessReadback(const uint32_t count) : cascade
 }
 
 void SdfgiPreprocessReadback::ReadAfterFrameFence(SdfgiResources& resources) {
-  if (consumed || !recorded_cascades)
+  if (consumed || !recorded_cascades || scene_frame < resources.minimum_readback_frame)
     return;
   std::vector<SdfgiDispatchData> records;
   static_assert(sizeof(SdfgiDispatchData) == sizeof(SdfgiFieldStatus));
@@ -273,19 +281,32 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   const VkBufferCopy seed_copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(), 1, &seed_copy);
-  const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-  for (const auto name : {"Light", "Aniso0", "Aniso1"})
-    Platform::ClearColorImage(command, *resources.textures.at(CascadeName(cascade, name)).image, VkClearColorValue{}, 1,
-                              &range);
+  ClearLighting(command, resources, cascade);
+}
+
+void evo_engine::RecordSdfgiPayloadRefresh(const VkCommandBuffer command, const SdfgiResources& resources,
+                                           const uint32_t cascade) {
   resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
                         kComputeAccess | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+  const auto& pipeline = resources.pipelines.at("PayloadRefresh");
+  pipeline->Bind(command);
+  pipeline->BindDescriptorSet(command, 0,
+                              resources.sets.at(CascadeName(cascade, "PayloadRefresh"))->GetVkDescriptorSet());
+  pipeline->DispatchIndirect(command, *resources.buffers.at(CascadeName(cascade, "Indirect")).buffer);
+  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                        VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
+  const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
+  vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(),
+                  resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(), 1, &copy);
+  ClearLighting(command, resources, cascade);
 }
 
 std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                                                const std::shared_ptr<SdfgiResources>& resources,
                                                const std::shared_ptr<SdfgiPreprocessReadback>& readback,
                                                const uint32_t cascade, const glm::ivec3 cascade_position,
-                                               const std::string& dependency, const glm::ivec3 scroll) {
+                                               const std::string& dependency, const glm::ivec3 scroll,
+                                               const bool payload_only) {
   RenderResourceDescriptor diagnostic;
   diagnostic.name = "Frame.SDFGI.PreprocessReadback";
   diagnostic.type = RenderResourceType::Buffer;
@@ -293,23 +314,26 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
   diagnostic.byte_size = readback->buffer->GetSize();
   graph.AddResource(diagnostic);
   registry.BindBuffer(diagnostic.name, readback->buffer);
-  RenderPassDescriptor pass{"SdfgiPreprocessCascade" + std::to_string(cascade), RenderPassQueue::Graphics,
-                            RenderPassScope::Frame};
+  RenderPassDescriptor pass{
+      std::string(payload_only ? "SdfgiPayloadCascade" : "SdfgiPreprocessCascade") + std::to_string(cascade),
+      RenderPassQueue::Graphics, RenderPassScope::Frame};
   pass.dependencies = {dependency};
   pass.profiler_group = RenderPassProfilerGroup::FramePreparation;
-  pass.profiler_display_name = "SDFGI Preprocess";
+  pass.profiler_display_name = payload_only ? "SDFGI Payload Refresh" : "SDFGI Preprocess";
   for (const auto name : {"Albedo", "Emission", "EmissionAniso", "Facing"})
     pass.resources.push_back(
         {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
   for (const auto name : {"JumpFlood0", "JumpFlood1", "JumpFloodHalf0", "JumpFloodHalf1", "Occlusion", "Status"})
-    pass.resources.push_back(
-        {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
-  for (uint32_t i = 0; i < 8; ++i)
+    if (!payload_only || std::string(name) == "Status")
+      pass.resources.push_back(
+          {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
+  for (uint32_t i = 0; !payload_only && i < 8; ++i)
     pass.resources.push_back({"Frame.SDFGI.OcclusionScratch" + std::to_string(i), RenderResourceUsage::ReadWrite,
                               RenderResourceState::General});
   for (const auto name : {"Sdf", "SolidCells", "UnlitCells", "Dispatch", "Indirect", "Light", "Aniso0", "Aniso1"})
-    pass.resources.push_back(
-        {"Frame.SDFGI." + CascadeName(cascade, name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
+    if (!payload_only || std::string(name) != "Sdf")
+      pass.resources.push_back(
+          {"Frame.SDFGI." + CascadeName(cascade, name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
   pass.resources.push_back(
       {diagnostic.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   const auto frame_slot = Platform::GetCurrentFrameIndex();
@@ -323,14 +347,18 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
       pass.resources.push_back({"Frame.SDFGI." + CascadeName(cascade + 1, "Average"), RenderResourceUsage::Read,
                                 RenderResourceState::General});
   }
-  graph.AddPass(pass, [resources, readback, cascade, cascade_position, scroll,
-                       frame_slot](const RenderGraphExecutionContext& context) {
+  graph.AddPass(pass, [resources, readback, cascade, cascade_position, scroll, frame_slot,
+                       payload_only](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
       ApplyGraphResourceBarriers(command, context);
-      if (scroll != glm::ivec3(0))
-        RecordSdfgiScroll(command, *resources, cascade, cascade_position, scroll, frame_slot);
-      RecordSdfgiPreprocess(command, *resources, cascade, cascade_position, scroll);
+      if (payload_only)
+        RecordSdfgiPayloadRefresh(command, *resources, cascade);
+      else {
+        if (scroll != glm::ivec3(0))
+          RecordSdfgiScroll(command, *resources, cascade, cascade_position, scroll, frame_slot);
+        RecordSdfgiPreprocess(command, *resources, cascade, cascade_position, scroll);
+      }
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
       VkBufferCopy copy{0, cascade * sizeof(SdfgiDispatchData), sizeof(SdfgiDispatchData)};
@@ -351,6 +379,10 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
     });
     readback->recorded_cascades |= 1u << cascade;
     resources->preprocessed_cascades |= 1u << cascade;
+    if (payload_only)
+      ++resources->payload_update_count;
+    else
+      ++resources->geometry_update_count;
     if (resources->preprocessed_cascades == (1u << resources->settings.cascade_count) - 1)
       resources->preprocess_failure.clear();
   });

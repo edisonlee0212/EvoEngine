@@ -35,10 +35,14 @@ struct EVOENGINE_API SdfgiRuntime {
   bool published = false;
   bool allocation_attempted = false;
   bool anchor_replaced = false;
+  bool anchor_recovered = false;
   std::vector<SdfgiCascade> cascades;
   std::vector<SdfgiPendingRegion> pending_regions;
   SdfgiSceneSnapshot scene_snapshot;
   SdfgiContributorRegistry contributors;
+  std::vector<uint32_t> pending_changes;
+  uint32_t payload_cascades = 0;
+  std::string invalidation_reason;
   std::string placement_failure;
   std::shared_ptr<SdfgiResources> resources;
   std::string resource_failure;
@@ -46,6 +50,9 @@ struct EVOENGINE_API SdfgiRuntime {
 
   SdfgiRuntime(const SdfgiSettings& initial_settings, SdfgiCapabilityReport report);
   bool Maintain(uint32_t scene_frame, const SdfgiAnchor& selected_anchor);
+  void UpdateSceneSnapshot(SdfgiSceneSnapshot snapshot);
+  void PrepareUpdates(bool has_representation, bool force_full);
+  void AcknowledgeChanges(uint32_t cascades_mask);
 };
 
 }  // namespace evo_engine

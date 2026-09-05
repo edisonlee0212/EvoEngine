@@ -8,6 +8,7 @@
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiRuntime.hpp"
 #include "Texture2D.hpp"
 
 #include <stb_image_write.h>
@@ -179,6 +180,7 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
   frame->input_uploads.Add(resources.buffers.at("Frame" + std::to_string(frame->frame_slot) + ".Cascades").buffer,
                            frame->scroll_cascades, {BufferUploadUsage::Uniform});
   frame->preprocess_readback = std::make_shared<SdfgiPreprocessReadback>(resources.settings.cascade_count);
+  frame->preprocess_readback->scene_frame = Platform::GetFrameCount();
   frame->vertex_buffer = GeometryStorage::GetVertexBuffer();
   frame->index_buffer = GeometryStorage::GetTriangleBuffer();
   frame->scene_set = std::make_shared<DescriptorSet>(resources.voxel_pipeline->descriptor_set_layouts[0]);
@@ -280,7 +282,8 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
 }
 
 void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry& registry,
-                                const std::shared_ptr<SdfgiResources>& resources) {
+                                const std::shared_ptr<SdfgiResources>& resources,
+                                const std::shared_ptr<SdfgiRuntime>& runtime) {
   std::vector<RenderResourceAccess> inputs;
   const auto import_buffer = [&](const std::string& name, const std::shared_ptr<Buffer>& buffer) {
     if (!buffer)
@@ -303,10 +306,19 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
         {input.resource_name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   upload.resources.push_back({"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Cascades",
                               RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
+  if (reset_failure)
+    upload.resources.push_back(
+        {"Frame.SDFGI.Status", RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   graph.AddPass(upload, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
       ApplyGraphResourceBarriers(command, context);
+      if (frame->reset_failure) {
+        resources->buffers.at("Status").buffer->Fill(command, 0, 12, 0);
+        resources->minimum_readback_frame = frame->preprocess_readback->scene_frame;
+        resources->preprocess_status = {0, 0, 0, kSdfgiSolidCellCapacity};
+        resources->preprocess_status_available = false;
+      }
     });
     frame->input_uploads.Record(frame->uploads);
   });
@@ -418,13 +430,19 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
       return region.pending.cascade == cascade && region.pending.offset == glm::ivec3(0) &&
              region.pending.size == glm::ivec3(128);
     });
-    previous =
-        AddSdfgiPreprocessPass(graph, registry, resources, preprocess_readback, cascade, cascades[cascade].position,
-                               previous, full_cascade ? glm::ivec3(0) : cascades[cascade].dirty_regions);
+    previous = AddSdfgiPreprocessPass(
+        graph, registry, resources, preprocess_readback, cascade, cascades[cascade].position, previous,
+        full_cascade ? glm::ivec3(0) : cascades[cascade].dirty_regions, (payload_cascades & (1u << cascade)) != 0);
   }
   graph.AddPass({"SdfgiVoxelComplete", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {previous}},
-                [resources](const RenderGraphExecutionContext&) {
+                [resources, runtime, frame = shared_from_this()](const RenderGraphExecutionContext&) {
                   resources->voxelization_recorded = true;
+                  if (runtime) {
+                    uint32_t completed = 0;
+                    for (const auto& region : frame->regions)
+                      completed |= 1u << region.pending.cascade;
+                    runtime->AcknowledgeChanges(completed);
+                  }
                 });
 }
 

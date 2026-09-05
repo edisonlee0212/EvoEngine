@@ -289,6 +289,10 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
   binding(SdfgiLayout::Scroll, 5, buffer);
   binding(SdfgiLayout::Scroll, 6, buffer);
   binding(SdfgiLayout::Scroll, 7, buffer);
+  for (uint32_t i = 1; i <= 4; ++i)
+    binding(SdfgiLayout::PayloadRefresh, i, image);
+  for (uint32_t i = 5; i <= 7; ++i)
+    binding(SdfgiLayout::PayloadRefresh, i, buffer);
   binding(SdfgiLayout::ScrollOcclusion, 1, image, 8);
   binding(SdfgiLayout::ScrollOcclusion, 2, image);
   binding(SdfgiLayout::DirectLight, 1, texture, 8);
@@ -412,6 +416,14 @@ void SdfgiResources::CreateDescriptors() {
     image(set, 4, "EmissionAniso");
     buffer(set, 5, CascadeName(c, "Dispatch"));
     // Static-light refresh reseeds every rebuilt cascade; retain emission without baked static light.
+    buffer(set, 6, CascadeName(c, "UnlitCells"));
+    buffer(set, 7, "Status");
+    set = make_set(CascadeName(c, "PayloadRefresh"), SdfgiLayout::PayloadRefresh);
+    image(set, 1, "Albedo");
+    image(set, 2, "Facing");
+    image(set, 3, "Emission");
+    image(set, 4, "EmissionAniso");
+    buffer(set, 5, CascadeName(c, "Dispatch"));
     buffer(set, 6, CascadeName(c, "UnlitCells"));
     buffer(set, 7, "Status");
   }
@@ -593,6 +605,8 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
   for (const std::string mode : {"STATIC", "DYNAMIC"})
     compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
+  compute("PayloadRefresh", "SdfgiPayloadRefresh.slang", "",
+          {layouts[static_cast<size_t>(SdfgiLayout::PayloadRefresh)]}, 0);
   for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
     compute("Integrate" + mode, "SdfgiIntegrate.slang", "#define MODE_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::Integrate)], layouts[static_cast<size_t>(SdfgiLayout::Sky)]},

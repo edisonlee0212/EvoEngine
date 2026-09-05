@@ -31,6 +31,7 @@ enum class SdfgiLayout {
   Store,
   Scroll,
   ScrollOcclusion,
+  PayloadRefresh,
   DirectLight,
   Integrate,
   Sky,
@@ -73,6 +74,9 @@ class EVOENGINE_API SdfgiResources {
   std::shared_ptr<SdfgiVoxelDebug> voxel_debug;
   std::string voxel_failure;
   uint32_t preprocessed_cascades = 0;
+  uint64_t geometry_update_count = 0;
+  uint64_t payload_update_count = 0;
+  uint32_t minimum_readback_frame = 0;
   SdfgiFieldStatus preprocess_status{};
   bool preprocess_status_available = false;
   std::vector<SdfgiDispatchData> solid_cell_dispatch;

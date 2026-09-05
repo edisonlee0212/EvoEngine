@@ -544,6 +544,7 @@ class EVOENGINE_API Platform final {
   void InitializeGpuTimestampResources();
   void DestroyGpuTimestampResources();
   void PrepareGpuTimestampFrame(uint32_t frame_index);
+  void PrepareGpuTimestampCommands(VkCommandBuffer command_buffer);
   void ResolveGpuTimestampFrame(uint32_t frame_index);
   void AccumulateGpuTimestamp(const std::string& name, double milliseconds);
   void AccumulateImmediateGpuTimestamp(const GpuTimestampScopeMetadata& metadata, double milliseconds);

@@ -35,6 +35,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
@@ -2892,6 +2893,12 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         if (runtime->anchor.override_fell_back)
           ImGui::TextDisabled("Explicit anchor unavailable; automatic selection used.");
         ImGui::Text("Maintenance calls: %llu", static_cast<unsigned long long>(runtime->maintenance_count));
+        if (!runtime->invalidation_reason.empty())
+          ImGui::TextWrapped("Last invalidation: %s", runtime->invalidation_reason.c_str());
+        if (const auto resources = runtime->resources)
+          ImGui::Text("Cascade rebuilds: %llu | Payload refreshes: %llu",
+                      static_cast<unsigned long long>(resources->geometry_update_count),
+                      static_cast<unsigned long long>(resources->payload_update_count));
       }
     } else if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
       if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {

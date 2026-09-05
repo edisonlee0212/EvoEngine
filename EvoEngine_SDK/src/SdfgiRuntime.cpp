@@ -31,10 +31,15 @@ bool SdfgiRuntime::Maintain(const uint32_t scene_frame, const SdfgiAnchor& selec
     return false;
   last_scene_frame = scene_frame;
   ++maintenance_count;
+  anchor_recovered = missing_anchor && selected_anchor.camera_id != 0;
   missing_anchor = selected_anchor.camera_id == 0;
   if (!missing_anchor)
     published = false;
   anchor_replaced = !missing_anchor && anchor.camera_id != 0 && anchor.camera_id != selected_anchor.camera_id;
+  if (!resources && (anchor_recovered || anchor_replaced)) {
+    allocation_attempted = false;
+    resource_failure.clear();
+  }
   if (!missing_anchor)
     anchor = selected_anchor;
   anchor.override_fell_back = selected_anchor.override_fell_back;
@@ -58,4 +63,44 @@ bool SdfgiRuntime::Maintain(const uint32_t scene_frame, const SdfgiAnchor& selec
     fallback_reason =
         missing_anchor ? "No eligible GI anchor; coverage stationary" : "No complete SDFGI field published";
   return true;
+}
+
+void SdfgiRuntime::UpdateSceneSnapshot(SdfgiSceneSnapshot snapshot) {
+  scene_snapshot = std::move(snapshot);
+  contributors.Update(scene_snapshot.contributors);
+  pending_changes.resize(cascades.size());
+  const auto affected = contributors.AffectedCascades(cascades, SdfgiYMultiplier(settings.vertical_scale));
+  for (size_t c = 0; c < affected.size(); ++c) {
+    pending_changes[c] |= affected[c];
+    if (affected[c] & SdfgiUncertainBounds)
+      invalidation_reason = "Unknown contributor bounds; conservative full-cascade redraw";
+    if (missing_anchor && pending_changes[c])
+      published = false;
+  }
+}
+
+void SdfgiRuntime::PrepareUpdates(const bool has_representation, const bool force_full) {
+  pending_changes.resize(cascades.size());
+  payload_cascades = 0;
+  auto raster_cascades = cascades;
+  for (uint32_t c = 0; c < cascades.size(); ++c) {
+    auto& cascade = cascades[c];
+    if (!has_representation || force_full ||
+        (pending_changes[c] && (pending_changes[c] != SdfgiPayloadChanged || cascade.dirty_regions != glm::ivec3(0)))) {
+      cascade.full_redraw = true;
+      cascade.dirty_regions = glm::ivec3(0);
+    }
+    raster_cascades[c] = cascade;
+    if (pending_changes[c] == SdfgiPayloadChanged && !cascade.full_redraw) {
+      payload_cascades |= 1u << c;
+      raster_cascades[c].full_redraw = true;
+    }
+  }
+  pending_regions = GetSdfgiPendingRegions(raster_cascades, SdfgiYMultiplier(settings.vertical_scale));
+}
+
+void SdfgiRuntime::AcknowledgeChanges(const uint32_t cascades_mask) {
+  for (uint32_t c = 0; c < pending_changes.size(); ++c)
+    if (cascades_mask & (1u << c))
+      pending_changes[c] = 0;
 }

@@ -5638,6 +5638,11 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
               : SdfgiCapabilityReport{};
       runtime = std::make_shared<SdfgiRuntime>(lighting.sdfgi_settings, capabilities);
     }
+    const bool settings_changed = !(runtime->settings == lighting.sdfgi_settings);
+    if (settings_changed && !runtime->resources) {
+      runtime->allocation_attempted = false;
+      runtime->resource_failure.clear();
+    }
     runtime->settings = lighting.sdfgi_settings;
     const auto scene_camera_anchor = [&](const std::shared_ptr<Camera>& camera) -> SdfgiAnchor {
       if (!camera || camera->GetScene() != scene || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
@@ -5670,10 +5675,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     const auto anchor =
         SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor,
                           lighting.sdfgi_settings.anchor_camera_entity != 0, playable_view, editor != nullptr);
-    if (runtime->Maintain(scene_frame, anchor)) {
-      runtime->scene_snapshot = SnapshotSdfgiScene(scene, lighting);
-      runtime->contributors.Update(runtime->scene_snapshot.contributors);
-    }
+    if (runtime->Maintain(scene_frame, anchor))
+      runtime->UpdateSceneSnapshot(SnapshotSdfgiScene(scene, lighting));
     if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
         runtime->placement_failure.empty() && runtime->capabilities.Supported()) {
       runtime->allocation_attempted = true;
@@ -5694,8 +5697,19 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       if (const auto& previous = resources->voxel_frames[current_frame_index];
           resources->last_voxel_frame != scene_frame && previous && previous->preprocess_readback)
         previous->preprocess_readback->ReadAfterFrameFence(*resources);
-      if (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow) {
-        runtime->fallback_reason = "SDFGI solid-cell capacity overflow";
+      const bool field_failed = resources->preprocess_status.failure_flags != 0;
+      const bool retry_field =
+          field_failed &&
+          ((resources->preprocess_status.failure_flags & kSdfgiFailurePayloadCoverage) || settings_changed ||
+           runtime->anchor_replaced || runtime->anchor_recovered || !runtime->pending_regions.empty() ||
+           resources->voxel_debug_request ||
+           std::any_of(runtime->pending_changes.begin(), runtime->pending_changes.end(), [](uint32_t flags) {
+             return flags != 0;
+           }));
+      if (field_failed) {
+        runtime->fallback_reason = (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow)
+                                       ? "SDFGI solid-cell capacity overflow"
+                                       : "SDFGI payload coverage changed unexpectedly; full redraw required";
         runtime->published = false;
       } else if (!resources->preprocess_failure.empty())
         runtime->fallback_reason = resources->preprocess_failure;
@@ -5708,18 +5722,14 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           });
         });
       if (resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
-          runtime->placement_failure.empty()) {
+          runtime->placement_failure.empty() && (!field_failed || retry_field)) {
+        runtime->PrepareUpdates(resources->voxelization_recorded, retry_field || !resources->voxel_failure.empty());
         auto pending = runtime->pending_regions;
-        if (!resources->voxelization_recorded || !resources->voxel_failure.empty()) {
-          auto cascades = runtime->cascades;
-          for (auto& cascade : cascades)
-            cascade.full_redraw = true;
-          pending = GetSdfgiPendingRegions(cascades, SdfgiYMultiplier(runtime->settings.vertical_scale));
-        }
         if (resources->voxel_debug_request) {
           const auto index = resources->voxel_debug_request->x;
           auto cascades = runtime->cascades;
           cascades[index].full_redraw = true;
+          runtime->payload_cascades &= ~(1u << index);
           pending.erase(std::remove_if(pending.begin(), pending.end(),
                                        [&](const auto& region) {
                                          return region.cascade == index;
@@ -5733,12 +5743,14 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         if (!pending.empty()) {
           try {
             auto frame = SdfgiVoxelFrame::Create(*resources, runtime->contributors, runtime->cascades, pending);
+            frame->payload_cascades = runtime->payload_cascades;
+            frame->reset_failure = retry_field;
             if (resources->voxel_debug_request)
               frame->debug = std::make_shared<SdfgiVoxelDebug>(resources->voxel_debug_request->x,
                                                                resources->voxel_debug_request->y);
             resources->voxel_frames[current_frame_index] = frame;
             resources->last_voxel_frame = scene_frame;
-            frame->AddPasses(scene_graph, registry, resources);
+            frame->AddPasses(scene_graph, registry, resources, runtime);
             if (frame->debug) {
               resources->voxel_debug = frame->debug;
               resources->voxel_debug_request.reset();
@@ -5751,21 +5763,26 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         }
       }
       uint32_t rebuilt_cascades = 0;
+      uint32_t payload_cascades = 0;
       for (uint32_t c = 0; c < runtime->cascades.size(); ++c)
         for (const auto& pass : scene_graph.GetPasses())
           if (pass.name == "SdfgiPreprocessCascade" + std::to_string(c))
             rebuilt_cascades |= 1u << c;
+          else if (pass.name == "SdfgiPayloadCascade" + std::to_string(c))
+            payload_cascades |= 1u << c;
       const bool full_representation =
           (resources->preprocessed_cascades | rebuilt_cascades) == (1u << runtime->settings.cascade_count) - 1;
       if (full_representation && !runtime->missing_anchor && runtime->placement_failure.empty() &&
-          resources->voxel_failure.empty() && resources->last_light_frame != scene_frame) {
+          resources->voxel_failure.empty() && resources->last_light_frame != scene_frame &&
+          (!field_failed || retry_field)) {
         try {
           auto frame = SdfgiLightFrame::Create(*resources, runtime->cascades, runtime->scene_snapshot.lights,
-                                               scene_frame, rebuilt_cascades);
+                                               scene_frame, rebuilt_cascades | payload_cascades);
           resources->light_frames[current_frame_index] = frame;
           resources->last_light_frame = scene_frame;
-          frame->AddPasses(scene_graph, resources,
-                           rebuilt_cascades ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+          frame->AddPasses(
+              scene_graph, resources,
+              (rebuilt_cascades | payload_cascades) ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
           if (resources->last_transport_frame != scene_frame) {
             try {
               auto probes =

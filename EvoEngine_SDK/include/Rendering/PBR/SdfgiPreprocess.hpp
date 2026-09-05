@@ -24,6 +24,7 @@ class EVOENGINE_API SdfgiPreprocessReadback {
   std::shared_ptr<Buffer> buffer;
   uint32_t cascade_count;
   uint32_t recorded_cascades = 0;
+  uint32_t scene_frame = 0;
   bool consumed = false;
   explicit SdfgiPreprocessReadback(uint32_t cascade_count);
   // The caller must have recycled this snapshot's frame fence, or explicitly waited for capture.
@@ -34,10 +35,13 @@ EVOENGINE_API void RecordSdfgiPreprocess(VkCommandBuffer command, const SdfgiRes
                                          glm::ivec3 cascade_position, glm::ivec3 scroll = glm::ivec3(0));
 EVOENGINE_API void RecordSdfgiScroll(VkCommandBuffer command, const SdfgiResources& resources, uint32_t cascade,
                                      glm::ivec3 cascade_position, glm::ivec3 scroll, uint32_t frame_slot);
+EVOENGINE_API void RecordSdfgiPayloadRefresh(VkCommandBuffer command, const SdfgiResources& resources,
+                                             uint32_t cascade);
 EVOENGINE_API std::string AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                                                  const std::shared_ptr<SdfgiResources>& resources,
                                                  const std::shared_ptr<SdfgiPreprocessReadback>& readback,
                                                  uint32_t cascade, glm::ivec3 cascade_position,
-                                                 const std::string& dependency, glm::ivec3 scroll = glm::ivec3(0));
+                                                 const std::string& dependency, glm::ivec3 scroll = glm::ivec3(0),
+                                                 bool payload_only = false);
 
 }  // namespace evo_engine

@@ -2,11 +2,11 @@
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
 Capability preflight, provider ownership, GPU storage, placement/scene inputs, static voxelization, SDF/occlusion
-preprocessing, voxel lighting, probe transport/storage, and deferred gather are implemented. M9 adds automatic scrolling
-and retained history; focused validation passes and the user has accepted movement review. Eligible opaque/masked raster cameras share
-one complete field and use Environment fallback otherwise. M0-M8a are complete, committed as separate milestones, and the
+preprocessing, voxel lighting, probe transport/storage, deferred gather, automatic scrolling, and edit invalidation are
+implemented. The user has accepted M9 movement review. Eligible opaque/masked raster cameras share
+one complete field and use Environment fallback otherwise. M0-M9 are complete, committed as separate milestones, and the
 user accepted the occlusion-on stationary result. Occlusion stays on by default and Godot's sharp-reflection path remains
-enabled. M10-M12 have not started.
+enabled. M10 adds validated payload-only refresh and lifecycle recovery. M11-M12 remain.
 
 ## Reference
 
@@ -28,6 +28,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiScene.hpp/.cpp` | `gi.cpp::SDFGI::{create,update,get_pending_region_data,update_cascades,pre_process_gi}`, ForwardClustered `_render_sdfgi`/`_fill_render_list`; dedicated EvoEngine scene/material/light adapter |
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
 | `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl`, including scroll variants |
+| `Shaders/Compute/SdfgiPayloadRefresh.slang`, runtime edit accumulation | Accepted EvoEngine occupancy-preserving edit extension; retains `sdfgi_preprocess.glsl::MODE_STORE` compact packing and Godot's normal probe reconvergence |
 | `SdfgiLight.hpp/.cpp`, `Shaders/Compute/SdfgiDirectLight.slang` | `gi.cpp::SDFGI::{render_static_lights,pre_process_gi,update_light}`, `LightStorage::light_get_aabb`, and `shaders/environment/sdfgi_direct_light.glsl` |
 | `SdfgiProbe.hpp/.cpp`, `Shaders/Compute/SdfgiIntegrate.slang` | `gi.cpp::SDFGI::{render_region,update_probes,store_probes}` and `shaders/environment/sdfgi_integrate.glsl`, including scroll variants; host cubemap and diagnostic readback adapters |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
@@ -662,3 +663,80 @@ fallback contract is covered by the two-camera GPU fixture; no extra image scene
 GUI movement has not been operated by the agent. The user confirmed the M9 review is complete and requested continuation.
 M9 is accepted. M10-M12 remain subsequent milestones; all-app installation is scheduled at implementation completion
 before M12.
+
+## Scene edits and lifecycle recovery (M10)
+
+The scene registry now drives automatic updates, using old and new contributor bounds. Add/remove, transform, mesh
+topology, masked coverage, or two-sided changes fully rebuild each affected cascade. Unknown bounds exclude the invalid
+contributor and conservatively rebuild all cascades once, with a diagnostic reason; an unchanged invalid input does not
+trigger an endless redraw. Dynamic/deforming receivers and unrelated BRDF, bindless-index, or storage revisions do not
+invalidate the field. Pending changes survive missing anchors and failed CPU preparation until their voxel pass is recorded.
+If a contributor edit occurs without an anchor, the old edited field is no longer published; recovery handles the pending work.
+
+For a proven occupancy-preserving base-color/emission edit in a stationary cascade, `SdfgiPayloadCascadeN` rerasterizes
+material scratch and updates the existing unlit compact cells. Position, facing, neighbor bits, SDF, packed occlusion,
+SH history, averages, and probe identity remain intact. It skips JFA, occlusion construction, and compact reconstruction,
+then restores the unlit seed, re-bakes static lighting, and runs the normal dynamic-light/full-grid-probe sequence.
+Static light therefore cannot accumulate on repeated refreshes. A simultaneous scroll uses a full affected-cascade rebuild,
+since reference scrolling already reconstructs SDF. This edit support is an explicit host extension, not a claim that
+Godot automatically handles arbitrary static geometry/material edits.
+
+The payload shader verifies existing-cell coverage and facing before writing. Unexpected mismatch sets failure bit 4,
+blocks whole-provider GPU publication, and automatically schedules a full-field recovery rebuild. CPU coverage comparison
+is still the proof that no new cell was introduced; the GPU guard is not a second full-grid occupancy comparison. The
+reference's entirely empty cascade retains a zero-payload cell at local origin because `MODE_STORE` compares position XYZ
+without checking validity W. That reference behavior is preserved and recognized by payload refresh, not mistaken for old
+geometry or a coverage failure.
+
+Supported light/environment changes continue through lighting/probe integration without geometry work. Ordinary edits,
+including full cascade rebuilds, retain reference history and reconverge over time; they do not silently reset probes.
+Provider switches and incompatible settings recreate state, while submitted frames retain old owners until their fences.
+Allocation failures are not retried every frame; changed settings or anchor recovery/replacement allow another attempt.
+Overflow stays unpublished until changed scene/placement/settings or an explicit redraw allows a full retry. Recovery
+clears status only alongside the full rebuild, and pre-recovery diagnostic readbacks cannot reinstate an old GPU failure.
+
+Environmental Lighting and `GetCurrentSceneGiStatus()` expose cumulative per-cascade `geometry_update_count` and
+`payload_update_count`, pending change masks, and the last uncertain-bounds reason. These counters count recorded work,
+not GPU completion. GPU readiness/failure remains authoritative. The complete runtime diagnostic panel is M11.
+
+Use the built Python binding and a fresh disposable Rendering asset copy for the single edit/lifecycle session:
+
+```powershell
+python Scripts/capture_sdfgi_voxels.py --module-dir out/build/vs2026-x64-tests/PythonBinding/RelWithDebInfo `
+  --resources tasks/m10-resources --output tasks/m10-sponza.png --view beauty --edit-check
+```
+
+The capture scales static base-color RGB by 0.75, emission by 2, and directional intensity by 0.5, then allows three
+history cycles. It checks representation counters and publication, and cycles Environment/Automatic SDFGI with 5/10/30
+history lengths. Only two 2560-by-1440 Sponza images are produced; lifecycle checks need no additional image matrix.
+The script edits only its disposable scene/assets. It does not save changes to the authored project.
+
+The first lifecycle run exposed an existing profiler boundary error: with SDFGI disabled, the first timestamp could be
+inside shadow rendering, making its lazy query-pool reset invalid. Timestamp pools now prepare before beginning rendering,
+while compute/outside-render scopes retain lazy preparation. No new queue, maintenance submission, or device wait is added.
+
+### M10 verification
+
+The SDK, editor, Python binding, and tests built successfully with the manual-review build command above
+(`tasks/m10-final-build.log`). Thirteen focused SDFGI checks passed in `tasks/m10-final-tests.log/.xml` (8.925 s), covering
+edit classification/accumulation, GPU topology/history preservation, repeated static-light reseed, forced coverage failure,
+full recovery/removal/empty-field refresh, allocation/ABI, provider ownership, and camera publication. All 25 exported
+SPIR-V variants in `tasks/m10-spirv` passed Vulkan 1.3 scalar-layout validation. After the timing-boundary fix, ten focused
+checks passed in `tasks/m10-timing-tests.log/.xml` (2.004 s): eight timestamp checks and the edit/frame-boundary GPU rechecks.
+No full-suite or additional device/resolution matrix was run.
+
+Final current-GPU evidence is `tasks/m10-verified-sponza.log`: RTX 5070, driver `2496774144`, occlusion on, all four
+effective RT facilities false, and no Vulkan validation/synchronization errors. Existing unused-attribute performance
+warnings remain. The repeat was required solely to verify the observed lifecycle timing failure; first-run images/logs
+remain preserved. Final captures:
+
+| Capture | GPU generation | Ready / failures | SHA256 |
+|---|---:|---|---|
+| `tasks/m10-verified-sponza.png` | 91 | 1 / 0 | `34387c5b7069c2fd018e7ce215e51bae799b63d4d8f3268aa1ed8fa2ca0f344c` |
+| `tasks/m10-verified-sponza-edited.png` | 183 | 1 / 0 | `e40d377412c573a7aa34cbf7c277ef4401db00b5fdfd33d27717181090a539f2` |
+
+Editing 156 static materials changed payload count 0 -> 4 while geometry count stayed 4. The directional-light edit
+caused no additional payload or geometry work. Environment/Automatic SDFGI cycles with 5, 10, and 30 history frames each
+returned to GPU generation 4, ready 1, failures 0. Images were inspected; this is edit/lifecycle evidence, not a numerical
+Godot/DDGI image comparison or a substitute for M12 user acceptance. M8/M9 user-approved baselines remain unchanged.
+All-app installation remains scheduled at implementation completion before M12 manual review.

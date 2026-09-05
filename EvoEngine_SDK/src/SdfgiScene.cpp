@@ -392,10 +392,18 @@ SdfgiSceneSnapshot evo_engine::SnapshotSdfgiScene(const std::shared_ptr<Scene>& 
 
 void SdfgiContributorRegistry::Update(const std::vector<SdfgiContributor>& snapshot) {
   std::map<SdfgiContributorId, SdfgiContributor> next;
-  for (const auto& input : snapshot)
-    if (input.exclusion == SdfgiExclusion::None)
-      next.emplace(input.id, input);
+  std::set<SdfgiContributorId> invalid;
   changes.clear();
+  for (const auto& input : snapshot) {
+    if (input.exclusion == SdfgiExclusion::InvalidBounds ||
+        (input.exclusion == SdfgiExclusion::None && !ValidBound(input.world_bounds))) {
+      invalid.insert(input.id);
+      if (!invalid_bounds.count(input.id))
+        changes.push_back({input.id, SdfgiUncertainBounds, {}, {}});
+    } else if (input.exclusion == SdfgiExclusion::None)
+      next.emplace(input.id, input);
+  }
+  invalid_bounds = std::move(invalid);
   for (const auto& [id, input] : next) {
     const auto old = entries.find(id);
     if (old == entries.end()) {
@@ -436,7 +444,7 @@ std::vector<uint32_t> SdfgiContributorRegistry::AffectedCascades(const std::vect
                               glm::all(glm::greaterThanEqual(bounds.max, contributor->world_bounds.min))));
     };
     for (const auto& change : changes)
-      if (intersects(change.before) || intersects(change.after))
+      if ((change.flags & SdfgiUncertainBounds) || intersects(change.before) || intersects(change.after))
         result[i] |= change.flags;
   }
   return result;

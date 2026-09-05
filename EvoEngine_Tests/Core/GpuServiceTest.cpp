@@ -394,7 +394,7 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
   EXPECT_EQ(field->buffers.size(), 17u + Platform::GetMaxFramesInFlight() * 10u);
-  EXPECT_EQ(field->pipelines.size(), 18u);
+  EXPECT_EQ(field->pipelines.size(), 19u);
   EXPECT_TRUE(field->voxel_pipeline->Initialized());
   EXPECT_FALSE(field->initialization_recorded);
   for (const auto& [name, texture] : field->textures) {
@@ -677,6 +677,202 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
           EXPECT_EQ(data[0][visible], 1u | (12u << 11) | (6u << 6) | (3u << 1));
         }
       }
+  }
+}
+
+TEST(GpuTimestampFrames, FirstScopeInsideRenderingAfterUntimedFrames) {
+  ScopedGpuPlatform platform(false);
+  Platform::SetGpuTimestampCaptureEnabled(true);
+  for (uint32_t phase = 0; phase < 4; ++phase) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO};
+      info.renderArea.extent = {1, 1};
+      info.layerCount = 1;
+      Platform::RecordRenderCommands(info, command, [&]() {
+        if (phase % 2) {
+          const auto token = Platform::BeginGpuTimestampScope(command, "FirstInsideRendering");
+          EXPECT_TRUE(token.valid);
+          Platform::EndGpuTimestampScope(command, token);
+        }
+      });
+    });
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("Focused timestamp render-boundary check");
+  }
+  const auto stats = Platform::GetGpuTimestampStats();
+  ASSERT_EQ(stats.size(), 1u);
+  EXPECT_EQ(stats[0].name, "FirstInsideRendering");
+  EXPECT_EQ(stats[0].sample_count, 2u);
+  Platform::SetGpuTimestampCaptureEnabled(false);
+}
+
+TEST(SdfgiEdits, PayloadPreservesTopologyHistoryAndStaticSeedAndRecoversWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.cascade_count = 1;
+  settings.min_cell_size = 1;
+  settings.history_size = 5;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::string failure;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  auto runtime = std::make_shared<SdfgiRuntime>(settings, SdfgiCapabilityReport{});
+  runtime->Maintain(0, {1, glm::vec3(0)});
+  SdfgiContributor input;
+  input.id = {1, 1};
+  input.mesh = std::make_shared<Mesh>();
+  input.mesh->OnCreate();
+  std::vector<Vertex> vertices(4);
+  for (uint32_t i = 0; i < 4; ++i) {
+    vertices[i].position = {0.5f, i & 1 ? 4.0f : -4.0f, i & 2 ? 4.0f : -4.0f};
+    vertices[i].normal = {1, 0, 0};
+    vertices[i].color = glm::vec4(1);
+  }
+  VertexAttributes attributes{};
+  attributes.normal = attributes.color = true;
+  input.mesh->SetVertices(attributes, vertices, std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}});
+  input.world_bounds = input.mesh->GetBound();
+  input.material.cull_mode = VK_CULL_MODE_BACK_BIT;
+  GeometryStorage::WaitForPendingUploads();
+  SdfgiLightInput light;
+  light.id = 1;
+  light.dynamic = false;
+  light.type = SdfgiLightInput::Type::Point;
+  light.position = {10, 0, 0};
+  light.range = 30;
+  light.color = glm::vec3(2);
+  light.world_bounds = {glm::vec3(-30), glm::vec3(30)};
+  std::vector<uint8_t> initial_sdf;
+  std::vector<uint16_t> initial_occlusion;
+  std::vector<SdfgiSolidCell> previous_cells;
+  std::shared_ptr<SdfgiPreprocessReadback> failed_readback;
+  for (uint32_t phase = 0; phase < 7; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    runtime->Maintain(Platform::GetFrameCount(), {1, glm::vec3(0)});
+    SdfgiSceneSnapshot snapshot;
+    if (phase < 5) {
+      input.material.base_color = phase ? glm::vec4(0.4f, 0.8f, 0.2f, 1) : glm::vec4(1);
+      input.material.emission = phase ? glm::vec3(0.5f) : glm::vec3(0);
+      input.material.masked = phase == 3;
+      input.material.base_color.a = phase == 3 ? 0 : 1;
+      snapshot.contributors.push_back(input);
+    }
+    runtime->UpdateSceneSnapshot(snapshot);
+    runtime->PrepareUpdates(phase != 0, phase == 4 || phase == 5);
+    // Force a payload retry and then an intentionally invalid proof to exercise GPU fallback.
+    if (phase == 2 || phase == 3 || phase == 6) {
+      auto raster = runtime->cascades;
+      raster[0].full_redraw = true;
+      runtime->pending_regions = GetSdfgiPendingRegions(raster, 1);
+      runtime->payload_cascades = 1;
+    }
+    const auto slot = Platform::GetCurrentFrameIndex();
+    const auto voxel =
+        SdfgiVoxelFrame::Create(*field, runtime->contributors, runtime->cascades, runtime->pending_regions);
+    voxel->payload_cascades = runtime->payload_cascades;
+    voxel->reset_failure = phase == 4;
+    field->voxel_frames[slot] = voxel;
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (phase == 0)
+      graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    voxel->AddPasses(graph, registry, field, runtime);
+    auto lighting = SdfgiLightFrame::Create(*field, runtime->cascades, {light}, Platform::GetFrameCount(), 1);
+    field->light_frames[slot] = lighting;
+    lighting->AddPasses(graph, field, "SdfgiVoxelComplete");
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    if (phase == 0)
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+        VkClearColorValue clear{};
+        for (auto& value : clear.int32)
+          value = 123;
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 5};
+        Platform::ClearColorImage(command, *field->textures.at("Cascade0.History").image, clear, 1, &range);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+      });
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI focused material edit readback");
+    voxel->preprocess_readback->ReadAfterFrameFence(*field);
+    EXPECT_EQ(field->preprocess_status.failure_flags, phase == 3 ? kSdfgiFailurePayloadCoverage : 0u);
+    EXPECT_EQ(runtime->pending_changes[0], 0u);
+    EXPECT_EQ(field->geometry_update_count, phase < 4 ? 1u : std::min(phase - 2, 3u));
+    EXPECT_EQ(field->payload_update_count, phase == 6 ? 4u : std::min(phase, 3u));
+    if (phase == 3)
+      failed_readback = voxel->preprocess_readback;
+    if (phase == 4) {
+      failed_readback->consumed = false;
+      failed_readback->ReadAfterFrameFence(*field);
+      EXPECT_EQ(field->preprocess_status.failure_flags, 0u);
+    }
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {128, 128, 128};
+    Buffer sdf_buffer(128 * 128 * 128);
+    sdf_buffer.CopyFromImage(*field->textures.at("Cascade0.Sdf").image, copy);
+    std::vector<uint8_t> sdf;
+    sdf_buffer.DownloadVector(sdf, 128 * 128 * 128);
+    copy.imageExtent.width = 256;
+    Buffer occlusion_buffer(256 * 128 * 128 * 2);
+    occlusion_buffer.CopyFromImage(*field->textures.at("Occlusion").image, copy);
+    std::vector<uint16_t> occlusion;
+    occlusion_buffer.DownloadVector(occlusion, 256 * 128 * 128);
+    if (phase == 0 || phase == 5) {
+      initial_sdf = sdf;
+      initial_occlusion = occlusion;
+    } else if (phase < 4 || phase == 6) {
+      EXPECT_EQ(sdf, initial_sdf);
+      EXPECT_EQ(occlusion, initial_occlusion);
+    }
+    copy.imageExtent = {1, 1, 1};
+    copy.imageSubresource.layerCount = 5;
+    Buffer history_buffer(5 * 8);
+    history_buffer.CopyFromImage(*field->textures.at("Cascade0.History").image, copy);
+    std::vector<int16_t> history;
+    history_buffer.DownloadVector(history, 20);
+    EXPECT_EQ(history, std::vector<int16_t>(20, 123));
+    const auto count = field->solid_cell_dispatch[0].total_count;
+    ASSERT_GT(count, 0u);
+    std::vector<SdfgiSolidCell> cells;
+    field->buffers.at("Cascade0.SolidCells").buffer->DownloadVector(cells, count);
+    if (phase >= 5) {
+      ASSERT_EQ(count, 1u);  // Matches Godot's empty-field origin cell, not retained geometry.
+      EXPECT_EQ(cells[0].position & 0x1fffffu, 0u);
+      EXPECT_EQ(cells[0].albedo & 0x1fffffu, 0u);
+      EXPECT_EQ(cells[0].light & 0x3fffffffu, 0u);
+      EXPECT_EQ(cells[0].light_aniso & 0x3fffffffu, 0u);
+      continue;
+    }
+    if (phase == 1 || phase == 2) {
+      ASSERT_EQ(cells.size(), previous_cells.size());
+      for (size_t i = 0; i < cells.size(); ++i) {
+        EXPECT_EQ(cells[i].position, previous_cells[i].position);
+        EXPECT_EQ(cells[i].albedo & 0xffff8000u, previous_cells[i].albedo & 0xffff8000u);
+        if (phase == 1)
+          EXPECT_NE(cells[i].albedo & 0x7fff, previous_cells[i].albedo & 0x7fff);
+        if (phase == 2)
+          EXPECT_EQ(std::memcmp(&cells[i], &previous_cells[i], sizeof(SdfgiSolidCell)), 0);
+      }
+    }
+    previous_cells = std::move(cells);
   }
 }
 
