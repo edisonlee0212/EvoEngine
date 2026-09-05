@@ -5,6 +5,7 @@ struct StarBaseSample
   double gaussianY;
   double gaussianZ;
   double gaussianRadius;
+  double orbitalPhase;
 };
 
 struct StarClusterParameters
@@ -150,7 +151,7 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
     colorEmission = lerp(p.centerColorIntensity, p.coreColorIntensity, float(t));
   }
 
-  const double angle = (proportion * 360.0 + p.timePadding.x) / sqrt64(a + b) * speed;
+  const double angle = sample.orbitalPhase + p.timePadding.x / sqrt64(a + b) * speed;
   double orbitalSin;
   double orbitalCos;
   sinCos64(angle, orbitalSin, orbitalCos);
@@ -167,9 +168,8 @@ void main(uint3 dispatchThreadId : SV_DispatchThreadID)
   const double4 world = p.world0 * local.x + p.world1 * local.y + p.world2 * local.z + p.world3 * local.w;
 
   StarClusterResult result;
-  const double radius = p.centerOffset.w > 0.0
-    ? clamp(p.tiltRadius.w + p.centerOffset.w * sample.gaussianRadius, p.timePadding.z, p.timePadding.w)
-    : p.tiltRadius.w;
+  const double radius = lerp(p.timePadding.z, p.timePadding.w,
+    clamp(0.5 + p.centerOffset.w * sample.gaussianRadius, 0.0, 1.0));
   result.worldPositionRadius = double4(world.xyz, radius);
   result.colorEmission = colorEmission;
   result.alphaPadding = float4(float(p.timePadding.y), 0.0, 0.0, 0.0);

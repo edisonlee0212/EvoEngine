@@ -1,10 +1,13 @@
 #include <gtest/gtest.h>
+#include <chrono>
 #include <glm/gtx/string_cast.hpp>
 
 #include "Application.hpp"
 #include "ComputePipeline.hpp"
 #include "GeometryStorage.hpp"
 #include "Jobs.hpp"
+#include "Material.hpp"
+#include "RenderInstanceStorage.hpp"
 #include "RenderLayer.hpp"
 #include "RenderTexture.hpp"
 #include "Shader.hpp"
@@ -38,6 +41,12 @@ std::shared_ptr<StarCluster> Cluster(const uint32_t count, const uint64_t seed =
 void ExpectSample(const StarBaseSample& a, const StarBaseSample& b) {
   EXPECT_EQ(0, std::memcmp(&a, &b, sizeof(a)));
 }
+void ExpectGaussian(const StarBaseSample& a, const StarBaseSample& b) {
+  EXPECT_EQ(a.gaussian_x, b.gaussian_x);
+  EXPECT_EQ(a.gaussian_y, b.gaussian_y);
+  EXPECT_EQ(a.gaussian_z, b.gaussian_z);
+  EXPECT_EQ(a.gaussian_radius, b.gaussian_radius);
+}
 }  // namespace
 
 TEST(UniverseStarCluster, DeterministicSamplesDependOnlyOnSeedAndOrdinal) {
@@ -45,6 +54,236 @@ TEST(UniverseStarCluster, DeterministicSamplesDependOnlyOnSeedAndOrdinal) {
   ExpectSample(first, GenerateStarBaseSample(42, 17));
   const auto reseeded = GenerateStarBaseSample(43, 17);
   EXPECT_NE(0, std::memcmp(&first, &reseeded, sizeof(first)));
+}
+
+TEST(UniverseStarCluster, OrbitStrandModesAndDefaults) {
+  UniverseLayer layer;
+  EXPECT_FALSE(layer.show_orbit_strands);
+  EXPECT_EQ(layer.orbit_display, StarOrbitDisplay::All);
+  EXPECT_FLOAT_EQ(layer.orbit_strand_radius, 0.1f);
+  const auto cluster = Cluster(3);
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  const auto& layout = batch.clocks.at(cluster.get()).layout;
+  const auto range = batch.ranges[0];
+  EXPECT_EQ(SelectStarOrbitProportions(layout, StarOrbitDisplay::All, {}, range, batch.samples).size(),
+            layout.orbits.size());
+  const auto occupied = SelectStarOrbitProportions(layout, StarOrbitDisplay::Occupied, {}, range, batch.samples);
+  EXPECT_LE(occupied.size(), 3u);
+  EXPECT_FALSE(occupied.empty());
+  StarPickSnapshot selected;
+  selected.result.valid = 1;
+  selected.cluster = cluster;
+  selected.identity = range.identity;
+  selected.seed = range.seed;
+  selected.ordinal = 2;
+  EXPECT_EQ(SelectStarOrbitProportions(layout, StarOrbitDisplay::Selected, selected, range, batch.samples),
+            std::vector<double>{batch.samples[2].orbital_proportion});
+  selected.ordinal = range.count;
+  EXPECT_TRUE(SelectStarOrbitProportions(layout, StarOrbitDisplay::Selected, selected, range, batch.samples).empty());
+  selected.ordinal = 0;
+  ++selected.seed;
+  EXPECT_TRUE(SelectStarOrbitProportions(layout, StarOrbitDisplay::Selected, selected, range, batch.samples).empty());
+}
+
+TEST(UniverseStarCluster, ClosedColoredOrbitStrandsMatchNominalEquationAndCache) {
+  StarCluster cluster;
+  cluster.disk_tilt_x = 35;
+  cluster.core_tilt_z = -25;
+  cluster.center_offset = {80, 60, 20};
+  auto p = BuildStarClusterParameters(cluster, glm::dmat4(1), 0);
+  StarOrbitStrandCache cache;
+  const std::vector<double> proportions{0, 0.25, 0.75, 1};
+  ASSERT_TRUE(cache.Update(p, proportions, 0.1f));
+  ASSERT_EQ(cache.points.size(), 4u * 259);
+  ASSERT_EQ(cache.starts.size(), 5u);
+  for (size_t orbit = 0; orbit < proportions.size(); ++orbit) {
+    const auto start = cache.starts[orbit];
+    EXPECT_EQ(cache.points[start].position, cache.points[start + 256].position);
+    EXPECT_EQ(cache.points[start + 1].position, cache.points[start + 257].position);
+    EXPECT_EQ(cache.points[start + 2].position, cache.points[start + 258].position);
+    for (uint32_t j = 0; j < 256; ++j) {
+      StarBaseSample sample{};
+      sample.orbital_proportion = proportions[orbit];
+      sample.orbital_phase = glm::two_pi<double>() * j / 256;
+      const auto expected = EvaluateStar(p, sample);
+      const auto& point = cache.points[start + j + 1];
+      EXPECT_LT(glm::length(glm::dvec3(point.position) - glm::dvec3(expected.world_position_radius)), 0.02);
+      EXPECT_EQ(point.color, glm::vec4(glm::vec3(expected.color_emission), 1));
+      EXPECT_FLOAT_EQ(point.thickness, 0.1f);
+      EXPECT_NEAR(glm::length(point.normal), 1, 1e-6);
+    }
+  }
+  const auto* storage = cache.points.data();
+  p.time_padding.x += 100;
+  p.world3.x = 10000;
+  p.population_revision++;
+  p.star_count++;
+  p.spread_speed.x += 5;
+  p.disk_color_intensity.w = 80;
+  EXPECT_FALSE(cache.Update(p, proportions, 0.1f));
+  EXPECT_EQ(cache.points.data(), storage);
+  EXPECT_TRUE(cache.Update(p, proportions, 0.2f));
+  p.disk_color_intensity.x = 0.8f;
+  EXPECT_TRUE(cache.Update(p, proportions, 0.2f));
+  p.ellipse0 *= 2;
+  EXPECT_TRUE(cache.Update(p, proportions, 0.2f));
+  EXPECT_TRUE(cache.Update(p, {}, 0.2f));
+  EXPECT_TRUE(cache.points.empty());
+}
+
+TEST(UniverseStarCluster, OrbitGapExampleCapacityAndUniqueUniformSlots) {
+  StarCluster cluster;
+  cluster.center_diameter = 40;
+  cluster.disk_diameter = 200;
+  cluster.center_eccentricity = cluster.core_eccentricity = cluster.disk_eccentricity = 0.5;
+  cluster.star_minimum_distance = 0.75;
+  StarOrbitLayout layout;
+  ASSERT_TRUE(layout.Update(cluster));
+  ASSERT_EQ(layout.orbits.size(), 6u);
+  EXPECT_DOUBLE_EQ(layout.radial_spacing, 0.8);
+  EXPECT_FALSE(layout.Update(cluster));
+  for (size_t i = 0; i < layout.orbits.size(); ++i) {
+    EXPECT_DOUBLE_EQ(layout.orbits[i].proportion, double(i) / 5);
+    EXPECT_EQ(layout.orbits[i].capacity, uint64_t(std::floor(glm::two_pi<double>() * (1 + 0.8 * i) / 0.75)));
+  }
+  double jitter_sum = 0;
+  size_t sampled = 0;
+  for (uint64_t seed = 1; seed <= 40; ++seed) {
+    const auto samples = layout.Allocate(seed, UINT32_MAX);
+    ASSERT_EQ(samples.size(), layout.capacity);
+    std::set<std::pair<size_t, uint64_t>> occupied;
+    for (size_t ordinal = 0; ordinal < samples.size(); ++ordinal) {
+      const auto& sample = samples[ordinal];
+      const size_t orbit = size_t(std::llround(sample.orbital_proportion * 5));
+      const double slot_position = sample.orbital_phase / glm::two_pi<double>() * layout.orbits[orbit].capacity;
+      const auto slot = uint64_t(std::floor(slot_position));
+      ASSERT_LT(slot, layout.orbits[orbit].capacity);
+      EXPECT_TRUE(occupied.emplace(orbit, slot).second);
+      jitter_sum += slot_position - slot;
+      ++sampled;
+      ExpectGaussian(sample, GenerateStarBaseSample(seed, static_cast<uint32_t>(ordinal)));
+    }
+    for (const auto& orbit : layout.orbits)
+      EXPECT_EQ(orbit.occupied, orbit.capacity);
+  }
+  EXPECT_NEAR(jitter_sum / sampled, 0.5, 0.02);
+  cluster.star_minimum_distance = 1;
+  layout.Update(cluster);
+  EXPECT_EQ(layout.orbits.size(), 5u);
+  EXPECT_DOUBLE_EQ(layout.radial_spacing, 1);
+  cluster.star_minimum_distance = 5;
+  layout.Update(cluster);
+  EXPECT_EQ(layout.orbits.size(), 1u);
+  EXPECT_EQ(layout.orbits[0].proportion, 0);
+  cluster.disk_diameter = cluster.center_diameter;
+  layout.Update(cluster);
+  EXPECT_EQ(layout.orbits.size(), 1u);
+}
+
+TEST(UniverseStarCluster, EllipseSlotsUseArcLengthAndOrbitChoiceIsUniform) {
+  StarCluster cluster;
+  cluster.center_diameter = 400;
+  cluster.disk_diameter = 560;
+  cluster.star_minimum_distance = 1;
+  cluster.center_eccentricity = cluster.core_eccentricity = cluster.disk_eccentricity = 0.2;
+  StarOrbitLayout layout;
+  layout.Update(cluster);
+  ASSERT_EQ(layout.orbits.size(), 5u);
+  std::vector<uint32_t> frequencies(5);
+  for (uint64_t seed = 0; seed < 10000; ++seed) {
+    const auto samples = layout.Allocate(seed, 1);
+    ++frequencies[size_t(std::llround(samples[0].orbital_proportion * 4))];
+  }
+  for (const auto frequency : frequencies)
+    EXPECT_NEAR(frequency, 2000, 150);
+  const auto samples = layout.Allocate(42, UINT32_MAX);
+  std::set<std::pair<size_t, uint64_t>> occupied;
+  for (const auto& sample : samples) {
+    const size_t index = size_t(std::llround(sample.orbital_proportion * 4));
+    const auto& orbit = layout.orbits[index];
+    ASSERT_EQ(orbit.arc_lengths.size(), 2049u);
+    const double segment = sample.orbital_phase / glm::two_pi<double>() * 2048;
+    const auto lower = size_t(std::floor(segment));
+    const double arc = glm::mix(orbit.arc_lengths[lower], orbit.arc_lengths[lower + 1], segment - lower);
+    const auto slot = uint64_t(std::floor(arc / orbit.length * orbit.capacity));
+    EXPECT_TRUE(occupied.emplace(index, slot).second);
+  }
+}
+
+TEST(UniverseStarCluster, BucketBuildTimingAndUnchangedAnimationAvoidReallocation) {
+  const auto cluster = Cluster(500000);
+  StarOrbitLayout layout;
+  const auto begin = std::chrono::steady_clock::now();
+  layout.Update(*cluster);
+  const auto built = std::chrono::steady_clock::now();
+  const auto allocated = layout.Allocate(cluster->seed, cluster->GetStarCount());
+  const auto finished = std::chrono::steady_clock::now();
+  ASSERT_EQ(allocated.size(), 500000u);
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  const auto* storage = batch.samples.data();
+  const auto* orbits = batch.clocks.at(cluster.get()).layout.orbits.data();
+  const auto revision = batch.population_revision;
+  std::vector<double> durations;
+  for (uint32_t frame = 1; frame <= 1000; ++frame) {
+    const auto start = std::chrono::steady_clock::now();
+    const bool changed = batch.Update({{cluster}}, frame / 60.0);
+    durations.push_back(std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - start).count());
+    EXPECT_FALSE(changed);
+    EXPECT_EQ(batch.samples.data(), storage);
+    EXPECT_EQ(batch.clocks.at(cluster.get()).layout.orbits.data(), orbits);
+    EXPECT_EQ(batch.population_revision, revision);
+  }
+  std::sort(durations.begin(), durations.end());
+  std::cout << "Bucket layout ms=" << std::chrono::duration<double, std::milli>(built - begin).count()
+            << ", allocation ms=" << std::chrono::duration<double, std::milli>(finished - built).count()
+            << ", steady update median/p95 us=" << durations[500] << "/" << durations[950]
+            << ", orbits=" << layout.orbits.size() << ", capacity=" << layout.capacity << std::endl;
+}
+
+TEST(UniverseStarCluster, BucketEditsCapCountsPreservePrefixesAndRejectInvalidLayouts) {
+  const auto cluster = Cluster(500000);
+  cluster->center_diameter = 40;
+  cluster->disk_diameter = 200;
+  cluster->star_minimum_distance = 0.75;
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  const auto capacity = batch.clocks.at(cluster.get()).layout.capacity;
+  ASSERT_LT(capacity, 500000u);
+  ASSERT_EQ(batch.samples.size(), capacity);
+  EXPECT_EQ(batch.parameters[0].star_count, capacity);
+  EXPECT_EQ(cluster->GetStarCount(), 500000u);
+  const auto original = batch.samples;
+  cluster->SetStarCount(3);
+  batch.Update({{cluster}}, 0);
+  for (uint32_t i = 0; i < 3; ++i)
+    ExpectSample(original[i], batch.samples[i]);
+  cluster->SetStarCount(500000);
+  batch.Update({{cluster}}, 0);
+  ASSERT_EQ(original.size(), batch.samples.size());
+  EXPECT_EQ(std::memcmp(original.data(), batch.samples.data(), original.size() * sizeof(StarBaseSample)), 0);
+  const auto revision = batch.population_revision;
+  cluster->SetStarCount(1);
+  batch.Update({{cluster}}, 0);
+  const auto before = batch.population_revision;
+  cluster->disk_eccentricity = 0.6;
+  EXPECT_TRUE(batch.Update({{cluster}}, 0));
+  EXPECT_GT(batch.population_revision, before);
+  EXPECT_GT(batch.population_revision, revision);
+  EXPECT_EQ(batch.samples.size(), 1u);
+  for (const double spacing :
+       {0.0, -1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN(), 1e-30, 1000.0}) {
+    cluster->star_minimum_distance = spacing;
+    batch.Update({{cluster}}, 0);
+    EXPECT_TRUE(batch.samples.empty());
+    EXPECT_FALSE(batch.Update({{cluster}}, 1));
+    EXPECT_FALSE(batch.clocks.at(cluster.get()).layout.status.empty());
+  }
+  cluster->star_minimum_distance = 0.75;
+  cluster->SetStarCount(UINT32_MAX);
+  EXPECT_NO_THROW(batch.Update({{cluster}}, 0, capacity + 100));
+  EXPECT_THROW(batch.Update({{cluster}}, 0, 1), std::length_error);
 }
 
 TEST(UniverseStarCluster, GrowthShrinkAndRepackPreserveSamples) {
@@ -72,7 +311,7 @@ TEST(UniverseStarCluster, GrowthShrinkAndRepackPreserveSamples) {
 
 TEST(UniverseStarCluster, RadiusSamplesAreNormalAndSizesAreClamped) {
   StarCluster cluster;
-  cluster.radius_standard_deviation = 0.2;
+  cluster.radius_deviation = 0.2;
   cluster.radius_min = 0.1;
   cluster.radius_max = 2;
   auto p = BuildStarClusterParameters(cluster, glm::dmat4(1), 0);
@@ -86,7 +325,7 @@ TEST(UniverseStarCluster, RadiusSamplesAreNormalAndSizesAreClamped) {
     const double radius = EvaluateStar(p, sample).world_position_radius.w;
     EXPECT_GE(radius, cluster.radius_min);
     EXPECT_LE(radius, cluster.radius_max);
-    EXPECT_DOUBLE_EQ(radius, glm::clamp(1 + 0.2 * sample.gaussian_radius, 0.1, 2.0));
+    EXPECT_DOUBLE_EQ(radius, glm::mix(0.1, 2.0, glm::clamp(0.5 + 0.2 * sample.gaussian_radius, 0.0, 1.0)));
   }
   EXPECT_NEAR(sum / count, 0, 0.02);
   EXPECT_NEAR(square_sum / count, 1, 0.03);
@@ -103,9 +342,11 @@ TEST(UniverseStarCluster, RadiusSamplesAreNormalAndSizesAreClamped) {
   cluster.radius_max = -2;
   p = BuildStarClusterParameters(cluster, glm::dmat4(1), 0);
   EXPECT_DOUBLE_EQ(EvaluateStar(p, sample).world_position_radius.w, 0);
-  cluster.radius_standard_deviation = 0;
+  cluster.radius_min = 0.1;
+  cluster.radius_max = 2;
+  cluster.radius_deviation = 0;
   p = BuildStarClusterParameters(cluster, glm::dmat4(1), 0);
-  EXPECT_DOUBLE_EQ(EvaluateStar(p, sample).world_position_radius.w, cluster.visual_radius);
+  EXPECT_DOUBLE_EQ(EvaluateStar(p, sample).world_position_radius.w, 1.05);
 }
 
 TEST(UniverseStarCluster, RadiusEditsOnlyUpdateParametersAndDoNotMoveStars) {
@@ -117,8 +358,7 @@ TEST(UniverseStarCluster, RadiusEditsOnlyUpdateParametersAndDoNotMoveStars) {
   const auto original = EvaluateStar(batch.parameters[0], batch.samples[0]);
   const auto other = batch.parameters[1];
   const auto revision = batch.population_revision;
-  first->visual_radius = 2;
-  first->radius_standard_deviation = 0.5;
+  first->radius_deviation = 0.5;
   first->radius_min = 1.5;
   first->radius_max = 3;
   EXPECT_FALSE(batch.Update({{first}, {second}}, 0));
@@ -139,14 +379,14 @@ TEST(UniverseStarCluster, SettingsAndTransformsDoNotRebuildSamples) {
   batch.Update({{first}}, 0);
   const auto* storage = batch.samples.data();
   const auto revision = batch.population_revision;
-  first->disk_diameter = 900;
+  first->y_spread = 0.1;
   first->disk_color = glm::vec3(0.25f);
   glm::dmat4 transform(1.0);
   transform[3] = glm::dvec4(10, 20, 30, 1);
   EXPECT_FALSE(batch.Update({{first, transform}}, 1));
   EXPECT_EQ(storage, batch.samples.data());
   EXPECT_EQ(revision, batch.population_revision);
-  EXPECT_EQ(900, batch.parameters[0].ellipse0.x * 2);
+  EXPECT_EQ(0.1, batch.parameters[0].spread_speed.x);
   EXPECT_EQ(transform[3], batch.parameters[0].world3);
   EXPECT_EQ(0.25f, batch.parameters[0].disk_color_intensity.x);
 }
@@ -160,7 +400,7 @@ TEST(UniverseStarCluster, SeedEditChangesOnlyItsCluster) {
   second->seed = 77;
   EXPECT_TRUE(batch.Update({{first}, {second}}, 1));
   ExpectSample(original[0], batch.samples[0]);
-  ExpectSample(GenerateStarBaseSample(77, 0), batch.samples[3]);
+  ExpectGaussian(GenerateStarBaseSample(77, 0), batch.samples[3]);
 }
 
 TEST(UniverseStarCluster, IndependentClocksSurvivePauseDisableAndRepack) {
@@ -216,7 +456,7 @@ TEST(UniverseStarCluster, PopulationBoundaryCountsAndTwoLargeClusters) {
     if (count != 0) {
       EXPECT_EQ(count, batch.ranges[1].offset);
       EXPECT_EQ(count, batch.parameters[1].star_count);
-      ExpectSample(GenerateStarBaseSample(2, count - 1), batch.samples.back());
+      ExpectGaussian(GenerateStarBaseSample(2, count - 1), batch.samples.back());
     }
   }
 }
@@ -226,8 +466,8 @@ TEST(UniverseStarCluster, SerializationPersistsOnlyAuthoringAndClonesIndependent
   source->disk_diameter = 456;
   source->time_scale = -2.5;
   source->paused = true;
-  source->visual_radius = 1.5;
-  source->radius_standard_deviation = 0.4;
+  source->star_minimum_distance = 0.75;
+  source->radius_deviation = 0.4;
   source->radius_min = 0.2;
   source->radius_max = 3;
   YAML::Emitter emitter;
@@ -235,7 +475,8 @@ TEST(UniverseStarCluster, SerializationPersistsOnlyAuthoringAndClonesIndependent
   SerializeStarCluster(emitter, *source);
   emitter << YAML::EndMap;
   const std::string text = emitter.c_str();
-  for (const auto* obsolete : {"capacity", "buffer", "revision", "particle", "star_ids", "next_id", "depth_write"})
+  for (const auto* obsolete : {"capacity", "buffer", "revision", "particle", "star_ids", "next_id", "depth_write",
+                               "visual_radius", "radius_standard_deviation"})
     EXPECT_EQ(std::string::npos, text.find(obsolete));
   const auto clone = Cluster(0);
   DeserializeStarCluster(YAML::Load(text), *clone);
@@ -245,12 +486,12 @@ TEST(UniverseStarCluster, SerializationPersistsOnlyAuthoringAndClonesIndependent
   EXPECT_EQ(456, clone->disk_diameter);
   EXPECT_EQ(-2.5, clone->time_scale);
   EXPECT_TRUE(clone->paused);
-  EXPECT_EQ(1.5, clone->visual_radius);
-  EXPECT_EQ(0.4, clone->radius_standard_deviation);
+  EXPECT_EQ(0.75, clone->star_minimum_distance);
+  EXPECT_EQ(0.4, clone->radius_deviation);
   EXPECT_EQ(0.2, clone->radius_min);
   EXPECT_EQ(3, clone->radius_max);
-  clone->radius_standard_deviation = 0.8;
-  EXPECT_EQ(0.4, source->radius_standard_deviation);
+  clone->radius_deviation = 0.8;
+  EXPECT_EQ(0.4, source->radius_deviation);
   clone->SetStarCount(1);
   EXPECT_EQ(3u, source->GetStarCount());
   StarClusterBatch batch;
@@ -270,14 +511,26 @@ TEST(UniverseStarCluster, LegacyIdsMigrateToCountAndExplicitCountWins) {
   StarCluster restored;
   DeserializeStarCluster(node, restored);
   EXPECT_EQ(3u, restored.GetStarCount());
+  EXPECT_EQ(10, restored.star_minimum_distance);
   node["star_count"] = 0;
   DeserializeStarCluster(node, restored);
   EXPECT_EQ(0u, restored.GetStarCount());
   node["visual_radius"] = 7;
+  node["radius_standard_deviation"] = 7.45;
   DeserializeStarCluster(node, restored);
-  EXPECT_EQ(0, restored.radius_standard_deviation);
-  EXPECT_EQ(7, EvaluateStar(BuildStarClusterParameters(restored, glm::dmat4(1), 0), GenerateStarBaseSample(1, 0))
-                   .world_position_radius.w);
+  EXPECT_DOUBLE_EQ(0.5, restored.radius_deviation);
+  node["radius_deviation"] = 0.25;
+  DeserializeStarCluster(node, restored);
+  EXPECT_DOUBLE_EQ(0.25, restored.radius_deviation);
+  node.remove("radius_deviation");
+  node["radius_min"] = 2;
+  node["radius_max"] = 2;
+  DeserializeStarCluster(node, restored);
+  EXPECT_DOUBLE_EQ(0, restored.radius_deviation);
+  const auto radius = EvaluateStar(BuildStarClusterParameters(restored, glm::dmat4(1), 0), GenerateStarBaseSample(1, 0))
+                          .world_position_radius.w;
+  EXPECT_GE(radius, restored.radius_min);
+  EXPECT_LE(radius, restored.radius_max);
 }
 
 TEST(UniverseStarCluster, LiveClonesWithCopiedHandlesKeepIndependentClocksAndRanges) {
@@ -297,32 +550,34 @@ TEST(UniverseStarCluster, LiveClonesWithCopiedHandlesKeepIndependentClocksAndRan
   first->SetStarCount(1);
   batch.Update({{clone}, {first}}, 12);
   EXPECT_EQ(3u, batch.ranges[1].offset);
-  ExpectSample(GenerateStarBaseSample(9, 0), batch.samples[0]);
-  ExpectSample(GenerateStarBaseSample(7, 0), batch.samples[3]);
+  ExpectGaussian(GenerateStarBaseSample(9, 0), batch.samples[0]);
+  ExpectGaussian(GenerateStarBaseSample(7, 0), batch.samples[3]);
 }
 
 TEST(UniverseStarCluster, PooledReuseRestoresAuthoringDefaults) {
   const auto cluster = Cluster(10, 99);
   cluster->disk_diameter = 12;
   cluster->paused = true;
-  cluster->radius_standard_deviation = 3;
+  cluster->radius_deviation = 3;
   cluster->radius_min = 2;
   cluster->radius_max = 5;
+  cluster->star_minimum_distance = 8;
   cluster->OnDestroy();
   cluster->OnCreate();
   EXPECT_EQ(1u, cluster->seed);
-  EXPECT_EQ(30000, cluster->disk_diameter);
+  EXPECT_EQ(10000000, cluster->disk_diameter);
   EXPECT_FALSE(cluster->paused);
   EXPECT_EQ(0u, cluster->GetStarCount());
-  EXPECT_EQ(0, cluster->radius_standard_deviation);
+  EXPECT_DOUBLE_EQ(1.0 / 6.0, cluster->radius_deviation);
   EXPECT_EQ(0.1, cluster->radius_min);
-  EXPECT_EQ(2, cluster->radius_max);
+  EXPECT_EQ(15, cluster->radius_max);
+  EXPECT_EQ(10, cluster->star_minimum_distance);
 }
 
 TEST(UniverseStarCluster, GlobalDepthWriteDefaultsOnAndDoesNotChangePopulation) {
   UniverseLayer layer;
   EXPECT_TRUE(layer.depth_write);
-  EXPECT_FLOAT_EQ(1.0f, layer.star_fade_strength);
+  EXPECT_FLOAT_EQ(0.5f, layer.star_fade_strength);
   layer.depth_write = false;
   const auto cluster = Cluster(1);
   StarClusterBatch batch;
@@ -335,7 +590,8 @@ TEST(UniverseStarCluster, GlobalDepthWriteDefaultsOnAndDoesNotChangePopulation) 
 }
 
 TEST(UniverseStarCluster, GpuBufferLayoutsRemainExact) {
-  EXPECT_EQ(40u, sizeof(StarBaseSample));
+  EXPECT_EQ(48u, sizeof(StarBaseSample));
+  EXPECT_EQ(40u, offsetof(StarBaseSample, orbital_phase));
   EXPECT_EQ(32u, offsetof(StarBaseSample, gaussian_radius));
   EXPECT_EQ(448u, sizeof(StarClusterGpuParameters));
   EXPECT_EQ(64u, sizeof(StarClusterGpuResult));
@@ -354,7 +610,7 @@ TEST(UniverseStarCluster, GpuBufferLayoutsRemainExact) {
 namespace {
 class UniverseGpuFixture {
  public:
-  UniverseGpuFixture() {
+  explicit UniverseGpuFixture(const bool mesh_shaders = false) {
     application_ = std::make_unique<evo_engine::Application>();
     application_->PushLayer<RenderLayer>("Render Layer");
     Jobs::Initialize(2);
@@ -363,7 +619,7 @@ class UniverseGpuFixture {
     settings.load_project_assets = false;
     settings.load_project_start_scene = false;
     settings.enable_runtime_packages = false;
-    settings.graphics_settings.use_mesh_shader = false;
+    settings.graphics_settings.use_mesh_shader = mesh_shaders;
     settings.graphics_settings.use_ray_tracing = false;
     const_cast<ApplicationInitializationSettings&>(application_->GetApplicationInfo()) = settings;
     evo_engine::PlatformLifecycleTestAccess::Initialize(settings);
@@ -402,7 +658,7 @@ StarClusterGpuResult ReferenceStar(const StarClusterGpuParameters& p, const Star
   const double tilt_x = disk ? mix(p.speed_tilt.w, p.speed_tilt.y) : mix(p.tilt_radius.y, p.speed_tilt.w);
   const double tilt_z = disk ? mix(p.tilt_radius.x, p.speed_tilt.z) : mix(p.tilt_radius.z, p.tilt_radius.x);
   const double speed = disk ? mix(p.spread_speed.w, p.spread_speed.z) : mix(p.speed_tilt.x, p.spread_speed.w);
-  const double angle = (proportion * 360 + p.time_padding.x) / std::sqrt(a + b) * speed;
+  const double angle = sample.orbital_phase + p.time_padding.x / std::sqrt(a + b) * speed;
   glm::dvec3 point(std::sin(angle) * a, 0, std::cos(angle) * b);
   const auto rotate = [&](const int axis, const double degrees) {
     const double s = std::sin(glm::radians(degrees)), c = std::cos(glm::radians(degrees));
@@ -423,16 +679,40 @@ StarClusterGpuResult ReferenceStar(const StarClusterGpuParameters& p, const Star
   point /= 20;
   const glm::dvec4 world = glm::dmat4(p.world0, p.world1, p.world2, p.world3) * glm::dvec4(point, 1);
   StarClusterGpuResult result;
-  result.world_position_radius = glm::dvec4(glm::dvec3(world), p.tilt_radius.w);
-  if (p.center_offset.w > 0)
-    result.world_position_radius.w =
-        glm::clamp(p.tilt_radius.w + p.center_offset.w * sample.gaussian_radius, p.time_padding.z, p.time_padding.w);
+  result.world_position_radius =
+      glm::dvec4(glm::dvec3(world), glm::mix(p.time_padding.z, p.time_padding.w,
+                                             glm::clamp(0.5 + p.center_offset.w * sample.gaussian_radius, 0.0, 1.0)));
   result.color_emission = disk ? glm::mix(p.core_color_intensity, p.disk_color_intensity, float(t))
                                : glm::mix(p.center_color_intensity, p.core_color_intensity, float(t));
   result.alpha_padding.x = static_cast<float>(p.time_padding.y);
   return result;
 }
 }  // namespace
+
+TEST(UniverseStarCluster, EntityFreeOrbitStrandsRegisterAsOneUnlitClusterDraw) {
+  UniverseGpuFixture gpu(true);
+  if (!Platform::MeshShaderEnabled())
+    GTEST_SKIP() << "Mesh shaders unavailable";
+  StarOrbitStrandCache cache;
+  ASSERT_TRUE(cache.Update(BuildStarClusterParameters(StarCluster{}, glm::dmat4(1), 0), {0.5}, 0.1f));
+  const auto strands = std::make_shared<Strands>();
+  strands->OnCreate();
+  StrandPointAttributes attributes;
+  attributes.normal = attributes.color = true;
+  strands->SetStrands(attributes, cache.starts, cache.points);
+  GeometryStorage::WaitForPendingUploads();
+  const auto material = std::make_shared<Material>();
+  auto material_data = material->BuildGltfMaterialData();
+  material_data.shade_material.unlit = 1;
+  material_data.shade_material.pbr_base_color_factor = glm::vec4(1);
+  material->SetGltfMaterialData(material_data);
+  RenderInstanceStorage storage;
+  EXPECT_TRUE(storage.RegisterStrandsDrawCommand(strands, material, GlobalTransform{}, false));
+  EXPECT_EQ(storage.total_strands_segments, 256u);
+  EXPECT_FALSE(storage.RegisterStrandsDrawCommand({}, material, GlobalTransform{}, false));
+  EXPECT_FALSE(storage.RegisterStrandsDrawCommand(strands, {}, GlobalTransform{}, false));
+  EXPECT_EQ(storage.total_strands_segments, 256u);
+}
 
 TEST(UniverseStarCluster, GpuPackedRangesMatchDoublePrecisionReference) {
   UniverseGpuFixture gpu;
@@ -458,13 +738,12 @@ TEST(UniverseStarCluster, GpuPackedRangesMatchDoublePrecisionReference) {
   const auto second = Cluster(0, 2);
   first->disk_tilt_x = 27;
   first->core_tilt_z = -13;
-  first->radius_standard_deviation = 0.3;
+  first->radius_deviation = 0.3;
   first->radius_min = 0.2;
   first->radius_max = 1.7;
   second->disk_color = glm::vec3(1, 0.15, 0.05);
   second->phase = -3000;
-  second->visual_radius = 0.7;
-  second->radius_standard_deviation = 0.5;
+  second->radius_deviation = 0.5;
   second->radius_min = 0.4;
   second->radius_max = 2;
   second->alpha = 0.4f;
@@ -479,7 +758,10 @@ TEST(UniverseStarCluster, GpuPackedRangesMatchDoublePrecisionReference) {
         glm::uvec2(250000, 0), glm::uvec2(250000, 250000), glm::uvec2(500000, 0)}) {
     first->SetStarCount(counts.x);
     second->SetStarCount(counts.y);
-    batch.Update({{first, first_world}, {second, world}}, 1, counts.x == 500000 ? 100 : 1);
+    batch.Update({{first, first_world}, {second, world}}, 1);
+    if (counts.x == 500000)
+      for (auto& parameters : batch.parameters)
+        ApplyStarRadiusScale(parameters, 100);
     const size_t count = batch.samples.size();
     if (count == 0) {
       EXPECT_TRUE(batch.ranges.empty());
@@ -702,8 +984,9 @@ TEST(UniverseStarCluster, MinimumPixelStarsFadeWithDistanceAndStayBelowBloom) {
     float brightness_limit = 0.8991f;
     glm::vec2 viewport_size = glm::vec2(33);
     float fade_strength = 1.0f;
+    glm::vec2 distance_compression{};
   };
-  static_assert(sizeof(Push) == 20);
+  static_assert(sizeof(Push) == 28);
   ShaderReflectionInfo reflection;
   std::string diagnostics;
   ASSERT_TRUE(Shader::ReflectSlang(ShaderType::Vertex, vertex->PeekShaderCode(), reflection, diagnostics,
@@ -735,8 +1018,8 @@ TEST(UniverseStarCluster, MinimumPixelStarsFadeWithDistanceAndStayBelowBloom) {
                         const glm::vec2 pixel_offset = glm::vec2(0)) {
     std::array<CameraInfoBlock, 2> cameras{};
     cameras[0].view = cameras[0].inverse_view = glm::mat4(1);
-    cameras[0].projection = perspective ? glm::perspectiveRH_ZO(glm::half_pi<float>(), 1.0f, 0.1f, 100.0f)
-                                        : glm::orthoRH_ZO(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 100.0f);
+    cameras[0].projection = perspective ? glm::perspectiveRH_ZO(glm::half_pi<float>(), 1.0f, 0.1f, 10000.0f)
+                                        : glm::orthoRH_ZO(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 10000.0f);
     cameras[0].resolution = glm::vec2(999);  // The actual viewport must determine pixel diameter.
     cameras[1] = cameras[0];
     cameras[1].projection[0][0] *= 2;
@@ -812,6 +1095,18 @@ TEST(UniverseStarCluster, MinimumPixelStarsFadeWithDistanceAndStayBelowBloom) {
   EXPECT_EQ(glm::vec4(0), draw(true, 0.5 / 33, 1, {}, true, 0));
   EXPECT_EQ(glm::vec4(0),
             draw(true, 0, 1, {}));  // Zero-radius stars remain degenerate, not black depth-writing pixels.
+  const Push compressed{0, 0.8991f, {65, 65}, 1, StarDistanceCompression(10000)};
+  const auto compressed_pixel = draw(true, 2.0 * 1000000 / 65, 1000000, compressed);
+  for (int channel = 0; channel < 4; ++channel)
+    EXPECT_NEAR(emissive[channel], compressed_pixel[channel], 0.001);
+  const double proxy_distance = CompressStarDistance(1000000, 7000, 9900);
+  const auto proxy_pixel = draw(true, 2.0 * proxy_distance / 65, proxy_distance, {});
+  for (int channel = 0; channel < 4; ++channel)
+    EXPECT_NEAR(compressed_pixel[channel], proxy_pixel[channel], 0.001);
+  EXPECT_EQ(glm::vec4(0), draw(true, 2.0 * 1000000 / 65, 1000000, {}));
+  const auto below_start = draw(true, 2.0 * 6000 / 65, 6000, compressed);
+  EXPECT_EQ(below_start, draw(true, 2.0 * 6000 / 65, 6000, {}));
+  EXPECT_EQ(glm::vec4(0), draw(true, 2.0 * 1000000 / 65, -1000000, compressed));
   for (const double distance : {1.0, 2.0, 10.0}) {
     for (const float offset : {-0.49f, 0.0f, 0.49f}) {
       const auto pixel = draw(true, 0.1 / 33, distance, {}, true, 1, {offset, offset});

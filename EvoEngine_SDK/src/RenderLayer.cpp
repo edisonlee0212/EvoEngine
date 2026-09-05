@@ -8022,6 +8022,12 @@ void RenderLayer::ClearRayCameraHistories() const {
   ray_camera_history_cameras_.clear();
 }
 
+uint32_t RenderLayer::DrawStrands(const std::shared_ptr<Strands>& strands, const std::shared_ptr<Material>& material,
+                                  const GlobalTransform& global_transform, const bool cast_shadow) const {
+  return GetCurrentRenderInstanceStorage()->RegisterStrandsDrawCommand(strands, material, global_transform,
+                                                                       cast_shadow);
+}
+
 uint32_t RenderLayer::DrawMesh(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                                const GlobalTransform& global_transform, const bool cast_shadow) const {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();

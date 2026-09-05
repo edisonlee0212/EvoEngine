@@ -13,6 +13,7 @@ struct StarRenderPushConstant
   float subpixelBrightnessLimit;
   float2 viewportSize;
   float fadeStrength;
+  float2 distanceCompression;
 };
 
 struct StarVertexOutput
@@ -39,6 +40,19 @@ StarVertexOutput main(uint vertexIndex : SV_VertexID, uint instanceIndex : SV_In
   const double3 cameraPosition = double3(EE_CAMERA_POSITION(cameraIndex));
   const float3 cameraRelativePosition = float3(star.worldPositionRadius.xyz - cameraPosition);
   float4 viewPosition = mul(float4(cameraRelativePosition, 0.0), EE_CAMERAS[cameraIndex].view);
+  float displayRadius = float(star.worldPositionRadius.w);
+  const float start = constants.distanceCompression.x;
+  const float limit = constants.distanceCompression.y;
+  const float distance = length(viewPosition.xyz);
+  if (viewPosition.z < 0.0 && distance > start && limit > start)
+  {
+    const float maximumDistance = limit - max(abs(limit), limit - start) * 1e-7;
+    const float compressedDistance = min(
+      start + (limit - start) * (1.0 - exp(-(distance - start) / (limit - start))), maximumDistance);
+    const float scale = compressedDistance / distance;
+    viewPosition.xyz *= scale;
+    displayRadius *= scale;
+  }
   viewPosition.w = 1.0;
 
   StarVertexOutput output;
@@ -46,7 +60,7 @@ StarVertexOutput main(uint vertexIndex : SV_VertexID, uint instanceIndex : SV_In
   output.discPosition = corners[vertexIndex];
   output.radiance = star.colorEmission.xyz * star.colorEmission.w;
   const float2 viewportSize = max(constants.viewportSize, float2(1.0));
-  const float2 diameterPixels = abs(float(star.worldPositionRadius.w) *
+  const float2 diameterPixels = abs(displayRadius *
     float2(EE_CAMERAS[cameraIndex].projection[0][0], EE_CAMERAS[cameraIndex].projection[1][1])) *
     viewportSize / max(abs(output.position.w), 1e-6);
   const float diameter = min(diameterPixels.x, diameterPixels.y);

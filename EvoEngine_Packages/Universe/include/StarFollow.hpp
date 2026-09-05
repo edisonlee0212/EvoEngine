@@ -27,9 +27,10 @@ StarFollowCameraPose CalculateStarOverviewCameraPose(const glm::dvec3& position,
 double StarClusterBoundingRadius(const StarClusterGpuParameters& parameters, const glm::dvec3& gaussian_bound);
 
 struct StarViewTransition {
-  double disk_scale = 1, start_scale = 1, target_scale = 1, start_time = 0;
+  double radius_scale = 30, start_scale = 30, target_scale = 30;
+  double fade_strength = 0, start_fade_strength = 0, target_fade_strength = 0, start_time = 0;
   void Update(double now);
-  void SetLocked(bool locked, double now);
+  void SetLocked(bool locked, double now, double locked_fade_strength);
 };
 
 struct StarFollowState {

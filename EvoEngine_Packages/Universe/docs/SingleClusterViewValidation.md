@@ -1,5 +1,8 @@
 # Single-cluster overview and detail views
 
+> This milestone's diameter-scaling transition has been superseded by fixed 10,000,000-diameter geometry and a
+> render-radius-only 100x-to-1x transition. See [FixedGalaxyViewValidation.md](FixedGalaxyViewValidation.md).
+
 Pre-commit verification reran all 46 Universe tests under Vulkan synchronization validation and 11 focused
 editor-camera/viewport tests successfully. Compute and vertex Slang/SPIR-V validation and application installation
 also passed. Logs: `out/test-artifacts/universe-local-view/commit-*`. The full SDK suite and live UI smoke were not
@@ -43,7 +46,8 @@ SDK suite. Latest artifacts are `out/test-artifacts/universe-local-view/framing-
 
 One bootstrapped cluster retains 500,000 stars, seed 1 and the original blue/yellow/white color settings. Defaults:
 time scale 0.1, visual radius 1, disk diameter 30,000, emission 8. Authored clusters are not deleted or rewritten.
-Demo camera far clipping is 1,000,000 and is restored alongside the tone-mapping override on leaving the demo.
+Demo camera far clipping was 1,000,000 for this historical capture. Universe no longer overrides either camera clip
+distance; only the demo-specific tone-mapping override is restored on leaving the demo.
 
 Space enters star-local follow, then moves to local `[0,0,20 × radius]`, looking down negative Z. This aligns the
 selected star and cluster center in front of the camera. Space exits by rebasing the current camera into world

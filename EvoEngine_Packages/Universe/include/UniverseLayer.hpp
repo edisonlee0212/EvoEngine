@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Material.hpp"
 #include "PerlinNoiseStage.hpp"
 #include "PlanetTerrain.hpp"
 #include "StarCluster.hpp"
 #include "StarDemoCamera.hpp"
 #include "StarFollow.hpp"
 #include "StarPicking.hpp"
+#include "Strands.hpp"
 #include "TerrainChunk.hpp"
 
 namespace universe_package {
@@ -17,6 +19,7 @@ struct alignas(8) StarBaseSample {
   double gaussian_y = 0.0;
   double gaussian_z = 0.0;
   double gaussian_radius = 0.0;
+  double orbital_phase = 0.0;
 };
 
 struct alignas(16) StarClusterGpuParameters {
@@ -28,7 +31,7 @@ struct alignas(16) StarClusterGpuParameters {
   glm::dvec4 spread_speed{};
   glm::dvec4 speed_tilt{};
   glm::dvec4 tilt_radius{};
-  glm::dvec4 center_offset{};  // w: radius standard deviation.
+  glm::dvec4 center_offset{};  // w: normalized radius deviation.
   glm::dvec4 center_position{};
   glm::dvec4 world0{1.0, 0.0, 0.0, 0.0};
   glm::dvec4 world1{0.0, 1.0, 0.0, 0.0};
@@ -46,7 +49,7 @@ struct alignas(16) StarClusterGpuResult {
   glm::vec4 alpha_padding{1.0f, 0.0f, 0.0f, 0.0f};
 };
 
-static_assert(sizeof(StarBaseSample) == 40);
+static_assert(sizeof(StarBaseSample) == 48);
 static_assert(sizeof(StarClusterGpuParameters) == 448);
 static_assert(sizeof(StarClusterGpuResult) == 64);
 
@@ -67,9 +70,28 @@ struct StarClusterRange {
   uint64_t seed = 0;
   uint32_t offset = 0;
   uint32_t count = 0;
+  uint64_t layout_revision = 0;
   bool operator==(const StarClusterRange& other) const {
-    return identity == other.identity && seed == other.seed && offset == other.offset && count == other.count;
+    return identity == other.identity && seed == other.seed && offset == other.offset && count == other.count &&
+           layout_revision == other.layout_revision;
   }
+};
+
+struct StarOrbit {
+  double proportion = 0, length = 0;
+  uint64_t capacity = 0;
+  uint32_t occupied = 0;
+  std::vector<double> arc_lengths;
+};
+
+struct StarOrbitLayout {
+  std::array<double, 7> geometry{};
+  std::vector<StarOrbit> orbits;
+  uint64_t capacity = 0, revision = 0;
+  double radial_spacing = 0;
+  std::string status;
+  bool Update(const StarCluster& cluster);
+  std::vector<StarBaseSample> Allocate(uint64_t seed, uint32_t count);
 };
 
 // CPU state owned by UniverseLayer; separate from GPU allocations for deterministic tests.
@@ -80,6 +102,8 @@ struct StarClusterBatch {
     uint64_t identity = 0;
     double elapsed = 0.0;
     double last_global_time = 0.0;
+    StarOrbitLayout layout;
+    uint32_t active_count = 0;
   };
   std::unordered_map<const StarCluster*, Clock> clocks;
   std::vector<StarBaseSample> samples;
@@ -88,12 +112,18 @@ struct StarClusterBatch {
   std::vector<glm::dvec3> gaussian_bounds;
   uint64_t population_revision = 0;
   uint64_t next_identity = 1;
-  bool Update(const std::vector<StarClusterInput>& inputs, double global_time, double disk_scale = 1);
+  bool Update(const std::vector<StarClusterInput>& inputs, double global_time, uint64_t maximum_stars = UINT32_MAX);
 };
 
 StarBaseSample GenerateStarBaseSample(uint64_t seed, uint32_t ordinal);
 StarClusterGpuParameters BuildStarClusterParameters(const StarCluster& cluster, const glm::dmat4& world_transform,
-                                                    double simulation_time, double disk_scale = 1);
+                                                    double simulation_time);
+void ApplyStarRadiusScale(StarClusterGpuParameters& parameters, double scale);
+inline constexpr double kGalaxyDisplayScale = 0.001;
+void ApplyStarDisplayFrame(StarClusterGpuParameters& parameters, const glm::dmat4& display_transform,
+                           double radius_scale);
+glm::vec2 StarDistanceCompression(float far_distance);
+double CompressStarDistance(double distance, double start, double limit);
 void ConfigureStarRenderStates(GraphicsPipeline& pipeline, const glm::ivec4& viewport, bool depth_write);
 
 struct StarBatchFrameSlot {
@@ -112,6 +142,21 @@ struct StarBatchRenderPacket {
   float fade_strength = 1.0f;
 };
 
+enum class StarOrbitDisplay { All, Occupied, Selected };
+
+std::vector<double> SelectStarOrbitProportions(const StarOrbitLayout& layout, StarOrbitDisplay mode,
+                                               const StarPickSnapshot& selected, const StarClusterRange& range,
+                                               const std::vector<StarBaseSample>& samples);
+
+struct StarOrbitStrandCache {
+  StarClusterGpuParameters key{};
+  std::vector<double> proportions;
+  std::vector<StrandPoint> points;
+  std::vector<uint32_t> starts;
+  std::shared_ptr<Strands> asset;
+  bool Update(const StarClusterGpuParameters& parameters, const std::vector<double>& orbits, float radius);
+};
+
 bool InspectUniverseLayer(InspectorContext& context, class UniverseLayer& layer);
 
 class UniverseLayer final : public ILayer {
@@ -120,7 +165,10 @@ class UniverseLayer final : public ILayer {
  public:
   void RegisterTypes(Application& application) override;
   bool depth_write = true;
-  float star_fade_strength = 1.0f;
+  float star_fade_strength = 0.5f;
+  bool show_orbit_strands = false;
+  StarOrbitDisplay orbit_display = StarOrbitDisplay::All;
+  float orbit_strand_radius = 0.1f;
 
  private:
   std::shared_ptr<DescriptorSetLayout> star_cluster_layout_;
@@ -159,6 +207,12 @@ class UniverseLayer final : public ILayer {
   bool pick_benchmark_ = false;
   bool follow_benchmark_ = false;
   std::string pick_camera_name_ = "Main camera";
+  std::unordered_map<uint64_t, StarOrbitStrandCache> orbit_strands_;
+  std::shared_ptr<Material> orbit_material_;
+  size_t displayed_orbits_ = 0;
+  uint32_t orbit_draws_ = 0;
+  double orbit_rebuild_ms_ = 0, orbit_upload_ms_ = 0;
+  std::string orbit_status_ = "Disabled";
 
   void OnCreate() override;
   void OnDestroy() override;
@@ -168,6 +222,7 @@ class UniverseLayer final : public ILayer {
   void ResetSimulation();
   void EnsureBatchResources(bool population_changed);
   void RegisterForwardRendering(StarBatchRenderPacket packet);
+  void RenderOrbitStrands(const std::vector<StarClusterGpuParameters>& parameters);
   void UpdatePickingInput(const std::shared_ptr<Scene>& scene);
   void UpdatePlanetTerrain(const std::shared_ptr<Scene>& scene) const;
 };

@@ -245,6 +245,32 @@ TEST(UniverseStarPicking, CameraViewportPopulationAndToleranceRejectStaleResults
   }
 }
 
+TEST(UniverseStarPicking, SameCountOrbitEditRejectsPendingClickButRetainsSelection) {
+  const auto cluster = std::make_shared<StarCluster>();
+  cluster->SetStarCount(3);
+  cluster->center_diameter = 40;
+  cluster->disk_diameter = 200;
+  cluster->star_minimum_distance = 0.75;
+  StarClusterBatch batch;
+  batch.Update({{cluster}}, 0);
+  StarPickState state;
+  auto request = Request(cluster);
+  request.population_revision = batch.population_revision;
+  state.Update(request, true);
+  state.Complete(state.current, Hit(0));
+  ASSERT_TRUE(state.selected.result.valid);
+  state.Update(request, true);
+  const auto pending = state.current;
+  cluster->star_minimum_distance = 1;
+  ASSERT_TRUE(batch.Update({{cluster}}, 0));
+  ASSERT_EQ(batch.samples.size(), 3u);
+  request.population_revision = batch.population_revision;
+  state.Update(request, false);
+  state.Complete(pending, Hit(1));
+  EXPECT_EQ(state.selected.ordinal, 0u);
+  EXPECT_FALSE(state.hovered.result.valid);
+}
+
 TEST(UniverseStarPicking, LeavingImageClearsHoverButPreservesPendingClick) {
   const auto cluster = TestCluster();
   StarPickState state;

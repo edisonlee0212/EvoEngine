@@ -24,7 +24,7 @@ StarClusterGpuResult universe_package::EvaluateStar(const StarClusterGpuParamete
   const double tilt_x = disk ? mix(p.speed_tilt.w, p.speed_tilt.y) : mix(p.tilt_radius.y, p.speed_tilt.w);
   const double tilt_z = disk ? mix(p.tilt_radius.x, p.speed_tilt.z) : mix(p.tilt_radius.z, p.tilt_radius.x);
   const double speed = disk ? mix(p.spread_speed.w, p.spread_speed.z) : mix(p.speed_tilt.x, p.spread_speed.w);
-  const double angle = (proportion * 360 + p.time_padding.x) / std::sqrt(a + b) * speed;
+  const double angle = sample.orbital_phase + p.time_padding.x / std::sqrt(a + b) * speed;
   glm::dvec3 point(std::sin(angle) * a, 0, std::cos(angle) * b);
   const auto rotate = [&](const int axis, const double degrees) {
     const double s = std::sin(glm::radians(degrees)), c = std::cos(glm::radians(degrees));
@@ -45,9 +45,8 @@ StarClusterGpuResult universe_package::EvaluateStar(const StarClusterGpuParamete
   point /= 20;
   const glm::dvec4 world = glm::dmat4(p.world0, p.world1, p.world2, p.world3) * glm::dvec4(point, 1);
   StarClusterGpuResult result;
-  const double radius = p.center_offset.w > 0 ? glm::clamp(p.tilt_radius.w + p.center_offset.w * sample.gaussian_radius,
-                                                           p.time_padding.z, p.time_padding.w)
-                                              : p.tilt_radius.w;
+  const double radius = glm::mix(p.time_padding.z, p.time_padding.w,
+                                 glm::clamp(0.5 + p.center_offset.w * sample.gaussian_radius, 0.0, 1.0));
   result.world_position_radius = glm::dvec4(glm::dvec3(world), radius);
   result.color_emission = disk ? glm::mix(p.core_color_intensity, p.disk_color_intensity, float(t))
                                : glm::mix(p.center_color_intensity, p.core_color_intensity, float(t));
@@ -138,19 +137,23 @@ double universe_package::StarClusterBoundingRadius(const StarClusterGpuParameter
     norm_inf = (std::max)(norm_inf, std::abs(world[0][i]) + std::abs(world[1][i]) + std::abs(world[2][i]));
   }
   // Bound every orbital phase, including the actual population's Gaussian tails and entity transforms.
-  const double maximum_radius = p.center_offset.w > 0 ? p.time_padding.w : std::abs(p.tilt_radius.w);
+  const double maximum_radius = std::abs(p.time_padding.w);
   return glm::length(glm::dvec3(p.world3)) + local_radius * std::sqrt(norm_one * norm_inf) + maximum_radius;
 }
 
 void StarViewTransition::Update(const double now) {
   const double remaining = 1 - glm::clamp(now - start_time, 0.0, 1.0);
-  disk_scale = glm::mix(start_scale, target_scale, 1 - remaining * remaining * remaining * remaining);
+  const double t = 1 - remaining * remaining * remaining * remaining;
+  radius_scale = glm::mix(start_scale, target_scale, t);
+  fade_strength = glm::mix(start_fade_strength, target_fade_strength, t);
 }
 
-void StarViewTransition::SetLocked(const bool locked, const double now) {
+void StarViewTransition::SetLocked(const bool locked, const double now, const double locked_fade_strength) {
   Update(now);
-  start_scale = disk_scale;
-  target_scale = locked ? 100 : 1;
+  start_scale = radius_scale;
+  start_fade_strength = fade_strength;
+  target_scale = locked ? 1 : 30;
+  target_fade_strength = locked ? locked_fade_strength : 0;
   start_time = now;
 }
 

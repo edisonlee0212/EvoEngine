@@ -873,6 +873,9 @@ class EVOENGINE_API RenderInstanceStorage {
   bool RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh, const std::shared_ptr<Material>& material,
                                const GlobalTransform& model, bool cast_shadow);
 
+  bool RegisterStrandsDrawCommand(const std::shared_ptr<Strands>& strands, const std::shared_ptr<Material>& material,
+                                  const GlobalTransform& model, bool cast_shadow);
+
   /**
    * @brief Registers a mesh draw instanced command.
    * @param mesh The mesh to draw.

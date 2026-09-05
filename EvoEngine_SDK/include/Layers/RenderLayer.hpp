@@ -141,6 +141,18 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] DdgiProbeDebugDataView RefreshDdgiProbeDebugData();
 
   /**
+   * \brief Draws strands without a scene entity.
+   * \param strands The strands to draw.
+   * \param material The material to use for rendering the strands.
+   * \param global_transform The global transform of the strands.
+   * \param cast_shadow Specifies whether the strands cast a shadow.
+   * \return One when the draw was registered, otherwise zero.
+   */
+  [[maybe_unused]] uint32_t DrawStrands(const std::shared_ptr<Strands>& strands,
+                                        const std::shared_ptr<Material>& material,
+                                        const GlobalTransform& global_transform, bool cast_shadow = false) const;
+
+  /**
    * \brief Draws a mesh.
    * \param mesh The mesh to draw.
    * \param material The material to use for rendering the mesh.

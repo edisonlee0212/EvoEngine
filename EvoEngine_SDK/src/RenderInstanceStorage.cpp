@@ -4146,6 +4146,48 @@ bool RenderInstanceStorage::operator!=(const RenderInstanceStorage& other) const
   return false;
 }
 
+bool RenderInstanceStorage::RegisterStrandsDrawCommand(const std::shared_ptr<Strands>& strands,
+                                                       const std::shared_ptr<Material>& material,
+                                                       const GlobalTransform& model, const bool cast_shadow) {
+  if (!material || !strands || !Platform::MeshShaderEnabled() || !strands->strand_meshlet_range_ ||
+      !strands->segment_range_ || strands->segment_range_->prev_frame_index_count == 0 ||
+      strands->strand_meshlet_range_->prev_frame_range == 0)
+    return false;
+  auto bound = strands->GetBound();
+  bound.ApplyTransform(model.value);
+  const auto& material_data = ResolveMaterialData(material);
+  const auto instance = std::make_shared<StrandsRenderInstance>();
+  instance->command_type = RenderInstanceType::FromApi;
+  instance->owner = Entity();
+  instance->entity_handle = 0;
+  instance->renderer_handle = 0;
+  instance->strands = strands;
+  instance->material = material;
+  instance->model = model;
+  instance->cast_shadow = cast_shadow;
+  instance->world_bound = bound;
+  instance->geometry_version = strands->GetVersion();
+  instance->material_version = material->GetVersion();
+  instance->material_index = RegisterMaterial(material, material_data);
+  instance->line_width = material->draw_settings.line_width;
+  instance->cull_mode = ResolveCullModeForTransform(material->draw_settings.cull_mode, model.value);
+  instance->polygon_mode = material->draw_settings.polygon_mode;
+  instance->entity_selected = false;
+  switch (ResolveRasterMaterialClass(*material, material_data.shade_material)) {
+    case GltfRasterMaterialClass::Forward:
+      transparent_strands_render_instances->Register(instance);
+      break;
+    case GltfRasterMaterialClass::Masked:
+      deferred_masked_strands_render_instances->Register(instance);
+      break;
+    case GltfRasterMaterialClass::Opaque:
+      deferred_strands_render_instances->Register(instance);
+      break;
+  }
+  total_strands_segments += strands->segment_range_->prev_frame_index_count;
+  return true;
+}
+
 bool RenderInstanceStorage::RegisterMeshDrawCommand(const std::shared_ptr<Mesh>& mesh,
                                                     const std::shared_ptr<Material>& material,
                                                     const GlobalTransform& model, bool cast_shadow) {
