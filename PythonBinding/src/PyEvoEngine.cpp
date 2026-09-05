@@ -5,6 +5,7 @@
 #include "ImGuiLayer.hpp"
 #include "Platform.hpp"
 #include "Profiler.hpp"
+#include "SdfgiCapabilities.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 using namespace py_evo_engine;
@@ -482,6 +483,29 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def("RayTracingEnabled", &Platform::RayTracingEnabled);
   m.def("RayQueryEnabled", &Platform::RayQueryEnabled);
+  m.def("RayAccelerationStructureEnabled", &Platform::RayAccelerationStructureEnabled);
+  m.def(
+      "SdfgiCapabilityReport",
+      [](const uint32_t cascade_count, const uint32_t history_size) {
+        const auto report = QuerySdfgiCapabilities(cascade_count, history_size);
+        py::dict result;
+        result["supported"] = report.Supported();
+        result["device_name"] = report.device_name;
+        result["driver_version"] = report.driver_version;
+        result["reference_commit"] = kSdfgiReferenceCommit;
+        result["ray_tracing_enabled"] = report.ray_tracing_enabled;
+        result["ray_query_enabled"] = report.ray_query_enabled;
+        result["blas_enabled"] = report.acceleration_structures_enabled;
+        result["tlas_enabled"] = report.acceleration_structures_enabled;
+        result["summary"] = report.ToString();
+        py::dict checks;
+        for (const auto& check : report.checks) {
+          checks[py::str(check.name)] = check.supported;
+        }
+        result["checks"] = checks;
+        return result;
+      },
+      py::arg("cascade_count") = 4, py::arg("history_size") = 30);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

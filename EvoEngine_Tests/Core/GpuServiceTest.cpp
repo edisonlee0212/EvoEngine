@@ -15,6 +15,7 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "SdfgiCapabilities.hpp"
 #include "Shader.hpp"
 #include "Strands.hpp"
 #include "Texture2D.hpp"
@@ -191,6 +192,107 @@ class ScopedGpuPlatform {
   bool platform_initialized_ = false;
 };
 }  // namespace
+
+TEST(SdfgiCapabilities, ValidatesConfigurationAndReferenceShapes) {
+  EXPECT_TRUE(GetSdfgiImageRequirements(0, 30).empty());
+  EXPECT_TRUE(GetSdfgiImageRequirements(9, 30).empty());
+  EXPECT_TRUE(GetSdfgiImageRequirements(4, 0).empty());
+  EXPECT_TRUE(GetSdfgiImageRequirements(4, 31).empty());
+  EXPECT_TRUE(GetSdfgiImageRequirements(4, 7).empty());
+  const auto requirements = GetSdfgiImageRequirements(8, 30);
+  ASSERT_EQ(requirements.size(), 14u);
+  for (const auto& requirement : requirements) {
+    if (std::string(requirement.name) == "occlusion") {
+      EXPECT_EQ(requirement.extent.width, 256u);
+      EXPECT_EQ(requirement.extent.depth, 1024u);
+      EXPECT_EQ(requirement.sampled_format, VK_FORMAT_R4G4B4A4_UNORM_PACK16);
+    }
+    if (std::string(requirement.name) == "probe_atlas") {
+      EXPECT_EQ(requirement.extent.width, 2312u);
+      EXPECT_EQ(requirement.extent.height, 136u);
+      EXPECT_EQ(requirement.layers, 16u);
+    }
+    EXPECT_EQ(requirement.CreateFlags() != 0, requirement.storage_format != requirement.sampled_format);
+  }
+}
+
+TEST(SdfgiCapabilities, RejectsMissingFeaturesAndInsufficientLimits) {
+  VkPhysicalDeviceFeatures features{};
+  VkPhysicalDeviceLimits limits{};
+  SdfgiCapabilityReport report;
+  EXPECT_FALSE(report.Supported());
+  report.checks = EvaluateSdfgiDeviceLimits(features, limits);
+  EXPECT_FALSE(report.Supported());
+  EXPECT_NE(report.ToString().find("fragmentStoresAndAtomics"), std::string::npos);
+  EXPECT_NE(report.ToString().find("maxBoundDescriptorSets required=6 available=0"), std::string::npos);
+  features.fragmentStoresAndAtomics = VK_TRUE;
+  limits.maxBoundDescriptorSets = 6;
+  report.checks = EvaluateSdfgiDeviceLimits(features, limits);
+  EXPECT_TRUE(report.checks.front().supported);
+  EXPECT_EQ(report.ToString().find("unavailable: maxBoundDescriptorSets"), std::string::npos);
+  EXPECT_FALSE(report.Supported());
+}
+
+TEST(SdfgiCapabilities, ChecksImageUsageDimensionsLayersAndAllocationLimit) {
+  constexpr auto all_features = ~VkFormatFeatureFlags2{0};
+  VkImageFormatProperties properties{};
+  properties.maxExtent = {4096, 4096, 4096};
+  properties.maxMipLevels = 1;
+  properties.maxArrayLayers = 256;
+  properties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
+  properties.maxResourceSize = ~VkDeviceSize{0};
+  for (const auto& requirement : GetSdfgiImageRequirements()) {
+    SCOPED_TRACE(requirement.name);
+    EXPECT_TRUE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, properties));
+    EXPECT_FALSE(
+        SupportsSdfgiImage(requirement, all_features, all_features, VK_ERROR_FORMAT_NOT_SUPPORTED, properties));
+    EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features & ~VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT, all_features,
+                                    VK_SUCCESS, properties));
+    EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features, 0, VK_SUCCESS, properties));
+    if (requirement.linear_filter) {
+      EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features,
+                                      all_features & ~VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT, VK_SUCCESS,
+                                      properties));
+    }
+    if (requirement.atomic) {
+      EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features & ~VK_FORMAT_FEATURE_2_STORAGE_IMAGE_ATOMIC_BIT,
+                                      all_features, VK_SUCCESS, properties));
+    }
+    auto insufficient = properties;
+    insufficient.maxExtent.depth = requirement.extent.depth - 1;
+    EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, insufficient));
+    insufficient = properties;
+    insufficient.maxArrayLayers = requirement.layers - 1;
+    EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, insufficient));
+    insufficient = properties;
+    insufficient.maxResourceSize = 1;
+    EXPECT_FALSE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, insufficient));
+  }
+}
+
+TEST(SdfgiCapabilities, PackedSampledViewsDoNotRequireStorageOrLinearIntegerFiltering) {
+  const SdfgiImageRequirement requirement{
+      "radiance", VK_FORMAT_R32_UINT, VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 4, true};
+  const VkImageFormatProperties properties{{128, 128, 128}, 1, 1, VK_SAMPLE_COUNT_1_BIT, 8u * 1024u * 1024u};
+  EXPECT_TRUE(
+      SupportsSdfgiImage(requirement,
+                         VK_FORMAT_FEATURE_2_STORAGE_IMAGE_BIT | VK_FORMAT_FEATURE_2_TRANSFER_SRC_BIT |
+                             VK_FORMAT_FEATURE_2_TRANSFER_DST_BIT,
+                         VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_2_SAMPLED_IMAGE_FILTER_LINEAR_BIT,
+                         VK_SUCCESS, properties));
+}
+
+TEST(SdfgiCapabilities, CurrentGpuPreflightWithRayFeaturesDisabled) {
+  ScopedGpuPlatform platform(false);
+  const auto report = QuerySdfgiCapabilities();
+  std::cout << report.ToString() << std::endl;
+  EXPECT_FALSE(report.ray_tracing_enabled);
+  EXPECT_FALSE(report.ray_query_enabled);
+  EXPECT_FALSE(report.acceleration_structures_enabled);
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  EXPECT_TRUE(report.Supported()) << report.ToString();
+  EXPECT_FALSE(QuerySdfgiCapabilities(0, 30).Supported());
+}
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {
   ScopedGpuPlatform platform(true);

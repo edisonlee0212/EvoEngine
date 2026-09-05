@@ -9,6 +9,7 @@ tasks/
 docs/*
 !docs/
 !docs/*.md
+!docs/licenses/
 
 #3rdParty
 3rdParty
