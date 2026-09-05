@@ -209,6 +209,9 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   const VkBufferCopy copy{0, 0, sizeof(SdfgiDispatchData)};
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "Dispatch")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "Indirect")).buffer->GetVkBuffer(), 1, &copy);
+  const VkBufferCopy seed_copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
+  vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(),
+                  resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(), 1, &seed_copy);
   const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
   for (const auto name : {"Light", "Aniso0", "Aniso1"})
     Platform::ClearColorImage(command, *resources.textures.at(CascadeName(cascade, name)).image, VkClearColorValue{}, 1,
@@ -243,7 +246,7 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
   for (uint32_t i = 0; i < 8; ++i)
     pass.resources.push_back({"Frame.SDFGI.OcclusionScratch" + std::to_string(i), RenderResourceUsage::ReadWrite,
                               RenderResourceState::General});
-  for (const auto name : {"Sdf", "SolidCells", "Dispatch", "Indirect", "Light", "Aniso0", "Aniso1"})
+  for (const auto name : {"Sdf", "SolidCells", "UnlitCells", "Dispatch", "Indirect", "Light", "Aniso0", "Aniso1"})
     pass.resources.push_back(
         {"Frame.SDFGI." + CascadeName(cascade, name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
   pass.resources.push_back(

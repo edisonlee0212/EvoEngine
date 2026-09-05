@@ -1,10 +1,10 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, and stationary
-SDF/occlusion preprocessing are implemented. Automatic SDFGI builds the representation when it has an eligible anchor,
-but reports Environment fallback and publishes no lighting. Scrolling, direct-light, integration, and gather entry points
-remain ABI-only.
+Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, stationary
+SDF/occlusion preprocessing, and voxel direct-light injection are implemented. Automatic SDFGI builds the representation
+when it has an eligible anchor, but reports Environment fallback and publishes no ordinary lighting. Scrolling,
+integration, and gather entry points remain ABI-only.
 
 ## Reference
 
@@ -26,7 +26,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiScene.hpp/.cpp` | `gi.cpp::SDFGI::{create,update,get_pending_region_data,update_cascades,pre_process_gi}`, ForwardClustered `_render_sdfgi`/`_fill_render_list`; dedicated EvoEngine scene/material/light adapter |
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
 | `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl` |
-| `Shaders/Compute/SdfgiDirectLight.slang` (ABI only) | `shaders/environment/sdfgi_direct_light.glsl` |
+| `SdfgiLight.hpp/.cpp`, `Shaders/Compute/SdfgiDirectLight.slang` | `gi.cpp::SDFGI::{render_static_lights,pre_process_gi,update_light}`, `LightStorage::light_get_aabb`, and `shaders/environment/sdfgi_direct_light.glsl` |
 | `Shaders/Compute/SdfgiIntegrate.slang` (ABI only) | `shaders/environment/sdfgi_integrate.glsl` |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
@@ -188,7 +188,7 @@ Directional lights always use the dynamic list, including static entities, as in
 the existing entity static flag. The scene snapshot retains host linear color times brightness, shadow intent, position,
 travel direction, effective range, all three distance-attenuation coefficients, and both cosine cone thresholds. It does
 not apply camera exposure or sort by camera distance. Scene-level constant color or environment cubemap identity,
-orientation, gamma, and energy are frozen alongside these inputs; no sky conversion or light injection is performed yet.
+orientation, gamma, and energy are frozen alongside these inputs. M6 consumes the light snapshot; sky conversion remains M7.
 
 `GetCurrentSceneGiStatus()` additionally exposes cascade centers/dirty state, pending slab offsets/sizes, anchor replacement,
 eligible/excluded contributor counts, contributor change count, affected-cascade change masks, and static/dynamic light
@@ -323,3 +323,62 @@ uses explicit 3D regions with full-sized buffers. No production readback uses th
 and the editor were built in `vs2026-x64-tests`, RelWithDebInfo. No full-suite or additional image matrix was run.
 Final combined resource/preprocess/light-capacity checks passed 3/3 in 3.98 seconds, without validation errors; all seven
 implemented preprocessing SPIR-V variants passed `spirv-val --target-env vulkan1.3 --scalar-block-layout`.
+
+## Voxel direct lighting
+
+Static positional lights bake into the compact cell payload. All directionals, including entity-static directionals, and
+dynamic point/spot lights populate persistent RGB9E5 lighting and six anisotropy weights through Godot's dynamic variant.
+The shader retains reference SDF visibility traversal, bias, cross-cascade advancement, RGBE8985 static encoding, RGB9E5
+dynamic encoding, and 26-neighbor fill. `has_shadow` remains in the ABI but does not bypass reference SDF visibility or
+introduce camera shadow-map sampling. Area/projector code is excluded as agreed.
+
+Godot's directional-first light classification, cascade AABB comparison, positional maximum cascade index 2, and one-cell
+subset per update phase are preserved. New/reseeded representations process every cell; subsequent dynamic updates use
+`scene_frame % light_update_frames` and the configured 1/2/4/8/16 increment. Directionals reach all cascades. Point AABBs
+and transformed spot AABBs follow reference `light_get_aabb`; the cascade comparison remains the reference's comparison
+before uploaded positional Y adjustment. No camera culling or camera-dependent light ordering is used.
+
+The accepted host photometry adapter uses scene-linear `diffuse * diffuse_brightness`, energy multiplier 1, native range,
+and `1 / (constant + linear*d + quadratic*d*d)`. The named 16-byte extension holds these coefficients and cosine inner
+cone; reference `cos_spot_angle` holds cosine outer cone. Spot intensity is the host's clamped linear inner/outer ramp,
+verified against `Lighting.slang` and `RenderInstanceStorage.cpp`, not inferred from the host UBO's misleading names.
+World-space distance and cone direction drive host photometry; SDF ray positions/directions retain reference field space.
+No camera exposure, Godot physical-unit conversion, DDGI light adapter, or new per-light GI controls are introduced.
+
+Necessary host implementation of the accepted static-light reseed contract: each cascade retains an `UnlitCells` buffer,
+a bounded copy of STORE's unbaked compact records. It uses the same 524,288-record capacity and 16-byte stride, adding
+8 MiB per cascade (32 MiB for defaults). Copying after preprocessing keeps emission, anisotropy, geometry, and neighbor
+bits aligned without extra descriptor bindings or a second seed shader. On static-light edits/removal, copy that seed
+back before reinjection; unchanged static lighting is never added again. This refresh does not rerasterize geometry or
+rebuild SDF/occlusion. M10 will refresh the seed for the accepted occupancy-preserving material-edit extension.
+Default field allocation becomes 328,543,376 bytes; scratch is unchanged. Per-frame light staging is included in upload
+memory, and optional debug plane buffers in diagnostic memory.
+
+Per-cascade lists are selected deterministically by type/handle and bounded to 1024 static or 128 dynamic inputs. Counts
+excluded by capacity are visible in `GetCurrentSceneGiStatus().cascade_lights`. Any light-list overflow skips injection,
+diagnoses the failure, and requires whole-provider Environment fallback until recovery; M8 integrates that CPU-known
+publication gate. Every direct-light invocation independently rejects the GPU whole-field overflow flag before reading
+compact cells, so delayed diagnostic readback cannot permit out-of-capacity accesses. Uploaded inputs and descriptors
+are frame-slot versions retained through their fences. Uploads, static reseeding, both injection variants, and debug reads
+are ordered on the main queue, including previous-frame readers. No dedicated compute queue or immediate maintenance
+submission is used. The atlas binding is valid cleared black data and bounce feedback remains zero until M7 has a complete
+transport atlas, at which point the configured default 0.5 can be enabled.
+
+`RequestCurrentSceneSdfgiLightDebug` and `CaptureCurrentSceneSdfgiLightDebug` expose the persistent per-cascade light volume.
+Use the disposable Sponza driver with `--view lighting` if a light diagnostic is needed. Output remains 2560 x 1440, with
+X/Y/Z slice rows, total RGB9E5 light in column 0 and its six anisotropy-weighted lobes in columns 1 through 6. Display uses
+`radiance/(1+radiance)` then gamma 2.2. Requests do not rebuild geometry; only explicit PNG export waits for readback.
+
+The focused M6 fixture exercises directional/point/spot response, native attenuation/cone/range, positional cascade limit,
+entity-static directional classification, dynamic cadence, repeated static injection/edit/removal, emission replacement,
+zero-energy output, SDF-wall visibility with `casts_shadow=false`, all 26 neighbor writes, GPU solid overflow, light-list
+overflow/recovery, and retained diagnostic planes. It uses the current RTX 5070 with all effective RT facilities disabled;
+no Sponza image, additional scene image, or DDGI comparison is needed for these isolated checks.
+
+M6 final verification (2026-09-05): SDK, Python binding, tests, and editor built successfully in `vs2026-x64-tests`,
+RelWithDebInfo. Four combined lighting/resource/preprocess tests passed in 4.82 seconds, including the STORE-to-unlit-seed
+copy and retained light-debug planes. Both direct-light SPIR-V variants passed `spirv-val --target-env vulkan1.3
+--scalar-block-layout`; resource reflection/readback verifies the 128-byte light stride and extension. Vulkan and
+synchronization validation reported no errors. The first zero-energy fixture reused an already-consumed upload batch;
+re-adding its changed seed fixed the fixture without modifying Godot's light equations. No full suite or app installation
+was run; installation and the agreed manual checkpoints remain later milestones.

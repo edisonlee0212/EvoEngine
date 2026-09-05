@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
@@ -585,6 +586,26 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       if (frame && frame->preprocess_readback)
         frame->preprocess_readback->ReadAfterFrameFence(*resources);
   });
+  m.def(
+      "RequestCurrentSceneSdfgiLightDebug",
+      [](const uint32_t cascade, const uint32_t slice) {
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+        if (!runtime || !runtime->resources)
+          throw py::value_error("Automatic SDFGI resources are not available");
+        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+          throw py::value_error("SDFGI cascade or slice is out of range");
+        runtime->resources->light_debug_request = glm::uvec2(cascade, slice);
+      },
+      py::arg("cascade") = 0, py::arg("slice") = 64);
+  m.def("CaptureCurrentSceneSdfgiLightDebug", [](const std::filesystem::path& path) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    const auto resources = runtime ? runtime->resources : nullptr;
+    if (!resources || resources->light_debug_request || !resources->light_debug)
+      throw py::value_error("Request a lighting diagnostic and render a frame before capture");
+    resources->light_debug->StoreToPng(path);
+  });
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = ResolveEnvironmentalLighting(scene);
@@ -630,6 +651,23 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         solid_cells.append(counts);
       }
     result["solid_cells"] = solid_cells;
+    result["lighting_recorded"] = resources && resources->lighting_recorded;
+    result["light_failure"] = resources ? resources->light_failure : std::string{};
+    result["light_debug_recorded"] = resources && resources->light_debug && resources->light_debug->recorded;
+    result["light_debug_failure"] = resources ? resources->light_debug_failure : std::string{};
+    py::list light_counts;
+    if (resources && resources->last_light_frame != UINT32_MAX)
+      for (const auto& frame : resources->light_frames)
+        if (frame && frame->scene_frame == resources->last_light_frame)
+          for (const auto& lights : frame->lights) {
+            py::dict counts;
+            counts["static"] = lights.data[0].size();
+            counts["dynamic"] = lights.data[1].size();
+            counts["static_overflow"] = lights.overflow[0];
+            counts["dynamic_overflow"] = lights.overflow[1];
+            light_counts.append(counts);
+          }
+    result["cascade_lights"] = light_counts;
     result["maintenance_count"] = runtime ? runtime->maintenance_count : 0;
     result["published"] = runtime && runtime->published;
     result["missing_anchor"] = !runtime || runtime->missing_anchor;

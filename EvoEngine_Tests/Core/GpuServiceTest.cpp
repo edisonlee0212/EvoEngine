@@ -19,6 +19,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
@@ -390,7 +391,7 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   auto field = SdfgiResources::TryCreate({}, host_layouts, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
-  EXPECT_EQ(field->buffers.size(), 13u + Platform::GetMaxFramesInFlight() * 10u);
+  EXPECT_EQ(field->buffers.size(), 17u + Platform::GetMaxFramesInFlight() * 10u);
   EXPECT_EQ(field->pipelines.size(), 16u);
   EXPECT_TRUE(field->voxel_pipeline->Initialized());
   EXPECT_FALSE(field->initialization_recorded);
@@ -666,6 +667,201 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
   }
 }
 
+TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.cascade_count = 1;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::string failure;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  SdfgiSolidCell cell{};
+  cell.position = 64 | (64 << 7) | (64 << 14) | (0x7ffu << 21);
+  cell.albedo = 0x7fff | (1 << 15) | (0x7ffu << 21);
+  cell.light = 128 | (256 << 8) | (128 << 17) | (14 << 25) | (3u << 30);
+  cell.light_aniso = 31 | (3u << 30);
+  SdfgiDispatchData dispatch{1, 1, 1, 1};
+  BufferUploadBatch initial_upload;
+  BufferUploadArena initial_arena;
+  initial_upload.Add(field->buffers.at("Cascade0.SolidCells").buffer, cell);
+  initial_upload.Add(field->buffers.at("Cascade0.UnlitCells").buffer, cell);
+  initial_upload.Add(field->buffers.at("Cascade0.Dispatch").buffer, dispatch);
+  initial_upload.Add(field->buffers.at("Cascade0.Indirect").buffer, dispatch);
+  auto wall = std::make_shared<ComputePipeline>();
+  wall->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Store)]};
+  wall->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(7,0)]] [vk::image_format("r8")] RWTexture3D<float> sdf;
+[numthreads(4,4,4)]
+void main(uint3 id : SV_DispatchThreadID) {
+  float d = abs(int(id.x) - 70);
+  sdf[id] = d == 0 ? 0 : (d + 1) / 255.0;
+}
+)"));
+  wall->Initialize();
+  ASSERT_TRUE(wall->Initialized());
+  std::shared_ptr<SdfgiLightDebug> debug;
+  for (uint32_t phase = 0; phase < 17; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    std::vector<SdfgiLightInput> inputs(1);
+    auto& light = inputs[0];
+    light.id = 1;
+    light.color = glm::vec3(phase == 0 || phase >= 11 ? 2 : 4);
+    light.direction = {-1, 0, 0};
+    light.position = {10.5f, 0.5f, 0.5f};
+    light.range = 20;
+    light.world_bounds = {glm::vec3(-20), glm::vec3(20)};
+    light.attenuation = {1, 0.1f, 0.01f};
+    float expected = phase == 0 || phase == 1 ? 2.25f : 4.25f;
+    if (phase >= 3 && phase <= 9) {
+      light.type = SdfgiLightInput::Type::Point;
+      expected = 4.0f / 3.0f + 0.25f;
+    }
+    if (phase == 4 || phase == 5) {
+      light.type = SdfgiLightInput::Type::Spot;
+      light.direction = phase == 4 ? glm::vec3(-0.75f, std::sqrt(1 - 0.75f * 0.75f), 0) : glm::vec3(1, 0, 0);
+      light.cos_inner = 0.9f;
+      light.cos_outer = 0.6f;
+      expected = phase == 4 ? 2.0f / 3.0f + 0.25f : 0.25f;
+    }
+    if (phase == 6) {
+      light.range = 5;
+      expected = 0.25f;
+    }
+    if (phase >= 7 && phase <= 9) {
+      light.dynamic = false;
+      light.attenuation = {1, 0, 0};
+      light.color = glm::vec3(phase < 9 ? 3 : 1);
+      expected = phase < 9 ? 3.25f : 1.25f;
+    }
+    if (phase == 10) {
+      inputs.clear();
+      expected = 0.25f;
+    }
+    if (phase == 11 || phase == 14)
+      expected = 0.25f;
+    if (phase == 13) {
+      const auto repeated = light;
+      inputs.resize(129, repeated);
+      for (uint32_t i = 0; i < inputs.size(); ++i)
+        inputs[i].id = i;
+    }
+    if (phase == 15) {
+      inputs.clear();
+      cell.light &= 3u << 30;
+      cell.light_aniso &= 3u << 30;
+      initial_upload.Add(field->buffers.at("Cascade0.SolidCells").buffer, cell);
+      initial_upload.Add(field->buffers.at("Cascade0.UnlitCells").buffer, cell);
+    }
+    if (phase == 16) {
+      light.dynamic = false;
+      light.type = SdfgiLightInput::Type::Point;
+      light.color = glm::vec3(0);
+    }
+    if (phase >= 15)
+      expected = 0;
+    const auto scene_frame = phase == 1 ? 1 : phase * 4;
+    auto frame = SdfgiLightFrame::Create(*field, cascades, inputs, scene_frame, phase == 0 || phase == 15 ? 1 : 0);
+    field->light_frames[Platform::GetCurrentFrameIndex()] = frame;
+    if (phase == 1 || phase == 8)
+      EXPECT_EQ(frame->static_refresh, 0u);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (phase == 0)
+      graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    graph.AddPass(
+        {"SdfgiLightSeed",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Frame,
+         {},
+         {phase == 0 ? "SdfgiInitialize" : RenderPassNames::sdfgi_maintenance}},
+        [&](const RenderGraphExecutionContext&) {
+          if (phase == 0 || phase == 15)
+            initial_upload.Record(initial_arena);
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            if (phase == 0) {
+              VkClearColorValue clear{};
+              clear.float32[0] = 1;
+              Platform::ClearColorImage(command, *field->textures.at("Cascade0.Sdf").image, clear, 1, &range);
+            }
+            if (phase == 12 || phase == 13) {
+              field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, failure_flags), 4,
+                                                       phase == 12 ? 1 : 0);
+              VkClearColorValue clear{};
+              clear.uint32[0] = 0xdeadbeefu;
+              Platform::ClearColorImage(command, *field->textures.at("Cascade0.Light").image, clear, 1, &range);
+            }
+            if (phase == 11) {
+              field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+              wall->Bind(command);
+              wall->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
+              wall->Dispatch(command, 32, 32, 32);
+            }
+          });
+        });
+    frame->AddPasses(graph, field, "SdfgiLightSeed");
+    if (phase == 0) {
+      debug = std::make_shared<SdfgiLightDebug>(0, 64);
+      debug->AddPass(graph, registry, field, "SdfgiDirectLight");
+    }
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI direct-light fixture readback");
+    EXPECT_EQ(field->light_failure.empty(), phase != 13);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageOffset = {63, 63, 63};
+    copy.imageExtent = {3, 3, 3};
+    Buffer pixels(27 * sizeof(uint32_t));
+    pixels.CopyFromImage(*field->textures.at("Cascade0.Light").image, copy);
+    std::vector<uint32_t> packed;
+    pixels.DownloadVector(packed, 27);
+    for (const auto value : packed) {
+      if (phase == 12 || phase == 13)
+        EXPECT_EQ(value, 0xdeadbeefu);
+      else {
+        const float scale = std::ldexp(1.0f, static_cast<int>(value >> 27) - 24);
+        for (const auto shift : {0, 9, 18})
+          EXPECT_NEAR(((value >> shift) & 511) * scale, expected, 0.016f);
+      }
+    }
+    if (phase != 12 && phase != 13) {
+      pixels.CopyFromImage(*field->textures.at("Cascade0.Aniso0").image, copy);
+      pixels.DownloadVector(packed, 27);
+      for (const auto value : packed)
+        EXPECT_EQ(value, phase >= 15 ? 0u : 255u);
+    }
+    if (phase == 16) {
+      ASSERT_TRUE(debug->recorded);
+      std::vector<uint32_t> old_planes;
+      debug->planes[1]->DownloadVector(old_planes, 3 * 128 * 128);
+      for (uint32_t axis = 0; axis < 3; ++axis)
+        EXPECT_EQ(old_planes[axis * 128 * 128 + 64 * 128 + 64], 255u);
+    }
+  }
+}
+
 TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
@@ -783,6 +979,9 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
     EXPECT_EQ(invocations, 64u);
     std::vector<SdfgiSolidCell> cells;
     field->buffers.at("Cascade0.SolidCells").buffer->DownloadVector(cells, 65);
+    std::vector<SdfgiSolidCell> unlit;
+    field->buffers.at("Cascade0.UnlitCells").buffer->DownloadVector(unlit, 65);
+    EXPECT_EQ(std::memcmp(cells.data(), unlit.data(), 65 * sizeof(SdfgiSolidCell)), 0);
     EXPECT_EQ(cells[pattern == 2 ? 64 : 1].position, 0xdeadbeefu);
     if (pattern == 0) {
       EXPECT_EQ(cells[0].position & 0x1fffffu, 64u | (64u << 7) | (64u << 14));

@@ -13,6 +13,7 @@
 #include "MeshRenderer.hpp"
 #include "ResolvedEnvironmentalLighting.hpp"
 #include "Scene.hpp"
+#include "SdfgiLight.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
@@ -39,6 +40,48 @@ TEST(SdfgiScene, LightCapacitySelectionIsBoundedAndIndependentOfInputOrder) {
     EXPECT_EQ(lights.front().id, dynamic ? capacity + 2 : 1);
     EXPECT_EQ(BoundSdfgiLightList(lights, dynamic), 0u);
   }
+}
+
+TEST(SdfgiLighting, CascadeClassificationAndHostPhotometry) {
+  std::vector<SdfgiLightInput> inputs(4);
+  for (uint32_t i = 0; i < inputs.size(); ++i) {
+    inputs[i].id = i + 1;
+    inputs[i].type = SdfgiLightInput::Type::Point;
+    inputs[i].world_bounds = {glm::vec3(-1), glm::vec3(1)};
+    inputs[i].position = {1, 2, 3};
+    inputs[i].color = {2, 3, 4};
+    inputs[i].attenuation = {1, 0.2f, 0.03f};
+    inputs[i].range = 20;
+  }
+  inputs[0].type = SdfgiLightInput::Type::Directional;
+  inputs[0].dynamic = false;
+  inputs[0].direction = glm::normalize(glm::vec3(1, 1, 0));
+  inputs[1].dynamic = false;
+  inputs[2].type = SdfgiLightInput::Type::Spot;
+  inputs[2].cos_inner = 0.9f;
+  inputs[2].cos_outer = 0.6f;
+  inputs[3].world_bounds = {glm::vec3(1000), glm::vec3(1001)};
+  SdfgiCascade cascade;
+  cascade.cell_size = 1;
+  const auto first_cascade = BuildSdfgiCascadeLights(inputs, cascade, 0, 1.5f);
+  ASSERT_EQ(first_cascade.data[0].size(), 1u);
+  ASSERT_EQ(first_cascade.data[1].size(), 2u);
+  EXPECT_EQ(first_cascade.data[1][0].type, 0u);
+  EXPECT_FLOAT_EQ(first_cascade.data[1][0].direction[1], glm::normalize(glm::vec3(1, 1.5f, 0)).y);
+  const auto& spot = first_cascade.data[1][1];
+  EXPECT_EQ(spot.type, 2u);
+  EXPECT_FLOAT_EQ(spot.energy, 1);
+  EXPECT_FLOAT_EQ(spot.position[1], 3);
+  EXPECT_FLOAT_EQ(spot.color[2], 4);
+  EXPECT_FLOAT_EQ(spot.radius, 20);
+  EXPECT_FLOAT_EQ(spot.host_photometry[1], 0.2f);
+  EXPECT_FLOAT_EQ(spot.host_photometry[2], 0.03f);
+  EXPECT_FLOAT_EQ(spot.host_photometry[3], 0.9f);
+  EXPECT_FLOAT_EQ(spot.cos_spot_angle, 0.6f);
+  const auto fourth_cascade = BuildSdfgiCascadeLights(inputs, cascade, 3, 1.5f);
+  EXPECT_TRUE(fourth_cascade.data[0].empty());
+  ASSERT_EQ(fourth_cascade.data[1].size(), 1u);
+  EXPECT_EQ(fourth_cascade.data[1][0].type, 0u);
 }
 
 TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {

@@ -1,6 +1,7 @@
 // Allocation and bindings adapted from Godot renderer_rd/environment/gi.cpp::SDFGI::create,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiResources.hpp"
+#include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiVoxelizer.hpp"
 
@@ -214,6 +215,8 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
     add_image(CascadeName(c, "Average"), requirements[11], SdfgiMemoryClass::Field);
     add_buffer(CascadeName(c, "SolidCells"), sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity,
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
+    add_buffer(CascadeName(c, "UnlitCells"), sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity,
+               VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
     add_buffer(CascadeName(c, "Dispatch"), sizeof(SdfgiDispatchData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                SdfgiMemoryClass::Field);
     add_buffer(CascadeName(c, "Indirect"), sizeof(SdfgiDispatchData),
@@ -221,6 +224,7 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
   }
   add_buffer("Status", sizeof(SdfgiFieldStatus), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
   voxel_frames.resize(Platform::GetMaxFramesInFlight());
+  light_frames.resize(Platform::GetMaxFramesInFlight());
   for (uint32_t f = 0; f < Platform::GetMaxFramesInFlight(); ++f) {
     add_buffer(FrameName(f, "Cascades"), sizeof(SdfgiCascadeBlock), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
                SdfgiMemoryClass::Upload);
@@ -473,6 +477,10 @@ void SdfgiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& reg
 uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class) const {
   uint64_t result = allocated_bytes[static_cast<size_t>(memory_class)];
   if (memory_class == SdfgiMemoryClass::Upload)
+    for (const auto& frame : light_frames)
+      if (frame)
+        result += frame->uploads.GetAllocationBytes();
+  if (memory_class == SdfgiMemoryClass::Upload)
     for (const auto& frame : voxel_frames)
       if (frame)
         result += frame->AllocationBytes();
@@ -496,6 +504,14 @@ uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class)
       if (snapshot)
         preprocess_snapshots.insert(snapshot.get());
     for (const auto* snapshot : preprocess_snapshots)
+      result += snapshot->AllocationBytes();
+    std::set<const SdfgiLightDebug*> light_snapshots;
+    if (light_debug)
+      light_snapshots.insert(light_debug.get());
+    for (const auto& snapshot : light_debug_frames)
+      if (snapshot)
+        light_snapshots.insert(snapshot.get());
+    for (const auto* snapshot : light_snapshots)
       result += snapshot->AllocationBytes();
   }
   return result;
@@ -543,7 +559,7 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
                 "#define " + variant.define + " 1\n",
             {layouts[static_cast<size_t>(variant.layout)]}, sizeof(SdfgiPreprocessPushConstant));
   for (const std::string mode : {"STATIC", "DYNAMIC"})
-    compute("DirectLight" + mode, "SdfgiDirectLight.slang", header + "#define MODE_PROCESS_" + mode + " 1\n",
+    compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
   for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
     compute("Integrate" + mode, "SdfgiIntegrate.slang", header + "#define MODE_" + mode + " 1\n",

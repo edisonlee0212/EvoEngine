@@ -125,6 +125,7 @@ struct SdfgiLightInput {
   float range = 0;
   float cos_inner = 1;
   float cos_outer = 1;
+  Bound world_bounds;
 };
 
 struct SdfgiSkyInput {

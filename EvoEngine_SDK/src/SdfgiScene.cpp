@@ -345,6 +345,15 @@ SdfgiSceneSnapshot evo_engine::SnapshotSdfgiScene(const std::shared_ptr<Scene>& 
           input.cos_inner = glm::cos(glm::radians(light->inner_degrees));
           input.cos_outer = glm::cos(glm::radians(light->outer_degrees));
         }
+        if constexpr (!std::is_same_v<T, DirectionalLight>) {
+          input.world_bounds = {-glm::vec3(input.range), glm::vec3(input.range)};
+          if constexpr (std::is_same_v<T, SpotLight>)
+            if (input.cos_outer >= 0) {
+              const float width = glm::sin(glm::radians(light->outer_degrees)) * input.range;
+              input.world_bounds = {{-width, -width, -input.range}, {width, width, 0}};
+            }
+          input.world_bounds.ApplyTransform(transform.value);
+        }
         result.lights.push_back(input);
       }
     }

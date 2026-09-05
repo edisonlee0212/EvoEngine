@@ -1,4 +1,4 @@
-"""Capture RT-disabled Sponza SDFGI voxel or SDF/occlusion slices at 2560x1440.
+"""Capture RT-disabled Sponza SDFGI volume slices at 2560x1440.
 
 Use a disposable copy of Rendering demo resources, not the authored project.
 The script does not compare against or update any DDGI baseline.
@@ -18,7 +18,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cascade", type=int, default=0)
     parser.add_argument("--slice", type=int, default=64)
-    parser.add_argument("--view", choices=("voxels", "preprocess"), default="voxels")
+    parser.add_argument("--view", choices=("voxels", "preprocess", "lighting"), default="voxels")
     args = parser.parse_args()
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
@@ -54,11 +54,13 @@ def main():
         preprocess = args.view == "preprocess"
         request = engine.RequestCurrentSceneSdfgiPreprocessDebug if preprocess else engine.RequestCurrentSceneSdfgiVoxelDebug
         capture = engine.CaptureCurrentSceneSdfgiPreprocessDebug if preprocess else engine.CaptureCurrentSceneSdfgiVoxelDebug
+        if args.view == "lighting":
+            request, capture = engine.RequestCurrentSceneSdfgiLightDebug, engine.CaptureCurrentSceneSdfgiLightDebug
         request(args.cascade, args.slice)
         if not engine.Loop():
             raise RuntimeError("Rendering demo ended before diagnostic capture")
         state = engine.GetCurrentSceneGiStatus()
-        prefix = "preprocess" if preprocess else "voxel"
+        prefix = {"preprocess": "preprocess", "voxels": "voxel", "lighting": "light"}[args.view]
         if state[f"{prefix}_failure"] or not state[f"{prefix}_debug_recorded"]:
             raise RuntimeError(f"SDFGI diagnostic failed: {state}")
         output.parent.mkdir(parents=True, exist_ok=True)

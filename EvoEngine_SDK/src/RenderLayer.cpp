@@ -48,6 +48,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
@@ -5742,6 +5743,48 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             resources->voxel_failure = error.what();
             runtime->fallback_reason = resources->voxel_failure;
           }
+        }
+      }
+      uint32_t rebuilt_cascades = 0;
+      for (uint32_t c = 0; c < runtime->cascades.size(); ++c)
+        for (const auto& pass : scene_graph.GetPasses())
+          if (pass.name == "SdfgiPreprocessCascade" + std::to_string(c))
+            rebuilt_cascades |= 1u << c;
+      const bool full_representation =
+          (resources->preprocessed_cascades | rebuilt_cascades) == (1u << runtime->settings.cascade_count) - 1;
+      if (full_representation && !runtime->missing_anchor && runtime->placement_failure.empty() &&
+          resources->voxel_failure.empty() && resources->last_light_frame != scene_frame) {
+        try {
+          auto frame = SdfgiLightFrame::Create(*resources, runtime->cascades, runtime->scene_snapshot.lights,
+                                               scene_frame, rebuilt_cascades);
+          resources->light_frames[current_frame_index] = frame;
+          resources->last_light_frame = scene_frame;
+          frame->AddPasses(scene_graph, resources,
+                           rebuilt_cascades ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+        } catch (const std::exception& error) {
+          resources->light_failure = error.what();
+          resources->lighting_recorded = false;
+        }
+      }
+      if (!resources->light_failure.empty())
+        runtime->fallback_reason = resources->light_failure;
+      if (resources->light_debug_request && resources->lighting_recorded) {
+        try {
+          auto snapshot =
+              std::make_shared<SdfgiLightDebug>(resources->light_debug_request->x, resources->light_debug_request->y);
+          resources->light_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->light_debug_frames[current_frame_index] = snapshot;
+          resources->light_debug = snapshot;
+          const bool light_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiDirectLight";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            light_pass ? "SdfgiDirectLight" : RenderPassNames::sdfgi_maintenance);
+          resources->light_debug_request.reset();
+          resources->light_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->light_debug_failure = error.what();
         }
       }
       if (resources->preprocess_debug_request &&

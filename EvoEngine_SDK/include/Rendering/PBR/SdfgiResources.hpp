@@ -16,6 +16,8 @@ namespace evo_engine {
 class SdfgiVoxelFrame;
 class SdfgiVoxelDebug;
 class SdfgiPreprocessDebug;
+class SdfgiLightFrame;
+class SdfgiLightDebug;
 
 enum class SdfgiMemoryClass { Field, Scratch, Upload, Diagnostic, Count };
 enum class SdfgiLayout {
@@ -76,6 +78,15 @@ class EVOENGINE_API SdfgiResources {
   std::shared_ptr<SdfgiPreprocessDebug> preprocess_debug;
   std::string preprocess_debug_failure;
   std::vector<std::shared_ptr<SdfgiPreprocessDebug>> preprocess_debug_frames;
+  uint32_t last_light_frame = UINT32_MAX;
+  bool lighting_recorded = false;
+  std::string light_failure;
+  std::vector<std::vector<SdfgiLight>> static_light_inputs;
+  std::vector<std::shared_ptr<SdfgiLightFrame>> light_frames;
+  std::optional<glm::uvec2> light_debug_request;
+  std::shared_ptr<SdfgiLightDebug> light_debug;
+  std::string light_debug_failure;
+  std::vector<std::shared_ptr<SdfgiLightDebug>> light_debug_frames;
   [[nodiscard]] uint64_t GetAllocationBytes(SdfgiMemoryClass memory_class) const;
 
   // fail_after_allocations is a deterministic partial-allocation failure seam for focused tests only.
