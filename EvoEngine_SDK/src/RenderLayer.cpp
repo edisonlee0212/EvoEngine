@@ -5665,9 +5665,12 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     const auto anchor =
         SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor,
                           lighting.sdfgi_settings.anchor_camera_entity != 0, playable_view, editor != nullptr);
-    runtime->Maintain(scene_frame, anchor);
+    if (runtime->Maintain(scene_frame, anchor)) {
+      runtime->scene_snapshot = SnapshotSdfgiScene(scene, lighting);
+      runtime->contributors.Update(runtime->scene_snapshot.contributors);
+    }
     if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
-        runtime->capabilities.Supported()) {
+        runtime->placement_failure.empty() && runtime->capabilities.Supported()) {
       runtime->allocation_attempted = true;
       runtime->resources =
           SdfgiResources::TryCreate(runtime->settings,

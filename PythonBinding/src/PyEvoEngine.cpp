@@ -561,6 +561,44 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["anchor_camera_id"] = runtime ? runtime->anchor.camera_id : 0;
     result["anchor_source"] = runtime ? static_cast<uint32_t>(runtime->anchor.source) : 0;
     result["anchor_override_fell_back"] = runtime && runtime->anchor.override_fell_back;
+    result["anchor_replaced"] = runtime && runtime->anchor_replaced;
+    result["static_contributor_count"] = runtime ? runtime->contributors.entries.size() : 0;
+    result["contributor_change_count"] = runtime ? runtime->contributors.changes.size() : 0;
+    py::dict exclusions;
+    py::list cascades;
+    py::list pending_regions;
+    py::dict lights;
+    uint32_t static_lights = 0, dynamic_lights = 0;
+    if (runtime) {
+      result["cascade_input_changes"] =
+          runtime->contributors.AffectedCascades(runtime->cascades, SdfgiYMultiplier(runtime->settings.vertical_scale));
+      for (const auto& [reason, count] : runtime->scene_snapshot.excluded)
+        exclusions[GetSdfgiExclusionName(reason)] = count;
+      for (const auto& light : runtime->scene_snapshot.lights)
+        light.dynamic ? ++dynamic_lights : ++static_lights;
+      for (const auto& cascade : runtime->cascades) {
+        py::dict value;
+        value["cell_size"] = cascade.cell_size;
+        value["position"] = py::make_tuple(cascade.position.x, cascade.position.y, cascade.position.z);
+        value["dirty_regions"] =
+            py::make_tuple(cascade.dirty_regions.x, cascade.dirty_regions.y, cascade.dirty_regions.z);
+        value["full_redraw"] = cascade.full_redraw;
+        cascades.append(value);
+      }
+      for (const auto& region : runtime->pending_regions) {
+        py::dict value;
+        value["cascade"] = region.cascade;
+        value["offset"] = py::make_tuple(region.offset.x, region.offset.y, region.offset.z);
+        value["size"] = py::make_tuple(region.size.x, region.size.y, region.size.z);
+        pending_regions.append(value);
+      }
+    }
+    lights["static"] = static_lights;
+    lights["dynamic"] = dynamic_lights;
+    result["excluded_contributors"] = exclusions;
+    result["lights"] = lights;
+    result["cascades"] = cascades;
+    result["pending_regions"] = pending_regions;
     result["fallback_reason"] = runtime ? runtime->fallback_reason : std::string{};
     return result;
   });

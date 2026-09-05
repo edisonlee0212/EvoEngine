@@ -32,10 +32,22 @@ bool SdfgiRuntime::Maintain(const uint32_t scene_frame, const SdfgiAnchor& selec
   last_scene_frame = scene_frame;
   ++maintenance_count;
   missing_anchor = selected_anchor.camera_id == 0;
+  anchor_replaced = !missing_anchor && anchor.camera_id != 0 && anchor.camera_id != selected_anchor.camera_id;
   if (!missing_anchor)
     anchor = selected_anchor;
   anchor.override_fell_back = selected_anchor.override_fell_back;
+  if (!missing_anchor) {
+    placement_failure = UpdateSdfgiCascades(settings, anchor.world_position, cascades);
+  } else {
+    for (auto& cascade : cascades) {
+      cascade.full_redraw = false;
+      cascade.dirty_regions = glm::ivec3(0);
+    }
+  }
+  pending_regions = GetSdfgiPendingRegions(cascades, SdfgiYMultiplier(settings.vertical_scale));
   fallback_reason = settings.Validate();
+  if (fallback_reason.empty())
+    fallback_reason = placement_failure;
   if (fallback_reason.empty())
     fallback_reason = resource_failure;
   if (fallback_reason.empty() && !capabilities.Supported())

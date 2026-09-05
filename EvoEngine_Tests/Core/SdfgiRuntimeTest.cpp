@@ -1,9 +1,18 @@
+// Reference-loop fixture adapted from Godot gi.cpp::SDFGI::update,
+// 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include <gtest/gtest.h>
 #include "Application.hpp"
 #include "ApplicationInitializationSettings.hpp"
+#include "AssetManager.hpp"
 #include "EnvironmentalLighting.hpp"
+#include "Lights.hpp"
+#include "LodGroup.hpp"
+#include "Material.hpp"
+#include "MeshRenderer.hpp"
+#include "ResolvedEnvironmentalLighting.hpp"
+#include "Scene.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
@@ -165,4 +174,297 @@ TEST(SdfgiRuntime, ProviderSerializationPreservesLegacyDefaultsWithoutAddingAuto
   legacy_node["indirect_gi_provider"] = 999;
   DeserializeEnvironmentalLighting(legacy_node, loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::Environment);
+}
+
+TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
+  SdfgiSettings settings;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, {-4, -4.01f, 4}, cascades).empty());
+  ASSERT_EQ(cascades.size(), 4u);
+  EXPECT_EQ(cascades[0].position, glm::ivec3(0, -8, 8));
+  EXPECT_FLOAT_EQ(cascades[3].cell_size, 8);
+  EXPECT_EQ(GetSdfgiPendingRegions(cascades, 1).size(), 4u);
+  cascades.clear();
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, {-4.99f, 4.99f, 0}, cascades).empty());
+  EXPECT_TRUE(GetSdfgiPendingRegions(cascades, 1).empty());
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, {-5, 5, 5}, cascades).empty());
+  EXPECT_EQ(cascades[0].position, glm::ivec3(-8, 8, 8));
+  EXPECT_EQ(cascades[0].dirty_regions, glm::ivec3(8, -8, -8));
+  const auto regions = GetSdfgiPendingRegions(cascades, 1);
+  ASSERT_EQ(regions.size(), 3u);
+  EXPECT_EQ(regions[0].offset, glm::ivec3(0));
+  EXPECT_EQ(regions[0].size, glm::ivec3(8, 128, 128));
+  EXPECT_EQ(regions[1].offset, glm::ivec3(8, 120, 0));
+  EXPECT_EQ(regions[1].size, glm::ivec3(120, 8, 128));
+  EXPECT_EQ(regions[2].offset, glm::ivec3(8, 0, 120));
+  EXPECT_EQ(regions[2].size, glm::ivec3(120, 120, 8));
+  uint32_t dirty_volume = 0;
+  for (const auto& region : regions)
+    dirty_volume += region.size.x * region.size.y * region.size.z;
+  EXPECT_EQ(dirty_volume, 128 * 128 * 128 - 120 * 120 * 120);
+  EXPECT_EQ(regions[0].world_bounds.min, glm::vec3(-72, -56, -56));
+  const auto block = BuildSdfgiCascadeBlock(cascades);
+  EXPECT_EQ(block.data[0].probe_world_offset[0], -1);
+  EXPECT_FLOAT_EQ(block.data[0].offset[1], -56);
+  EXPECT_FLOAT_EQ(block.data[3].to_cell, 0.125f);
+  EXPECT_FLOAT_EQ(block.data[7].to_cell, 0);
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent75;
+  cascades.clear();
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, {0, 4, 0}, cascades).empty());
+  EXPECT_EQ(cascades[0].position.y, 8);
+  EXPECT_FLOAT_EQ(cascades[0].WorldBounds(1.5f).min.y, -56 / 1.5f);
+  for (const int shift : {40, 48, 128}) {
+    cascades.clear();
+    ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+    ASSERT_TRUE(UpdateSdfgiCascades(settings, {shift, 0, 0}, cascades).empty());
+    EXPECT_EQ(cascades[0].full_redraw, shift >= 48);
+  }
+}
+
+TEST(SdfgiScene, MovementMatchesPinnedReferenceLoopsAcrossScriptedTeleports) {
+  SdfgiSettings settings;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::vector<SdfgiCascade> actual;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), actual).empty());
+  auto expected = actual;
+  uint32_t random = 17;
+  for (int frame = 0; frame < 200; ++frame) {
+    glm::vec3 anchor;
+    for (int axis = 0; axis < 3; ++axis) {
+      random = random * 1664525u + 1013904223u;
+      anchor[axis] = static_cast<float>(static_cast<int>(random % 4096) - 2048) / 4;
+    }
+    for (auto& cascade : expected) {
+      cascade.full_redraw = false;
+      cascade.dirty_regions = glm::ivec3(0);
+      const glm::ivec3 pos(anchor / cascade.cell_size);
+      for (int axis = 0; axis < 3; ++axis) {
+        while (pos[axis] < cascade.position[axis] - 4) {
+          cascade.position[axis] -= 8;
+          cascade.dirty_regions[axis] += 8;
+        }
+        while (pos[axis] > cascade.position[axis] + 4) {
+          cascade.position[axis] += 8;
+          cascade.dirty_regions[axis] -= 8;
+        }
+        if (std::abs(cascade.dirty_regions[axis]) >= 128) {
+          cascade.full_redraw = true;
+          break;
+        }
+      }
+      if (!cascade.full_redraw) {
+        uint32_t safe_volume = 1;
+        for (int axis = 0; axis < 3; ++axis)
+          safe_volume *= 128 - std::abs(cascade.dirty_regions[axis]);
+        cascade.full_redraw = 128 * 128 * 128 - safe_volume > safe_volume / 2;
+      }
+      if (cascade.full_redraw)
+        cascade.dirty_regions = glm::ivec3(0);
+    }
+    ASSERT_TRUE(UpdateSdfgiCascades(settings, anchor, actual).empty());
+    for (size_t i = 0; i < actual.size(); ++i) {
+      EXPECT_EQ(actual[i].position, expected[i].position) << frame;
+      EXPECT_EQ(actual[i].dirty_regions, expected[i].dirty_regions) << frame;
+      EXPECT_EQ(actual[i].full_redraw, expected[i].full_redraw) << frame;
+    }
+  }
+  const auto previous = actual[0].position;
+  EXPECT_FALSE(UpdateSdfgiCascades(settings, glm::vec3(std::numeric_limits<float>::infinity()), actual).empty());
+  EXPECT_EQ(actual[0].position, previous);
+}
+
+TEST(SdfgiScene, RegistrySeparatesCoveragePayloadAndReceiverOnlyEdits) {
+  SdfgiContributorRegistry registry;
+  SdfgiContributor input;
+  input.id = {5, 7};
+  input.mesh_id = 11;
+  input.world_bounds = {glm::vec3(-1), glm::vec3(1)};
+  auto dynamic = input;
+  dynamic.id.first = 9;
+  dynamic.exclusion = SdfgiExclusion::Dynamic;
+  registry.Update({dynamic, input});
+  ASSERT_EQ(registry.entries.size(), 1u);
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiAdded);
+  dynamic.transform[3].x = 100;
+  registry.Update({input, dynamic});
+  EXPECT_TRUE(registry.changes.empty());
+  input.transform[3].x = 2;
+  input.world_bounds.min.x += 2;
+  input.world_bounds.max.x += 2;
+  registry.Update({input});
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiTransformChanged);
+  EXPECT_FLOAT_EQ(registry.changes[0].before->world_bounds.min.x, -1);
+  EXPECT_FLOAT_EQ(registry.changes[0].after->world_bounds.min.x, 1);
+  const std::vector<SdfgiCascade> cascades{
+      {0.01f, glm::ivec3(0)}, {0.01f, glm::ivec3(200, 0, 0)}, {0.01f, glm::ivec3(1000, 0, 0)}};
+  EXPECT_EQ(registry.AffectedCascades(cascades, 1),
+            (std::vector<uint32_t>{SdfgiTransformChanged, SdfgiTransformChanged, 0}));
+  ++input.geometry_version;
+  registry.Update({input});
+  EXPECT_EQ(registry.changes[0].flags, SdfgiGeometryChanged);
+  input.material.base_color.r = 0.5f;
+  input.material.emission = glm::vec3(2);
+  registry.Update({input});
+  EXPECT_EQ(registry.changes[0].flags, SdfgiPayloadChanged);
+  input.material.base_color.a = 0.2f;
+  registry.Update({input});
+  EXPECT_TRUE(registry.changes.empty());
+  input.material.masked = true;
+  registry.Update({input});
+  EXPECT_EQ(registry.changes[0].flags, SdfgiCoverageChanged);
+  ++input.material.base_texture.version;
+  registry.Update({input});
+  EXPECT_EQ(registry.changes[0].flags, SdfgiCoverageChanged | SdfgiPayloadChanged);
+  input.material.double_sided = true;
+  registry.Update({input});
+  EXPECT_EQ(registry.changes[0].flags, SdfgiCoverageChanged);
+  input.exclusion = SdfgiExclusion::Dynamic;
+  registry.Update({input});
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiRemoved);
+  EXPECT_FALSE(registry.changes[0].after);
+  registry.Update({});
+  EXPECT_TRUE(registry.changes.empty());
+}
+
+TEST(SdfgiScene, MaterialSnapshotIgnoresUnrelatedBrdfAndBindlessIndices) {
+  Application app;
+  const auto material = std::make_shared<Material>();
+  const auto before = SnapshotSdfgiMaterial(material);
+  material->material_data.shade_material.pbr_metallic_factor = 0.9f;
+  material->material_data.shade_material.pbr_roughness_factor = 0.7f;
+  material->material_data.shade_material.normal_texture_scale = 0.4f;
+  material->SetUnsaved();
+  auto after = SnapshotSdfgiMaterial(material);
+  EXPECT_TRUE(before.SameCoverage(after));
+  EXPECT_TRUE(before.SamePayload(after));
+  material->material_data.texture_infos.resize(2);
+  material->material_data.shade_material.pbr_base_color_texture = 1;
+  after = SnapshotSdfgiMaterial(material);
+  material->material_data.texture_infos[1].index = 991;
+  EXPECT_TRUE(after.SamePayload(SnapshotSdfgiMaterial(material)));
+  material->material_data.texture_infos[1].tex_coord = 1;
+  EXPECT_FALSE(after.SamePayload(SnapshotSdfgiMaterial(material)));
+}
+
+TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
+  Application app;
+  ApplicationInitializationSettings settings;
+  settings.allow_empty_project = true;
+  settings.load_default_resources = false;
+  settings.load_project_assets = false;
+  settings.load_project_start_scene = false;
+  settings.enable_runtime_packages = false;
+  app.Initialize(settings);
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto material = AssetManager::CreateTemporaryAsset<Material>();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  std::vector<Vertex> vertices(3);
+  vertices[0].position = {-1, -1, 0};
+  vertices[1].position = {1, -1, 0};
+  vertices[2].position = {0, 1, 0};
+  mesh->SetVertices(VertexAttributes{}, vertices, {glm::uvec3(0, 1, 2)});
+  const auto create_mesh = [&](bool is_static) {
+    const auto entity = scene->CreateEntity("SDFGI contributor");
+    scene->SetEntityStatic(entity, is_static);
+    const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+    renderer->mesh = mesh;
+    renderer->material = material;
+    return renderer;
+  };
+  const auto base = create_mesh(true);
+  const auto alternate = create_mesh(true);
+  const auto dynamic = create_mesh(false);
+  const auto group_entity = scene->CreateEntity("LOD group");
+  scene->SetEntityStatic(group_entity, true);
+  GlobalTransform transform;
+  transform.SetPosition({10, 0, 0});
+  scene->SetDataComponent(group_entity, transform);
+  const auto group = scene->GetOrSetPrivateComponent<LodGroup>(group_entity).lock();
+  group->lods.resize(2);
+  group->lods[0].renderers.emplace_back(base);
+  group->lods[1].renderers.emplace_back(alternate);
+  const auto directional_entity = scene->CreateEntity("Static directional");
+  scene->SetEntityStatic(directional_entity, true);
+  const auto directional = scene->GetOrSetPrivateComponent<DirectionalLight>(directional_entity).lock();
+  directional->diffuse = {0.2f, 0.3f, 0.4f};
+  directional->diffuse_brightness = 2;
+  const auto point_entity = scene->CreateEntity("Static point");
+  scene->SetEntityStatic(point_entity, true);
+  const auto point = scene->GetOrSetPrivateComponent<PointLight>(point_entity).lock();
+  point->range = 7;
+  point->constant = 2;
+  point->linear = 3;
+  point->quadratic = 4;
+  const auto spot_entity = scene->CreateEntity("Dynamic spot");
+  scene->SetEntityStatic(spot_entity, false);
+  const auto spot = scene->GetOrSetPrivateComponent<SpotLight>(spot_entity).lock();
+  spot->inner_degrees = 20;
+  spot->outer_degrees = 40;
+  ResolvedEnvironmentalLighting lighting;
+  lighting.indirect_environment_source.kind = ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting.indirect_environment_source.color = {0.1f, 0.2f, 0.3f};
+  lighting.environment_lighting_intensity = 2;
+  auto snapshot = SnapshotSdfgiScene(scene, lighting);
+  SdfgiContributorRegistry registry;
+  registry.Update(snapshot.contributors);
+  ASSERT_EQ(registry.entries.size(), 1u);
+  EXPECT_EQ(registry.entries.begin()->second.id.first, base->GetHandle().GetValue());
+  EXPECT_EQ(registry.entries.begin()->second.world_bounds.min, glm::vec3(9, -1, 0));
+  EXPECT_EQ(snapshot.excluded[SdfgiExclusion::Dynamic], 1u);
+  ASSERT_EQ(snapshot.lights.size(), 3u);
+  EXPECT_TRUE(snapshot.lights[0].dynamic);
+  EXPECT_EQ(snapshot.lights[0].color, glm::vec3(0.4f, 0.6f, 0.8f));
+  EXPECT_EQ(snapshot.lights[0].direction, glm::vec3(0, 0, -1));
+  EXPECT_FALSE(snapshot.lights[1].dynamic);
+  EXPECT_EQ(snapshot.lights[1].attenuation, glm::vec3(2, 3, 4));
+  EXPECT_FLOAT_EQ(snapshot.lights[1].range, 7);
+  EXPECT_TRUE(snapshot.lights[2].dynamic);
+  EXPECT_FLOAT_EQ(snapshot.lights[2].cos_inner, glm::cos(glm::radians(20.0f)));
+  EXPECT_FLOAT_EQ(snapshot.lights[2].cos_outer, glm::cos(glm::radians(40.0f)));
+  EXPECT_TRUE(snapshot.sky.constant_color);
+  EXPECT_EQ(snapshot.sky.color, lighting.indirect_environment_source.color);
+  EXPECT_FLOAT_EQ(snapshot.sky.energy, 2);
+  group->lod_factor = 999;
+  transform.SetPosition({99, 0, 0});
+  scene->SetDataComponent(dynamic->GetOwner(), transform);
+  snapshot = SnapshotSdfgiScene(scene, lighting);
+  registry.Update(snapshot.contributors);
+  EXPECT_TRUE(registry.changes.empty());
+  point->SetEnabled(false);
+  EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).lights.size(), 2u);
+  material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
+  snapshot = SnapshotSdfgiScene(scene, lighting);
+  registry.Update(snapshot.contributors);
+  EXPECT_TRUE(registry.entries.empty());
+  EXPECT_EQ(snapshot.excluded[SdfgiExclusion::Forward], 1u);
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiRemoved);
+}
+
+TEST(SdfgiScene, AnchorReplacementPreservesOnlyReferenceOverlapAndNoAnchorFreezesCoverage) {
+  SdfgiSettings settings;
+  settings.min_cell_size = 1;
+  SdfgiRuntime runtime(settings, {});
+  ASSERT_TRUE(runtime.Maintain(0, {1, glm::vec3(0)}));
+  ASSERT_EQ(runtime.pending_regions.size(), 4u);
+  ASSERT_TRUE(runtime.Maintain(1, {2, {5, 0, 0}}));
+  EXPECT_TRUE(runtime.anchor_replaced);
+  EXPECT_EQ(runtime.cascades[0].position.x, 8);
+  EXPECT_FALSE(runtime.cascades[0].full_redraw);
+  const auto position = runtime.cascades[0].position;
+  ASSERT_TRUE(runtime.Maintain(2, {}));
+  EXPECT_EQ(runtime.cascades[0].position, position);
+  EXPECT_TRUE(runtime.pending_regions.empty());
+  EXPECT_TRUE(runtime.missing_anchor);
+  ASSERT_TRUE(runtime.Maintain(3, {2, {1024, 0, 0}}));
+  EXPECT_FALSE(runtime.anchor_replaced);
+  for (const auto& cascade : runtime.cascades)
+    EXPECT_TRUE(cascade.full_redraw);
 }

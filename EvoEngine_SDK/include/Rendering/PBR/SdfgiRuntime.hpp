@@ -1,6 +1,7 @@
 #pragma once
 
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiScene.hpp"
 #include "SdfgiSettings.hpp"
 
 #include <glm/glm.hpp>
@@ -33,6 +34,12 @@ struct EVOENGINE_API SdfgiRuntime {
   bool missing_anchor = true;
   bool published = false;
   bool allocation_attempted = false;
+  bool anchor_replaced = false;
+  std::vector<SdfgiCascade> cascades;
+  std::vector<SdfgiPendingRegion> pending_regions;
+  SdfgiSceneSnapshot scene_snapshot;
+  SdfgiContributorRegistry contributors;
+  std::string placement_failure;
   std::shared_ptr<SdfgiResources> resources;
   std::string resource_failure;
   std::string fallback_reason = "No complete SDFGI field published";

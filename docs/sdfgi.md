@@ -1,7 +1,7 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, the opt-in provider shell, and initial GPU resource plumbing are implemented. SDFGI rendering is
+Capability preflight, the opt-in provider shell, GPU storage, and CPU placement/scene inputs are implemented. SDFGI rendering is
 not yet available: Automatic SDFGI allocates and clears storage when it has an eligible anchor, but reports Environment
 fallback and publishes no lighting. Shader entry points are explicitly ABI-only until their algorithm milestones.
 
@@ -22,6 +22,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 |---|---|
 | `EvoEngine_SDK/src/SdfgiCapabilities.cpp` | `servers/rendering/renderer_rd/environment/gi.cpp::SDFGI::create`, `gi.h`, and SDFGI shader resource/workgroup declarations |
 | `SdfgiSettings.hpp/.cpp`, `SdfgiRuntime.hpp/.cpp` (ownership shell) | Environment defaults; `render_forward_clustered.cpp::sdfgi_update`; later `gi.h::SDFGI` and `gi.cpp` cascade/update logic |
+| `SdfgiScene.hpp/.cpp` | `gi.cpp::SDFGI::{create,update,get_pending_region_data,update_cascades,pre_process_gi}`, ForwardClustered `_render_sdfgi`/`_fill_render_list`; dedicated EvoEngine scene/material/light adapter |
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
 | `Shaders/Compute/SdfgiPreprocess.slang` (ABI only) | `shaders/environment/sdfgi_preprocess.glsl` |
 | `Shaders/Compute/SdfgiDirectLight.slang` (ABI only) | `shaders/environment/sdfgi_direct_light.glsl` |
@@ -142,3 +143,57 @@ with Vulkan and synchronization validation enabled and no reported errors. All 2
 `spirv-val --target-env vulkan1.3`; disassembly confirms 128-byte lights, 48-byte cascades, and gather offsets 496/508.
 Actual active-owner allocations: field 294,988,944 bytes, scratch 94,085,120 bytes, input 1,181,696 bytes, diagnostic zero.
 No image, editor UI, or full-suite run was performed; this is storage/ABI evidence, not demonstrated lighting parity.
+
+## Cascade placement and scene snapshots
+
+CPU cascade centers follow Godot's creation rounding (`floor(position / probe_size + 0.5)`) and update truncation toward
+zero, including negative coordinates. Cascades have four-cell drag margins, eight-cell shifts, and the exact reference
+dirty-volume threshold (`dirty_volume > safe_volume / 2`). Entering X/Y/Z slabs are chipped to avoid duplicate coverage.
+World bounds undo the vertical multiplier; cascade offsets remain in vertically scaled field coordinates and probe world
+offsets are center cells divided by eight. Unused CPU cascade ABI records are zeroed.
+
+Anchor identity changes are diagnosed explicitly but preserve only the overlap mapped by the reference movement rules.
+Large moves select full redraw. The reference's per-axis early exit on a full-cascade shift is retained. Missing anchors
+leave coverage stationary. The eight-cell stepping loops are evaluated with equivalent 64-bit arithmetic to avoid long
+teleport loops and signed overflow; coordinates outside the reference integer range or finite float extent are rejected
+before field allocation. No new relocation budget or scheduling policy is introduced.
+
+`SnapshotSdfgiScene` runs once at the scene maintenance boundary. It reads scene component ownership, not camera culling,
+render-instance array indices, DDGI signatures, or camera-dependent light buffers. Eligible entries are static, enabled,
+ordinary filled-triangle `MeshRenderer`s with supported opaque/masked `Material` data. Dynamic rigid and deforming meshes
+are receiver-only; transparent/transmissive, particles, strands, and splats retain forward fallback. Missing/empty data,
+non-filled geometry, and invalid bounds are separately diagnosed. This uses existing entity mobility, not new GI tags.
+
+The stable registry key is `(renderer handle, transform-owner entity handle)`. For `LodGroup`, the adapter uses its first
+(base) LOD and the group's transform, matching the host's instance ownership and Godot's SDF voxel pass with mesh LOD
+selection disabled. Camera LOD factors never enter snapshots, and alternate LOD renderers are not double-counted.
+Repeated references with the same key describe one contributor. Unsupported custom render commands without an ordinary
+scene mesh/material representation are not collected.
+
+Snapshots retain old/new world bounds and transforms, mesh identity/revision/counts, base/emissive factors and textures,
+UV mappings, color interpretation, masking/cutoff, and sidedness. Texture images/views/samplers are retained and the normal
+texture-storage content signature captures relevant GPU upload generations. This is the generic texture contract, not a
+DDGI signature or trigger. Bindless allocation indices, broad material revisions, metallic/roughness/normal-map controls,
+and dynamic receiver transforms are not SDFGI payload identity. Opaque alpha-only edits do not invalidate occupancy;
+masked base-texture edits conservatively affect coverage. Zero-emission materials do not track unused emissive textures.
+
+Registry comparisons classify add/remove, transform/bounds, geometry, coverage, and payload changes. The union of old/new
+bounds identifies affected cascades without building a giant union across distant objects. These are CPU diagnostics;
+geometry reconstruction and lighting reactions are wired in their later milestones, not dispatched by this stage.
+
+Directional lights always use the dynamic list, including static entities, as in the reference. Point/spot mobility uses
+the existing entity static flag. The scene snapshot retains host linear color times brightness, shadow intent, position,
+travel direction, effective range, all three distance-attenuation coefficients, and both cosine cone thresholds. It does
+not apply camera exposure or sort by camera distance. Scene-level constant color or environment cubemap identity,
+orientation, gamma, and energy are frozen alongside these inputs; no sky conversion or light injection is performed yet.
+
+`GetCurrentSceneGiStatus()` additionally exposes cascade centers/dirty state, pending slab offsets/sizes, anchor replacement,
+eligible/excluded contributor counts, contributor change count, affected-cascade change masks, and static/dynamic light
+counts. Change masks use `SdfgiChangeFlags` in `SdfgiScene.hpp`; the full inspector is still a later milestone.
+
+M3 verification (2026-09-05): SDK, Python binding, and tests built in `vs2026-x64-tests`, RelWithDebInfo.
+All 12 `SdfgiScene.*:SdfgiRuntime.*` checks passed (0.334 seconds), including 200 deterministic movement comparisons
+against the pinned reference loops and a live CPU scene covering base LOD, bounds, mobility, materials, and lights.
+The existing scene-frame test again ran on the RTX 5070 with all effective RT facilities disabled, Vulkan/synchronization
+validation enabled, and no reported validation errors. No additional shader/GPU-storage, image, editor UI, or full-suite
+run was needed for these CPU-only changes. Field publication and rendering remain disabled.
