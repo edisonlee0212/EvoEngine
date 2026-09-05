@@ -6,6 +6,7 @@
 #include "ApplicationContext.hpp"
 #include "ComputePipeline.hpp"
 #include "Cubemap.hpp"
+#include "EnvironmentalLighting.hpp"
 #include "GeometryStorage.hpp"
 #include "GltfMaterial.hpp"
 #include "GpuService.hpp"
@@ -15,7 +16,9 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderLayer.hpp"
+#include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiRuntime.hpp"
 #include "Shader.hpp"
 #include "Strands.hpp"
 #include "Texture2D.hpp"
@@ -35,6 +38,20 @@
 using namespace evo_engine;
 
 namespace evo_engine {
+class SdfgiTestAccess {
+ public:
+  static void ExecuteSceneFrame(RenderLayer& render, const std::shared_ptr<Scene>& scene) {
+    render.per_frame_descriptor_sets_.resize(Platform::GetMaxFramesInFlight());
+    render.render_graph_transient_resource_stores_.resize(Platform::GetMaxFramesInFlight());
+    render.ExecuteSceneFramePasses(scene);
+  }
+
+  static bool HasDdgiResources(const RenderLayer& render) {
+    return !render.ddgi_volume_runtime_states_.empty() || render.ddgi_probe_update_pipeline_ ||
+           render.ddgi_probe_update_layout_ || render.ddgi_probe_ray_output_layout_ || render.ddgi_atlas_sampler_;
+  }
+};
+
 class PlatformLifecycleTestAccess final {
  public:
   static void Initialize(const ApplicationInitializationSettings& settings) {
@@ -292,6 +309,57 @@ TEST(SdfgiCapabilities, CurrentGpuPreflightWithRayFeaturesDisabled) {
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   EXPECT_TRUE(report.Supported()) << report.ToString();
   EXPECT_FALSE(QuerySdfgiCapabilities(0, 30).Supported());
+}
+
+TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeatures) {
+  ScopedGpuPlatform platform(false);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  ASSERT_TRUE(render);
+  const auto scene = std::make_shared<Scene>();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  scene->environmental_lighting = lighting;
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+  lighting->ddgi_settings.runtime.enabled = true;
+  const auto pack = std::make_shared<DdgiVolumePack>();
+  pack->volumes.emplace_back();
+  lighting->ddgi_volume_pack = pack;
+  uint32_t calls = 0;
+  bool expect_sdfgi = true;
+  render->RegisterFrameRenderPass({"SdfgiFrameBoundaryTest", RenderPassQueue::Graphics, RenderPassScope::Frame},
+                                  [&](const VkCommandBuffer) -> uint32_t {
+                                    ++calls;
+                                    if (expect_sdfgi) {
+                                      EXPECT_TRUE(scene->GetSdfgiRuntime());
+                                      if (const auto runtime = scene->GetSdfgiRuntime())
+                                        EXPECT_EQ(runtime->maintenance_count, 1u);
+                                    }
+                                    return 0;
+                                  });
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  EXPECT_EQ(calls, 1u);
+  ASSERT_TRUE(scene->GetSdfgiRuntime());
+  EXPECT_TRUE(scene->GetSdfgiRuntime()->capabilities.Supported());
+  EXPECT_FALSE(scene->GetSdfgiRuntime()->published);
+  EXPECT_TRUE(scene->GetSdfgiRuntime()->missing_anchor);
+  EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+  expect_sdfgi = false;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  EXPECT_EQ(calls, 2u);
+  EXPECT_FALSE(scene->GetSdfgiRuntime());
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+  expect_sdfgi = true;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  const auto replacement = std::make_shared<Scene>();
+  expect_sdfgi = false;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, replacement);
+  EXPECT_FALSE(scene->GetSdfgiRuntime());
+  EXPECT_FALSE(replacement->GetSdfgiRuntime());
+  EXPECT_EQ(calls, 4u);
+  EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

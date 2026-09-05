@@ -914,6 +914,33 @@ TEST(EnvironmentalLightingAsset, LocalProbeInspectorDoesNotSynchronouslyLoadProb
   EXPECT_NE(inspector_source.find("ImGui::TreeNode(\"Cubemap face preview\")"), std::string::npos);
 }
 
+TEST(EnvironmentalLightingAsset, ProviderSelectionKeepsAuthoredSettingsButIsolatesRuntimeInputs) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  ASSERT_TRUE(lighting);
+  lighting->ddgi_settings.runtime.enabled = true;
+  const auto pack = lighting->GetOrCreateDdgiVolumePack();
+  pack->volumes.emplace_back();
+  for (const auto provider : {IndirectGiProvider::Environment, IndirectGiProvider::AutomaticSdfgi}) {
+    lighting->indirect_gi_provider = provider;
+    const auto resolved = ResolveEnvironmentalLighting(scene);
+    EXPECT_EQ(resolved.indirect_gi_provider, provider);
+    EXPECT_FALSE(resolved.ddgi_settings.runtime.enabled);
+    EXPECT_TRUE(resolved.ddgi_volumes.empty());
+    EXPECT_TRUE(lighting->ddgi_settings.runtime.enabled);
+    EXPECT_EQ(lighting->GetDdgiVolumePack(), pack);
+    EXPECT_EQ(pack->volumes.size(), 1u);
+  }
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  const auto resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.enabled);
+  EXPECT_EQ(resolved.ddgi_volumes.size(), 1u);
+  EXPECT_FALSE(scene->GetSdfgiRuntime());
+}
+
 TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   Application app;
   ApplicationContextScope scope(app);

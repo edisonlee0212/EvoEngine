@@ -1,0 +1,38 @@
+#pragma once
+
+#include "SdfgiCapabilities.hpp"
+#include "SdfgiSettings.hpp"
+
+#include <glm/glm.hpp>
+#include <limits>
+
+namespace evo_engine {
+
+enum class SdfgiAnchorSource : uint32_t { None, Explicit, MainCamera, EditorScene };
+
+struct SdfgiAnchor {
+  uint64_t camera_id = 0;
+  glm::vec3 world_position = glm::vec3(0.0f);
+  SdfgiAnchorSource source = SdfgiAnchorSource::None;
+  bool override_fell_back = false;
+};
+
+EVOENGINE_API SdfgiAnchor SelectSdfgiAnchor(const SdfgiAnchor& explicit_camera, const SdfgiAnchor& main_camera,
+                                            const SdfgiAnchor& editor_camera, bool override_requested, bool playing,
+                                            bool editor_present);
+
+struct EVOENGINE_API SdfgiRuntime {
+  SdfgiSettings settings;
+  SdfgiCapabilityReport capabilities;
+  SdfgiAnchor anchor;
+  uint64_t maintenance_count = 0;
+  uint32_t last_scene_frame = std::numeric_limits<uint32_t>::max();
+  bool missing_anchor = true;
+  bool published = false;
+  std::string fallback_reason = "No complete SDFGI field published";
+
+  SdfgiRuntime(const SdfgiSettings& initial_settings, SdfgiCapabilityReport report);
+  bool Maintain(uint32_t scene_frame, const SdfgiAnchor& selected_anchor);
+};
+
+}  // namespace evo_engine

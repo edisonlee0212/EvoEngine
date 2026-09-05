@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiRuntime.hpp"
 #include "Texture2D.hpp"
 #include "TextureStorage.hpp"
 using namespace py_evo_engine;
@@ -484,6 +485,76 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("RayTracingEnabled", &Platform::RayTracingEnabled);
   m.def("RayQueryEnabled", &Platform::RayQueryEnabled);
   m.def("RayAccelerationStructureEnabled", &Platform::RayAccelerationStructureEnabled);
+  py::enum_<IndirectGiProvider>(m, "IndirectGiProvider")
+      .value("Environment", IndirectGiProvider::Environment)
+      .value("AuthoredDdgi", IndirectGiProvider::AuthoredDdgi)
+      .value("AutomaticSdfgi", IndirectGiProvider::AutomaticSdfgi);
+  py::enum_<SdfgiSettings::VerticalScale>(m, "SdfgiVerticalScale")
+      .value("Percent50", SdfgiSettings::VerticalScale::Percent50)
+      .value("Percent75", SdfgiSettings::VerticalScale::Percent75)
+      .value("Percent100", SdfgiSettings::VerticalScale::Percent100);
+  py::class_<SdfgiSettings>(m, "SdfgiSettings")
+      .def(py::init<>())
+      .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
+      .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
+      .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
+      .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
+      .def_readwrite("ray_count", &SdfgiSettings::ray_count)
+      .def_readwrite("history_size", &SdfgiSettings::history_size)
+      .def_readwrite("light_update_frames", &SdfgiSettings::light_update_frames)
+      .def_readwrite("bounce_feedback", &SdfgiSettings::bounce_feedback)
+      .def_readwrite("read_sky_light", &SdfgiSettings::read_sky_light)
+      .def_readwrite("energy", &SdfgiSettings::energy)
+      .def_readwrite("normal_bias", &SdfgiSettings::normal_bias)
+      .def_readwrite("probe_bias", &SdfgiSettings::probe_bias)
+      .def_readwrite("anchor_camera_entity", &SdfgiSettings::anchor_camera_entity);
+  m.def("SetCurrentSceneGiProvider", [](const IndirectGiProvider provider) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    lighting->indirect_gi_provider = provider;
+    if (provider == IndirectGiProvider::AuthoredDdgi)
+      lighting->ddgi_settings.runtime.enabled = true;
+    lighting->SetUnsaved();
+  });
+  m.def("SetCurrentSceneSdfgiSettings", [](const SdfgiSettings& settings) {
+    if (const auto error = settings.Validate(); !error.empty())
+      throw py::value_error(error);
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    lighting->sdfgi_settings = settings;
+    lighting->SetUnsaved();
+  });
+  m.def("GetCurrentSceneGiStatus", []() {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = ResolveEnvironmentalLighting(scene);
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    py::dict result;
+    result["requested_provider"] = GetIndirectGiProviderName(lighting.indirect_gi_provider);
+    auto effective = IndirectGiProvider::Environment;
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi && runtime && runtime->published)
+      effective = IndirectGiProvider::AutomaticSdfgi;
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
+      if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+        const auto snapshot = render->GetDdgiInspectorSnapshot();
+        if (snapshot.enabled && snapshot.aggregate.active_probe_count && snapshot.aggregate.lighting_descriptors_bound)
+          effective = IndirectGiProvider::AuthoredDdgi;
+      }
+    }
+    result["effective_provider"] = GetIndirectGiProviderName(effective);
+    result["sdfgi_state_active"] = runtime != nullptr;
+    result["maintenance_count"] = runtime ? runtime->maintenance_count : 0;
+    result["published"] = runtime && runtime->published;
+    result["missing_anchor"] = !runtime || runtime->missing_anchor;
+    result["anchor_camera_id"] = runtime ? runtime->anchor.camera_id : 0;
+    result["anchor_source"] = runtime ? static_cast<uint32_t>(runtime->anchor.source) : 0;
+    result["anchor_override_fell_back"] = runtime && runtime->anchor.override_fell_back;
+    result["fallback_reason"] = runtime ? runtime->fallback_reason : std::string{};
+    return result;
+  });
   m.def(
       "SdfgiCapabilityReport",
       [](const uint32_t cascade_count, const uint32_t history_size) {

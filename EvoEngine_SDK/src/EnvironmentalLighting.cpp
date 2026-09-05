@@ -157,6 +157,12 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
   out << YAML::Key << "specular_fallback_intensity" << YAML::Value << lighting.specular_fallback_intensity;
   out << YAML::Key << "ddgi_settings" << YAML::Value;
   SerializeDdgiSettings(out, lighting.ddgi_settings);
+  out << YAML::Key << "indirect_gi_provider" << YAML::Value << static_cast<uint32_t>(lighting.indirect_gi_provider);
+  if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi ||
+      !(lighting.sdfgi_settings == SdfgiSettings{})) {
+    out << YAML::Key << "sdfgi_settings" << YAML::Value;
+    SerializeSdfgiSettings(out, lighting.sdfgi_settings);
+  }
   out << YAML::Key << "local_reflection_probes_enabled" << YAML::Value << lighting.local_reflection_probes_enabled;
   lighting.reflection_probe_pack.Save("reflection_probe_pack", out);
   lighting.ddgi_volume_pack.Save("ddgi_volume_pack", out);
@@ -170,6 +176,8 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   lighting.diffuse_fallback_intensity = EnvironmentalLighting::kDefaultDiffuseFallbackIntensity;
   lighting.specular_fallback_intensity = EnvironmentalLighting::kDefaultSpecularFallbackIntensity;
   lighting.ddgi_settings = {};
+  lighting.indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  lighting.sdfgi_settings = {};
   lighting.local_reflection_probes_enabled = true;
   lighting.reflection_probe_pack.Clear();
   lighting.ddgi_volume_pack.Clear();
@@ -187,6 +195,14 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
     lighting.specular_fallback_intensity = in["specular_fallback_intensity"].as<float>();
   if (const auto settings = in["ddgi_settings"])
     DeserializeDdgiSettings(settings, lighting.ddgi_settings);
+  if (in["indirect_gi_provider"]) {
+    const auto provider = in["indirect_gi_provider"].as<uint32_t>();
+    lighting.indirect_gi_provider = provider <= static_cast<uint32_t>(IndirectGiProvider::AutomaticSdfgi)
+                                        ? static_cast<IndirectGiProvider>(provider)
+                                        : IndirectGiProvider::Environment;
+  }
+  if (const auto settings = in["sdfgi_settings"])
+    DeserializeSdfgiSettings(settings, lighting.sdfgi_settings);
   if (in["local_reflection_probes_enabled"])
     lighting.local_reflection_probes_enabled = in["local_reflection_probes_enabled"].as<bool>();
   lighting.reflection_probe_pack.Load("reflection_probe_pack", in);

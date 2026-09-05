@@ -687,6 +687,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   friend class RenderInstanceStorage;
   friend class TextureStorage;
   friend class StaticSceneRenderTestAccess;
+  friend class SdfgiTestAccess;
 #pragma region DescriptorSet Layouts
   std::shared_ptr<DescriptorSetLayout> empty_descriptor_set_layout_;
   std::shared_ptr<DescriptorSetLayout> per_frame_layout_;
@@ -722,10 +723,12 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void InitializeCommonDescriptorSetLayouts(
       const ApplicationInitializationSettings& application_initialization_settings);
   void EnsureRasterLightingFallbackTexture() const;
+  void EnsureDdgiPipelines();
 #pragma endregion
 
   std::vector<std::shared_ptr<RenderInstanceStorage>> render_instances_list_;
   std::weak_ptr<Scene> presented_scene_;
+  std::weak_ptr<Scene> sdfgi_scene_;
   [[nodiscard]] bool IsSceneLightingReadyForPresentation(
       const std::shared_ptr<Scene>& scene, const std::shared_ptr<RenderInstanceStorage>& render_instances) const;
   std::weak_ptr<Scene> pending_static_entity_change_scene_;
@@ -888,6 +891,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
    * \brief Performs all rendering operations for this render layer.
    */
   void RenderAll();
+  void ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene);
 
   /**
    * \brief Renders all gizmos associated with this render layer.

@@ -3,6 +3,7 @@
 #include "AssetRef.hpp"
 #include "DdgiSettings.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "SdfgiSettings.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -90,6 +91,8 @@ struct ResolvedEnvironmentalLighting {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  SdfgiSettings sdfgi_settings{};
   DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiVolume> ddgi_volumes;

@@ -34,7 +34,7 @@ flowchart LR
 | --- | --- |
 | `Camera` | View state, output texture, visible background, requested render technique, ray settings, and post-processing stack. |
 | `Scene` | Renderable entities, lights, the main camera, environmental-lighting reference, and global reflection-probe fallback. |
-| `EnvironmentalLighting` | Indirect environment source, DDGI settings and volumes, local reflection probes, and their fallback intensities. |
+| `EnvironmentalLighting` | Indirect GI provider, environment source, DDGI/SDFGI settings, local reflection probes, and fallback intensities. |
 | `RenderInstanceStorage` | Immutable per-frame GPU view of geometry, materials, transforms, lights, cameras, environment data, descriptors, and acceleration-structure inputs. |
 | `RenderGraph` | Logical resources, pass ordering, access declarations, transient allocation, and Vulkan barrier planning. |
 | `RenderLayer` | Pipeline creation, frame preparation, shadows, camera rendering, probe work, extension callbacks, diagnostics, and output handoff. |
@@ -113,6 +113,11 @@ for material behavior and geometry participation.
 Direct lighting comes from directional, point, and spot lights. Environment and probe inputs are resolved from the scene
 and its `EnvironmentalLighting` asset before rendering.
 
+The asset explicitly selects Environment, Authored DDGI (RT), or the opt-in Automatic SDFGI provider. Automatic SDFGI
+currently has a settings/ownership shell only and uses Environment fallback without allocating a field. See
+[Automatic SDFGI](sdfgi.md) for controls and current implementation status. Inactive DDGI settings and volume packs remain
+authored data but do not drive updates or lighting.
+
 Ray cameras and DDGI sample emissive meshes through a two-level distribution. The first alias table selects a physical
 render instance; the second selects an eligible triangle from a distribution shared by instances with the same geometry
 range and emissive material. Rigid and uniformly scaled copies therefore store the mesh triangles once instead of
@@ -129,7 +134,7 @@ when the sampling distribution itself is reusable.
 | Use | Source and control |
 | --- | --- |
 | Visible primary background | The camera background source multiplied by `background_intensity`. |
-| Raster diffuse indirect | Valid DDGI irradiance; otherwise the indirect environment source multiplied by `diffuse_fallback_intensity`. |
+| Raster diffuse indirect | Valid irradiance from the selected provider; otherwise the indirect environment source multiplied by `diffuse_fallback_intensity`. |
 | Raster specular indirect | Local reflection probes, then the scene or engine global reflection probe multiplied by `specular_fallback_intensity`. |
 | Ray-camera environment events | The indirect environment source multiplied by `environment_lighting_intensity`. |
 | Reflection-probe capture background | The authored bake background, with inherited environment radiance multiplied by `environment_lighting_intensity`. |

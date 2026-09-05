@@ -35,6 +35,7 @@
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
+#include "SdfgiRuntime.hpp"
 #include "Serialization.hpp"
 #include "Shader.hpp"
 #include "SkinnedMesh.hpp"
@@ -2873,6 +2874,34 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
     reflection_pack->SetUnsaved();
   if (ddgi_pack && ddgi_pack->RepairStableIds())
     ddgi_pack->SetUnsaved();
+  int provider = static_cast<int>(lighting.indirect_gi_provider);
+  if (ImGui::Combo("Indirect GI provider", &provider, "Environment\0Authored DDGI (RT)\0Automatic SDFGI\0")) {
+    lighting.indirect_gi_provider = static_cast<IndirectGiProvider>(provider);
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi)
+      lighting.ddgi_settings.runtime.enabled = true;
+    changed = true;
+  }
+  auto effective_provider = IndirectGiProvider::Environment;
+  if (lighting_asset) {
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+      if (const auto runtime = active_scene->GetSdfgiRuntime()) {
+        if (runtime->published)
+          effective_provider = IndirectGiProvider::AutomaticSdfgi;
+        else
+          ImGui::TextWrapped("Fallback: %s", runtime->fallback_reason.c_str());
+        if (runtime->anchor.override_fell_back)
+          ImGui::TextDisabled("Explicit anchor unavailable; automatic selection used.");
+        ImGui::Text("Maintenance calls: %llu", static_cast<unsigned long long>(runtime->maintenance_count));
+      }
+    } else if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
+      if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+        const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
+        if (snapshot.enabled && snapshot.aggregate.active_probe_count && snapshot.aggregate.lighting_descriptors_bound)
+          effective_provider = IndirectGiProvider::AuthoredDdgi;
+      }
+    }
+  }
+  ImGui::Text("Effective GI provider: %s", GetIndirectGiProviderName(effective_provider));
   if (ImGui::BeginTabBar("EnvironmentalLightingInspectionTabs")) {
     if (ImGui::BeginTabItem("General")) {
       changed = InspectEnvironmentalLightingSource(context, lighting.indirect_environment_source) || changed;
@@ -2888,7 +2917,66 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       ImGui::EndTabItem();
     }
 
+    if (ImGui::BeginTabItem("Automatic SDFGI")) {
+      auto& settings = lighting.sdfgi_settings;
+      ImGui::TextDisabled("128 cells per cascade; coverage follows one camera automatically.");
+      int cascades = static_cast<int>(settings.cascade_count);
+      if (ImGui::SliderInt("Cascades", &cascades, 1, 8)) {
+        settings.cascade_count = static_cast<uint32_t>(cascades);
+        changed = true;
+      }
+      changed = ImGui::DragFloat("Minimum cell size", &settings.min_cell_size, 0.01f, 0.01f, 64.0f) || changed;
+      int vertical_scale = static_cast<int>(settings.vertical_scale);
+      const char* vertical_scales[]{"50%", "75%", "100%"};
+      if (ImGui::Combo("Vertical scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {
+        settings.vertical_scale = static_cast<SdfgiSettings::VerticalScale>(vertical_scale);
+        changed = true;
+      }
+      const auto inspect_choice = [&](const char* label, uint32_t& value,
+                                      const std::initializer_list<uint32_t> choices) {
+        if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
+          for (const auto choice : choices) {
+            if (ImGui::Selectable(std::to_string(choice).c_str(), value == choice)) {
+              value = choice;
+              changed = true;
+            }
+          }
+          ImGui::EndCombo();
+        }
+      };
+      inspect_choice("Rays per probe", settings.ray_count, {4, 8, 16, 32, 64, 96, 128});
+      inspect_choice("History frames", settings.history_size, {5, 10, 15, 20, 25, 30});
+      inspect_choice("Dynamic-light update frames", settings.light_update_frames, {1, 2, 4, 8, 16});
+      changed = ImGui::Checkbox("Occlusion", &settings.use_occlusion) || changed;
+      changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || changed;
+      changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || changed;
+      changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || changed;
+      changed = ImGui::DragFloat("Normal bias", &settings.normal_bias, 0.01f, 0.0f, 4.0f) || changed;
+      changed = ImGui::DragFloat("Probe bias", &settings.probe_bias, 0.01f, 0.0f, 8.0f) || changed;
+      PrivateComponentRef anchor;
+      if (lighting_asset) {
+        if (const auto entity = active_scene->GetEntity(Handle(settings.anchor_camera_entity));
+            active_scene->IsEntityValid(entity) && active_scene->HasPrivateComponent<Camera>(entity))
+          anchor = active_scene->GetOrSetPrivateComponent<Camera>(entity).lock();
+      }
+      ImGui::BeginDisabled(!lighting_asset);
+      if (editor_layer->DragAndDropButton<Camera>(anchor, "Optional anchor camera")) {
+        settings.anchor_camera_entity = anchor.GetEntityHandle().GetValue();
+        changed = true;
+      }
+      if (settings.anchor_camera_entity != 0 && ImGui::Button("Use automatic anchor")) {
+        settings.anchor_camera_entity = 0;
+        changed = true;
+      }
+      ImGui::EndDisabled();
+      if (const auto error = settings.Validate(); !error.empty())
+        ImGui::TextWrapped("Unavailable: %s", error.c_str());
+      ImGui::EndTabItem();
+    }
+
     if (ImGui::BeginTabItem("DDGI")) {
+      if (lighting.indirect_gi_provider != IndirectGiProvider::AuthoredDdgi)
+        ImGui::TextDisabled("DDGI settings and volumes are retained but inactive.");
       if (editor_layer->DragAndDropButton<DdgiVolumePack>(lighting.ddgi_volume_pack, "DDGI Volume Pack")) {
         ddgi_pack = lighting.GetDdgiVolumePack();
         changed = true;

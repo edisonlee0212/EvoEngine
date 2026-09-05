@@ -16,6 +16,8 @@
 
 namespace evo_engine {
 
+struct SdfgiRuntime;
+
 /**
  * @brief Enum for categorizing system groups in the engine.
  */
@@ -64,7 +66,13 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
  * @brief Represents a scene in the engine, including entities, systems, and environmental properties.
  */
 class EVOENGINE_API Scene final : public IAsset {
+  friend class RenderLayer;
+  std::shared_ptr<SdfgiRuntime> sdfgi_runtime_;
+
  public:
+  [[nodiscard]] std::shared_ptr<const SdfgiRuntime> GetSdfgiRuntime() const {
+    return sdfgi_runtime_;
+  }
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**

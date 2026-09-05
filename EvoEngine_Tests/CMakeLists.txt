@@ -41,6 +41,7 @@ set(EVOENGINE_TEST_SOURCES
 	Core/RayTracingSkinnedInstanceTest.cpp
 	Core/PunctualLightImportTest.cpp
 	Core/GpuServiceTest.cpp
+	Core/SdfgiRuntimeTest.cpp
 	Core/PlatformQueueFamilyTest.cpp
 	Core/RenderGraphTest.cpp
 	Core/StrandsMeshShaderTest.cpp

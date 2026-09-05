@@ -6,6 +6,7 @@
 #include "DdgiVolumePack.hpp"
 #include "IAsset.hpp"
 #include "ReflectionProbePack.hpp"
+#include "SdfgiSettings.hpp"
 
 #include <cstdint>
 #include <glm/glm.hpp>
@@ -72,6 +73,8 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  SdfgiSettings sdfgi_settings{};
   bool local_reflection_probes_enabled = true;
   AssetRef reflection_probe_pack;
   AssetRef ddgi_volume_pack;

@@ -40,6 +40,7 @@ void Scene::Purge() {
   MarkRenderStructureChanged();
   pressed_keys_.clear();
   main_camera.Clear();
+  sdfgi_runtime_.reset();
   global_reflection_probe_fallback.Clear();
   environmental_lighting.Clear();
 
@@ -821,6 +822,7 @@ std::shared_ptr<Texture2D> Scene::GenerateThumbnailTexture() {
 }
 
 void Scene::Clone(const std::shared_ptr<Scene>& source, const std::shared_ptr<Scene>& new_scene) {
+  new_scene->sdfgi_runtime_.reset();
   new_scene->global_reflection_probe_fallback = source->global_reflection_probe_fallback;
   new_scene->environmental_lighting = source->environmental_lighting;
   EnsureTemporaryEnvironmentalLighting(*new_scene);

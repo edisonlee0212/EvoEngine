@@ -1337,9 +1337,7 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   EXPECT_NE(render_layer_source.find("CreateDdgiFallbackProbeStateBuffer(const uint64_t byte_size)"),
             std::string::npos);
   EXPECT_NE(render_layer_source.find("glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)"), std::string::npos);
-  EXPECT_NE(render_layer_source.find(
-                "CreateDdgiFallbackProbeStateBuffer(DdgiRuntime::kMaxResidentProbeCount * sizeof(glm::vec4))"),
-            std::string::npos);
+  EXPECT_NE(render_layer_source.find("CreateDdgiFallbackProbeStateBuffer(sizeof(glm::vec4))"), std::string::npos);
 }
 
 TEST(DdgiVolume, DdgiAmbientCompositionReplacesOnlyValidDiffuseCoverage) {
@@ -3158,11 +3156,12 @@ TEST(DdgiVolume, MultiVolumeGpuContractOwnsEightSlotsAndSumsPerFrameTiming) {
             std::string::npos);
   EXPECT_NE(render_layer_source.find("execute_ddgi_runtime(*runtime->second"), std::string::npos);
   EXPECT_NE(render_layer_source.find("current_frame_transient_resources.emplace_back()"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("include_external_passes"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("include_external_passes"), std::string::npos);
+  EXPECT_EQ(render_layer_source.find("execute_ddgi_runtime(empty_runtime"), std::string::npos);
   EXPECT_NE(render_layer_source.find("for (size_t i = ddgi_ordered_volume_ids_.size(); i-- > 0u;)"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("static_cast<uint32_t>(i), i == 0u"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("ddgi_volumes_complete.dependencies.push_back(pass.name)"), std::string::npos);
-  EXPECT_NE(render_layer_source.find("descriptor.dependencies.emplace_back(RenderPassNames::ddgi_volumes_complete)"),
+  EXPECT_NE(render_layer_source.find("ExecuteSceneFramePasses(scene);"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("gi_complete.dependencies.push_back(pass.name)"), std::string::npos);
+  EXPECT_NE(render_layer_source.find("descriptor.dependencies.emplace_back(RenderPassNames::scene_gi_complete)"),
             std::string::npos);
   EXPECT_EQ(render_layer_source.find("Required DDGI Volume Removal Fence Wait"), std::string::npos);
   EXPECT_NE(render_layer_source.find("ResetDdgiRuntimeFrameState(*runtime);"), std::string::npos);
