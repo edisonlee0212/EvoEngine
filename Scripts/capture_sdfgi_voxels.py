@@ -1,4 +1,4 @@
-"""Capture the RT-disabled Sponza SDFGI voxel slices at 2560x1440.
+"""Capture RT-disabled Sponza SDFGI voxel or SDF/occlusion slices at 2560x1440.
 
 Use a disposable copy of Rendering demo resources, not the authored project.
 The script does not compare against or update any DDGI baseline.
@@ -18,6 +18,7 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--cascade", type=int, default=0)
     parser.add_argument("--slice", type=int, default=64)
+    parser.add_argument("--view", choices=("voxels", "preprocess"), default="voxels")
     args = parser.parse_args()
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
@@ -50,15 +51,22 @@ def main():
             raise RuntimeError(f"Voxelization did not become ready: {state}")
         if state["static_contributor_count"] == 0:
             raise RuntimeError(f"The Rendering demo has no static contributors: {state}")
-        engine.RequestCurrentSceneSdfgiVoxelDebug(args.cascade, args.slice)
+        preprocess = args.view == "preprocess"
+        request = engine.RequestCurrentSceneSdfgiPreprocessDebug if preprocess else engine.RequestCurrentSceneSdfgiVoxelDebug
+        capture = engine.CaptureCurrentSceneSdfgiPreprocessDebug if preprocess else engine.CaptureCurrentSceneSdfgiVoxelDebug
+        request(args.cascade, args.slice)
         if not engine.Loop():
             raise RuntimeError("Rendering demo ended before diagnostic capture")
         state = engine.GetCurrentSceneGiStatus()
-        if state["voxel_failure"] or not state["voxel_debug_recorded"]:
-            raise RuntimeError(f"Voxel diagnostic failed: {state}")
+        prefix = "preprocess" if preprocess else "voxel"
+        if state[f"{prefix}_failure"] or not state[f"{prefix}_debug_recorded"]:
+            raise RuntimeError(f"SDFGI diagnostic failed: {state}")
         output.parent.mkdir(parents=True, exist_ok=True)
-        engine.CaptureCurrentSceneSdfgiVoxelDebug(output)
-        print(json.dumps({"status": state, "resolution": [2560, 1440], "cascade": args.cascade,
+        capture(output)
+        state = engine.GetCurrentSceneGiStatus()
+        if preprocess and (not state["preprocess_status_available"] or state["preprocess_failure_flags"]):
+            raise RuntimeError(f"SDFGI preprocessing failed: {state}")
+        print(json.dumps({"status": state, "view": args.view, "resolution": [2560, 1440], "cascade": args.cascade,
                           "slice": args.slice, "readiness_frames": frame + 1, "output": str(output)}), flush=True)
     finally:
         engine.Terminate()

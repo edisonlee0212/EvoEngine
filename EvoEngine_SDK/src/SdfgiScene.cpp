@@ -72,6 +72,16 @@ float evo_engine::SdfgiYMultiplier(const SdfgiSettings::VerticalScale scale) {
   }
 }
 
+uint32_t evo_engine::BoundSdfgiLightList(std::vector<SdfgiLightInput>& lights, const bool dynamic) {
+  // Godot pre_process_gi supplies directionals first; stable host identities resolve capacity selection.
+  std::sort(lights.begin(), lights.end(), [](const auto& a, const auto& b) {
+    return std::tie(a.type, a.id) < std::tie(b.type, b.id);
+  });
+  const auto count = lights.size();
+  lights.resize(std::min(count, dynamic ? size_t(128) : size_t(1024)));
+  return static_cast<uint32_t>(count - lights.size());
+}
+
 Bound SdfgiCascade::WorldBounds(const float y_mult) const {
   const glm::vec3 scale = cell_size * glm::vec3(1, 1 / y_mult, 1);
   return {glm::vec3(position - glm::ivec3(64)) * scale, glm::vec3(position + glm::ivec3(64)) * scale};

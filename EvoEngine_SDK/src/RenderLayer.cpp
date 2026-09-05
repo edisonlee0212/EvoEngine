@@ -48,6 +48,7 @@
 #include "RenderPasses/TransparentGeometryPass.hpp"
 #include "RenderPasses/VolumetricCloudsPass.hpp"
 #include "Resources.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -5685,6 +5686,13 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
                         [](const RenderGraphExecutionContext&) {
                         });
     if (const auto resources = runtime->resources) {
+      if (const auto& previous = resources->voxel_frames[current_frame_index];
+          previous && previous->preprocess_readback)
+        previous->preprocess_readback->ReadAfterFrameFence(*resources);
+      if (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow)
+        runtime->fallback_reason = "SDFGI solid-cell capacity overflow";
+      else if (!resources->preprocess_failure.empty())
+        runtime->fallback_reason = resources->preprocess_failure;
       sdfgi_frame_resources_[current_frame_index].push_back(resources);
       resources->Import(scene_graph, registry);
       if (!resources->initialization_recorded)
@@ -5734,6 +5742,26 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             resources->voxel_failure = error.what();
             runtime->fallback_reason = resources->voxel_failure;
           }
+        }
+      }
+      if (resources->preprocess_debug_request &&
+          (resources->preprocessed_cascades & (1u << resources->preprocess_debug_request->x))) {
+        try {
+          auto snapshot = std::make_shared<SdfgiPreprocessDebug>(resources->preprocess_debug_request->x,
+                                                                 resources->preprocess_debug_request->y);
+          resources->preprocess_debug_frames.resize(Platform::GetMaxFramesInFlight());
+          resources->preprocess_debug_frames[current_frame_index] = snapshot;
+          resources->preprocess_debug = snapshot;
+          const bool voxel_pass =
+              std::any_of(scene_graph.GetPasses().begin(), scene_graph.GetPasses().end(), [](const auto& pass) {
+                return pass.name == "SdfgiVoxelComplete";
+              });
+          snapshot->AddPass(scene_graph, registry, resources,
+                            voxel_pass ? "SdfgiVoxelComplete" : RenderPassNames::sdfgi_maintenance);
+          resources->preprocess_debug_request.reset();
+          resources->preprocess_debug_failure.clear();
+        } catch (const std::exception& error) {
+          resources->preprocess_debug_failure = error.what();
         }
       }
     }

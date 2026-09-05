@@ -7,6 +7,7 @@
 #include "Mesh.hpp"
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "Texture2D.hpp"
 
 #include <stb_image_write.h>
@@ -171,6 +172,8 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
                                                          const std::vector<SdfgiCascade>& cascades,
                                                          const std::vector<SdfgiPendingRegion>& pending) {
   auto frame = std::make_shared<SdfgiVoxelFrame>();
+  frame->cascades = cascades;
+  frame->preprocess_readback = std::make_shared<SdfgiPreprocessReadback>(resources.settings.cascade_count);
   frame->vertex_buffer = GeometryStorage::GetVertexBuffer();
   frame->index_buffer = GeometryStorage::GetTriangleBuffer();
   frame->scene_set = std::make_shared<DescriptorSet>(resources.voxel_pipeline->descriptor_set_layouts[0]);
@@ -399,6 +402,17 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
           snapshot->Record(command, *resources);
         });
       });
+    }
+    const bool full_cascade = std::any_of(regions.begin(), regions.end(), [&](const auto& region) {
+      return region.pending.cascade == cascade && region.pending.offset == glm::ivec3(0) &&
+             region.pending.size == glm::ivec3(128);
+    });
+    if (full_cascade)
+      previous = AddSdfgiPreprocessPass(graph, registry, resources, preprocess_readback, cascade,
+                                        cascades[cascade].position, previous);
+    else {
+      resources->preprocessed_cascades &= ~(1u << cascade);
+      resources->preprocess_failure = "SDFGI scrolling reconstruction is not implemented yet";
     }
   }
   graph.AddPass({"SdfgiVoxelComplete", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {previous}},

@@ -1,6 +1,7 @@
 // Allocation and bindings adapted from Godot renderer_rd/environment/gi.cpp::SDFGI::create,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiResources.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "SdfgiVoxelizer.hpp"
 
 #include "Platform.hpp"
@@ -364,8 +365,8 @@ void SdfgiResources::CreateDescriptors() {
   }
   auto set = make_set("Upscale", SdfgiLayout::Upscale);
   image(set, 1, "Albedo");
-  image(set, 2, "JumpFloodHalf1");
-  image(set, 3, "JumpFlood1");
+  image(set, 2, "JumpFloodHalf0");
+  image(set, 3, "JumpFlood0");
   set = make_set("Occlusion", SdfgiLayout::Occlusion);
   image(set, 1, "Albedo");
   image(set, 3, "Facing");
@@ -380,7 +381,7 @@ void SdfgiResources::CreateDescriptors() {
   sampler(set, 1, true);
   for (uint32_t c = 0; c < settings.cascade_count; ++c) {
     set = make_set(CascadeName(c, "Store"), SdfgiLayout::Store);
-    image(set, 1, "JumpFlood0");
+    image(set, 1, "JumpFlood1");
     image(set, 2, "Albedo");
     for (uint32_t i = 0; i < 8; ++i)
       image(set, 3, "OcclusionScratch" + std::to_string(i), false, i);
@@ -480,9 +481,21 @@ uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class)
     if (voxel_debug)
       snapshots.insert(voxel_debug.get());
     for (const auto& frame : voxel_frames)
-      if (frame && frame->debug)
-        snapshots.insert(frame->debug.get());
+      if (frame) {
+        if (frame->debug)
+          snapshots.insert(frame->debug.get());
+        if (frame->preprocess_readback)
+          result += frame->preprocess_readback->buffer->GetVmaAllocationInfo().size;
+      }
     for (const auto* snapshot : snapshots)
+      result += snapshot->AllocationBytes();
+    std::set<const SdfgiPreprocessDebug*> preprocess_snapshots;
+    if (preprocess_debug)
+      preprocess_snapshots.insert(preprocess_debug.get());
+    for (const auto& snapshot : preprocess_debug_frames)
+      if (snapshot)
+        preprocess_snapshots.insert(snapshot.get());
+    for (const auto* snapshot : preprocess_snapshots)
       result += snapshot->AllocationBytes();
   }
   return result;
@@ -499,7 +512,7 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
     pipeline->descriptor_set_layouts = std::move(pipeline_layouts);
     if (push_size)
       pipeline->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size});
-    pipeline->compute_shader = Shader::CreateTemporary(ShaderType::Compute, header + variant, root / "Compute" / file);
+    pipeline->compute_shader = Shader::CreateTemporary(ShaderType::Compute, variant, root / "Compute" / file);
     pipeline->Initialize();
     if (!pipeline->Initialized())
       throw std::runtime_error("pipeline creation failed: " + name);
@@ -525,18 +538,20 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
                                        {"Scroll", "MODE_SCROLL", SdfgiLayout::Scroll},
                                        {"ScrollOcclusion", "MODE_SCROLL_OCCLUSION", SdfgiLayout::ScrollOcclusion}};
   for (const auto& variant : preprocess)
-    compute(variant.name, "SdfgiPreprocess.slang", std::string("#define ") + variant.define + " 1\n",
+    compute(variant.name, "SdfgiPreprocess.slang",
+            (variant.layout == SdfgiLayout::Scroll || variant.layout == SdfgiLayout::ScrollOcclusion ? header : "") +
+                "#define " + variant.define + " 1\n",
             {layouts[static_cast<size_t>(variant.layout)]}, sizeof(SdfgiPreprocessPushConstant));
   for (const std::string mode : {"STATIC", "DYNAMIC"})
-    compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",
+    compute("DirectLight" + mode, "SdfgiDirectLight.slang", header + "#define MODE_PROCESS_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
   for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
-    compute("Integrate" + mode, "SdfgiIntegrate.slang", "#define MODE_" + mode + " 1\n",
+    compute("Integrate" + mode, "SdfgiIntegrate.slang", header + "#define MODE_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::Integrate)], layouts[static_cast<size_t>(SdfgiLayout::Sky)]},
             sizeof(SdfgiIntegratePushConstant));
   auto deferred = deferred_host_layouts;
   deferred.push_back(layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
-  compute("GatherAbi", "SdfgiGatherAbi.slang", "", std::move(deferred), 0);
+  compute("GatherAbi", "SdfgiGatherAbi.slang", header, std::move(deferred), 0);
   voxel_pipeline = std::make_shared<GraphicsPipeline>();
   voxel_pipeline->vertex_input_enabled = true;
   voxel_pipeline->view_mask = 0;

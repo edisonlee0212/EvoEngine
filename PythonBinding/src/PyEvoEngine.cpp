@@ -6,6 +6,7 @@
 #include "Platform.hpp"
 #include "Profiler.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -561,6 +562,29 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       throw py::value_error("Request a voxel diagnostic and render a frame before capture");
     resources->voxel_debug->StoreToPng(path);
   });
+  m.def(
+      "RequestCurrentSceneSdfgiPreprocessDebug",
+      [](const uint32_t cascade, const uint32_t slice) {
+        const auto scene = ApplicationContext::Get().GetActiveScene();
+        const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+        if (!runtime || !runtime->resources)
+          throw py::value_error("Automatic SDFGI resources are not available");
+        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+          throw py::value_error("SDFGI cascade or slice is out of range");
+        runtime->resources->preprocess_debug_request = glm::uvec2(cascade, slice);
+      },
+      py::arg("cascade") = 0, py::arg("slice") = 64);
+  m.def("CaptureCurrentSceneSdfgiPreprocessDebug", [](const std::filesystem::path& path) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
+    const auto resources = runtime ? runtime->resources : nullptr;
+    if (!resources || resources->preprocess_debug_request || !resources->preprocess_debug)
+      throw py::value_error("Request a preprocessing diagnostic and render a frame before capture");
+    resources->preprocess_debug->StoreToPng(path);
+    for (const auto& frame : resources->voxel_frames)
+      if (frame && frame->preprocess_readback)
+        frame->preprocess_readback->ReadAfterFrameFence(*resources);
+  });
   m.def("GetCurrentSceneGiStatus", []() {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = ResolveEnvironmentalLighting(scene);
@@ -590,6 +614,22 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["voxelization_recorded"] = resources && resources->voxelization_recorded;
     result["voxel_failure"] = resources ? resources->voxel_failure : std::string{};
     result["voxel_debug_recorded"] = resources && resources->voxel_debug && resources->voxel_debug->recorded;
+    result["preprocessed_cascades"] = resources ? resources->preprocessed_cascades : 0;
+    result["preprocess_status_available"] = resources && resources->preprocess_status_available;
+    result["preprocess_failure_flags"] = resources ? resources->preprocess_status.failure_flags : 0;
+    result["preprocess_failure"] = resources ? resources->preprocess_failure : std::string{};
+    result["preprocess_debug_recorded"] =
+        resources && resources->preprocess_debug && resources->preprocess_debug->recorded;
+    result["preprocess_debug_failure"] = resources ? resources->preprocess_debug_failure : std::string{};
+    py::list solid_cells;
+    if (resources)
+      for (const auto& dispatch : resources->solid_cell_dispatch) {
+        py::dict counts;
+        counts["total"] = dispatch.total_count;
+        counts["groups"] = py::make_tuple(dispatch.x, dispatch.y, dispatch.z);
+        solid_cells.append(counts);
+      }
+    result["solid_cells"] = solid_cells;
     result["maintenance_count"] = runtime ? runtime->maintenance_count : 0;
     result["published"] = runtime && runtime->published;
     result["missing_anchor"] = !runtime || runtime->missing_anchor;

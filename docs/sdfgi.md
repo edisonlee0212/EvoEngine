@@ -1,9 +1,10 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, and static voxelization are
-implemented. Automatic SDFGI rasterizes surface payloads when it has an eligible anchor, but reports Environment fallback
-and publishes no lighting. Preprocess, direct-light, integration, and gather entry points remain ABI-only.
+Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, and stationary
+SDF/occlusion preprocessing are implemented. Automatic SDFGI builds the representation when it has an eligible anchor,
+but reports Environment fallback and publishes no lighting. Scrolling, direct-light, integration, and gather entry points
+remain ABI-only.
 
 ## Reference
 
@@ -24,7 +25,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiSettings.hpp/.cpp`, `SdfgiRuntime.hpp/.cpp` (ownership shell) | Environment defaults; `render_forward_clustered.cpp::sdfgi_update`; later `gi.h::SDFGI` and `gi.cpp` cascade/update logic |
 | `SdfgiScene.hpp/.cpp` | `gi.cpp::SDFGI::{create,update,get_pending_region_data,update_cascades,pre_process_gi}`, ForwardClustered `_render_sdfgi`/`_fill_render_list`; dedicated EvoEngine scene/material/light adapter |
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
-| `Shaders/Compute/SdfgiPreprocess.slang` (ABI only) | `shaders/environment/sdfgi_preprocess.glsl` |
+| `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl` |
 | `Shaders/Compute/SdfgiDirectLight.slang` (ABI only) | `shaders/environment/sdfgi_direct_light.glsl` |
 | `Shaders/Compute/SdfgiIntegrate.slang` (ABI only) | `shaders/environment/sdfgi_integrate.glsl` |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
@@ -271,3 +272,54 @@ the host full vertex layout only emits harmless unused-tangent attribute perform
 Both final voxel SPIR-V stages pass `spirv-val --target-env vulkan1.3 --scalar-block-layout`, matching the host GLTF scalar
 buffer layout enabled by device creation. Inspection confirms draw offsets 0/64/100/104 and scalar normal-array stride 4.
 Unchanged earlier CPU evidence is reused; there was no full-suite run, ordinary beauty comparison, or manual checkpoint.
+
+## Stationary distance fields, occlusion, and capacity safety
+
+Each full-cascade voxel pass now runs the reference half-resolution preprocessing sequence before shared scratch is reused:
+initialize half 0; jump-flood steps 32, 16, 8, 4, 2, 1; upscale half 0 into full 0; one optimized full-grid step into full 1;
+eight occlusion dispatches; STORE; copy dispatch counts to the indirect buffer; clear persistent light/anisotropy textures.
+Steps 8 and below use the reference 8-cubed shared-memory optimization. The descriptor ping-pong parity follows the actual
+executed `render_region` path, including STORE reading full 1. Occlusion parity comes from cascade probe-world offsets,
+with the eight nibbles packed in reference order into the two X halves of the persistent RGBA4-compatible image.
+All uploads, dispatches, copies, clears, and internal/cross-frame barriers remain on the normal main queue.
+
+Distance is reference `distance + 1` (zero at a solid), stored as R8 UNORM. The test permits the two adjacent integers
+allowed by Vulkan's [floating-point to normalized fixed-point conversion](https://docs.vulkan.org/spec/latest/chapters/fundamentals.html#fundamentals-fixedfpconv),
+and requires exact integer distances. It does not change shader math to force a device-specific rounding choice.
+The pinned STORE tests nearest-position XYZ without its validity W: a completely empty field consequently retains one
+zero-payload origin sentinel and its distance ramp. This reference behavior is preserved, not silently corrected.
+
+STORE retains the raw attempted compact count, caps indirect groups to storage capacity, bounds every compact write,
+and atomically marks the whole-field failure status if the reference 25-percent list overflows. CPU diagnostics consume
+counts/status only after a submitting frame fence is recycled, or during explicit capture; normal maintenance never
+waits for readback. The renderer diagnoses solid overflow and retains Environment fallback. No producer in this milestone
+publishes lighting; subsequent light/transport/gather consumers must reject this GPU flag before consuming truncated data.
+The stable type/handle light-list limiter is also tested at the reference 1024-static/128-dynamic capacities. M6 applies
+it after per-cascade eligibility filtering and exposes excluded counts when actual light uploads are introduced.
+
+`RequestCurrentSceneSdfgiPreprocessDebug(cascade=0, slice=64)` copies persistent SDF/occlusion planes without rerasterizing;
+`CaptureCurrentSceneSdfgiPreprocessDebug(path)` waits explicitly and exports one 1440p PNG. `GetCurrentSceneGiStatus()`
+reports completed preprocessing masks, raw compact counts, bounded indirect XYZ, GPU failure status, and diagnostics.
+Capture errors are separate from algorithm failure. Readback snapshots survive their submitting frame fences and are
+counted as diagnostic memory. Until M9, partial/slab updates are diagnosed as unsupported and cannot publish a field.
+
+Use the M4 disposable Sponza resource setup and capture command with `--view preprocess`. The nine columns are SDF followed
+by occlusion channels 0 through 7; rows are X-, Y-, and Z-normal slices with the same cyclic axes as the voxel view.
+SDF display is `min(encoded_byte * 8, 255)`; occlusion displays each 4-bit value times 17, white meaning unoccluded.
+Each cell occupies two pixels; the fixed 2560 x 1440 output includes letterboxing.
+
+M5 image evidence (2026-09-05): inspected `tasks/m5-sponza-preprocess.png`, SHA256
+`9b8a9673b681155755ed097ad0feabcbf2b93684917bf530be558235f65c9bee`. Same RTX 5070/driver/default settings,
+RT pipeline/query/BLAS/TLAS disabled, 524 static Sponza contributors, cascade 0/slice 64. All four cascades completed:
+compact counts 68,792 / 19,148 / 3,926 / 886, indirect groups 1,075 / 300 / 62 / 14, GPU failure flags zero.
+Allocation bytes: field 294,988,944; scratch 94,085,120; upload 1,590,800; diagnostic 245,840 for this capture.
+There were no Vulkan or synchronization validation errors. This is a new SDF/occlusion diagnostic baseline, not a beauty
+image, a DDGI comparison, or user manual acceptance.
+
+M5 verification also covers single-cell distance/compact payload and 26 neighbor bits, empty-field behavior, all eight
+occlusion nibbles, indirect execution, repeated preprocessing, and forced dense overflow with a guard canary. The focused
+GPU test passed in 1.13 seconds. Its first readback used a generic 2D-sized image-copy convenience overload; the test now
+uses explicit 3D regions with full-sized buffers. No production readback uses that overload. SDK, Python binding, tests,
+and the editor were built in `vs2026-x64-tests`, RelWithDebInfo. No full-suite or additional image matrix was run.
+Final combined resource/preprocess/light-capacity checks passed 3/3 in 3.98 seconds, without validation errors; all seven
+implemented preprocessing SPIR-V variants passed `spirv-val --target-env vulkan1.3 --scalar-block-layout`.

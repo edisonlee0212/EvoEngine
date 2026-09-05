@@ -15,6 +15,7 @@ namespace evo_engine {
 
 class SdfgiVoxelFrame;
 class SdfgiVoxelDebug;
+class SdfgiPreprocessDebug;
 
 enum class SdfgiMemoryClass { Field, Scratch, Upload, Diagnostic, Count };
 enum class SdfgiLayout {
@@ -66,6 +67,15 @@ class EVOENGINE_API SdfgiResources {
   std::optional<glm::uvec2> voxel_debug_request;
   std::shared_ptr<SdfgiVoxelDebug> voxel_debug;
   std::string voxel_failure;
+  uint32_t preprocessed_cascades = 0;
+  SdfgiFieldStatus preprocess_status{};
+  bool preprocess_status_available = false;
+  std::vector<SdfgiDispatchData> solid_cell_dispatch;
+  std::string preprocess_failure;
+  std::optional<glm::uvec2> preprocess_debug_request;
+  std::shared_ptr<SdfgiPreprocessDebug> preprocess_debug;
+  std::string preprocess_debug_failure;
+  std::vector<std::shared_ptr<SdfgiPreprocessDebug>> preprocess_debug_frames;
   [[nodiscard]] uint64_t GetAllocationBytes(SdfgiMemoryClass memory_class) const;
 
   // fail_after_allocations is a deterministic partial-allocation failure seam for focused tests only.

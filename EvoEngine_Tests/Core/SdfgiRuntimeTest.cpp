@@ -18,6 +18,29 @@
 
 using namespace evo_engine;
 
+TEST(SdfgiScene, LightCapacitySelectionIsBoundedAndIndependentOfInputOrder) {
+  for (const bool dynamic : {false, true}) {
+    const uint32_t capacity = dynamic ? 128 : 1024;
+    std::vector<SdfgiLightInput> lights(capacity + 2);
+    for (uint32_t i = 0; i < lights.size(); ++i) {
+      lights[i].id = lights.size() - i;
+      lights[i].type = SdfgiLightInput::Type::Point;
+    }
+    if (dynamic)
+      lights[0].type = SdfgiLightInput::Type::Directional;
+    auto reversed = lights;
+    std::reverse(reversed.begin(), reversed.end());
+    EXPECT_EQ(BoundSdfgiLightList(lights, dynamic), 2u);
+    EXPECT_EQ(BoundSdfgiLightList(reversed, dynamic), 2u);
+    ASSERT_EQ(lights.size(), capacity);
+    ASSERT_EQ(reversed.size(), capacity);
+    for (size_t i = 0; i < capacity; ++i)
+      EXPECT_EQ(lights[i].id, reversed[i].id);
+    EXPECT_EQ(lights.front().id, dynamic ? capacity + 2 : 1);
+    EXPECT_EQ(BoundSdfgiLightList(lights, dynamic), 0u);
+  }
+}
+
 TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
   Application app;
   auto layout = std::make_shared<DescriptorSetLayout>();

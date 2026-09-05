@@ -7,6 +7,8 @@
 
 namespace evo_engine {
 
+class SdfgiPreprocessReadback;
+
 // Explicit diagnostic readback; copies are recorded between rasterization and the next scratch clear.
 class EVOENGINE_API SdfgiVoxelDebug {
  public:
@@ -37,6 +39,7 @@ class EVOENGINE_API SdfgiVoxelFrame : public std::enable_shared_from_this<SdfgiV
 
   std::vector<Draw> draws;
   std::vector<Region> regions;
+  std::vector<SdfgiCascade> cascades;
   std::map<std::string, std::shared_ptr<Buffer>> buffers;
   std::shared_ptr<DescriptorSet> scene_set;
   std::shared_ptr<Buffer> vertex_buffer;
@@ -45,6 +48,7 @@ class EVOENGINE_API SdfgiVoxelFrame : public std::enable_shared_from_this<SdfgiV
   std::vector<GltfShadeMaterial> material_data;
   std::vector<GltfTextureInfo> texture_data;
   std::shared_ptr<SdfgiVoxelDebug> debug;
+  std::shared_ptr<SdfgiPreprocessReadback> preprocess_readback;
   BufferUploadBatch input_uploads;
   BufferUploadArena uploads{64 * 1024};
 

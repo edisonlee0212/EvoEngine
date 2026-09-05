@@ -19,6 +19,7 @@
 #include "Resources.hpp"
 #include "Scene.hpp"
 #include "SdfgiCapabilities.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -663,6 +664,200 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
         }
       }
   }
+}
+
+TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  SdfgiSettings settings;
+  settings.cascade_count = 1;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  auto seed = std::make_shared<ComputePipeline>();
+  seed->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Store)]};
+  seed->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)}};
+  seed->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.SdfgiTypes;
+[[vk::push_constant]] ConstantBuffer<uint> pattern;
+[[vk::binding(2,0)]] [vk::image_format("r16ui")] RWTexture3D<uint> albedo;
+[[vk::binding(4,0)]] [vk::image_format("r32ui")] RWTexture3D<uint> emission;
+[[vk::binding(5,0)]] [vk::image_format("r32ui")] RWTexture3D<uint> aniso;
+[[vk::binding(6,0)]] [vk::image_format("r32ui")] RWTexture3D<uint> facing;
+[[vk::binding(12,0)]] RWStructuredBuffer<SdfgiFieldStatus> status;
+[numthreads(4,4,4)]
+void main(uint3 id : SV_DispatchThreadID) {
+  bool solid = pattern == 0 ? all(id == uint3(64)) : pattern == 2 && all(id >= uint3(32)) && all(id < uint3(64));
+  if (solid) {
+    albedo[id] = 1u | (12u << 11) | (6u << 6) | (3u << 1);
+    emission[id] = (17u << 25) | 128u;
+    aniso[id] = 31;
+    facing[id] = 63;
+  }
+  if (all(id == uint3(0))) status[0].solid_cell_capacity = pattern == 2 ? 64 : 524288;
+}
+)"));
+  seed->Initialize();
+  ASSERT_TRUE(seed->Initialized());
+  auto check_layout = std::make_shared<DescriptorSetLayout>();
+  check_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  check_layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = sizeof(uint32_t);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  const auto counter = std::make_shared<Buffer>(info);
+  auto check_set = std::make_shared<DescriptorSet>(check_layout);
+  check_set->UpdateBufferDescriptorBinding(0, counter);
+  auto check = std::make_shared<ComputePipeline>();
+  check->descriptor_set_layouts = {check_layout};
+  check->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(0,0)]] RWStructuredBuffer<uint> count;
+[numthreads(64,1,1)]
+void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
+)"));
+  check->Initialize();
+  ASSERT_TRUE(check->Initialized());
+  for (uint32_t pattern = 0; pattern < 3; ++pattern) {
+    SCOPED_TRACE(pattern);
+    PlatformLifecycleTestAccess::PreUpdate();
+    auto readback = std::make_shared<SdfgiPreprocessReadback>(1);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
+    });
+    graph.AddPass({"SdfgiSeed", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {"SdfgiInitialize"}},
+                  [&](const RenderGraphExecutionContext&) {
+                    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+                      field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                      field->buffers.at("Cascade0.SolidCells").buffer->Fill(command, 0, VK_WHOLE_SIZE, 0xdeadbeefu);
+                      counter->Fill(command, 0, VK_WHOLE_SIZE, 0);
+                      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+                      seed->Bind(command);
+                      seed->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
+                      seed->PushConstant(command, 0, pattern);
+                      seed->Dispatch(command, 32, 32, 32);
+                    });
+                  });
+    const auto previous = AddSdfgiPreprocessPass(graph, registry, field, readback, 0, glm::ivec3(0), "SdfgiSeed");
+    graph.AddPass({"SdfgiIndirectCheck", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {previous}},
+                  [&](const RenderGraphExecutionContext&) {
+                    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+                      field->OrderAccess(command,
+                                         VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT |
+                                             VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+                      check->Bind(command);
+                      check->BindDescriptorSet(command, 0, check_set->GetVkDescriptorSet());
+                      check->DispatchIndirect(command, *field->buffers.at("Cascade0.Indirect").buffer);
+                    });
+                  });
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI focused preprocess readback");
+    readback->ReadAfterFrameFence(*field);
+    ASSERT_TRUE(field->preprocess_status_available);
+    EXPECT_EQ(field->preprocess_status.failure_flags, pattern == 2 ? kSdfgiFailureSolidOverflow : 0u);
+    EXPECT_EQ(field->preprocess_status.ready, 0u);
+    ASSERT_EQ(field->solid_cell_dispatch.size(), 1u);
+    const auto& dispatch = field->solid_cell_dispatch[0];
+    EXPECT_EQ(dispatch.total_count, pattern == 2 ? 32768u : 1u);
+    EXPECT_EQ(dispatch.x, 1u);
+    EXPECT_EQ(dispatch.y, 1u);
+    EXPECT_EQ(dispatch.z, 1u);
+    uint32_t invocations = 0;
+    counter->Download(invocations);
+    EXPECT_EQ(invocations, 64u);
+    std::vector<SdfgiSolidCell> cells;
+    field->buffers.at("Cascade0.SolidCells").buffer->DownloadVector(cells, 65);
+    EXPECT_EQ(cells[pattern == 2 ? 64 : 1].position, 0xdeadbeefu);
+    if (pattern == 0) {
+      EXPECT_EQ(cells[0].position & 0x1fffffu, 64u | (64u << 7) | (64u << 14));
+      EXPECT_EQ(cells[0].albedo & 0x7fffu, (12u << 10) | (6u << 5) | 3u);
+      EXPECT_EQ((cells[0].albedo >> 15) & 63, 63u);
+      EXPECT_EQ((cells[0].albedo >> 21) | ((cells[0].position >> 21) << 11) | ((cells[0].light >> 30) << 22) |
+                    ((cells[0].light_aniso >> 30) << 24),
+                0x3ffffffu);
+      EXPECT_EQ(cells[0].light & 0x3fffffffu, (17u << 25) | 128u);
+      EXPECT_EQ(cells[0].light_aniso & 0x3fffffffu, 31u);
+      Buffer pixels(128 * 128 * 128);
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageExtent = {128, 128, 128};
+      pixels.CopyFromImage(*field->textures.at("Cascade0.Sdf").image, copy);
+      std::vector<uint8_t> sdf;
+      pixels.DownloadVector(sdf, 128 * 128 * 128);
+      for (int z = 0; z < 128; z += 8)
+        for (int y = 0; y < 128; y += 8)
+          for (int x = 0; x < 128; x += 8) {
+            const float distance = glm::length(glm::vec3(x - 64, y - 64, z - 64));
+            // Vulkan permits either adjacent integer for floating-point to UNORM conversion.
+            const float encoded = distance == 0 ? 0 : distance + 1;
+            EXPECT_GE(sdf[x + y * 128 + z * 128 * 128], std::floor(encoded));
+            EXPECT_LE(sdf[x + y * 128 + z * 128 * 128], std::ceil(encoded));
+          }
+    }
+    if (pattern == 1) {
+      // Godot STORE deliberately tests the xyz position, not w; its empty-grid origin sentinel is preserved.
+      EXPECT_EQ(cells[0].position & 0x1fffffu, 0u);
+      EXPECT_EQ(cells[0].albedo & 0x1fffffu, 0u);
+      Buffer pixels(256 * 128 * 128 * 2);
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageExtent = {256, 128, 128};
+      pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
+      std::vector<uint16_t> occlusion;
+      pixels.DownloadVector(occlusion, 256 * 128 * 128);
+      for (uint32_t i = 0; i < occlusion.size(); i += 1331)
+        EXPECT_EQ(occlusion[i], 0xffffu);
+    }
+  }
+  PlatformLifecycleTestAccess::PreUpdate();
+  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+    field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+    field->buffers.at("Cascade0.Dispatch").buffer->Fill(command, 0, VK_WHOLE_SIZE, 0);
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    const std::array<float, 8> values{0, 1.0f / 3, 2.0f / 3, 1, 1, 2.0f / 3, 1.0f / 3, 0};
+    for (uint32_t i = 0; i < 8; ++i) {
+      VkClearColorValue color{};
+      color.float32[0] = values[i];
+      Platform::ClearColorImage(command, *field->textures.at("OcclusionScratch" + std::to_string(i)).image, color, 1,
+                                &range);
+    }
+    field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                       VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    const auto& store = field->pipelines.at("Store");
+    store->Bind(command);
+    store->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
+    SdfgiPreprocessPushConstant params{};
+    params.grid_size = 128;
+    store->PushConstant(command, 0, params);
+    store->Dispatch(command, 32, 32, 32);
+  });
+  PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("SDFGI occlusion channel packing readback");
+  Buffer pixels(256 * 128 * 128 * 2);
+  VkBufferImageCopy copy{};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  copy.imageExtent = {256, 128, 128};
+  pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
+  std::vector<uint16_t> occlusion;
+  pixels.DownloadVector(occlusion, 256 * 128 * 128);
+  EXPECT_EQ(occlusion[64 + 64 * 256 + 64 * 256 * 128], 0x05afu);
+  EXPECT_EQ(occlusion[192 + 64 * 256 + 64 * 256 * 128], 0xfa50u);
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

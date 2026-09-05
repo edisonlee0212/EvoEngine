@@ -139,6 +139,9 @@ struct SdfgiSkyInput {
   float energy = 1;
 };
 
+// Apply after cascade/classification filtering. Returns the number excluded by the reference capacity.
+EVOENGINE_API uint32_t BoundSdfgiLightList(std::vector<SdfgiLightInput>& lights, bool dynamic);
+
 struct SdfgiSceneSnapshot {
   std::vector<SdfgiContributor> contributors;
   std::vector<SdfgiLightInput> lights;
