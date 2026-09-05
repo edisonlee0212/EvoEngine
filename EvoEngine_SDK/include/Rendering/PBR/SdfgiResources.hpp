@@ -83,6 +83,7 @@ class EVOENGINE_API SdfgiResources {
   std::vector<std::shared_ptr<SdfgiPreprocessDebug>> preprocess_debug_frames;
   uint32_t last_light_frame = UINT32_MAX;
   bool lighting_recorded = false;
+  SdfgiCascadeBlock cascade_data{};
   std::string light_failure;
   std::vector<std::vector<SdfgiLight>> static_light_inputs;
   std::vector<std::shared_ptr<SdfgiLightFrame>> light_frames;

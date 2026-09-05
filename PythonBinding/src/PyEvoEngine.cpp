@@ -494,6 +494,23 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     return ProjectManager::IsProjectIdle() && !GeometryStorage::HasPendingUploads() &&
            !TextureStorage::HasPendingUploads();
   });
+  m.def("GetCurrentSceneCameraPositionForCapture", []() {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+    if (!camera)
+      throw py::value_error("A main camera is required");
+    const auto position = scene->GetDataComponent<GlobalTransform>(camera->GetOwner()).GetPosition();
+    return py::make_tuple(position.x, position.y, position.z);
+  });
+  m.def("SetCurrentSceneCameraPositionForCapture", [](const float x, const float y, const float z) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto camera = scene ? scene->main_camera.Get<Camera>() : nullptr;
+    if (!camera || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      throw py::value_error("A main camera and finite position are required");
+    auto transform = scene->GetDataComponent<GlobalTransform>(camera->GetOwner());
+    transform.SetPosition({x, y, z});
+    scene->SetDataComponent(camera->GetOwner(), transform);
+  });
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
   m.def("SharedTextureDescriptorArraysEnabled", []() {
     const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();

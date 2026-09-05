@@ -21,9 +21,12 @@ def main():
     parser.add_argument("--view", choices=("voxels", "preprocess", "lighting", "transport", "beauty"), default="voxels")
     parser.add_argument("--probe", type=int, default=2456)
     parser.add_argument("--occlusion-off-output", type=Path, help="Optional second beauty capture after disabling occlusion")
+    parser.add_argument("--traverse", action="store_true", help="After beauty, exercise signed scrolls and a teleport/return")
     args = parser.parse_args()
     if args.occlusion_off_output and args.view != "beauty":
         parser.error("--occlusion-off-output requires --view beauty")
+    if args.traverse and (args.view != "beauty" or args.occlusion_off_output):
+        parser.error("--traverse requires --view beauty without an occlusion-off comparison")
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
     occlusion_off_output = args.occlusion_off_output.resolve() if args.occlusion_off_output else None
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
@@ -96,6 +99,48 @@ def main():
                 print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status,
                                   "view": args.view, "use_occlusion": False, "resolution": [2560, 1440],
                                   "output": str(occlusion_off_output)}), flush=True)
+            if args.traverse:
+                origin = engine.GetCurrentSceneCameraPositionForCapture()
+                movement = []
+
+                def step(offset):
+                    engine.SetCurrentSceneCameraPositionForCapture(*(a + b for a, b in zip(origin, offset)))
+                    before = engine.GetCurrentSceneGiStatus()["transport_pass"]
+                    if not engine.Loop():
+                        raise RuntimeError("Rendering demo ended during movement")
+                    state = engine.GetCurrentSceneGiStatus()
+                    if not state["published"] or state["transport_pass"] != before + 1:
+                        raise RuntimeError(f"Movement lost coherent publication: {state}")
+                    movement.append({"offset": offset, "generation": state["transport_pass"],
+                                     "maintenance_count": state["maintenance_count"],
+                                     "cascades": state["cascades"], "pending_regions": state["pending_regions"]})
+
+                for axis in range(3):
+                    for distance in (1.2, 2.4, 0.0, -1.2, -2.4, 0.0):
+                        offset = [0.0, 0.0, 0.0]
+                        offset[axis] = distance
+                        step(offset)
+                for offset in ([8.0, -4.0, 8.0], [24.0, 0.0, 0.0], [0.0, 0.0, 0.0],
+                               [1000.0, 0.0, 0.0], [1000.0, 0.0, 0.0], [0.0, 0.0, 0.0]):
+                    step(offset)
+                for label, frames in (("return-immediate", 0), ("return-one-cycle", settings.history_size),
+                                      ("return-three-cycles", settings.history_size * 2)):
+                    for _ in range(frames):
+                        step([0.0, 0.0, 0.0])
+                    path = output.with_stem(output.stem + "-" + label)
+                    if not engine.CaptureCurrentScene(2560, 1440, path, 1):
+                        raise RuntimeError(f"Could not capture {label}")
+                    gpu = engine.ReadCurrentSceneSdfgiFieldStatus()
+                    if not gpu["ready"] or gpu["failure_flags"]:
+                        raise RuntimeError(f"Movement GPU publication failed: {gpu}")
+                    print(json.dumps({"view": label, "output": str(path), "capture_status": gpu,
+                                      "resolution": [2560, 1440], "status": engine.GetCurrentSceneGiStatus()}), flush=True)
+                if not any(c["full_redraw"] for event in movement for c in event["cascades"]):
+                    raise RuntimeError("Traversal did not exercise a full redraw")
+                if not all(any(any(c["dirty_regions"]) for c in event["cascades"])
+                           for event in (movement[1], movement[4])):
+                    raise RuntimeError("Traversal did not exercise both scroll directions")
+                print(json.dumps({"movement": movement, "use_occlusion": settings.use_occlusion}), flush=True)
             return
         preprocess = args.view == "preprocess"
         request = engine.RequestCurrentSceneSdfgiPreprocessDebug if preprocess else engine.RequestCurrentSceneSdfgiVoxelDebug

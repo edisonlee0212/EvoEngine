@@ -216,8 +216,13 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
     for (const auto* kind : {"StaticLights", "DynamicLights"})
       upload.resources.push_back({"Frame.SDFGI." + FrameName(frame_slot, CascadeName(c, kind)),
                                   RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
-  graph.AddPass(upload, [frame = shared_from_this()](const RenderGraphExecutionContext&) {
+  graph.AddPass(upload, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+      ApplyGraphResourceBarriers(command, context);
+    });
     frame->input_uploads.Record(frame->uploads);
+    resources->cascade_data = frame->cascades;
   });
   RenderPassDescriptor pass{"SdfgiDirectLight", RenderPassQueue::Graphics, RenderPassScope::Frame};
   pass.dependencies = {upload.name};

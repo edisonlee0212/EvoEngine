@@ -173,6 +173,11 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
                                                          const std::vector<SdfgiPendingRegion>& pending) {
   auto frame = std::make_shared<SdfgiVoxelFrame>();
   frame->cascades = cascades;
+  frame->frame_slot = Platform::GetCurrentFrameIndex();
+  // Godot updates its cascade UBO after render_region: SCROLL samples the previous probe coordinates.
+  frame->scroll_cascades = resources.cascade_data;
+  frame->input_uploads.Add(resources.buffers.at("Frame" + std::to_string(frame->frame_slot) + ".Cascades").buffer,
+                           frame->scroll_cascades, {BufferUploadUsage::Uniform});
   frame->preprocess_readback = std::make_shared<SdfgiPreprocessReadback>(resources.settings.cascade_count);
   frame->vertex_buffer = GeometryStorage::GetVertexBuffer();
   frame->index_buffer = GeometryStorage::GetTriangleBuffer();
@@ -296,7 +301,13 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
   for (const auto& input : inputs)
     upload.resources.push_back(
         {input.resource_name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
-  graph.AddPass(upload, [frame = shared_from_this()](const RenderGraphExecutionContext&) {
+  upload.resources.push_back({"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Cascades",
+                              RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
+  graph.AddPass(upload, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+      ApplyGraphResourceBarriers(command, context);
+    });
     frame->input_uploads.Record(frame->uploads);
   });
   import_buffer("Vertices", vertex_buffer);
@@ -407,13 +418,9 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
       return region.pending.cascade == cascade && region.pending.offset == glm::ivec3(0) &&
              region.pending.size == glm::ivec3(128);
     });
-    if (full_cascade)
-      previous = AddSdfgiPreprocessPass(graph, registry, resources, preprocess_readback, cascade,
-                                        cascades[cascade].position, previous);
-    else {
-      resources->preprocessed_cascades &= ~(1u << cascade);
-      resources->preprocess_failure = "SDFGI scrolling reconstruction is not implemented yet";
-    }
+    previous =
+        AddSdfgiPreprocessPass(graph, registry, resources, preprocess_readback, cascade, cascades[cascade].position,
+                               previous, full_cascade ? glm::ivec3(0) : cascades[cascade].dirty_regions);
   }
   graph.AddPass({"SdfgiVoxelComplete", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {previous}},
                 [resources](const RenderGraphExecutionContext&) {

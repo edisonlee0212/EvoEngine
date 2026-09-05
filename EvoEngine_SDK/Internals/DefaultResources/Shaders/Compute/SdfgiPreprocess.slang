@@ -1,8 +1,5 @@
 // Preprocessing adapted from Godot shaders/environment/sdfgi_preprocess.glsl,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
-#if (defined(MODE_SCROLL) || defined(MODE_SCROLL_OCCLUSION)) && !defined(EE_SDFGI_ABI_ONLY)
-#error SDFGI scrolling is not implemented yet
-#endif
 import EvoEngine.SdfgiTypes;
 
 [[vk::push_constant]] ConstantBuffer<SdfgiPreprocessPushConstant> params;
@@ -46,6 +43,7 @@ import EvoEngine.SdfgiTypes;
 
 [[vk::binding(5, 0)]] StructuredBuffer<SdfgiDispatchData> dispatch_data;
 [[vk::binding(6, 0)]] StructuredBuffer<SdfgiSolidCell> src_process_voxels;
+[[vk::binding(7, 0)]] StructuredBuffer<SdfgiFieldStatus> field_status;
 #elif defined(MODE_SCROLL_OCCLUSION)
 [[vk::binding(1, 0)]] [vk::image_format("r8")] RWTexture3D<float> dst_occlusion[8];
 [[vk::binding(2, 0)]] [vk::image_format("r16ui")] RWTexture3D<uint> src_occlusion;
@@ -110,6 +108,31 @@ groupshared uint store_from_index;
 [numthreads(4, 4, 4)]
 #endif
 void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uint3 group_id : SV_GroupID) {
+
+#ifdef MODE_SCROLL
+  uint index = id.x;
+  if (field_status[0].failure_flags != 0 || index >= min(dispatch_data[0].total_count, field_status[0].solid_cell_capacity)) return;
+  SdfgiSolidCell voxel = src_process_voxels[index];
+  int3 read_pos = int3((uint3(voxel.position) >> uint3(0, 7, 14)) & 127);
+  int3 write_pos = read_pos + params.scroll;
+  if (any(write_pos < 0) || any(write_pos >= int3(params.grid_size))) return;
+  dst_albedo[write_pos] = ((voxel.albedo & 0x7fff) << 1) | 1;
+  dst_facing[write_pos] = (voxel.albedo >> 15) & 0x3f;
+  dst_light[write_pos] = voxel.light & 0x3fffffff;
+  dst_light_aniso[write_pos] = voxel.light_aniso & 0x3fffffff;
+#endif
+
+#ifdef MODE_SCROLL_OCCLUSION
+  int3 pos = int3(id);
+  if (any(pos >= int3(params.grid_size) - abs(params.scroll))) return;
+  int3 read_pos = pos + max(int3(0), -params.scroll);
+  int3 write_pos = pos + max(int3(0), params.scroll);
+  read_pos.z += int(params.cascade * params.grid_size);
+  uint packed = src_occlusion[read_pos] | (src_occlusion[read_pos + int3(params.grid_size, 0, 0)] << 16);
+  static const uint shifts[8] = {12, 8, 4, 0, 28, 24, 20, 16};
+  for (uint i = 0; i < 8; ++i)
+    dst_occlusion[i][write_pos] = float((packed >> shifts[i]) & 15) / 15.0;
+#endif
 
 #ifdef MODE_INITIALIZE_JUMP_FLOOD
 
@@ -381,7 +404,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
   if (any(params.scroll != int3(0))) {
     //validate scroll region
     int3 region_offset_to = region_offset + int3(OCCLUSION_SIZE * 2);
-    uint3 scroll_mask = uint3((any(params.scroll != int3(0)))); //save which axes acre scrolling
+    uint3 scroll_mask = uint3(params.scroll != int3(0));
     int3 scroll_from = select((params.scroll < int3(0)), int3(params.grid_size) + params.scroll, int3(0));
     int3 scroll_to = select((params.scroll > int3(0)), params.scroll, int3(params.grid_size));
 

@@ -446,9 +446,68 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
 #endif
 
 }
+#elif defined(MODE_SCROLL) || defined(MODE_SCROLL_STORE)
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  int2 pos = int2(id.xy);
+  if (any(pos >= params.image_size) || field_status[0].failure_flags != 0) return;
+#ifdef MODE_SCROLL
+  int3 probe_cell = int3(pos.x % int(params.probe_axis_size), pos.y, pos.x / int(params.probe_axis_size));
+  int3 read_probe = probe_cell - params.scroll;
+  bool retained = all(read_probe >= 0) && all(read_probe < int(params.probe_axis_size));
+  if (retained || params.cascade == params.max_cascades - 1) {
+    // Godot keeps the destination's old value at the highest cascade's entering edge.
+    int2 tex_pos = retained ? int2(read_probe.x + read_probe.z * int(params.probe_axis_size), read_probe.y) : pos;
+    for (uint h = 0; h < params.history_size; ++h)
+      for (int i = 0; i < SH_SIZE; ++i)
+        lightprobe_history_scroll_texture[int3(pos.x, pos.y * SH_SIZE + i, h)] =
+            lightprobe_history_texture[int3(tex_pos.x, tex_pos.y * SH_SIZE + i, h)];
+    for (int i = 0; i < SH_SIZE; ++i)
+      lightprobe_average_scroll_texture[int2(pos.x, pos.y * SH_SIZE + i)] =
+          lightprobe_average_texture[int2(tex_pos.x, tex_pos.y * SH_SIZE + i)];
+  } else {
+    float cell_to_probe = float(params.grid_size.x) / float(params.probe_axis_size - 1);
+    float3 probe_pos = cascades.data[params.cascade].offset + float3(probe_cell) *
+        (cell_to_probe / cascades.data[params.cascade].to_cell);
+    probe_pos = (probe_pos - cascades.data[params.cascade + 1].offset) /
+        (cell_to_probe / cascades.data[params.cascade + 1].to_cell);
+    int3 probe_posi = int3(probe_pos);
+    float4 average_light[SH_SIZE];
+    for (int i = 0; i < SH_SIZE; ++i) average_light[i] = 0;
+    float total_weight = 0;
+    for (int i = 0; i < 8; ++i) {
+      int3 offset = probe_posi + ((int3(i) >> int3(0, 1, 2)) & 1);
+      float3 trilinear = 1.0 - abs(probe_pos - float3(offset));
+      float weight = trilinear.x * trilinear.y * trilinear.z;
+      int2 tex_pos = int2(offset.x + offset.z * int(params.probe_axis_size), offset.y);
+      for (int j = 0; j < SH_SIZE; ++j)
+        average_light[j] += (float4(lightprobe_average_parent_texture[int2(tex_pos.x, tex_pos.y * SH_SIZE + j)]) /
+            float(params.history_size) / float(1 << HISTORY_BITS)) * weight;
+      total_weight += weight;
+    }
+    if (total_weight > 0) total_weight = 1.0 / total_weight;
+    for (int i = 0; i < SH_SIZE; ++i) {
+      int4 value = clamp(int4(average_light[i] * total_weight * float(1 << HISTORY_BITS)), int4(-32768), int4(32767));
+      for (uint h = 0; h < params.history_size; ++h)
+        lightprobe_history_scroll_texture[int3(pos.x, pos.y * SH_SIZE + i, h)] = value;
+      lightprobe_average_scroll_texture[int2(pos.x, pos.y * SH_SIZE + i)] = value * int(params.history_size);
+    }
+  }
+#else
+  for (uint h = 0; h < params.history_size; ++h)
+    for (int i = 0; i < SH_SIZE; ++i) {
+      int3 p = int3(pos.x, pos.y * SH_SIZE + i, h);
+      lightprobe_history_texture[p] = lightprobe_history_scroll_texture[p];
+    }
+  for (int i = 0; i < SH_SIZE; ++i) {
+    int2 p = int2(pos.x, pos.y * SH_SIZE + i);
+    lightprobe_average_texture[p] = lightprobe_average_scroll_texture[p];
+  }
+#endif
+}
 #elif defined(EE_SDFGI_ABI_ONLY)
 [numthreads(8, 8, 1)]
 void main(uint3 id : SV_DispatchThreadID) {}
 #else
-#error SDFGI scrolling is not implemented yet
+#error Unknown SDFGI integration mode
 #endif

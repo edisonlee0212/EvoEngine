@@ -32,6 +32,8 @@ bool SdfgiRuntime::Maintain(const uint32_t scene_frame, const SdfgiAnchor& selec
   last_scene_frame = scene_frame;
   ++maintenance_count;
   missing_anchor = selected_anchor.camera_id == 0;
+  if (!missing_anchor)
+    published = false;
   anchor_replaced = !missing_anchor && anchor.camera_id != 0 && anchor.camera_id != selected_anchor.camera_id;
   if (!missing_anchor)
     anchor = selected_anchor;

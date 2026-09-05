@@ -1,12 +1,12 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, stationary
-SDF/occlusion preprocessing, voxel direct-light injection, stationary probe transport/storage, and deferred gather are
-implemented. Automatic SDFGI publishes a complete stationary field to eligible opaque/masked raster cameras and uses
-Environment fallback otherwise. M0-M8a are complete; the user accepted the occlusion-on stationary result. M8a adds default-on
-occlusion controls and the pinned Godot deferred sharp-reflection path. Scrolling variants
-remain ABI-only, and M9-M12 have not started.
+Capability preflight, provider ownership, GPU storage, placement/scene inputs, static voxelization, SDF/occlusion
+preprocessing, voxel lighting, probe transport/storage, and deferred gather are implemented. M9 adds automatic scrolling
+and retained history; focused validation passes and the user has accepted movement review. Eligible opaque/masked raster cameras share
+one complete field and use Environment fallback otherwise. M0-M8a are complete, committed as separate milestones, and the
+user accepted the occlusion-on stationary result. Occlusion stays on by default and Godot's sharp-reflection path remains
+enabled. M10-M12 have not started.
 
 ## Reference
 
@@ -27,9 +27,9 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiSettings.hpp/.cpp`, `SdfgiRuntime.hpp/.cpp` (ownership shell) | Environment defaults; `render_forward_clustered.cpp::sdfgi_update`; later `gi.h::SDFGI` and `gi.cpp` cascade/update logic |
 | `SdfgiScene.hpp/.cpp` | `gi.cpp::SDFGI::{create,update,get_pending_region_data,update_cascades,pre_process_gi}`, ForwardClustered `_render_sdfgi`/`_fill_render_list`; dedicated EvoEngine scene/material/light adapter |
 | `SdfgiResources.hpp/.cpp`, `SdfgiTypes.hpp`, `Shaders/Modules/EvoEngine/SdfgiTypes.slang` | `gi.h::SDFGIShader`, `gi.h::SDFGI::Cascade`, `gi.cpp::SDFGI::create`, and shader ABI records |
-| `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl` |
+| `SdfgiPreprocess.hpp/.cpp`, `Shaders/Compute/SdfgiPreprocess.slang` | `gi.cpp::SDFGI::render_region`, its uniform sets, and `shaders/environment/sdfgi_preprocess.glsl`, including scroll variants |
 | `SdfgiLight.hpp/.cpp`, `Shaders/Compute/SdfgiDirectLight.slang` | `gi.cpp::SDFGI::{render_static_lights,pre_process_gi,update_light}`, `LightStorage::light_get_aabb`, and `shaders/environment/sdfgi_direct_light.glsl` |
-| `SdfgiProbe.hpp/.cpp`, `Shaders/Compute/SdfgiIntegrate.slang` (scroll variants still ABI only) | `gi.cpp::SDFGI::{update_probes,store_probes}` and `shaders/environment/sdfgi_integrate.glsl`; host cubemap and diagnostic readback adapters |
+| `SdfgiProbe.hpp/.cpp`, `Shaders/Compute/SdfgiIntegrate.slang` | `gi.cpp::SDFGI::{render_region,update_probes,store_probes}` and `shaders/environment/sdfgi_integrate.glsl`, including scroll variants; host cubemap and diagnostic readback adapters |
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
@@ -146,8 +146,8 @@ it is not retried every frame. Changing provider or incompatible settings create
 into field, scratch, upload, and diagnostic categories using actual VMA allocation sizes. These are active-owner totals,
 not driver-pool usage or a peak that includes temporarily retiring old fields. Upload includes immutable voxel material,
 texture-info, region/axis buffers and their retained staging arenas. Diagnostic is zero unless a snapshot is requested.
-The remaining ABI-only compute shaders are compiled/layout-checked but never dispatched by normal rendering; focused GPU
-tests use explicitly compiled resource-check variants.
+Only the temporary gather ABI check is not dispatched by normal rendering; all preprocessing, lighting, integration,
+scrolling, publication, and deferred variants have working bodies. Focused GPU tests also compile resource-check variants.
 
 M2 verification (2026-09-05): SDK, Python binding, and tests built in `vs2026-x64-tests`, RelWithDebInfo.
 All eight `SdfgiResources.*:SdfgiRuntime.*` checks passed (2.98 seconds), including a forced partial-allocation failure,
@@ -244,8 +244,8 @@ Necessary host adaptations against `_render_sdfgi` and `MODE_RENDER_SDF`:
 `CaptureCurrentSceneSdfgiVoxelDebug(path)` exports it after a rendered frame. Capturing requests a full rasterization of
 the chosen cascade because M4 scratch is shared, not persistent. Three planes are copied immediately after that cascade,
 before another clears scratch. Readback waits only when explicitly exporting; normal rendering does not wait for it.
-This early host-only view precedes the later SDF/probe inspector. No field is published and scrolling reconstruction is
-not implemented yet.
+This early host-only view precedes the later SDF/probe inspector. At M4 no field was published; the current M9 pipeline
+reconstructs retained cells after rasterization before preprocessing and publication.
 
 The PNG is always 2560 x 1440. Columns are albedo, tone-mapped emission, facing, and occupancy; rows are X-, Y-, and
 Z-normal slices. Within a row, horizontal/vertical axes are cyclic `(Y,Z)`, `(Z,X)`, `(X,Y)`, with positive vertical upward.
@@ -312,7 +312,7 @@ it after per-cascade eligibility filtering and exposes excluded counts when actu
 `CaptureCurrentSceneSdfgiPreprocessDebug(path)` waits explicitly and exports one 1440p PNG. `GetCurrentSceneGiStatus()`
 reports completed preprocessing masks, raw compact counts, bounded indirect XYZ, GPU failure status, and diagnostics.
 Capture errors are separate from algorithm failure. Readback snapshots survive their submitting frame fences and are
-counted as diagnostic memory. Until M9, partial/slab updates are diagnosed as unsupported and cannot publish a field.
+counted as diagnostic memory. M9 reconstructs partial/slab updates through the same preprocessing pipeline.
 
 Use the M4 disposable Sponza resource setup and capture command with `--view preprocess`. The nine columns are SDF followed
 by occlusion channels 0 through 7; rows are X-, Y-, and Z-normal slices with the same cyclic axes as the voxel view.
@@ -579,9 +579,86 @@ camera/post-processing settings. From the repository root:
 
 The stationary M8/M8a result is user-accepted, with Use Occlusion retained on. The default settings turn Use Occlusion on.
 Inspect Environmental Lighting > Automatic SDFGI > Use Occlusion and allow reconvergence after changing it. Existing
-saved explicit false values are preserved when loading normally. Keep the camera position stationary for M8/M8a; view
-rotation is fine. Crossing a scroll boundary can deliberately report fallback because scrolling is M9. Review first
-publication/convergence, diffuse and rough/sharp specular response on static/dynamic receivers, and environment/local-reflection/
-AO/SSR composition. M8/M8a close with separate commits after that combined review; M9 is the next manual checkpoint.
-No full suite,
-additional image matrix, DDGI comparison, or app installation was run; installation is scheduled before M12 final review.
+saved explicit false values are preserved when loading normally. M8 and M8a are committed as `93e868f5` and `29a76b4e`.
+The current M9 checkpoint adds translation across cascade margins and large relocation/return. Allow a history cycle
+after returning, and inspect seams, lingering old lighting, sphere undersides, and reflection transitions. Interactive
+movement acceptance is required before M10. No full suite, additional image matrix, DDGI comparison, or app installation
+was run; installation is scheduled before M12 final review.
+
+## Automatic scrolling and relocation (M9)
+
+For each dirty cascade, ascending from fine to coarse, rasterize its disjoint entering slabs into cleared material scratch.
+Before resetting its compact dispatch, reconstruct retained solid cells at `old_cell + dirty_regions`, unpack retained
+occlusion into the eight scratch volumes, and scroll every SH coefficient/history layer through shared history/average
+scratch. `SCROLL_STORE` writes that scratch back; with positive bounce feedback, `STORE` regenerates the shifted atlas
+before voxel direct lighting. The same half-size JFA, upscale/final refinement, occlusion, compact-store, lighting, full-grid
+probe PROCESS, and all-cascade STORE stages then publish one coherent generation. Retained occlusion neighborhoods are
+skipped using Godot's per-axis scroll mask; the previously dormant scalar-to-vector mask translation is corrected.
+
+Probe displacement is the signed voxel displacement divided by eight. Overlapping probes copy their exact history and
+running sum. Entering child probes seed all history slots from the parent's trilinear average (including signed-16-bit
+clamping); entering probes at the outermost cascade retain the destination's previous history, as Godot does.
+`render_forward_clustered.cpp::_update_sdfgi` calls `render_region` before `render_static_lights` updates the cascade UBO.
+Accordingly, scroll uses the previous cascade metadata; the lighting-input upload then replaces it with the new metadata.
+Both versions are frame-owned CPU snapshots, with transfer/compute ordering around the shared per-frame GPU UBO.
+
+Full redraws skip scrolling and rerasterize the entire cascade. Godot does not clear SH history on a full redraw or
+teleport: old grid-index history is replaced progressively by normal probe integration. Brief old-light ghosting and
+relocation hitches are therefore expected; persistent stale lighting after reconvergence is not. The reference eight-cell
+movement threshold, dirty-volume/full-redraw threshold, and per-axis large-relocation behavior are unchanged.
+
+Necessary host adapters:
+
+- Reconstruct retained payload from EvoEngine's unlit compact seed, not its statically baked copy. M6 already refreshes
+  static lighting for rebuilt cascades; using baked light here would count retained static light twice. The shader's
+  coordinate, albedo/facing, and emission packing are unchanged.
+- Scroll reads the whole-provider GPU failure/capacity guard before compact-cell access. Failure prevents publication;
+  partial preparation failures force a full retry so a missed slab cannot silently become a valid field.
+- Explicit main-queue barriers cover scratch reuse, indirect reads, integer/sampled aliases, both cascade-UBO uploads,
+  previous camera readers, and frames in flight. No async queue, immediate-submit maintenance, or new lifetime owner.
+- Repeated scene-graph execution in the same scene frame preserves publication without integrating again. Missing-anchor
+  frames freeze coverage and reuse the last valid generation; a new updating frame must republish before cameras use it.
+
+Use `Scripts/capture_sdfgi_voxels.py --view beauty --traverse` with fresh disposable Sponza resources for one 1440p session:
+signed-axis/diagonal crossings, larger movement, full relocation, and immediate/one-/three-history-cycle return images. The
+generic Python capture camera-position helpers preserve rotation and reject nonfinite input. This is explicit diagnostic
+automation, not a normal-renderer readback loop. The user has reviewed interactive motion and authorized continuing.
+
+### M9 verification and movement review
+
+SDK, tests, editor, and Python binding built with the manual-review command above; final log:
+`tasks/m9-final-build.log`. Twelve distinct focused tests passed: the combined signed-scroll GPU fixture, allocation/ABI,
+placement/teleport/anchor CPU checks, scene-frame ownership, two-camera publication/coverage, voxelization, lighting reseed,
+and probe transport. Evidence: `tasks/m9-scroll-tests.log/.xml` (2 tests, 7.622 s),
+`tasks/m9-regression-tests.log/.xml` (10 tests, 4.469 s), with changed frame/publication paths rechecked after the final
+small fixes in `tasks/m9-final-tests.log/.xml` and `tasks/m9-frame-tests.log/.xml` (4 tests each, 2.697 s and 1.571 s).
+All 24 exported SPIR-V variants validate with `spirv-val --target-env vulkan1.3 --scalar-block-layout`.
+Changed C++ files pass clang-format 22.1.8 checking and scoped whitespace checks. No Vulkan validation/synchronization
+errors were reported; pre-existing unused-vertex-attribute performance warnings remain.
+
+Sponza used RTX 5070, driver `2496774144`, occlusion on, and all four effective RT flags false. The initial traversal
+helper failed at the Python position conversion before moving; that helper was fixed. A complete traversal then exposed
+noticeable residual brightening at one history cycle, so one focused recovery rerun extended the same path to three cycles.
+This is the only extra image run beyond the planned traversal and fixes/rechecks that observed concern, not a test matrix.
+Final evidence is `tasks/m9-recovery.log`, with 114 scripted movement/recovery steps and one transport update per step:
+
+| Capture | GPU generation | Ready / failures | Local image |
+|---|---:|---|---|
+| Warmed starting view | 91 | 1 / 0 | `tasks/m9-sponza-recovery.png` |
+| Immediate return after full relocation | 116 | 1 / 0 | `tasks/m9-sponza-recovery-return-immediate.png` |
+| Return after one history cycle | 147 | 1 / 0 | `tasks/m9-sponza-recovery-return-one-cycle.png` |
+| Return after three history cycles | 208 | 1 / 0 | `tasks/m9-sponza-recovery-return-three-cycles.png` |
+
+The starting and recovered cascade positions and compact counts match (68,792 / 19,148 / 3,926 / 886 cells).
+CPU compact-count diagnostics are fence-delayed and can still show the away field immediately after returning; the
+explicit GPU publication status is current. Visual inspection shows the one-cycle brightening substantially decays by
+three cycles, consistent with retained history and bounce feedback. This is not a claim of pixel identity or interactive
+motion acceptance. The original occlusion-on M8a baseline is preserved; these are new M9 review candidates.
+
+Launch the built editor with `--sdfgi-review ./tasks/m4-resources` as above. Keep occlusion on, move the Scene camera across
+several margins in both directions, then make a large relocation and return. Review cascade seams, lighting sticking to
+old coordinates, recovery over several history cycles, and rough/sharp sphere reflections. The shared-field/secondary
+fallback contract is covered by the two-camera GPU fixture; no extra image scene or resolution was added. Interactive
+GUI movement has not been operated by the agent. The user confirmed the M9 review is complete and requested continuation.
+M9 is accepted. M10-M12 remain subsequent milestones; all-app installation is scheduled at implementation completion
+before M12.

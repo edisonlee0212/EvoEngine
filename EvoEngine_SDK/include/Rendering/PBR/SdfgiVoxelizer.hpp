@@ -40,6 +40,8 @@ class EVOENGINE_API SdfgiVoxelFrame : public std::enable_shared_from_this<SdfgiV
   std::vector<Draw> draws;
   std::vector<Region> regions;
   std::vector<SdfgiCascade> cascades;
+  SdfgiCascadeBlock scroll_cascades{};
+  uint32_t frame_slot = 0;
   std::map<std::string, std::shared_ptr<Buffer>> buffers;
   std::shared_ptr<DescriptorSet> scene_set;
   std::shared_ptr<Buffer> vertex_buffer;

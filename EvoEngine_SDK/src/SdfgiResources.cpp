@@ -288,6 +288,7 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
     binding(SdfgiLayout::Scroll, i, image);
   binding(SdfgiLayout::Scroll, 5, buffer);
   binding(SdfgiLayout::Scroll, 6, buffer);
+  binding(SdfgiLayout::Scroll, 7, buffer);
   binding(SdfgiLayout::ScrollOcclusion, 1, image, 8);
   binding(SdfgiLayout::ScrollOcclusion, 2, image);
   binding(SdfgiLayout::DirectLight, 1, texture, 8);
@@ -410,7 +411,9 @@ void SdfgiResources::CreateDescriptors() {
     image(set, 3, "Emission");
     image(set, 4, "EmissionAniso");
     buffer(set, 5, CascadeName(c, "Dispatch"));
-    buffer(set, 6, CascadeName(c, "SolidCells"));
+    // Static-light refresh reseeds every rebuilt cascade; retain emission without baked static light.
+    buffer(set, 6, CascadeName(c, "UnlitCells"));
+    buffer(set, 7, "Status");
   }
   for (uint32_t f = 0; f < Platform::GetMaxFramesInFlight(); ++f) {
     set = make_set(FrameName(f, "Gather"), SdfgiLayout::Gather);
@@ -585,16 +588,13 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
                                        {"Scroll", "MODE_SCROLL", SdfgiLayout::Scroll},
                                        {"ScrollOcclusion", "MODE_SCROLL_OCCLUSION", SdfgiLayout::ScrollOcclusion}};
   for (const auto& variant : preprocess)
-    compute(variant.name, "SdfgiPreprocess.slang",
-            (variant.layout == SdfgiLayout::Scroll || variant.layout == SdfgiLayout::ScrollOcclusion ? header : "") +
-                "#define " + variant.define + " 1\n",
+    compute(variant.name, "SdfgiPreprocess.slang", std::string("#define ") + variant.define + " 1\n",
             {layouts[static_cast<size_t>(variant.layout)]}, sizeof(SdfgiPreprocessPushConstant));
   for (const std::string mode : {"STATIC", "DYNAMIC"})
     compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::DirectLight)]}, sizeof(SdfgiDirectLightPushConstant));
   for (const std::string mode : {"PROCESS", "STORE", "SCROLL", "SCROLL_STORE"})
-    compute("Integrate" + mode, "SdfgiIntegrate.slang",
-            (mode == "PROCESS" || mode == "STORE" ? "" : header) + "#define MODE_" + mode + " 1\n",
+    compute("Integrate" + mode, "SdfgiIntegrate.slang", "#define MODE_" + mode + " 1\n",
             {layouts[static_cast<size_t>(SdfgiLayout::Integrate)], layouts[static_cast<size_t>(SdfgiLayout::Sky)]},
             sizeof(SdfgiIntegratePushConstant));
   auto deferred = deferred_host_layouts;

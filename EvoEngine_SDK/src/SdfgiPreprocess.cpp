@@ -1,6 +1,7 @@
 // Pass sequence adapted from Godot gi.cpp::SDFGI::render_region,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiScene.hpp"
 
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
@@ -157,11 +158,71 @@ void SdfgiPreprocessReadback::ReadAfterFrameFence(SdfgiResources& resources) {
   consumed = true;
 }
 
+void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiResources& resources,
+                                   const uint32_t cascade, const glm::ivec3 cascade_position, const glm::ivec3 scroll,
+                                   const uint32_t frame_slot) {
+  SdfgiPreprocessPushConstant params{};
+  params.grid_size = 128;
+  params.cascade = cascade;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    params.scroll[axis] = scroll[axis];
+  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+                        kComputeAccess | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+  const auto& voxels = resources.pipelines.at("Scroll");
+  voxels->Bind(command);
+  voxels->BindDescriptorSet(command, 0, resources.sets.at(CascadeName(cascade, "Scroll"))->GetVkDescriptorSet());
+  voxels->PushConstant(command, 0, params);
+  vkCmdDispatchIndirect(command, resources.buffers.at(CascadeName(cascade, "Indirect")).buffer->GetVkBuffer(), 0);
+  const auto& occlusion = resources.pipelines.at("ScrollOcclusion");
+  occlusion->Bind(command);
+  occlusion->BindDescriptorSet(command, 0, resources.sets.at("ScrollOcclusion")->GetVkDescriptorSet());
+  occlusion->PushConstant(command, 0, params);
+  const glm::ivec3 groups = (glm::ivec3(128) - glm::abs(scroll) + 3) / 4;
+  occlusion->Dispatch(command, groups.x, groups.y, groups.z);
+
+  SdfgiIntegratePushConstant probes{};
+  for (uint32_t axis = 0; axis < 3; ++axis) {
+    probes.grid_size[axis] = 128;
+    probes.scroll[axis] = scroll[axis] / 8;
+    probes.world_offset[axis] = cascade_position[axis] / 8;
+  }
+  probes.max_cascades = resources.settings.cascade_count;
+  probes.cascade = cascade;
+  probes.probe_axis_size = 17;
+  probes.history_size = resources.settings.history_size;
+  probes.image_size[0] = 289;
+  probes.image_size[1] = 17;
+  probes.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
+  const auto dispatch = [&](const char* name) {
+    resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
+    const auto& pipeline = resources.pipelines.at(name);
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(
+        command, 0,
+        resources.sets.at("Frame" + std::to_string(frame_slot) + "." + CascadeName(cascade, "Integrate"))
+            ->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 1, resources.sets.at("Sky")->GetVkDescriptorSet());
+    pipeline->PushConstant(command, 0, probes);
+    pipeline->Dispatch(command, (probes.image_size[0] + 7) / 8, (probes.image_size[1] + 7) / 8);
+  };
+  dispatch("IntegrateSCROLL");
+  dispatch("IntegrateSCROLL_STORE");
+  if (resources.settings.bounce_feedback > 0) {
+    probes.image_size[0] *= 6;
+    probes.image_size[1] *= 6;
+    dispatch("IntegrateSTORE");
+  }
+  resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
+}
+
 void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const SdfgiResources& resources,
-                                       const uint32_t cascade, const glm::ivec3 cascade_position) {
+                                       const uint32_t cascade, const glm::ivec3 cascade_position,
+                                       const glm::ivec3 scroll) {
   SdfgiPreprocessPushConstant params{};
   params.grid_size = 64;
   params.cascade = cascade;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    params.scroll[axis] = scroll[axis];
   const auto barrier = [&]() {
     resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
   };
@@ -224,7 +285,7 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
                                                const std::shared_ptr<SdfgiResources>& resources,
                                                const std::shared_ptr<SdfgiPreprocessReadback>& readback,
                                                const uint32_t cascade, const glm::ivec3 cascade_position,
-                                               const std::string& dependency) {
+                                               const std::string& dependency, const glm::ivec3 scroll) {
   RenderResourceDescriptor diagnostic;
   diagnostic.name = "Frame.SDFGI.PreprocessReadback";
   diagnostic.type = RenderResourceType::Buffer;
@@ -239,7 +300,7 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
   pass.profiler_display_name = "SDFGI Preprocess";
   for (const auto name : {"Albedo", "Emission", "EmissionAniso", "Facing"})
     pass.resources.push_back(
-        {"Frame.SDFGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
+        {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
   for (const auto name : {"JumpFlood0", "JumpFlood1", "JumpFloodHalf0", "JumpFloodHalf1", "Occlusion", "Status"})
     pass.resources.push_back(
         {"Frame.SDFGI." + std::string(name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
@@ -251,11 +312,25 @@ std::string evo_engine::AddSdfgiPreprocessPass(RenderGraph& graph, RenderGraphRe
         {"Frame.SDFGI." + CascadeName(cascade, name), RenderResourceUsage::ReadWrite, RenderResourceState::General});
   pass.resources.push_back(
       {diagnostic.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
-  graph.AddPass(pass, [resources, readback, cascade, cascade_position](const RenderGraphExecutionContext& context) {
+  const auto frame_slot = Platform::GetCurrentFrameIndex();
+  if (scroll != glm::ivec3(0)) {
+    pass.resources.push_back({"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Cascades", RenderResourceUsage::Read,
+                              RenderResourceState::General});
+    for (const auto& name : {std::string("HistoryScroll"), std::string("AverageScroll"), std::string("Atlas"),
+                             CascadeName(cascade, "History"), CascadeName(cascade, "Average")})
+      pass.resources.push_back({"Frame.SDFGI." + name, RenderResourceUsage::ReadWrite, RenderResourceState::General});
+    if (cascade + 1 < resources->settings.cascade_count)
+      pass.resources.push_back({"Frame.SDFGI." + CascadeName(cascade + 1, "Average"), RenderResourceUsage::Read,
+                                RenderResourceState::General});
+  }
+  graph.AddPass(pass, [resources, readback, cascade, cascade_position, scroll,
+                       frame_slot](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
       ApplyGraphResourceBarriers(command, context);
-      RecordSdfgiPreprocess(command, *resources, cascade, cascade_position);
+      if (scroll != glm::ivec3(0))
+        RecordSdfgiScroll(command, *resources, cascade, cascade_position, scroll, frame_slot);
+      RecordSdfgiPreprocess(command, *resources, cascade, cascade_position, scroll);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
       VkBufferCopy copy{0, cascade * sizeof(SdfgiDispatchData), sizeof(SdfgiDispatchData)};

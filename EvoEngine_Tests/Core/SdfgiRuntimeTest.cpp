@@ -249,10 +249,16 @@ TEST(SdfgiRuntime, MaintainsOncePerSceneFrameAndRetainsMissingAnchorPosition) {
   EXPECT_EQ(runtime.maintenance_count, 1u);
   EXPECT_EQ(runtime.anchor.camera_id, 7u);
   EXPECT_FALSE(runtime.published);
+  runtime.published = true;
+  EXPECT_FALSE(runtime.Maintain(1, {99, {99, 99, 99}}));
+  EXPECT_TRUE(runtime.published);
   EXPECT_TRUE(runtime.Maintain(2, {}));
+  EXPECT_TRUE(runtime.published);
   EXPECT_TRUE(runtime.missing_anchor);
   EXPECT_EQ(runtime.anchor.world_position, anchor.world_position);
   EXPECT_NE(runtime.fallback_reason.find("stationary"), std::string::npos);
+  EXPECT_TRUE(runtime.Maintain(3, anchor));
+  EXPECT_FALSE(runtime.published);
   SdfgiRuntime unsupported({}, {});
   EXPECT_TRUE(unsupported.Maintain(1, anchor));
   EXPECT_NE(unsupported.fallback_reason.find("supported=0"), std::string::npos);

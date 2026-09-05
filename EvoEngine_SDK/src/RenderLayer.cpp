@@ -5674,7 +5674,6 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       runtime->scene_snapshot = SnapshotSdfgiScene(scene, lighting);
       runtime->contributors.Update(runtime->scene_snapshot.contributors);
     }
-    runtime->published = runtime->missing_anchor && runtime->published;
     if (!runtime->allocation_attempted && !runtime->missing_anchor && runtime->settings.Validate().empty() &&
         runtime->placement_failure.empty() && runtime->capabilities.Supported()) {
       runtime->allocation_attempted = true;
@@ -5693,7 +5692,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       resources->settings = runtime->settings;
       resources->gather_camera_ids.clear();
       if (const auto& previous = resources->voxel_frames[current_frame_index];
-          previous && previous->preprocess_readback)
+          resources->last_voxel_frame != scene_frame && previous && previous->preprocess_readback)
         previous->preprocess_readback->ReadAfterFrameFence(*resources);
       if (resources->preprocess_status.failure_flags & kSdfgiFailureSolidOverflow) {
         runtime->fallback_reason = "SDFGI solid-cell capacity overflow";
@@ -5711,7 +5710,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       if (resources->last_voxel_frame != scene_frame && !runtime->missing_anchor &&
           runtime->placement_failure.empty()) {
         auto pending = runtime->pending_regions;
-        if (!resources->voxelization_recorded) {
+        if (!resources->voxelization_recorded || !resources->voxel_failure.empty()) {
           auto cascades = runtime->cascades;
           for (auto& cascade : cascades)
             cascade.full_redraw = true;

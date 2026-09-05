@@ -923,6 +923,192 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
+TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.cascade_count = 2;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  settings.history_size = 5;
+  std::string failure;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  const auto cascade_data = BuildSdfgiCascadeBlock(cascades);
+  auto seed = std::make_shared<ComputePipeline>();
+  seed->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Integrate)]};
+  seed->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)});
+  seed->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(9,0)]] [vk::image_format("rgba16i")] RWTexture2DArray<int4> history;
+[[vk::binding(10,0)]] [vk::image_format("rgba32i")] RWTexture2D<int4> average;
+[[vk::push_constant]] ConstantBuffer<uint> cascade;
+[numthreads(8,8,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  if (id.x >= 289 || id.y >= 272) return;
+  int base = int(cascade) * 500 + int(id.x % 17) + int(id.y / 16) * 2 + int(id.x / 17) * 4 + int(id.y % 16) * 16;
+  int4 sum = 0;
+  for (int h = 0; h < 5; ++h) {
+    int v = base + h;
+    int4 value = int4(v, -v, v * 2, 1024);
+    history[int3(id.xy, h)] = value;
+    sum += value;
+  }
+  average[id.xy] = sum;
+}
+)"));
+  seed->Initialize();
+  ASSERT_TRUE(seed->Initialized());
+  const glm::ivec3 shifts[]{{8, 0, 0}, {-8, 0, 0}, {0, 8, 0},   {0, -8, 0},
+                            {0, 0, 8}, {0, 0, -8}, {8, -16, 8}, {8, 0, 0}};
+  const SdfgiSolidCell cell{64 | (64 << 7) | (64 << 14), 0x4321 | (13 << 15), 0x12345678, 0x23456789};
+  const SdfgiDispatchData dispatch{1, 1, 1, 1};
+  const auto value_at = [](const glm::vec3 p, const uint32_t cascade, const int coefficient, const int history) {
+    const float v = cascade * 500 + p.x + 2 * p.y + 4 * p.z + coefficient * 16 + history;
+    return glm::ivec4(v, -v, 2 * v, 1024);
+  };
+  BufferUploadArena arena;
+  for (uint32_t phase = 0; phase < std::size(shifts); ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    const auto slot = Platform::GetCurrentFrameIndex();
+    const bool failed = phase == 7;
+    field->settings.bounce_feedback = phase & 1 ? 0.0f : 0.5f;
+    BufferUploadBatch upload;
+    upload.Add(field->buffers.at("Frame" + std::to_string(slot) + ".Cascades").buffer, cascade_data,
+               {BufferUploadUsage::Uniform});
+    for (uint32_t c = 0; c < 2; ++c) {
+      const auto prefix = "Cascade" + std::to_string(c) + ".";
+      upload.Add(field->buffers.at(prefix + "UnlitCells").buffer, cell);
+      upload.Add(field->buffers.at(prefix + "Dispatch").buffer, dispatch);
+      upload.Add(field->buffers.at(prefix + "Indirect").buffer, dispatch);
+    }
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
+    });
+    graph.AddPass(
+        {"ScrollSeed", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {"SdfgiInitialize"}},
+        [&](const RenderGraphExecutionContext&) {
+          upload.Record(arena);
+          Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            VkClearColorValue clear{};
+            clear.uint32[0] = 0x3210;
+            const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            Platform::ClearColorImage(command, *field->textures.at("Occlusion").image, clear, 1, &range);
+            if (failed)
+              field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, failure_flags), 4, 1);
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+            seed->Bind(command);
+            for (uint32_t c = 0; c < 2; ++c) {
+              seed->BindDescriptorSet(
+                  command, 0,
+                  field->sets.at("Frame" + std::to_string(slot) + ".Cascade" + std::to_string(c) + ".Integrate")
+                      ->GetVkDescriptorSet());
+              seed->PushConstant(command, 0, c);
+              seed->Dispatch(command, 37, 34);
+            }
+          });
+        });
+    const auto readback = std::make_shared<SdfgiPreprocessReadback>(2);
+    auto previous = std::string("ScrollSeed");
+    for (uint32_t c = 0; c < 2; ++c) {
+      // Exercise the production graph pass, shared scratch, scroll/store and subsequent topology rebuild.
+      previous = AddSdfgiPreprocessPass(graph, registry, field, readback, c, -shifts[phase], previous, shifts[phase]);
+    }
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI focused scroll mapping readback");
+    readback->ReadAfterFrameFence(*field);
+    EXPECT_EQ(field->preprocess_status.failure_flags, failed ? 1u : 0u);
+    for (uint32_t c = 0; c < 2; ++c) {
+      SCOPED_TRACE(c);
+      const auto prefix = "Cascade" + std::to_string(c) + ".";
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageExtent = {289, 272, 1};
+      Buffer average_buffer(289 * 272 * sizeof(glm::ivec4));
+      average_buffer.CopyFromImage(*field->textures.at(prefix + "Average").image, copy);
+      std::vector<glm::ivec4> average;
+      average_buffer.DownloadVector(average, 289 * 272);
+      copy.imageSubresource.layerCount = 5;
+      Buffer history_buffer(289 * 272 * 5 * 8);
+      history_buffer.CopyFromImage(*field->textures.at(prefix + "History").image, copy);
+      std::vector<int16_t> history;
+      history_buffer.DownloadVector(history, 289 * 272 * 5 * 4);
+      for (const glm::ivec3 p : {glm::ivec3(0), glm::ivec3(16), glm::ivec3(8), glm::ivec3(0, 16, 8),
+                                 glm::ivec3(16, 0, 8), glm::ivec3(8, 8, 0), glm::ivec3(8, 8, 16)}) {
+        const glm::ivec3 read = p - shifts[phase] / 8;
+        const bool retained =
+            glm::all(glm::greaterThanEqual(read, glm::ivec3(0))) && glm::all(glm::lessThan(read, glm::ivec3(17)));
+        const bool parent = !failed && !retained && c == 0;
+        const glm::vec3 source = failed     ? glm::vec3(p)
+                                 : retained ? glm::vec3(read)
+                                 : parent   ? glm::vec3(p) * 0.5f + 4.0f
+                                            : glm::vec3(p);
+        for (int coefficient = 0; coefficient < 16; ++coefficient) {
+          const auto pixel = (p.y * 16 + coefficient) * 289 + p.z * 17 + p.x;
+          glm::ivec4 sum(0);
+          for (int h = 0; h < 5; ++h) {
+            const auto expected = value_at(source, parent ? 1 : c, coefficient, parent ? 2 : h);
+            sum += expected;
+            for (int channel = 0; channel < 4; ++channel)
+              EXPECT_NEAR(history[(h * 289 * 272 + pixel) * 4 + channel], expected[channel], parent ? 1 : 0);
+          }
+          for (int channel = 0; channel < 4; ++channel)
+            EXPECT_NEAR(average[pixel][channel], sum[channel], parent ? 5 : 0);
+        }
+      }
+      if (!failed) {
+        ASSERT_EQ(field->solid_cell_dispatch[c].total_count, 1u);
+        SdfgiSolidCell retained;
+        field->buffers.at(prefix + "UnlitCells").buffer->Download(retained);
+        const glm::ivec3 write = glm::ivec3(64) + shifts[phase];
+        EXPECT_EQ(retained.position & 0x1fffffu, write.x | (write.y << 7) | (write.z << 14));
+        EXPECT_EQ(retained.albedo & 0x1fffffu, cell.albedo);
+        EXPECT_EQ(retained.light & 0x3fffffffu, cell.light);
+        EXPECT_EQ(retained.light_aniso & 0x3fffffffu, cell.light_aniso);
+        copy.imageSubresource.layerCount = 1;
+        copy.imageOffset = {32, 32, static_cast<int>(c * 128 + 32)};
+        copy.imageExtent = {1, 1, 1};
+        Buffer packed_buffer(2);
+        packed_buffer.CopyFromImage(*field->textures.at("Occlusion").image, copy);
+        uint16_t packed;
+        packed_buffer.Download(packed);
+        EXPECT_EQ(packed, 0x3210);  // Untouched neighborhoods must keep packed visibility, not recompute it.
+      }
+    }
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 4};
+    copy.imageExtent = {2312, 136, 1};
+    Buffer atlas_buffer(2312 * 136 * 4 * 4);
+    atlas_buffer.CopyFromImage(*field->textures.at("Atlas").image, copy);
+    std::vector<uint32_t> atlas;
+    atlas_buffer.DownloadVector(atlas, 2312 * 136 * 4);
+    EXPECT_EQ(std::any_of(atlas.begin(), atlas.end(),
+                          [](uint32_t value) {
+                            return value != 0;
+                          }),
+              field->settings.bounce_feedback > 0 && !failed);
+  }
+}
+
 TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
