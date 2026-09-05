@@ -320,6 +320,8 @@ void SdfgiResources::CreateLayouts(const std::vector<std::shared_ptr<DescriptorS
   binding(SdfgiLayout::Gather, 2, texture);
   binding(SdfgiLayout::Gather, 3, sampler);
   binding(SdfgiLayout::Gather, 4, buffer);
+  binding(SdfgiLayout::Gather, 5, texture, 8);
+  binding(SdfgiLayout::Gather, 6, texture, 8);
   auto deferred = deferred_host_layouts;
   deferred.push_back(layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
   const auto& limits = Platform::GetSelectedPhysicalDevice()->properties.limits;
@@ -417,6 +419,10 @@ void SdfgiResources::CreateDescriptors() {
     image(set, 2, "Occlusion", true);
     sampler(set, 3);
     buffer(set, 4, "Status");
+    for (uint32_t i = 0; i < 8; ++i) {
+      image(set, 5, CascadeName(std::min(i, settings.cascade_count - 1), "Sdf"), true, i);
+      image(set, 6, CascadeName(std::min(i, settings.cascade_count - 1), "Light"), true, i);
+    }
     for (uint32_t c = 0; c < settings.cascade_count; ++c) {
       for (const std::string kind : {"StaticLights", "DynamicLights"}) {
         set = make_set(FrameName(f, CascadeName(c, kind)), SdfgiLayout::DirectLight);

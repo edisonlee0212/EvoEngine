@@ -4,7 +4,8 @@ Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-0
 Capability preflight, the opt-in provider shell, GPU storage, CPU placement/scene inputs, static voxelization, stationary
 SDF/occlusion preprocessing, voxel direct-light injection, stationary probe transport/storage, and deferred gather are
 implemented. Automatic SDFGI publishes a complete stationary field to eligible opaque/masked raster cameras and uses
-Environment fallback otherwise. M0-M7 are complete; M8 awaits the user's stationary manual review. Scrolling variants
+Environment fallback otherwise. M0-M8a are complete; the user accepted the occlusion-on stationary result. M8a adds default-on
+occlusion controls and the pinned Godot deferred sharp-reflection path. Scrolling variants
 remain ABI-only, and M9-M12 have not started.
 
 ## Reference
@@ -32,7 +33,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 | `SdfgiVoxelizer.hpp/.cpp`, `Shaders/Modules/EvoEngine/SdfgiVoxel.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiVoxelize.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiVoxelize.slang` | ForwardClustered `_render_sdfgi` and `scene_forward_clustered.glsl::MODE_RENDER_SDF`; host-only diagnostic plane readback |
 | `Shaders/Compute/SdfgiGatherAbi.slang` (temporary layout check only) | `gi.h::SDFGIData` and the accepted six-set deferred adapter |
 | Planned `Shaders/Compute/SdfgiDebug.slang`, `Shaders/Graphics/Vertex/SDFGI/SdfgiDebugProbes.slang`, `Shaders/Graphics/Fragment/SDFGI/SdfgiDebugProbes.slang` | `sdfgi_debug.glsl`, `sdfgi_debug_probes.glsl` |
-| `SdfgiGather.hpp/.cpp`, `Shaders/Modules/EvoEngine/Sdfgi.slang` | `gi.cpp::SDFGI::pre_process_gi`, `shaders/scene_forward_gi_inc.glsl::sdfgi_process`, and forward/compute GI callers; shared-anchor/publication adapter |
+| `SdfgiGather.hpp/.cpp`, `Shaders/Modules/EvoEngine/Sdfgi.slang` | `gi.cpp::SDFGI::pre_process_gi`, `shaders/environment/gi.glsl::{sdfvoxel_gi_process,sdfgi_process}` and its caller/uniform sets; shared-anchor/publication adapter |
 | `Shaders/Modules/EvoEngine/SdfgiLighting.slang`, `Shaders/Compute/SdfgiPublish.slang` | Accepted EvoEngine scene-linear material/AO/reflection composition and GPU publication guard; no DDGI gather or state |
 
 ## Capability report
@@ -69,9 +70,15 @@ the reference controls; no GI entity, volume, or pack is needed. Requested and e
 Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
 failure, and generation checks remain authoritative before any camera samples the field.
 
-Defaults are four 128-cell cascades, minimum cell size 0.2, 75% vertical scale, occlusion off, 16 rays per probe,
+Defaults are four 128-cell cascades, minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 0.5, sky read on, energy 1.0, and both biases 1.1.
 The reference ray/history/cadence choices are retained. Malformed numeric settings are diagnosed before field allocation.
+Occlusion on is a user-requested default difference from Godot (off), not a change to its visibility algorithm.
+**Environmental Lighting > Automatic SDFGI > Use Occlusion** controls this serialized setting. Explicit saved false
+values stay false; only new/default settings turn it on. It reweights neighboring probes by approximate visibility to
+reduce leaks, including bounce feedback; it can suppress bright or dark hidden probes and may produce dark patches.
+It is not a second ambient-occlusion multiplier and does not disable SDF transport/shadow tracing when off. Both states
+still generate the reference occlusion volume. The checkbox tooltip notes field recreation and reconvergence on change.
 Cascades, minimum cell size, vertical scale, occlusion, and history length recreate the field, matching Godot's
 `RenderForwardClustered::sdfgi_update` reset condition.
 
@@ -455,14 +462,21 @@ DDGI comparison, app installation, or user manual acceptance was performed. M8 i
 
 ## Stationary deferred gather and publication
 
-M8 translates the selected forward `scene_forward_gi_inc.glsl::sdfgi_process` path: eight-neighbor trilinear weights,
+M8 initially translated the forward `scene_forward_gi_inc.glsl::sdfgi_process` path. M8a replaces that selection with
+the paired deferred `environment/gi.glsl::{sdfvoxel_gi_process,sdfgi_process}` implementation: eight-neighbor trilinear weights,
 normal-weight floor 0.005, normal bias in probe units, packed occlusion parity/weights with floor 0.01, octahedral
 irradiance/radiance addressing, cascade blending, and roughness-dependent radiance-to-irradiance mixing. Mixing starts at
-roughness 0.5 and the radiance fetch stops at 0.99. Godot's separate `gi.glsl` compute caller uses a different threshold
-and additional glossy SDF tracing; those are not the selected probe-gather behavior. The accepted host composition uses
-the `gi.glsl` coverage/energy convention: return outer-cascade weight `1-blend` and scale both incoming terms by SDFGI
-energy. This is an explicit caller adaptation, not a claim of exact forward-caller output parity. No gather equation,
-probe normalization, bias, or default energy has been tuned to match DDGI or the new beauty image.
+roughness 0.2 (previously 0.5) and the radiance fetch stops at 0.99. Below 0.2, the same reference caller additionally
+sphere-traces the SDF and samples the injected RGB9E5 light volumes. It retains radial cascade selection/progression,
+self-bias, roughness-dependent softness, next-cascade distance/light blending, factor 0.5 for light meant for anisotropic
+sampling, accumulated hit alpha, and roughness blending back to probe radiance. This needs no hardware RT and can reach
+off-screen represented static surfaces, but remains voxel-resolution reflection, not triangle-accurate reflection.
+
+Diffuse coverage retains the reference outer `1-blend` fade. Specular coverage is independent: a sharp miss at roughness
+zero falls back entirely to environment specular without losing diffuse GI; increasing roughness contributes probe
+radiance according to the reference alpha formula. The sharp branch overwrites specular alpha as in Godot, including
+at the outer fade. Both incoming terms use the reference energy scaling. No gather equation, probe normalization, bias,
+or energy has been tuned to DDGI or to compensate for the review image.
 
 The 512-byte immutable metadata publishes the primary anchor in Y-scaled field coordinates, cascade minima relative to
 that anchor, reference world parity offsets, atlas/occlusion addressing, and one generation. Every receiver uses its own
@@ -475,8 +489,11 @@ sampling, selecting the ordinary Environment fallback.
 readers, then sets GPU ready only for a nonzero matching generation with zero failure flags. CPU `published` describes
 the ordered recording, not synchronous GPU completion; the shader checks ready/failure/generation again. CPU-known
 light/transport/preprocess failures prevent publication. Missing anchors retain the last publication without moving
-coverage. The scene graph and every eligible camera graph import the same atlas, occlusion, status, and published UBO
-identities. Owner-level main-queue barriers cover publication-to-camera reads and all previous readers before the next
+coverage. The scene graph and every eligible camera graph import the same atlas, occlusion, per-cascade SDF/light
+volumes, status, and published UBO identities. Set 5 bindings 5/6 contain eight sampled SDF/light-volume views each;
+inactive entries reuse valid compatible views and are never indexed beyond the active cascade count. Actual combined
+host descriptor limits are checked before pipeline creation. No new image allocation is needed for sharp tracing.
+Owner-level main-queue barriers cover publication-to-camera reads and all previous readers before the next
 frame's writes, including separately compiled graphs and reused metadata slots. Resources, metadata, descriptors, and
 staging survive all submitting fences. No dedicated compute queue or immediate maintenance submission is introduced.
 
@@ -498,7 +515,7 @@ gather, visibility, blend, atlas, or environmental-composition function is calle
 The shared-module source layout validator includes unused vertex-only `set 0 / binding 14` in its compute reflection.
 Rather than widening the host binding's stage visibility, this one deferred variant uses Vulkan pipeline creation plus
 emitted SPIR-V verification; the dedicated Gather ABI shader still validates the new six-set layout. Disassembly confirms
-that the emitted SDFGI shader has all five set-5 bindings, read-only status, no DDGI resources, no unused vertex draw-index
+that the M8 emitted SDFGI shader had five set-5 bindings (M8a adds bindings 5/6), read-only status, no DDGI resources, no unused vertex draw-index
 binding, and no RT capability. The ordinary deferred variant contains no set 5. Both variants and the publication shader
 pass `spirv-val --target-env vulkan1.3 --scalar-block-layout`.
 
@@ -522,7 +539,31 @@ failed to convert the new camera-ID vector to Python; explicitly building a Pyth
 The image has strong yellow illumination and bright floor highlights; the demo includes a yellow point light, but the
 visual response still needs user acceptance. This candidate is not yet an accepted visual baseline.
 
-### M8 manual review
+### M8a verification and stationary review
+
+The final M8a build succeeded for SDK, tests, editor, and Python bindings. Seven focused tests passed in 4.448 seconds
+on the current RTX 5070 with RT pipeline/query/BLAS/TLAS disabled and Vulkan/synchronization validation enabled.
+The existing gather fixture now covers sharp hit/miss, radial bias and light-volume blending, roughness 0/0.1/0.1999/0.2,
+stepping from the first to the next cascade, independent diffuse/specular alpha, publication failure/recovery, and
+reversed two-camera graphs. Settings tests cover default-on, absent settings, explicit saved false, and field reset;
+the lighting fixture supplies fully visible occlusion for its existing feedback check. No Vulkan/synchronization errors.
+Final DeferredSdfgi, DeferredEnvironment, and Publish SPIR-V pass Vulkan 1.3 scalar-layout validation; SDFGI has the seven
+set-5 bindings and no RT/DDGI resources, while Environment has no set 5. Six affected C++ files pass clang-format 22.1.8.
+
+One 2560-by-1440 RT-disabled Sponza session captured occlusion on, then toggled it off and reconverged the recreated
+field. Both images reached generation 91, GPU ready 1, failure flags 0, and one ordinary camera. Both use the new sharp
+path, so the pair isolates occlusion rather than comparing to DDGI or mixing shader versions. Files:
+
+- `tasks/m8a-sponza-occlusion-on.png`, SHA256 `371ef87530f90c6a9b2b40c774b89c29249393a7662ff8a6682ebe219f26ab70`.
+- `tasks/m8a-sponza-occlusion-off.png`, SHA256 `7bcac90fd22ee8f0f4ff71fc9c9f8a05510c5b2dd5c4783936072d8e0c246a8f`.
+
+The capture log is `tasks/m8a-sponza.log`. Use `capture_sdfgi_voxels.py --view beauty` with an optional
+`--occlusion-off-output <second.png>` for this same-session comparison, using fresh disposable resources. No authored
+project was cleared. The user reports occlusion on is noticeably better and accepted it as the stationary baseline before
+continuing. This is not a claim of exact transport or reflection parity. Sharp tracing remains under local reflection probes and SSR; reflection captures
+still do not consume SDFGI. The script verifies the setting/reset path, not interactive GUI operation.
+
+### Manual review launch
 
 Build command: `cmake --build out/build/vs2026-x64-tests --config RelWithDebInfo --target EvoEngine_Tests EvoEngineEditor
 PyEvoEngine --parallel 8`. The built editor is
@@ -536,8 +577,11 @@ camera/post-processing settings. From the repository root:
 & ./out/build/vs2026-x64-tests/EvoEngine_App/RelWithDebInfo/EvoEngineEditor.exe --sdfgi-review ./tasks/m4-resources
 ```
 
-This interactive launch is build-verified; user review is pending. Keep the camera position stationary for M8; view
+The stationary M8/M8a result is user-accepted, with Use Occlusion retained on. The default settings turn Use Occlusion on.
+Inspect Environmental Lighting > Automatic SDFGI > Use Occlusion and allow reconvergence after changing it. Existing
+saved explicit false values are preserved when loading normally. Keep the camera position stationary for M8/M8a; view
 rotation is fine. Crossing a scroll boundary can deliberately report fallback because scrolling is M9. Review first
-publication/convergence, diffuse and rough-specular response on static/dynamic receivers, and environment/local-reflection/
-AO/SSR composition. Report any defect before accepting. M8 remains uncommitted and M9 has not started. No full suite,
+publication/convergence, diffuse and rough/sharp specular response on static/dynamic receivers, and environment/local-reflection/
+AO/SSR composition. M8/M8a close with separate commits after that combined review; M9 is the next manual checkpoint.
+No full suite,
 additional image matrix, DDGI comparison, or app installation was run; installation is scheduled before M12 final review.

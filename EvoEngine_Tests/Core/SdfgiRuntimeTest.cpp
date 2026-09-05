@@ -148,13 +148,13 @@ TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
   EXPECT_FALSE(SdfgiResources::ValidateDescriptorLimits({nullptr}, limits).empty());
 }
 
-TEST(SdfgiRuntime, ReferenceDefaultsAndSettingsRoundTrip) {
+TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);
   EXPECT_EQ(settings.kCascadeSize, 128u);
   EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
   EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
-  EXPECT_FALSE(settings.use_occlusion);
+  EXPECT_TRUE(settings.use_occlusion);
   EXPECT_EQ(settings.ray_count, 16u);
   EXPECT_EQ(settings.history_size, 30u);
   EXPECT_EQ(settings.light_update_frames, 4u);
@@ -168,7 +168,7 @@ TEST(SdfgiRuntime, ReferenceDefaultsAndSettingsRoundTrip) {
   settings.cascade_count = 8;
   settings.min_cell_size = 0.4f;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent50;
-  settings.use_occlusion = true;
+  settings.use_occlusion = false;
   settings.ray_count = 96;
   settings.history_size = 5;
   settings.light_update_frames = 16;
@@ -183,7 +183,11 @@ TEST(SdfgiRuntime, ReferenceDefaultsAndSettingsRoundTrip) {
   SdfgiSettings loaded;
   DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
   EXPECT_TRUE(loaded == settings);
+  EXPECT_FALSE(loaded.use_occlusion);
   EXPECT_TRUE(loaded.Validate().empty());
+  SdfgiSettings missing;
+  DeserializeSdfgiSettings(YAML::Load("{}"), missing);
+  EXPECT_TRUE(missing.use_occlusion);
 }
 
 TEST(SdfgiRuntime, ReferenceLayoutChangesAndInvalidSettings) {
@@ -198,7 +202,7 @@ TEST(SdfgiRuntime, ReferenceLayoutChangesAndInvalidSettings) {
   changed.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   EXPECT_FALSE(defaults.HasSameLayout(changed));
   changed = defaults;
-  changed.use_occlusion = true;
+  changed.use_occlusion = false;
   EXPECT_FALSE(defaults.HasSameLayout(changed));
   changed = defaults;
   changed.history_size = 10;

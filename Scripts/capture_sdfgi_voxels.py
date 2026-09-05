@@ -20,8 +20,12 @@ def main():
     parser.add_argument("--slice", type=int, default=64)
     parser.add_argument("--view", choices=("voxels", "preprocess", "lighting", "transport", "beauty"), default="voxels")
     parser.add_argument("--probe", type=int, default=2456)
+    parser.add_argument("--occlusion-off-output", type=Path, help="Optional second beauty capture after disabling occlusion")
     args = parser.parse_args()
+    if args.occlusion_off_output and args.view != "beauty":
+        parser.error("--occlusion-off-output requires --view beauty")
     module_dir, resources, output = (path.resolve() for path in (args.module_dir, args.resources, args.output))
+    occlusion_off_output = args.occlusion_off_output.resolve() if args.occlusion_off_output else None
     if not (resources / "EvoEngine-DemoProjects/Rendering/Assets/Models/Sponza_FBX/Sponza.fbx").is_file():
         raise ValueError("The disposable resource folder must contain the Rendering demo's Sponza assets")
     if (resources / "EvoEngine-DemoProjects/Rendering/Rendering.eveproj").exists():
@@ -42,6 +46,8 @@ def main():
             raise RuntimeError("Could not configure the main raster camera")
         engine.ResizeCurrentSceneCameraForCapture(2560, 1440)
         engine.SetCurrentSceneGiProvider(engine.IndirectGiProvider.AutomaticSdfgi)
+        settings = engine.SdfgiSettings()
+        engine.SetCurrentSceneSdfgiSettings(settings)
         engine.SetGpuTimingCaptureEnabled(args.view in ("transport", "beauty"))
         for frame in range(300):
             if not engine.Loop():
@@ -69,7 +75,27 @@ def main():
             if not field_status["ready"] or field_status["failure_flags"]:
                 raise RuntimeError(f"SDFGI GPU publication failed: {field_status}")
             print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status, "view": args.view,
+                              "use_occlusion": settings.use_occlusion,
                               "resolution": [2560, 1440], "output": str(output)}), flush=True)
+            if occlusion_off_output:
+                settings.use_occlusion = False
+                engine.SetCurrentSceneSdfgiSettings(settings)
+                for warmup in range(180):
+                    if not engine.Loop():
+                        raise RuntimeError("Rendering demo ended during occlusion-toggle reconvergence")
+                    state = engine.GetCurrentSceneGiStatus()
+                    if state["published"] and state["transport_pass"] >= 90:
+                        break
+                else:
+                    raise RuntimeError(f"Occlusion-toggle field did not reconverge: {state}")
+                if not engine.CaptureCurrentScene(2560, 1440, occlusion_off_output, 1):
+                    raise RuntimeError("Occlusion-off beauty capture failed")
+                field_status = engine.ReadCurrentSceneSdfgiFieldStatus()
+                if not field_status["ready"] or field_status["failure_flags"]:
+                    raise RuntimeError(f"Occlusion-off publication failed: {field_status}")
+                print(json.dumps({"status": engine.GetCurrentSceneGiStatus(), "capture_status": field_status,
+                                  "view": args.view, "use_occlusion": False, "resolution": [2560, 1440],
+                                  "output": str(occlusion_off_output)}), flush=True)
             return
         preprocess = args.view == "preprocess"
         request = engine.RequestCurrentSceneSdfgiPreprocessDebug if preprocess else engine.RequestCurrentSceneSdfgiVoxelDebug

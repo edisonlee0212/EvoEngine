@@ -27,7 +27,7 @@ public float3 EE_FUNC_CALCULATE_SDFGI_ENVIRONMENTAL_LIGHT(
       ? EE_ENVIRONMENT.background_color.xyz
       : pow(resources.samplePrefiltered(EE_ENVIRONMENT_LOCAL_DIRECTION(R), roughness * lod_scale), float3(1.0f / EE_ENVIRONMENT.gamma))) *
       EE_ENVIRONMENT.specular_fallback_intensity;
-  const float3 specular_base = lerp(environment_specular, field.specular, field.weight);
+  const float3 specular_base = lerp(environment_specular, field.specular, field.specular_weight);
   const float3 prefiltered = EE_SPATIAL_REFLECTION_PREFILTERED(resources, fragPos, R, roughness, specular_base);
   const float2 brdf = resources.sampleBrdf(float2(normalDotView, roughness));
   const float3 unoccluded_specular = prefiltered * (F * brdf.x + float3(F90 * brdf.y));

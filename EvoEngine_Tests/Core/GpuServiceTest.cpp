@@ -714,11 +714,25 @@ void main(uint3 id : SV_DispatchThreadID) {
 )"));
   seed->Initialize();
   ASSERT_TRUE(seed->Initialized());
+  auto wall = std::make_shared<ComputePipeline>();
+  wall->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Store)]};
+  wall->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, 4}};
+  wall->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(7,0)]] [vk::image_format("r8")] RWTexture3D<float> sdf;
+[[vk::push_constant]] ConstantBuffer<float> cell_size;
+[numthreads(8,8,8)]
+void main(uint3 id : SV_DispatchThreadID) {
+  float distance = abs((float(id.z) + 0.5 - 64.0) * cell_size) - 85.0;
+  sdf[id] = distance >= 0 ? 0.0 : min(255.0, floor(-distance / cell_size) + 1.0) / 255.0;
+}
+)"));
+  wall->Initialize();
+  ASSERT_TRUE(wall->Initialized());
   auto output_layout = std::make_shared<DescriptorSetLayout>();
   output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   output_layout->Initialize();
   VkBufferCreateInfo output_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  output_info.size = 20 * sizeof(glm::vec4);
+  output_info.size = 44 * sizeof(glm::vec4);
   output_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   auto output = std::make_shared<Buffer>(output_info);
   auto output_set = std::make_shared<DescriptorSet>(output_layout);
@@ -734,15 +748,17 @@ import EvoEngine.Sdfgi;
 [[vk::push_constant]] ConstantBuffer<uint> camera;
 [numthreads(1,1,1)]
 void main(uint3 id : SV_DispatchThreadID) {
-  const float3 positions[5] = {float3(0), float3(52,0,0), float3(112,0,0), float3(140,0,0), float3(2.4,3.2,4.8)};
-  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(1,0,0), float3(0,0,camera == 0 ? 1 : -1), id.x == 1 ? 0.75 : 0.5);
-  result[camera * 10 + id.x * 2] = float4(value.diffuse, value.weight);
-  result[camera * 10 + id.x * 2 + 1] = float4(value.specular, 0);
+  const float3 positions[11] = {float3(0), float3(52,0,0), float3(112,0,0), float3(140,0,0), float3(2.4,3.2,4.8),
+      float3(4,0,0), float3(4,0,0), float3(4,0,0), float3(4,0,0), float3(80,0,0), float3(124,0,0)};
+  const float roughness[11] = {0.5, 0.75, 0.5, 0.5, 0.5, 0, 0.1, 0.1999, 0.2, 0, 0.1};
+  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(1,0,0), float3(0,0,camera == 0 ? 1 : -1), roughness[id.x]);
+  result[camera * 22 + id.x * 2] = float4(value.diffuse, value.weight);
+  result[camera * 22 + id.x * 2 + 1] = float4(value.specular, value.specular_weight);
 }
 )"));
   gather->Initialize();
   ASSERT_TRUE(gather->Initialized());
-  for (uint32_t phase = 0; phase < 6; ++phase) {
+  for (uint32_t phase = 0; phase < 7; ++phase) {
     SCOPED_TRACE(phase);
     PlatformLifecycleTestAccess::PreUpdate();
     const uint32_t slot = Platform::GetCurrentFrameIndex(), generation = phase + 1;
@@ -780,7 +796,25 @@ void main(uint3 id : SV_DispatchThreadID) {
             VkClearColorValue clear{};
             clear.uint32[0] = 0x0248;
             Platform::ClearColorImage(command, *field->textures.at("Occlusion").image, clear, 1, &range);
+            for (uint32_t c = 0; c < 2; ++c) {
+              const auto name = "Cascade" + std::to_string(c) + ".";
+              clear = {};
+              clear.float32[0] = phase == 5 ? 1.0f : 0.0f;
+              Platform::ClearColorImage(command, *field->textures.at(name + "Sdf").image, clear, 1, &range);
+              const uint32_t value = c == 0 ? 8 : 16;
+              clear.uint32[0] = value | (value << 9) | (value << 18) | (24u << 27);
+              Platform::ClearColorImage(command, *field->textures.at(name + "Light").image, clear, 1, &range);
+            }
             field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+            if (phase == 6) {
+              wall->Bind(command);
+              for (uint32_t c = 0; c < 2; ++c) {
+                wall->BindDescriptorSet(command, 0,
+                                        field->sets.at("Cascade" + std::to_string(c) + ".Store")->GetVkDescriptorSet());
+                wall->PushConstant(command, 0, c == 0 ? 1.0f : 2.0f);
+                wall->Dispatch(command, 16, 16, 16);
+              }
+            }
             seed->Bind(command);
             seed->BindDescriptorSet(
                 command, 0,
@@ -804,6 +838,9 @@ void main(uint3 id : SV_DispatchThreadID) {
       RenderGraph camera_graph;
       RenderGraphResourceRegistry camera_registry;
       publication->ImportCamera(camera_graph, camera_registry, *field);
+      EXPECT_EQ(publication->CameraReads().size(), 8u);
+      EXPECT_TRUE(camera_graph.HasResource("Frame.SDFGI.Cascade1.Sdf"));
+      EXPECT_TRUE(camera_graph.HasResource("Frame.SDFGI.Cascade1.Light"));
       RenderResourceDescriptor target;
       target.name = "SdfgiGatherTestOutput";
       target.type = RenderResourceType::Buffer;
@@ -822,7 +859,7 @@ void main(uint3 id : SV_DispatchThreadID) {
           gather->BindDescriptorSet(command, 4, output_set->GetVkDescriptorSet());
           gather->BindDescriptorSet(command, 5, publication->descriptor_set->GetVkDescriptorSet());
           gather->PushConstant(command, 0, camera);
-          gather->Dispatch(command, 5);
+          gather->Dispatch(command, 11);
         });
       });
       const auto plan = camera_graph.Compile({});
@@ -833,24 +870,40 @@ void main(uint3 id : SV_DispatchThreadID) {
     PlatformLifecycleTestAccess::LateUpdate();
     Platform::WaitForFrameSubmissions("SDFGI two-camera gather fixture readback");
     std::vector<glm::vec4> values;
-    output->DownloadVector(values, 20);
+    output->DownloadVector(values, 44);
     SdfgiFieldStatus status;
     field->buffers.at("Status").buffer->Download(status);
-    const bool ready = phase == 1 || phase == 2 || phase == 5;
+    const bool ready = phase == 1 || phase == 2 || phase == 5 || phase == 6;
     EXPECT_EQ(status.ready, ready ? 1u : 0u);
-    for (uint32_t i = 0; i < 10; ++i)
-      EXPECT_EQ(values[i], values[10 + i]);
+    for (uint32_t i = 0; i < 22; ++i)
+      for (uint32_t axis = 0; axis < 4; ++axis)
+        EXPECT_NEAR(values[i][axis], values[22 + i][axis], 1e-4f);
     if (!ready) {
       for (const auto value : values)
         EXPECT_EQ(value, glm::vec4(0));
     } else if (phase != 2) {
       EXPECT_NEAR(values[0].x, 1, 1e-5f);
-      EXPECT_NEAR(values[1].x, 2, 1e-5f);
+      EXPECT_NEAR(values[1].x, 1.625f, 1e-5f);
       EXPECT_NEAR(values[2].x, 2, 1e-5f);
-      EXPECT_NEAR(values[3].x, 3, 1e-5f);
+      EXPECT_NEAR(values[3].x, 2.625f, 1e-5f);
       EXPECT_NEAR(values[4].x, 3, 1e-5f);
       EXPECT_NEAR(values[4].w, 0.15625f, 1e-5f);
       EXPECT_EQ(values[6], glm::vec4(0));
+      const float bias = (1 + 4.0f / 60) * 1.1f;
+      const float sharp = phase == 6 ? 8 : 4 + 4 * glm::length(glm::vec3(4 + 1.4f * bias, 0, bias)) / 60;
+      EXPECT_NEAR(values[11].x, phase == 5 ? 0 : sharp, 1e-4f);
+      EXPECT_FLOAT_EQ(values[11].w, phase == 5 ? 0 : 1);
+      EXPECT_FLOAT_EQ(values[10].w, 1);  // A sharp miss must not discard diffuse GI.
+      EXPECT_NEAR(values[13].x, phase == 5 ? 2 : 0.5f * sharp + 1, 1e-4f);
+      EXPECT_FLOAT_EQ(values[13].w, phase == 5 ? 0.5f : 1);
+      EXPECT_NEAR(values[15].x, phase == 5 ? 2 : glm::mix(sharp, 2.0f, 0.1999f * 5), 1e-4f);
+      EXPECT_NEAR(values[15].w, phase == 5 ? 0.9995f : 1, 1e-6f);
+      EXPECT_NEAR(values[17].x, 2, 1e-5f);
+      EXPECT_FLOAT_EQ(values[17].w, 1);
+      EXPECT_NEAR(values[19].x, phase == 5 ? 0 : 8, 1e-4f);
+      EXPECT_FLOAT_EQ(values[20].w, 0);
+      EXPECT_NEAR(values[21].x, 6, 1e-5f);
+      EXPECT_FLOAT_EQ(values[21].w, 0.5f);  // Reference trace alpha is independent of the outer diffuse fade.
     } else {
       float total = 0, weighted = 0;
       for (uint32_t j = 0; j < 8; ++j) {
@@ -864,7 +917,7 @@ void main(uint3 id : SV_DispatchThreadID) {
         weighted += (73 + offset.x + 3 * offset.y + 5 * offset.z) * weight;
       }
       EXPECT_NEAR(values[8].x, weighted / total, 0.02f);
-      EXPECT_NEAR(values[9].x, weighted / total * 2, 0.04f);
+      EXPECT_NEAR(values[9].x, weighted / total * 1.625f, 0.04f);
       EXPECT_FLOAT_EQ(values[8].w, 1);
     }
   }
@@ -1251,6 +1304,8 @@ void main(uint3 id : SV_DispatchThreadID) {
               VkClearColorValue clear{};
               clear.float32[0] = 1;
               Platform::ClearColorImage(command, *field->textures.at("Cascade0.Sdf").image, clear, 1, &range);
+              clear.uint32[0] = 0xffff;
+              Platform::ClearColorImage(command, *field->textures.at("Occlusion").image, clear, 1, &range);
             }
             if (phase == 12 || phase == 13) {
               field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, failure_flags), 4,

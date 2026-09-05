@@ -101,11 +101,17 @@ void SdfgiGatherFrame::AddPublication(RenderGraph& graph, const std::shared_ptr<
 }
 
 std::vector<RenderResourceAccess> SdfgiGatherFrame::CameraReads() const {
-  return {{"Frame.SDFGI.Atlas", RenderResourceUsage::Read, RenderResourceState::General},
-          {"Frame.SDFGI.Occlusion", RenderResourceUsage::Read, RenderResourceState::General},
-          {"Frame.SDFGI.Status", RenderResourceUsage::Read, RenderResourceState::General},
-          {"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Gather", RenderResourceUsage::Read,
-           RenderResourceState::General}};
+  std::vector<RenderResourceAccess> reads{
+      {"Frame.SDFGI.Atlas", RenderResourceUsage::Read, RenderResourceState::General},
+      {"Frame.SDFGI.Occlusion", RenderResourceUsage::Read, RenderResourceState::General},
+      {"Frame.SDFGI.Status", RenderResourceUsage::Read, RenderResourceState::General},
+      {"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Gather", RenderResourceUsage::Read,
+       RenderResourceState::General}};
+  for (uint32_t c = 0; c < metadata.max_cascades; ++c)
+    for (const std::string name : {"Sdf", "Light"})
+      reads.push_back({"Frame.SDFGI.Cascade" + std::to_string(c) + "." + name, RenderResourceUsage::Read,
+                       RenderResourceState::General});
+  return reads;
 }
 
 void SdfgiGatherFrame::ImportCamera(RenderGraph& graph, RenderGraphResourceRegistry& registry,

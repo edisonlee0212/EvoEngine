@@ -11,6 +11,8 @@ import EvoEngine.SdfgiTypes;
 [[vk::binding(1, 5)]] Texture2DArray<float3> lightprobe_texture;
 [[vk::binding(2, 5)]] Texture3D<float4> occlusion_texture;
 [[vk::binding(3, 5)]] SamplerState linear_sampler;
+[[vk::binding(5, 5)]] Texture3D<float> sdf_cascades[8];
+[[vk::binding(6, 5)]] Texture3D<float3> light_cascades[8];
 #ifdef EE_SDFGI_RESOURCE_CHECK
 [[vk::binding(4, 5)]] RWStructuredBuffer<SdfgiFieldStatus> field_status;
 #else

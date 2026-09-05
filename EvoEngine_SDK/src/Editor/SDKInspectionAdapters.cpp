@@ -2947,7 +2947,11 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       inspect_choice("Rays per probe", settings.ray_count, {4, 8, 16, 32, 64, 96, 128});
       inspect_choice("History frames", settings.history_size, {5, 10, 15, 20, 25, 30});
       inspect_choice("Dynamic-light update frames", settings.light_update_frames, {1, 2, 4, 8, 16});
-      changed = ImGui::Checkbox("Occlusion", &settings.use_occlusion) || changed;
+      changed = ImGui::Checkbox("Use Occlusion", &settings.use_occlusion) || changed;
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
+            "Changing this recreates the field and restarts convergence.");
       changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || changed;
       changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || changed;
       changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || changed;
