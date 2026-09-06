@@ -819,10 +819,8 @@ int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppR
   }
 
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
@@ -840,7 +838,6 @@ int ValidateCornellBoxDdgiProbeReadback(Application& application, const DemoAppR
     return SummarizeDdgiProbeDebugReadback(render_layer->RefreshDdgiProbeDebugData());
   };
 
-  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   const auto direct_only_summary = capture_summary(true, "initial probe readback");
   if (!direct_only_summary) {
     return 1;
@@ -925,10 +922,8 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
   }
 
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   const auto original_classification_enabled = volume->enable_probe_classification;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
     volume->enable_probe_classification = original_classification_enabled;
@@ -936,7 +931,6 @@ int ValidateCornellBoxDdgiClassificationSurfaceReadback(Application& application
   const auto capture_surface_summary = [&](const bool classification_enabled,
                                            const char* phase) -> std::optional<RenderTextureRegionSummary> {
     volume->enable_probe_classification = classification_enabled;
-    render_layer->render_settings.ddgi_hysteresis = 0.0f;
     render_layer->RequestDdgiHistoryReset();
     DisableDdgiProbeReadback(render_layer);
     for (size_t frame_index = 0; frame_index < 3; ++frame_index) {
@@ -997,14 +991,11 @@ int ValidateThinWallDdgiProbeLeakReadback(Application& application, const DemoAp
   }
 
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   render_layer->RequestDdgiHistoryReset();
   EnableDdgiProbeReadback(render_layer);
   constexpr glm::ivec3 probe_counts(8, 6, 8);
@@ -1063,14 +1054,11 @@ int ValidateThinWallDdgiSurfaceLeakReadback(Application& application, const Demo
   }
 
   const auto original_visualize_probe_state = render_layer->GetDdgiSessionState().show_selected_probe_state;
-  const auto original_hysteresis = render_layer->render_settings.ddgi_hysteresis;
   auto restore_ddgi_settings = MakeScopeExit([&]() {
-    render_layer->render_settings.ddgi_hysteresis = original_hysteresis;
     render_layer->GetDdgiSessionState().show_selected_probe_state = original_visualize_probe_state;
     render_layer->GetDdgiSessionState().selected_probe_readback_requested = original_visualize_probe_state;
   });
 
-  render_layer->render_settings.ddgi_hysteresis = 0.0f;
   render_layer->RequestDdgiHistoryReset();
   DisableDdgiProbeReadback(render_layer);
   for (size_t frame_index = 0; frame_index < 3; ++frame_index) {

@@ -36,15 +36,14 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   const auto* ray_output_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_output);
   const auto* irradiance_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
   const auto* visibility_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
-  const auto* variability_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_variability_atlas);
   const auto* metadata_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_metadata);
   const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
   const auto* sample_info_binding = parameters.use_emissive_sampling
                                         ? context.GetResourceBinding(RenderResourceNames::frame_ddgi_ray_sample_info)
                                         : nullptr;
   if (!ray_output_binding || !ray_output_binding->buffer || !irradiance_binding || !irradiance_binding->image ||
-      !visibility_binding || !visibility_binding->image || !variability_binding || !variability_binding->image ||
-      !metadata_binding || !metadata_binding->buffer || !state_binding || !state_binding->buffer) {
+      !visibility_binding || !visibility_binding->image || !metadata_binding || !metadata_binding->buffer ||
+      !state_binding || !state_binding->buffer) {
     return;
   }
   if (parameters.use_emissive_sampling && (!sample_info_binding || !sample_info_binding->buffer)) {
@@ -52,15 +51,21 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   }
   const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
   const auto visibility_view = CreateGraphImageMipView(visibility_binding->image, 0);
-  const auto variability_view = CreateGraphImageMipView(variability_binding->image, 0);
-  if (!irradiance_view || !visibility_view || !variability_view) {
+  if (!irradiance_view || !visibility_view) {
     return;
   }
   parameters.transient_resources->RetainImageView(irradiance_view);
   parameters.transient_resources->RetainImageView(visibility_view);
-  parameters.transient_resources->RetainImageView(variability_view);
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
+  std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history_buffers;
+  for (size_t i = 0; i < history_buffers.size(); ++i) {
+    const auto* binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_history[i]);
+    if (!binding || !binding->buffer)
+      return;
+    history_buffers[i] = binding->buffer;
+    descriptor_set->UpdateBufferDescriptorBinding(static_cast<uint32_t>(7 + i), binding->buffer);
+  }
   descriptor_set->UpdateBufferDescriptorBinding(0, ray_output_binding->buffer);
   VkDescriptorImageInfo image_info{};
   image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -70,8 +75,6 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   descriptor_set->UpdateBufferDescriptorBinding(3, metadata_binding->buffer);
   descriptor_set->UpdateBufferDescriptorBinding(4, state_binding->buffer);
-  image_info.imageView = variability_view->GetVkImageView();
-  descriptor_set->UpdateImageDescriptorBinding(5, image_info);
   descriptor_set->UpdateBufferDescriptorBinding(
       6, parameters.use_emissive_sampling ? sample_info_binding->buffer : state_binding->buffer);
 
@@ -86,7 +89,8 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
   const auto parallel_dispatch = DdgiProbeUpdatePass::CalculateDispatchSize(
       parameters.push_constant.probe_count_ray_count_and_tile_sizes.x, true, limits.maxComputeWorkGroupCount[0],
       limits.maxComputeWorkGroupCount[1]);
-  const bool use_parallel = parameters.use_parallel && parallel_pipelines_ready && parallel_dispatch.valid;
+  const bool use_parallel = !parameters.invalidate_moved_history && parameters.use_parallel &&
+                            parallel_pipelines_ready && parallel_dispatch.valid;
   const auto dispatch = use_parallel ? parallel_dispatch
                                      : DdgiProbeUpdatePass::CalculateDispatchSize(
                                            parameters.push_constant.probe_count_ray_count_and_tile_sizes.x, false,
@@ -95,6 +99,27 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
     return;
   }
   ApplyGraphResourceBarriers(vk_command_buffer, context);
+  for (const auto& buffer : history_buffers) {
+    ApplyDdgiBufferDependency(
+        vk_command_buffer, buffer, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+        VK_ACCESS_2_MEMORY_WRITE_BIT | VK_ACCESS_2_MEMORY_READ_BIT,
+        parameters.clear_history ? VK_PIPELINE_STAGE_2_TRANSFER_BIT : VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+        parameters.clear_history ? VK_ACCESS_2_TRANSFER_WRITE_BIT
+                                 : VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    if (parameters.clear_history) {
+      vkCmdFillBuffer(vk_command_buffer, buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
+      ApplyDdgiBufferDependency(vk_command_buffer, buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+    }
+  }
+  if (parameters.invalidate_moved_history) {
+    DispatchProbeUpdate(vk_command_buffer, context, parameters, parameters.pipeline, descriptor_set, 3u, dispatch.x,
+                        dispatch.y);
+    parameters.transient_resources->RetainDescriptorSet(descriptor_set);
+    ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
+    return;
+  }
   if (parameters.path_reported && !*parameters.path_reported) {
     *parameters.path_reported = true;
     EVOENGINE_WARNING(
@@ -156,18 +181,31 @@ RenderPassDescriptor DdgiProbeUpdatePass::CreateDescriptor(const bool use_emissi
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::ReadWrite,
         RenderResourceState::StorageReadWrite},
-       {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
-        RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
         RenderResourceState::StorageReadWrite},
        {RenderResourceNames::frame_ddgi_probe_state, RenderResourceUsage::Read, RenderResourceState::ShaderRead}}};
   descriptor.dependencies = {RenderPassNames::ddgi_probe_trace};
+  for (const auto* resource : RenderResourceNames::frame_ddgi_history)
+    descriptor.resources.push_back({resource, RenderResourceUsage::ReadWrite, RenderResourceState::StorageReadWrite});
   descriptor.profiler_group = RenderPassProfilerGroup::AmbientOcclusionAndDdgi;
   descriptor.profiler_display_name = "DDGI Probe Update";
   if (use_emissive_sampling) {
     descriptor.resources.push_back(
         {RenderResourceNames::frame_ddgi_ray_sample_info, RenderResourceUsage::Read, RenderResourceState::ShaderRead});
   }
+  return descriptor;
+}
+
+RenderPassDescriptor DdgiProbeUpdatePass::CreateHistoryInvalidationDescriptor(const bool relocation,
+                                                                              const bool classification) {
+  auto descriptor = CreateDescriptor();
+  descriptor.name = RenderPassNames::ddgi_history_invalidate;
+  descriptor.dependencies = {RenderPassNames::ddgi_probe_update};
+  if (relocation)
+    descriptor.dependencies.push_back(RenderPassNames::ddgi_probe_relocation);
+  if (classification)
+    descriptor.dependencies.push_back(RenderPassNames::ddgi_probe_classification);
+  descriptor.profiler_display_name = "DDGI History Invalidation";
   return descriptor;
 }
 

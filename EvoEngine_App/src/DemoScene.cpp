@@ -88,8 +88,6 @@ constexpr float kBistroDirectionalLightIntensity = 10.0f;
 constexpr float kBistroDirectionalLightSize = 0.01f;
 // DDGI_VALIDATION_FIXTURE_CONSTANTS_BEGIN
 constexpr const char* kRenderingRegressionRootName = "M42 Rendering Regression Root";
-constexpr float kDdgiValidationNeutralProbeVariabilityThreshold = 0.2f;
-constexpr float kDdgiValidationHighContrastProbeVariabilityThreshold = 0.5f;
 constexpr float kDdgiValidationEmitterRadiance = 45.0f;
 constexpr float DdgiValidationBoxSurfaceArea(const float x, const float y, const float z) {
   return 2.0f * (x * y + x * z + y * z);
@@ -132,18 +130,6 @@ void DisableDdgiDebugVisualization() {
     session.show_selected_probe = false;
     session.show_selected_probe_state = false;
     session.show_rays = false;
-  }
-}
-
-void ConfigureDdgiGlobalVariability(const bool enabled, const bool gating, const float threshold,
-                                    const int maximum_frames = 128) {
-  if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
-    auto& settings = render_layer->render_settings;
-    settings.ddgi_enable_probe_variability = enabled;
-    settings.ddgi_enable_probe_variability_gating = gating;
-    settings.ddgi_pause_probe_updates_after_convergence = true;
-    settings.ddgi_probe_variability_threshold = threshold;
-    settings.ddgi_probe_variability_maximum_frames = maximum_frames;
   }
 }
 
@@ -2579,7 +2565,6 @@ void evo_engine::ConfigureEnvironmentLightingValidationScene(const std::shared_p
   ddgi.runtime.deterministic_ray_seed = 0x6d2b79f5u;
   ddgi.storage.max_probe_count = 64;
   DisableDdgiDebugVisualization();
-  ConfigureDdgiGlobalVariability(true, true, 1.0f);
   ddgi.volume_defaults.enable_probe_relocation = false;
   ddgi.volume_defaults.enable_probe_classification = false;
   if (auto* volume = FindEnvironmentalLightingDdgiVolume(scene, "DDGI Validation Volume")) {
@@ -2874,14 +2859,14 @@ bool evo_engine::RunRenderingSponzaProbeAuthoringFromEnvironment() {
   size_t ready_ddgi_frames = 0;
   for (size_t frame = 0; frame < kMaximumWaitFrames && ready_ddgi_frames < 4u; ++frame) {
     if (!ApplicationContext::Get().Loop()) {
-      throw std::runtime_error("Application ended during Sponza authoring DDGI convergence.");
+      throw std::runtime_error("Application ended during Sponza authoring DDGI history-window initialization.");
     }
     const auto runtime = render_layer->GetDdgiInspectorSnapshot().volumes;
     const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
     const bool volume_ready = runtime.size() == 1u && runtime[0].probe_count == 960u && runtime[0].resources_ready &&
                               runtime[0].has_valid_probe_history && runtime[0].contributes_lighting;
     const bool ready = volume_ready && performance.active_probe_count == 960u &&
-                       performance.lighting_descriptors_bound && performance.probe_variability_sampling_complete &&
+                       performance.lighting_descriptors_bound && performance.history_window_complete &&
                        !performance.probe_warmup_active;
     ready_ddgi_frames = ready ? ready_ddgi_frames + 1u : 0u;
   }
@@ -3052,10 +3037,6 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
 
   auto& ddgi = lighting->ddgi_settings;
   ddgi = DdgiSettings{};
-  const bool high_contrast_fixture = fixture_id == "alpha-tested" || fixture_id == "scrolling" ||
-                                     (fixture_id.rfind("emissive-", 0) == 0 && fixture_id != "emissive-empty");
-  const float probe_variability_threshold = high_contrast_fixture ? kDdgiValidationHighContrastProbeVariabilityThreshold
-                                                                  : kDdgiValidationNeutralProbeVariabilityThreshold;
   const auto configure_validation_ddgi_settings = [&](const int ray_count) {
     lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
     ddgi.runtime.enabled = true;
@@ -3064,7 +3045,6 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
     ddgi.runtime.warmup_frames = 32;
     RequestDdgiHistoryReset();
     DisableDdgiDebugVisualization();
-    ConfigureDdgiGlobalVariability(true, true, probe_variability_threshold);
     ddgi.volume_defaults.enable_probe_relocation = true;
     ddgi.volume_defaults.enable_probe_classification = true;
   };
@@ -4528,18 +4508,18 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   };
   wait_for_scene_inputs("the control-matrix fixture");
 
-  constexpr size_t max_convergence_frames = 256;
-  size_t convergence_frames = 0;
-  for (; convergence_frames < max_convergence_frames; ++convergence_frames) {
+  constexpr size_t max_history_window_frames = 256;
+  size_t history_window_frames = 0;
+  for (; history_window_frames < max_history_window_frames; ++history_window_frames) {
     if (!ApplicationContext::Get().Loop()) {
-      throw std::runtime_error("Application ended during environment lighting DDGI convergence.");
+      throw std::runtime_error("Application ended during environment lighting DDGI history-window initialization.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
-      ++convergence_frames;
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
+      ++history_window_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
     throw std::runtime_error("Environment lighting DDGI invalidation fixture did not finish sampling.");
   }
 
@@ -4766,21 +4746,20 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   }
   RequestDdgiHistoryReset();
   SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
-  constexpr size_t m15_max_sponza_convergence_frames = 1024;
-  size_t m15_sponza_convergence_frames = 0;
-  for (; m15_sponza_convergence_frames < m15_max_sponza_convergence_frames; ++m15_sponza_convergence_frames) {
+  constexpr size_t m15_max_sponza_history_window_frames = 1024;
+  size_t m15_sponza_history_window_frames = 0;
+  for (; m15_sponza_history_window_frames < m15_max_sponza_history_window_frames; ++m15_sponza_history_window_frames) {
     if (!ApplicationContext::Get().Loop()) {
-      throw std::runtime_error("Application ended during M15 Sponza DDGI convergence.");
+      throw std::runtime_error("Application ended during M15 Sponza DDGI history-window initialization.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
-      ++m15_sponza_convergence_frames;
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
+      ++m15_sponza_history_window_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
     throw std::runtime_error("M15 Sponza DDGI fixture did not finish sampling.");
   }
-  render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = m15_sponza_ddgi;
   }
@@ -4923,21 +4902,20 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
   }
   RequestDdgiHistoryReset();
   SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
-  constexpr size_t max_sponza_convergence_frames = 1024;
-  size_t sponza_convergence_frames = 0;
-  for (; sponza_convergence_frames < max_sponza_convergence_frames; ++sponza_convergence_frames) {
+  constexpr size_t max_sponza_history_window_frames = 1024;
+  size_t sponza_history_window_frames = 0;
+  for (; sponza_history_window_frames < max_sponza_history_window_frames; ++sponza_history_window_frames) {
     if (!ApplicationContext::Get().Loop()) {
-      throw std::runtime_error("Application ended during canonical Sponza DDGI convergence.");
+      throw std::runtime_error("Application ended during canonical Sponza DDGI history-window initialization.");
     }
-    if (render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
-      ++sponza_convergence_frames;
+    if (render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
+      ++sponza_history_window_frames;
       break;
     }
   }
-  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.probe_variability_sampling_complete) {
+  if (!render_layer->GetDdgiInspectorSnapshot().aggregate.history_window_complete) {
     throw std::runtime_error("Canonical Sponza DDGI fixture did not finish sampling.");
   }
-  render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
   if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
     lighting->ddgi_settings = canonical_sponza_ddgi;
   }
@@ -5270,12 +5248,12 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
       {"sponza_adjacent_rooms_are_nonblack", luminance(sponza_gtao_left_room, "sponza_room") > 0.0001 &&
                                                  luminance(sponza_gtao_right_room, "sponza_room") > 0.0001},
       {"canonical_sponza_reference_contract", canonical_sponza_anchor_contract && canonical_sponza_ray_contract &&
-                                                  sponza_convergence_frames > 0u &&
-                                                  sponza_convergence_frames <= max_sponza_convergence_frames},
+                                                  sponza_history_window_frames > 0u &&
+                                                  sponza_history_window_frames <= max_sponza_history_window_frames},
       {"indirect_edit_keeps_ddgi_history", (indirect_update_reasons & reset_reasons) == 0u &&
-                                               indirect_update_stats.recorded_probe_update_count == 0u &&
-                                               indirect_update_stats.recorded_ray_sample_count == 0u},
-      {"sky_edit_activates_hysteresis_boost",
+                                               indirect_update_stats.recorded_probe_update_count > 0u &&
+                                               indirect_update_stats.recorded_ray_sample_count > 0u},
+      {"sky_edit_rolls_through_history",
        (sky_update_reasons & DdgiUpdateReasonSceneChange) != 0u &&
            (sky_update_reasons & DdgiUpdateReasonWarmup) == 0u && !sky_update_snapshot.last_probe_history_cleared &&
            sky_update_stats.recorded_probe_update_count > 0u && sky_update_stats.recorded_ray_sample_count > 0u}};
@@ -5298,7 +5276,7 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
             "\"canonical_sponza\": {\"fixture_id\": \"sponza\", \"deterministic_seed\": 1831565813, "
             "\"spheres_enabled\": false, \"title_enabled\": false, "
             "\"raster\": {\"render_mode\": \"Rasterization\", \"ddgi_enabled\": true, \"samples_per_frame\": 1, "
-            "\"warmup_frames\": 64, \"max_convergence_frames\": 1024, \"preparation_frames\": 8, "
+            "\"warmup_frames\": 64, \"max_history_window_frames\": 1024, \"preparation_frames\": 8, "
             "\"measure_frames\": 120, \"image\": \"sponza-repeatability-anchor.png\"}, "
             "\"ray\": {\"render_mode\": \"RayTracing\", \"ddgi_enabled\": false, \"frames\": 64, "
             "\"samples_per_frame\": 4, \"total_spp\": 256, \"debug_view\": \"Beauty\", \"ser\": \"disabled\", "
@@ -5348,9 +5326,9 @@ bool evo_engine::RunEnvironmentLightingValidationFromEnvironment(const int width
          << "}, \"sky_edit\": {\"update_reasons\": " << sky_update_reasons
          << ", \"recorded_probe_updates\": " << sky_update_stats.recorded_probe_update_count
          << ", \"recorded_ray_samples\": " << sky_update_stats.recorded_ray_sample_count
-         << "}, \"convergence_frames\": " << convergence_frames
-         << ", \"m15_sponza_convergence_frames\": " << m15_sponza_convergence_frames
-         << ", \"canonical_sponza_convergence_frames\": " << sponza_convergence_frames << "},\n  \"checks\": {";
+         << "}, \"history_window_frames\": " << history_window_frames
+         << ", \"m15_sponza_history_window_frames\": " << m15_sponza_history_window_frames
+         << ", \"canonical_sponza_history_window_frames\": " << sponza_history_window_frames << "},\n  \"checks\": {";
   bool all_checks_passed = true;
   for (size_t index = 0; index < checks.size(); ++index) {
     report << (index == 0u ? "" : ",") << "\n    \"" << checks[index].first
@@ -5457,9 +5435,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     std::string name;
     bool requested_enabled = false;
     bool effective_enabled = false;
-    size_t convergence_frames = 0;
-    float variability = 0.0f;
-    uint32_t variability_samples = 0;
+    size_t history_window_frames = 0;
     uint32_t update_reasons = DdgiUpdateReasonNone;
     uint32_t emissive_triangle_count = 0;
     uint32_t enabled_volume_count = 0;
@@ -5488,7 +5464,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     return luminance_sum;
   };
 
-  constexpr size_t max_convergence_frames = 1024;
+  constexpr size_t max_history_window_frames = 1024;
   constexpr size_t timing_prepare_frames = 8;
   constexpr size_t measure_frames = 120;
   const auto run_phase = [&](const std::string& name, const bool enabled) {
@@ -5497,7 +5473,6 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     phase.requested_enabled = enabled;
     settings.runtime.enable_emissive_mesh_sampling = enabled;
     RequestDdgiHistoryReset();
-    ConfigureDdgiGlobalVariability(true, true, render_layer->render_settings.ddgi_probe_variability_threshold);
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
       for (auto& volume : lighting->GetOrCreateDdgiVolumePack()->volumes) {
@@ -5506,27 +5481,26 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     }
     SyncTemporaryEnvironmentalLightingSettingsFromScene(scene);
 
-    bool converged = false;
-    for (; phase.convergence_frames < max_convergence_frames; ++phase.convergence_frames) {
+    bool window_filled = false;
+    for (; phase.history_window_frames < max_history_window_frames; ++phase.history_window_frames) {
       if (!ApplicationContext::Get().Loop()) {
-        throw std::runtime_error("Application ended during DDGI emissive convergence.");
+        throw std::runtime_error("Application ended during DDGI emissive history_window.");
       }
       phase.update_reasons |= render_layer->GetDdgiInspectorSnapshot().last_probe_update_reasons;
       const auto runtime = render_layer->GetDdgiInspectorSnapshot().volumes;
       const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
       if (runtime.size() == 1u && runtime.front().emissive_mesh_sampling_enabled == enabled &&
           runtime.front().has_valid_probe_history && runtime.front().contributes_lighting &&
-          performance.probe_variability_sampling_complete) {
-        ++phase.convergence_frames;
-        converged = true;
+          performance.history_window_complete) {
+        ++phase.history_window_frames;
+        window_filled = true;
         break;
       }
     }
-    if (!converged) {
-      throw std::runtime_error("DDGI emissive phase did not converge: " + name);
+    if (!window_filled) {
+      throw std::runtime_error("DDGI emissive phase did not fill its history window: " + name);
     }
 
-    render_layer->render_settings.ddgi_enable_probe_variability_gating = false;
     if (const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
       lighting->ddgi_settings = settings;
     }
@@ -5552,8 +5526,6 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     }
     const auto& performance = render_layer->GetDdgiInspectorSnapshot().aggregate;
     phase.effective_enabled = runtime.front().emissive_mesh_sampling_enabled;
-    phase.variability = performance.probe_variability_average;
-    phase.variability_samples = performance.probe_variability_sample_count;
     phase.emissive_triangle_count = performance.emissive_triangle_count;
     phase.enabled_volume_count = performance.emissive_sampling_enabled_volume_count;
     phase.candidate_ray_count = performance.emissive_sampling_candidate_ray_count;
@@ -5603,8 +5575,7 @@ bool evo_engine::RunDdgiEmissiveValidationFromEnvironment(const int width, const
     report << (phase_index == 0u ? "" : ",") << "\n    {\"name\": \"" << phase.name
            << "\", \"requested_enabled\": " << (phase.requested_enabled ? "true" : "false")
            << ", \"effective_enabled\": " << (phase.effective_enabled ? "true" : "false")
-           << ", \"convergence_frames\": " << phase.convergence_frames << ", \"variability\": " << phase.variability
-           << ", \"variability_samples\": " << phase.variability_samples
+           << ", \"history_window_frames\": " << phase.history_window_frames
            << ", \"update_reasons\": " << phase.update_reasons
            << ", \"emissive_triangle_count\": " << phase.emissive_triangle_count
            << ", \"enabled_volume_count\": " << phase.enabled_volume_count
@@ -5687,12 +5658,10 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
   RequestDdgiHistoryReset();
   settings.runtime.ray_count = 32;
   settings.runtime.warmup_frames = 4;
-  render_layer->render_settings.ddgi_hysteresis = 0.95f;
   settings.runtime.deterministic_ray_seed_enabled = true;
   settings.runtime.deterministic_ray_seed = 0x4d37564fu;
   settings.storage.max_probe_count = static_cast<int>(DdgiRuntime::kMaxResidentProbeCount);
   DisableDdgiDebugVisualization();
-  ConfigureDdgiGlobalVariability(false, false, render_layer->render_settings.ddgi_probe_variability_threshold);
   Platform::SetGpuTimestampCaptureEnabled(true);
 
   const auto create_volume = [&](const char* name, const glm::ivec3 probe_counts, const float probe_spacing,
@@ -5833,13 +5802,13 @@ bool evo_engine::RunDdgiMultiVolumeValidationFromEnvironment(const int width, co
     return true;
   };
   const auto resource_map = [](const std::vector<DdgiVolumeRuntimeStats>& stats) {
-    std::unordered_map<uint64_t, std::array<uint64_t, 5>> result;
+    std::unordered_map<uint64_t, std::array<uint64_t, 4>> result;
     for (const auto& volume : stats) {
       result.emplace(volume.stable_entity_id, volume.resource_ids);
     }
     return result;
   };
-  const auto resources_preserved = [](const std::unordered_map<uint64_t, std::array<uint64_t, 5>>& previous,
+  const auto resources_preserved = [](const std::unordered_map<uint64_t, std::array<uint64_t, 4>>& previous,
                                       const std::vector<DdgiVolumeRuntimeStats>& current,
                                       const uint64_t excluded_id = 0u) {
     for (const auto& volume : current) {

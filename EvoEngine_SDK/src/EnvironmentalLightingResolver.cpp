@@ -136,10 +136,6 @@ ResolvedEnvironmentalLighting::DdgiVolume ToResolvedDdgiVolume(const Environment
   volume.enable_probe_relocation = source.enable_probe_relocation;
   volume.enable_probe_classification = source.enable_probe_classification;
   volume.relocation_distance = glm::clamp(FiniteOr(source.relocation_distance, 0.25f), 0.0f, 10000.0f);
-  volume.hysteresis_boost_trigger_conditions =
-      source.hysteresis_boost_trigger_conditions & DdgiVolumeTriggerConditionAll;
-  volume.variability_reset_trigger_conditions =
-      source.variability_reset_trigger_conditions & DdgiVolumeTriggerConditionAll;
   return volume;
 }
 

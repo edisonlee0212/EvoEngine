@@ -61,7 +61,7 @@ float3 EE_DDGI_RAY_DIRECTION(const uint ray_index, const uint ray_count, const u
   const bool capture_diagnostics =
       local_probe_index == EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.x;
   uint primary_ray_seed =
-      EE_XXHASH32(uint3(uint(EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w), probe_index, ray_index)) &
+      EE_XXHASH32(uint3(uint(EE_DDGI_PROBE_RAY_CONSTANTS.probe_scroll_offset.w), physical_probe_index, ray_index)) &
       EE_DDGI_RANDOM_SEED_MASK;
   if (primary_ray_seed == EE_DDGI_FIXED_RAY_PAYLOAD_FLAG) {
     primary_ray_seed ^= 0xa511e9b3u;

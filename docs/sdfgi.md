@@ -82,6 +82,8 @@ Missing voxel fields adopt 128/64 and missing spacing adopts 4; explicit seriali
 Select 128/128 with spacing 8 for the pinned Godot reference layout.
 
 History rings, integer sums and shared history-scroll scratch must remain strictly below 4 GiB (4,294,967,296 bytes).
+This is shared with active DDGI rolling histories, their integer sums, and history-origin records; runtime, GUI and
+Python capability checks include the active DDGI allocation footprint.
 The layout estimate includes padded atlas rows; device preflight additionally checks Vulkan image allocation requirements.
 Retiring generations are excluded from this steady-state cap, so runtime transitions can temporarily require more memory.
 Invalid interactive/Python/runtime edits retain the prior configuration; unsupported initial scene settings use diagnosed

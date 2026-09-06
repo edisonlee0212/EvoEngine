@@ -541,7 +541,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   volume.enable_probe_relocation = false;
   volume.enable_probe_classification = true;
   volume.relocation_distance = 0.5f;
-  volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
   const auto ddgi_pack = lighting->GetOrCreateDdgiVolumePack();
   ddgi_pack->volumes.push_back(volume);
 
@@ -609,7 +608,6 @@ TEST(EnvironmentalLightingAsset, SerializesCompleteAuthoringSetup) {
   ExpectMatrixNear(ddgi_pack->volumes.front().transform, volume_transform);
   EXPECT_EQ(ddgi_pack->volumes.front().movement_type, static_cast<int>(DdgiVolumeMovementType::Scrolling));
   EXPECT_TRUE(ddgi_pack->volumes.front().enable_probe_classification);
-  EXPECT_EQ(ddgi_pack->volumes.front().hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionAll);
 }
 
 TEST(EnvironmentalLightingAsset, LegacyInlineDdgiVolumesAreIgnored) {
@@ -995,7 +993,6 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   high_priority_volume.probe_counts = glm::ivec3(2);
   high_priority_volume.probe_spacing = glm::vec3(8.0f);
   high_priority_volume.emissive_mesh_sampling_mode = static_cast<int>(DdgiEmissiveMeshSamplingMode::Off);
-  high_priority_volume.hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionGeometryChanged;
   ddgi_pack->volumes.push_back(high_priority_volume);
   EnvironmentalLighting::DdgiVolume dense_volume;
   dense_volume.stable_id = 100;
@@ -1036,7 +1033,6 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_EQ(resolved.ddgi_volumes[0].stable_id, 200u);
   EXPECT_EQ(resolved.ddgi_volumes[1].stable_id, 100u);
   EXPECT_EQ(resolved.ddgi_volumes[0].emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
-  EXPECT_EQ(resolved.ddgi_volumes[0].hysteresis_boost_trigger_conditions, DdgiVolumeTriggerConditionGeometryChanged);
   EXPECT_TRUE(resolved.ddgi_volumes[1].enable_probe_classification);
 
   lighting->local_reflection_probes_enabled = false;

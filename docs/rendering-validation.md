@@ -84,7 +84,7 @@ policy as `first-requested-frames` and includes both the full window and a final
 It records the stable Application Loop hierarchy with inclusive/self average, median, p95, maximum, observation counts,
 missing-frame zeros, main-thread wall time, and separate worker CPU work. GPU data is grouped by render-pass taxonomy
 with span, summed contributing work, pass duty cycle, and frequency-weighted time. Raster resolution and DDGI
-active/update/trace/convergence sample counts make transient convergence activity explicit; the capture does not wait
+active/update/trace sample counts make DDGI activity explicit; the capture does not wait
 for DDGI steady state.
 For instrumentation-overhead A/B runs, append `--preview-gpu-timestamps disabled`; profile reports otherwise enable GPU
 timestamps automatically. The report records the effective `capture.gpu_timestamps` state.
@@ -158,7 +158,11 @@ The installed-editor validation scripts write their captures, logs, and reports 
 | Environment controls | `python Scripts\run_environment_lighting_validation.py --config RelWithDebInfo --output-dir out\environment-lighting-validation` |
 | Reflection probes | `python Scripts\run_reflection_probe_validation.py --config RelWithDebInfo --output-dir out\reflection-probe-validation` |
 
-Inspect DDGI reports for readiness, convergence, update reasons, finite atlas metadata, correct overlap selection, and
+DDGI report schema 9 records periodic rolling-history windows instead of convergence/variability or hysteresis boosts.
+Existing image baselines need fresh temporal-policy baselines. Python `CaptureCurrentScene` rejects empty or nonfinite
+float output before PNG conversion.
+
+Inspect DDGI reports for readiness, completed history windows, update reasons, finite atlas metadata, correct overlap selection, and
 expected response to light, material, geometry, and environment changes. Reflection-probe checks should cover explicit
 bake publication, priority and boundary selection, global fallback, box/sphere projection, dynamic updates, and the
 absence of recursive local-probe capture.

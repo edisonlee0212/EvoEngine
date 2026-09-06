@@ -11,7 +11,6 @@
 #include "RenderPasses/DdgiProbeScrollPass.hpp"
 #include "RenderPasses/DdgiProbeTracePass.hpp"
 #include "RenderPasses/DdgiProbeUpdatePass.hpp"
-#include "RenderPasses/DdgiProbeVariabilityPass.hpp"
 #include "RenderPasses/DdgiProbeVisualizationPass.hpp"
 #include "RenderPasses/DeferredComputeLightingPass.hpp"
 #include "RenderPasses/DeferredGeometryPass.hpp"
@@ -213,7 +212,7 @@ TEST(RenderGraph, RenderPassDescriptorsExposeExplicitGpuProfilerTaxonomy) {
       DdgiProbeRelocationPass::CreateDescriptor(),
       DdgiProbeScrollPass::CreateDescriptor(),
       DdgiProbeUpdatePass::CreateDescriptor(),
-      DdgiProbeVariabilityPass::CreateDescriptor(),
+      DdgiProbeUpdatePass::CreateHistoryInvalidationDescriptor(true, true),
       DdgiProbeVisualizationPass::CreateDescriptor(),
       DdgiProbeTracePass::CreateDescriptor(),
       DeferredGeometryPass::CreateDescriptor(),
@@ -1039,15 +1038,6 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
                      1,
                      1,
                      false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_atlas,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Persistent,
-                     {RenderResourceSizeMode::Absolute, layout.variability_atlas.resolution.x,
-                      layout.variability_atlas.resolution.y, 1, 1, 1},
-                     "R16F",
-                     1,
-                     1,
-                     false});
   graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
 
@@ -1058,7 +1048,7 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
     return resource.imported;
   }));
   EXPECT_TRUE(plan.allocations.empty());
-  ASSERT_EQ(plan.barriers.size(), 3);
+  ASSERT_EQ(plan.barriers.size(), 2);
   EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
                          [&](const RenderResourceBarrierPlan& barrier) {
                            return graph.GetResources()[barrier.resource_index].name ==
@@ -1071,14 +1061,6 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
                          [&](const RenderResourceBarrierPlan& barrier) {
                            return graph.GetResources()[barrier.resource_index].name ==
                                       RenderResourceNames::frame_ddgi_visibility_atlas &&
-                                  barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
-                                  barrier.next_state == RenderResourceState::TransferDestinationGeneral;
-                         }),
-            plan.barriers.end());
-  EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
-                         [&](const RenderResourceBarrierPlan& barrier) {
-                           return graph.GetResources()[barrier.resource_index].name ==
-                                      RenderResourceNames::frame_ddgi_variability_atlas &&
                                   barrier.barrier_type == RenderGraphBarrierType::ImageLayout &&
                                   barrier.next_state == RenderResourceState::TransferDestinationGeneral;
                          }),
@@ -1253,43 +1235,23 @@ TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterProbeTrace) {
                      1,
                      1,
                      false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_atlas,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Persistent,
-                     {RenderResourceSizeMode::Absolute, layout.variability_atlas.resolution.x,
-                      layout.variability_atlas.resolution.y, 1, 1, 1},
-                     "R16F",
-                     1,
-                     1,
-                     false});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_a,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RGBA32F",
-                     1,
-                     1,
-                     true});
-  graph.AddResource({RenderResourceNames::frame_ddgi_variability_reduction_b,
-                     RenderResourceType::Image,
-                     RenderResourceLifetime::Frame,
-                     {RenderResourceSizeMode::Absolute, layout.variability_reduction_extent.x,
-                      layout.variability_reduction_extent.y, 1, 1, 1},
-                     "RGBA32F",
-                     1,
-                     1,
-                     true});
   graph.AddPass(DdgiProbeTracePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
+  for (size_t i = 0; i < layout.history.buffer_bytes.size(); ++i) {
+    RenderResourceDescriptor resource{RenderResourceNames::frame_ddgi_history[i], RenderResourceType::Buffer,
+                                      RenderResourceLifetime::Imported};
+    resource.byte_size = layout.history.buffer_bytes[i];
+    graph.AddResource(resource);
+  }
   graph.AddPass(DdgiProbeUpdatePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
   graph.AddPass(DdgiProbeRelocationPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
   graph.AddPass(DdgiProbeClassificationPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
   });
-  graph.AddPass(DdgiProbeVariabilityPass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
-  });
+  graph.AddPass(DdgiProbeUpdatePass::CreateHistoryInvalidationDescriptor(true, true),
+                [](const RenderGraphExecutionContext&) {
+                });
 
   const auto plan = graph.Compile();
   ASSERT_TRUE(plan.valid);
@@ -1359,7 +1321,6 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
                layout.probe_state_byte_size);
     add_atlas(RenderResourceNames::frame_ddgi_irradiance_atlas, layout.irradiance_atlas, "RGBA16F");
     add_atlas(RenderResourceNames::frame_ddgi_visibility_atlas, layout.visibility_atlas, "RG16F");
-    add_atlas(RenderResourceNames::frame_ddgi_variability_atlas, layout.variability_atlas, "R16F");
     graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext&) {
     });
     graph.AddPass(
@@ -1370,8 +1331,6 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
           {RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Read,
            RenderResourceState::ShaderRead},
           {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Read,
-           RenderResourceState::ShaderRead},
-          {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Read,
            RenderResourceState::ShaderRead}},
          {RenderPassNames::ddgi_atlas_prepare}},
         [](const RenderGraphExecutionContext&) {
@@ -1391,18 +1350,15 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
     const auto state_index = find_resource_index(RenderResourceNames::frame_ddgi_probe_state);
     const auto irradiance_index = find_resource_index(RenderResourceNames::frame_ddgi_irradiance_atlas);
     const auto visibility_index = find_resource_index(RenderResourceNames::frame_ddgi_visibility_atlas);
-    const auto variability_index = find_resource_index(RenderResourceNames::frame_ddgi_variability_atlas);
     ASSERT_NE(metadata_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(state_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(irradiance_index, RenderGraphConstants::invalid_resource_index);
     ASSERT_NE(visibility_index, RenderGraphConstants::invalid_resource_index);
-    ASSERT_NE(variability_index, RenderGraphConstants::invalid_resource_index);
 
     EXPECT_TRUE(plan.resources[metadata_index].imported);
     EXPECT_TRUE(plan.resources[state_index].imported);
     EXPECT_TRUE(plan.resources[irradiance_index].imported);
     EXPECT_TRUE(plan.resources[visibility_index].imported);
-    EXPECT_TRUE(plan.resources[variability_index].imported);
     EXPECT_EQ(graph.GetResources()[metadata_index].byte_size, layout.probe_metadata_byte_size);
     EXPECT_EQ(graph.GetResources()[state_index].byte_size, layout.probe_state_byte_size);
     EXPECT_TRUE(plan.allocations.empty());
@@ -1410,8 +1366,6 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
     EXPECT_EQ(plan.resources[irradiance_index].resolved_dimensions.height, layout.irradiance_atlas.resolution.y);
     EXPECT_EQ(plan.resources[visibility_index].resolved_dimensions.width, layout.visibility_atlas.resolution.x);
     EXPECT_EQ(plan.resources[visibility_index].resolved_dimensions.height, layout.visibility_atlas.resolution.y);
-    EXPECT_EQ(plan.resources[variability_index].resolved_dimensions.width, layout.variability_atlas.resolution.x);
-    EXPECT_EQ(plan.resources[variability_index].resolved_dimensions.height, layout.variability_atlas.resolution.y);
 
     auto has_barrier = [&](const size_t resource_index, const RenderGraphBarrierType type,
                            const RenderResourceState next_state) {
@@ -1427,9 +1381,6 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
     EXPECT_TRUE(has_barrier(visibility_index, RenderGraphBarrierType::ImageLayout,
                             RenderResourceState::TransferDestinationGeneral));
     EXPECT_TRUE(has_barrier(visibility_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::ShaderRead));
-    EXPECT_TRUE(has_barrier(variability_index, RenderGraphBarrierType::ImageLayout,
-                            RenderResourceState::TransferDestinationGeneral));
-    EXPECT_TRUE(has_barrier(variability_index, RenderGraphBarrierType::ImageLayout, RenderResourceState::ShaderRead));
     EXPECT_NE(std::find_if(plan.barriers.begin(), plan.barriers.end(),
                            [&](const auto& barrier) {
                              return barrier.resource_index == irradiance_index && barrier.memory_dependency &&
@@ -2548,7 +2499,6 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   const auto post_processing_pass = ReadTextFile(SdkPath("src/RenderPasses/PostProcessingPass.cpp"));
   const auto ddgi_probe_update_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeUpdatePass.cpp"));
   const auto ddgi_probe_trace_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeTracePass.cpp"));
-  const auto ddgi_variability_pass = ReadTextFile(SdkPath("src/RenderPasses/DdgiProbeVariabilityPass.cpp"));
 
   EXPECT_NE(lighting_header.find("lighting_descriptor_sets_"), std::string::npos);
   EXPECT_NE(post_processing_header.find("class EVOENGINE_API PerFrameDescriptorSet"), std::string::npos);
@@ -2557,7 +2507,7 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(post_processing_header.find("PerFrameDescriptorSetList downsampling_descriptor_sets"), std::string::npos);
   EXPECT_NE(post_processing_header.find("struct EVOENGINE_API PostProcessingCameraResources"), std::string::npos);
   EXPECT_NE(render_layer_header.find("struct DdgiReadbackTicket"), std::string::npos);
-  EXPECT_NE(render_layer_header.find("variability_readback_tickets"), std::string::npos);
+  EXPECT_NE(render_layer_header.find("history_submission"), std::string::npos);
   EXPECT_EQ(render_layer_source.find("Required DDGI"), std::string::npos);
   EXPECT_NE(render_layer_source.find("Platform::WaitForFrameSubmission(ticket.frame_index"), std::string::npos);
   EXPECT_NE(render_layer_source.find("FrameSubmissionState::Status::Pending"), std::string::npos);
@@ -2575,7 +2525,6 @@ TEST(PlatformFrameScheduling, ProtectsMutableResourcesAcrossFrameSlots) {
   EXPECT_NE(post_processing_pass.find("RetainPostProcessingResources"), std::string::npos);
   EXPECT_NE(ddgi_probe_update_pass.find("RetainBuffer(parameters.metadata_readback_buffer)"), std::string::npos);
   EXPECT_NE(ddgi_probe_trace_pass.find("RetainBuffer(parameters.selected_ray_readback_buffer)"), std::string::npos);
-  EXPECT_NE(ddgi_variability_pass.find("RetainBuffer(parameters.readback_buffer)"), std::string::npos);
   const auto ray_process = post_processing_pass.find("post_processing_stack->ProcessRayCamera");
   const auto ray_retention = post_processing_pass.find("RetainPostProcessingResources", ray_process);
   const auto raster_process =

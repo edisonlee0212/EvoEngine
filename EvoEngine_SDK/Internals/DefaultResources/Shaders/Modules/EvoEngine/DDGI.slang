@@ -46,10 +46,11 @@ public uint EE_DDGI_PROBE_INDEX(uint3 probe_grid, uint3 probe_counts) {
 }
 
 public uint3 EE_DDGI_WRAP_PROBE_GRID(int3 probe_grid, uint3 probe_counts) {
-  int3 counts = int3(max(probe_counts, uint3(1u)));
-  int3 wrapped = probe_grid % counts;
-  wrapped = (wrapped + counts) % counts;
-  return uint3(wrapped);
+  uint3 counts = max(probe_counts, uint3(1u));
+  // Keep remainder operands nonnegative across shader compiler backends.
+  uint3 positive = uint3(max(probe_grid, int3(0))) % counts;
+  uint3 negative = uint3(max(-probe_grid, int3(0))) % counts;
+  return (positive + counts - negative) % counts;
 }
 
 public uint3 EE_DDGI_SCROLL_PROBE_GRID(uint3 probe_grid, int3 scroll_offset, uint3 probe_counts) {

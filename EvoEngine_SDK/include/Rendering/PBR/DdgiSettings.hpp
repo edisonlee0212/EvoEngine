@@ -29,14 +29,13 @@ struct EVOENGINE_API DdgiSettings {
     int ray_count = 192;
     int emissive_ray_count = 64;
     int warmup_frames = 16;
+    int history_count = 30;
     float normal_bias = 0.1f;
     float view_bias = 0.1f;
     float max_ray_distance = 1e27f;
     float distance_exponent = 50.0f;
     float irradiance_gamma = 5.0f;
     float visibility_moment_bias = 0.02f;
-    float irradiance_threshold = 0.25f;
-    float brightness_threshold = 0.10f;
     bool deterministic_ray_seed_enabled = false;
     uint32_t deterministic_ray_seed = 0;
   };

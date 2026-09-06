@@ -15,14 +15,13 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "ray_count" << YAML::Value << settings.runtime.ray_count;
   out << YAML::Key << "emissive_ray_count" << YAML::Value << settings.runtime.emissive_ray_count;
   out << YAML::Key << "warmup_frames" << YAML::Value << settings.runtime.warmup_frames;
+  out << YAML::Key << "history_count" << YAML::Value << settings.runtime.history_count;
   out << YAML::Key << "normal_bias" << YAML::Value << settings.runtime.normal_bias;
   out << YAML::Key << "view_bias" << YAML::Value << settings.runtime.view_bias;
   out << YAML::Key << "max_ray_distance" << YAML::Value << settings.runtime.max_ray_distance;
   out << YAML::Key << "distance_exponent" << YAML::Value << settings.runtime.distance_exponent;
   out << YAML::Key << "irradiance_gamma" << YAML::Value << settings.runtime.irradiance_gamma;
   out << YAML::Key << "visibility_moment_bias" << YAML::Value << settings.runtime.visibility_moment_bias;
-  out << YAML::Key << "irradiance_threshold" << YAML::Value << settings.runtime.irradiance_threshold;
-  out << YAML::Key << "brightness_threshold" << YAML::Value << settings.runtime.brightness_threshold;
   out << YAML::Key << "deterministic_ray_seed_enabled" << YAML::Value
       << settings.runtime.deterministic_ray_seed_enabled;
   out << YAML::Key << "deterministic_ray_seed" << YAML::Value << settings.runtime.deterministic_ray_seed;
@@ -50,6 +49,7 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
 }
 
 void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings) {
+  settings.runtime.history_count = 30;
   if (const auto runtime = in["runtime"]) {
     if (runtime["enabled"])
       settings.runtime.enabled = runtime["enabled"].as<bool>();
@@ -61,6 +61,8 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.emissive_ray_count = runtime["emissive_ray_count"].as<int>();
     if (runtime["warmup_frames"])
       settings.runtime.warmup_frames = runtime["warmup_frames"].as<int>();
+    if (runtime["history_count"])
+      settings.runtime.history_count = runtime["history_count"].as<int>();
     if (runtime["normal_bias"])
       settings.runtime.normal_bias = runtime["normal_bias"].as<float>();
     if (runtime["view_bias"])
@@ -73,10 +75,6 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.irradiance_gamma = runtime["irradiance_gamma"].as<float>();
     if (runtime["visibility_moment_bias"])
       settings.runtime.visibility_moment_bias = runtime["visibility_moment_bias"].as<float>();
-    if (runtime["irradiance_threshold"])
-      settings.runtime.irradiance_threshold = runtime["irradiance_threshold"].as<float>();
-    if (runtime["brightness_threshold"])
-      settings.runtime.brightness_threshold = runtime["brightness_threshold"].as<float>();
     if (runtime["deterministic_ray_seed_enabled"])
       settings.runtime.deterministic_ray_seed_enabled = runtime["deterministic_ray_seed_enabled"].as<bool>();
     if (runtime["deterministic_ray_seed"])
@@ -121,8 +119,6 @@ void evo_engine::DdgiSettings::ClampSettings() {
   runtime.distance_exponent = glm::clamp(runtime.distance_exponent, 0.0f, 256.0f);
   runtime.irradiance_gamma = glm::clamp(runtime.irradiance_gamma, 0.1f, 16.0f);
   runtime.visibility_moment_bias = glm::clamp(runtime.visibility_moment_bias, 0.0f, 10.0f);
-  runtime.irradiance_threshold = glm::clamp(runtime.irradiance_threshold, 0.0f, 1.0f);
-  runtime.brightness_threshold = glm::clamp(runtime.brightness_threshold, 0.0f, 1.0f);
   volume_defaults.probe_counts = glm::clamp(volume_defaults.probe_counts, glm::ivec3(1), glm::ivec3(256));
   volume_defaults.probe_spacing = glm::clamp(volume_defaults.probe_spacing, glm::vec3(0.05f), glm::vec3(10000.0f));
   volume_defaults.movement_type =

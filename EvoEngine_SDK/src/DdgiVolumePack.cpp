@@ -30,10 +30,6 @@ void SerializeVolume(YAML::Emitter& out, const DdgiVolumePack::Volume& volume) {
   out << YAML::Key << "enable_probe_relocation" << YAML::Value << volume.enable_probe_relocation;
   out << YAML::Key << "enable_probe_classification" << YAML::Value << volume.enable_probe_classification;
   out << YAML::Key << "relocation_distance" << YAML::Value << volume.relocation_distance;
-  out << YAML::Key << "hysteresis_boost_trigger_conditions" << YAML::Value
-      << volume.hysteresis_boost_trigger_conditions;
-  out << YAML::Key << "variability_reset_trigger_conditions" << YAML::Value
-      << volume.variability_reset_trigger_conditions;
   out << YAML::EndMap;
 }
 
@@ -65,10 +61,6 @@ void DeserializeVolume(const YAML::Node& in, DdgiVolumePack::Volume& volume) {
     volume.enable_probe_classification = in["enable_probe_classification"].as<bool>();
   if (in["relocation_distance"])
     volume.relocation_distance = in["relocation_distance"].as<float>();
-  if (in["hysteresis_boost_trigger_conditions"])
-    volume.hysteresis_boost_trigger_conditions = in["hysteresis_boost_trigger_conditions"].as<int>();
-  if (in["variability_reset_trigger_conditions"])
-    volume.variability_reset_trigger_conditions = in["variability_reset_trigger_conditions"].as<int>();
   volume.ClampSettings();
 }
 }  // namespace
@@ -81,8 +73,6 @@ void DdgiVolumePack::Volume::ClampSettings() {
       glm::clamp(emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit),
                  static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
   relocation_distance = glm::clamp(relocation_distance, 0.0f, 10000.0f);
-  hysteresis_boost_trigger_conditions &= DdgiVolumeTriggerConditionAll;
-  variability_reset_trigger_conditions &= DdgiVolumeTriggerConditionAll;
 }
 
 uint32_t DdgiVolumePack::Volume::GetProbeAmount() const {

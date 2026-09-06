@@ -23,7 +23,7 @@ Entity transforms, enabled/Static flags, materials, lights, and the currently di
 ### Asset ownership
 
 `EnvironmentalLighting` owns shared DDGI settings and references a `DdgiVolumePack`. The pack is a YAML asset containing
-volume definitions and stable IDs. GPU buffers, atlases, probe history, relocation, classification, convergence, and
+volume definitions and stable IDs. GPU buffers, atlases, probe history, relocation, classification, and
 diagnostic readbacks are transient `RenderLayer` state.
 
 Create or assign a DDGI volume pack from the Environmental Lighting inspector, add one or more volumes, enable DDGI, and
@@ -51,17 +51,17 @@ rebuilding does not hide a lower-ranked ready volume.
 
 ## Runtime Flow
 
-Each active volume owns persistent probe state plus irradiance, visibility, and variability atlases. The render graph
+Each active volume owns persistent probe state, irradiance/visibility atlases, and quantized rolling histories. The render graph
 records the following work when required:
 
 1. Prepare or clear persistent state for a new layout, reset, or newly exposed scrolling region.
 2. Trace probe rays through the scene acceleration structure.
 3. Filter ray results into octahedral irradiance and visibility atlas tiles.
-4. Update relocation, classification, variability, and convergence state.
+4. Update relocation and classification, then invalidate moved/reactivated probes before publication.
 5. Sample ready atlases during deferred lighting and recursive DDGI hit shading.
 
 Probe directions use a spherical Fibonacci distribution. Fixed relocation/classification rays are deterministic; normal
-lighting rays receive a frame-wide random rotation. The default runtime settings trace 192 scene rays and 64 exact
+lighting rays receive a periodic per-volume rotation. The default runtime settings trace 192 scene rays and 64 exact
 emissive-triangle rays per updated probe.
 
 The DDGI acceleration structure includes supported triangle geometry and explicitly registered external DDGI geometry.
@@ -69,28 +69,44 @@ Strands and Gaussian splats are not traversed. Alpha-masked triangle hits use de
 transmissive surfaces use straight-through traversal with colored attenuation for probe, emissive-target, and visibility
 rays. Volume attenuation is applied between entry and exit intersections, but DDGI does not refract the ray direction.
 
-## Probe Updates And Convergence
+## Rolling Probe History
 
-An update covers the complete probe volume. Irradiance history blends new observations using the volume's hysteresis
-settings. Cold-start warmup fills empty history quickly; compatible light, geometry, and material changes temporarily
-lower hysteresis without destroying otherwise useful probe data.
+**RenderLayer → DDGI → Blending → History count** selects 5–30 probe updates in steps of 5 (default 30).
+The value belongs to the scene's EnvironmentalLighting DDGI settings, is serialized as `runtime.history_count`,
+and is available through Python's `GetCurrentSceneDdgiHistoryCount` and `SetCurrentSceneDdgiHistoryCount`.
+Missing keys use 30; obsolete hysteresis, temporal-response, convergence, and per-volume trigger keys are ignored.
 
-Variability measurements determine when stable volumes can pause updates. The render layer applies one variability,
-gating, pause, backface-threshold, and convergence-budget policy to every volume. Gating requires three consecutive
-complete-volume observations and considers average change, the unstable fraction, and severe outliers. Warmup and a
-temporary scene-change hysteresis boost always continue through the return to normal hysteresis, even if variability
-converges sooner. An unconverged volume then receives at most 128 additional valid full-volume updates before entering
-a distinct maximum-reached state. Both convergence and maximum exhaustion are sampling-complete and retain lighting
-from the existing atlases.
+Each active volume stores interior irradiance and visibility texels in a ring. Irradiance samples are linear and bounded
+to 64 before 16-bit quantization. Visibility moments are normalized by their per-volume distance bounds. Integer
+32-bit running sums replace the outgoing quantized sample exactly; averaged irradiance is gamma-encoded only when
+writing the lighting atlas. Borders are rebuilt from those averaged interiors. Invalid estimates leave the old slot intact.
 
-There is no periodic refresh. Any scene change that activates the hysteresis boost starts a new convergence cycle;
-manual reset, incompatible source or layout changes, scrolling clears, emissive-population changes, and variability
-policy changes also restart it. These controls are live `RenderSettings` values and are not serialized into DDGI volume
-assets.
+New/reset histories start at zero and always divide by the full selected window. Both uniform rotations and emissive
+sampling repeat over the same window using stable volume/probe identities and optional custom seeds. The phase advances
+only after a completed paired irradiance/visibility update, not with display-frame indices. In-flight updates reserve
+successive ring slots without waiting on fences or reducing normal update cadence.
+For unchanged sampled inputs, replacing a repeated sample leaves the integer sum exactly unchanged. Bounce feedback,
+lights, geometry, and relocation can still change those inputs.
 
-Hard resets are reserved for incompatible layouts, source changes, manual reset, or scrolling movement that spans an
-entire probe-grid dimension. A compatible scrolling volume ring-maps its history and clears only newly exposed probe
-slabs.
+Updates continue after filling the window. Manual pause remains available; there is no convergence stopping or
+hysteresis boost. Ordinary lighting changes roll through the ring. Window/ray-population/seed changes and incompatible
+layouts reset history. Scrolling preserves retained physical slots and clears newly exposed probes. Relocation and
+classification changes clear affected histories and atlas tiles before their new positions are sampled.
+Reflection-probe capture waits for an initial history window and relocation warmup.
+
+Steady-state history allocations across GI providers must remain **strictly below 4 GiB**, including rings, integer
+sums, SDFGI scroll scratch, and DDGI history-origin records. Device-padded allocation sizes are used in runtime preflight;
+device buffer/image limits also apply. Invalid edits are rejected without silently reducing quality. Retiring allocations
+are excluded from this steady-state limit and remain fence-retained.
+
+This rolling-history policy intentionally departs from DDGI hysteresis, following the integer-ring model in pinned Godot
+`C:/Users/lllll/Documents/GitHub/godot` at `34d06658a85845111a50db9e485ec4a0701d4298`.
+Godot remains the first reference when behavior is uncertain; DDGI's geometry-based relocation is unchanged.
+
+The rolling-history delivery was checked on RTX 5070 with an installed 2560×1440 Sponza run, RT pipeline/query and
+BLAS/TLAS enabled, 30 → 5 → 30 history transitions, finite float captures, and continued per-frame periodic updates.
+Focused CPU/shader and Vulkan fixtures cover quantized startup/replacement, rejected samples, moved/reactivated probe
+invalidation, and signed scrolling. Appearance acceptance remains manual; old hysteresis images are not acceptance baselines.
 
 ## Relocation And Classification
 
@@ -144,7 +160,7 @@ emissive radiance automatically when geometry changes.
 The Environmental Lighting inspector owns persistent settings and volume authoring. The Render Layer inspector exposes
 runtime state, including:
 
-- volume readiness, memory, convergence, warmup, and rejection reasons;
+- volume readiness, memory, history-window completion, relocation warmup, and rejection reasons;
 - probe positions, irradiance/state visualization, and one explicitly selected probe;
 - selected-probe rays and metadata such as hit distance, backface ratio, relocation, and active state;
 - emissive inventory and sampling eligibility summaries.

@@ -1654,47 +1654,6 @@ bool InspectDdgiRuntimeControls(DdgiSettings::RuntimeSettings& runtime) {
   return changed;
 }
 
-bool DrawDdgiVolumeTriggerConditionCheckbox(const char* label, int& conditions, const int condition) {
-  bool enabled = (conditions & condition) != 0;
-  if (!ImGui::Checkbox(label, &enabled)) {
-    return false;
-  }
-  if (enabled) {
-    conditions |= condition;
-  } else {
-    conditions &= ~condition;
-  }
-  conditions &= DdgiVolumeTriggerConditionAll;
-  return true;
-}
-
-bool InspectDdgiVolumeTriggerConditions(const char* label, int& conditions) {
-  bool changed = false;
-  conditions &= DdgiVolumeTriggerConditionAll;
-  if (ImGui::TreeNode(label)) {
-    changed = DrawDdgiVolumeTriggerConditionCheckbox("Light enable changed", conditions,
-                                                     DdgiVolumeTriggerConditionLightEnableChanged) ||
-              changed;
-    changed = DrawDdgiVolumeTriggerConditionCheckbox("Lighting condition changed", conditions,
-                                                     DdgiVolumeTriggerConditionLightingConditionChanged) ||
-              changed;
-    changed = DrawDdgiVolumeTriggerConditionCheckbox("Geometry changed", conditions,
-                                                     DdgiVolumeTriggerConditionGeometryChanged) ||
-              changed;
-    if (ImGui::Button("Enable all")) {
-      changed = conditions != DdgiVolumeTriggerConditionAll || changed;
-      conditions = DdgiVolumeTriggerConditionAll;
-    }
-    ImGui::SameLine();
-    if (ImGui::Button("Disable all")) {
-      changed = conditions != DdgiVolumeTriggerConditionNone || changed;
-      conditions = DdgiVolumeTriggerConditionNone;
-    }
-    ImGui::TreePop();
-  }
-  return changed;
-}
-
 std::string FormatDdgiBytes(const uint64_t bytes) {
   constexpr std::array<const char*, 4> units{"B", "KiB", "MiB", "GiB"};
   double value = static_cast<double>(bytes);
@@ -1723,16 +1682,12 @@ const char* GetDdgiSceneStatus(const RenderLayer::DdgiInspectorSnapshot& snapsho
   if (std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
         return volume.warmup_active;
       }))
-    return "Warming up";
+    return "Relocation warmup";
   if (snapshot.volumes.empty() || std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
         return !volume.sampling_complete;
       }))
     return "Updating";
-  if (std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
-        return volume.maximum_reached;
-      }))
-    return "Maximum reached";
-  return "Converged";
+  return "Updating / history window filled";
 }
 
 const char* GetDdgiVolumeStatus(const DdgiVolumeRuntimeStats& volume, const RenderLayer::DdgiSessionState& session) {
@@ -1743,11 +1698,7 @@ const char* GetDdgiVolumeStatus(const DdgiVolumeRuntimeStats& volume, const Rend
   if (session.pause_updates)
     return volume.pending_scene_changes ? "Paused / stale frozen" : "Paused / frozen";
   if (volume.warmup_active)
-    return "Warming up";
-  if (volume.maximum_reached)
-    return "Maximum reached";
-  if (volume.converged)
-    return "Converged";
+    return "Relocation warmup";
   return volume.has_valid_probe_history ? "Updating" : "Initializing";
 }
 
@@ -1821,33 +1772,34 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
   }
 
   if (ImGui::TreeNodeEx("Blending", ImGuiTreeNodeFlags_DefaultOpen)) {
-    ImGui::DragFloat("Normal hysteresis", &render_layer.render_settings.ddgi_hysteresis, 0.001f, 0.0f, 1.0f, "%.3f");
-    ImGui::DragFloat("Boosted hysteresis", &render_layer.render_settings.ddgi_boosted_hysteresis, 0.001f, 0.0f, 1.0f,
-                     "%.3f");
-    ImGui::DragFloat("Restore speed", &render_layer.render_settings.ddgi_hysteresis_restore_speed, 0.001f, 0.0f, 1.0f,
-                     "%.3f");
-    render_layer.render_settings.ddgi_hysteresis = glm::clamp(render_layer.render_settings.ddgi_hysteresis, 0.0f, 1.0f);
-    render_layer.render_settings.ddgi_boosted_hysteresis =
-        glm::clamp(render_layer.render_settings.ddgi_boosted_hysteresis, 0.0f, 1.0f);
-    render_layer.render_settings.ddgi_hysteresis_restore_speed =
-        glm::clamp(render_layer.render_settings.ddgi_hysteresis_restore_speed, 0.0f, 1.0f);
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    static std::string history_error;
+    if (lighting) {
+      const auto count = lighting->ddgi_settings.runtime.history_count;
+      if (ImGui::BeginCombo("History count", std::to_string(count).c_str())) {
+        for (const int candidate : {5, 10, 15, 20, 25, 30})
+          if (ImGui::Selectable(std::to_string(candidate).c_str(), candidate == count))
+            render_layer.SetDdgiHistoryCount(scene, candidate, history_error);
+        ImGui::EndCombo();
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Number of probe updates in the rolling average. Changes clear history. New histories ramp "
+            "from zero over the full window; updates continue afterward. Combined histories must stay below 4 GiB.");
+      if (!history_error.empty())
+        ImGui::TextWrapped("%s", history_error.c_str());
+    } else {
+      ImGui::TextDisabled("The scene has no EnvironmentalLighting asset.");
+    }
     ImGui::TreePop();
   }
 
-  if (ImGui::TreeNodeEx("Variability and probe validity", ImGuiTreeNodeFlags_DefaultOpen)) {
+  if (ImGui::TreeNodeEx("Probe validity", ImGuiTreeNodeFlags_DefaultOpen)) {
     auto& settings = render_layer.render_settings;
-    ImGui::Checkbox("Probe variability", &settings.ddgi_enable_probe_variability);
-    ImGui::Checkbox("Probe variability gating", &settings.ddgi_enable_probe_variability_gating);
-    ImGui::Checkbox("Pause updates after convergence", &settings.ddgi_pause_probe_updates_after_convergence);
     ImGui::DragFloat("Random ray backface threshold", &settings.ddgi_random_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
     ImGui::DragFloat("Fixed ray backface threshold", &settings.ddgi_fixed_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
-    ImGui::DragFloat("Variability threshold", &settings.ddgi_probe_variability_threshold, 0.01f, 0.0f, 10.0f);
-    ImGui::DragInt("Variability maximum frames", &settings.ddgi_probe_variability_maximum_frames, 1.0f, 1, 4096);
     settings.ddgi_random_ray_backface_threshold = glm::clamp(settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
     settings.ddgi_fixed_ray_backface_threshold = glm::clamp(settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
-    settings.ddgi_probe_variability_threshold = glm::clamp(settings.ddgi_probe_variability_threshold, 0.0f, 10.0f);
-    settings.ddgi_probe_variability_maximum_frames =
-        glm::clamp(settings.ddgi_probe_variability_maximum_frames, 1, 4096);
     ImGui::TreePop();
   }
 
@@ -1863,8 +1815,6 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     ImGui::Text("Status: %s", GetDdgiSceneStatus(snapshot, session));
     ImGui::Text("Volumes: %zu   Probes: %llu   Memory: %s", snapshot.volumes.size(),
                 static_cast<unsigned long long>(resident_probes), FormatDdgiBytes(resident_bytes).c_str());
-    ImGui::Text("Hysteresis boost: %u active, %u restoring", snapshot.aggregate.hysteresis_boosted_volume_count,
-                snapshot.aggregate.hysteresis_restoring_volume_count);
     if (!snapshot.validation_error.empty()) {
       ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", snapshot.validation_error.c_str());
     }
@@ -1899,11 +1849,6 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(GetDdgiVolumeStatus(volume, session));
         ImGui::TextDisabled("%s", DdgiRuntime::FormatUpdateReasons(volume.last_probe_update_reasons).c_str());
-        ImGui::TextDisabled(
-            "Hysteresis %.3f (%s)", volume.current_hysteresis,
-            volume.hysteresis_boost_restoring ? "restoring" : (volume.hysteresis_boost_active ? "boosted" : "normal"));
-        ImGui::TextDisabled("Variability budget %u / %u", volume.variability_budget_frame_count,
-                            volume.variability_maximum_frames);
         ImGui::TableNextColumn();
         if (session.selected_volume_id == volume.stable_entity_id) {
           ImGui::TextUnformatted("Selected");
@@ -2779,12 +2724,6 @@ bool InspectDdgiVolumePack(InspectorContext& context, DdgiVolumePack& pack) {
       changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
       changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
       changed = ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-      changed =
-          InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers", volume.hysteresis_boost_trigger_conditions) ||
-          changed;
-      changed = InspectDdgiVolumeTriggerConditions("Variability reset triggers",
-                                                   volume.variability_reset_trigger_conditions) ||
-                changed;
       if (ImGui::Button("Remove")) {
         pack.volumes.erase(pack.volumes.begin() + static_cast<std::ptrdiff_t>(index));
         changed = true;
@@ -2995,8 +2934,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       auto& settings = lighting.sdfgi_settings;
       const auto previous_settings = settings;
       const auto valid_density = [&](const SdfgiSettings& candidate) {
+        const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
         return QuerySdfgiCapabilities(candidate.cascade_count, candidate.history_size, candidate.voxel_count_x,
-                                      candidate.voxel_count_y, candidate.probe_spacing_cells)
+                                      candidate.voxel_count_y, candidate.probe_spacing_cells,
+                                      render ? render->GetDdgiHistoryAllocationBytes() : 0)
             .Supported();
       };
       const auto voxel_count = [&](const char* label, uint32_t& value) {
@@ -3164,7 +3105,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           changed = ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling) || changed;
           changed = ImGui::DragInt("Uniform ray count", &runtime.ray_count, 1.0f, 1, 4096) || changed;
           changed = ImGui::DragInt("Emissive ray count", &runtime.emissive_ray_count, 1.0f, 0, 4096) || changed;
-          changed = ImGui::DragInt("Warm up frames", &runtime.warmup_frames, 1.0f, 0, 4096) || changed;
+          changed = ImGui::DragInt("Relocation warmup frames", &runtime.warmup_frames, 1.0f, 0, 4096) || changed;
           changed = ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
           changed = ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f) || changed;
@@ -3172,10 +3113,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           changed = ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f) || changed;
           changed = ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f) ||
                     changed;
-          changed =
-              ImGui::DragFloat("Irradiance threshold", &runtime.irradiance_threshold, 0.001f, 0.0f, 1.0f) || changed;
-          changed =
-              ImGui::DragFloat("Brightness threshold", &runtime.brightness_threshold, 0.001f, 0.0f, 1.0f) || changed;
           changed = ImGui::Checkbox("Deterministic ray seed", &runtime.deterministic_ray_seed_enabled) || changed;
           if (runtime.deterministic_ray_seed_enabled)
             changed = ImGui::InputScalar("Ray seed", ImGuiDataType_U32, &runtime.deterministic_ray_seed) || changed;
@@ -3261,12 +3198,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
             changed =
                 ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-            changed = InspectDdgiVolumeTriggerConditions("Hysteresis boost triggers",
-                                                         volume.hysteresis_boost_trigger_conditions) ||
-                      changed;
-            changed = InspectDdgiVolumeTriggerConditions("Variability reset triggers",
-                                                         volume.variability_reset_trigger_conditions) ||
-                      changed;
             if (ImGui::Button("Remove")) {
               editor_layer->ClearEnvironmentalLightingGizmoTarget(lighting.GetHandle());
               ddgi_pack->volumes.erase(ddgi_pack->volumes.begin() + static_cast<std::ptrdiff_t>(index));

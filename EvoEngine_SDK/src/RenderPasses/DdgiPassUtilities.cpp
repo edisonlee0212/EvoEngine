@@ -77,7 +77,6 @@ void evo_engine::ApplyDdgiImageDependency(const VkCommandBuffer command_buffer, 
 void evo_engine::AcquireDdgiFrameResources(const VkCommandBuffer command_buffer,
                                            const std::shared_ptr<Image>& irradiance_atlas,
                                            const std::shared_ptr<Image>& visibility_atlas,
-                                           const std::shared_ptr<Image>& variability_atlas,
                                            const std::shared_ptr<Buffer>& probe_state,
                                            const std::shared_ptr<Buffer>& probe_metadata,
                                            const std::shared_ptr<Buffer>& selected_ray_diagnostics) {
@@ -116,7 +115,6 @@ void evo_engine::AcquireDdgiFrameResources(const VkCommandBuffer command_buffer,
   };
   append_image(irradiance_atlas);
   append_image(visibility_atlas);
-  append_image(variability_atlas);
 
   std::array<VkBufferMemoryBarrier2, 3> buffer_barriers{};
   uint32_t buffer_barrier_count = 0u;

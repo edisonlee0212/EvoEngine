@@ -80,9 +80,6 @@ struct ResolvedEnvironmentalLighting {
     bool enable_probe_relocation = true;
     bool enable_probe_classification = false;
     float relocation_distance = 0.25f;
-    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int variability_reset_trigger_conditions =
-        DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
   };
 
   AssetRef scene_global_reflection_probe_fallback;

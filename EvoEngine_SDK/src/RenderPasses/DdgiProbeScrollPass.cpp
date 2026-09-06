@@ -16,23 +16,19 @@ void RecordProbeScroll(const VkCommandBuffer vk_command_buffer, const RenderGrap
   }
   const auto* irradiance_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_irradiance_atlas);
   const auto* visibility_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_visibility_atlas);
-  const auto* variability_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_variability_atlas);
   const auto* metadata_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_metadata);
   const auto* state_binding = context.GetResourceBinding(RenderResourceNames::frame_ddgi_probe_state);
   if (!irradiance_binding || !irradiance_binding->image || !visibility_binding || !visibility_binding->image ||
-      !variability_binding || !variability_binding->image || !metadata_binding || !metadata_binding->buffer ||
-      !state_binding || !state_binding->buffer) {
+      !metadata_binding || !metadata_binding->buffer || !state_binding || !state_binding->buffer) {
     return;
   }
   const auto irradiance_view = CreateGraphImageMipView(irradiance_binding->image, 0);
   const auto visibility_view = CreateGraphImageMipView(visibility_binding->image, 0);
-  const auto variability_view = CreateGraphImageMipView(variability_binding->image, 0);
-  if (!irradiance_view || !visibility_view || !variability_view) {
+  if (!irradiance_view || !visibility_view) {
     return;
   }
   parameters.transient_resources->RetainImageView(irradiance_view);
   parameters.transient_resources->RetainImageView(visibility_view);
-  parameters.transient_resources->RetainImageView(variability_view);
 
   const auto descriptor_set = std::make_shared<DescriptorSet>(parameters.descriptor_set_layout);
   VkDescriptorImageInfo image_info{};
@@ -43,8 +39,6 @@ void RecordProbeScroll(const VkCommandBuffer vk_command_buffer, const RenderGrap
   descriptor_set->UpdateImageDescriptorBinding(2, image_info);
   descriptor_set->UpdateBufferDescriptorBinding(3, metadata_binding->buffer);
   descriptor_set->UpdateBufferDescriptorBinding(4, state_binding->buffer);
-  image_info.imageView = variability_view->GetVkImageView();
-  descriptor_set->UpdateImageDescriptorBinding(5, image_info);
 
   ApplyGraphResourceBarriers(vk_command_buffer, context);
   const RenderPassGpuTimestampScope gpu_timestamp(vk_command_buffer, context);
@@ -65,8 +59,6 @@ RenderPassDescriptor DdgiProbeScrollPass::CreateDescriptor() {
                                   {{RenderResourceNames::frame_ddgi_irradiance_atlas, RenderResourceUsage::Write,
                                     RenderResourceState::StorageReadWrite},
                                    {RenderResourceNames::frame_ddgi_visibility_atlas, RenderResourceUsage::Write,
-                                    RenderResourceState::StorageReadWrite},
-                                   {RenderResourceNames::frame_ddgi_variability_atlas, RenderResourceUsage::Write,
                                     RenderResourceState::StorageReadWrite},
                                    {RenderResourceNames::frame_ddgi_probe_metadata, RenderResourceUsage::Write,
                                     RenderResourceState::StorageReadWrite},

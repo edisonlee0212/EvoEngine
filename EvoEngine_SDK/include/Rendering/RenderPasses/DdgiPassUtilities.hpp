@@ -16,7 +16,6 @@ void ApplyDdgiImageDependency(VkCommandBuffer command_buffer, const std::shared_
                               VkPipelineStageFlags2 destination_stages, VkAccessFlags2 destination_access);
 void AcquireDdgiFrameResources(VkCommandBuffer command_buffer, const std::shared_ptr<Image>& irradiance_atlas,
                                const std::shared_ptr<Image>& visibility_atlas,
-                               const std::shared_ptr<Image>& variability_atlas,
                                const std::shared_ptr<Buffer>& probe_state,
                                const std::shared_ptr<Buffer>& probe_metadata,
                                const std::shared_ptr<Buffer>& selected_ray_diagnostics);

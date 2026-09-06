@@ -61,16 +61,8 @@ struct EVOENGINE_API RenderSettings {
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
-  float ddgi_hysteresis = 0.97f;                 ///< History weight used by normal DDGI probe updates.
-  float ddgi_boosted_hysteresis = 0.85f;         ///< History weight used while a DDGI hysteresis boost is active.
-  float ddgi_hysteresis_restore_speed = 0.001f;  ///< Hysteresis restored toward normal per unpaused frame.
-  bool ddgi_enable_probe_variability = true;
-  bool ddgi_enable_probe_variability_gating = true;
-  bool ddgi_pause_probe_updates_after_convergence = true;
   float ddgi_random_ray_backface_threshold = 0.1f;
   float ddgi_fixed_ray_backface_threshold = 0.25f;
-  float ddgi_probe_variability_threshold = 0.03f;
-  int ddgi_probe_variability_maximum_frames = 128;
 
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
@@ -123,8 +115,8 @@ struct DdgiProbeAtlasUpdatePushConstant {
   glm::uvec4 probe_count_ray_count_and_tile_sizes = glm::uvec4(1, 1, 1, 1);
   glm::uvec4 atlas_columns_fixed_ray_count_and_update_mode = glm::uvec4(1, 1, 0, 0);
   glm::uvec4 probe_counts_and_rotation = glm::uvec4(1, 1, 1, 0);
-  glm::vec4 update_parameters = glm::vec4(1e27f, 0.97f, 5.0f, 0.0f);
-  glm::vec4 blend_parameters = glm::vec4(0.1f, 50.0f, 0.10f, 0.2f);
+  glm::vec4 update_parameters = glm::vec4(1e27f, 1.0f, 5.0f, 0.0f);
+  glm::vec4 blend_parameters = glm::vec4(0.1f, 50.0f, 30.0f, 0.0f);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
   glm::ivec4 probe_scroll_delta = glm::ivec4(0);
   glm::vec4 probe_step_x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
@@ -137,11 +129,6 @@ struct DdgiProbeScrollPushConstant {
   glm::uvec4 atlas_columns_visibility_tile_and_probe_count = glm::uvec4(1, 1, 1, 1);
   glm::ivec4 probe_scroll_offset = glm::ivec4(0);
   glm::ivec4 probe_scroll_delta = glm::ivec4(0);
-};
-
-struct DdgiProbeVariabilityPushConstant {
-  glm::uvec4 input_output_extent = glm::uvec4(1, 1, 1, 1);
-  glm::uvec4 atlas_parameters = glm::uvec4(1, 1, 1, 0);
 };
 
 struct DdgiProbeRelocationPushConstant {

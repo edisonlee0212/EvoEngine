@@ -32,6 +32,32 @@ uint32_t DdgiRuntime::GetProbeCount(const glm::ivec3& probe_counts) {
          static_cast<uint32_t>(probe_counts.z);
 }
 
+bool DdgiRuntime::AddDeviceHistoryAllocations(const DdgiHistoryLayout& layout, GiHistoryBudget& budget,
+                                              std::string& error) {
+  std::array<uint64_t, DdgiHistoryLayout::BufferCount> allocations{};
+  for (size_t i = 0; i < allocations.size(); ++i) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = layout.buffer_bytes[i];
+    info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
+                 VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VkBuffer buffer = VK_NULL_HANDLE;
+    if (vkCreateBuffer(Platform::GetVkDevice(), &info, nullptr, &buffer) != VK_SUCCESS) {
+      error = "DDGI history buffer is unsupported by the current device.";
+      return false;
+    }
+    VkMemoryRequirements requirements{};
+    vkGetBufferMemoryRequirements(Platform::GetVkDevice(), buffer, &requirements);
+    vkDestroyBuffer(Platform::GetVkDevice(), buffer, nullptr);
+    allocations[i] = requirements.size;
+  }
+  if (!DdgiHistoryLayout::AddAllocationBytes(allocations, budget)) {
+    error = "Combined device-padded GI histories must remain strictly below 4 GiB.";
+    return false;
+  }
+  return true;
+}
+
 uint32_t DdgiRuntime::GetFixedRayCount(const uint32_t ray_count, const bool fixed_rays_enabled) {
   return fixed_rays_enabled && ray_count > 1u ? glm::min(32u, ray_count - 1u) : 0u;
 }
@@ -49,88 +75,10 @@ DdgiProbeUpdateVariant DdgiRuntime::ParseProbeUpdateVariant(const std::string_vi
   return DdgiProbeUpdateVariant::Serial;
 }
 
-DdgiProbeConvergenceUpdate DdgiRuntime::AdvanceProbeConvergence(const DdgiProbeConvergenceState& state,
-                                                                const DdgiProbeVariabilityObservation& observation,
-                                                                const float entry_threshold) {
-  DdgiProbeConvergenceUpdate update{state};
-  if (!observation.valid || !std::isfinite(observation.average) || !std::isfinite(observation.maximum) ||
-      !std::isfinite(observation.unstable_fraction) || !std::isfinite(observation.weight) ||
-      observation.average < 0.0f || observation.maximum < 0.0f || observation.unstable_fraction < 0.0f ||
-      observation.unstable_fraction > 1.0f || observation.weight <= 0.0f) {
-    if (!state.converged) {
-      update.state.stable_sample_count = 0u;
-    }
-    return update;
-  }
-  update.state.sample_count++;
-  const auto enter = glm::max(entry_threshold, 0.0f);
-  if (state.converged) {
-    if (observation.average > enter * kProbeVariabilityExitThresholdScale ||
-        observation.maximum > enter * kProbeVariabilityMaximumThresholdScale * kProbeVariabilityExitThresholdScale ||
-        observation.unstable_fraction >
-            kProbeVariabilityAllowedUnstableFraction * kProbeVariabilityExitUnstableFractionScale) {
-      update.state.converged = false;
-      update.state.stable_sample_count = 0u;
-    }
-    return update;
-  }
-  const bool stable = observation.average <= enter &&
-                      observation.maximum <= enter * kProbeVariabilityMaximumThresholdScale &&
-                      observation.unstable_fraction <= kProbeVariabilityAllowedUnstableFraction;
-  update.state.stable_sample_count = stable ? state.stable_sample_count + 1u : 0u;
-  if (update.state.stable_sample_count >= kProbeVariabilityStableSampleCount) {
-    update.state.stable_sample_count = kProbeVariabilityStableSampleCount;
-    update.state.converged = true;
-    update.entered_convergence = true;
-  }
-  return update;
-}
-
-DdgiProbeVariabilityBudgetState DdgiRuntime::ResetProbeVariabilityBudget(const DdgiProbeVariabilityBudgetState& state) {
-  DdgiProbeVariabilityBudgetState reset;
-  reset.cycle = state.cycle + 1u;
-  if (reset.cycle == 0u) {
-    reset.cycle = 1u;
-  }
-  return reset;
-}
-
-DdgiProbeVariabilityBudgetUpdate DdgiRuntime::ReserveProbeVariabilityBudgetFrame(
-    const DdgiProbeVariabilityBudgetState& state, const uint32_t maximum_frame_count) {
-  DdgiProbeVariabilityBudgetUpdate update{state};
-  const auto maximum = glm::max(maximum_frame_count, 1u);
-  if (state.completed_frame_count + state.pending_frame_count >= maximum) {
-    update.maximum_reached = state.completed_frame_count >= maximum;
-    return update;
-  }
-  ++update.state.pending_frame_count;
-  update.accepted = true;
-  return update;
-}
-
-DdgiProbeVariabilityBudgetUpdate DdgiRuntime::ResolveProbeVariabilityBudgetFrame(
-    const DdgiProbeVariabilityBudgetState& state, const uint64_t ticket_cycle, const bool valid_observation,
-    const uint32_t maximum_frame_count) {
-  DdgiProbeVariabilityBudgetUpdate update{state};
-  const auto maximum = glm::max(maximum_frame_count, 1u);
-  if (ticket_cycle != state.cycle || state.pending_frame_count == 0u) {
-    update.maximum_reached = state.completed_frame_count >= maximum;
-    return update;
-  }
-  --update.state.pending_frame_count;
-  if (valid_observation) {
-    ++update.state.completed_frame_count;
-  }
-  update.accepted = true;
-  update.maximum_reached = update.state.completed_frame_count >= maximum;
-  return update;
-}
-
 bool DdgiRuntime::IsReflectionProbeRuntimeReady(const bool has_valid_history, const bool lighting_descriptors_bound,
-                                                const bool variability_gating_enabled,
-                                                const bool variability_sampling_complete) {
-  return has_valid_history && lighting_descriptors_bound &&
-         (!variability_gating_enabled || variability_sampling_complete);
+                                                const bool history_window_complete,
+                                                const bool relocation_warmup_active) {
+  return has_valid_history && lighting_descriptors_bound && history_window_complete && !relocation_warmup_active;
 }
 
 DdgiProbeUpdateVariant DdgiRuntime::ResolveProbeUpdateVariant(const DdgiProbeUpdateVariant requested,
@@ -336,11 +284,25 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
     layout.error = !layout.irradiance_atlas.valid ? layout.irradiance_atlas.error : layout.visibility_atlas.error;
     return layout;
   }
-  layout.variability_atlas = layout.irradiance_atlas;
-  layout.variability_atlas.resolution = {layout.variability_atlas.columns * layout.variability_atlas.tile_resolution,
-                                         layout.variability_atlas.rows * layout.variability_atlas.tile_resolution};
-  layout.variability_reduction_extent = {glm::max(1u, (layout.variability_atlas.resolution.x + 15u) / 16u),
-                                         glm::max(1u, (layout.variability_atlas.resolution.y + 15u) / 16u)};
+  if (!DdgiHistoryLayout::Calculate(layout.probe_count, layout.irradiance_atlas.tile_resolution,
+                                    layout.visibility_atlas.tile_resolution, settings.runtime.history_count,
+                                    layout.history)) {
+    layout.error = "DDGI history count must be 5 to 30 in steps of 5, with representable storage sizes.";
+    return layout;
+  }
+  GiHistoryBudget history_budget;
+  layout.history_count = static_cast<uint32_t>(settings.runtime.history_count);
+  if (!DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, history_budget)) {
+    layout.error = "DDGI history storage must remain strictly below 4 GiB.";
+    return layout;
+  }
+  for (const auto bytes : layout.history.buffer_bytes) {
+    if (bytes > max_storage_buffer_range) {
+      layout.error = "DDGI history storage exceeds the Vulkan maxStorageBufferRange limit.";
+      return layout;
+    }
+  }
+  layout.history_allocation_bytes = history_budget.bytes;
   layout.probe_metadata_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4) * 3ull;
   layout.probe_state_byte_size = static_cast<uint64_t>(layout.probe_count) * sizeof(glm::vec4);
   const auto uniform_ray_count = static_cast<uint64_t>(glm::max(settings.runtime.ray_count, 1));
@@ -358,17 +320,11 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                       static_cast<uint64_t>(layout.irradiance_atlas.resolution.y) * 8ull;
   layout.visibility_atlas_byte_size = static_cast<uint64_t>(layout.visibility_atlas.resolution.x) *
                                       static_cast<uint64_t>(layout.visibility_atlas.resolution.y) * 4ull;
-  layout.variability_atlas_byte_size = static_cast<uint64_t>(layout.variability_atlas.resolution.x) *
-                                       static_cast<uint64_t>(layout.variability_atlas.resolution.y) * sizeof(uint16_t);
-  layout.variability_reduction_byte_size = static_cast<uint64_t>(layout.variability_reduction_extent.x) *
-                                           static_cast<uint64_t>(layout.variability_reduction_extent.y) *
-                                           sizeof(glm::vec4);
   layout.persistent_byte_size = layout.probe_metadata_byte_size + layout.probe_state_byte_size +
                                 layout.irradiance_atlas_byte_size + layout.visibility_atlas_byte_size +
-                                layout.variability_atlas_byte_size;
-  layout.per_frame_transient_byte_size = layout.ray_output_byte_size + layout.selected_ray_diagnostics_byte_size +
-                                         layout.ray_sample_info_byte_size +
-                                         2ull * layout.variability_reduction_byte_size + sizeof(glm::vec4);
+                                history_budget.bytes;
+  layout.per_frame_transient_byte_size =
+      layout.ray_output_byte_size + layout.selected_ray_diagnostics_byte_size + layout.ray_sample_info_byte_size;
   layout.peak_resident_byte_size =
       layout.persistent_byte_size + Platform::kMaxFramesInFlight * layout.per_frame_transient_byte_size;
   if (max_storage_buffer_range == 0u || layout.probe_metadata_byte_size > max_storage_buffer_range ||
@@ -391,52 +347,11 @@ bool DdgiRuntime::ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& 
            lhs.columns == rhs.columns && lhs.rows == rhs.rows && lhs.resolution == rhs.resolution;
   };
   return previous.valid && current.valid && previous.probe_count == current.probe_count &&
+         previous.history.buffer_bytes == current.history.buffer_bytes &&
          previous.probe_metadata_byte_size == current.probe_metadata_byte_size &&
          previous.probe_state_byte_size == current.probe_state_byte_size &&
          atlas_matches(previous.irradiance_atlas, current.irradiance_atlas) &&
-         atlas_matches(previous.visibility_atlas, current.visibility_atlas) &&
-         atlas_matches(previous.variability_atlas, current.variability_atlas);
-}
-
-evo_engine::DdgiHysteresisBoostUpdate DdgiRuntime::AdvanceHysteresisBoost(
-    const float current_hysteresis, const bool active, const float normal_hysteresis, const float boosted_hysteresis,
-    const float restore_speed, const bool scene_changed) {
-  const auto normal = glm::clamp(normal_hysteresis, 0.0f, 1.0f);
-  const auto boosted = glm::clamp(boosted_hysteresis, 0.0f, 1.0f);
-  if (scene_changed) {
-    return {boosted, boosted != normal, true, false};
-  }
-  if (!active) {
-    return {normal, false, false, false};
-  }
-  const auto speed = glm::clamp(restore_speed, 0.0f, 1.0f);
-  const auto current = glm::clamp(current_hysteresis, 0.0f, 1.0f);
-  const auto delta = normal - current;
-  const bool reached_normal = delta == 0.0f || (speed > 0.0f && std::abs(delta) <= speed + 1e-6f);
-  const auto restored = reached_normal ? normal : current + std::copysign(speed, delta);
-  return {restored, !reached_normal, true, true};
-}
-
-float DdgiRuntime::CalculateUpdateHysteresis(const float update_hysteresis, const uint32_t warmup_frame_count,
-                                             const uint32_t update_reasons, const uint32_t warmup_frame_index) {
-  if ((update_reasons & (DdgiUpdateReasonManualReset | DdgiUpdateReasonVariabilityPolicy)) != 0u) {
-    return 0.0f;
-  }
-  const auto hysteresis = glm::clamp(update_hysteresis, 0.0f, 1.0f);
-  if ((update_reasons & (DdgiUpdateReasonSceneChange | DdgiUpdateReasonHysteresisRestore)) != 0u) {
-    return hysteresis;
-  }
-  if ((update_reasons & DdgiUpdateReasonWarmup) == 0u || warmup_frame_count == 0u ||
-      warmup_frame_index >= warmup_frame_count) {
-    return hysteresis;
-  }
-  const auto denominator = static_cast<float>(glm::max(warmup_frame_count - 1u, 1u));
-  return hysteresis * (static_cast<float>(warmup_frame_index) / denominator);
-}
-
-float DdgiRuntime::CalculateUpdateBrightnessThreshold(const DdgiSettings& settings) {
-  const auto brightness_threshold = glm::clamp(settings.runtime.brightness_threshold, 0.0f, 1.0f);
-  return brightness_threshold;
+         atlas_matches(previous.visibility_atlas, current.visibility_atlas);
 }
 
 std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
@@ -456,12 +371,8 @@ std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
   append_reason(DdgiUpdateReasonSource, "DDGI source");
   append_reason(DdgiUpdateReasonManualReset, "Manual reset");
   append_reason(DdgiUpdateReasonSteadyState, "Steady state");
-  append_reason(DdgiUpdateReasonConverged, "Converged");
   append_reason(DdgiUpdateReasonWarmup, "Warm up");
   append_reason(DdgiUpdateReasonSceneChange, "Scene change");
-  append_reason(DdgiUpdateReasonVariabilityPolicy, "Variability policy");
-  append_reason(DdgiUpdateReasonHysteresisRestore, "Hysteresis restore");
-  append_reason(DdgiUpdateReasonVariabilityMaximum, "Variability maximum");
   return result.empty() ? "Unknown" : result;
 }
 

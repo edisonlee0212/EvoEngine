@@ -332,6 +332,14 @@ bool PyEvoEngine::CaptureCurrentScene(const int resolution_x, const int resoluti
   if (const auto parent_path = output_path.parent_path(); !parent_path.empty()) {
     std::filesystem::create_directories(parent_path);
   }
+  std::vector<glm::vec4> pixels;
+  main_camera->GetRenderTexture()->GetRgbaChannelData(pixels);
+  if (pixels.empty() || std::any_of(pixels.begin(), pixels.end(), [](const auto& pixel) {
+        return !std::isfinite(pixel.x) || !std::isfinite(pixel.y) || !std::isfinite(pixel.z) || !std::isfinite(pixel.w);
+      })) {
+    EVOENGINE_ERROR("Capture contains empty or nonfinite output.")
+    return false;
+  }
   main_camera->GetRenderTexture()->StoreToPng(output_path);
   const bool success = std::filesystem::exists(output_path) && std::filesystem::file_size(output_path) > 0;
   if (success) {
@@ -596,8 +604,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("SetCurrentSceneSdfgiSettings", [](const SdfgiSettings& settings) {
     if (const auto error = settings.Validate(); !error.empty())
       throw py::value_error(error);
+    const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
     const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.voxel_count_x,
-                                               settings.voxel_count_y, settings.probe_spacing_cells);
+                                               settings.voxel_count_y, settings.probe_spacing_cells,
+                                               render ? render->GetDdgiHistoryAllocationBytes() : 0);
     if (!report.Supported())
       throw py::value_error(report.ToString());
     const auto scene = ApplicationContext::Get().GetActiveScene();
@@ -606,6 +616,33 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       throw py::value_error("The active scene has no EnvironmentalLighting asset");
     lighting->sdfgi_settings = settings;
     lighting->SetUnsaved();
+  });
+  m.def("GetCurrentSceneDdgiHistoryCount", [] {
+    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).ddgi_settings.runtime.history_count;
+  });
+  m.def("GetCurrentSceneDdgiHistoryStatus", [] {
+    py::list volumes;
+    if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+      const auto snapshot = render->GetDdgiInspectorSnapshot();
+      for (const auto& volume : snapshot.volumes) {
+        py::dict item;
+        item["volume_id"] = volume.stable_entity_id;
+        item["phase"] = volume.history_phase;
+        item["count"] = volume.history_count;
+        item["completed_updates"] = volume.history_completed_updates;
+        item["ready"] = volume.sampling_complete;
+        item["relocation_warmup"] = volume.warmup_active;
+        item["resources_ready"] = volume.resources_ready;
+        volumes.append(item);
+      }
+    }
+    return volumes;
+  });
+  m.def("SetCurrentSceneDdgiHistoryCount", [](const int count) {
+    const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+    std::string error;
+    if (!render || !render->SetDdgiHistoryCount(ApplicationContext::Get().GetActiveScene(), count, error))
+      throw py::value_error(error.empty() ? "RenderLayer is unavailable" : error);
   });
   m.def(
       "RequestCurrentSceneSdfgiVoxelDebug",
@@ -947,8 +984,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       "SdfgiCapabilityReport",
       [](const uint32_t cascade_count, const uint32_t history_size, const uint32_t voxel_count_x,
          const uint32_t voxel_count_y, const uint32_t probe_spacing_cells) {
+        const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
         const auto report =
-            QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y, probe_spacing_cells);
+            QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y, probe_spacing_cells,
+                                   render ? render->GetDdgiHistoryAllocationBytes() : 0);
         py::dict result;
         result["supported"] = report.Supported();
         result["device_name"] = report.device_name;

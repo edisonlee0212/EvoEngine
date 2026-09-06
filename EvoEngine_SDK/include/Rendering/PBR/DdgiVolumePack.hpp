@@ -25,9 +25,6 @@ class EVOENGINE_API DdgiVolumePack final : public IAsset {
     bool enable_probe_relocation = true;
     bool enable_probe_classification = false;
     float relocation_distance = 0.25f;
-    int hysteresis_boost_trigger_conditions = DdgiVolumeTriggerConditionAll;
-    int variability_reset_trigger_conditions =
-        DdgiVolumeTriggerConditionLightingConditionChanged | DdgiVolumeTriggerConditionGeometryChanged;
 
     void ClampSettings();
     [[nodiscard]] uint32_t GetProbeAmount() const;

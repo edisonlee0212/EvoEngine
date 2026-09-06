@@ -45,6 +45,7 @@
 #include <glm/gtc/packing.hpp>
 #include <memory>
 #include <mutex>
+#include <numeric>
 #include <stdexcept>
 #include <thread>
 #include <vector>
@@ -4080,6 +4081,208 @@ TEST(GpuService, DdgiMaterialShadersCompile) {
   EXPECT_TRUE(gtao.TryCompile(ShaderType::Compute, header, shader_root / "Compute/PostProcessing/GTAO.slang"));
   EXPECT_TRUE(ambient_occlusion_blur.TryCompile(ShaderType::Compute, header,
                                                 shader_root / "Compute/PostProcessing/AmbientOcclusionBlur.slang"));
+}
+
+TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  DdgiHistoryLayout layout;
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(6, 1, 1, 30, layout));
+  GiHistoryBudget budget;
+  std::string error;
+  ASSERT_TRUE(DdgiRuntime::AddDeviceHistoryAllocations(layout, budget, error)) << error;
+  EXPECT_GE(budget.bytes, std::accumulate(layout.buffer_bytes.begin(), layout.buffer_bytes.end(), uint64_t{0}));
+  const auto make_buffer = [](const uint64_t size) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = size;
+    info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO;
+    return std::make_shared<Buffer>(info, allocation);
+  };
+  const auto history_layout = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 7; binding <= 11; ++binding)
+    history_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  history_layout->Initialize();
+  const auto output_layout = std::make_shared<DescriptorSetLayout>();
+  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->Initialize();
+  const auto history_set = std::make_shared<DescriptorSet>(history_layout);
+  std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history;
+  for (size_t i = 0; i < history.size(); ++i) {
+    history[i] = make_buffer(layout.buffer_bytes[i]);
+    history_set->UpdateBufferDescriptorBinding(static_cast<uint32_t>(7 + i), history[i]);
+  }
+  const auto output = make_buffer(6 * sizeof(glm::uvec4));
+  const auto output_set = std::make_shared<DescriptorSet>(output_layout);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  const auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->descriptor_set_layouts = {output_layout, history_layout};
+  pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                  "EvoEngine_Tests/Resources/Shaders/Compute/DdgiRollingHistoryProbe.slang");
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer command) {
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, output_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 1, history_set->GetVkDescriptorSet());
+    pipeline->Dispatch(command, 6);
+  });
+  std::vector<glm::uvec4> results;
+  output->DownloadVector(results, 6);
+  for (uint32_t i = 0; i < 6; ++i) {
+    const auto count = (i + 1) * 5;
+    uint32_t irradiance_sum = 0, visibility_sum = 0;
+    for (uint32_t value = 1; value <= count; ++value) {
+      irradiance_sum += QuantizeDdgiHistorySample(static_cast<float>(value), 64.0f);
+      visibility_sum += QuantizeDdgiHistorySample(static_cast<float>(value * value), 1024.0f);
+    }
+    EXPECT_EQ(results[i].x, 0u) << count;
+    EXPECT_EQ(results[i].y, irradiance_sum);
+    EXPECT_EQ(results[i].z, visibility_sum);
+    EXPECT_NEAR(glm::uintBitsToFloat(results[i].w), 1.0f / count, 0.001f);
+  }
+}
+
+TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto make_buffer = [](uint64_t bytes) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = bytes;
+    info.usage =
+        VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    return std::make_shared<Buffer>(info);
+  };
+  DdgiHistoryLayout layout;
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(3, 1, 1, 5, layout));
+  const auto descriptors = std::make_shared<DescriptorSetLayout>();
+  for (uint32_t binding = 0; binding <= 11; ++binding)
+    if (binding != 5)
+      descriptors->PushDescriptorBinding(
+          binding, binding == 1 || binding == 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+          VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  descriptors->Initialize();
+  const auto set = std::make_shared<DescriptorSet>(descriptors);
+  const auto empty_layout = std::make_shared<DescriptorSetLayout>();
+  empty_layout->Initialize();
+  const auto empty_set = std::make_shared<DescriptorSet>(empty_layout);
+  const auto state = make_buffer(3 * sizeof(glm::vec4));
+  const std::array<glm::vec4, 3> origins{glm::vec4(0), glm::vec4(0), glm::vec4(0, 0, 0, 1)};
+  const std::array<glm::vec4, 3> moved{glm::vec4(0), glm::vec4(0.2f, 0, 0, 0), glm::vec4(0)};
+  state->Upload(moved);
+  for (const uint32_t binding : {0u, 3u, 4u, 6u})
+    set->UpdateBufferDescriptorBinding(binding, state);
+  std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history;
+  for (size_t i = 0; i < history.size(); ++i) {
+    history[i] = make_buffer(layout.buffer_bytes[i]);
+    set->UpdateBufferDescriptorBinding(static_cast<uint32_t>(7 + i), history[i]);
+    history[i]->UploadVector(std::vector<uint32_t>(layout.buffer_bytes[i] / 4, 7));
+  }
+  history[DdgiHistoryLayout::ProbeOrigins]->Upload(origins);
+  std::array<std::shared_ptr<Image>, 2> images;
+  std::array<std::shared_ptr<ImageView>, 2> views;
+  for (size_t i = 0; i < images.size(); ++i) {
+    VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    info.imageType = VK_IMAGE_TYPE_2D;
+    info.format = i == 0 ? VK_FORMAT_R16G16B16A16_SFLOAT : VK_FORMAT_R16G16_SFLOAT;
+    info.extent = {9, 3, 1};
+    info.mipLevels = info.arrayLayers = 1;
+    info.samples = VK_SAMPLE_COUNT_1_BIT;
+    info.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    images[i] = std::make_shared<Image>(info);
+    VkImageViewCreateInfo view{VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    view.image = images[i]->GetVkImage();
+    view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    view.format = info.format;
+    view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    views[i] = std::make_shared<ImageView>(view, images[i]);
+    VkDescriptorImageInfo descriptor{};
+    descriptor.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    descriptor.imageView = views[i]->GetVkImageView();
+    set->UpdateImageDescriptorBinding(static_cast<uint32_t>(1 + i), descriptor);
+  }
+  const auto pipeline = std::make_shared<ComputePipeline>();
+  pipeline->descriptor_set_layouts = {empty_layout, descriptors};
+  pipeline->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(DdgiProbeAtlasUpdatePushConstant)}};
+  pipeline->compute_shader =
+      Shader::CreateTemporary(ShaderType::Compute, Platform::GetShaderGlobalDefines(),
+                              std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) /
+                                  "EvoEngine_SDK/Internals/DefaultResources/Shaders/Compute/DDGIProbeUpdate.slang");
+  pipeline->Initialize();
+  ASSERT_TRUE(pipeline->Initialized());
+  DdgiProbeAtlasUpdatePushConstant constants{};
+  constants.probe_count_ray_count_and_tile_sizes = {3, 1, 1, 1};
+  constants.atlas_columns_fixed_ray_count_and_update_mode = {3, 3, 0, 3};
+  constants.probe_counts_and_rotation = {3, 1, 1, 0};
+  constants.blend_parameters.z = 5;
+  // Signed scrolling must still invalidate each physical slot exactly once.
+  constants.probe_scroll_offset = {-1, 0, 0, 1};
+  Platform::GetGpuService().SubmitImmediate([&](VkCommandBuffer command) {
+    for (const auto& image : images) {
+      image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      VkClearColorValue color{{1, 1, 1, 1}};
+      const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+      Platform::ClearColorImage(command, *image, color, 1, &range);
+    }
+    Platform::EverythingBarrier(command);
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, empty_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 1, set->GetVkDescriptorSet());
+    pipeline->PushConstant(command, 0, constants);
+    pipeline->Dispatch(command, 1);
+    Platform::EverythingBarrier(command);
+    pipeline->Dispatch(command, 1);
+    Platform::EverythingBarrier(command);
+  });
+  for (size_t i = 0; i < DdgiHistoryLayout::ProbeOrigins; ++i) {
+    std::vector<uint32_t> values;
+    history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
+    for (size_t word = 0; word < values.size(); ++word)
+      EXPECT_EQ(values[word], word < values.size() / 3 ? 7u : 0u) << i << ":" << word;
+  }
+  std::array<glm::vec4, 3> recorded{};
+  history[DdgiHistoryLayout::ProbeOrigins]->Download(recorded);
+  EXPECT_EQ(recorded, moved);
+  for (size_t i = 0; i < images.size(); ++i) {
+    const uint32_t components = i == 0 ? 4 : 2;
+    const auto output = make_buffer(9 * 3 * components * sizeof(uint16_t));
+    output->CopyFromImage(*images[i], components * sizeof(uint16_t));
+    std::vector<uint16_t> values;
+    output->DownloadVector(values, 9 * 3 * components);
+    for (size_t word = 0; word < values.size(); ++word)
+      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : 0u);
+  }
+  const auto rays = make_buffer(3 * sizeof(glm::vec4));
+  rays->UploadVector(std::vector<glm::vec4>(3, glm::vec4(std::numeric_limits<float>::quiet_NaN())));
+  const auto metadata = make_buffer(9 * sizeof(glm::vec4));
+  set->UpdateBufferDescriptorBinding(0, rays);
+  set->UpdateBufferDescriptorBinding(3, metadata);
+  constants.update_parameters = {10, 1, 1, 0};
+  Platform::GetGpuService().SubmitImmediate([&](VkCommandBuffer command) {
+    for (const auto& image : images)
+      image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+    pipeline->Bind(command);
+    pipeline->BindDescriptorSet(command, 0, empty_set->GetVkDescriptorSet());
+    pipeline->BindDescriptorSet(command, 1, set->GetVkDescriptorSet());
+    for (uint32_t mode : {1u, 2u}) {
+      constants.atlas_columns_fixed_ray_count_and_update_mode.w = mode;
+      pipeline->PushConstant(command, 0, constants);
+      pipeline->Dispatch(command, 1);
+      Platform::EverythingBarrier(command);
+    }
+  });
+  for (size_t i = 0; i < DdgiHistoryLayout::ProbeOrigins; ++i) {
+    std::vector<uint32_t> values;
+    history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
+    for (size_t word = 0; word < values.size(); ++word)
+      EXPECT_EQ(values[word], word < values.size() / 3 ? 7u : 0u)
+          << "Rejected sample changed history " << i << ":" << word;
+  }
 }
 
 TEST(GpuService, DdgiProbeUpdateVariantsCompile) {

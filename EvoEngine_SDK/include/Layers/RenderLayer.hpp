@@ -137,6 +137,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   [[nodiscard]] DdgiSessionState& GetDdgiSessionState();
   [[nodiscard]] const DdgiSessionState& GetDdgiSessionState() const;
   void RequestDdgiHistoryReset();
+  bool SetDdgiHistoryCount(const std::shared_ptr<Scene>& scene, int count, std::string& error);
+  [[nodiscard]] uint64_t GetDdgiHistoryAllocationBytes() const;
   [[nodiscard]] DdgiInspectorSnapshot GetDdgiInspectorSnapshot() const;
   [[nodiscard]] DdgiProbeDebugDataView RefreshDdgiProbeDebugData();
 
@@ -497,8 +499,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     uint32_t element_count = 0;
     uint32_t logical_probe_index = 0;
     uint32_t physical_probe_index = 0;
-    uint64_t variability_budget_cycle = 0;
-    bool counts_toward_variability_budget = false;
   };
 
   struct DdgiVolumeRuntimeState {
@@ -509,21 +509,19 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     float probe_density = 0.0f;
     RenderInstanceStorage::DdgiVolumeInfoBlock gpu_info{};
     bool contributes_lighting = false;
-    std::array<uint64_t, 5> resource_ids{};
+    std::array<uint64_t, 4> resource_ids{};
 
     std::shared_ptr<Buffer> probe_metadata_buffer{};
     std::shared_ptr<Buffer> probe_state_buffer{};
     std::shared_ptr<Image> irradiance_atlas{};
     std::shared_ptr<Image> visibility_atlas{};
-    std::shared_ptr<Image> variability_atlas{};
+    std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history_buffers{};
     std::vector<std::shared_ptr<Buffer>> probe_metadata_readback_buffers{};
     std::vector<std::shared_ptr<Buffer>> probe_ray_readback_buffers{};
     std::vector<std::shared_ptr<Buffer>> selected_ray_diagnostics_buffers{};
     DdgiReadbackTicket metadata_readback_ticket{};
     DdgiReadbackTicket ray_readback_ticket{};
-    std::vector<DdgiReadbackTicket> variability_readback_tickets{};
     uint64_t next_debug_readback_generation = 0;
-    uint64_t frame_variability_readback_generation = 0;
     std::shared_ptr<Buffer> frame_selected_ray_diagnostics_buffer{};
     std::vector<glm::vec4> probe_debug_metadata{};
     std::vector<PointCloudSample> probe_debug_ray_samples{};
@@ -547,8 +545,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     glm::vec4 previous_update_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_state_parameters = glm::vec4(0.0f);
     glm::vec4 previous_probe_blend_parameters = glm::vec4(0.0f);
-    glm::vec4 previous_probe_variability_parameters = glm::vec4(0.0f);
-    bool previous_pause_probe_updates_after_convergence = true;
     int previous_movement_type = static_cast<int>(DdgiVolumeMovementType::Default);
     bool has_previous_environment_signature = false;
     uint64_t previous_environment_signature = 0;
@@ -565,33 +561,20 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool previous_deterministic_ray_seed_enabled = false;
     uint32_t previous_deterministic_ray_seed = 0;
     uint32_t probe_ray_sequence_index = 0;
-    float probe_variability_average = 0.0f;
-    float probe_variability_maximum = 0.0f;
-    float probe_variability_unstable_fraction = 0.0f;
-    bool probe_variability_gating_enabled = false;
-    uint32_t probe_variability_sample_count = 0;
-    uint32_t probe_variability_stable_sample_count = 0;
-    bool probe_variability_converged = false;
-    bool probe_variability_maximum_reached = false;
-    DdgiProbeVariabilityBudgetState probe_variability_budget{};
-    uint64_t next_variability_generation = 0;
-    uint64_t last_consumed_variability_generation = 0;
+    uint32_t history_completed_updates = 0;
+    struct HistorySubmission {
+      std::shared_ptr<FrameSubmissionState> state;
+      bool invalidates_history = false;
+    };
+    std::vector<HistorySubmission> history_submissions;
     uint32_t probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_index = 0;
     uint32_t frame_probe_warmup_frame_count = 0;
     bool frame_probe_warmup_active = false;
-    float frame_probe_update_hysteresis = 0.0f;
-    float current_probe_hysteresis = 0.97f;
-    bool hysteresis_boost_active = false;
-    bool frame_hysteresis_boost_active = false;
-    bool frame_hysteresis_boost_restoring = false;
     bool frame_probe_relocation_reset = false;
     bool frame_probe_relocation_enabled = false;
     bool frame_probe_classification_reset = false;
     bool frame_probe_classification_enabled = false;
-    bool frame_probe_variability_enabled = false;
-    bool frame_probe_variability_counts_toward_budget = false;
-    float frame_probe_variability_threshold = 0.0f;
     int latched_scene_change_triggers = DdgiVolumeTriggerConditionNone;
     uint32_t frame_selected_probe_ray_sample_count = 0;
     uint32_t frame_selected_probe_ray_logical_index = 0;
@@ -714,7 +697,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_update_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_relocation_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_classification_layout_;
-  std::shared_ptr<DescriptorSetLayout> ddgi_probe_variability_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> ddgi_probe_ray_visualization_layout_;
   std::shared_ptr<DescriptorSetLayout> gaussian_splat_layout_;
@@ -1076,8 +1058,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_scroll_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;
-  std::shared_ptr<ComputePipeline> ddgi_probe_variability_reduce_pipeline_;
-  std::shared_ptr<ComputePipeline> ddgi_probe_variability_extra_reduce_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_pipeline_;
   std::shared_ptr<ComputePipeline> ray_query_camera_fallback_pipeline_;
 #pragma region Ray Tracing Pipelines

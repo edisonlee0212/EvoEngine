@@ -137,9 +137,9 @@ inline constexpr const char* frame_ddgi_ray_sample_info = "Frame.DDGI.RaySampleI
 inline constexpr const char* frame_ddgi_selected_ray_diagnostics = "Frame.DDGI.SelectedRayDiagnostics";
 inline constexpr const char* frame_ddgi_irradiance_atlas = "Frame.DDGI.IrradianceAtlas";
 inline constexpr const char* frame_ddgi_visibility_atlas = "Frame.DDGI.VisibilityAtlas";
-inline constexpr const char* frame_ddgi_variability_atlas = "Frame.DDGI.VariabilityAtlas";
-inline constexpr const char* frame_ddgi_variability_reduction_a = "Frame.DDGI.VariabilityReductionA";
-inline constexpr const char* frame_ddgi_variability_reduction_b = "Frame.DDGI.VariabilityReductionB";
+inline constexpr const char* frame_ddgi_history[] = {"Frame.DDGI.IrradianceHistory", "Frame.DDGI.IrradianceSum",
+                                                     "Frame.DDGI.VisibilityHistory", "Frame.DDGI.VisibilitySum",
+                                                     "Frame.DDGI.HistoryOrigins"};
 }  // namespace RenderResourceNames
 
 namespace RenderPassNames {
@@ -148,9 +148,9 @@ inline constexpr const char* ddgi_atlas_prepare = "DDGIAtlasPrepare";
 inline constexpr const char* ddgi_probe_scroll = "DDGIProbeScroll";
 inline constexpr const char* ddgi_probe_trace = "DDGIProbeTrace";
 inline constexpr const char* ddgi_probe_update = "DDGIProbeUpdate";
+inline constexpr const char* ddgi_history_invalidate = "DDGIHistoryInvalidate";
 inline constexpr const char* ddgi_probe_relocation = "DDGIProbeRelocation";
 inline constexpr const char* ddgi_probe_classification = "DDGIProbeClassification";
-inline constexpr const char* ddgi_probe_variability = "DDGIProbeVariability";
 inline constexpr const char* ddgi_volumes_complete = "DDGIVolumesComplete";
 inline constexpr const char* scene_gi_complete = "SceneGiComplete";
 inline constexpr const char* sdfgi_maintenance = "SdfgiMaintenance";
