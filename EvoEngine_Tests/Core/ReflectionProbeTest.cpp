@@ -299,6 +299,23 @@ TEST(ReflectionProbe, ExplicitBakesUseCachedGraphSharedBindingsAndNormalFrameSub
   EXPECT_NE(camera.find("void Camera::OnCreate() {\n  InitializeRenderResources({1, 1});"), std::string::npos);
 }
 
+TEST(ReflectionProbe, SdfgiCapturesBindPublishedReadsAndRemainDiffuseOnly) {
+  const auto render = ReadTextFile(SourcePath("EvoEngine_SDK/src/RenderLayer.cpp"));
+  const auto graph = ExtractBetween(render, "void RenderLayer::EnsureReflectionProbeCaptureRenderGraph",
+                                    "void RenderLayer::RecordPreparedReflectionProbeBake");
+  EXPECT_NE(graph.find("publication->CameraReads()"), std::string::npos);
+  EXPECT_NE(graph.find("publication->ImportCamera("), std::string::npos);
+  EXPECT_NE(graph.find("capture.sdfgi_publication->descriptor_set"), std::string::npos);
+  EXPECT_NE(graph.find("push_back(sdfgi_resources)"), std::string::npos);
+  const auto composition = ReadTextFile(
+      SourcePath("EvoEngine_SDK/Internals/DefaultResources/Shaders/Modules/EvoEngine/SdfgiLighting.slang"));
+  EXPECT_NE(composition.find("EE_BASIC_CONSTANTS.instance_index == 2"), std::string::npos);
+  EXPECT_NE(composition.find("roughness, !reflection_capture)"), std::string::npos);
+  ASSERT_NE(composition.find("if (reflection_capture) return diffuse;"), std::string::npos);
+  EXPECT_LT(composition.find("if (reflection_capture) return diffuse;"),
+            composition.find("resources.prefilteredLevelCount()"));
+}
+
 TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndependent) {
   const auto lighting_header =
       ReadTextFile(SourcePath("EvoEngine_SDK/include/Rendering/PBR/EnvironmentalLighting.hpp"));

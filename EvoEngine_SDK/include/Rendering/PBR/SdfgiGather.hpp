@@ -6,6 +6,8 @@
 
 namespace evo_engine {
 class Camera;
+EVOENGINE_API std::shared_ptr<SdfgiResources> SelectSdfgiCaptureResources(
+    const std::shared_ptr<const SdfgiRuntime>& runtime, IndirectGiProvider provider);
 EVOENGINE_API bool IsSdfgiCameraEligible(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera,
                                          const std::shared_ptr<Camera>& editor_camera, bool immediate,
                                          bool reflection_capture, bool custom_recorder);

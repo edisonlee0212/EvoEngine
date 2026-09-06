@@ -27,7 +27,7 @@ float2 EeSdfgiOctEncode(float3 n) {
   return n.xy;
 }
 
-void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam_normal, float3 cam_specular_normal, float roughness, out float3 diffuse_light, out float3 specular_light) {
+void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam_normal, float3 cam_specular_normal, float roughness, out float3 diffuse_light, out float3 specular_light, bool include_specular) {
   cascade_pos += cam_normal * sdfgi.normal_bias;
 
   float3 base_pos = floor(cascade_pos);
@@ -88,7 +88,7 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
 
     diffuse_accum += float4(diffuse * weight * sdfgi.cascades[cascade].exposure_normalization, weight);
 
-    {
+    if (include_specular) {
       float3 specular = float3(0.0);
       float3 pos_uvw = specular_posf;
       pos_uvw.xy += float2(offset.xy) * sdfgi.lightprobe_uv_offset.xy;
@@ -117,7 +117,7 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
   specular_light = specular_accum;
 }
 
-void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, float roughness, out float4 ambient_light, out float4 reflection_light) {
+void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, float roughness, out float4 ambient_light, out float4 reflection_light, bool include_specular) {
   vertex.y *= sdfgi.y_mult;
   normal.y *= sdfgi.y_mult;
   reflection.y *= sdfgi.y_mult;
@@ -149,7 +149,7 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
 
     float blend;
     float3 diffuse, specular;
-    EeSdfgiProcess(cascade, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse, specular);
+    EeSdfgiProcess(cascade, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse, specular, include_specular);
 
     {
       //process blend
@@ -168,13 +168,20 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
       } else {
         float3 diffuse2, specular2;
         cascade_pos = (cam_pos - sdfgi.cascades[cascade + 1].position) * sdfgi.cascades[cascade + 1].to_probe;
-        EeSdfgiProcess(cascade + 1, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse2, specular2);
+        EeSdfgiProcess(cascade + 1, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse2, specular2, include_specular);
         diffuse = lerp(diffuse, diffuse2, blend);
         specular = lerp(specular, specular2, blend);
       }
     }
 
     ambient_light.rgb = diffuse;
+
+    // Reflection captures reuse diffuse GI, never GI reflections or sharp tracing.
+    if (!include_specular) {
+      ambient_light.rgb *= sdfgi.energy;
+      reflection_light = float4(0.0);
+      return;
+    }
 
     if (roughness < 0.2) {
       float3 pos_to_uvw = 1.0 / sdfgi.grid_size;
@@ -300,12 +307,12 @@ public struct EeSdfgiLighting {
   public float specular_weight;
 };
 
-public EeSdfgiLighting EE_SDFGI_GATHER(float3 world_position, float3 normal, float3 reflection, float roughness) {
+public EeSdfgiLighting EE_SDFGI_GATHER(float3 world_position, float3 normal, float3 reflection, float roughness, bool include_specular = true) {
   EeSdfgiLighting result = { float3(0), float3(0), 0, 0 };
   if (sdfgi_status[0].ready == 0 || sdfgi_status[0].failure_flags != 0 ||
       sdfgi_status[0].generation != sdfgi.generation || sdfgi.max_cascades == 0) return result;
   float4 ambient_light, reflection_light;
-  EeSdfgiReferenceGather(world_position, normal, reflection, roughness, ambient_light, reflection_light);
+  EeSdfgiReferenceGather(world_position, normal, reflection, roughness, ambient_light, reflection_light, include_specular);
   result.diffuse = ambient_light.rgb;
   result.specular = reflection_light.rgb;
   result.weight = ambient_light.a;

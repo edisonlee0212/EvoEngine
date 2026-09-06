@@ -4288,6 +4288,12 @@ void RenderLayer::RenderSceneToCameraImmediately(const std::shared_ptr<Scene>& s
     if (reflection_probe_capture && previous_render_instances && capture_render_instances) {
       PreparePointAndSpotLightShadowMap(true, false);
     }
+    if (reflection_probe_capture)
+      if (const auto resources = SelectSdfgiCaptureResources(
+              scene->GetSdfgiRuntime(), ResolveEnvironmentalLighting(scene).indirect_gi_provider)) {
+        sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+        sdfgi_frame_resources_[current_frame_index].push_back(resources);
+      }
     RenderToCamera(scene, camera_global_transform, camera, true, reflection_probe_capture);
   } catch (...) {
     restore();
@@ -4706,12 +4712,25 @@ void RenderLayer::PrepareReflectionProbeBake(const std::shared_ptr<Scene>& scene
   }
 }
 
-void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
-  if (reflection_probe_capture_render_graph_plan_.valid) {
+void RenderLayer::EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<SdfgiResources>& sdfgi_resources,
+                                                          RenderGraphResourceRegistry& registry) {
+  const auto publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
+  if (sdfgi_resources) {
+    sdfgi_frame_resources_.resize(Platform::GetMaxFramesInFlight());
+    sdfgi_frame_resources_[Platform::GetCurrentFrameIndex()].push_back(sdfgi_resources);
+  }
+  if (reflection_probe_capture_render_graph_plan_.valid &&
+      reflection_probe_capture_publication_.lock() == publication &&
+      reflection_probe_capture_render_graph_.HasResource("Frame.SDFGI.Atlas") == bool(publication)) {
+    if (publication)
+      publication->ImportCamera(reflection_probe_capture_render_graph_, registry, *sdfgi_resources);
     return;
   }
+  reflection_probe_capture_publication_ = publication;
   reflection_probe_capture_render_graph_.Clear();
   AddDefaultRasterCameraResources(reflection_probe_capture_render_graph_);
+  if (publication)
+    publication->ImportCamera(reflection_probe_capture_render_graph_, registry, *sdfgi_resources);
   auto geometry_descriptor = DeferredGeometryPass::CreateDescriptor();
   geometry_descriptor.dependencies.clear();
   reflection_probe_capture_render_graph_.AddPass(
@@ -4745,15 +4764,22 @@ void RenderLayer::EnsureReflectionProbeCaptureRenderGraph() {
                       {},
                       capture.record_commands});
       });
+  auto lighting_descriptor = DeferredComputeLightingPass::CreateDescriptor(false, false);
+  if (publication)
+    for (const auto& access : publication->CameraReads())
+      lighting_descriptor.resources.push_back(access);
   reflection_probe_capture_render_graph_.AddPass(
-      DeferredComputeLightingPass::CreateDescriptor(false, false), [this](const RenderGraphExecutionContext& context) {
+      lighting_descriptor, [this](const RenderGraphExecutionContext& context) {
         const auto& capture = *reflection_probe_capture_graph_context_;
         DeferredComputeLightingPass::Execute(
             context,
             {capture.camera, per_frame_descriptor_sets_[capture.current_frame_index], capture.lighting_descriptor_set,
-             capture.raster_lighting_texture_descriptor_set, deferred_compute_lighting_pipeline_,
+             capture.raster_lighting_texture_descriptor_set,
+             capture.sdfgi_publication ? capture.sdfgi_resources->pipelines.at("DeferredSdfgi")
+                                       : deferred_compute_lighting_pipeline_,
              deferred_compute_lighting_layout_, capture.transient_resources, capture.camera_index,
-             capture.directional_shadow_camera_index, true, false, capture.record_commands});
+             capture.directional_shadow_camera_index, true, false, capture.record_commands, capture.sdfgi_resources,
+             capture.sdfgi_publication ? capture.sdfgi_publication->descriptor_set : nullptr});
       });
   if (!reflection_probe_capture_render_graph_.Validate()) {
     throw std::runtime_error("Invalid reflection probe capture render graph.");
@@ -4785,8 +4811,10 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
     }
   }
   const auto camera = reflection_probe_capture_cameras_.front();
-  EnsureReflectionProbeCaptureRenderGraph();
+  const auto sdfgi_resources = SelectSdfgiCaptureResources(
+      prepared.scene->GetSdfgiRuntime(), ResolveEnvironmentalLighting(prepared.scene).indirect_gi_provider);
   auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources);
   resources.BindImages(RenderResourceNames::camera_g_buffer,
                        {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
                         camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
@@ -4864,7 +4892,9 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
             face_camera_indices[face_index],
             directional_shadow_camera_index,
             current_frame_index,
-            Platform::MeshShaderEnabled() && enable_meshlet};
+            Platform::MeshShaderEnabled() && enable_meshlet,
+            sdfgi_resources,
+            sdfgi_resources ? sdfgi_resources->publication : nullptr};
         reflection_probe_capture_graph_context_ = &capture_context;
         reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
         reflection_probe_capture_graph_context_ = nullptr;
@@ -5377,8 +5407,11 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
     face_camera_indices.emplace_back(camera_index);
   }
   const auto camera = reflection_probe_capture_cameras_.front();
-  EnsureReflectionProbeCaptureRenderGraph();
+  const auto scene = dynamic_reflection_probe_scene_.lock();
+  const auto sdfgi_resources = SelectSdfgiCaptureResources(scene ? scene->GetSdfgiRuntime() : nullptr,
+                                                           ResolveEnvironmentalLighting(scene).indirect_gi_provider);
   auto resources = CreateCameraRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index], {}, camera);
+  EnsureReflectionProbeCaptureRenderGraph(sdfgi_resources, resources);
   resources.BindImages(RenderResourceNames::camera_g_buffer,
                        {camera->g_buffer_base_color_ao_, camera->g_buffer_normal_roughness_,
                         camera->g_buffer_pbr_flags_, camera->g_buffer_emissive_, camera->g_buffer_utility_});
@@ -5432,7 +5465,9 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
             face_camera_indices[camera_offset],
             directional_shadow_camera_index,
             current_frame_index,
-            Platform::MeshShaderEnabled() && enable_meshlet};
+            Platform::MeshShaderEnabled() && enable_meshlet,
+            sdfgi_resources,
+            sdfgi_resources ? sdfgi_resources->publication : nullptr};
         reflection_probe_capture_graph_context_ = &capture_context;
         reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
         reflection_probe_capture_graph_context_ = nullptr;
@@ -7579,7 +7614,11 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       IsSdfgiCameraEligible(scene, camera, editor_layer ? editor_layer->GetSceneCamera() : nullptr, immediate,
                             reflection_probe_capture, command_recorder != nullptr);
   const auto sdfgi_resources =
-      sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources : nullptr;
+      reflection_probe_capture && camera->IsEnabled() &&
+              camera->camera_render_mode == Camera::CameraRenderMode::Rasterization
+          ? SelectSdfgiCaptureResources(sdfgi_runtime, ResolveEnvironmentalLighting(scene).indirect_gi_provider)
+      : sdfgi_eligible && sdfgi_runtime && sdfgi_runtime->published ? sdfgi_runtime->resources
+                                                                    : nullptr;
   const auto sdfgi_publication = sdfgi_resources ? sdfgi_resources->publication : nullptr;
   const bool sdfgi_debug_camera = sdfgi_runtime && sdfgi_runtime->debug->MatchesCamera(camera->GetHandle().GetValue(),
                                                                                        is_scene_camera, sdfgi_eligible);

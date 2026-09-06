@@ -514,8 +514,9 @@ Owner-level main-queue barriers cover publication-to-camera reads and all previo
 frame's writes, including separately compiled graphs and reused metadata slots. Resources, metadata, descriptors, and
 staging survive all submitting fences. No dedicated compute queue or immediate maintenance submission is introduced.
 
-Only enabled ordinary scene raster cameras and the canonical editor Scene camera receive set 5. Immediate, reflection
-capture, custom-recorder, utility, and RT camera paths are excluded. Transparent paths retain ordinary Environment
+Enabled ordinary scene raster cameras and the canonical editor Scene camera receive set 5. M12d also binds the published
+field for explicit, dynamic, and immediate reflection captures, with diffuse-only composition. Other immediate,
+custom-recorder, utility, and RT camera paths remain excluded. Transparent paths retain ordinary Environment
 lighting. Static, dynamic, and skinned opaque/masked receivers share the same deferred shader; only static supported
 geometry contributes to the field. The non-SDFGI deferred pipeline remains five sets. `GetCurrentSceneGiStatus()` adds
 `published_generation` and the camera handles that actually bound set 5. `ReadCurrentSceneSdfgiFieldStatus()` explicitly
@@ -578,7 +579,7 @@ The capture log is `tasks/m8a-sponza.log`. Use `capture_sdfgi_voxels.py --view b
 `--occlusion-off-output <second.png>` for this same-session comparison, using fresh disposable resources. No authored
 project was cleared. The user reports occlusion on is noticeably better and accepted it as the stationary baseline before
 continuing. This is not a claim of exact transport or reflection parity. Sharp tracing remains under local reflection probes and SSR; reflection captures
-still do not consume SDFGI. The script verifies the setting/reset path, not interactive GUI operation.
+did not consume SDFGI at this milestone; M12d adds diffuse-only capture consumption. The script verifies the setting/reset path, not interactive GUI operation.
 
 ### Manual review launch
 
@@ -1005,3 +1006,58 @@ Validation and delivery:
 
 User review of interactive dimension changes and gallery behavior remains required. The prior gallery improvement is
 recorded as user-confirmed, but does not close unrelated final M12 acceptance items.
+
+## Diffuse SDFGI in reflection captures (M12d)
+
+Reflection-probe captures now consume the selected Automatic SDFGI provider's live published diffuse lighting. This
+applies to explicit queued bakes, budgeted dynamic updates, and the immediate reflection-capture path. It is automatic:
+there is no new setting, serialized field, or Python option. Existing persisted payloads change only after rebaking;
+dynamic probes refresh through their existing cycle.
+
+The capture graph imports the field's reads, binds the published descriptor set, and uses the SDFGI deferred pipeline.
+Main-queue barriers and frame-slot retention protect field resources across capture submissions and layout replacement.
+Capture cameras never become anchors or diagnostic views. The existing camera-anchored field is sampled as-is: no
+capture-local allocation, anchor movement, extra GI update, convergence wait, or six-face lighting snapshot is introduced.
+Each submission uses the current publication, so multi-frame captures can reflect ongoing convergence and camera motion.
+Unavailable/invalid publications and uncovered surfaces retain normal environment diffuse fallback. Bake after the
+desired region settles when persistent results matter.
+
+The existing reflection-capture flag selects diffuse-only SDFGI evaluation. Probe specular sampling and sharp SDF tracing
+are skipped, and composition returns before specular environment/local-probe lookup. Diffuse occlusion, energy, material
+response, and cascade fades are unchanged. Main-camera SDFGI specular and sharp reflections are unaffected. This does not
+change DDGI, capture face budgets/filtering/blending, asset saving, or dedicated queue scheduling.
+
+This is an intentional departure from Godot's reflection-capture exclusion, verified first in
+`C:/Users/lllll/Documents/GitHub/godot/servers/rendering/renderer_rd/forward_clustered/render_forward_clustered.cpp`
+at `34d06658a85845111a50db9e485ec4a0701d4298`: `using_sdfgi` is enabled only in the non-reflection-probe branch. All remaining
+gather behavior follows that pinned reference and the previously accepted EvoEngine adaptations. When in doubt, check
+the reference source first.
+
+Validation and delivery:
+
+- SDK/editor/Python/test build passed (`tasks/m12d-build-final.log`; final test-only rebuild in
+  `tasks/m12d-test-final-build.log`). Built editor before runtime checks:
+  `C:/Users/lllll/Documents/GitHub/EvoEngine/out/build/vs2026-x64-tests/EvoEngine_App/RelWithDebInfo/EvoEngineEditor.exe`.
+- Twenty-three distinct focused checks passed across `tasks/m12d-tests.log`, `tasks/m12d-tests-retry.log/.xml`, and
+  `tasks/m12d-sponza-retry.log/.xml`. They cover ordinary camera exclusion, provider/publication/failure selection,
+  resource/gather regression, diffuse-only GPU sampling, coverage/fades, capture graph bindings, reflection-probe
+  lifecycle/persistence contracts, and live capture integration. All 32 emitted SPIR-V variants passed Vulkan 1.3
+  scalar-layout validation. No Vulkan/synchronization validation errors were reported.
+- The live RTX 5070 test used Sponza at 2560x1440 with RT pipeline, ray query, BLAS, and TLAS disabled. Explicit baked
+  payloads differed between SDFGI energy 0 and 2; captured payload values were finite. Immediate and dynamic captures
+  bound SDFGI without changing the anchor. One-face-per-frame dynamic updates survived a mid-capture 80x144x80 reset:
+  old resources stayed alive across submission then retired; dynamic updates did not alter the explicit bake payload.
+  The final capture restored the original Sponza probe pack, energy 1, and 256x128x256 layout, waited for convergence and
+  probe refresh, and passed a full finite-pixel check. `tasks/m12d-sponza.png` was visually inspected. The same live test's
+  small standalone fixture also passed (`tasks/m12d-live-fixture-retry.log/.xml`).
+- Initial validation attempts exposed test setup issues, corrected before the successful runs: missing application
+  context in a CPU fixture, asynchronous scene loading, and a small fixture receiver outside its camera-anchored field.
+  These were not changes to the rendering algorithm. No broad test matrix or performance benchmark was run.
+- All enabled apps/packages/Python installed successfully, exit 0 (`tasks/m12d-install.log`):
+  `python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+  Installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+  The installed RT-off 1440p Sponza smoke observed reflection-capture SDFGI reads and GPU generation 20, ready 1,
+  failure flags 0 (`tasks/m12d-installed-check.log`). Build/bin/Python SDK hashes match. Normal installation has graphics
+  validation off; the test build supplies validation coverage.
+
+Final interactive gallery/M12 review remains open; automated capture evidence is not user acceptance.

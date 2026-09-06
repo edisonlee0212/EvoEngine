@@ -414,6 +414,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     int directional_shadow_camera_index = -1;
     uint32_t current_frame_index = 0;
     bool use_mesh_shader = false;
+    std::shared_ptr<class SdfgiResources> sdfgi_resources;
+    std::shared_ptr<class SdfgiGatherFrame> sdfgi_publication;
   };
 
   struct DynamicReflectionProbeRuntimeState {
@@ -767,6 +769,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   RenderGraph reflection_probe_capture_render_graph_{};
   RenderGraphExecutionPlan reflection_probe_capture_render_graph_plan_{};
   ReflectionProbeCaptureGraphContext* reflection_probe_capture_graph_context_ = nullptr;
+  std::weak_ptr<class SdfgiGatherFrame> reflection_probe_capture_publication_;
   std::deque<ReflectionProbeBakeBatch> reflection_probe_bake_queue_{};
   std::optional<PreparedReflectionProbeBake> prepared_reflection_probe_bake_{};
   std::vector<std::optional<SubmittedReflectionProbeBake>> submitted_reflection_probe_bakes_{};
@@ -886,7 +889,8 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   void SortDynamicReflectionProbeQueue();
   void UpdateDynamicReflectionProbeTransitions(uint64_t face_serial);
   void FailReflectionProbeBakeBatch(const ReflectionProbeBakeBatch& batch, const std::string& error, bool timed_out);
-  void EnsureReflectionProbeCaptureRenderGraph();
+  void EnsureReflectionProbeCaptureRenderGraph(const std::shared_ptr<class SdfgiResources>& sdfgi_resources,
+                                               RenderGraphResourceRegistry& registry);
 
   /**
    * \brief Performs all rendering operations for this render layer.

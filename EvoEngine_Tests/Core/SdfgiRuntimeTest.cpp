@@ -115,6 +115,35 @@ TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   app.Terminate();
 }
 
+TEST(SdfgiGather, ReflectionCaptureSelectsOnlyPublishedProviderWithoutChangingAnchor) {
+  Application app;
+  ApplicationContextScope scope{app};
+  auto runtime = std::make_shared<SdfgiRuntime>(SdfgiSettings{}, SdfgiCapabilityReport{});
+  runtime->anchor = {42, glm::vec3(3, 4, 5)};
+  EXPECT_FALSE(SelectSdfgiCaptureResources({}, IndirectGiProvider::AutomaticSdfgi));
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
+  runtime->resources = std::make_shared<SdfgiResources>();
+  runtime->resources->publication = std::make_shared<SdfgiGatherFrame>();
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
+  runtime->published = true;
+  EXPECT_EQ(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi), runtime->resources);
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AuthoredDdgi));
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::Environment));
+  runtime->resources->preprocess_status.failure_flags = kSdfgiFailureSolidOverflow;
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
+  runtime->resources->preprocess_status.failure_flags = 0;
+  for (auto* failure : {&runtime->resources->voxel_failure, &runtime->resources->preprocess_failure,
+                        &runtime->resources->light_failure, &runtime->resources->transport_failure}) {
+    *failure = "unavailable";
+    EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
+    failure->clear();
+  }
+  runtime->resources->publication.reset();
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
+  EXPECT_EQ(runtime->anchor.camera_id, 42u);
+  EXPECT_EQ(runtime->anchor.world_position, glm::vec3(3, 4, 5));
+}
+
 TEST(SdfgiScene, LightCapacitySelectionIsBoundedAndIndependentOfInputOrder) {
   for (const bool dynamic : {false, true}) {
     const uint32_t capacity = dynamic ? 128 : 1024;

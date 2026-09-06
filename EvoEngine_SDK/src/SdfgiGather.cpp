@@ -8,6 +8,18 @@
 
 using namespace evo_engine;
 
+std::shared_ptr<SdfgiResources> evo_engine::SelectSdfgiCaptureResources(
+    const std::shared_ptr<const SdfgiRuntime>& runtime, const IndirectGiProvider provider) {
+  if (provider != IndirectGiProvider::AutomaticSdfgi || !runtime || !runtime->published || !runtime->resources)
+    return {};
+  const auto& resources = runtime->resources;
+  return resources->publication && !resources->preprocess_status.failure_flags && resources->voxel_failure.empty() &&
+                 resources->preprocess_failure.empty() && resources->light_failure.empty() &&
+                 resources->transport_failure.empty()
+             ? resources
+             : nullptr;
+}
+
 bool evo_engine::IsSdfgiCameraEligible(const std::shared_ptr<Scene>& scene, const std::shared_ptr<Camera>& camera,
                                        const std::shared_ptr<Camera>& editor_camera, const bool immediate,
                                        const bool reflection_capture, const bool custom_recorder) {

@@ -6,6 +6,7 @@
 #include "ApplicationContext.hpp"
 #include "ComputePipeline.hpp"
 #include "Cubemap.hpp"
+#include "DemoScene.hpp"
 #include "EnvironmentalLighting.hpp"
 #include "GeometryStorage.hpp"
 #include "GltfMaterial.hpp"
@@ -14,7 +15,9 @@
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "Mesh.hpp"
+#include "MeshRenderer.hpp"
 #include "Platform.hpp"
+#include "ProjectManager.hpp"
 #include "RenderLayer.hpp"
 #include "Resources.hpp"
 #include "Scene.hpp"
@@ -38,6 +41,7 @@
 #include <chrono>
 #include <cstring>
 #include <filesystem>
+#include <glm/gtc/packing.hpp>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -62,6 +66,14 @@ class SdfgiTestAccess {
   static bool HasDdgiResources(const RenderLayer& render) {
     return !render.ddgi_volume_runtime_states_.empty() || render.ddgi_probe_update_pipeline_ ||
            render.ddgi_probe_update_layout_ || render.ddgi_probe_ray_output_layout_ || render.ddgi_atlas_sampler_;
+  }
+  static uint64_t CaptureImmediately(RenderLayer& render, const std::shared_ptr<Scene>& scene,
+                                     const glm::vec3 position) {
+    const auto camera = render.GetOrCreateReflectionProbeCaptureCameras(1).front();
+    GlobalTransform transform;
+    transform.SetPosition(position);
+    render.RenderSceneToCameraImmediately(scene, transform, camera, true);
+    return camera->GetHandle().GetValue();
   }
 };
 
@@ -1133,7 +1145,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-void CheckSdfgiRectangularGather(const uint32_t voxel_x, const uint32_t voxel_y) {
+void CheckSdfgiRectangularGather(const uint32_t voxel_x, const uint32_t voxel_y, const bool capture = false) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
@@ -1170,7 +1182,8 @@ void CheckSdfgiRectangularGather(const uint32_t voxel_x, const uint32_t voxel_y)
   gather->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
   gather->compute_shader = Shader::CreateTemporary(
       ShaderType::Compute, "#define TEST_GRID_X " + std::to_string(voxel_x) + "\n#define TEST_GRID_Y " +
-                               std::to_string(voxel_y) + "\n" + std::string(R"(
+                               std::to_string(voxel_y) + "\n#define TEST_CAPTURE " + (capture ? "true" : "false") +
+                               "\n" + std::string(R"(
 import EvoEngine.Sdfgi;
 [[vk::binding(0,4)]] RWStructuredBuffer<float4> result;
 [numthreads(1,1,1)]
@@ -1179,7 +1192,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   float inner = max(0.0, half_grid.x - 48);
   const float3 positions[7] = {float3(inner,0,0), float3(0,0,inner), float3(0,half_grid.y-12,0),
       float3(0,half_grid.y+16,0), float3(half_grid.x-12,0,0), float3(0,0,half_grid.z+4), float3(half_grid.x+72,0,0)};
-  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(0,1,0), float3(1,0,0), id.x < 2 ? 0.0 : 0.5);
+  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(0,1,0), float3(1,0,0), id.x < 2 ? 0.0 : 0.5, !TEST_CAPTURE);
   result[id.x * 2] = float4(value.diffuse, value.weight);
   result[id.x * 2 + 1] = float4(value.specular, value.specular_weight);
 }
@@ -1256,8 +1269,174 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
   }
   for (uint32_t i : {1u, 3u}) {
-    EXPECT_NEAR(values[i].x, 4, 1e-5f);
-    EXPECT_FLOAT_EQ(values[i].w, 1);
+    EXPECT_NEAR(values[i].x, capture ? 0 : 4, 1e-5f);
+    EXPECT_FLOAT_EQ(values[i].w, capture ? 0 : 1);
+  }
+  if (capture)
+    for (uint32_t i = 0; i < 7; ++i)
+      EXPECT_EQ(values[i * 2 + 1], glm::vec4(0));
+}
+
+TEST(SdfgiGather, ReflectionCaptureKeepsDiffuseAndCoverageWithoutSpecularOrSharpTracing) {
+  CheckSdfgiRectangularGather(80, 144, true);
+}
+
+TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  initialization.load_project_assets = true;
+  initialization.load_project_start_scene = true;
+  const auto* sponza_resources = std::getenv("EVOENGINE_SDFGI_CAPTURE_TEST_RESOURCES");
+  if (sponza_resources)
+    SetupDemoScene(DemoSetup::Rendering, initialization, sponza_resources, false);
+  initialization.graphics_settings.use_ray_tracing = false;
+  app.Initialize(initialization);
+  app.Start();
+  for (uint32_t frame = 0; frame < 30000 && !app.GetActiveScene(); ++frame)
+    ASSERT_TRUE(app.Loop());
+  const auto scene = app.GetActiveScene();
+  ASSERT_TRUE(scene);
+  auto camera = scene->main_camera.Get<Camera>();
+  if (!camera) {
+    camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("Capture anchor")).lock();
+    scene->main_camera = camera;
+  }
+  camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  camera->SetRequireRendering(true);
+  camera->Resize(sponza_resources ? glm::uvec2(2560, 1440) : glm::uvec2(128));
+  auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
+  if (!lighting) {
+    lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+    scene->environmental_lighting = lighting;
+  }
+  if (!sponza_resources) {
+    scene->SetDataComponent(camera->GetOwner(), Transform{});
+    const auto entity = scene->CreateEntity("Diffuse capture receiver");
+    const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+    renderer->mesh = Resources::GetInstance().GetPrimitives().cube;
+    renderer->material = AssetManager::CreateTemporaryAsset<Material>();
+    Transform transform;
+    transform.SetValue(glm::vec3(0, 0, -3), glm::vec3(0), glm::vec3(2));
+    scene->SetDataComponent(entity, transform);
+    scene->SetEntityStatic(entity, true);
+    lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+    lighting->indirect_environment_source.color = glm::vec3(0.5f, 0.25f, 0.125f);
+    lighting->sdfgi_settings.voxel_count_x = lighting->sdfgi_settings.voxel_count_y = 64;
+    lighting->sdfgi_settings.cascade_count = 1;
+  }
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
+  lighting->dynamic_reflection_probe_settings.enabled = false;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  ASSERT_TRUE(render);
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  const auto loop_until = [&](const auto& ready) {
+    for (uint32_t frame = 0; frame < 360; ++frame) {
+      if (!app.Loop())
+        return false;
+      if (ready())
+        return true;
+    }
+    return false;
+  };
+  ASSERT_TRUE(loop_until([&] {
+    const auto runtime = scene->GetSdfgiRuntime();
+    return ProjectManager::IsProjectIdle() && runtime && runtime->published && runtime->resources &&
+           runtime->resources->transport_pass >= 90;
+  }));
+  const auto anchor = scene->GetSdfgiRuntime()->anchor;
+  const auto original_pack = lighting->reflection_probe_pack;
+  auto pack = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
+  lighting->reflection_probe_pack = pack;
+  pack->probes.emplace_back();
+  auto& probe = pack->probes.front();
+  probe.stable_id = 123;
+  probe.transform = glm::translate(glm::mat4(1), anchor.world_position);
+  probe.box_projection_extents = glm::vec3(30);
+  const auto payload = probe.GetOrCreatePayload();
+  const auto bake = [&] {
+    if (render->QueueGlobalReflectionProbeBakeBatch(scene, {{anchor.world_position, payload, pack, probe.stable_id}}) !=
+        1)
+      return false;
+    return loop_until([&] {
+             return !render->HasPendingGlobalReflectionProbeBake();
+           }) &&
+           payload->IsRuntimeReady();
+  };
+  lighting->sdfgi_settings.energy = 0;
+  ASSERT_TRUE(app.Loop());
+  ASSERT_TRUE(bake());
+  std::vector<uint16_t> dark, lit;
+  ASSERT_TRUE(payload->ReadCanonicalPayload(dark));
+  lighting->sdfgi_settings.energy = 2;
+  ASSERT_TRUE(app.Loop());
+  ASSERT_TRUE(bake());
+  ASSERT_TRUE(payload->ReadCanonicalPayload(lit));
+  ASSERT_EQ(dark.size(), lit.size());
+  EXPECT_NE(dark, lit);
+  for (const uint16_t value : lit)
+    ASSERT_TRUE(std::isfinite(glm::unpackHalf1x16(value)));
+  const auto baked_hash = GlobalReflectionProbe::CalculatePayloadHash(lit);
+  const auto immediate_id = SdfgiTestAccess::CaptureImmediately(*render, scene, anchor.world_position);
+  const auto& immediate_reads = scene->GetSdfgiRuntime()->resources->gather_camera_ids;
+  EXPECT_NE(std::find(immediate_reads.begin(), immediate_reads.end(), immediate_id), immediate_reads.end());
+  lighting->dynamic_reflection_probe_settings.faces_per_frame = 1;
+  lighting->dynamic_reflection_probe_settings.enabled = true;
+  bool saw_capture_read = false;
+  ASSERT_TRUE(loop_until([&] {
+    const auto& ids = scene->GetSdfgiRuntime()->resources->gather_camera_ids;
+    saw_capture_read |= std::any_of(ids.begin(), ids.end(), [&](uint64_t id) {
+      return id != anchor.camera_id;
+    });
+    return render->GetDynamicReflectionProbeStats().published_generation_count >= 1;
+  }));
+  EXPECT_TRUE(saw_capture_read);
+  ASSERT_TRUE(loop_until([&] {
+    return render->GetDynamicReflectionProbeStats().completed_face_count == 1;
+  }));
+  std::weak_ptr<SdfgiResources> retired = scene->GetSdfgiRuntime()->resources;
+  lighting->sdfgi_settings.voxel_count_x = 80;
+  lighting->sdfgi_settings.voxel_count_y = 144;
+  const auto generation = render->GetDynamicReflectionProbeStats().published_generation_count;
+  ASSERT_TRUE(app.Loop());
+  EXPECT_FALSE(retired.expired());
+  ASSERT_TRUE(loop_until([&] {
+    return scene->GetSdfgiRuntime()->published &&
+           render->GetDynamicReflectionProbeStats().published_generation_count > generation;
+  }));
+  EXPECT_TRUE(retired.expired());
+  EXPECT_EQ(scene->GetSdfgiRuntime()->anchor.camera_id, anchor.camera_id);
+  EXPECT_EQ(scene->GetSdfgiRuntime()->anchor.world_position, anchor.world_position);
+  ASSERT_TRUE(payload->ReadCanonicalPayload(lit));
+  EXPECT_EQ(GlobalReflectionProbe::CalculatePayloadHash(lit), baked_hash);
+  if (sponza_resources) {
+    lighting->reflection_probe_pack = original_pack;
+    lighting->sdfgi_settings.energy = 1;
+    lighting->sdfgi_settings.voxel_count_x = 256;
+    lighting->sdfgi_settings.voxel_count_y = 128;
+    ASSERT_TRUE(loop_until([&] {
+      const auto runtime = scene->GetSdfgiRuntime();
+      return runtime->published && runtime->resources->transport_pass >= 90 &&
+             render->GetDynamicReflectionProbeStats().published_generation_count >= 5;
+    }));
+    const auto path = std::filesystem::path(sponza_resources).parent_path() / "m12d-sponza.png";
+    camera->GetRenderTexture()->StoreToPng(path);
+    std::vector<glm::vec4> pixels;
+    camera->GetRenderTexture()->GetRgbaChannelData(pixels);
+    ASSERT_EQ(pixels.size(), 2560u * 1440u);
+    for (const auto pixel : pixels)
+      ASSERT_TRUE(std::isfinite(pixel.x) && std::isfinite(pixel.y) && std::isfinite(pixel.z) && std::isfinite(pixel.w));
+    std::cout << "SDFGI reflection Sponza capture: " << path << " RT pipeline/query/AS disabled\n";
   }
 }
 
