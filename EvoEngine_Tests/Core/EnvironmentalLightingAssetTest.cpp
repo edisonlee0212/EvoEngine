@@ -1045,6 +1045,60 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_EQ(master_disabled.ddgi_volumes.size(), 2u);
 }
 
+TEST(EnvironmentalLightingAsset, EcoSysLabComparisonVolumeCoversWallsAndPreservesSdfgiDefault) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  const auto node = YAML::LoadFile(SourcePath("Resources/EcoSysLabProject/Assets/Default.evescene").string());
+  YAML::Node lighting_node, pack_node;
+  for (const YAML::Node asset : node["LocalAssets"]) {
+    if (asset["type_name"].as<std::string>() == "EnvironmentalLighting")
+      lighting_node = asset;
+    if (asset["type_name"].as<std::string>() == "DdgiVolumePack")
+      pack_node = asset;
+  }
+  ASSERT_TRUE(lighting_node && pack_node);
+  const auto pack = std::dynamic_pointer_cast<DdgiVolumePack>(
+      AssetManager::CreateTemporaryAsset("DdgiVolumePack", Handle(pack_node["handle"].as<uint64_t>())));
+  ASSERT_TRUE(pack);
+  DeserializeDdgiVolumePack(pack_node, *pack);
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  DeserializeEnvironmentalLighting(lighting_node, *lighting);
+  EXPECT_EQ(node["environmental_lighting"]["asset_handle_"].as<uint64_t>(), lighting_node["handle"].as<uint64_t>());
+  EXPECT_EQ(lighting->GetDdgiVolumePack(), pack);
+  EXPECT_EQ(lighting->indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_TRUE(lighting->ddgi_settings.runtime.enabled);
+  ASSERT_EQ(pack->volumes.size(), 1u);
+  const auto& volume = pack->volumes.front();
+  EXPECT_EQ(volume.name, "EcoSysLab Walls");
+  EXPECT_EQ(volume.probe_counts, glm::ivec3(15, 13, 15));
+  EXPECT_EQ(volume.probe_spacing, glm::vec3(0.5f));
+  EXPECT_EQ(volume.GetProbeAmount(), 2925u);
+  EXPECT_EQ(glm::vec3(volume.transform * glm::vec4(volume.GetProbeLocalPosition({0, 0, 0}), 1)),
+            glm::vec3(-3.5f, -1, -3.5f));
+  EXPECT_EQ(glm::vec3(volume.transform * glm::vec4(volume.GetProbeLocalPosition({14, 12, 14}), 1)),
+            glm::vec3(3.5f, 5, 3.5f));
+  EXPECT_TRUE(volume.enabled && volume.enable_probe_relocation);
+  EXPECT_FALSE(volume.enable_probe_classification);
+  EXPECT_EQ(volume.movement_type, static_cast<int>(DdgiVolumeMovementType::Default));
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  scene->environmental_lighting = lighting;
+  EXPECT_TRUE(ResolveEnvironmentalLighting(scene).ddgi_volumes.empty());
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  const auto resolved = ResolveEnvironmentalLighting(scene);
+  EXPECT_TRUE(resolved.ddgi_settings.runtime.enabled);
+  EXPECT_EQ(resolved.ddgi_volumes.size(), 1u);
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeDdgiVolumePack(out, *pack);
+  out << YAML::EndMap;
+  DdgiVolumePack restored;
+  DeserializeDdgiVolumePack(YAML::Load(out.c_str()), restored);
+  ASSERT_EQ(restored.volumes.size(), 1u);
+  EXPECT_EQ(restored.volumes[0].stable_id, volume.stable_id);
+  EXPECT_EQ(restored.volumes[0].GetLocalGridSize(), glm::vec3(7, 6, 7));
+}
+
 TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalLightingAsset) {
   Application app;
   ApplicationContextScope scope(app);

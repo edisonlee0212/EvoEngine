@@ -10,6 +10,18 @@ the raster renderer, but it cannot update DDGI probes.
 
 ## Authoring And Ownership
 
+### EcoSysLab comparison volume
+
+`Resources/EcoSysLabProject/Assets/Default.evescene` embeds one **EcoSysLab Walls** volume for provider comparisons.
+It stays fixed at world center `(0, 2, 0)`, with `15 x 13 x 15` probes at `0.5` spacing (2,925 probes).
+Probe-grid bounds are `(-3.5, -1, -3.5)` to `(3.5, 5, 3.5)`, covering the room walls with padding rather than the enormous
+ground plane. Relocation is on (distance `0.25`); classification is off. Other DDGI runtime settings retain engine defaults.
+The scene still selects Automatic SDFGI. In **Environmental Lighting**, select **Authored DDGI (RT)** to compare, then
+switch back to **Automatic SDFGI**; the inactive volume remains stored. DDGI requires RT-enabled engine startup.
+Entity transforms, enabled/Static flags, materials, lights, and the currently disabled Wall0 are unchanged.
+
+### Asset ownership
+
 `EnvironmentalLighting` owns shared DDGI settings and references a `DdgiVolumePack`. The pack is a YAML asset containing
 volume definitions and stable IDs. GPU buffers, atlases, probe history, relocation, classification, convergence, and
 diagnostic readbacks are transient `RenderLayer` state.
