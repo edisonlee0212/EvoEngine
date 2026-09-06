@@ -1,7 +1,7 @@
 # Automatic SDFGI
 
 Implementation baseline: `codex/universe-performance`, `f977f012f413`, 2026-09-05.
-Capability preflight, provider ownership, GPU storage, placement/scene inputs, static voxelization, SDF/occlusion
+Capability preflight, provider ownership, GPU storage, placement/scene inputs, mesh voxelization, SDF/occlusion
 preprocessing, voxel lighting, probe transport/storage, deferred gather, automatic scrolling, and edit invalidation are
 implemented. The user has accepted M9 movement review. Eligible opaque/masked raster cameras share
 one complete field and use Environment fallback otherwise. M0-M9 are complete, committed as separate milestones, and the
@@ -189,10 +189,22 @@ teleport loops and signed overflow; coordinates outside the reference integer ra
 before field allocation. No new relocation budget or scheduling policy is introduced.
 
 `SnapshotSdfgiScene` runs once at the scene maintenance boundary. It reads scene component ownership, not camera culling,
-render-instance array indices, DDGI signatures, or camera-dependent light buffers. Eligible entries are static, enabled,
-ordinary filled-triangle `MeshRenderer`s with supported opaque/masked `Material` data. Dynamic rigid and deforming meshes
-are receiver-only; transparent/transmissive, particles, strands, and splats retain forward fallback. Missing/empty data,
-non-filled geometry, and invalid bounds are separately diagnosed. This uses existing entity mobility, not new GI tags.
+render-instance array indices, DDGI signatures, or camera-dependent light buffers. Eligible entries are enabled,
+ordinary filled-triangle `MeshRenderer`s with supported opaque/masked `Material` data.
+**Environmental Lighting > Automatic SDFGI > Geometry contributors** selects **All supported entities** (default) or
+**Static entities only**. The latter requires both renderer-owner and transform-owner roots to be Static; the default
+also includes non-static regular meshes without changing their entity flags. Skinned/morphing meshes remain receiver-only;
+transparent/transmissive, particles, strands, and splats retain forward fallback. Missing/empty data, non-filled geometry,
+and invalid bounds are separately diagnosed.
+
+`static_entities_only` is serialized and exposed in Python; missing values default to false, including older scenes.
+Mode changes reuse field allocations and registry invalidation: additions/removals and moving contributors rebuild
+affected cascades using old/new bounds. Unchanged geometry does not continually rebuild. Moving geometry can be expensive,
+and updated lighting needs time to reconverge. Light mobility/cadence and temporal-history handling are unchanged.
+The diagnostic capture key is now `accepted_contributors` (formerly `static_contributors`), and Python status uses
+`accepted_contributor_count` instead of `static_contributor_count`. This is an intentional
+departure from the pinned Godot static-only contributor contract (`doc/classes/Environment.xml`, `gi_mode` documentation).
+Check `C:/Users/lllll/Documents/GitHub/godot` at `34d06658a85845111a50db9e485ec4a0701d4298` first when uncertain.
 
 The stable registry key is `(renderer handle, transform-owner entity handle)`. For `LodGroup`, the adapter uses its first
 (base) LOD and the group's transform, matching the host's instance ownership and Godot's SDF voxel pass with mesh LOD
@@ -228,10 +240,10 @@ The existing scene-frame test again ran on the RTX 5070 with all effective RT fa
 validation enabled, and no reported validation errors. No additional shader/GPU-storage, image, editor UI, or full-suite
 run was needed for these CPU-only changes. Field publication and rendering remain disabled.
 
-## Static voxelization and diagnostic capture
+## Mesh voxelization and diagnostic capture
 
 The scene graph records `SdfgiVoxelInputs`, one `SdfgiVoxelCascadeN` for each pending cascade, and completion before any
-ordinary camera. Each cascade clears shared albedo/emission/anisotropy/facing scratch, then draws its intersecting static
+ordinary camera. Each cascade clears shared albedo/emission/anisotropy/facing scratch, then draws its intersecting eligible
 contributors through three attachment-free orthographic views. There is no depth attachment, depth test, camera culling,
 shadow dependency, or material evaluation in the ordinary opaque G-buffer. As in Godot's SDF pass, culling is always
 disabled, including for materials that are single-sided in ordinary rendering. Facing uses the normalized interpolated
@@ -1079,3 +1091,23 @@ default feedback was 1.0, generation 90 was ready with no failure flags, and the
 pixels (`tasks/m12e-runtime.log`, `tasks/m12e-sponza.png/.yaml`). Build/bin/Python SDK hashes match. This focused check
 does not establish stability for every material/scene or complete manual M12 acceptance. Skinned-mesh contribution
 remains excluded and was investigated for discussion only.
+
+### M12f: Contributor selection
+
+Seven focused CPU/GPU tests passed (`tasks/m12f-tests-retry.log/.xml`): settings/default migration, layout identity,
+registry routing, static/all selection, root/base-LOD ownership, deformation/forward exclusions, and non-static mesh
+insertion/movement/removal. Cornell's eight authored non-static meshes contribute in all-supported mode and none in
+static-only mode, without changing their flags or minimum cell size. GPU validation ran with RT pipeline/query/BLAS/TLAS
+disabled; no Vulkan/synchronization validation errors were reported. The fixture's initial setup crash was resolved by
+loading the default resources required by its full RenderLayer initialization, not by changing SDFGI behavior.
+
+The SDK/tests build passed (`tasks/m12f-build-retry.log`). All enabled apps/packages/Python were built and installed
+successfully (exit 0, `tasks/m12f-install-final.log`) using
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+Built and installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+The installed-Python RTX 5070 Sponza smoke at 2560x1440 explicitly disabled all RT features and switched all -> static -> all:
+525 -> 524 -> 525 accepted contributors, ready generations 60/120/180, zero GPU failure flags, constant field/scratch
+allocation sizes, and a visually inspected final capture with zero nonfinite pixels (`tasks/m12f-runtime-final.log`,
+`tasks/m12f-sponza.png/.yaml`). Build/bin/Python SDK hashes match. Initial smoke setup reused an empty generated project;
+the successful run used fresh disposable assets. Its allocation assertion was narrowed to field/scratch because contributor
+upload sizes legitimately change. No broad matrix or manual Cornell/EcoSysLab/M12 acceptance is claimed.

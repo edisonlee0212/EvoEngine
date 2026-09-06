@@ -147,7 +147,7 @@ std::string evo_engine::BuildSdfgiDebugSnapshot(const SdfgiRuntime& runtime) {
   node["fallback_reason"] = runtime.fallback_reason;
   node["debug_failure"] = debug.failure;
   node["invalidation_counts"] = debug.invalidations;
-  node["static_contributors"] = runtime.contributors.entries.size();
+  node["accepted_contributors"] = runtime.contributors.entries.size();
   for (const auto& [reason, count] : runtime.scene_snapshot.excluded)
     node["excluded_contributors"][GetSdfgiExclusionName(reason)] = count;
   for (uint32_t c = 0; c < runtime.cascades.size(); ++c) {

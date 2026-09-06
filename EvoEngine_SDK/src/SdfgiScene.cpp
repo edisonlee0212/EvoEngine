@@ -252,7 +252,8 @@ SdfgiSceneSnapshot evo_engine::SnapshotSdfgiScene(const std::shared_ptr<Scene>& 
     if (!group_enabled || !scene->IsEntityEnabled(transform_owner) || !scene->IsEntityEnabled(owner) ||
         !renderer->IsEnabled())
       input.exclusion = SdfgiExclusion::Disabled;
-    else if (!scene->IsEntityStatic(owner) || !scene->IsEntityStatic(transform_owner))
+    else if (lighting.sdfgi_settings.static_entities_only &&
+             (!scene->IsEntityStatic(owner) || !scene->IsEntityStatic(transform_owner)))
       input.exclusion = SdfgiExclusion::Dynamic;
     else {
       input.mesh = renderer->mesh.Get<Mesh>();

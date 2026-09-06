@@ -152,8 +152,8 @@ def main():
                 break
         else:
             raise RuntimeError(f"Voxelization did not become ready: {state}")
-        if state["static_contributor_count"] == 0:
-            raise RuntimeError(f"The Rendering demo has no static contributors: {state}")
+        if state["accepted_contributor_count"] == 0:
+            raise RuntimeError(f"The Rendering demo has no accepted contributors: {state}")
         if args.view in ("transport", "beauty"):
             for warmup in range(120):
                 if not engine.Loop():

@@ -20,6 +20,7 @@
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
+#include "SkinnedMeshRenderer.hpp"
 
 using namespace evo_engine;
 
@@ -407,6 +408,7 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
   EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
   EXPECT_TRUE(settings.use_occlusion);
+  EXPECT_FALSE(settings.static_entities_only);
   EXPECT_EQ(settings.ray_count, 16u);
   EXPECT_EQ(settings.history_size, 30u);
   EXPECT_EQ(settings.light_update_frames, 4u);
@@ -424,6 +426,7 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   settings.min_cell_size = 0.4f;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent50;
   settings.use_occlusion = false;
+  settings.static_entities_only = true;
   settings.ray_count = 96;
   settings.history_size = 5;
   settings.light_update_frames = 16;
@@ -439,9 +442,21 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
   EXPECT_TRUE(loaded == settings);
   EXPECT_FALSE(loaded.use_occlusion);
+  EXPECT_TRUE(loaded.static_entities_only);
   EXPECT_TRUE(loaded.Validate().empty());
   SdfgiSettings missing;
   DeserializeSdfgiSettings(YAML::Load("{}"), missing);
+  EXPECT_FALSE(missing.static_entities_only);
+  auto static_only = missing;
+  static_only.static_entities_only = true;
+  EXPECT_FALSE(static_only == missing);
+  EXPECT_TRUE(static_only.HasSameLayout(missing));
+  DeserializeSdfgiSettings(YAML::Load("static_entities_only: false"), static_only);
+  EXPECT_FALSE(static_only.static_entities_only);
+  YAML::Emitter all_entities;
+  SerializeSdfgiSettings(all_entities, static_only);
+  DeserializeSdfgiSettings(YAML::Load(all_entities.c_str()), loaded);
+  EXPECT_TRUE(loaded == static_only);
   EXPECT_FLOAT_EQ(missing.bounce_feedback, 1.0f);
   EXPECT_TRUE(missing.use_occlusion);
   EXPECT_EQ(missing.positional_light_cascade_count, 8u);
@@ -900,6 +915,7 @@ TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
   spot->inner_degrees = 20;
   spot->outer_degrees = 40;
   ResolvedEnvironmentalLighting lighting;
+  lighting.sdfgi_settings.static_entities_only = true;
   lighting.indirect_environment_source.kind = ResolvedEnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
   lighting.indirect_environment_source.color = {0.1f, 0.2f, 0.3f};
   lighting.environment_lighting_intensity = 2;
@@ -930,6 +946,42 @@ TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
   registry.Update(snapshot.contributors);
   EXPECT_TRUE(registry.changes.empty());
   point->SetEnabled(false);
+  lighting.sdfgi_settings.static_entities_only = false;
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  ASSERT_EQ(registry.entries.size(), 2u);
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiAdded);
+  EXPECT_FALSE(scene->IsEntityStatic(dynamic->GetOwner()));
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  EXPECT_TRUE(registry.changes.empty());
+  transform.SetPosition({-99, 0, 0});
+  scene->SetDataComponent(dynamic->GetOwner(), transform);
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiTransformChanged);
+  EXPECT_EQ(registry.changes[0].before->world_bounds.min.x, 98);
+  EXPECT_EQ(registry.changes[0].after->world_bounds.min.x, -100);
+  SdfgiSettings field_settings;
+  field_settings.voxel_count_x = field_settings.voxel_count_y = 64;
+  field_settings.cascade_count = 1;
+  field_settings.min_cell_size = 1;
+  for (const float anchor : {-99.0f, 99.0f}) {
+    std::vector<SdfgiCascade> cascades;
+    ASSERT_TRUE(UpdateSdfgiCascades(field_settings, {anchor, 0, 0}, cascades).empty());
+    EXPECT_EQ(registry.AffectedCascades(cascades, SdfgiYMultiplier(field_settings.vertical_scale))[0],
+              SdfgiTransformChanged);
+  }
+  scene->SetEntityStatic(group_entity, false);
+  EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).excluded[SdfgiExclusion::Dynamic], 0u);
+  lighting.sdfgi_settings.static_entities_only = true;
+  EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).excluded[SdfgiExclusion::Dynamic], 2u);
+  scene->SetEntityStatic(group_entity, true);
+  scene->SetEntityStatic(base->GetOwner(), false);
+  EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).excluded[SdfgiExclusion::Dynamic], 2u);
+  scene->SetEntityStatic(base->GetOwner(), true);
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  ASSERT_EQ(registry.changes.size(), 1u);
+  EXPECT_EQ(registry.changes[0].flags, SdfgiRemoved);
   EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).lights.size(), 2u);
   material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Blend);
   snapshot = SnapshotSdfgiScene(scene, lighting);
@@ -938,6 +990,31 @@ TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
   EXPECT_EQ(snapshot.excluded[SdfgiExclusion::Forward], 1u);
   ASSERT_EQ(registry.changes.size(), 1u);
   EXPECT_EQ(registry.changes[0].flags, SdfgiRemoved);
+  lighting.sdfgi_settings.static_entities_only = false;
+  snapshot = SnapshotSdfgiScene(scene, lighting);
+  registry.Update(snapshot.contributors);
+  EXPECT_TRUE(registry.entries.empty());
+  EXPECT_EQ(snapshot.excluded[SdfgiExclusion::Forward], 2u);
+  material->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Opaque);
+  const auto static_root = scene->CreateEntity("Static root");
+  scene->SetParent(dynamic->GetOwner(), static_root);
+  scene->SetEntityStatic(static_root, true);
+  lighting.sdfgi_settings.static_entities_only = true;
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  EXPECT_EQ(registry.entries.size(), 2u);
+  lighting.sdfgi_settings.static_entities_only = false;
+  dynamic->SetEnabled(false);
+  EXPECT_EQ(SnapshotSdfgiScene(scene, lighting).excluded[SdfgiExclusion::Disabled], 1u);
+  base->SetMorphWeights({1.0f});
+  const auto skinned_entity = scene->CreateEntity("Unsupported skinned contributor");
+  static_cast<void>(scene->GetOrSetPrivateComponent<SkinnedMeshRenderer>(skinned_entity));
+  for (const bool static_only : {false, true}) {
+    lighting.sdfgi_settings.static_entities_only = static_only;
+    snapshot = SnapshotSdfgiScene(scene, lighting);
+    registry.Update(snapshot.contributors);
+    EXPECT_TRUE(registry.entries.empty());
+    EXPECT_EQ(snapshot.excluded[SdfgiExclusion::Deforming], 2u);
+  }
 }
 
 TEST(SdfgiScene, AnchorReplacementPreservesOnlyReferenceOverlapAndNoAnchorFreezesCoverage) {

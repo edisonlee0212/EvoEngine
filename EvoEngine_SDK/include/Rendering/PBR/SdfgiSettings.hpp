@@ -24,6 +24,7 @@ struct EVOENGINE_API SdfgiSettings {
   float min_cell_size = 0.2f;
   VerticalScale vertical_scale = VerticalScale::Percent75;
   bool use_occlusion = true;
+  bool static_entities_only = false;
   uint32_t ray_count = 16;
   uint32_t history_size = 30;
   uint32_t light_update_frames = 4;

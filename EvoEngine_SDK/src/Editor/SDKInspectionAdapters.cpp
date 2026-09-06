@@ -2151,7 +2151,8 @@ void InspectSdfgiRuntime(InspectorContext& context) {
   ImGui::TextWrapped(
       "SDF traces all cascades. Probes/visibility/slice use the selected cascade. Visibility: red=hidden, "
       "white=visible; toggle depth testing to see through geometry. Fallback: red=Environment, green=SDFGI. "
-      "Contributor bounds: green=static, cyan=dynamic/deforming receiver-only, red=excluded (see reasons below). "
+      "Contributor bounds: green=accepted, cyan=static-filtered/deforming receiver-only, red=excluded (see reasons "
+      "below). "
       "Diffuse/specular isolate SDFGI before local reflections/SSR, with only tone mapping.");
   FileUtils::SaveFile(
       "Capture image + state", "PNG and matching YAML", {".png"},
@@ -3106,6 +3107,16 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       inspect_choice("Rays per probe", settings.ray_count, {4, 8, 16, 32, 64, 96, 128});
       inspect_choice("History frames", settings.history_size, {5, 10, 15, 20, 25, 30});
       inspect_choice("Dynamic-light update frames", settings.light_update_frames, {1, 2, 4, 8, 16});
+      int contributors = settings.static_entities_only ? 1 : 0;
+      if (ImGui::Combo("Geometry contributors", &contributors, "All supported entities\0Static entities only\0")) {
+        settings.static_entities_only = contributors == 1;
+        changed = true;
+      }
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "All includes non-static regular meshes; skinned, morphing and other unsupported geometry stay excluded.\n"
+            "Moving geometry can trigger expensive cascade rebuilds. Changes need time to reconverge.\n"
+            "Entity Static flags are not modified.");
       changed = ImGui::Checkbox("Use Occlusion", &settings.use_occlusion) || changed;
       if (ImGui::IsItemHovered())
         ImGui::SetTooltip(

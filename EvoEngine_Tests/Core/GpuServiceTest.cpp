@@ -901,6 +901,144 @@ TEST(SdfgiEdits, PayloadPreservesTopologyHistoryAndStaticSeedAndRecoversWithoutR
   }
 }
 
+TEST(SdfgiEdits, NonStaticSelectionMovementAndRemovalWithoutRt) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  app.Initialize(initialization);
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto entity = scene->CreateEntity("Non-static contributor");
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  renderer->mesh = mesh;
+  renderer->material = AssetManager::CreateTemporaryAsset<Material>();
+  std::vector<Vertex> vertices(4);
+  for (uint32_t i = 0; i < 4; ++i) {
+    vertices[i].position = {0.5f, i & 1 ? 4.0f : -4.0f, i & 2 ? 4.0f : -4.0f};
+    vertices[i].normal = {1, 0, 0};
+    vertices[i].color = glm::vec4(1);
+  }
+  VertexAttributes attributes{};
+  attributes.normal = attributes.color = true;
+  mesh->SetVertices(attributes, vertices, std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}});
+  GeometryStorage::WaitForPendingUploads();
+  ResolvedEnvironmentalLighting lighting;
+  auto& settings = lighting.sdfgi_settings;
+  settings.voxel_count_x = settings.voxel_count_y = 64;
+  settings.cascade_count = 1;
+  settings.min_cell_size = 1;
+  settings.history_size = 5;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  auto runtime = std::make_shared<SdfgiRuntime>(settings, SdfgiCapabilityReport{});
+  std::vector<uint8_t> empty_sdf, previous_sdf;
+  for (uint32_t phase = 0; phase < 5; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    settings.static_entities_only = phase == 0 || phase == 4;
+    runtime->settings = settings;
+    runtime->Maintain(Platform::GetFrameCount(), {1, glm::vec3(0)});
+    GlobalTransform transform;
+    transform.SetPosition({phase >= 2 ? 12.0f : 0.0f, 0, 0});
+    scene->SetDataComponent(entity, transform);
+    runtime->UpdateSceneSnapshot(SnapshotSdfgiScene(scene, lighting));
+    runtime->PrepareUpdates(phase != 0, false);
+    EXPECT_FALSE(scene->IsEntityStatic(entity));
+    if (phase == 3) {
+      EXPECT_TRUE(runtime->contributors.changes.empty());
+      EXPECT_TRUE(runtime->pending_regions.empty());
+      PlatformLifecycleTestAccess::LateUpdate();
+      continue;
+    }
+    EXPECT_EQ(runtime->contributors.entries.size(), settings.static_entities_only ? 0u : 1u);
+    const auto voxel =
+        SdfgiVoxelFrame::Create(*field, runtime->contributors, runtime->cascades, runtime->pending_regions);
+    field->voxel_frames[Platform::GetCurrentFrameIndex()] = voxel;
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (phase == 0)
+      graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    voxel->AddPasses(graph, registry, field, runtime);
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI contributor selection readback");
+    voxel->preprocess_readback->ReadAfterFrameFence(*field);
+    EXPECT_EQ(field->preprocess_status.failure_flags, 0u);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {64, 64, 64};
+    Buffer buffer(64 * 64 * 64);
+    buffer.CopyFromImage(*field->textures.at("Cascade0.Sdf").image, copy);
+    std::vector<uint8_t> sdf;
+    buffer.DownloadVector(sdf, 64 * 64 * 64);
+    if (phase == 0)
+      empty_sdf = sdf;
+    else if (phase == 4)
+      EXPECT_EQ(sdf, empty_sdf);
+    else {
+      EXPECT_NE(sdf, empty_sdf);
+      EXPECT_NE(sdf, previous_sdf);
+    }
+    previous_sdf = std::move(sdf);
+  }
+  EXPECT_EQ(field->geometry_update_count, 4u);
+}
+
+TEST(SdfgiScene, CornellContributesWithoutChangingAuthoredStaticFlags) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto settings = TestApplicationSettings(project);
+  settings.load_default_resources = true;
+  app.Initialize(settings);
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  ConfigureDdgiValidationFixture(scene, "cornell");
+  ResolvedEnvironmentalLighting lighting;
+  SdfgiContributorRegistry registry;
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  ASSERT_EQ(registry.entries.size(), 8u);
+  const auto owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>();
+  ASSERT_TRUE(owners);
+  for (const auto owner : *owners)
+    EXPECT_FALSE(scene->IsEntityStatic(owner));
+  lighting.sdfgi_settings.static_entities_only = true;
+  registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
+  EXPECT_TRUE(registry.entries.empty());
+  EXPECT_EQ(registry.changes.size(), 8u);
+  EXPECT_FLOAT_EQ(lighting.sdfgi_settings.min_cell_size, 0.2f);
+}
+
 TEST(SdfgiGather, PublicationWeightsCoverageAndTwoCameraGraphsWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});

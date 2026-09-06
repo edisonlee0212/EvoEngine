@@ -570,6 +570,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
+      .def_readwrite("static_entities_only", &SdfgiSettings::static_entities_only)
       .def_readwrite("ray_count", &SdfgiSettings::ray_count)
       .def_readwrite("history_size", &SdfgiSettings::history_size)
       .def_readwrite("light_update_frames", &SdfgiSettings::light_update_frames)
@@ -892,7 +893,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["anchor_source"] = runtime ? static_cast<uint32_t>(runtime->anchor.source) : 0;
     result["anchor_override_fell_back"] = runtime && runtime->anchor.override_fell_back;
     result["anchor_replaced"] = runtime && runtime->anchor_replaced;
-    result["static_contributor_count"] = runtime ? runtime->contributors.entries.size() : 0;
+    result["accepted_contributor_count"] = runtime ? runtime->contributors.entries.size() : 0;
     result["contributor_change_count"] = runtime ? runtime->contributors.changes.size() : 0;
     py::dict exclusions;
     py::list cascades;
