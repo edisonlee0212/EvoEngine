@@ -24,6 +24,8 @@ bool SameLights(const std::vector<SdfgiLight>& a, const std::vector<SdfgiLight>&
 
 SdfgiLightDebug::SdfgiLightDebug(const uint32_t index, const uint32_t plane, const glm::ivec3 grid)
     : cascade(index), slice(plane), slices{grid} {
+  if (slice >= slices.SliceCount())
+    throw std::invalid_argument("SDFGI lighting slice exceeds the smallest grid dimension");
   for (uint32_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = slices.Total() * (i == 2 ? 2 : 4);

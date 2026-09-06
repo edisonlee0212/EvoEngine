@@ -7,6 +7,9 @@
 
 namespace evo_engine {
 
+EVOENGINE_API std::vector<uint32_t> SdfgiJumpFloodSteps(glm::ivec3 grid);
+EVOENGINE_API glm::uvec3 SdfgiJumpFloodGroups(glm::uvec3 size, uint32_t step);
+
 class EVOENGINE_API SdfgiPreprocessDebug : public std::enable_shared_from_this<SdfgiPreprocessDebug> {
  public:
   uint32_t cascade;

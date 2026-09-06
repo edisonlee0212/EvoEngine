@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <glm/glm.hpp>
 
@@ -8,6 +9,9 @@ namespace evo_engine {
 // Packed X/Y/Z slice readbacks; presentation keeps the existing axis orientation.
 struct SdfgiSliceLayout {
   glm::ivec3 grid{128};
+  [[nodiscard]] uint32_t SliceCount() const {
+    return std::min({grid.x, grid.y, grid.z});
+  }
   [[nodiscard]] uint32_t Count(uint32_t axis) const {
     return axis == 0 ? grid.y * grid.z : axis == 1 ? grid.x * grid.z : grid.x * grid.y;
   }

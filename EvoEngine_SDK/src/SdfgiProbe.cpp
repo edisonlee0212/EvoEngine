@@ -26,9 +26,10 @@ SdfgiProbeDebug::SdfgiProbeDebug(const SdfgiSettings& settings, const uint32_t i
       cascade_count(settings.cascade_count),
       history_size(settings.history_size),
       probe_axis(settings.ProbeSize().x),
-      columns(probe_axis * probe_axis) {
-  const VkDeviceSize sizes[]{uint64_t(columns) * 8 * 136 * 2 * cascade_count * 4, uint64_t(columns) * 272 * 16,
-                             16ull * history_size * 8, sizeof(SdfgiFieldStatus)};
+      columns(probe_axis * probe_axis),
+      rows(settings.ProbeSize().y) {
+  const VkDeviceSize sizes[]{uint64_t(columns) * 8 * (rows * 8) * 2 * cascade_count * 4,
+                             uint64_t(columns) * (rows * 16) * 16, 16ull * history_size * 8, sizeof(SdfgiFieldStatus)};
   for (uint32_t i = 0; i < data.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = sizes[i];
@@ -71,8 +72,8 @@ void SdfgiProbeDebug::AddPass(RenderGraph& graph, RenderGraphResourceRegistry& r
                                  i == 0   ? 2 * snapshot->cascade_count
                                  : i == 2 ? snapshot->history_size
                                           : 1};
-        copy.imageExtent = i == 0   ? VkExtent3D{snapshot->columns * 8, 136, 1}
-                           : i == 1 ? VkExtent3D{snapshot->columns, 272, 1}
+        copy.imageExtent = i == 0   ? VkExtent3D{snapshot->columns * 8, snapshot->rows * 8, 1}
+                           : i == 1 ? VkExtent3D{snapshot->columns, snapshot->rows * 16, 1}
                                     : VkExtent3D{1, 16, 1};
         if (i == 2)
           copy.imageOffset = {static_cast<int>(snapshot->probe % snapshot->columns),
@@ -112,8 +113,8 @@ void SdfgiProbeDebug::StoreToPng(const std::filesystem::path& path) const {
   std::vector<uint32_t> atlas;
   std::vector<glm::ivec4> average;
   std::vector<int16_t> history;
-  data[0]->DownloadVector(atlas, columns * 8 * 136 * 2 * cascade_count);
-  data[1]->DownloadVector(average, columns * 272);
+  data[0]->DownloadVector(atlas, columns * 8 * (rows * 8) * 2 * cascade_count);
+  data[1]->DownloadVector(average, columns * rows * 16);
   data[2]->DownloadVector(history, 16 * history_size * 4);
   std::vector<uint8_t> pixels(2560 * 1440 * 4, 255);
   const auto tonemap = [](const glm::vec3 color) {
@@ -128,14 +129,14 @@ void SdfgiProbeDebug::StoreToPng(const std::filesystem::path& path) const {
       for (uint32_t kind = 0; kind < 2; ++kind) {
         const int u = x - 64 - kind * 1280, v = y - 64;
         if (u >= 0 && u < 1156 && v >= 0 && v < static_cast<int>(cascade_count * 68)) {
-          const uint32_t packed = atlas[(kind * cascade_count + v / 68) * columns * 8 * 136 +
-                                        (v % 68 * 2) * columns * 8 + u * columns * 8 / 1156];
+          const uint32_t packed = atlas[(kind * cascade_count + v / 68) * columns * 8 * (rows * 8) +
+                                        (v % 68 * rows * 8 / 68) * columns * 8 + u * columns * 8 / 1156];
           color = tonemap(glm::vec3(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511) *
                           std::ldexp(1.0f, static_cast<int>(packed >> 27) - 24));
         }
       }
       if (x >= 64 && x < 642 && y >= 760 && y < 1304)
-        color = signed_color(glm::vec3(average[(y - 760) / 2 * columns + (x - 64) * columns / 578]) /
+        color = signed_color(glm::vec3(average[(y - 760) * rows * 16 / 544 * columns + (x - 64) * columns / 578]) /
                              (history_size * 1024.0f));
       if (x >= 780 && x < 1292 && y >= 800 && y < static_cast<int>(800 + history_size * 16)) {
         const uint32_t index = ((y - 800) / 16 * 16 + (x - 780) / 32) * 4;
@@ -180,7 +181,7 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
   params.ray_bias = resources.settings.probe_bias;
   params.pad = resources.debug_seed;
   params.image_size[0] = params.probe_axis_size * params.probe_axis_size;
-  params.image_size[1] = 17;
+  params.image_size[1] = resources.settings.ProbeSize().y;
   params.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   if (resources.settings.read_sky_light) {
     params.sky_energy = sky.energy;

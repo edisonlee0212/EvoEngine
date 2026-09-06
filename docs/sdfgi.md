@@ -41,7 +41,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 
 ## Capability report
 
-`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30)` checks the reference's image/view pairs, dimensions, array
+`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30, voxel_count_x = 256, voxel_count_y = 128)` checks image/view pairs, dimensions, array
 layers, transfer/storage/sampled/filter/atomic support, per-image allocation limits, feature bits, buffer ranges, descriptor
 limits, push constants, and workgroups. It performs no field allocation. `Supported()` requires every check to pass;
 `ToString()` names failed checks. Invalid configuration or an uninitialized platform is unsupported. Actual allocation
@@ -73,7 +73,7 @@ the reference controls; no GI entity, volume, or pack is needed. Requested and e
 Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
 failure, and generation checks remain authoritative before any camera samples the field.
 
-Defaults are four 128-cell cascades, minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
+Defaults are four 256x128x256-voxel cascades (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 0.5, sky read on, energy 1.0, and both biases 1.1.
 **Environmental Lighting > Automatic SDFGI > Positional light cascades** controls how many active cascades receive
 point/spot-light injection (1..8, default 8). The maximum covers every active cascade, including when the field count
@@ -137,8 +137,9 @@ arrays need no partially-bound descriptors. Voxel materials use the host's exist
 Packed light and probe images use `R32_UINT` storage and `E5B9G9R9_UFLOAT_PACK32` sampled views. Packed occlusion uses
 `R16_UINT` storage and `R4G4B4A4_UNORM_PACK16` sampled views. Each pair shares one image and graph identity, with explicit
 format lists, mutable/extended image usage, and per-view storage-only or sampled-only usage. All views use `GENERAL`
-during maintenance. The reference signed SH formats, 128-cell grid, 17-probe axes, 25% solid-cell capacity, and
-2312-by-136 atlas with `2C` layers are unchanged.
+during maintenance. The reference signed SH formats and 25% solid-cell capacity are unchanged. Grid/probe dimensions
+are configurable; atlas dimensions are `(probe_x * probe_z * 8, probe_y * 8)` with `2C` layers. The original 128-cell
+grid / 17-probe axes / 2312-by-136 atlas remain selectable, but are no longer the default.
 
 Preprocessing/direct-light/integration constants retain 48/48/112-byte layouts. Cascade records retain 48-byte stride.
 The light record appends `host_photometry` at byte 112 for a 128-byte stride; no area-light field is repurposed.
@@ -251,7 +252,7 @@ Necessary host adaptations against `_render_sdfgi` and `MODE_RENDER_SDF`:
   sampled images/views/samplers, and diagnostic buffers are retained through the submitting frame fence. Cross-frame
   barriers include prior shader/transfer readers before scratch reuse. No maintenance path uses immediate submission.
 
-`RequestCurrentSceneSdfgiVoxelDebug(cascade=0, slice=64)` queues an explicit diagnostic, and
+`RequestCurrentSceneSdfgiVoxelDebug(cascade=0)` queues an explicit diagnostic at the middle valid slice, and
 `CaptureCurrentSceneSdfgiVoxelDebug(path)` exports it after a rendered frame. Capturing requests a full rasterization of
 the chosen cascade because M4 scratch is shared, not persistent. Three planes are copied immediately after that cascade,
 before another clears scratch. Readback waits only when explicitly exporting; normal rendering does not wait for it.
@@ -299,7 +300,8 @@ Unchanged earlier CPU evidence is reused; there was no full-suite run, ordinary 
 ## Stationary distance fields, occlusion, and capacity safety
 
 Each full-cascade voxel pass now runs the reference half-resolution preprocessing sequence before shared scratch is reused:
-initialize half 0; jump-flood steps 32, 16, 8, 4, 2, 1; upscale half 0 into full 0; one optimized full-grid step into full 1;
+initialize half 0; descending power-of-two jump-flood steps through 1; upscale the final half buffer into full 0;
+one optimized full-grid step into full 1;
 eight occlusion dispatches; STORE; copy dispatch counts to the indirect buffer; clear persistent light/anisotropy textures.
 Steps 8 and below use the reference 8-cubed shared-memory optimization. The descriptor ping-pong parity follows the actual
 executed `render_region` path, including STORE reading full 1. Occlusion parity comes from cascade probe-world offsets,
@@ -320,7 +322,7 @@ publishes lighting; subsequent light/transport/gather consumers must reject this
 The stable type/handle light-list limiter is also tested at the reference 1024-static/128-dynamic capacities. M6 applies
 it after per-cascade eligibility filtering and exposes excluded counts when actual light uploads are introduced.
 
-`RequestCurrentSceneSdfgiPreprocessDebug(cascade=0, slice=64)` copies persistent SDF/occlusion planes without rerasterizing;
+`RequestCurrentSceneSdfgiPreprocessDebug(cascade=0)` copies persistent SDF/occlusion planes at the middle valid slice without rerasterizing;
 `CaptureCurrentSceneSdfgiPreprocessDebug(path)` waits explicitly and exports one 1440p PNG. `GetCurrentSceneGiStatus()`
 reports completed preprocessing masks, raw compact counts, bounded indirect XYZ, GPU failure status, and diagnostics.
 Capture errors are separate from algorithm failure. Readback snapshots survive their submitting frame fences and are
@@ -412,7 +414,7 @@ was run; installation and the agreed manual checkpoints remain later milestones.
 ## Stationary probe transport and storage
 
 M7 ports the executed PROCESS/STORE bodies from the pinned `sdfgi_integrate.glsl` and their `gi.cpp` callers. Every frame
-processes the full probe grid in every cascade (17-cubed by default, 33x17x33 with the M12b experiment), then stores all cascades. Deterministic world-hashed Vogel
+processes the full probe grid in every cascade (33x17x33 by default; each axis is voxel count / 8 + 1), then stores all cascades. Deterministic world-hashed Vogel
 directions interleave the reference ray count across the history cycle. Cross-cascade SDF sphere tracing, ray bias,
 SDF-gradient surface normal, and six-lobe voxel radiance remain reference equations. No DDGI ray/update/convergence path
 is used. The reference signed 16-coefficient SH values use 10 fractional bits and int16 saturation; each new history
@@ -437,12 +439,12 @@ rejects whole-field failure flags. STORE records a generation but leaves `Status
 does not publish ordinary lighting. Runtime-only settings are propagated without reallocating the field, while light
 and probe frame records freeze their own inputs. No dedicated compute queue or immediate maintenance submission is added.
 
-`RequestCurrentSceneSdfgiProbeDebug(cascade=0, probe=2456)` records all atlas layers, the selected cascade's average SH,
+`RequestCurrentSceneSdfgiProbeDebug(cascade=0, probe=UINT32_MAX)` defaults to the current grid's center probe and records all atlas layers, the selected cascade's average SH,
 the selected probe's complete history, and generation/status into immutable host-coherent buffers. Probe flattening is
-`x + z*17 + y*289`; 2456 selects (8,8,8). `CaptureCurrentSceneSdfgiProbeDebug(path)` waits explicitly, exports a 1440p PNG,
+`x + z*probe_x + y*probe_x*probe_z`; the default grid's center is 9256 at (16,8,16). `CaptureCurrentSceneSdfgiProbeDebug(path)` waits explicitly, exports a 1440p PNG,
 and returns the captured generation/status. Ordinary maintenance does not wait for readback. In the PNG, top-left is all
-irradiance layers and top-right all radiance layers, cascades top-to-bottom at half resolution. Bottom-left is the selected
-cascade's signed average SH (289 columns, 17 groups of 16 coefficient rows); bottom-middle is the selected probe's signed
+irradiance layers and top-right all radiance layers, cascades top-to-bottom resampled into fixed-size tiles. Bottom-left is the selected
+cascade's signed average SH (probe_x*probe_z columns, probe_y groups of 16 coefficient rows); bottom-middle is the selected probe's signed
 history (16 coefficients across, history phases down); bottom-right is SH-L0 over the selected Y probe plane, X across/Z
 down. Signed display maps `0.5 + 0.5*v/(1+abs(v))`, with gray zero. Radiance uses Reinhard then gamma 2.2; the L0 plane uses
 the reference 0.88622 ambient factor. These are diagnostic visualizations, not beauty output or performance thresholds.
@@ -846,7 +848,8 @@ validation coverage. No interactive GUI operation or user acceptance is inferred
 
 Follow-up M12a is committed as `7bab0293`: positional-light cascade coverage defaults to all active levels. The install
 retry and RT-disabled 1440p Sponza 8->3->8 control check passed (`tasks/m12a-install-retry.log` and
-`tasks/m12a-installed-check-retry.log`). Manual confirmation of the reported gallery darkening remains pending.
+`tasks/m12a-installed-check-retry.log`). The user subsequently confirmed M12b addressed the reported gallery darkening;
+unrelated final M12 review remains open.
 
 Implementation through M11 is committed as `742fba6f`, following M9 `a5e025ac` and M10 `df6d2dc0`. The technical acceptance
 audit is recorded locally in `tasks/m12-audit.md`, reusing accepted M8/M9 and focused M10/M11 evidence. No broad suite,
@@ -882,10 +885,11 @@ The installed 2560-by-1440 captures are `tasks/m12-installed-sponza.png` (SHA256
 `9f2f68ade51e0bdd1438855f3a3b5dff4158fbd110745d973282ae948da03252`). They are installation/diagnostic evidence, not proof of
 interactive GUI acceptance or exact image equality between validation-enabled and normal-build capture sessions.
 
-## Wider horizontal field experiment (M12b)
+## Wider horizontal field experiment (M12b, historical)
 
-The pre-experiment baseline is checkpointed at `5313246e`; M12 manual acceptance remains open. This is an explicitly
-requested coverage experiment, not a claim that insufficient coverage caused the reported gallery darkening.
+The pre-experiment baseline is checkpointed at `5313246e`; M12 manual acceptance remains open. This explicitly
+requested experiment was committed as `6fc84e00`. The user confirmed it addressed the gallery darkening. The following
+describes that historical checkbox version; M12c below replaces it with numeric counts and promotes its wider default.
 
 In **Environmental Lighting > Automatic SDFGI**, enable **Wide horizontal field (experimental)**. Off retains the
 Godot 128x128x128 voxel / 17x17x17 probe layout; on selects 256x128x256 voxels / 33x17x33 probes in every cascade.
@@ -937,6 +941,67 @@ Validation completed on the current RTX 5070 with RT pipeline, ray query, BLAS, 
   flags false, generation 5, ready 1, failures 0. Build, installed-bin, and installed-Python SDK hashes match. The normal
   installed build has graphics validation off; the test build supplies validation coverage.
 
-Manual gallery movement/darkening comparison remains pending. Launch the review command above, enable the wide-field
-checkbox, allow reconvergence, and compare the same camera movement with it off. No interactive GUI operation or M12
-acceptance is inferred from these automated checks; no broad test matrix or timing gate was run.
+The user confirmed the wider field addressed gallery darkening after installation. No acceptance of unrelated final M12
+checks is inferred from that confirmation or these automated checks; no broad test matrix or timing gate was run.
+
+## Configurable voxel counts and accepted wider default (M12c)
+
+**Environmental Lighting > Automatic SDFGI > Voxel count X/Z / Voxel count Y** replaces the experimental checkbox.
+Each dropdown allows 64..256 in steps of 16 independently, including Y greater than X. Z always equals X.
+Defaults are 256x128x256 voxels and 33x17x33 probes. Counts control field coverage/resolution, not physical cell size:
+minimum cell size, vertical scaling, eight-voxel probe spacing, cascade count, and update cadence retain their meanings.
+Probe counts are `(X/8+1, Y/8+1, X/8+1)`; allocation, update dispatches, histories, and sampling change together.
+Changing either dimension recreates the complete field and restarts convergence at the next eligible scene boundary.
+Frozen diagnostics defer changes until resumed or stepped. Larger grids increase memory and GI work; layout switches
+can temporarily retain both old and new allocations. Select 128/128 for the original Godot layout.
+
+Settings/YAML/Python expose `voxel_count_x` and `voxel_count_y`; the legacy `wide_horizontal_field` is no longer an active
+API or serialized output. It is ignored when loading: scenes lacking numeric counts upgrade to the new default even
+if the old boolean was explicitly false. New numeric fields are preserved; individually missing fields take defaults.
+Invalid/out-of-range/nonmultiple counts are rejected before allocation by existing diagnostic/fallback handling, not
+silently rounded or downscaled. Capability APIs and Python `SdfgiCapabilityReport` accept numeric X/Y counts after the
+cascade/history arguments, with defaults 256/128. Existing experimental scripts must replace the boolean API.
+
+Necessary adaptations beyond M12b, checked against the same pinned Godot source first:
+
+- Preprocessing's final push-constant word is explicit Y size, retaining the 48-byte ABI. Half-resolution jump flooding
+  starts at `ceilPowerOfTwo(max(half_grid))/2` and halves through one; the actual pass-count parity selects the upscale
+  source. For optimized steps, each axis dispatches `ceil(dimension/(8*step))*step` groups; bounds checks remain after
+  the shared-memory barrier. This covers non-power-of-two dimensions without changing the reference shader algorithm.
+- Compact cells remain 20 bytes with original neighbor/payload packing. High coordinate bits are X=bit0, Z=bit1,
+  Y=bit2 in the fifth word; all three axes can represent cells 0..255. Image formats remain unchanged.
+- Y-dependent histories, atlases, debug previews and draw/selection limits are derived from the selected layout.
+  Debug uniform dimensions pack X/Y into the existing word without changing its ABI. Diffuse fading and sharp reflection
+  coverage retain the accepted rectangular behavior. Offline three-axis slices must be below `min(X,Y)`; Python's omitted
+  slice argument selects the middle valid slice. Interactive Z slices cover 0..X-1, and omitted offline probe selection
+  selects the current grid center. Snapshot exports include numeric settings and derived voxel/probe dimensions.
+
+Validation and delivery:
+
+- Built SDK, editor, Python, and tests with
+  `cmake --build out/build/vs2026-x64-tests --config RelWithDebInfo --target EvoEngine_Tests EvoEngineEditor PyEvoEngine --parallel 8`
+  (`tasks/m12c-build-retry.log`). The editor was built before runtime checks:
+  `C:/Users/lllll/Documents/GitHub/EvoEngine/out/build/vs2026-x64-tests/EvoEngine_App/RelWithDebInfo/EvoEngineEditor.exe`.
+- Thirty focused CPU/GPU checks passed: 28 in `tasks/m12c-tests.log/.xml`, then two gather checks in
+  `tasks/m12c-gather-retry.log/.xml` after correcting a test-only private-module-variable reference. CPU coverage includes
+  all 169 allowed X/Y pairs, migration, invalid dimensions, derived sizes, layout identity, JFA coverage/parity, compact
+  coordinate packing, and diagnostic bounds. Reference/default GPU fixtures and 80x144x80 cover preprocessing, high Y
+  coordinates, boundary occlusion, signed scrolling, parent history, transport, gather, and sharp reflections.
+  All 32 emitted SPIR-V variants passed Vulkan 1.3 scalar-layout validation. No Vulkan/synchronization validation errors.
+- One validation-enabled RTX 5070 Sponza session at 2560x1440 passed default -> 80x144x80 -> default transitions, with
+  ray-tracing pipeline, ray query, BLAS, and TLAS explicitly false (`tasks/m12c-sponza.log`). Default/intermediate
+  generations 90 and restored generation 5 were ready with failure flags 0. Four image/state captures contained zero
+  nonfinite pixels; beauty, probe overlay, Z slice, and an additional offline probe-atlas preview were visually inspected.
+  Intermediate selection limits clamped correctly, including the last valid probe. This is not an interactive GUI review.
+- Default field/scratch allocations were 1,342,286,992 / 367,763,456 bytes; 80x144x80 used
+  154,209,424 / 46,325,760 bytes. Returning to default restored the original allocation sizes. No timing benchmark or broad
+  test matrix was run.
+- All enabled applications, packages, and Python installed with exit 0 (`tasks/m12c-install.log`):
+  `python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+  Installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+  The focused installed-runtime RT-off 1440p Sponza check passed at generation 5, ready 1, failure flags 0
+  (`tasks/m12c-installed-check.log`). Build, installed-bin, and installed-Python SDK hashes match. The normal installed
+  build has graphics validation off; the test build supplies validation coverage.
+
+User review of interactive dimension changes and gallery behavior remains required. The prior gallery improvement is
+recorded as user-confirmed, but does not close unrelated final M12 acceptance items.

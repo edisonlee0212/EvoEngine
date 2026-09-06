@@ -5640,7 +5640,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       const auto capabilities =
           lighting.sdfgi_settings.Validate().empty()
               ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
-                                       lighting.sdfgi_settings.wide_horizontal_field)
+                                       lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y)
               : SdfgiCapabilityReport{};
       debug->Invalidate(runtime ? "settings" : "provider",
                         runtime ? "Field layout/settings replaced" : "Automatic SDFGI activated");

@@ -41,15 +41,18 @@ void main(uint3 id : SV_DispatchThreadID) {
     errors |= any(aniso0_cascades[c].SampleLevel(linear_sampler, 0.5, 0) != 0) ? 16u : 0u;
     errors |= any(aniso1_cascades[c].SampleLevel(linear_sampler, 0.5, 0) != 0) ? 32u : 0u;
   }
+  uint width, height, layers;
+  lightprobe_history_texture.GetDimensions(width, height, layers);
+  int2 last = int2(width, height) - 1;
   for (uint h = 0; h < params.history_size; ++h) {
-    errors |= any(lightprobe_history_texture[int3(288, 271, h)] != 0) ? 64u : 0u;
-    errors |= any(lightprobe_history_scroll_texture[int3(288, 271, h)] != 0) ? 128u : 0u;
+    errors |= any(lightprobe_history_texture[int3(last, h)] != 0) ? 64u : 0u;
+    errors |= any(lightprobe_history_scroll_texture[int3(last, h)] != 0) ? 128u : 0u;
   }
-  errors |= any(lightprobe_average_texture[int2(288, 271)] != 0) ? 256u : 0u;
-  errors |= any(lightprobe_average_scroll_texture[int2(288, 271)] != 0) ? 512u : 0u;
-  errors |= any(lightprobe_average_parent_texture[int2(288, 271)] != 0) ? 1024u : 0u;
+  errors |= any(lightprobe_average_texture[last] != 0) ? 256u : 0u;
+  errors |= any(lightprobe_average_scroll_texture[last] != 0) ? 512u : 0u;
+  errors |= any(lightprobe_average_parent_texture[last] != 0) ? 1024u : 0u;
   for (uint c = 0; c < params.max_cascades; ++c)
-    errors |= any(lightprobe_ambient_texture[int3(288, 16, c)] != 0) ? 2048u : 0u;
+    errors |= any(lightprobe_ambient_texture[int3(width - 1, height / SH_SIZE - 1, c)] != 0) ? 2048u : 0u;
   errors |= any(sky_irradiance.SampleLevel(linear_sampler_mipmaps, float3(0, 1, 0), 0) != 0) ? 4096u : 0u;
   field_status[0].failure_flags |= errors;
   field_status[0].generation = asuint(cascades.data[7].pad2.w);

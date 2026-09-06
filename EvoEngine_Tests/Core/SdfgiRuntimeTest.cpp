@@ -17,6 +17,7 @@
 #include "SdfgiDebug.hpp"
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
+#include "SdfgiPreprocess.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 
@@ -66,6 +67,7 @@ TEST(SdfgiDebug, SelectedCameraDoesNotAdoptUtilityViewsOrChangeTheAnchor) {
 
 TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   std::vector<SdfgiCascade> cascades;
   const glm::vec3 anchor(-13, 2, 9);
   ASSERT_TRUE(UpdateSdfgiCascades(settings, anchor, cascades).empty());
@@ -204,7 +206,7 @@ TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
 
 TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   SdfgiSettings reference, wide;
-  wide.wide_horizontal_field = true;
+  reference.voxel_count_x = 128;
   EXPECT_EQ(reference.GridSize(), glm::ivec3(128));
   EXPECT_EQ(reference.ProbeSize(), glm::ivec3(17));
   EXPECT_EQ(wide.GridSize(), glm::ivec3(256, 128, 256));
@@ -218,7 +220,7 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
   EXPECT_EQ(loaded, wide);
   DeserializeSdfgiSettings(YAML::Load("{}"), loaded);
-  EXPECT_FALSE(loaded.wide_horizontal_field);
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
   std::vector<SdfgiCascade> a, b;
   ASSERT_TRUE(UpdateSdfgiCascades(reference, glm::vec3(0), a).empty());
   ASSERT_TRUE(UpdateSdfgiCascades(wide, glm::vec3(0), b).empty());
@@ -236,7 +238,7 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   EXPECT_FLOAT_EQ(gather.cascades[0].to_probe, 1 / (8 * wide.min_cell_size));
   EXPECT_FLOAT_EQ(gather.lightprobe_tex_pixel_size[0], 1.0f / 8712);
   EXPECT_FLOAT_EQ(gather.lightprobe_uv_offset[2], 264.0f / 8712);
-  const auto requirements = GetSdfgiImageRequirements(8, 30, true);
+  const auto requirements = GetSdfgiImageRequirements(8, 30, 256, 128);
   ASSERT_EQ(requirements.size(), 14u);
   EXPECT_EQ(requirements[0].extent.width, 256u);
   EXPECT_EQ(requirements[0].extent.height, 128u);
@@ -270,11 +272,109 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   }
 }
 
+TEST(SdfgiConfigurable, DefaultsLegacyMigrationAndInvalidCounts) {
+  SdfgiSettings loaded;
+  for (const char* yaml : {"{}", "wide_horizontal_field: false", "wide_horizontal_field: true"}) {
+    DeserializeSdfgiSettings(YAML::Load(yaml), loaded);
+    EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
+  }
+  DeserializeSdfgiSettings(YAML::Load("voxel_count_x: 80\nwide_horizontal_field: true"), loaded);
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(80, 128, 80));
+  DeserializeSdfgiSettings(YAML::Load("voxel_count_y: 144"), loaded);
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 144, 256));
+  for (uint32_t invalid : {0u, 63u, 65u, 255u, 257u, UINT32_MAX}) {
+    for (bool vertical : {false, true}) {
+      SdfgiSettings settings;
+      (vertical ? settings.voxel_count_y : settings.voxel_count_x) = invalid;
+      EXPECT_FALSE(settings.Validate().empty());
+      EXPECT_TRUE(GetSdfgiImageRequirements(4, 30, settings.voxel_count_x, settings.voxel_count_y).empty());
+      auto changed = SdfgiSettings{};
+      (vertical ? changed.voxel_count_y : changed.voxel_count_x) = 80;
+      EXPECT_FALSE(changed.HasSameLayout(SdfgiSettings{}));
+    }
+  }
+  YAML::Emitter out;
+  SerializeSdfgiSettings(out, loaded);
+  EXPECT_EQ(std::string(out.c_str()).find("wide_horizontal_field"), std::string::npos);
+}
+
+TEST(SdfgiConfigurable, AllGridPairsSizesDispatchCoverageAndDiagnosticBounds) {
+  for (uint32_t x = 64; x <= 256; x += 16)
+    for (uint32_t y = 64; y <= 256; y += 16) {
+      SCOPED_TRACE(std::to_string(x) + "/" + std::to_string(y));
+      SdfgiSettings settings;
+      settings.voxel_count_x = x;
+      settings.voxel_count_y = y;
+      ASSERT_TRUE(settings.Validate().empty());
+      const auto grid = settings.GridSize(), probes = settings.ProbeSize();
+      EXPECT_EQ(grid, glm::ivec3(x, y, x));
+      EXPECT_EQ(probes, glm::ivec3(x / 8 + 1, y / 8 + 1, x / 8 + 1));
+      EXPECT_EQ(settings.SolidCellCapacity(), x * y * x / 4);
+      const auto requirements = GetSdfgiImageRequirements(8, 30, x, y);
+      ASSERT_EQ(requirements.size(), 14u);
+      EXPECT_EQ(requirements[0].extent.height, y);
+      EXPECT_EQ(requirements[4].extent.height, y / 2);
+      EXPECT_EQ(requirements[9].extent.depth, x * 8);
+      EXPECT_EQ(requirements[10].extent.width, probes.x * probes.z);
+      EXPECT_EQ(requirements[10].extent.height, probes.y * 16);
+      EXPECT_EQ(requirements[12].extent.width, probes.x * probes.z * 8);
+      EXPECT_EQ(requirements[12].extent.height, probes.y * 8);
+      EXPECT_EQ(requirements[13].extent.height, probes.y);
+      const auto steps = SdfgiJumpFloodSteps(grid);
+      ASSERT_FALSE(steps.empty());
+      EXPECT_EQ(steps.back(), 1u);
+      EXPECT_GE(steps.front() * 2, std::max(x, y) / 2);
+      EXPECT_LT(steps.front(), std::max(x, y) / 2);
+      for (size_t i = 1; i < steps.size(); ++i)
+        EXPECT_EQ(steps[i - 1], steps[i] * 2);
+      EXPECT_EQ(steps.size(), std::max(x, y) <= 64 ? 5u : std::max(x, y) <= 128 ? 6u : 7u);
+      for (const uint32_t step : steps) {
+        if (step > 8)
+          continue;
+        const auto groups = SdfgiJumpFloodGroups(glm::uvec3(grid / 2), step);
+        for (uint32_t axis = 0; axis < 3; ++axis) {
+          std::vector<uint32_t> hits(grid[axis] / 2);
+          for (uint32_t group = 0; group < groups[axis]; ++group)
+            for (uint32_t thread = 0; thread < 8; ++thread) {
+              const uint32_t cell = group % step + (group / step) * 8 * step + thread * step;
+              if (cell < hits.size())
+                ++hits[cell];
+            }
+          EXPECT_TRUE(std::all_of(hits.begin(), hits.end(), [](uint32_t count) {
+            return count == 1;
+          }));
+        }
+      }
+      std::vector<SdfgiCascade> cascades;
+      ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+      EXPECT_EQ(cascades[0].size, grid);
+      const auto gather = BuildSdfgiGatherData(settings, cascades, glm::vec3(0), 1);
+      for (uint32_t axis = 0; axis < 3; ++axis)
+        EXPECT_EQ(gather.cascade_probe_size[axis], probes[axis] - 1);
+      EXPECT_FLOAT_EQ(gather.lightprobe_tex_pixel_size[1], 1.0f / (probes.y * 8));
+      EXPECT_FLOAT_EQ(gather.cascades[0].to_probe, 1 / (8 * settings.min_cell_size));
+      SdfgiSliceLayout slices{grid};
+      EXPECT_EQ(slices.SliceCount(), std::min(x, y));
+      for (uint32_t axis = 0; axis < 3; ++axis) {
+        EXPECT_LE(slices.Offset(axis) + slices.Count(axis), slices.Total());
+        for (uint32_t u : {0u, 255u})
+          for (uint32_t v : {0u, 255u})
+            EXPECT_LT(slices.Pixel(axis, u, v, 256), slices.Count(axis));
+      }
+      YAML::Emitter out;
+      SerializeSdfgiSettings(out, settings);
+      SdfgiSettings loaded;
+      DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
+      EXPECT_EQ(loaded, settings);
+    }
+}
+
 TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);
   EXPECT_EQ(settings.positional_light_cascade_count, 8u);
-  EXPECT_EQ(settings.kCascadeSize, 128u);
+  EXPECT_EQ(settings.voxel_count_x, 256u);
+  EXPECT_EQ(settings.voxel_count_y, 128u);
   EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
   EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
   EXPECT_TRUE(settings.use_occlusion);
@@ -288,6 +388,8 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   EXPECT_FLOAT_EQ(settings.probe_bias, 1.1f);
   EXPECT_EQ(settings.anchor_camera_entity, 0u);
   EXPECT_TRUE(settings.Validate().empty());
+  settings.voxel_count_x = 80;
+  settings.voxel_count_y = 144;
   settings.cascade_count = 8;
   settings.positional_light_cascade_count = 3;
   settings.min_cell_size = 0.4f;
@@ -441,6 +543,7 @@ TEST(SdfgiRuntime, ProviderSerializationPreservesLegacyDefaultsWithoutAddingAuto
 
 TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   std::vector<SdfgiCascade> cascades;
@@ -489,6 +592,7 @@ TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
 
 TEST(SdfgiScene, MovementMatchesPinnedReferenceLoopsAcrossScriptedTeleports) {
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   std::vector<SdfgiCascade> actual;
@@ -598,6 +702,7 @@ TEST(SdfgiScene, RegistrySeparatesCoveragePayloadAndReceiverOnlyEdits) {
 
 TEST(SdfgiRuntime, EditRoutingRetainsPendingWorkAndBoundsFailureIsNotRepeated) {
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -804,6 +909,7 @@ TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
 
 TEST(SdfgiScene, AnchorReplacementPreservesOnlyReferenceOverlapAndNoAnchorFreezesCoverage) {
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.min_cell_size = 1;
   SdfgiRuntime runtime(settings, {});
   ASSERT_TRUE(runtime.Maintain(0, {1, glm::vec3(0)}));

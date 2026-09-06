@@ -233,7 +233,7 @@ TEST(SdfgiCapabilities, ValidatesConfigurationAndReferenceShapes) {
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 0).empty());
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 31).empty());
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 7).empty());
-  const auto requirements = GetSdfgiImageRequirements(8, 30);
+  const auto requirements = GetSdfgiImageRequirements(8, 30, 128, 128);
   ASSERT_EQ(requirements.size(), 14u);
   for (const auto& requirement : requirements) {
     if (std::string(requirement.name) == "occlusion") {
@@ -275,7 +275,7 @@ TEST(SdfgiCapabilities, ChecksImageUsageDimensionsLayersAndAllocationLimit) {
   properties.maxArrayLayers = 256;
   properties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
   properties.maxResourceSize = ~VkDeviceSize{0};
-  for (const auto& requirement : GetSdfgiImageRequirements()) {
+  for (const auto& requirement : GetSdfgiImageRequirements(4, 30, 128, 128)) {
     SCOPED_TRACE(requirement.name);
     EXPECT_TRUE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, properties));
     EXPECT_FALSE(
@@ -381,17 +381,19 @@ TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeature
 
 TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRayFeatures) {
   ScopedGpuPlatform platform(false);
+  SdfgiSettings reference;
+  reference.voxel_count_x = 128;
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   ASSERT_TRUE(render);
   const auto host_layouts = SdfgiTestAccess::HostLayouts(*render);
   std::string failure;
-  EXPECT_FALSE(SdfgiResources::TryCreate({}, host_layouts, failure, 3));
+  EXPECT_FALSE(SdfgiResources::TryCreate(reference, host_layouts, failure, 3));
   EXPECT_NE(failure.find("forced allocation failure"), std::string::npos) << failure;
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
-  auto field = SdfgiResources::TryCreate({}, host_layouts, failure);
+  auto field = SdfgiResources::TryCreate(reference, host_layouts, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
   EXPECT_EQ(field->buffers.size(), 17u + Platform::GetMaxFramesInFlight() * 10u);
@@ -562,12 +564,12 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   retained->buffers.at("Status").buffer->Download(status);
   EXPECT_EQ(status.ready, 0u);
   EXPECT_EQ(status.failure_flags, 0u);
-  EXPECT_EQ(status.solid_cell_capacity, kSdfgiSolidCellCapacity);
+  EXPECT_EQ(status.solid_cell_capacity, retained->settings.SolidCellCapacity());
   EXPECT_EQ(status.generation, glm::floatBitsToUint(42.5f));
   retained.reset();
   EXPECT_TRUE(weak_field.expired());
 
-  field = SdfgiResources::TryCreate({}, host_layouts, failure);
+  field = SdfgiResources::TryCreate(reference, host_layouts, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_FALSE(field->initialization_recorded);
   field.reset();
@@ -578,6 +580,7 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -723,6 +726,7 @@ TEST(SdfgiEdits, PayloadPreservesTopologyHistoryAndStaticSeedAndRecoversWithoutR
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.history_size = 5;
@@ -892,6 +896,7 @@ TEST(SdfgiGather, PublicationWeightsCoverageAndTwoCameraGraphsWithoutRt) {
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1128,17 +1133,19 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-TEST(SdfgiWide, GatherExtendsOnlyHorizontalCoverageAndSharpReflectionsWithoutRt) {
+void CheckSdfgiRectangularGather(const uint32_t voxel_x, const uint32_t voxel_y) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
-  settings.wide_horizontal_field = true;
+  settings.voxel_count_x = voxel_x;
+  settings.voxel_count_y = voxel_y;
   settings.cascade_count = 1;
   settings.history_size = 5;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
-  auto runtime = std::make_shared<SdfgiRuntime>(settings, QuerySdfgiCapabilities(1, 5, true));
+  auto runtime = std::make_shared<SdfgiRuntime>(
+      settings, QuerySdfgiCapabilities(1, 5, settings.voxel_count_x, settings.voxel_count_y));
   ASSERT_TRUE(runtime->capabilities.Supported());
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
@@ -1161,13 +1168,17 @@ TEST(SdfgiWide, GatherExtendsOnlyHorizontalCoverageAndSharpReflectionsWithoutRt)
   gather->descriptor_set_layouts = SdfgiTestAccess::HostLayouts(*render);
   gather->descriptor_set_layouts[4] = output_layout;
   gather->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
-  gather->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+  gather->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, "#define TEST_GRID_X " + std::to_string(voxel_x) + "\n#define TEST_GRID_Y " +
+                               std::to_string(voxel_y) + "\n" + std::string(R"(
 import EvoEngine.Sdfgi;
 [[vk::binding(0,4)]] RWStructuredBuffer<float4> result;
 [numthreads(1,1,1)]
 void main(uint3 id : SV_DispatchThreadID) {
-  const float3 positions[7] = {float3(80,0,0), float3(0,0,80), float3(0,52,0),
-      float3(0,80,0), float3(116,0,0), float3(0,0,132), float3(200,0,0)};
+  float3 half_grid = float3(TEST_GRID_X, TEST_GRID_Y, TEST_GRID_X) * 0.5;
+  float inner = max(0.0, half_grid.x - 48);
+  const float3 positions[7] = {float3(inner,0,0), float3(0,0,inner), float3(0,half_grid.y-12,0),
+      float3(0,half_grid.y+16,0), float3(half_grid.x-12,0,0), float3(0,0,half_grid.z+4), float3(half_grid.x+72,0,0)};
   EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(0,1,0), float3(1,0,0), id.x < 2 ? 0.0 : 0.5);
   result[id.x * 2] = float4(value.diffuse, value.weight);
   result[id.x * 2 + 1] = float4(value.specular, value.specular_weight);
@@ -1250,16 +1261,47 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-void CheckSdfgiScrolling(const bool wide) {
+TEST(SdfgiWide, GatherExtendsOnlyHorizontalCoverageAndSharpReflectionsWithoutRt) {
+  CheckSdfgiRectangularGather(256, 128);
+}
+
+TEST(SdfgiConfigurable, GatherTallNonPowerOfTwoWithoutRt) {
+  CheckSdfgiRectangularGather(80, 144);
+}
+
+SdfgiSolidCell SdfgiTestCell(const glm::ivec3 p) {
+  SdfgiSolidCell cell{};
+  cell.position = (p.x & 127) | ((p.y & 127) << 7) | ((p.z & 127) << 14);
+  cell.position_high = (p.x >> 7) | ((p.z >> 7) << 1) | ((p.y >> 7) << 2);
+  return cell;
+}
+
+TEST(SdfgiConfigurable, CompactCellCoordinateBitsPreservePayload) {
+  for (int x : {0, 127, 128, 255})
+    for (int y : {0, 127, 128, 255})
+      for (int z : {0, 127, 128, 255}) {
+        auto cell = SdfgiTestCell({x, y, z});
+        cell.position |= 0xffe00000u;
+        const glm::ivec3 unpacked((cell.position & 127) | ((cell.position_high & 1) << 7),
+                                  ((cell.position >> 7) & 127) | ((cell.position_high & 4) << 5),
+                                  ((cell.position >> 14) & 127) | ((cell.position_high & 2) << 6));
+        EXPECT_EQ(unpacked, glm::ivec3(x, y, z));
+        EXPECT_EQ(cell.position & 0xffe00000u, 0xffe00000u);
+      }
+}
+
+void CheckSdfgiScrolling(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
-  settings.wide_horizontal_field = wide;
+  settings.voxel_count_x = voxel_x;
+  settings.voxel_count_y = voxel_y;
   const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
   const auto grid = settings.GridSize();
+  const uint32_t rows = settings.ProbeSize().y;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1299,7 +1341,12 @@ void main(uint3 id : SV_DispatchThreadID) {
   ASSERT_TRUE(seed->Initialized());
   const glm::ivec3 shifts[]{{8, 0, 0}, {-8, 0, 0}, {0, 8, 0},   {0, -8, 0},
                             {0, 0, 8}, {0, 0, -8}, {8, -16, 8}, {8, 0, 0}};
-  const SdfgiSolidCell cell{64 | (64 << 7) | (64 << 14), 0x4321 | (13 << 15), 0x12345678, 0x23456789, wide ? 3u : 0u};
+  const glm::ivec3 cell_position(voxel_x == 256 ? 192 : grid.x / 2, voxel_y > 128 ? 132 : grid.y / 2,
+                                 voxel_x == 256 ? 192 : grid.z / 2);
+  auto cell = SdfgiTestCell(cell_position);
+  cell.albedo = 0x4321 | (13 << 15);
+  cell.light = 0x12345678;
+  cell.light_aniso = 0x23456789;
   const SdfgiDispatchData dispatch{1, 1, 1, 1};
   const auto value_at = [](const glm::vec3 p, const uint32_t cascade, const int coefficient, const int history) {
     const float v = cascade * 500 + p.x + 2 * p.y + 4 * p.z + coefficient * 16 + history;
@@ -1352,7 +1399,7 @@ void main(uint3 id : SV_DispatchThreadID) {
                   field->sets.at("Frame" + std::to_string(slot) + ".Cascade" + std::to_string(c) + ".Integrate")
                       ->GetVkDescriptorSet());
               seed->PushConstant(command, 0, c);
-              seed->Dispatch(command, (columns + 7) / 8, 34);
+              seed->Dispatch(command, (columns + 7) / 8, rows * 2);
             }
           });
         });
@@ -1375,19 +1422,19 @@ void main(uint3 id : SV_DispatchThreadID) {
       const auto prefix = "Cascade" + std::to_string(c) + ".";
       VkBufferImageCopy copy{};
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {columns, 272, 1};
-      Buffer average_buffer(columns * 272 * sizeof(glm::ivec4));
+      copy.imageExtent = {columns, (rows * 16), 1};
+      Buffer average_buffer(columns * (rows * 16) * sizeof(glm::ivec4));
       average_buffer.CopyFromImage(*field->textures.at(prefix + "Average").image, copy);
       std::vector<glm::ivec4> average;
-      average_buffer.DownloadVector(average, columns * 272);
+      average_buffer.DownloadVector(average, columns * (rows * 16));
       copy.imageSubresource.layerCount = 5;
-      Buffer history_buffer(columns * 272 * 5 * 8);
+      Buffer history_buffer(columns * (rows * 16) * 5 * 8);
       history_buffer.CopyFromImage(*field->textures.at(prefix + "History").image, copy);
       std::vector<int16_t> history;
-      history_buffer.DownloadVector(history, columns * 272 * 5 * 4);
-      for (const glm::ivec3 p :
-           {glm::ivec3(0), settings.ProbeSize() - 1, settings.ProbeSize() / 2, glm::ivec3(0, 16, 8),
-            glm::ivec3(16, 0, 8), glm::ivec3(8, 8, 0), glm::ivec3(8, 8, 16)}) {
+      history_buffer.DownloadVector(history, columns * (rows * 16) * 5 * 4);
+      for (const glm::ivec3 p : {glm::ivec3(0), settings.ProbeSize() - 1, settings.ProbeSize() / 2,
+                                 glm::ivec3(0, rows - 1, axis / 2), glm::ivec3(axis - 1, 0, axis / 2),
+                                 glm::ivec3(axis / 2, rows / 2, 0), glm::ivec3(axis / 2, rows / 2, axis - 1)}) {
         const glm::ivec3 read = p - shifts[phase] / 8;
         const bool retained =
             glm::all(glm::greaterThanEqual(read, glm::ivec3(0))) && glm::all(glm::lessThan(read, settings.ProbeSize()));
@@ -1403,7 +1450,8 @@ void main(uint3 id : SV_DispatchThreadID) {
             const auto expected = value_at(source, parent ? 1 : c, coefficient, parent ? 2 : h);
             sum += expected;
             for (int channel = 0; channel < 4; ++channel)
-              EXPECT_NEAR(history[(h * columns * 272 + pixel) * 4 + channel], expected[channel], parent ? 1 : 0);
+              EXPECT_NEAR(history[(h * columns * (rows * 16) + pixel) * 4 + channel], expected[channel],
+                          parent ? 1 : 0);
           }
           for (int channel = 0; channel < 4; ++channel)
             EXPECT_NEAR(average[pixel][channel], sum[channel], parent ? 5 : 0);
@@ -1413,9 +1461,9 @@ void main(uint3 id : SV_DispatchThreadID) {
         ASSERT_EQ(field->solid_cell_dispatch[c].total_count, 1u);
         SdfgiSolidCell retained;
         field->buffers.at(prefix + "UnlitCells").buffer->Download(retained);
-        const glm::ivec3 write = glm::ivec3(wide ? 192 : 64, 64, wide ? 192 : 64) + shifts[phase];
-        EXPECT_EQ(retained.position & 0x1fffffu, (write.x & 127) | (write.y << 7) | ((write.z & 127) << 14));
-        EXPECT_EQ(retained.position_high, uint32_t((write.x >> 7) | ((write.z >> 7) << 1)));
+        const glm::ivec3 write = cell_position + shifts[phase];
+        EXPECT_EQ(retained.position & 0x1fffffu, (write.x & 127) | ((write.y & 127) << 7) | ((write.z & 127) << 14));
+        EXPECT_EQ(retained.position_high, uint32_t((write.x >> 7) | ((write.z >> 7) << 1) | ((write.y >> 7) << 2)));
         EXPECT_EQ(retained.albedo & 0x1fffffu, cell.albedo);
         EXPECT_EQ(retained.light & 0x3fffffffu, cell.light);
         EXPECT_EQ(retained.light_aniso & 0x3fffffffu, cell.light_aniso);
@@ -1431,11 +1479,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 4};
-    copy.imageExtent = {atlas_width, 136, 1};
-    Buffer atlas_buffer(atlas_width * 136 * 4 * 4);
+    copy.imageExtent = {atlas_width, (rows * 8), 1};
+    Buffer atlas_buffer(atlas_width * (rows * 8) * 4 * 4);
     atlas_buffer.CopyFromImage(*field->textures.at("Atlas").image, copy);
     std::vector<uint32_t> atlas;
-    atlas_buffer.DownloadVector(atlas, atlas_width * 136 * 4);
+    atlas_buffer.DownloadVector(atlas, atlas_width * (rows * 8) * 4);
     EXPECT_EQ(std::any_of(atlas.begin(), atlas.end(),
                           [](uint32_t value) {
                             return value != 0;
@@ -1445,23 +1493,29 @@ void main(uint3 id : SV_DispatchThreadID) {
 }
 
 TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
-  CheckSdfgiScrolling(false);
+  CheckSdfgiScrolling(128);
 }
 
 TEST(SdfgiWide, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
-  CheckSdfgiScrolling(true);
+  CheckSdfgiScrolling(256);
 }
 
-void CheckSdfgiTransport(const bool wide) {
+TEST(SdfgiConfigurable, ScrollingTallNonPowerOfTwoWithoutRt) {
+  CheckSdfgiScrolling(80, 144);
+}
+
+void CheckSdfgiTransport(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
-  settings.wide_horizontal_field = wide;
+  settings.voxel_count_x = voxel_x;
+  settings.voxel_count_y = voxel_y;
   const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
   const auto grid = settings.GridSize();
+  const uint32_t rows = settings.ProbeSize().y;
   const uint32_t center_column = (axis / 2) * (axis + 1);
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
@@ -1484,7 +1538,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   uint width, height, depth;
   sdf.GetDimensions(width, height, depth);
   float3 p = abs(float3(id) + 0.5 - float3(width, height, depth) * 0.5);
-  float d = max(0.0, abs(max(p.x, max(p.y, p.z)) - 48) - 1);
+  float d = max(0.0, abs(max(p.x, max(p.y, p.z)) - float(min(width, min(height, depth))) * 0.375) - 1);
   sdf[id] = d == 0 ? 0 : (d + 1) / 255.0;
 }
 )"));
@@ -1606,7 +1660,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     field->lighting_recorded = true;
     frame->AddPasses(graph, registry, field, "SdfgiTransportSeed");
     if (iteration == 4) {
-      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, columns * 8 + center_column);
+      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, columns * (rows / 2) + center_column);
       retained_debug->AddPass(graph, registry, field, "SdfgiProbeStore");
     }
     const auto plan = graph.Compile({});
@@ -1624,7 +1678,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     EXPECT_EQ(status.generation, field->transport_pass);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageOffset = {int32_t(center_column), 128, 0};
+    copy.imageOffset = {int32_t(center_column), int32_t(rows / 2 * 16), 0};
     copy.imageExtent = {1, 1, 1};
     Buffer sample(sizeof(glm::ivec4));
     sample.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
@@ -1648,16 +1702,16 @@ void main(uint3 id : SV_DispatchThreadID) {
       EXPECT_EQ(retained_debug->ReadStatus().generation, 5u);
       EXPECT_EQ(retained_debug->ReadStatus().failure_flags, 0u);
       std::vector<glm::ivec4> old_average;
-      retained_debug->data[1]->DownloadVector(old_average, columns * 272);
+      retained_debug->data[1]->DownloadVector(old_average, columns * (rows * 16));
       EXPECT_EQ(old_average, first_average);
     }
     if (iteration == 4 || iteration == 9) {
       copy.imageOffset = {0, 0, 0};
-      copy.imageExtent = {columns, 272, 1};
-      Buffer averages(columns * 272 * sizeof(glm::ivec4));
+      copy.imageExtent = {columns, (rows * 16), 1};
+      Buffer averages(columns * (rows * 16) * sizeof(glm::ivec4));
       averages.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
       std::vector<glm::ivec4> values;
-      averages.DownloadVector(values, columns * 272);
+      averages.DownloadVector(values, columns * (rows * 16));
       if (iteration == 4)
         first_average = values;
       else
@@ -1665,12 +1719,12 @@ void main(uint3 id : SV_DispatchThreadID) {
       EXPECT_TRUE(std::any_of(values.begin(), values.end(), [](const auto& value) {
         return value.x < 0;
       }));
-      copy.imageExtent = {atlas_width, 136, 1};
+      copy.imageExtent = {atlas_width, (rows * 8), 1};
       copy.imageSubresource.layerCount = 4;
-      Buffer atlas(atlas_width * 136 * 4 * sizeof(uint32_t));
+      Buffer atlas(atlas_width * (rows * 8) * 4 * sizeof(uint32_t));
       atlas.CopyFromImage(*field->textures.at("Atlas").image, copy);
       std::vector<uint32_t> packed;
-      atlas.DownloadVector(packed, atlas_width * 136 * 4);
+      atlas.DownloadVector(packed, atlas_width * (rows * 8) * 4);
       if (iteration == 4)
         first_atlas = packed;
       else
@@ -1678,7 +1732,7 @@ void main(uint3 id : SV_DispatchThreadID) {
       bool distinct_layers = false;
       for (uint32_t layer : {0u, 2u}) {
         const auto at = [&](const uint32_t x, const uint32_t y) {
-          return packed[layer * atlas_width * 136 + (64 + y) * atlas_width + center_column * 8 + x];
+          return packed[layer * atlas_width * (rows * 8) + (rows / 2 * 8 + y) * atlas_width + center_column * 8 + x];
         };
         for (uint32_t i = 1; i <= 6; ++i) {
           EXPECT_EQ(at(i, 0), at(7 - i, 1));
@@ -1691,19 +1745,23 @@ void main(uint3 id : SV_DispatchThreadID) {
         EXPECT_EQ(at(0, 7), at(6, 1));
         EXPECT_EQ(at(7, 7), at(1, 1));
       }
-      for (uint32_t i = 0; i < atlas_width * 136; ++i)
-        distinct_layers |= packed[i] != packed[i + 2 * atlas_width * 136];
+      for (uint32_t i = 0; i < atlas_width * (rows * 8); ++i)
+        distinct_layers |= packed[i] != packed[i + 2 * atlas_width * (rows * 8)];
       EXPECT_TRUE(distinct_layers);
     }
   }
 }
 
 TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
-  CheckSdfgiTransport(false);
+  CheckSdfgiTransport(128);
 }
 
 TEST(SdfgiWide, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
-  CheckSdfgiTransport(true);
+  CheckSdfgiTransport(256);
+}
+
+TEST(SdfgiConfigurable, TransportTallNonPowerOfTwoWithoutRt) {
+  CheckSdfgiTransport(80, 144);
 }
 
 TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
@@ -1713,6 +1771,7 @@ TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.voxel_count_x = 128;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1916,15 +1975,17 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-void CheckSdfgiPreprocess(const bool wide) {
+void CheckSdfgiPreprocess(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
-  settings.wide_horizontal_field = wide;
+  settings.voxel_count_x = voxel_x;
+  settings.voxel_count_y = voxel_y;
   const auto grid = settings.GridSize();
   const uint32_t volume = grid.x * grid.y * grid.z;
   const uint32_t width = grid.x;
-  const glm::ivec3 center(wide ? 192 : 64, 64, wide ? 192 : 64);
+  const glm::ivec3 center(voxel_x == 256 ? 192 : grid.x / 2, voxel_y > 128 ? voxel_y - 8 : grid.y / 2,
+                          voxel_x == 256 ? 192 : grid.z / 2);
   settings.cascade_count = 1;
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   std::string failure;
@@ -1948,7 +2009,7 @@ import EvoEngine.SdfgiTypes;
 void main(uint3 id : SV_DispatchThreadID) {
   uint width, height, depth;
   albedo.GetDimensions(width, height, depth);
-  bool solid = pattern == 0 ? all(id == uint3(width == 256 ? 192 : 64, 64, depth == 256 ? 192 : 64)) : pattern == 2 && all(id >= uint3(32)) && all(id < uint3(64));
+  bool solid = pattern == 0 ? all(id == uint3(width == 256 ? 192 : width / 2, height > 128 ? height - 8 : height / 2, depth == 256 ? 192 : depth / 2)) : pattern == 2 && all(id >= uint3(32)) && all(id < uint3(64));
   if (solid) {
     albedo[id] = 1u | (12u << 11) | (6u << 6) | (3u << 1);
     emission[id] = (17u << 25) | 128u;
@@ -2045,8 +2106,8 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
     EXPECT_EQ(std::memcmp(cells.data(), unlit.data(), 65 * sizeof(SdfgiSolidCell)), 0);
     EXPECT_EQ(cells[pattern == 2 ? 64 : 1].position, 0xdeadbeefu);
     if (pattern == 0) {
-      EXPECT_EQ(cells[0].position & 0x1fffffu, 64u | (64u << 7) | (64u << 14));
-      EXPECT_EQ(cells[0].position_high, wide ? 3u : 0u);
+      EXPECT_EQ(cells[0].position & 0x1fffffu, SdfgiTestCell(center).position);
+      EXPECT_EQ(cells[0].position_high, SdfgiTestCell(center).position_high);
       EXPECT_EQ(cells[0].albedo & 0x7fffu, (12u << 10) | (6u << 5) | 3u);
       EXPECT_EQ((cells[0].albedo >> 15) & 63, 63u);
       EXPECT_EQ((cells[0].albedo >> 21) | ((cells[0].position >> 21) << 11) | ((cells[0].light >> 30) << 22) |
@@ -2061,14 +2122,14 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
       pixels.CopyFromImage(*field->textures.at("Cascade0.Sdf").image, copy);
       std::vector<uint8_t> sdf;
       pixels.DownloadVector(sdf, volume);
-      for (int z = 0; z < grid.z; z += 8)
-        for (int y = 0; y < 128; y += 8)
-          for (int x = 0; x < grid.x; x += 8) {
+      for (int z = 0; z < grid.z; z += 7)
+        for (int y = 0; y < grid.y; y += 7)
+          for (int x = 0; x < grid.x; x += 7) {
             const float distance = glm::length(glm::vec3(glm::ivec3(x, y, z) - center));
             // Vulkan permits either adjacent integer for floating-point to UNORM conversion.
             const float encoded = distance == 0 ? 0 : std::min(255.0f, distance + 1);
-            EXPECT_GE(sdf[x + y * width + z * width * 128], std::floor(encoded));
-            EXPECT_LE(sdf[x + y * width + z * width * 128], std::ceil(encoded));
+            EXPECT_GE(sdf[x + y * width + z * width * grid.y], std::floor(encoded));
+            EXPECT_LE(sdf[x + y * width + z * width * grid.y], std::ceil(encoded));
           }
     }
     if (pattern == 1) {
@@ -2079,7 +2140,7 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
       Buffer pixels(volume * 2 * 2);
       VkBufferImageCopy copy{};
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {2 * width, 128, width};
+      copy.imageExtent = {2 * width, uint32_t(grid.y), width};
       pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
       std::vector<uint16_t> occlusion;
       pixels.DownloadVector(occlusion, volume * 2);
@@ -2106,7 +2167,7 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
     store->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
     SdfgiPreprocessPushConstant params{};
     params.grid_size = width;
-    params.wide_horizontal_field = wide;
+    params.grid_size_y = grid.y;
     store->PushConstant(command, 0, params);
     store->Dispatch(command, grid.x / 4, grid.y / 4, grid.z / 4);
   });
@@ -2115,20 +2176,24 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
   Buffer pixels(volume * 2 * 2);
   VkBufferImageCopy copy{};
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-  copy.imageExtent = {2 * width, 128, width};
+  copy.imageExtent = {2 * width, uint32_t(grid.y), width};
   pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
   std::vector<uint16_t> occlusion;
   pixels.DownloadVector(occlusion, volume * 2);
-  EXPECT_EQ(occlusion[64 + 64 * width * 2 + 64 * width * 2 * 128], 0x05afu);
-  EXPECT_EQ(occlusion[64 + width + 64 * width * 2 + 64 * width * 2 * 128], 0xfa50u);
+  EXPECT_EQ(occlusion[64 + 64 * width * 2 + 64 * width * 2 * grid.y], 0x05afu);
+  EXPECT_EQ(occlusion[64 + width + 64 * width * 2 + 64 * width * 2 * grid.y], 0xfa50u);
 }
 
 TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
-  CheckSdfgiPreprocess(false);
+  CheckSdfgiPreprocess(128);
 }
 
 TEST(SdfgiWide, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
-  CheckSdfgiPreprocess(true);
+  CheckSdfgiPreprocess(256);
+}
+
+TEST(SdfgiConfigurable, PreprocessTallNonPowerOfTwoWithoutRt) {
+  CheckSdfgiPreprocess(80, 144);
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

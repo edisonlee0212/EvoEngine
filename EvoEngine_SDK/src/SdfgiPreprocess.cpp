@@ -8,8 +8,21 @@
 
 #include <stb_image_write.h>
 #include <cstring>
+#include <glm/gtc/round.hpp>
 
 using namespace evo_engine;
+
+std::vector<uint32_t> evo_engine::SdfgiJumpFloodSteps(const glm::ivec3 grid) {
+  std::vector<uint32_t> steps;
+  for (uint32_t step = glm::ceilPowerOfTwo(std::max({grid.x, grid.y, grid.z}) / 2) / 2; step; step /= 2)
+    steps.push_back(step);
+  return steps;
+}
+
+glm::uvec3 evo_engine::SdfgiJumpFloodGroups(const glm::uvec3 size, const uint32_t step) {
+  // Each group covers one residue modulo step, with eight cells per axis.
+  return ((size + 8 * step - 1u) / (8 * step)) * step;
+}
 
 namespace {
 std::string CascadeName(const uint32_t cascade, const std::string& name) {
@@ -29,6 +42,8 @@ void ClearLighting(const VkCommandBuffer command, const SdfgiResources& resource
 SdfgiPreprocessDebug::SdfgiPreprocessDebug(const uint32_t cascade_index, const uint32_t slice_index,
                                            const glm::ivec3 grid)
     : cascade(cascade_index), slice(slice_index), slices{grid} {
+  if (slice >= slices.SliceCount())
+    throw std::invalid_argument("SDFGI preprocessing slice exceeds the smallest grid dimension");
   for (size_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = slices.Total() * (i == 0 ? 1 : 4);
@@ -173,7 +188,7 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
                                    const uint32_t frame_slot) {
   SdfgiPreprocessPushConstant params{};
   params.grid_size = resources.settings.GridSize().x;
-  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
+  params.grid_size_y = resources.settings.voxel_count_y;
   params.cascade = cascade;
   for (uint32_t axis = 0; axis < 3; ++axis)
     params.scroll[axis] = scroll[axis];
@@ -202,7 +217,7 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
   probes.probe_axis_size = resources.settings.ProbeSize().x;
   probes.history_size = resources.settings.history_size;
   probes.image_size[0] = probes.probe_axis_size * probes.probe_axis_size;
-  probes.image_size[1] = 17;
+  probes.image_size[1] = resources.settings.ProbeSize().y;
   probes.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   const auto dispatch = [&](const char* name) {
     resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
@@ -232,7 +247,7 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   SdfgiPreprocessPushConstant params{};
   const auto grid = resources.settings.GridSize();
   params.grid_size = grid.x / 2;
-  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
+  params.grid_size_y = grid.y / 2;
   params.cascade = cascade;
   for (uint32_t axis = 0; axis < 3; ++axis)
     params.scroll[axis] = scroll[axis];
@@ -253,16 +268,16 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   barrier();
   params.half_size = 1;
   uint32_t source = 0;
-  for (uint32_t step = grid.x / 4; step > 0; step /= 2) {
+  for (const uint32_t step : SdfgiJumpFloodSteps(grid)) {
     params.step_size = step;
     const bool optimized = step <= 8;
     dispatch(optimized ? "JumpFloodOptimized" : "JumpFlood", "JumpFloodHalf" + std::to_string(source),
-             glm::uvec3(grid / (optimized ? 16 : 8)));
+             optimized ? SdfgiJumpFloodGroups(glm::uvec3(grid / 2), step) : glm::uvec3(grid / 8));
     barrier();
     source = 1 - source;
   }
   params.grid_size = resources.settings.GridSize().x;
-  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
+  params.grid_size_y = grid.y;
   dispatch("Upscale", "Upscale", glm::uvec3(grid / 4));
   barrier();
   params.half_size = 0;

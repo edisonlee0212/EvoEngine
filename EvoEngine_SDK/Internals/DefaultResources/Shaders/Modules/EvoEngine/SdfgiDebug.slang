@@ -7,7 +7,7 @@ public struct SdfgiDebugCameraData {
   public float4x4 inverse_view_projection;
   public float4 origin_y_mult;
   public uint4 selection; // view, cascade, logical XZY probe, slice
-  public uint4 field; // cascade count, box count, depth test, horizontal voxel count
+  public uint4 field; // cascade count, box count, depth test, packed voxel counts: X low16, Y high16
   public SdfgiCascadeData cascades[8];
 };
 public struct SdfgiDebugBox { public float4 minimum; public float4 maximum; public float4 color; };
@@ -27,8 +27,8 @@ public float3 debug_world(float2 uv, float depth) {
   float4 world = mul(float4(uv * 2 - 1, depth, 1), data.inverse_view_projection);
   return world.xyz / world.w;
 }
-public int3 debug_grid() { return int3(data.field.w, 128, data.field.w); }
-public int debug_probe_axis() { return int(data.field.w) / 8 + 1; }
+public int3 debug_grid() { return int3(data.field.w & 65535, data.field.w >> 16, data.field.w & 65535); }
+public int debug_probe_axis() { return debug_grid().x / 8 + 1; }
 public int3 debug_probe_cell(uint index) {
   uint axis = uint(debug_probe_axis());
   return int3(index % axis, index / (axis * axis), (index / axis) % axis);
@@ -46,5 +46,5 @@ public float2 debug_oct(float3 normal) {
 public float3 debug_probe_color(uint index, float3 normal) {
   int3 cell = debug_probe_cell(index);
   float2 texel = float2(cell.x + cell.z * debug_probe_axis(), cell.y) * 8 + 1 + debug_oct(normal) * 6;
-  return probe_texture.SampleLevel(linear_sampler, float3(texel / float2(debug_probe_axis() * debug_probe_axis() * 8, 136), data.selection.y), 0);
+  return probe_texture.SampleLevel(linear_sampler, float3(texel / float2(debug_probe_axis() * debug_probe_axis() * 8, (debug_grid().y / 8 + 1) * 8), data.selection.y), 0);
 }

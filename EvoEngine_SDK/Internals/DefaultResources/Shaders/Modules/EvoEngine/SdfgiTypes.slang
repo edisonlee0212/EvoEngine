@@ -26,7 +26,7 @@ struct SdfgiPreprocessPushConstant {
   uint half_size;
   uint occlusion_index;
   int cascade;
-  uint wide_horizontal_field;
+  uint grid_size_y;
 };
 
 struct SdfgiDirectLightPushConstant {
@@ -90,7 +90,7 @@ struct SdfgiSolidCell {
 
 int3 SdfgiUnpackPosition(SdfgiSolidCell cell) {
   return int3((uint3(cell.position) >> uint3(0, 7, 14)) & 127) |
-      int3((cell.position_high & 1) << 7, 0, (cell.position_high & 2) << 6);
+      int3((cell.position_high & 1) << 7, (cell.position_high & 4) << 5, (cell.position_high & 2) << 6);
 }
 
 struct SdfgiDispatchData {

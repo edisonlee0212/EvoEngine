@@ -52,7 +52,7 @@ import EvoEngine.SdfgiTypes;
 
 
 int3 grid_size() {
-  return int3(params.grid_size, params.wide_horizontal_field != 0 ? params.grid_size / 2 : params.grid_size, params.grid_size);
+  return int3(params.grid_size, params.grid_size_y, params.grid_size);
 }
 
 #define GROUP_SIZE 8
@@ -861,8 +861,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     uint index;
     InterlockedAdd(store_position_count, 1, index);
     // At least do the conversion work in parallel
-    store_positions[index].position = uint((pos.x & 127) | (pos.y << 7) | ((pos.z & 127) << 14));
-    store_positions[index].position_high = uint((pos.x >> 7) | ((pos.z >> 7) << 1));
+    store_positions[index].position = uint((pos.x & 127) | ((pos.y & 127) << 7) | ((pos.z & 127) << 14));
+    store_positions[index].position_high = uint((pos.x >> 7) | ((pos.z >> 7) << 1) | ((pos.y >> 7) << 2));
 
     //see around which voxels point to this one, add them to the list
     uint bit_index = 0;

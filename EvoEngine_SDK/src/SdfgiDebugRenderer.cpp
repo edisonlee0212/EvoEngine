@@ -167,7 +167,8 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   data.selection = {static_cast<uint32_t>(debug.view), std::min(debug.cascade, runtime->settings.cascade_count - 1),
                     std::min(debug.probe, probe_count - 1),
                     std::min(debug.slice, uint32_t(runtime->settings.GridSize().z - 1))};
-  data.field = {runtime->settings.cascade_count, 0, debug.depth_test, uint32_t(runtime->settings.GridSize().x)};
+  data.field = {runtime->settings.cascade_count, 0, debug.depth_test,
+                runtime->settings.voxel_count_x | (runtime->settings.voxel_count_y << 16)};
   data.cascades = BuildSdfgiCascadeBlock(runtime->cascades);
   const auto box = [&](const Bound& bounds, const glm::vec4 color) {
     if (glm::all(glm::lessThanEqual(bounds.min, bounds.max)) &&
@@ -315,7 +316,9 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
           };
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Probes) ||
               frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
-            draw(0, 112, (frame->data.field.w / 8 + 1) * (frame->data.field.w / 8 + 1) * 17);
+            draw(0, 112,
+                 ((frame->data.field.w & 65535) / 8 + 1) * ((frame->data.field.w & 65535) / 8 + 1) *
+                     ((frame->data.field.w >> 16) / 8 + 1));
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
             draw(1, 112, 4096);
           if (!frame->boxes.empty())

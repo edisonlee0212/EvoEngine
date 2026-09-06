@@ -55,8 +55,8 @@ SdfgiVoxelData VoxelView(const SdfgiPendingRegion& region, const SdfgiCascade& c
 
 SdfgiVoxelDebug::SdfgiVoxelDebug(const uint32_t cascade_index, const uint32_t slice_index, const glm::ivec3 grid)
     : cascade(cascade_index), slice(slice_index), slices{grid} {
-  if (slice >= 128)
-    throw std::invalid_argument("SDFGI voxel slice must be in [0, 127]");
+  if (slice >= slices.SliceCount())
+    throw std::invalid_argument("SDFGI voxel slice exceeds the smallest grid dimension");
   for (size_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = slices.Total() * (i == 0 ? 2 : 4);

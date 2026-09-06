@@ -565,7 +565,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def(py::init<>())
       .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
       .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
-      .def_readwrite("wide_horizontal_field", &SdfgiSettings::wide_horizontal_field)
+      .def_readwrite("voxel_count_x", &SdfgiSettings::voxel_count_x)
+      .def_readwrite("voxel_count_y", &SdfgiSettings::voxel_count_y)
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
@@ -600,16 +601,19 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "RequestCurrentSceneSdfgiVoxelDebug",
-      [](const uint32_t cascade, const uint32_t slice) {
+      [](const uint32_t cascade, uint32_t slice) {
         const auto scene = ApplicationContext::Get().GetActiveScene();
         const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
         if (!runtime || !runtime->resources)
           throw py::value_error("Automatic SDFGI resources are not available");
-        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+        const uint32_t slice_count = std::min(runtime->settings.voxel_count_x, runtime->settings.voxel_count_y);
+        if (slice == UINT32_MAX)
+          slice = slice_count / 2;
+        if (cascade >= runtime->settings.cascade_count || slice >= slice_count)
           throw py::value_error("SDFGI cascade or slice is out of range");
         runtime->resources->voxel_debug_request = glm::uvec2(cascade, slice);
       },
-      py::arg("cascade") = 0, py::arg("slice") = 64);
+      py::arg("cascade") = 0, py::arg("slice") = UINT32_MAX);
   m.def("CaptureCurrentSceneSdfgiVoxelDebug", [](const std::filesystem::path& path) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
@@ -620,16 +624,19 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "RequestCurrentSceneSdfgiPreprocessDebug",
-      [](const uint32_t cascade, const uint32_t slice) {
+      [](const uint32_t cascade, uint32_t slice) {
         const auto scene = ApplicationContext::Get().GetActiveScene();
         const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
         if (!runtime || !runtime->resources)
           throw py::value_error("Automatic SDFGI resources are not available");
-        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+        const uint32_t slice_count = std::min(runtime->settings.voxel_count_x, runtime->settings.voxel_count_y);
+        if (slice == UINT32_MAX)
+          slice = slice_count / 2;
+        if (cascade >= runtime->settings.cascade_count || slice >= slice_count)
           throw py::value_error("SDFGI cascade or slice is out of range");
         runtime->resources->preprocess_debug_request = glm::uvec2(cascade, slice);
       },
-      py::arg("cascade") = 0, py::arg("slice") = 64);
+      py::arg("cascade") = 0, py::arg("slice") = UINT32_MAX);
   m.def("CaptureCurrentSceneSdfgiPreprocessDebug", [](const std::filesystem::path& path) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
@@ -643,16 +650,19 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "RequestCurrentSceneSdfgiLightDebug",
-      [](const uint32_t cascade, const uint32_t slice) {
+      [](const uint32_t cascade, uint32_t slice) {
         const auto scene = ApplicationContext::Get().GetActiveScene();
         const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
         if (!runtime || !runtime->resources)
           throw py::value_error("Automatic SDFGI resources are not available");
-        if (cascade >= runtime->settings.cascade_count || slice >= 128)
+        const uint32_t slice_count = std::min(runtime->settings.voxel_count_x, runtime->settings.voxel_count_y);
+        if (slice == UINT32_MAX)
+          slice = slice_count / 2;
+        if (cascade >= runtime->settings.cascade_count || slice >= slice_count)
           throw py::value_error("SDFGI cascade or slice is out of range");
         runtime->resources->light_debug_request = glm::uvec2(cascade, slice);
       },
-      py::arg("cascade") = 0, py::arg("slice") = 64);
+      py::arg("cascade") = 0, py::arg("slice") = UINT32_MAX);
   m.def("CaptureCurrentSceneSdfgiLightDebug", [](const std::filesystem::path& path) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
@@ -678,17 +688,19 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "RequestCurrentSceneSdfgiProbeDebug",
-      [](const uint32_t cascade, const uint32_t probe) {
+      [](const uint32_t cascade, uint32_t probe) {
         const auto scene = ApplicationContext::Get().GetActiveScene();
         const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
         if (!runtime || !runtime->resources)
           throw py::value_error("Automatic SDFGI resources are not available");
         const auto size = runtime->settings.ProbeSize();
+        if (probe == UINT32_MAX)
+          probe = size.x / 2 + size.z / 2 * size.x + size.y / 2 * size.x * size.z;
         if (cascade >= runtime->settings.cascade_count || probe >= uint32_t(size.x * size.y * size.z))
           throw py::value_error("SDFGI cascade or probe is out of range");
         runtime->resources->probe_debug_request = glm::uvec2(cascade, probe);
       },
-      py::arg("cascade") = 0, py::arg("probe") = 2456);
+      py::arg("cascade") = 0, py::arg("probe") = UINT32_MAX);
   m.def("CaptureCurrentSceneSdfgiProbeDebug", [](const std::filesystem::path& path) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
@@ -925,8 +937,9 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "SdfgiCapabilityReport",
-      [](const uint32_t cascade_count, const uint32_t history_size, const bool wide_horizontal_field) {
-        const auto report = QuerySdfgiCapabilities(cascade_count, history_size, wide_horizontal_field);
+      [](const uint32_t cascade_count, const uint32_t history_size, const uint32_t voxel_count_x,
+         const uint32_t voxel_count_y) {
+        const auto report = QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y);
         py::dict result;
         result["supported"] = report.Supported();
         result["device_name"] = report.device_name;
@@ -944,7 +957,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         result["checks"] = checks;
         return result;
       },
-      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("wide_horizontal_field") = false);
+      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("voxel_count_x") = 256,
+      py::arg("voxel_count_y") = 128);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

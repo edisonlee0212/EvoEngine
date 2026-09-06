@@ -3046,10 +3046,21 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("Automatic SDFGI")) {
       auto& settings = lighting.sdfgi_settings;
-      changed = ImGui::Checkbox("Wide horizontal field (experimental)", &settings.wide_horizontal_field) || changed;
-      ImGui::SetItemTooltip(
-          "Doubles X/Z coverage at unchanged spacing: 33x17x33 probes over 256x128x256 voxels. "
-          "Uses 4x the voxels and about 3.77x the probes. Off restores Godot's 17x17x17 layout.");
+      const auto voxel_count = [&](const char* label, uint32_t& value) {
+        if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
+          for (uint32_t count = 64; count <= 256; count += 16)
+            if (ImGui::Selectable(std::to_string(count).c_str(), value == count)) {
+              changed = changed || value != count;
+              value = count;
+            }
+          ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip(
+            "Voxel count, not physical cell size. Probes remain eight voxels apart. "
+            "Larger counts increase coverage, memory, and GI work.");
+      };
+      voxel_count("Voxel count X/Z", settings.voxel_count_x);
+      voxel_count("Voxel count Y", settings.voxel_count_y);
       const auto grid = settings.GridSize();
       const auto probes = settings.ProbeSize();
       ImGui::TextDisabled("%dx%dx%d voxels; %dx%dx%d probes per cascade. Coverage follows one camera.", grid.x, grid.y,

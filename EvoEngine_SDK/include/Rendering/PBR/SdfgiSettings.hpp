@@ -17,8 +17,8 @@ EVOENGINE_API const char* GetIndirectGiProviderName(IndirectGiProvider provider)
 struct EVOENGINE_API SdfgiSettings {
   enum class VerticalScale : uint32_t { Percent50 = 0, Percent75 = 1, Percent100 = 2 };
 
-  static constexpr uint32_t kCascadeSize = 128;
-  bool wide_horizontal_field = false;
+  uint32_t voxel_count_x = 256;
+  uint32_t voxel_count_y = 128;
   uint32_t cascade_count = 4;
   uint32_t positional_light_cascade_count = 8;
   float min_cell_size = 0.2f;
@@ -35,7 +35,7 @@ struct EVOENGINE_API SdfgiSettings {
   uint64_t anchor_camera_entity = 0;
 
   [[nodiscard]] glm::ivec3 GridSize() const {
-    return {wide_horizontal_field ? 256 : 128, 128, wide_horizontal_field ? 256 : 128};
+    return {voxel_count_x, voxel_count_y, voxel_count_x};
   }
   [[nodiscard]] glm::ivec3 ProbeSize() const {
     return GridSize() / 8 + 1;

@@ -42,14 +42,16 @@ struct EVOENGINE_API SdfgiCapabilityReport {
 
 EVOENGINE_API std::vector<SdfgiImageRequirement> GetSdfgiImageRequirements(uint32_t cascade_count = 4,
                                                                            uint32_t history_size = 30,
-                                                                           bool wide_horizontal_field = false);
+                                                                           uint32_t voxel_count_x = 256,
+                                                                           uint32_t voxel_count_y = 128);
 EVOENGINE_API std::vector<SdfgiCapabilityCheck> EvaluateSdfgiDeviceLimits(const VkPhysicalDeviceFeatures& features,
                                                                           const VkPhysicalDeviceLimits& limits,
-                                                                          bool wide_horizontal_field = false);
+                                                                          uint32_t voxel_count_x = 256,
+                                                                          uint32_t voxel_count_y = 128);
 EVOENGINE_API bool SupportsSdfgiImage(const SdfgiImageRequirement& requirement, VkFormatFeatureFlags2 storage_features,
                                       VkFormatFeatureFlags2 sampled_features, VkResult query_result,
                                       const VkImageFormatProperties& properties);
 EVOENGINE_API SdfgiCapabilityReport QuerySdfgiCapabilities(uint32_t cascade_count = 4, uint32_t history_size = 30,
-                                                           bool wide_horizontal_field = false);
+                                                           uint32_t voxel_count_x = 256, uint32_t voxel_count_y = 128);
 
 }  // namespace evo_engine

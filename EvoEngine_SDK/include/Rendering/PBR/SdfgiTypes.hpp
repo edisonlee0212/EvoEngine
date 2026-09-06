@@ -8,7 +8,6 @@
 namespace evo_engine {
 
 inline constexpr uint32_t kSdfgiMaxCascades = 8;
-inline constexpr uint32_t kSdfgiSolidCellCapacity = 128 * 128 * 128 / 4;
 inline constexpr uint32_t kSdfgiFailureSolidOverflow = 1;
 inline constexpr uint32_t kSdfgiFailureLightOverflow = 2;
 inline constexpr uint32_t kSdfgiFailurePayloadCoverage = 4;
@@ -40,7 +39,7 @@ struct alignas(16) SdfgiPreprocessPushConstant {
   uint32_t half_size{};
   uint32_t occlusion_index{};
   int32_t cascade{};
-  uint32_t wide_horizontal_field{};
+  uint32_t grid_size_y{};
 };
 static_assert(sizeof(SdfgiPreprocessPushConstant) == 48);
 

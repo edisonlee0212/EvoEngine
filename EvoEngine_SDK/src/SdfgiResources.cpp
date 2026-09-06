@@ -110,8 +110,8 @@ std::shared_ptr<SdfgiResources> SdfgiResources::TryCreate(
   failure = settings.Validate();
   if (!failure.empty())
     return {};
-  const auto report =
-      QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.wide_horizontal_field);
+  const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.voxel_count_x,
+                                             settings.voxel_count_y);
   if (!report.Supported()) {
     failure = report.ToString();
     return {};
@@ -135,8 +135,8 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
     if (allocations++ == fail_after_allocations)
       throw std::runtime_error("forced allocation failure");
   };
-  const auto requirements =
-      GetSdfgiImageRequirements(settings.cascade_count, settings.history_size, settings.wide_horizontal_field);
+  const auto requirements = GetSdfgiImageRequirements(settings.cascade_count, settings.history_size,
+                                                      settings.voxel_count_x, settings.voxel_count_y);
   const auto add_image = [&](const std::string& name, SdfgiImageRequirement requirement,
                              const SdfgiMemoryClass memory_class, const bool cube = false) {
     checkpoint();
@@ -384,7 +384,7 @@ void SdfgiResources::CreateDescriptors() {
   }
   auto set = make_set("Upscale", SdfgiLayout::Upscale);
   image(set, 1, "Albedo");
-  image(set, 2, settings.wide_horizontal_field ? "JumpFloodHalf1" : "JumpFloodHalf0");
+  image(set, 2, "JumpFloodHalf" + std::to_string(SdfgiJumpFloodSteps(settings.GridSize()).size() % 2));
   image(set, 3, "JumpFlood0");
   set = make_set("Occlusion", SdfgiLayout::Occlusion);
   image(set, 1, "Albedo");
