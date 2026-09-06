@@ -94,7 +94,26 @@ values stay false; only new/default settings turn it on. It reweights neighborin
 reduce leaks, including bounce feedback; it can suppress bright or dark hidden probes and may produce dark patches.
 It is not a second ambient-occlusion multiplier and does not disable SDF transport/shadow tracing when off. Both states
 still generate the reference occlusion volume. The checkbox tooltip notes field recreation and reconvergence on change.
-Cascades, minimum cell size, vertical scale, occlusion, and history length recreate the field, matching Godot's
+**Environmental Lighting > Automatic SDFGI** also exposes **Cascade 0 Distance**, **Max Distance**, and **Y Scale**.
+The two distances are linked views of `min_cell_size`, not additional serialized settings, matching pinned Godot
+`scene/resources/environment.cpp` setters/getters. Python exposes writable `cascade0_distance` and `max_distance`
+properties; existing `vertical_scale` and its serialized values remain unchanged.
+
+- Cascade 0 Distance = `min_cell_size * voxel_count_x / 2` (nearest cascade horizontal half extent).
+- Max Distance = `Cascade 0 Distance * 2^cascade_count`. Godot's convention is the outer cascade's **full horizontal
+  width**, not a camera-centered radius. Actual coverage scrolls on the probe grid and fades near cascade edges.
+- Editing either distance changes minimum cell size and the other distance, recreating the field and restarting
+  convergence. Changing cascade count or voxel count X/Z updates derived distances; probe counts/cadence are unchanged
+  by distance edits. Keep Max Distance below Camera Far as a coverage guideline; it does not set camera clipping.
+- Y Scale is the existing Vertical scale control renamed for discoverability. 100% uses equal physical cell spacing;
+  Godot's 75% mode divides vertical spacing by **1.5** (not 0.75 times), and 50% divides it by **2**. Smaller spacing
+  compresses vertical coverage and can reduce leaks without adding probes. The accepted default remains 75%.
+
+Our configurable rectangular grid necessarily replaces Godot's fixed factor 64 with `voxel_count_x / 2`.
+Y coverage additionally follows `voxel_count_y` and Y Scale. Defaults yield Cascade 0 Distance 25.6 and Max Distance
+409.6 world units; the selectable 128x128x128 grid reproduces Godot's distance formulas exactly.
+
+Cascades, minimum cell size (including distance edits), Y Scale, occlusion, and history length recreate the field, matching Godot's
 `RenderForwardClustered::sdfgi_update` reset condition.
 
 One non-serialized runtime belongs to each active scene, never to its lighting asset or cameras. An enabled explicit scene

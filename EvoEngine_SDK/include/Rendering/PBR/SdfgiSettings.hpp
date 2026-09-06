@@ -35,6 +35,11 @@ struct EVOENGINE_API SdfgiSettings {
   float probe_bias = 1.1f;
   uint64_t anchor_camera_entity = 0;
 
+  [[nodiscard]] float GetCascade0Distance() const;
+  void SetCascade0Distance(float distance);
+  [[nodiscard]] float GetMaxDistance() const;
+  void SetMaxDistance(float distance);
+
   [[nodiscard]] glm::ivec3 GridSize() const {
     return {voxel_count_x, voxel_count_y, voxel_count_x};
   }

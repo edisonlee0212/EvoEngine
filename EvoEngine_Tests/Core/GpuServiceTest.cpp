@@ -383,6 +383,9 @@ TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeature
   expect_sdfgi = true;
   SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
   const auto replacement = std::make_shared<Scene>();
+  const auto replacement_lighting = std::make_shared<EnvironmentalLighting>();
+  replacement_lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+  replacement->environmental_lighting = replacement_lighting;
   expect_sdfgi = false;
   SdfgiTestAccess::ExecuteSceneFrame(*render, replacement);
   EXPECT_FALSE(scene->GetSdfgiRuntime());

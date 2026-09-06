@@ -399,6 +399,71 @@ TEST(SdfgiConfigurable, AllGridPairsSizesDispatchCoverageAndDiagnosticBounds) {
     }
 }
 
+TEST(SdfgiRuntime, DistanceControlsFollowGodotAndRectangularCoverage) {
+  const SdfgiSettings defaults;
+  EXPECT_FLOAT_EQ(defaults.GetCascade0Distance(), 25.6f);
+  EXPECT_FLOAT_EQ(defaults.GetMaxDistance(), 409.6f);
+  for (uint32_t x = 64; x <= 256; x += 16) {
+    for (uint32_t count = 1; count <= 8; ++count) {
+      auto settings = defaults;
+      settings.voxel_count_x = x;
+      settings.cascade_count = count;
+      settings.SetCascade0Distance(32);
+      EXPECT_FLOAT_EQ(settings.min_cell_size, 64.0f / x);
+      EXPECT_FLOAT_EQ(settings.GetCascade0Distance(), 32);
+      EXPECT_FLOAT_EQ(settings.GetMaxDistance(), std::ldexp(32.0f, count));
+      settings.SetMaxDistance(1024);
+      EXPECT_FLOAT_EQ(settings.GetMaxDistance(), 1024);
+      EXPECT_FLOAT_EQ(settings.GetCascade0Distance(), std::ldexp(1024.0f, -static_cast<int>(count)));
+      EXPECT_FALSE(settings.HasSameLayout(defaults));
+      std::vector<SdfgiCascade> cascades;
+      ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+      const auto first = cascades.front().WorldBounds(SdfgiYMultiplier(settings.vertical_scale));
+      const auto last = cascades.back().WorldBounds(SdfgiYMultiplier(settings.vertical_scale));
+      EXPECT_FLOAT_EQ(first.max.x, settings.GetCascade0Distance());
+      EXPECT_FLOAT_EQ(last.max.x - last.min.x, settings.GetMaxDistance());
+      YAML::Emitter out;
+      SerializeSdfgiSettings(out, settings);
+      const auto node = YAML::Load(out.c_str());
+      EXPECT_FALSE(node["cascade0_distance"]);
+      EXPECT_FALSE(node["max_distance"]);
+      SdfgiSettings restored;
+      DeserializeSdfgiSettings(node, restored);
+      EXPECT_TRUE(restored == settings);
+      EXPECT_FLOAT_EQ(restored.GetMaxDistance(), settings.GetMaxDistance());
+    }
+  }
+  auto reference = defaults;
+  reference.voxel_count_x = 128;
+  EXPECT_FLOAT_EQ(reference.GetCascade0Distance(), reference.min_cell_size * 64);
+  EXPECT_FLOAT_EQ(reference.GetMaxDistance(), reference.min_cell_size * 64 * 16);
+  for (const float invalid :
+       {0.0f, -1.0f, std::numeric_limits<float>::infinity(), std::numeric_limits<float>::quiet_NaN()}) {
+    reference.SetCascade0Distance(invalid);
+    EXPECT_FALSE(reference.Validate().empty());
+    reference.SetMaxDistance(invalid);
+    EXPECT_FALSE(reference.Validate().empty());
+  }
+}
+
+TEST(SdfgiRuntime, YScaleCompressesVerticalCoverageWithoutChangingHorizontalDistances) {
+  const SdfgiSettings defaults;
+  for (uint32_t mode = 0; mode < 3; ++mode) {
+    auto settings = defaults;
+    settings.vertical_scale = static_cast<SdfgiSettings::VerticalScale>(mode);
+    const float multiplier = std::array{2.0f, 1.5f, 1.0f}[mode];
+    EXPECT_FLOAT_EQ(SdfgiYMultiplier(settings.vertical_scale), multiplier);
+    EXPECT_EQ(settings.ProbeSize(), defaults.ProbeSize());
+    EXPECT_FLOAT_EQ(settings.GetCascade0Distance(), defaults.GetCascade0Distance());
+    EXPECT_FLOAT_EQ(settings.GetMaxDistance(), defaults.GetMaxDistance());
+    EXPECT_EQ(settings.HasSameLayout(defaults), settings.vertical_scale == defaults.vertical_scale);
+    std::vector<SdfgiCascade> cascades;
+    ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+    const auto bounds = cascades.front().WorldBounds(multiplier);
+    EXPECT_FLOAT_EQ(bounds.max.y - bounds.min.y, settings.voxel_count_y * settings.min_cell_size / multiplier);
+  }
+}
+
 TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);

@@ -568,6 +568,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("voxel_count_x", &SdfgiSettings::voxel_count_x)
       .def_readwrite("voxel_count_y", &SdfgiSettings::voxel_count_y)
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
+      .def_property("cascade0_distance", &SdfgiSettings::GetCascade0Distance, &SdfgiSettings::SetCascade0Distance)
+      .def_property("max_distance", &SdfgiSettings::GetMaxDistance, &SdfgiSettings::SetMaxDistance)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
       .def_readwrite("static_entities_only", &SdfgiSettings::static_entities_only)

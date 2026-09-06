@@ -3077,6 +3077,27 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         changed = true;
       }
       changed = ImGui::DragFloat("Minimum cell size", &settings.min_cell_size, 0.01f, 0.01f, 64.0f) || changed;
+      float cascade0_distance = settings.GetCascade0Distance();
+      if (ImGui::DragFloat("Cascade 0 Distance", &cascade0_distance, 0.1f, 0.001f, FLT_MAX, "%.3f",
+                           ImGuiSliderFlags_AlwaysClamp)) {
+        settings.SetCascade0Distance(cascade0_distance);
+        changed = true;
+      }
+      ImGui::SetItemTooltip(
+          "Nearest cascade's horizontal half extent. Increasing this reduces detail and increases coverage. "
+          "Linked to Minimum cell size and Max Distance; editing recreates the field and restarts convergence.");
+      float max_distance = settings.GetMaxDistance();
+      if (ImGui::DragFloat("Max Distance", &max_distance, 0.1f, 0.001f, FLT_MAX, "%.3f",
+                           ImGuiSliderFlags_AlwaysClamp)) {
+        settings.SetMaxDistance(max_distance);
+        changed = true;
+      }
+      ImGui::SetItemTooltip(
+          "Godot convention: outer cascade's full horizontal width, not a radius from the camera. "
+          "Keep below Camera Far to avoid unnecessary coverage. Linked to Minimum cell size and Cascade 0 Distance. "
+          "Actual bounds scroll with the camera and fade near edges; Y coverage also depends on voxel count Y and Y "
+          "Scale. "
+          "Editing recreates the field and restarts convergence.");
       int light_cascades = static_cast<int>(settings.positional_light_cascade_count);
       if (ImGui::SliderInt("Positional light cascades", &light_cascades, 1, 8)) {
         settings.positional_light_cascade_count = static_cast<uint32_t>(light_cascades);
@@ -3088,10 +3109,15 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           "no geometry-field rebuild is needed.");
       int vertical_scale = static_cast<int>(settings.vertical_scale);
       const char* vertical_scales[]{"50%", "75%", "100%"};
-      if (ImGui::Combo("Vertical scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {
+      if (ImGui::Combo("Y Scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {
         settings.vertical_scale = static_cast<SdfgiSettings::VerticalScale>(vertical_scale);
         changed = true;
       }
+      ImGui::SetItemTooltip(
+          "Compresses vertical cell/probe spacing and coverage without changing probe count. "
+          "Godot modes: 100% = full spacing, 75% = spacing / 1.5, 50% = spacing / 2. "
+          "Compact modes can improve detail and reduce leaks in low spaces. Recreates the field and restarts "
+          "convergence.");
       const auto inspect_choice = [&](const char* label, uint32_t& value,
                                       const std::initializer_list<uint32_t> choices) {
         if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {

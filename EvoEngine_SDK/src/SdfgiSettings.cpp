@@ -21,6 +21,23 @@ const char* evo_engine::GetIndirectGiProviderName(const IndirectGiProvider provi
   }
 }
 
+float SdfgiSettings::GetCascade0Distance() const {
+  return min_cell_size * (voxel_count_x * 0.5f);
+}
+
+void SdfgiSettings::SetCascade0Distance(const float distance) {
+  min_cell_size = distance / (voxel_count_x * 0.5f);
+}
+
+float SdfgiSettings::GetMaxDistance() const {
+  // Godot's max-distance property is the outer cascade's full width, not its half extent.
+  return std::ldexp(GetCascade0Distance(), static_cast<int>(cascade_count));
+}
+
+void SdfgiSettings::SetMaxDistance(const float distance) {
+  SetCascade0Distance(std::ldexp(distance, -static_cast<int>(cascade_count)));
+}
+
 std::string SdfgiSettings::Validate() const {
   if (voxel_count_x < 64 || voxel_count_x > 256 || voxel_count_x % 16 != 0 || voxel_count_y < 64 ||
       voxel_count_y > 256 || voxel_count_y % 16 != 0)
