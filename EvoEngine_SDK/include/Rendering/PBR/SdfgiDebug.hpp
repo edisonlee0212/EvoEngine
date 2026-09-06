@@ -49,9 +49,7 @@ struct EVOENGINE_API SdfgiDebugState {
   uint64_t camera_id = 0;  // Zero selects only the canonical editor Scene camera.
   SdfgiDebugView view = SdfgiDebugView::None;
   uint32_t last_boundary = UINT32_MAX;
-  std::map<std::string, uint64_t> invalidations{{"camera", 0},   {"geometry", 0},    {"material", 0},
-                                                {"light", 0},    {"environment", 0}, {"settings", 0},
-                                                {"provider", 0}, {"scene", 1},       {"reset", 0}};
+  std::map<std::string, uint64_t> invalidations;
   std::map<uint64_t, uint32_t> camera_views;
   std::string last_reason = "Scene/provider activated";
   std::string failure;
@@ -70,7 +68,7 @@ struct EVOENGINE_API SdfgiDebugState {
   SdfgiDebugView rendered_view = SdfgiDebugView::None;
 
   bool BeginFrame(uint32_t scene_frame);
-  void Invalidate(const std::string& category, const std::string& reason);
+  void Invalidate(const char* category, const char* reason);
   bool MatchesCamera(uint64_t id, bool editor_scene, bool ordinary_raster) const;
 };
 

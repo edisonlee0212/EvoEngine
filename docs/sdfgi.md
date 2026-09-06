@@ -794,7 +794,7 @@ returned to GPU generation 4, ready 1, failures 0. Images were inspected; this i
 Godot/DDGI image comparison or a substitute for M12 user acceptance. M8/M9 user-approved baselines remain unchanged.
 All-app installation follows implementation completion before M12 manual review.
 
-## Manual diagnostics and evidence capture (M11)
+## Visualizers and offline diagnostics
 
 Open **Render Layer > Automatic SDFGI** for session-only diagnostics. Durable controls remain in **Environmental Lighting
 > Automatic SDFGI**, with the field-recreation versus runtime-update distinction explained there. Debug state is neither
@@ -810,7 +810,7 @@ the normal frame fence. Turning diagnostics off leaves no additional debug draw/
 | View | Meaning |
 |---|---|
 | Beauty | Normal composition; enables matching image/state capture without an overlay. |
-| Cascades | Per-cascade colored world bounds. Dim boxes mark the anchor-relative 5.5-to-7.5-probe gather blend zone; exact spacing/extents are in the cascade panel. |
+| Cascades | Per-cascade colored world bounds. Dim boxes mark the anchor-relative two-probe gather blend zone; exact spacing/extents are in the offline snapshot. |
 | SDF | Godot's fine-to-coarse SDF raymarch, anisotropic voxel-light sampling, and sRGB output. Camera-outside-coverage clipping is a host debug adapter. |
 | Probes / Probe visibility | All probe spheres for the selected layout and 16-cubed selected-probe occlusion samples. Red samples are hidden, white visible. The probe index uses X/Z/Y order (`x + z*horizontal_probes + y*horizontal_probes^2`); world position is displayed. |
 | Dirty regions | The most recent maintenance boundary's entering slabs or full-cascade redraw regions. Freeze holds those regions; a stationary normal update clears them. |
@@ -826,22 +826,30 @@ after a layout reduction, so exported selection matches what was rendered.
 
 Freeze holds placement, representation, lighting, probe history, and publication while ordinary cameras keep rendering.
 Pending scene/settings edits are evaluated on resume. Single step leaves freeze enabled and processes exactly one scene
-boundary. Full redraw rebuilds representation using normal reference reconvergence; Reset probe history clears only
+boundary. Offline Python controls additionally provide full redraw, history reset, and deterministic seeds; these are
+not exposed in the editor. Full redraw rebuilds representation using normal reference reconvergence; history reset clears only
 history/average/atlas transport state, preserving geometry/SDF/occlusion. Explicit redraw/reset also permits one boundary
 while frozen. Seed 0 preserves the reference sequence; changing the deterministic seed explicitly resets history. Provider
 disable/scene replacement still destroys the active runtime normally, regardless of freeze.
 
-The panel reports capability/RT/provider state, anchor source and fallback, effective settings, cascade coverage/dirty/full
-state, current transport/history/light phase, invalidations, contributor/light counts and overflow, latest failure, and
-active/retiring field, scratch, upload, and diagnostic bytes. Peak transient bytes count scratch/upload/diagnostic GPU
+The editor retains the view/camera/selection controls, freeze/step, and actionable fallback/visualization errors.
+Verbose snapshots, duplicate counters, timing controls, forced redraw/reset/seed controls, and image/state export were
+removed from the GUI. Environmental Lighting shows production settings, effective provider, fallback and anchor warnings,
+without maintenance/rebuild counters. Reference and validation details belong here, not in per-frame GUI text.
+
+Offline snapshots retain capability/RT/provider state, anchor source, effective settings, cascade bounds, contributor/light
+counts, overflow, and failures. Invalidation tracking and memory accounting run only with diagnostics enabled; enabling
+them does not replay earlier events. `diagnostic_tracking_enabled` marks whether those sampled counters are active;
+disabled snapshots retain the last tracked values (or initial empty values), not continuously updated telemetry.
+Peak transient bytes count scratch/upload/diagnostic GPU
 allocations retained by frame owners, not driver pipeline memory or temporary CPU PNG buffers. Live compact-cell/status
 readbacks describe the last preprocessing update, not necessarily the currently displayed transport generation.
 
-Enable timing capture for CPU SDFGI planning and GPU voxelization, preprocessing, static/dynamic lighting, probe process,
+The existing global profiler timing capture covers CPU SDFGI planning and GPU voxelization, preprocessing, static/dynamic lighting, probe process,
 store, and debug scopes. Gather is reported as **Deferred Compute Lighting**, inclusive of material/direct/other deferred
 work, not as a fabricated isolated GI timing. GPU samples are fence-delayed; disabled/unexecuted scopes have no new sample.
 
-**Capture image + state** exports the currently rendered selected image as PNG and a same-stem YAML snapshot. It does not
+The offline **CaptureCurrentSceneSdfgiDebug** API exports the currently rendered selected image as PNG and a same-stem YAML snapshot. It does not
 call the application loop, reset history, submit field maintenance, or change the anchor. The normal image-readback fence
 is allowed for this explicit capture. It rejects stale camera/view/selection/size and existing filenames, checks RGBA for
 NaN/Inf before conversion, and records the matching GPU publication status, CPU state, camera matrix, device/driver,

@@ -41,7 +41,9 @@ bool SdfgiDebugState::BeginFrame(const uint32_t scene_frame) {
   return true;
 }
 
-void SdfgiDebugState::Invalidate(const std::string& category, const std::string& reason) {
+void SdfgiDebugState::Invalidate(const char* category, const char* reason) {
+  if (!enabled)
+    return;
   ++invalidations[category];
   last_reason = reason;
 }
@@ -84,6 +86,8 @@ void evo_engine::AddSdfgiHistoryReset(RenderGraph& graph, const std::shared_ptr<
 void evo_engine::UpdateSdfgiDebugMemory(const SdfgiRuntime& runtime,
                                         const std::vector<std::vector<std::shared_ptr<SdfgiResources>>>& owners) {
   auto& debug = *runtime.debug;
+  if (!debug.enabled)
+    return;
   debug.active_bytes = {};
   debug.retiring_bytes = {};
   std::set<const SdfgiResources*> fields;
@@ -146,6 +150,7 @@ std::string evo_engine::BuildSdfgiDebugSnapshot(const SdfgiRuntime& runtime) {
   node["last_reason"] = debug.last_reason;
   node["fallback_reason"] = runtime.fallback_reason;
   node["debug_failure"] = debug.failure;
+  node["diagnostic_tracking_enabled"] = debug.enabled;
   node["invalidation_counts"] = debug.invalidations;
   node["accepted_contributors"] = runtime.contributors.entries.size();
   for (const auto& [reason, count] : runtime.scene_snapshot.excluded)

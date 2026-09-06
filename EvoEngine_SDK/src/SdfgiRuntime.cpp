@@ -78,28 +78,30 @@ void SdfgiRuntime::UpdateSceneSnapshot(SdfgiSceneSnapshot snapshot) {
     return std::tie(light.id, light.type, light.dynamic, light.casts_shadow, light.color, light.position,
                     light.direction, light.attenuation, light.range, light.cos_inner, light.cos_outer);
   };
-  if (snapshot.lights.size() != scene_snapshot.lights.size() ||
-      !std::equal(snapshot.lights.begin(), snapshot.lights.end(), scene_snapshot.lights.begin(),
-                  [&](const auto& a, const auto& b) {
-                    return light_key(a) == light_key(b);
-                  }))
+  if (debug->enabled && (snapshot.lights.size() != scene_snapshot.lights.size() ||
+                         !std::equal(snapshot.lights.begin(), snapshot.lights.end(), scene_snapshot.lights.begin(),
+                                     [&](const auto& a, const auto& b) {
+                                       return light_key(a) == light_key(b);
+                                     })))
     debug->Invalidate("light", "Supported light inputs changed");
   const auto sky_key = [](const SdfgiSkyInput& sky) {
     return std::tie(sky.cubemap, sky.map_id, sky.map_version, sky.cubemap_version, sky.constant_color, sky.color,
                     sky.gamma, sky.rotation, sky.energy);
   };
-  if (sky_key(snapshot.sky) != sky_key(scene_snapshot.sky))
+  if (debug->enabled && sky_key(snapshot.sky) != sky_key(scene_snapshot.sky))
     debug->Invalidate("environment", "Indirect environment changed");
   scene_snapshot = std::move(snapshot);
   contributors.Update(scene_snapshot.contributors);
-  uint32_t changed = 0;
-  for (const auto& change : contributors.changes)
-    changed |= change.flags;
-  if (changed & (SdfgiAdded | SdfgiRemoved | SdfgiTransformChanged | SdfgiGeometryChanged | SdfgiUncertainBounds))
-    debug->Invalidate("geometry", "Contributor geometry/placement changed");
-  if (changed & (SdfgiCoverageChanged | SdfgiPayloadChanged))
-    debug->Invalidate("material",
-                      changed & SdfgiCoverageChanged ? "Material coverage changed" : "Material payload changed");
+  if (debug->enabled) {
+    uint32_t changed = 0;
+    for (const auto& change : contributors.changes)
+      changed |= change.flags;
+    if (changed & (SdfgiAdded | SdfgiRemoved | SdfgiTransformChanged | SdfgiGeometryChanged | SdfgiUncertainBounds))
+      debug->Invalidate("geometry", "Contributor geometry/placement changed");
+    if (changed & (SdfgiCoverageChanged | SdfgiPayloadChanged))
+      debug->Invalidate("material",
+                        changed & SdfgiCoverageChanged ? "Material coverage changed" : "Material payload changed");
+  }
   pending_changes.resize(cascades.size());
   const auto affected = contributors.AffectedCascades(cascades, SdfgiYMultiplier(settings.vertical_scale));
   for (size_t c = 0; c < affected.size(); ++c) {

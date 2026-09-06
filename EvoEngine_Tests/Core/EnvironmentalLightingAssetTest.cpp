@@ -1045,6 +1045,17 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_EQ(master_disabled.ddgi_volumes.size(), 2u);
 }
 
+TEST(EnvironmentalLightingAsset, SdfgiInspectorKeepsControlsWithoutAnalysisPanels) {
+  const auto source = ReadTextFile(SourcePath("EvoEngine_SDK/src/Editor/SDKInspectionAdapters.cpp"));
+  for (const auto* removed : {"BuildSdfgiDebugSnapshot", "CaptureSdfgiDebugImage", "Full runtime snapshot",
+                              "Capture SDFGI timings", "Maintenance calls:", "Cascade rebuilds:"})
+    EXPECT_EQ(source.find(removed), std::string::npos) << removed;
+  for (const auto* retained :
+       {"Cascade 0 Distance", "Max Distance", "Y Scale", "Use Occlusion", "Geometry contributors", "Freeze field",
+        "Depth-test overlays", "debug.view", "runtime->fallback_reason"})
+    EXPECT_NE(source.find(retained), std::string::npos) << retained;
+}
+
 TEST(EnvironmentalLightingAsset, EcoSysLabComparisonVolumeCoversWallsAndPreservesSdfgiDefault) {
   Application app;
   ApplicationContextScope scope(app);

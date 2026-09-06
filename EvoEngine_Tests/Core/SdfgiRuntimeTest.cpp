@@ -66,6 +66,48 @@ TEST(SdfgiDebug, SelectedCameraDoesNotAdoptUtilityViewsOrChangeTheAnchor) {
   EXPECT_THROW(CaptureSdfgiDebugImage(runtime, "unrendered.png"), std::runtime_error);
 }
 
+TEST(SdfgiDebug, TrackingIsOptInAndDoesNotControlSceneUpdates) {
+  SdfgiRuntime ordinary({}, {}), inspected({}, {});
+  inspected.debug->enabled = true;
+  SdfgiSceneSnapshot snapshot;
+  SdfgiContributor input;
+  input.id = {1, 1};
+  input.world_bounds = {{-1, -1, -1}, {1, 1, 1}};
+  snapshot.contributors = {input};
+  snapshot.lights.emplace_back();
+  for (uint32_t frame = 0; frame < 2; ++frame) {
+    snapshot.sky.energy = static_cast<float>(frame + 1);
+    snapshot.lights[0].color = glm::vec3(static_cast<float>(frame + 1));
+    snapshot.contributors[0].material.base_color.x = frame ? 0.5f : 1.0f;
+    for (auto* runtime : {&ordinary, &inspected}) {
+      runtime->Maintain(frame, {17, {0, 0, 0}});
+      runtime->UpdateSceneSnapshot(snapshot);
+      runtime->PrepareUpdates(frame != 0, false);
+    }
+    EXPECT_EQ(ordinary.pending_changes, inspected.pending_changes);
+    EXPECT_EQ(ordinary.payload_cascades, inspected.payload_cascades);
+    EXPECT_EQ(ordinary.pending_regions.size(), inspected.pending_regions.size());
+    EXPECT_EQ(ordinary.scene_snapshot.sky.energy, inspected.scene_snapshot.sky.energy);
+    EXPECT_TRUE(ordinary.debug->invalidations.empty());
+    ordinary.AcknowledgeChanges(0xff);
+    inspected.AcknowledgeChanges(0xff);
+  }
+  EXPECT_EQ(inspected.debug->invalidations.at("environment"), 1u);
+  EXPECT_EQ(inspected.debug->invalidations.at("light"), 2u);
+  EXPECT_EQ(inspected.debug->invalidations.at("geometry"), 1u);
+  EXPECT_EQ(inspected.debug->invalidations.at("material"), 1u);
+  const auto tracked = inspected.debug->invalidations;
+  inspected.debug->enabled = false;
+  inspected.debug->Invalidate("camera", "Ignored while disabled");
+  EXPECT_EQ(inspected.debug->invalidations, tracked);
+  ordinary.debug->active_bytes[0] = 123;
+  UpdateSdfgiDebugMemory(ordinary, {});
+  EXPECT_EQ(ordinary.debug->active_bytes[0], 123u);
+  ordinary.debug->enabled = true;
+  UpdateSdfgiDebugMemory(ordinary, {});
+  EXPECT_EQ(ordinary.debug->active_bytes[0], 0u);
+}
+
 TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   SdfgiSettings settings;
   settings.voxel_count_x = 128;

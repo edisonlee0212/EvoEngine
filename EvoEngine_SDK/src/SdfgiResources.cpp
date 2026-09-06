@@ -514,15 +514,13 @@ uint64_t SdfgiResources::GetAllocationBytes(const SdfgiMemoryClass memory_class)
         frames.insert(frame.get());
     for (const auto* frame : frames)
       result += frame->uploads.GetAllocationBytes();
-  }
-  if (memory_class == SdfgiMemoryClass::Upload)
     for (const auto& frame : light_frames)
       if (frame)
         result += frame->uploads.GetAllocationBytes();
-  if (memory_class == SdfgiMemoryClass::Upload)
     for (const auto& frame : voxel_frames)
       if (frame)
         result += frame->AllocationBytes();
+  }
   if (memory_class == SdfgiMemoryClass::Diagnostic) {
     result += GetSdfgiDebugAllocationBytes(*this);
     std::set<const SdfgiVoxelDebug*> snapshots;
