@@ -410,7 +410,7 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   EXPECT_EQ(settings.ray_count, 16u);
   EXPECT_EQ(settings.history_size, 30u);
   EXPECT_EQ(settings.light_update_frames, 4u);
-  EXPECT_FLOAT_EQ(settings.bounce_feedback, 0.5f);
+  EXPECT_FLOAT_EQ(settings.bounce_feedback, 1.0f);
   EXPECT_TRUE(settings.read_sky_light);
   EXPECT_FLOAT_EQ(settings.energy, 1);
   EXPECT_FLOAT_EQ(settings.normal_bias, 1.1f);
@@ -442,10 +442,14 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   EXPECT_TRUE(loaded.Validate().empty());
   SdfgiSettings missing;
   DeserializeSdfgiSettings(YAML::Load("{}"), missing);
+  EXPECT_FLOAT_EQ(missing.bounce_feedback, 1.0f);
   EXPECT_TRUE(missing.use_occlusion);
   EXPECT_EQ(missing.positional_light_cascade_count, 8u);
   DeserializeSdfgiSettings(YAML::Load("cascade_count: 4"), missing);
   EXPECT_EQ(missing.positional_light_cascade_count, 8u);
+  EXPECT_FLOAT_EQ(missing.bounce_feedback, 1.0f);
+  DeserializeSdfgiSettings(YAML::Load("bounce_feedback: 0.5"), missing);
+  EXPECT_FLOAT_EQ(missing.bounce_feedback, 0.5f);
 }
 
 TEST(SdfgiRuntime, ReferenceLayoutChangesAndInvalidSettings) {

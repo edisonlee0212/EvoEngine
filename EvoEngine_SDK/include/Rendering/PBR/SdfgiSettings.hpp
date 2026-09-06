@@ -27,7 +27,7 @@ struct EVOENGINE_API SdfgiSettings {
   uint32_t ray_count = 16;
   uint32_t history_size = 30;
   uint32_t light_update_frames = 4;
-  float bounce_feedback = 0.5f;
+  float bounce_feedback = 1.0f;
   bool read_sky_light = true;
   float energy = 1.0f;
   float normal_bias = 1.1f;

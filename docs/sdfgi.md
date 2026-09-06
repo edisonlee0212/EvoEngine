@@ -74,7 +74,11 @@ Environment is reported until a complete transport/gather generation has been re
 failure, and generation checks remain authoritative before any camera samples the field.
 
 Defaults are four 256x128x256-voxel cascades (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
-30-frame history, four-frame dynamic-light cadence, bounce feedback 0.5, sky read on, energy 1.0, and both biases 1.1.
+30-frame history, four-frame dynamic-light cadence, bounce feedback 1.0, sky read on, energy 1.0, and both biases 1.1.
+New settings and serialized settings without `bounce_feedback` use 1.0; explicit saved values (including 0.5) remain unchanged.
+This user-selected default differs from Godot's 0.5. At 1.0 feedback retains the material albedo without the additional
+0.5 attenuation; bright materials can accumulate excessive energy. Godot's pinned `Environment.xml` warns about feedback
+above 0.5. No feedback equation, clamp, or convergence rule was changed.
 **Environmental Lighting > Automatic SDFGI > Positional light cascades** controls how many active cascades receive
 point/spot-light injection (1..8, default 8). The maximum covers every active cascade, including when the field count
 later increases; 3 reproduces Godot's default maximum index 2. Directional lights still reach every cascade and light
@@ -432,7 +436,7 @@ The push block remains 112 bytes with every reference field offset preserved. An
 gamma is diagnosed rather than triggering an asset upload inside maintenance. Ready image/view/descriptor versions and
 all push inputs are retained by their submitting frame, including when the source cubemap is replaced.
 
-Direct lighting reads the previous complete atlas for reference bounce feedback, with both 0.0 and default 0.5 verified.
+Direct lighting reads the previous complete atlas for reference bounce feedback, with both 0.0 and the then-default 0.5 verified.
 PROCESS reads the resulting voxel lighting; STORE reads all updated averages. Main-queue barriers order these operations,
 atlas feedback across frames, history read/modify/write, shared status, and optional diagnostic readers. Each GPU producer
 rejects whole-field failure flags. STORE records a generation but leaves `Status.ready=0`: this milestone intentionally
@@ -1061,3 +1065,17 @@ Validation and delivery:
   validation off; the test build supplies validation coverage.
 
 Final interactive gallery/M12 review remains open; automated capture evidence is not user acceptance.
+
+### M12e: Bounce feedback default
+
+Bounce feedback now defaults to 1.0, preserving explicitly serialized values. Three focused CPU/GPU tests passed:
+default/missing/explicit settings, layout validation, and injection/feedback at 0.0, 0.5, and 1.0
+(`tasks/m12e-tests.log/.xml`). The test build passed (`tasks/m12e-build.log`); no shader algorithm changed.
+All enabled applications/packages/Python were built and installed successfully (exit 0, `tasks/m12e-install.log`) using
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+Installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+An installed-Python Sponza run at 2560x1440 on the RTX 5070 explicitly disabled RT pipeline, ray query, BLAS, and TLAS;
+default feedback was 1.0, generation 90 was ready with no failure flags, and the inspected capture had zero nonfinite
+pixels (`tasks/m12e-runtime.log`, `tasks/m12e-sponza.png/.yaml`). Build/bin/Python SDK hashes match. This focused check
+does not establish stability for every material/scene or complete manual M12 acceptance. Skinned-mesh contribution
+remains excluded and was investigated for discussion only.

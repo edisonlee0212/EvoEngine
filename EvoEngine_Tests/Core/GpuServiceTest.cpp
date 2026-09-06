@@ -1985,7 +1985,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   wall->Initialize();
   ASSERT_TRUE(wall->Initialized());
   std::shared_ptr<SdfgiLightDebug> debug;
-  for (uint32_t phase = 0; phase < 20; ++phase) {
+  for (uint32_t phase = 0; phase < 21; ++phase) {
     SCOPED_TRACE(phase);
     PlatformLifecycleTestAccess::PreUpdate();
     std::vector<SdfgiLightInput> inputs(1);
@@ -2048,13 +2048,13 @@ void main(uint3 id : SV_DispatchThreadID) {
     if (phase >= 17) {
       inputs.clear();
       field->transport_recorded = phase >= 18;
-      field->settings.bounce_feedback = phase == 18 ? 0.0f : 0.5f;
-      expected = phase == 19 ? 0.5f : 0;
+      field->settings.bounce_feedback = phase == 20 ? SdfgiSettings{}.bounce_feedback : phase == 18 ? 0.0f : 0.5f;
+      expected = phase == 20 ? 1.0f : phase == 19 ? 0.5f : 0;
     }
     const auto scene_frame = phase == 1 ? 1 : phase * 4;
     auto frame = SdfgiLightFrame::Create(*field, cascades, inputs, scene_frame, phase == 0 || phase == 15 ? 1 : 0);
     field->light_frames[Platform::GetCurrentFrameIndex()] = frame;
-    EXPECT_FLOAT_EQ(frame->bounce_feedback, phase == 19 ? 0.5f : 0.0f);
+    EXPECT_FLOAT_EQ(frame->bounce_feedback, phase == 20 ? 1.0f : phase == 19 ? 0.5f : 0.0f);
     if (phase == 1 || phase == 8)
       EXPECT_EQ(frame->static_refresh, 0u);
     RenderGraph graph;
@@ -2142,7 +2142,7 @@ void main(uint3 id : SV_DispatchThreadID) {
       pixels.CopyFromImage(*field->textures.at("Cascade0.Aniso0").image, copy);
       pixels.DownloadVector(packed, 27);
       for (const auto value : packed)
-        EXPECT_EQ(value, phase >= 15 && phase != 19 ? 0u : 255u);
+        EXPECT_EQ(value, phase >= 15 && phase < 19 ? 0u : 255u);
     }
     if (phase == 16) {
       ASSERT_TRUE(debug->recorded);
