@@ -91,7 +91,7 @@ struct ResolvedEnvironmentalLighting {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
-  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings{};
   DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;

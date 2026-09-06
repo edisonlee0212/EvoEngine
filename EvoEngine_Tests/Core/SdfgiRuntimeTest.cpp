@@ -551,7 +551,7 @@ TEST(SdfgiRuntime, MaintainsOncePerSceneFrameAndRetainsMissingAnchorPosition) {
   EXPECT_FALSE(unsupported.published);
 }
 
-TEST(SdfgiRuntime, ProviderSerializationPreservesLegacyDefaultsWithoutAddingAutomaticData) {
+TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   Application app;
   ApplicationInitializationSettings settings;
   settings.allow_empty_project = true;
@@ -562,17 +562,20 @@ TEST(SdfgiRuntime, ProviderSerializationPreservesLegacyDefaultsWithoutAddingAuto
   app.Initialize(settings);
   EnvironmentalLighting lighting;
   lighting.ddgi_settings.runtime.enabled = true;
-  EXPECT_EQ(lighting.indirect_gi_provider, IndirectGiProvider::AuthoredDdgi);
+  EXPECT_EQ(lighting.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_EQ(ResolvedEnvironmentalLighting{}.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
   YAML::Emitter legacy;
   legacy << YAML::BeginMap;
   SerializeEnvironmentalLighting(legacy, lighting);
   legacy << YAML::EndMap;
   auto legacy_node = YAML::Load(legacy.c_str());
-  EXPECT_FALSE(legacy_node["sdfgi_settings"]);
+  EXPECT_TRUE(legacy_node["sdfgi_settings"]);
   legacy_node.remove("indirect_gi_provider");
+  legacy_node.remove("sdfgi_settings");
   EnvironmentalLighting loaded;
   DeserializeEnvironmentalLighting(legacy_node, loaded);
-  EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::AuthoredDdgi);
+  EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_TRUE(loaded.sdfgi_settings == SdfgiSettings{});
   EXPECT_TRUE(loaded.ddgi_settings.runtime.enabled);
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings.anchor_camera_entity = 12;
@@ -587,6 +590,18 @@ TEST(SdfgiRuntime, ProviderSerializationPreservesLegacyDefaultsWithoutAddingAuto
   legacy_node["indirect_gi_provider"] = 999;
   DeserializeEnvironmentalLighting(legacy_node, loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::Environment);
+  for (const auto provider : {IndirectGiProvider::Environment, IndirectGiProvider::AuthoredDdgi}) {
+    lighting.indirect_gi_provider = provider;
+    lighting.sdfgi_settings = {};
+    YAML::Emitter explicit_choice;
+    explicit_choice << YAML::BeginMap;
+    SerializeEnvironmentalLighting(explicit_choice, lighting);
+    explicit_choice << YAML::EndMap;
+    const auto node = YAML::Load(explicit_choice.c_str());
+    EXPECT_FALSE(node["sdfgi_settings"]);
+    DeserializeEnvironmentalLighting(node, loaded);
+    EXPECT_EQ(loaded.indirect_gi_provider, provider);
+  }
 }
 
 TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {

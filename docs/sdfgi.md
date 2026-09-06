@@ -112,10 +112,12 @@ inputs or algorithms. Inactive authored volumes are not resolved, preflighted, o
 lazily when that provider is active; already-created immutable pipeline objects may remain cached. Imported DDGI GPU
 inputs are retained by the submitting frame slot before a provider switch can release its runtime.
 
-Legacy assets without a provider field retain Authored DDGI selection and their existing enable flag; newly constructed
-lighting assets use the same convention (DDGI defaults disabled, hence effective Environment). Automatic SDFGI is never
-selected implicitly. Selecting Authored DDGI in the UI or Python also enables its existing runtime flag. Inactive provider
-settings/packs remain serialized. Unchanged legacy settings do not acquire an SDFGI settings block. The existing shared
+New lighting assets, scenes without an assigned lighting asset, and legacy assets without a provider field default to
+Automatic SDFGI. Explicitly saved Environment/Authored DDGI/Automatic SDFGI selections are preserved. Invalid provider
+values still fall back to Environment. SDFGI uses the normal environment fallback until a valid field is ready, or when
+unsupported. DDGI-specific demos/validation fixtures explicitly select Authored DDGI; ordinary demos use the new default.
+Selecting Authored DDGI in the UI or Python also enables its existing runtime flag. Inactive provider settings/packs
+remain serialized. Assets selecting SDFGI serialize its settings block. The existing shared
 lighting layout still receives existing missing-texture/one-record buffer fillers for inactive, unread bindings, not a
 DDGI atlas or field. No additional provider-specific device requirement is imposed by those fillers.
 
@@ -1111,3 +1113,18 @@ allocation sizes, and a visually inspected final capture with zero nonfinite pix
 `tasks/m12f-sponza.png/.yaml`). Build/bin/Python SDK hashes match. Initial smoke setup reused an empty generated project;
 the successful run used fresh disposable assets. Its allocation assertion was narrowed to field/scratch because contributor
 upload sizes legitimately change. No broad matrix or manual Cornell/EcoSysLab/M12 acceptance is claimed.
+
+### M12g: Default indirect-lighting provider
+
+Automatic SDFGI is the default for new assets, unassigned asset resolution, and missing serialized provider fields.
+Explicit saved choices and invalid-value Environment fallback are preserved; dedicated DDGI demos/fixtures opt in to DDGI.
+All enabled apps/packages/Python built and installed successfully (exit 0, `tasks/m12g-install.log`) with
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+The editor was built before the installed-Python runtime check:
+`C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+Installed RTX 5070 Sponza at 2560x1440 selected and published SDFGI without any provider setter, with RT pipeline/query/BLAS/TLAS
+disabled, 525 contributors, generation 60 ready, no failure flags and zero nonfinite pixels. Capture inspected
+(`tasks/m12g-runtime.log`, `tasks/m12g-sponza.png/.yaml`); build/bin/Python SDK hashes match. Manual M12 remains open.
+The test build passed (`tasks/m12g-build.log`); 37 focused asset/lighting-contract/provider/multi-volume checks passed
+(`tasks/m12g-tests.log/.xml`). They cover new/missing-provider defaults, explicit saved choices, invalid-provider fallback,
+unassigned assets, and explicit DDGI resolution. No broad GPU matrix or shader algorithm changes were needed.

@@ -3057,6 +3057,7 @@ void evo_engine::ConfigureDdgiValidationFixture(const std::shared_ptr<Scene>& sc
   const float probe_variability_threshold = high_contrast_fixture ? kDdgiValidationHighContrastProbeVariabilityThreshold
                                                                   : kDdgiValidationNeutralProbeVariabilityThreshold;
   const auto configure_validation_ddgi_settings = [&](const int ray_count) {
+    lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
     ddgi.runtime.enabled = true;
     SetDdgiUpdatesPaused(false);
     ddgi.runtime.ray_count = ray_count;

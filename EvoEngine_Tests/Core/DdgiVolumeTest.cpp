@@ -2949,6 +2949,7 @@ TEST(DdgiVolume, MultiVolumeCandidateAccountingIncludesPausedAndExcludesDisabled
   ASSERT_TRUE(lighting);
   app.Attach(scene);
   scene->environmental_lighting = lighting;
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
 
   EnvironmentalLighting::DdgiVolume first;
   first.stable_id = 11u;

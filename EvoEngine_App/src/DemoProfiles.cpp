@@ -704,6 +704,7 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
   lighting->specular_fallback_intensity = 0.0f;
 
   auto& ddgi_settings = lighting->ddgi_settings;
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
   ddgi_settings.runtime.enabled = true;
   ddgi_settings.runtime.ray_count = 192;
   ddgi_settings.runtime.emissive_ray_count = 64;

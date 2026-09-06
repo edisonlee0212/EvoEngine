@@ -176,7 +176,7 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   lighting.diffuse_fallback_intensity = EnvironmentalLighting::kDefaultDiffuseFallbackIntensity;
   lighting.specular_fallback_intensity = EnvironmentalLighting::kDefaultSpecularFallbackIntensity;
   lighting.ddgi_settings = {};
-  lighting.indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
+  lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings = {};
   lighting.local_reflection_probes_enabled = true;
   lighting.reflection_probe_pack.Clear();

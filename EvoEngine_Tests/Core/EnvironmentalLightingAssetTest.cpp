@@ -962,6 +962,7 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   lighting->specular_fallback_intensity = 0.75f;
   lighting->ddgi_settings.runtime.enabled = true;
   lighting->ddgi_settings.runtime.ray_count = 144;
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
   lighting->ddgi_settings.storage.max_probe_count = 4096;
 
   EnvironmentalLighting::LocalReflectionProbe high_priority;
@@ -1055,6 +1056,7 @@ TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalL
   const auto lighting = scene->environmental_lighting.Get<EnvironmentalLighting>();
   ASSERT_TRUE(lighting);
   EXPECT_TRUE(lighting->IsTemporary());
+  EXPECT_EQ(lighting->indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
 
   const auto resolved = ResolveEnvironmentalLighting(scene);
   EXPECT_TRUE(resolved.environmental_lighting_asset_assigned);
@@ -1069,6 +1071,10 @@ TEST(EnvironmentalLightingAsset, ResolverDefaultsUseSceneTemporaryEnvironmentalL
                   ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
   EXPECT_TRUE(resolved.local_reflection_probes.empty());
   EXPECT_TRUE(resolved.ddgi_volumes.empty());
+  EXPECT_EQ(resolved.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  scene->environmental_lighting.Clear();
+  EXPECT_EQ(ResolveEnvironmentalLighting(scene).indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_EQ(ResolveEnvironmentalLighting(nullptr).indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
 }
 
 TEST(EnvironmentalLightingAsset, ResolverSafelyIgnoresWrongPackTypesAndSupportsSharedPacks) {
@@ -1082,6 +1088,7 @@ TEST(EnvironmentalLightingAsset, ResolverSafelyIgnoresWrongPackTypesAndSupportsS
   const auto ddgi_pack = AssetManager::CreateTemporaryAsset<DdgiVolumePack>();
   const auto fallback = AssetManager::CreateTemporaryAsset<GlobalReflectionProbe>();
   ASSERT_TRUE(scene && lighting && second_lighting && reflection_pack && ddgi_pack && fallback);
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
   reflection_pack->probes.emplace_back().stable_id = 11u;
   ddgi_pack->volumes.emplace_back().stable_id = 22u;
   scene->environmental_lighting = lighting;
@@ -1141,6 +1148,7 @@ TEST(EnvironmentalLightingAsset, ResolverCapsAssetOwnedEntriesDeterministically)
   ASSERT_TRUE(lighting);
   scene->environmental_lighting = lighting;
   lighting->ddgi_settings.storage.max_probe_count = 4096;
+  lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
 
   for (uint32_t index = 0; index < ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount + 1u; ++index) {
     EnvironmentalLighting::LocalReflectionProbe probe;
