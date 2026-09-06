@@ -209,15 +209,15 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
   SdfgiIntegratePushConstant probes{};
   for (uint32_t axis = 0; axis < 3; ++axis) {
     probes.grid_size[axis] = resources.settings.GridSize()[axis];
-    probes.scroll[axis] = scroll[axis] / 8;
-    probes.world_offset[axis] = cascade_position[axis] / 8;
+    probes.scroll[axis] = scroll[axis] / static_cast<int>(resources.settings.probe_spacing_cells);
+    probes.world_offset[axis] = cascade_position[axis] / static_cast<int>(resources.settings.probe_spacing_cells);
   }
   probes.max_cascades = resources.settings.cascade_count;
   probes.cascade = cascade;
   probes.probe_axis_size = resources.settings.ProbeSize().x;
   probes.history_size = resources.settings.history_size;
-  probes.image_size[0] = probes.probe_axis_size * probes.probe_axis_size;
-  probes.image_size[1] = resources.settings.ProbeSize().y;
+  probes.image_size[0] = resources.textures.at("Ambient").requirement.extent.width;
+  probes.image_size[1] = resources.textures.at("Ambient").requirement.extent.height;
   probes.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   const auto dispatch = [&](const char* name) {
     resources.OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, kComputeAccess);
@@ -284,13 +284,14 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   params.step_size = 1;
   dispatch("JumpFloodOptimized", "JumpFlood0", glm::uvec3(grid / 8));
   barrier();
-  const glm::ivec3 parity = (cascade_position / 8) & glm::ivec3(1);
+  const int spacing = resources.settings.probe_spacing_cells;
+  const glm::ivec3 parity = (cascade_position / spacing) & glm::ivec3(1);
   for (uint32_t i = 0; i < 8; ++i) {
     const glm::ivec3 offset = glm::ivec3(i & 1, (i >> 1) & 1, (i >> 2) & 1) ^ parity;
     for (int axis = 0; axis < 3; ++axis)
       params.probe_offset[axis] = offset[axis];
     params.occlusion_index = i;
-    dispatch("Occlusion", "Occlusion", glm::uvec3(grid / 16 + 1 - offset));
+    dispatch("Occlusion", "Occlusion", glm::uvec3(grid / (2 * spacing) + 1 - offset));
   }
   barrier();
   dispatch("Store", CascadeName(cascade, "Store"), glm::uvec3(grid / 4));

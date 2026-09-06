@@ -18,11 +18,82 @@
 #include "SdfgiGather.hpp"
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
+#include "SdfgiProbeLayout.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SkinnedMeshRenderer.hpp"
 
 using namespace evo_engine;
+
+TEST(SdfgiDensity, LayoutBudgetAndPackingCoverAllChoices) {
+  for (uint32_t x = 64; x <= 256; x += 16)
+    for (uint32_t y = 64; y <= 256; y += 16)
+      for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
+        const auto layout = SdfgiProbeLayout::Create(x, y, spacing, 32768);
+        if (!layout.columns) {
+          const uint64_t probes = uint64_t{x / spacing + 1} * (x / spacing + 1) * (y / spacing + 1);
+          EXPECT_GT((probes + 4095) / 4096 * 16, 32768u);
+          continue;
+        }
+        EXPECT_EQ(layout.ProbeCount(), uint64_t{x / spacing + 1} * (x / spacing + 1) * (y / spacing + 1));
+        EXPECT_LE(layout.columns * 8, 32768u);
+        EXPECT_LE(layout.rows * 16, 32768u);
+        EXPECT_GE(uint64_t{layout.columns} * layout.rows, layout.ProbeCount());
+        for (const uint32_t index :
+             {0u, layout.columns - 1, layout.columns, static_cast<uint32_t>(layout.ProbeCount() / 2),
+              static_cast<uint32_t>(layout.ProbeCount() - 1)}) {
+          const auto px = index % layout.horizontal;
+          const auto pz = (index / layout.horizontal) % layout.horizontal;
+          const auto py = index / (layout.horizontal * layout.horizontal);
+          ASSERT_EQ(layout.Index(px, py, pz), index);
+          ASSERT_LT(index / layout.columns, layout.rows);
+        }
+        uint64_t bytes = 0;
+        ASSERT_TRUE(layout.HistoryBytes(4, 30, bytes));
+        EXPECT_EQ(bytes, uint64_t{layout.columns} * layout.rows * 16 * 256 * 5);
+      }
+  uint64_t bytes = 0;
+  EXPECT_TRUE(SdfgiProbeLayout::Create(128, 64, 4, 32768).HistoryBytes(4, 30, bytes));
+  EXPECT_EQ(bytes, 379146240u);
+  EXPECT_TRUE(GiHistoryBudget{}.CanAdd(bytes));
+  EXPECT_TRUE(SdfgiProbeLayout::Create(128, 64, 1, 32768).HistoryBytes(4, 30, bytes));
+  EXPECT_FALSE(GiHistoryBudget{}.CanAdd(bytes));
+  EXPECT_TRUE(SdfgiProbeLayout::Create(128, 64, 2, 32768).HistoryBytes(4, 30, bytes));
+  EXPECT_TRUE(GiHistoryBudget{}.CanAdd(bytes));
+  GiHistoryBudget budget;
+  EXPECT_TRUE(budget.Add(kGiHistoryBudgetBytes - 1));
+  EXPECT_FALSE(budget.Add(1));
+  EXPECT_EQ(budget.bytes, kGiHistoryBudgetBytes - 1);
+  EXPECT_FALSE(budget.Add(UINT64_MAX));
+  bytes = UINT64_MAX;
+  EXPECT_FALSE(MultiplyGiHistoryBytes(bytes, 2));
+  for (const uint32_t invalid : {0u, 3u, 5u, 16u, UINT32_MAX})
+    EXPECT_EQ(SdfgiProbeLayout::Create(128, 64, invalid, 32768).columns, 0u);
+  EXPECT_EQ(SdfgiProbeLayout::Create(128, 64, 4, 0).columns, 0u);
+}
+
+TEST(SdfgiDensity, SpacingMigrationRoundTripAndLayoutReset) {
+  SdfgiSettings settings;
+  EXPECT_EQ(settings.GridSize(), glm::ivec3(128, 64, 128));
+  EXPECT_EQ(settings.ProbeSize(), glm::ivec3(33, 17, 33));
+  for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
+    settings.probe_spacing_cells = spacing;
+    ASSERT_TRUE(settings.Validate().empty());
+    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), spacing == 4);
+    YAML::Emitter out;
+    SerializeSdfgiSettings(out, settings);
+    SdfgiSettings loaded;
+    DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
+    EXPECT_EQ(loaded, settings);
+  }
+  DeserializeSdfgiSettings(YAML::Load("voxel_count_x: 256\nvoxel_count_y: 128"), settings);
+  EXPECT_EQ(settings.GridSize(), glm::ivec3(256, 128, 256));
+  EXPECT_EQ(settings.probe_spacing_cells, 4u);
+  for (const uint32_t invalid : {0u, 3u, 5u, 16u, UINT32_MAX}) {
+    settings.probe_spacing_cells = invalid;
+    EXPECT_FALSE(settings.Validate().empty());
+  }
+}
 
 TEST(SdfgiDebug, FrozenStepAndCommandsRunOncePerSceneBoundary) {
   SdfgiDebugState debug;
@@ -110,7 +181,8 @@ TEST(SdfgiDebug, TrackingIsOptInAndDoesNotControlSceneUpdates) {
 
 TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   std::vector<SdfgiCascade> cascades;
   const glm::vec3 anchor(-13, 2, 9);
   ASSERT_TRUE(UpdateSdfgiCascades(settings, anchor, cascades).empty());
@@ -278,7 +350,10 @@ TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
 
 TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   SdfgiSettings reference, wide;
-  reference.voxel_count_x = 128;
+  reference.voxel_count_x = reference.voxel_count_y = 128;
+  reference.probe_spacing_cells = wide.probe_spacing_cells = 8;
+  wide.voxel_count_x = 256;
+  wide.voxel_count_y = 128;
   EXPECT_EQ(reference.GridSize(), glm::ivec3(128));
   EXPECT_EQ(reference.ProbeSize(), glm::ivec3(17));
   EXPECT_EQ(wide.GridSize(), glm::ivec3(256, 128, 256));
@@ -292,7 +367,7 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
   EXPECT_EQ(loaded, wide);
   DeserializeSdfgiSettings(YAML::Load("{}"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 64, 128));
   std::vector<SdfgiCascade> a, b;
   ASSERT_TRUE(UpdateSdfgiCascades(reference, glm::vec3(0), a).empty());
   ASSERT_TRUE(UpdateSdfgiCascades(wide, glm::vec3(0), b).empty());
@@ -310,7 +385,7 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   EXPECT_FLOAT_EQ(gather.cascades[0].to_probe, 1 / (8 * wide.min_cell_size));
   EXPECT_FLOAT_EQ(gather.lightprobe_tex_pixel_size[0], 1.0f / 8712);
   EXPECT_FLOAT_EQ(gather.lightprobe_uv_offset[2], 264.0f / 8712);
-  const auto requirements = GetSdfgiImageRequirements(8, 30, 256, 128);
+  const auto requirements = GetSdfgiImageRequirements(8, 30, 256, 128, 8);
   ASSERT_EQ(requirements.size(), 14u);
   EXPECT_EQ(requirements[0].extent.width, 256u);
   EXPECT_EQ(requirements[0].extent.height, 128u);
@@ -348,12 +423,12 @@ TEST(SdfgiConfigurable, DefaultsLegacyMigrationAndInvalidCounts) {
   SdfgiSettings loaded;
   for (const char* yaml : {"{}", "wide_horizontal_field: false", "wide_horizontal_field: true"}) {
     DeserializeSdfgiSettings(YAML::Load(yaml), loaded);
-    EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
+    EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 64, 128));
   }
   DeserializeSdfgiSettings(YAML::Load("voxel_count_x: 80\nwide_horizontal_field: true"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(80, 128, 80));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(80, 64, 80));
   DeserializeSdfgiSettings(YAML::Load("voxel_count_y: 144"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 144, 256));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 144, 128));
   for (uint32_t invalid : {0u, 63u, 65u, 255u, 257u, UINT32_MAX}) {
     for (bool vertical : {false, true}) {
       SdfgiSettings settings;
@@ -377,12 +452,13 @@ TEST(SdfgiConfigurable, AllGridPairsSizesDispatchCoverageAndDiagnosticBounds) {
       SdfgiSettings settings;
       settings.voxel_count_x = x;
       settings.voxel_count_y = y;
+      settings.probe_spacing_cells = 8;
       ASSERT_TRUE(settings.Validate().empty());
       const auto grid = settings.GridSize(), probes = settings.ProbeSize();
       EXPECT_EQ(grid, glm::ivec3(x, y, x));
       EXPECT_EQ(probes, glm::ivec3(x / 8 + 1, y / 8 + 1, x / 8 + 1));
       EXPECT_EQ(settings.SolidCellCapacity(), x * y * x / 4);
-      const auto requirements = GetSdfgiImageRequirements(8, 30, x, y);
+      const auto requirements = GetSdfgiImageRequirements(8, 30, x, y, 8);
       ASSERT_EQ(requirements.size(), 14u);
       EXPECT_EQ(requirements[0].extent.height, y);
       EXPECT_EQ(requirements[4].extent.height, y / 2);
@@ -443,8 +519,8 @@ TEST(SdfgiConfigurable, AllGridPairsSizesDispatchCoverageAndDiagnosticBounds) {
 
 TEST(SdfgiRuntime, DistanceControlsFollowGodotAndRectangularCoverage) {
   const SdfgiSettings defaults;
-  EXPECT_FLOAT_EQ(defaults.GetCascade0Distance(), 25.6f);
-  EXPECT_FLOAT_EQ(defaults.GetMaxDistance(), 409.6f);
+  EXPECT_FLOAT_EQ(defaults.GetCascade0Distance(), 12.8f);
+  EXPECT_FLOAT_EQ(defaults.GetMaxDistance(), 204.8f);
   for (uint32_t x = 64; x <= 256; x += 16) {
     for (uint32_t count = 1; count <= 8; ++count) {
       auto settings = defaults;
@@ -510,8 +586,8 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);
   EXPECT_EQ(settings.positional_light_cascade_count, 8u);
-  EXPECT_EQ(settings.voxel_count_x, 256u);
-  EXPECT_EQ(settings.voxel_count_y, 128u);
+  EXPECT_EQ(settings.voxel_count_x, 128u);
+  EXPECT_EQ(settings.voxel_count_y, 64u);
   EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
   EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
   EXPECT_TRUE(settings.use_occlusion);
@@ -713,7 +789,8 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
 
 TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   std::vector<SdfgiCascade> cascades;
@@ -762,7 +839,8 @@ TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
 
 TEST(SdfgiScene, MovementMatchesPinnedReferenceLoopsAcrossScriptedTeleports) {
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
   std::vector<SdfgiCascade> actual;
@@ -872,7 +950,8 @@ TEST(SdfgiScene, RegistrySeparatesCoveragePayloadAndReceiverOnlyEdits) {
 
 TEST(SdfgiRuntime, EditRoutingRetainsPendingWorkAndBoundsFailureIsNotRepeated) {
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1141,7 +1220,8 @@ TEST(SdfgiScene, LiveSceneUsesStaticBaseLodAndSceneLevelLights) {
 
 TEST(SdfgiScene, AnchorReplacementPreservesOnlyReferenceOverlapAndNoAnchorFreezesCoverage) {
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.min_cell_size = 1;
   SdfgiRuntime runtime(settings, {});
   ASSERT_TRUE(runtime.Maintain(0, {1, glm::vec3(0)}));

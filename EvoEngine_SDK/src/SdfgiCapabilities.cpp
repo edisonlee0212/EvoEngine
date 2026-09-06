@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "Platform.hpp"
+#include "SdfgiProbeLayout.hpp"
 #include "SdfgiSettings.hpp"
 #include "SdfgiTypes.hpp"
 
@@ -21,21 +22,24 @@ VkImageCreateFlags SdfgiImageRequirement::CreateFlags() const {
   return storage_format == sampled_format ? 0 : VK_IMAGE_CREATE_MUTABLE_FORMAT_BIT | VK_IMAGE_CREATE_EXTENDED_USAGE_BIT;
 }
 
-std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const uint32_t cascade_count,
-                                                                         const uint32_t history_size,
-                                                                         const uint32_t voxel_count_x,
-                                                                         const uint32_t voxel_count_y) {
+std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(
+    const uint32_t cascade_count, const uint32_t history_size, const uint32_t voxel_count_x,
+    const uint32_t voxel_count_y, const uint32_t probe_spacing_cells, const uint32_t max_image_dimension) {
   if (cascade_count < 1 || cascade_count > 8 || history_size < 5 || history_size > 30 || history_size % 5 != 0) {
     return {};
   }
   SdfgiSettings settings;
   settings.voxel_count_x = voxel_count_x;
   settings.voxel_count_y = voxel_count_y;
+  settings.probe_spacing_cells = probe_spacing_cells;
   if (!settings.Validate().empty())
     return {};
   const uint32_t horizontal = voxel_count_x;
-  const uint32_t rows = voxel_count_y / 8 + 1;
-  const uint32_t probes = horizontal / 8 + 1;
+  const auto layout = SdfgiProbeLayout::Create(voxel_count_x, voxel_count_y, probe_spacing_cells, max_image_dimension);
+  if (!layout.columns)
+    return {};
+  const uint32_t rows = layout.rows;
+  const uint32_t columns = layout.columns;
   return {
       {"albedo",
        VK_FORMAT_R16_UINT,
@@ -118,21 +122,21 @@ std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const u
        VK_FORMAT_R16G16B16A16_SINT,
        VK_FORMAT_R16G16B16A16_SINT,
        VK_IMAGE_TYPE_2D,
-       {probes * probes, rows * 16, 1},
+       {columns, rows * 16, 1},
        history_size,
        8},
       {"average",
        VK_FORMAT_R32G32B32A32_SINT,
        VK_FORMAT_R32G32B32A32_SINT,
        VK_IMAGE_TYPE_2D,
-       {probes * probes, rows * 16, 1},
+       {columns, rows * 16, 1},
        1,
        16},
       {"probe_atlas",
        VK_FORMAT_R32_UINT,
        VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,
        VK_IMAGE_TYPE_2D,
-       {probes * probes * 8, rows * 8, 1},
+       {columns * 8, rows * 8, 1},
        2 * cascade_count,
        4,
        true},
@@ -140,7 +144,7 @@ std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const u
        VK_FORMAT_R16G16B16A16_SFLOAT,
        VK_FORMAT_R16G16B16A16_SFLOAT,
        VK_IMAGE_TYPE_2D,
-       {probes * probes, rows, 1},
+       {columns, rows, 1},
        cascade_count,
        8},
   };
@@ -231,9 +235,19 @@ std::string SdfgiCapabilityReport::ToString() const {
 }
 
 SdfgiCapabilityReport evo_engine::QuerySdfgiCapabilities(const uint32_t cascade_count, const uint32_t history_size,
-                                                         const uint32_t voxel_count_x, const uint32_t voxel_count_y) {
+                                                         const uint32_t voxel_count_x, const uint32_t voxel_count_y,
+                                                         const uint32_t probe_spacing_cells,
+                                                         const uint64_t other_history_bytes) {
   SdfgiCapabilityReport report;
-  const auto requirements = GetSdfgiImageRequirements(cascade_count, history_size, voxel_count_x, voxel_count_y);
+  const auto max_dimension =
+      Platform::Initialized() ? Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D : 16384u;
+  const auto requirements = GetSdfgiImageRequirements(cascade_count, history_size, voxel_count_x, voxel_count_y,
+                                                      probe_spacing_cells, max_dimension);
+  const auto layout = SdfgiProbeLayout::Create(voxel_count_x, voxel_count_y, probe_spacing_cells, max_dimension);
+  uint64_t history_bytes = 0;
+  report.checks.push_back(
+      {"Combined GI history must be below 4 GiB", layout.HistoryBytes(cascade_count, history_size, history_bytes) &&
+                                                      GiHistoryBudget{other_history_bytes}.CanAdd(history_bytes)});
   report.checks.push_back(
       {"configuration: cascades 1..8, history 5..30 step 5, X/Y voxels 64..256 step 16", !requirements.empty()});
   report.checks.push_back({"Vulkan platform initialized", Platform::Initialized()});
@@ -273,6 +287,33 @@ SdfgiCapabilityReport evo_engine::QuerySdfgiCapabilities(const uint32_t cascade_
              " sampled=" + std::to_string(requirement.sampled_format) + " query=" + std::to_string(result),
          SupportsSdfgiImage(requirement, storage_features.optimalTilingFeatures, sampled_features.optimalTilingFeatures,
                             result, properties.imageFormatProperties)});
+  }
+  if (report.Supported()) {
+    GiHistoryBudget budget{other_history_bytes};
+    bool fits = true;
+    for (const size_t index : {size_t{10}, size_t{11}}) {
+      const auto& requirement = requirements[index];
+      VkImageCreateInfo info{VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+      info.imageType = requirement.type;
+      info.format = requirement.storage_format;
+      info.extent = requirement.extent;
+      info.mipLevels = 1;
+      info.arrayLayers = requirement.layers;
+      info.samples = VK_SAMPLE_COUNT_1_BIT;
+      info.tiling = VK_IMAGE_TILING_OPTIMAL;
+      info.usage = kImageUsage;
+      VkImage image = VK_NULL_HANDLE;
+      if (vkCreateImage(Platform::GetVkDevice(), &info, nullptr, &image) != VK_SUCCESS) {
+        fits = false;
+        break;
+      }
+      VkMemoryRequirements memory{};
+      vkGetImageMemoryRequirements(Platform::GetVkDevice(), image, &memory);
+      vkDestroyImage(Platform::GetVkDevice(), image, nullptr);
+      uint64_t bytes = memory.size;
+      fits = fits && MultiplyGiHistoryBytes(bytes, uint64_t{cascade_count} + 1) && budget.Add(bytes);
+    }
+    report.checks.push_back({"Device-padded combined GI history must be below 4 GiB", fits});
   }
   return report;
 }

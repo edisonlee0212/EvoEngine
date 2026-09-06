@@ -27,6 +27,7 @@
 #include "SdfgiLight.hpp"
 #include "SdfgiPreprocess.hpp"
 #include "SdfgiProbe.hpp"
+#include "SdfgiProbeLayout.hpp"
 #include "SdfgiResources.hpp"
 #include "SdfgiRuntime.hpp"
 #include "SdfgiVoxelizer.hpp"
@@ -245,7 +246,7 @@ TEST(SdfgiCapabilities, ValidatesConfigurationAndReferenceShapes) {
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 0).empty());
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 31).empty());
   EXPECT_TRUE(GetSdfgiImageRequirements(4, 7).empty());
-  const auto requirements = GetSdfgiImageRequirements(8, 30, 128, 128);
+  const auto requirements = GetSdfgiImageRequirements(8, 30, 128, 128, 8);
   ASSERT_EQ(requirements.size(), 14u);
   for (const auto& requirement : requirements) {
     if (std::string(requirement.name) == "occlusion") {
@@ -287,7 +288,7 @@ TEST(SdfgiCapabilities, ChecksImageUsageDimensionsLayersAndAllocationLimit) {
   properties.maxArrayLayers = 256;
   properties.sampleCounts = VK_SAMPLE_COUNT_1_BIT;
   properties.maxResourceSize = ~VkDeviceSize{0};
-  for (const auto& requirement : GetSdfgiImageRequirements(4, 30, 128, 128)) {
+  for (const auto& requirement : GetSdfgiImageRequirements(4, 30, 128, 128, 8)) {
     SCOPED_TRACE(requirement.name);
     EXPECT_TRUE(SupportsSdfgiImage(requirement, all_features, all_features, VK_SUCCESS, properties));
     EXPECT_FALSE(
@@ -397,7 +398,8 @@ TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeature
 TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRayFeatures) {
   ScopedGpuPlatform platform(false);
   SdfgiSettings reference;
-  reference.voxel_count_x = 128;
+  reference.voxel_count_x = reference.voxel_count_y = 128;
+  reference.probe_spacing_cells = 8;
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   ASSERT_TRUE(render);
@@ -595,7 +597,8 @@ TEST(SdfgiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -741,7 +744,8 @@ TEST(SdfgiEdits, PayloadPreservesTopologyHistoryAndStaticSeedAndRecoversWithoutR
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.history_size = 5;
@@ -1049,7 +1053,8 @@ TEST(SdfgiGather, PublicationWeightsCoverageAndTwoCameraGraphsWithoutRt) {
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1290,6 +1295,7 @@ void CheckSdfgiRectangularGather(const uint32_t voxel_x, const uint32_t voxel_y,
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
+  settings.probe_spacing_cells = 8;
   settings.voxel_count_x = voxel_x;
   settings.voxel_count_y = voxel_y;
   settings.cascade_count = 1;
@@ -1610,18 +1616,21 @@ TEST(SdfgiConfigurable, CompactCellCoordinateBitsPreservePayload) {
       }
 }
 
-void CheckSdfgiScrolling(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
+void CheckSdfgiScrolling(const uint32_t voxel_x, const uint32_t voxel_y = 128, const uint32_t spacing = 8) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.probe_spacing_cells = spacing;
   settings.voxel_count_x = voxel_x;
   settings.voxel_count_y = voxel_y;
-  const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
+  const auto layout = SdfgiProbeLayout::Create(
+      voxel_x, voxel_y, spacing, Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D);
+  const uint32_t axis = settings.ProbeSize().x, columns = layout.columns, atlas_width = columns * 8;
   const auto grid = settings.GridSize();
-  const uint32_t rows = settings.ProbeSize().y;
+  const uint32_t rows = layout.rows, vertical = settings.ProbeSize().y;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1636,7 +1645,9 @@ void CheckSdfgiScrolling(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
   auto seed = std::make_shared<ComputePipeline>();
   seed->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Integrate)]};
   seed->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(uint32_t)});
-  seed->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+  seed->compute_shader = Shader::CreateTemporary(
+      ShaderType::Compute, "#define EE_PROBE_AXIS " + std::to_string(axis) + "\n" + std::string(R"(
+import EvoEngine.SdfgiTypes;
 [[vk::binding(9,0)]] [vk::image_format("rgba16i")] RWTexture2DArray<int4> history;
 [[vk::binding(10,0)]] [vk::image_format("rgba32i")] RWTexture2D<int4> average;
 [[vk::push_constant]] ConstantBuffer<uint> cascade;
@@ -1644,9 +1655,9 @@ void CheckSdfgiScrolling(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
 void main(uint3 id : SV_DispatchThreadID) {
   uint width, height;
   average.GetDimensions(width, height);
-  uint axis = uint(sqrt(float(width)));
   if (id.x >= width || id.y >= height) return;
-  int base = int(cascade) * 500 + int(id.x % axis) + int(id.y / 16) * 2 + int(id.x / axis) * 4 + int(id.y % 16) * 16;
+  int3 probe = SdfgiProbeCell(int2(id.x, id.y / 16), EE_PROBE_AXIS, width);
+  int base = int(cascade) * 500 + probe.x + probe.y * 2 + probe.z * 4 + int(id.y % 16) * 16;
   int4 sum = 0;
   for (int h = 0; h < 5; ++h) {
     int v = base + h;
@@ -1659,8 +1670,9 @@ void main(uint3 id : SV_DispatchThreadID) {
 )"));
   seed->Initialize();
   ASSERT_TRUE(seed->Initialized());
-  const glm::ivec3 shifts[]{{8, 0, 0}, {-8, 0, 0}, {0, 8, 0},   {0, -8, 0},
-                            {0, 0, 8}, {0, 0, -8}, {8, -16, 8}, {8, 0, 0}};
+  glm::ivec3 shifts[]{{8, 0, 0}, {-8, 0, 0}, {0, 8, 0}, {0, -8, 0}, {0, 0, 8}, {0, 0, -8}, {8, -16, 8}, {8, 0, 0}};
+  for (auto& shift : shifts)
+    shift = shift / 8 * static_cast<int>(spacing);
   const glm::ivec3 cell_position(voxel_x == 256 ? 192 : grid.x / 2, voxel_y > 128 ? 132 : grid.y / 2,
                                  voxel_x == 256 ? 192 : grid.z / 2);
   auto cell = SdfgiTestCell(cell_position);
@@ -1753,9 +1765,9 @@ void main(uint3 id : SV_DispatchThreadID) {
       std::vector<int16_t> history;
       history_buffer.DownloadVector(history, columns * (rows * 16) * 5 * 4);
       for (const glm::ivec3 p : {glm::ivec3(0), settings.ProbeSize() - 1, settings.ProbeSize() / 2,
-                                 glm::ivec3(0, rows - 1, axis / 2), glm::ivec3(axis - 1, 0, axis / 2),
-                                 glm::ivec3(axis / 2, rows / 2, 0), glm::ivec3(axis / 2, rows / 2, axis - 1)}) {
-        const glm::ivec3 read = p - shifts[phase] / 8;
+                                 glm::ivec3(0, vertical - 1, axis / 2), glm::ivec3(axis - 1, 0, axis / 2),
+                                 glm::ivec3(axis / 2, vertical / 2, 0), glm::ivec3(axis / 2, vertical / 2, axis - 1)}) {
+        const glm::ivec3 read = p - shifts[phase] / static_cast<int>(spacing);
         const bool retained =
             glm::all(glm::greaterThanEqual(read, glm::ivec3(0))) && glm::all(glm::lessThan(read, settings.ProbeSize()));
         const bool parent = !failed && !retained && c == 0;
@@ -1764,7 +1776,8 @@ void main(uint3 id : SV_DispatchThreadID) {
                                  : parent   ? glm::vec3(p) * 0.5f + glm::vec3(settings.ProbeSize() - 1) * 0.25f
                                             : glm::vec3(p);
         for (int coefficient = 0; coefficient < 16; ++coefficient) {
-          const auto pixel = (p.y * 16 + coefficient) * columns + p.z * axis + p.x;
+          const auto index = layout.Index(p.x, p.y, p.z);
+          const auto pixel = (index / columns * 16 + coefficient) * columns + index % columns;
           glm::ivec4 sum(0);
           for (int h = 0; h < 5; ++h) {
             const auto expected = value_at(source, parent ? 1 : c, coefficient, parent ? 2 : h);
@@ -1816,6 +1829,10 @@ TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
   CheckSdfgiScrolling(128);
 }
 
+TEST(SdfgiDensity, PackedScrollingAndParentHistoryWithoutRt) {
+  CheckSdfgiScrolling(128, 64, 2);
+}
+
 TEST(SdfgiWide, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
   CheckSdfgiScrolling(256);
 }
@@ -1824,19 +1841,23 @@ TEST(SdfgiConfigurable, ScrollingTallNonPowerOfTwoWithoutRt) {
   CheckSdfgiScrolling(80, 144);
 }
 
-void CheckSdfgiTransport(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
+void CheckSdfgiTransport(const uint32_t voxel_x, const uint32_t voxel_y = 128, const uint32_t spacing = 8) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.probe_spacing_cells = spacing;
   settings.voxel_count_x = voxel_x;
   settings.voxel_count_y = voxel_y;
-  const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
+  const auto layout = SdfgiProbeLayout::Create(
+      voxel_x, voxel_y, spacing, Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D);
+  const uint32_t axis = settings.ProbeSize().x, columns = layout.columns, atlas_width = columns * 8;
   const auto grid = settings.GridSize();
-  const uint32_t rows = settings.ProbeSize().y;
-  const uint32_t center_column = (axis / 2) * (axis + 1);
+  const uint32_t rows = layout.rows;
+  const uint32_t center_probe = layout.Index(axis / 2, settings.ProbeSize().y / 2, axis / 2);
+  const uint32_t center_column = center_probe % columns, center_row = center_probe / columns;
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1980,7 +2001,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     field->lighting_recorded = true;
     frame->AddPasses(graph, registry, field, "SdfgiTransportSeed");
     if (iteration == 4) {
-      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, columns * (rows / 2) + center_column);
+      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, center_probe);
       retained_debug->AddPass(graph, registry, field, "SdfgiProbeStore");
     }
     const auto plan = graph.Compile({});
@@ -1998,7 +2019,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     EXPECT_EQ(status.generation, field->transport_pass);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageOffset = {int32_t(center_column), int32_t(rows / 2 * 16), 0};
+    copy.imageOffset = {int32_t(center_column), int32_t(center_row * 16), 0};
     copy.imageExtent = {1, 1, 1};
     Buffer sample(sizeof(glm::ivec4));
     sample.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
@@ -2052,7 +2073,7 @@ void main(uint3 id : SV_DispatchThreadID) {
       bool distinct_layers = false;
       for (uint32_t layer : {0u, 2u}) {
         const auto at = [&](const uint32_t x, const uint32_t y) {
-          return packed[layer * atlas_width * (rows * 8) + (rows / 2 * 8 + y) * atlas_width + center_column * 8 + x];
+          return packed[layer * atlas_width * (rows * 8) + (center_row * 8 + y) * atlas_width + center_column * 8 + x];
         };
         for (uint32_t i = 1; i <= 6; ++i) {
           EXPECT_EQ(at(i, 0), at(7 - i, 1));
@@ -2084,6 +2105,10 @@ TEST(SdfgiConfigurable, TransportTallNonPowerOfTwoWithoutRt) {
   CheckSdfgiTransport(80, 144);
 }
 
+TEST(SdfgiDensity, PackedTransportHistoryAndAtlasWithoutRt) {
+  CheckSdfgiTransport(128, 64, 2);
+}
+
 TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
@@ -2091,7 +2116,8 @@ TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
-  settings.voxel_count_x = 128;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
   settings.cascade_count = 1;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -2295,10 +2321,12 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-void CheckSdfgiPreprocess(const uint32_t voxel_x, const uint32_t voxel_y = 128) {
+void CheckSdfgiPreprocess(const uint32_t voxel_x, const uint32_t voxel_y = 128, const uint32_t spacing = 8) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
+  settings.probe_spacing_cells = spacing;
+  settings.history_size = 5;
   settings.voxel_count_x = voxel_x;
   settings.voxel_count_y = voxel_y;
   const auto grid = settings.GridSize();
@@ -2500,8 +2528,9 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
   pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
   std::vector<uint16_t> occlusion;
   pixels.DownloadVector(occlusion, volume * 2);
-  EXPECT_EQ(occlusion[64 + 64 * width * 2 + 64 * width * 2 * grid.y], 0x05afu);
-  EXPECT_EQ(occlusion[64 + width + 64 * width * 2 + 64 * width * 2 * grid.y], 0xfa50u);
+  const uint32_t sample = width / 2 + (grid.y / 2) * width * 2 + (width / 2) * width * 2 * grid.y;
+  EXPECT_EQ(occlusion[sample], 0x05afu);
+  EXPECT_EQ(occlusion[sample + width], 0xfa50u);
 }
 
 TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
@@ -2514,6 +2543,13 @@ TEST(SdfgiWide, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
 
 TEST(SdfgiConfigurable, PreprocessTallNonPowerOfTwoWithoutRt) {
   CheckSdfgiPreprocess(80, 144);
+}
+
+TEST(SdfgiDensity, SmallSpacingPreprocessWithoutRt) {
+  for (const uint32_t spacing : {1u, 2u, 4u}) {
+    SCOPED_TRACE(spacing);
+    CheckSdfgiPreprocess(64, 64, spacing);
+  }
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

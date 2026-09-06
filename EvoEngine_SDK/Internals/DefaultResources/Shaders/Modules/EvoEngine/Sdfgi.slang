@@ -36,13 +36,8 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
   float4 diffuse_accum = float4(0.0);
   float3 specular_accum;
 
-  int3 tex_pos = int3(probe_base_pos.xy, int(cascade));
-  tex_pos.x += probe_base_pos.z * sdfgi.probe_axis_size;
-  tex_pos.xy = tex_pos.xy * (SDFGI_OCT_SIZE + 2) + int2(1);
-
-  float3 diffuse_posf = (float3(tex_pos) + float3(EeSdfgiOctEncode(cam_normal) * float(SDFGI_OCT_SIZE), 0.0)) * sdfgi.lightprobe_tex_pixel_size;
-
-  float3 specular_posf = (float3(tex_pos) + float3(EeSdfgiOctEncode(cam_specular_normal) * float(SDFGI_OCT_SIZE), 0.0)) * sdfgi.lightprobe_tex_pixel_size;
+  uint atlas_width, atlas_height, atlas_layers;
+  sdfgi_lightprobe_texture.GetDimensions(atlas_width, atlas_height, atlas_layers);
 
   specular_accum = float3(0.0);
 
@@ -50,6 +45,9 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
     int3 offset = (int3(j) >> int3(0, 1, 2)) & int3(1, 1, 1);
     int3 probe_posi = probe_base_pos;
     probe_posi += offset;
+    if (any(probe_posi < 0) || any(probe_posi > int3(sdfgi.cascade_probe_size))) continue;
+    int2 tile = SdfgiProbeTexel(probe_posi, sdfgi.probe_axis_size, atlas_width / 8);
+    float3 tex_pos = float3(tile * 8 + 1, cascade);
 
     // Compute weight
 
@@ -81,18 +79,14 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
     // Compute lightprobe texture position
 
     float3 diffuse;
-    float3 pos_uvw = diffuse_posf;
-    pos_uvw.xy += float2(offset.xy) * sdfgi.lightprobe_uv_offset.xy;
-    pos_uvw.x += float(offset.z) * sdfgi.lightprobe_uv_offset.z;
+    float3 pos_uvw = (tex_pos + float3(EeSdfgiOctEncode(cam_normal) * float(SDFGI_OCT_SIZE), 0)) * sdfgi.lightprobe_tex_pixel_size;
     diffuse = sdfgi_lightprobe_texture.SampleLevel(sdfgi_sampler, pos_uvw, 0.0).rgb;
 
     diffuse_accum += float4(diffuse * weight * sdfgi.cascades[cascade].exposure_normalization, weight);
 
     if (include_specular) {
       float3 specular = float3(0.0);
-      float3 pos_uvw = specular_posf;
-      pos_uvw.xy += float2(offset.xy) * sdfgi.lightprobe_uv_offset.xy;
-      pos_uvw.x += float(offset.z) * sdfgi.lightprobe_uv_offset.z;
+      float3 pos_uvw = (tex_pos + float3(EeSdfgiOctEncode(cam_specular_normal) * float(SDFGI_OCT_SIZE), 0)) * sdfgi.lightprobe_tex_pixel_size;
       if (roughness < 0.99) {
         specular = sdfgi_lightprobe_texture.SampleLevel(sdfgi_sampler, pos_uvw + float3(0, 0, float(sdfgi.max_cascades)), 0.0).rgb;
       }

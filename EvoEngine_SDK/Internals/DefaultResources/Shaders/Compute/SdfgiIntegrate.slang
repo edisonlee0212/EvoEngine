@@ -144,10 +144,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
 
   float probe_cell_size = float(params.grid_size.x / float(params.probe_axis_size - 1)) / cascades.data[params.cascade].to_cell;
 
-  int3 probe_cell;
-  probe_cell.x = pos.x % int(params.probe_axis_size);
-  probe_cell.y = pos.y;
-  probe_cell.z = pos.x / int(params.probe_axis_size);
+  int3 probe_cell = SdfgiProbeCell(pos, params.probe_axis_size, params.image_size.x);
+  if (probe_cell.y > int(params.grid_size.y / (params.grid_size.x / float(params.probe_axis_size - 1)))) return;
 
   float3 probe_pos = cascades.data[params.cascade].offset + float3(probe_cell) * probe_cell_size;
   float3 pos_to_uvw = 1.0 / params.grid_size;
@@ -329,6 +327,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
   // octahedral is much faster to read from the screen than spherical harmonics,
   // despite the very slight quality loss
 
+  int3 store_probe = SdfgiProbeCell(pos / OCT_SIZE, params.probe_axis_size, params.image_size.x / OCT_SIZE);
+  if (store_probe.y > int(params.grid_size.y / (params.grid_size.x / float(params.probe_axis_size - 1)))) return;
   int2 sh_pos = (pos / OCT_SIZE) * int2(1, SH_SIZE);
   int2 oct_pos = (pos / OCT_SIZE) * (OCT_SIZE + 2) + int2(1);
   int2 local_pos = pos % OCT_SIZE;
@@ -455,12 +455,14 @@ void main(uint3 id : SV_DispatchThreadID) {
   int2 pos = int2(id.xy);
   if (any(pos >= params.image_size) || field_status[0].failure_flags != 0) return;
 #ifdef MODE_SCROLL
-  int3 probe_cell = int3(pos.x % int(params.probe_axis_size), pos.y, pos.x / int(params.probe_axis_size));
+  int3 probe_cell = SdfgiProbeCell(pos, params.probe_axis_size, params.image_size.x);
+  int3 probe_size = int3(params.grid_size / (params.grid_size.x / float(params.probe_axis_size - 1))) + 1;
+  if (any(probe_cell >= probe_size)) return;
   int3 read_probe = probe_cell - params.scroll;
-  bool retained = all(read_probe >= 0) && all(read_probe < int3(params.grid_size / 8) + 1);
+  bool retained = all(read_probe >= 0) && all(read_probe < probe_size);
   if (retained || params.cascade == params.max_cascades - 1) {
     // Godot keeps the destination's old value at the highest cascade's entering edge.
-    int2 tex_pos = retained ? int2(read_probe.x + read_probe.z * int(params.probe_axis_size), read_probe.y) : pos;
+    int2 tex_pos = retained ? SdfgiProbeTexel(read_probe, params.probe_axis_size, params.image_size.x) : pos;
     for (uint h = 0; h < params.history_size; ++h)
       for (int i = 0; i < SH_SIZE; ++i)
         lightprobe_history_scroll_texture[int3(pos.x, pos.y * SH_SIZE + i, h)] =
@@ -482,7 +484,8 @@ void main(uint3 id : SV_DispatchThreadID) {
       int3 offset = probe_posi + ((int3(i) >> int3(0, 1, 2)) & 1);
       float3 trilinear = 1.0 - abs(probe_pos - float3(offset));
       float weight = trilinear.x * trilinear.y * trilinear.z;
-      int2 tex_pos = int2(offset.x + offset.z * int(params.probe_axis_size), offset.y);
+      if (any(offset < 0) || any(offset >= probe_size)) continue;
+      int2 tex_pos = SdfgiProbeTexel(offset, params.probe_axis_size, params.image_size.x);
       for (int j = 0; j < SH_SIZE; ++j)
         average_light[j] += (float4(lightprobe_average_parent_texture[int2(tex_pos.x, tex_pos.y * SH_SIZE + j)]) /
             float(params.history_size) / float(1 << HISTORY_BITS)) * weight;

@@ -5654,7 +5654,7 @@ void RenderLayer::PublishSubmittedDynamicReflectionProbeUpdate(const uint32_t fr
 void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto scene_frame = Platform::GetFrameCount();
-  const auto lighting = ResolveEnvironmentalLighting(scene);
+  auto lighting = ResolveEnvironmentalLighting(scene);
   if (const auto previous_scene = sdfgi_scene_.lock(); previous_scene && previous_scene != scene)
     previous_scene->sdfgi_runtime_.reset();
   sdfgi_scene_ = scene;
@@ -5669,13 +5669,26 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     auto& runtime = scene->sdfgi_runtime_;
     const auto debug = runtime ? runtime->debug : std::make_shared<SdfgiDebugState>();
     const bool update_field = debug->BeginFrame(scene_frame);
+    if (runtime && runtime->resources && update_field && !runtime->settings.HasSameLayout(lighting.sdfgi_settings)) {
+      const auto candidate =
+          QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
+                                 lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y,
+                                 lighting.sdfgi_settings.probe_spacing_cells);
+      if (!candidate.Supported() || !lighting.sdfgi_settings.Validate().empty()) {
+        EVOENGINE_ERROR("SDFGI settings edit rejected; retaining the current field. " + candidate.ToString());
+        lighting.sdfgi_settings = runtime->settings;
+        if (const auto asset = scene->environmental_lighting.Get<EnvironmentalLighting>())
+          asset->sdfgi_settings = runtime->settings;
+      }
+    }
     if (!runtime ||
         (update_field && (!runtime->settings.HasSameLayout(lighting.sdfgi_settings) ||
                           runtime->settings.Validate().empty() != lighting.sdfgi_settings.Validate().empty()))) {
       const auto capabilities =
           lighting.sdfgi_settings.Validate().empty()
               ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
-                                       lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y)
+                                       lighting.sdfgi_settings.voxel_count_x, lighting.sdfgi_settings.voxel_count_y,
+                                       lighting.sdfgi_settings.probe_spacing_cells)
               : SdfgiCapabilityReport{};
       debug->Invalidate(runtime ? "settings" : "provider",
                         runtime ? "Field layout/settings replaced" : "Automatic SDFGI activated");

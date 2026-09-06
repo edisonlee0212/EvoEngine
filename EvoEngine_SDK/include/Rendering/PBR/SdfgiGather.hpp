@@ -13,7 +13,7 @@ EVOENGINE_API bool IsSdfgiCameraEligible(const std::shared_ptr<Scene>& scene, co
                                          bool reflection_capture, bool custom_recorder);
 EVOENGINE_API SdfgiGatherData BuildSdfgiGatherData(const SdfgiSettings& settings,
                                                    const std::vector<SdfgiCascade>& cascades, glm::vec3 anchor_world,
-                                                   uint32_t generation);
+                                                   uint32_t generation, uint32_t max_image_dimension = 16384);
 
 class EVOENGINE_API SdfgiGatherFrame : public std::enable_shared_from_this<SdfgiGatherFrame> {
  public:

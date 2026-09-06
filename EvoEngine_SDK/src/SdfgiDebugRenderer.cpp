@@ -314,13 +314,13 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
             pipeline->states.ApplyAllStates(command);
             Platform::Draw(command, vertices, instances, 0, 0);
           };
+          const uint32_t spacing = frame->data.cascades.data[frame->data.selection.y].pad;
+          const uint32_t horizontal = (frame->data.field.w & 65535) / spacing + 1;
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Probes) ||
               frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
-            draw(0, 112,
-                 ((frame->data.field.w & 65535) / 8 + 1) * ((frame->data.field.w & 65535) / 8 + 1) *
-                     ((frame->data.field.w >> 16) / 8 + 1));
+            draw(0, 112, horizontal * horizontal * ((frame->data.field.w >> 16) / spacing + 1));
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
-            draw(1, 112, 4096);
+            draw(1, 112, 8 * spacing * spacing * spacing);
           if (!frame->boxes.empty())
             draw(2, 24, static_cast<uint32_t>(frame->boxes.size()));
         });

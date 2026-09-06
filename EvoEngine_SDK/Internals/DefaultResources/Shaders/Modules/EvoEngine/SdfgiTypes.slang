@@ -1,6 +1,16 @@
 // ABI adapted from Godot renderer_rd/environment/gi.h and shaders/environment/sdfgi_*.glsl,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 
+int2 SdfgiProbeTexel(int3 probe, uint horizontal, uint columns) {
+  uint index = uint(probe.x) + horizontal * (uint(probe.z) + horizontal * uint(probe.y));
+  return int2(index % columns, index / columns);
+}
+
+int3 SdfgiProbeCell(int2 texel, uint horizontal, uint columns) {
+  uint index = uint(texel.x) + uint(texel.y) * columns;
+  return int3(index % horizontal, index / (horizontal * horizontal), (index / horizontal) % horizontal);
+}
+
 struct SdfgiCascadeData {
   float3 offset;
   float to_cell;

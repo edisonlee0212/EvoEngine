@@ -28,11 +28,13 @@ Output main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
 #ifdef MODE_VISIBILITY
   output.probe = data.selection.z;
   int3 probe_cell = debug_probe_cell(output.probe);
-  int3 offset = int3(instance % 16, instance / (16 * 16), (instance / 16) % 16) - 8;
+  int spacing = debug_probe_spacing();
+  int diameter = spacing * 2;
+  int3 offset = int3(instance % diameter, instance / (diameter * diameter), (instance / diameter) % diameter) - spacing;
   uint c = data.selection.y;
   position = debug_probe_world(output.probe) + output.normal * 0.01 +
       (float3(offset) + 0.5) / (data.cascades[c].to_cell * float3(1, data.origin_y_mult.w, 1));
-  int3 texel = probe_cell * 8 + offset;
+  int3 texel = probe_cell * spacing + offset;
   int3 global_cell = probe_cell + data.cascades[c].probe_world_offset;
   uint layer = (global_cell.x & 1) | ((global_cell.y & 1) << 1) | ((global_cell.z & 1) << 2);
   float visibility = 0;

@@ -5,6 +5,7 @@
 #include "Cubemap.hpp"
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
+#include "SdfgiProbeLayout.hpp"
 #include "TextureStorage.hpp"
 
 #include <stb_image_write.h>
@@ -28,6 +29,13 @@ SdfgiProbeDebug::SdfgiProbeDebug(const SdfgiSettings& settings, const uint32_t i
       probe_axis(settings.ProbeSize().x),
       columns(probe_axis * probe_axis),
       rows(settings.ProbeSize().y) {
+  const auto layout =
+      SdfgiProbeLayout::Create(settings.voxel_count_x, settings.voxel_count_y, settings.probe_spacing_cells,
+                               Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D);
+  columns = layout.columns;
+  rows = layout.rows;
+  if (probe >= layout.ProbeCount())
+    throw std::invalid_argument("SDFGI diagnostic probe exceeds the layout");
   const VkDeviceSize sizes[]{uint64_t(columns) * 8 * (rows * 8) * 2 * cascade_count * 4,
                              uint64_t(columns) * (rows * 16) * 16, 16ull * history_size * 8, sizeof(SdfgiFieldStatus)};
   for (uint32_t i = 0; i < data.size(); ++i) {
@@ -143,8 +151,9 @@ void SdfgiProbeDebug::StoreToPng(const std::filesystem::path& path) const {
         color = signed_color(glm::vec3(history[index], history[index + 1], history[index + 2]) / 1024.0f);
       }
       if (x >= 1450 && x < 1926 && y >= 800 && y < 1276) {
-        const uint32_t index =
-            probe / columns * 16 * columns + (y - 800) * probe_axis / 476 * probe_axis + (x - 1450) * probe_axis / 476;
+        const uint32_t logical = probe / (probe_axis * probe_axis) * probe_axis * probe_axis +
+                                 (y - 800) * probe_axis / 476 * probe_axis + (x - 1450) * probe_axis / 476;
+        const uint32_t index = logical / columns * 16 * columns + logical % columns;
         color = tonemap(glm::vec3(average[index]) / (history_size * 1024.0f) * 0.88622f);
       }
       for (uint32_t channel = 0; channel < 3; ++channel)
@@ -180,8 +189,8 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
   params.ray_count = resources.settings.ray_count;
   params.ray_bias = resources.settings.probe_bias;
   params.pad = resources.debug_seed;
-  params.image_size[0] = params.probe_axis_size * params.probe_axis_size;
-  params.image_size[1] = resources.settings.ProbeSize().y;
+  params.image_size[0] = resources.textures.at("Ambient").requirement.extent.width;
+  params.image_size[1] = resources.textures.at("Ambient").requirement.extent.height;
   params.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   if (resources.settings.read_sky_light) {
     params.sky_energy = sky.energy;
@@ -215,7 +224,7 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
   for (uint32_t c = 0; c < cascades.size(); ++c) {
     params.cascade = c;
     for (uint32_t axis = 0; axis < 3; ++axis)
-      params.world_offset[axis] = cascades[c].position[axis] / 8;
+      params.world_offset[axis] = cascades[c].position[axis] / static_cast<int>(resources.settings.probe_spacing_cells);
     frame->constants.push_back(params);
   }
   return frame;

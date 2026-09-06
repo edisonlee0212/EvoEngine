@@ -30,6 +30,7 @@ struct EVOENGINE_API SdfgiCascade {
   glm::ivec3 size{128};
   glm::ivec3 dirty_regions{0};
   bool full_redraw = true;
+  uint32_t probe_spacing_cells = 8;
 
   [[nodiscard]] Bound WorldBounds(float y_mult) const;
 };

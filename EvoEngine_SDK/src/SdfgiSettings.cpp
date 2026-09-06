@@ -39,6 +39,8 @@ void SdfgiSettings::SetMaxDistance(const float distance) {
 }
 
 std::string SdfgiSettings::Validate() const {
+  if (probe_spacing_cells != 1 && probe_spacing_cells != 2 && probe_spacing_cells != 4 && probe_spacing_cells != 8)
+    return "Probe spacing must be 1, 2, 4, or 8 cells";
   if (voxel_count_x < 64 || voxel_count_x > 256 || voxel_count_x % 16 != 0 || voxel_count_y < 64 ||
       voxel_count_y > 256 || voxel_count_y % 16 != 0)
     return "Voxel counts must be 64..256 in steps of 16";
@@ -66,25 +68,28 @@ std::string SdfgiSettings::Validate() const {
 
 bool SdfgiSettings::HasSameLayout(const SdfgiSettings& other) const {
   return voxel_count_x == other.voxel_count_x && voxel_count_y == other.voxel_count_y &&
-         cascade_count == other.cascade_count && min_cell_size == other.min_cell_size &&
-         vertical_scale == other.vertical_scale && history_size == other.history_size &&
-         use_occlusion == other.use_occlusion;
+         probe_spacing_cells == other.probe_spacing_cells && cascade_count == other.cascade_count &&
+         min_cell_size == other.min_cell_size && vertical_scale == other.vertical_scale &&
+         history_size == other.history_size && use_occlusion == other.use_occlusion;
 }
 
 bool SdfgiSettings::operator==(const SdfgiSettings& other) const {
-  return std::tie(voxel_count_x, voxel_count_y, cascade_count, positional_light_cascade_count, min_cell_size,
-                  vertical_scale, use_occlusion, static_entities_only, ray_count, history_size, light_update_frames,
-                  bounce_feedback, read_sky_light, energy, normal_bias, probe_bias, anchor_camera_entity) ==
-         std::tie(other.voxel_count_x, other.voxel_count_y, other.cascade_count, other.positional_light_cascade_count,
-                  other.min_cell_size, other.vertical_scale, other.use_occlusion, other.static_entities_only,
-                  other.ray_count, other.history_size, other.light_update_frames, other.bounce_feedback,
-                  other.read_sky_light, other.energy, other.normal_bias, other.probe_bias, other.anchor_camera_entity);
+  return std::tie(voxel_count_x, voxel_count_y, probe_spacing_cells, cascade_count, positional_light_cascade_count,
+                  min_cell_size, vertical_scale, use_occlusion, static_entities_only, ray_count, history_size,
+                  light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias, probe_bias,
+                  anchor_camera_entity) ==
+         std::tie(other.voxel_count_x, other.voxel_count_y, other.probe_spacing_cells, other.cascade_count,
+                  other.positional_light_cascade_count, other.min_cell_size, other.vertical_scale, other.use_occlusion,
+                  other.static_entities_only, other.ray_count, other.history_size, other.light_update_frames,
+                  other.bounce_feedback, other.read_sky_light, other.energy, other.normal_bias, other.probe_bias,
+                  other.anchor_camera_entity);
 }
 
 void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings& settings) {
   out << YAML::BeginMap;
   out << YAML::Key << "voxel_count_x" << YAML::Value << settings.voxel_count_x;
   out << YAML::Key << "voxel_count_y" << YAML::Value << settings.voxel_count_y;
+  out << YAML::Key << "probe_spacing_cells" << YAML::Value << settings.probe_spacing_cells;
   out << YAML::Key << "cascade_count" << YAML::Value << settings.cascade_count;
   out << YAML::Key << "positional_light_cascade_count" << YAML::Value << settings.positional_light_cascade_count;
   out << YAML::Key << "min_cell_size" << YAML::Value << settings.min_cell_size;
@@ -109,6 +114,8 @@ void evo_engine::DeserializeSdfgiSettings(const YAML::Node& in, SdfgiSettings& s
     settings.voxel_count_x = in["voxel_count_x"].as<uint32_t>();
   if (in["voxel_count_y"])
     settings.voxel_count_y = in["voxel_count_y"].as<uint32_t>();
+  if (in["probe_spacing_cells"])
+    settings.probe_spacing_cells = in["probe_spacing_cells"].as<uint32_t>();
   if (in["cascade_count"])
     settings.cascade_count = in["cascade_count"].as<uint32_t>();
   if (in["positional_light_cascade_count"])

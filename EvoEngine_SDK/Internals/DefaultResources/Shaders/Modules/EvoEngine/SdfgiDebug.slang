@@ -28,14 +28,15 @@ public float3 debug_world(float2 uv, float depth) {
   return world.xyz / world.w;
 }
 public int3 debug_grid() { return int3(data.field.w & 65535, data.field.w >> 16, data.field.w & 65535); }
-public int debug_probe_axis() { return debug_grid().x / 8 + 1; }
+public int debug_probe_spacing() { return int(data.cascades[data.selection.y].pad); }
+public int debug_probe_axis() { return debug_grid().x / debug_probe_spacing() + 1; }
 public int3 debug_probe_cell(uint index) {
   uint axis = uint(debug_probe_axis());
   return int3(index % axis, index / (axis * axis), (index / axis) % axis);
 }
 public float3 debug_probe_world(uint index) {
   uint c = data.selection.y;
-  return (data.cascades[c].offset + float3(debug_probe_cell(index)) * 8 / data.cascades[c].to_cell) /
+  return (data.cascades[c].offset + float3(debug_probe_cell(index)) * debug_probe_spacing() / data.cascades[c].to_cell) /
       float3(1, data.origin_y_mult.w, 1);
 }
 public float2 debug_oct(float3 normal) {
@@ -45,6 +46,8 @@ public float2 debug_oct(float3 normal) {
 }
 public float3 debug_probe_color(uint index, float3 normal) {
   int3 cell = debug_probe_cell(index);
-  float2 texel = float2(cell.x + cell.z * debug_probe_axis(), cell.y) * 8 + 1 + debug_oct(normal) * 6;
-  return probe_texture.SampleLevel(linear_sampler, float3(texel / float2(debug_probe_axis() * debug_probe_axis() * 8, (debug_grid().y / 8 + 1) * 8), data.selection.y), 0);
+  uint width, height, layers;
+  probe_texture.GetDimensions(width, height, layers);
+  float2 texel = float2(SdfgiProbeTexel(cell, debug_probe_axis(), width / 8)) * 8 + 1 + debug_oct(normal) * 6;
+  return probe_texture.SampleLevel(linear_sampler, float3(texel / float2(width, height), data.selection.y), 0);
 }

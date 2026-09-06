@@ -5,6 +5,7 @@
 #include "Platform.hpp"
 #include "RenderPasses/RenderPassUtilities.hpp"
 #include "Scene.hpp"
+#include "SdfgiProbeLayout.hpp"
 
 using namespace evo_engine;
 
@@ -31,7 +32,7 @@ bool evo_engine::IsSdfgiCameraEligible(const std::shared_ptr<Scene>& scene, cons
 
 SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
                                                  const std::vector<SdfgiCascade>& cascades, glm::vec3 anchor_world,
-                                                 const uint32_t generation) {
+                                                 const uint32_t generation, const uint32_t max_image_dimension) {
   SdfgiGatherData result{};
   result.max_cascades = cascades.size();
   result.use_occlusion = settings.use_occlusion;
@@ -39,12 +40,14 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
   const auto probes = settings.ProbeSize();
   result.probe_axis_size = probes.x;
   result.probe_to_uvw = 1.0f / (probes.x - 1);
-  result.normal_bias = settings.normal_bias / 8;
+  result.normal_bias = settings.normal_bias / settings.probe_spacing_cells;
   result.energy = settings.energy;
   result.y_mult = SdfgiYMultiplier(settings.vertical_scale);
   result.generation = generation;
   anchor_world.y *= result.y_mult;
-  const glm::vec3 texel(1.0f / (probes.x * probes.z * 8), 1.0f / (probes.y * 8), 1);
+  const auto layout = SdfgiProbeLayout::Create(settings.voxel_count_x, settings.voxel_count_y,
+                                               settings.probe_spacing_cells, max_image_dimension);
+  const glm::vec3 texel(1.0f / (layout.columns * 8), 1.0f / (layout.rows * 8), 1);
   const glm::vec3 uv_offset(8 * texel.x, 8 * texel.y, probes.x * 8 * texel.x);
   const glm::vec3 renormalize(0.5f, 1, 1.0f / result.max_cascades);
   for (uint32_t axis = 0; axis < 3; ++axis) {
@@ -53,7 +56,7 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
     result.anchor_origin[axis] = anchor_world[axis];
     result.lightprobe_tex_pixel_size[axis] = texel[axis];
     result.lightprobe_uv_offset[axis] = uv_offset[axis];
-    result.occlusion_clamp[axis] = 7.5f / 8;
+    result.occlusion_clamp[axis] = 1.0f - 0.5f / settings.probe_spacing_cells;
     result.occlusion_renormalize[axis] = renormalize[axis];
   }
   for (uint32_t c = 0; c < cascades.size(); ++c) {
@@ -62,9 +65,9 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
     const glm::vec3 position = glm::vec3(input.position - grid / 2) * input.cell_size - anchor_world;
     for (uint32_t axis = 0; axis < 3; ++axis) {
       out.position[axis] = position[axis];
-      out.probe_world_offset[axis] = input.position[axis] / 8;
+      out.probe_world_offset[axis] = input.position[axis] / static_cast<int>(settings.probe_spacing_cells);
     }
-    out.to_probe = 1 / (8 * input.cell_size);
+    out.to_probe = 1 / (settings.probe_spacing_cells * input.cell_size);
     out.to_cell = 1 / input.cell_size;
     out.exposure_normalization = 1;
   }
@@ -74,7 +77,8 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
 std::shared_ptr<SdfgiGatherFrame> SdfgiGatherFrame::Create(const SdfgiRuntime& runtime, const uint32_t generation) {
   auto frame = std::make_shared<SdfgiGatherFrame>();
   frame->frame_slot = Platform::GetCurrentFrameIndex();
-  frame->metadata = BuildSdfgiGatherData(runtime.settings, runtime.cascades, runtime.anchor.world_position, generation);
+  frame->metadata = BuildSdfgiGatherData(runtime.settings, runtime.cascades, runtime.anchor.world_position, generation,
+                                         Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D);
   const auto name = "Frame" + std::to_string(frame->frame_slot) + ".Gather";
   frame->descriptor_set = runtime.resources->sets.at(name);
   frame->input_upload.Add(runtime.resources->buffers.at(name).buffer, frame->metadata, {BufferUploadUsage::Uniform});

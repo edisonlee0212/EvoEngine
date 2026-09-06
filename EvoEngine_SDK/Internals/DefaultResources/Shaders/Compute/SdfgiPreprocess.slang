@@ -56,7 +56,9 @@ int3 grid_size() {
 }
 
 #define GROUP_SIZE 8
+#ifndef OCCLUSION_SIZE
 #define OCCLUSION_SIZE 8
+#endif
 #ifdef MODE_JUMPFLOOD_OPTIMIZED
 
 groupshared uint4 group_positions[(GROUP_SIZE + 2) * (GROUP_SIZE + 2) * (GROUP_SIZE + 2)]; //4x4x4 with margins
@@ -417,25 +419,20 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     }
   }
 
-#define OCC_HALF_SIZE (OCCLUSION_SIZE / 2)
-
-  int3 local_ofs = int3(uint3(invocation_idx % OCC_HALF_SIZE, (invocation_idx % (OCC_HALF_SIZE * OCC_HALF_SIZE)) / OCC_HALF_SIZE, invocation_idx / (OCC_HALF_SIZE * OCC_HALF_SIZE))) * 4;
-
   if (!region_out_of_bounds) {
-    for (int i = 0; i < 16; i++) { //skip x, so it can be packed
-
-      int3 offset = local_ofs + ((int3(i * 4) >> int3(0, 2, 4)) & int3(3, 3, 3));
-
+    for (uint packed_index = invocation_idx; packed_index < (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2) / 4; packed_index += 64) {
       uint facing_pack = 0;
       for (int j = 0; j < 4; j++) {
-        int3 foffset = region_offset + offset + int3(j, 0, 0);
+        uint index = packed_index * 4 + j;
+        int3 offset = int3(index % (OCCLUSION_SIZE * 2), (index / (OCCLUSION_SIZE * 2)) % (OCCLUSION_SIZE * 2), index / ((OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2)));
+        int3 foffset = region_offset + offset;
         if (all((foffset >= int3(0))) && all((foffset < grid_size()))) {
           uint f = uint4(src_facing[foffset]).r;
           facing_pack |= f << (j * 8);
         }
       }
 
-      occlusion_facing[(offset.z * (OCCLUSION_SIZE * 2 * OCCLUSION_SIZE * 2) + offset.y * (OCCLUSION_SIZE * 2) + offset.x) / 4] = facing_pack;
+      occlusion_facing[packed_index] = facing_pack;
     }
   }
 
@@ -449,6 +446,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
   for (int step = 0; step < OCC_STEPS; step++) {
     if (!region_out_of_bounds) {
+#if OCCLUSION_SIZE == 8
       bool shrink = step >= OCC_HALF_STEPS;
       int occ_step = shrink ? OCC_HALF_STEPS - (step - OCC_HALF_STEPS) - 1 : step;
 
@@ -459,6 +457,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
         if (shrink) {
           proc_abs = int3(OCCLUSION_SIZE) - proc_abs - int3(1);
         }
+#else
+      int3 proc_abs = int3(invocation_idx % OCCLUSION_SIZE, invocation_idx / OCCLUSION_SIZE, 0);
+      proc_abs.z = step - proc_abs.x - proc_abs.y;
+      if (all(proc_abs >= 0) && all(proc_abs < OCCLUSION_SIZE)) {
+#endif
 
         for (int i = 0; i < 8; i++) {
           int3 bits = ((int3(i) >> int3(0, 1, 2)) & int3(1, 1, 1));
@@ -552,8 +555,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
   //bias solid voxels away
 
   if (!region_out_of_bounds) {
-    for (int i = 0; i < 64; i++) {
-      int3 local_offset = local_ofs + ((int3(i) >> int3(0, 2, 4)) & int3(3, 3, 3));
+    for (uint i = invocation_idx; i < (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2); i += 64) {
+      int3 local_offset = int3(i % (OCCLUSION_SIZE * 2), (i / (OCCLUSION_SIZE * 2)) % (OCCLUSION_SIZE * 2), i / ((OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2)));
       int3 offset = region_offset + local_offset;
 
       if (all((offset >= int3(0))) && all((offset < grid_size()))) {
@@ -683,8 +686,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     return;
   }
 
-  for (int i = 0; i < 64; i++) {
-    int3 local_offset = local_ofs + ((int3(i) >> int3(0, 2, 4)) & int3(3, 3, 3));
+  for (uint i = invocation_idx; i < (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2); i += 64) {
+    int3 local_offset = int3(i % (OCCLUSION_SIZE * 2), (i / (OCCLUSION_SIZE * 2)) % (OCCLUSION_SIZE * 2), i / ((OCCLUSION_SIZE * 2) * (OCCLUSION_SIZE * 2)));
     int3 offset = region_offset + local_offset;
 
     if (all((offset >= int3(0))) && all((offset < grid_size()))) {

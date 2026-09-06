@@ -111,7 +111,7 @@ std::shared_ptr<SdfgiResources> SdfgiResources::TryCreate(
   if (!failure.empty())
     return {};
   const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.voxel_count_x,
-                                             settings.voxel_count_y);
+                                             settings.voxel_count_y, settings.probe_spacing_cells);
   if (!report.Supported()) {
     failure = report.ToString();
     return {};
@@ -135,8 +135,9 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
     if (allocations++ == fail_after_allocations)
       throw std::runtime_error("forced allocation failure");
   };
-  const auto requirements = GetSdfgiImageRequirements(settings.cascade_count, settings.history_size,
-                                                      settings.voxel_count_x, settings.voxel_count_y);
+  const auto requirements = GetSdfgiImageRequirements(
+      settings.cascade_count, settings.history_size, settings.voxel_count_x, settings.voxel_count_y,
+      settings.probe_spacing_cells, Platform::GetSelectedPhysicalDevice()->properties.limits.maxImageDimension2D);
   const auto add_image = [&](const std::string& name, SdfgiImageRequirement requirement,
                              const SdfgiMemoryClass memory_class, const bool cube = false) {
     checkpoint();
@@ -602,7 +603,9 @@ void SdfgiResources::CreatePipelines(const std::vector<std::shared_ptr<Descripto
                                        {"Scroll", "MODE_SCROLL", SdfgiLayout::Scroll},
                                        {"ScrollOcclusion", "MODE_SCROLL_OCCLUSION", SdfgiLayout::ScrollOcclusion}};
   for (const auto& variant : preprocess)
-    compute(variant.name, "SdfgiPreprocess.slang", std::string("#define ") + variant.define + " 1\n",
+    compute(variant.name, "SdfgiPreprocess.slang",
+            std::string("#define ") + variant.define + " 1\n#define OCCLUSION_SIZE " +
+                std::to_string(settings.probe_spacing_cells) + "\n",
             {layouts[static_cast<size_t>(variant.layout)]}, sizeof(SdfgiPreprocessPushConstant));
   for (const std::string mode : {"STATIC", "DYNAMIC"})
     compute("DirectLight" + mode, "SdfgiDirectLight.slang", "#define MODE_PROCESS_" + mode + " 1\n",

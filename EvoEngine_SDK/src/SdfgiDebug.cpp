@@ -162,8 +162,8 @@ std::string evo_engine::BuildSdfgiDebugSnapshot(const SdfgiRuntime& runtime) {
     entry["index"] = c;
     entry["cell_size"] = cascade.cell_size;
     entry["center_cells"] = cascade.position;
-    entry["probe_spacing"] =
-        glm::vec3(8 * cascade.cell_size) / glm::vec3(1, SdfgiYMultiplier(runtime.settings.vertical_scale), 1);
+    entry["probe_spacing"] = glm::vec3(runtime.settings.probe_spacing_cells * cascade.cell_size) /
+                             glm::vec3(1, SdfgiYMultiplier(runtime.settings.vertical_scale), 1);
     entry["min"] = bounds.min;
     entry["max"] = bounds.max;
     entry["dirty"] = cascade.dirty_regions;

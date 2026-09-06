@@ -566,6 +566,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
       .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
       .def_readwrite("voxel_count_x", &SdfgiSettings::voxel_count_x)
+      .def_readwrite("probe_spacing_cells", &SdfgiSettings::probe_spacing_cells)
       .def_readwrite("voxel_count_y", &SdfgiSettings::voxel_count_y)
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
       .def_property("cascade0_distance", &SdfgiSettings::GetCascade0Distance, &SdfgiSettings::SetCascade0Distance)
@@ -595,6 +596,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("SetCurrentSceneSdfgiSettings", [](const SdfgiSettings& settings) {
     if (const auto error = settings.Validate(); !error.empty())
       throw py::value_error(error);
+    const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.voxel_count_x,
+                                               settings.voxel_count_y, settings.probe_spacing_cells);
+    if (!report.Supported())
+      throw py::value_error(report.ToString());
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
     if (!lighting)
@@ -941,8 +946,9 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def(
       "SdfgiCapabilityReport",
       [](const uint32_t cascade_count, const uint32_t history_size, const uint32_t voxel_count_x,
-         const uint32_t voxel_count_y) {
-        const auto report = QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y);
+         const uint32_t voxel_count_y, const uint32_t probe_spacing_cells) {
+        const auto report =
+            QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y, probe_spacing_cells);
         py::dict result;
         result["supported"] = report.Supported();
         result["device_name"] = report.device_name;
@@ -960,8 +966,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         result["checks"] = checks;
         return result;
       },
-      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("voxel_count_x") = 256,
-      py::arg("voxel_count_y") = 128);
+      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("voxel_count_x") = 128,
+      py::arg("voxel_count_y") = 64, py::arg("probe_spacing_cells") = 4);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

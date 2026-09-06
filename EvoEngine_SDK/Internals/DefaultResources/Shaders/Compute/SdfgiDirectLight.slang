@@ -99,24 +99,22 @@ void main(uint3 id : SV_DispatchThreadID) {
 #ifdef MODE_PROCESS_DYNAMIC
   if (params.bounce_feedback > 0.001) {
     float3 feedback = (params.bounce_feedback < 1.0) ? (albedo * params.bounce_feedback) : lerp(albedo, float3(1.0), params.bounce_feedback - 1.0);
-    float3 pos = (float3(positioni) + float3(0.5)) / 8.0;
+    float spacing = params.grid_size.x / float(params.probe_axis_size - 1);
+    float3 pos = (float3(positioni) + float3(0.5)) / spacing;
     int3 probe_base_pos = int3(pos);
 
     float weight_accum[6] = {0, 0, 0, 0, 0, 0};
 
-    int3 tex_pos = int3(probe_base_pos.xy, int(params.cascade));
-    tex_pos.x += probe_base_pos.z * int(params.probe_axis_size);
-
-    tex_pos.xy = tex_pos.xy * (OCT_SIZE + 2) + int2(1);
-
-    float3 base_tex_posf = float3(tex_pos);
-    float2 tex_pixel_size = 1.0 / float2(int2((OCT_SIZE + 2) * params.probe_axis_size * params.probe_axis_size, (OCT_SIZE + 2) * (int(params.grid_size.y) / 8 + 1)));
-    float3 probe_uv_offset = float3(int3(OCT_SIZE + 2, OCT_SIZE + 2, (OCT_SIZE + 2) * params.probe_axis_size)) * tex_pixel_size.xyx;
+    uint atlas_width, atlas_height, atlas_layers;
+    lightprobe_texture.GetDimensions(atlas_width, atlas_height, atlas_layers);
+    float2 tex_pixel_size = 1.0 / float2(atlas_width, atlas_height);
 
     for (uint j = 0; j < 8; j++) {
       int3 offset = (int3(j) >> int3(0, 1, 2)) & int3(1, 1, 1);
       int3 probe_posi = probe_base_pos;
       probe_posi += offset;
+      int2 tile = SdfgiProbeTexel(probe_posi, params.probe_axis_size, atlas_width / 8);
+      float3 base_tex_posf = float3(tile * 8 + 1, params.cascade);
 
       // Compute weight
 
@@ -153,8 +151,6 @@ void main(uint3 id : SV_DispatchThreadID) {
             tex_posf.xy *= tex_pixel_size;
 
             float3 pos_uvw = tex_posf;
-            pos_uvw.xy += float2(offset.xy) * probe_uv_offset.xy;
-            pos_uvw.x += float(offset.z) * probe_uv_offset.z;
             float3 indirect_light = lightprobe_texture.SampleLevel(linear_sampler, pos_uvw, 0.0);
 
             light_accum[k] += indirect_light * weight;

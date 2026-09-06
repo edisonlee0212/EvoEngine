@@ -103,8 +103,11 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
     for (uint32_t i = 0; i < settings.cascade_count; ++i) {
       SdfgiCascade cascade;
       cascade.cell_size = cell_size;
+      cascade.probe_spacing_cells = settings.probe_spacing_cells;
       cascade.size = settings.GridSize();
-      cascade.position = glm::ivec3(glm::floor(world_position / (cell_size * 8) + glm::vec3(0.5f))) * 8;
+      cascade.position =
+          glm::ivec3(glm::floor(world_position / (cell_size * settings.probe_spacing_cells) + glm::vec3(0.5f))) *
+          static_cast<int>(settings.probe_spacing_cells);
       cascades.push_back(cascade);
       cell_size *= 2;
     }
@@ -118,7 +121,10 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
     for (int axis = 0; axis < 3; ++axis) {
       // Algebraically identical to the reference eight-cell while loops, without overflow or long teleport loops.
       const int64_t delta = static_cast<int64_t>(cell_position[axis]) - cascade.position[axis];
-      const int64_t shift = std::abs(delta) > 4 ? ((std::abs(delta) - 4 + 7) / 8) * 8 * (delta < 0 ? -1 : 1) : 0;
+      const int64_t spacing = settings.probe_spacing_cells;
+      const int64_t shift = std::abs(delta) > spacing / 2 ? ((std::abs(delta) - spacing / 2 + spacing - 1) / spacing) *
+                                                                spacing * (delta < 0 ? -1 : 1)
+                                                          : 0;
       cascade.position[axis] = static_cast<int32_t>(cascade.position[axis] + shift);
       if (std::abs(shift) >= cascade.size[axis]) {
         cascade.full_redraw = true;
@@ -177,9 +183,10 @@ SdfgiCascadeBlock evo_engine::BuildSdfgiCascadeBlock(const std::vector<SdfgiCasc
   for (size_t i = 0; i < cascades.size(); ++i) {
     const auto& cascade = cascades[i];
     auto& data = result.data[i];
+    data.pad = cascade.probe_spacing_cells;
     for (int axis = 0; axis < 3; ++axis) {
       data.offset[axis] = (cascade.position[axis] - cascade.size[axis] / 2) * cascade.cell_size;
-      data.probe_world_offset[axis] = cascade.position[axis] / 8;
+      data.probe_world_offset[axis] = cascade.position[axis] / static_cast<int>(cascade.probe_spacing_cells);
     }
     data.to_cell = 1 / cascade.cell_size;
   }

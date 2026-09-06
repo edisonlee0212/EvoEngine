@@ -41,7 +41,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 
 ## Capability report
 
-`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30, voxel_count_x = 256, voxel_count_y = 128)` checks image/view pairs, dimensions, array
+`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30, voxel_count_x = 128, voxel_count_y = 64, probe_spacing_cells = 4, other_history_bytes = 0)` checks image/view pairs, dimensions, array
 layers, transfer/storage/sampled/filter/atomic support, per-image allocation limits, feature bits, buffer ranges, descriptor
 limits, push constants, and workgroups. It performs no field allocation. `Supported()` requires every check to pass;
 `ToString()` names failed checks. Invalid configuration or an uninitialized platform is unsupported. Actual allocation
@@ -73,8 +73,36 @@ the reference controls; no GI entity, volume, or pack is needed. Requested and e
 Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
 failure, and generation checks remain authoritative before any camera samples the field.
 
-Defaults are four 256x128x256-voxel cascades (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
+Defaults are four 128x64x128-voxel cascades with four-cell probe spacing (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 1.0, sky read on, energy 1.0, and both biases 1.1.
+**Environmental Lighting > Automatic SDFGI > Probe spacing** selects 1, 2, 4 or 8 voxel intervals at runtime. Unavailable
+choices are omitted. Probe counts are `(X / spacing + 1, Y / spacing + 1, X / spacing + 1)`. Changing spacing, dimensions,
+cascade count or history recreates resources and restarts convergence; physical cell size and update cadence do not change.
+Missing voxel fields adopt 128/64 and missing spacing adopts 4; explicit serialized dimensions remain unchanged.
+Select 128/128 with spacing 8 for the pinned Godot reference layout.
+
+History rings, integer sums and shared history-scroll scratch must remain strictly below 4 GiB (4,294,967,296 bytes).
+The layout estimate includes padded atlas rows; device preflight additionally checks Vulkan image allocation requirements.
+Retiring generations are excluded from this steady-state cap, so runtime transitions can temporarily require more memory.
+Invalid interactive/Python/runtime edits retain the prior configuration; unsupported initial scene settings use diagnosed
+Environment fallback without silently reducing density. With four cascades and 30 history entries, the default spacing 4
+uses about 0.353 GiB before device padding; spacing 2 fits, whereas spacing 1 does not at the default voxel dimensions.
+
+These density controls intentionally depart from Godot's fixed eight-voxel spacing. Cascade scrolling remains in whole
+probe intervals, fades remain two probes wide, and signed SH history formats and periodic sampling are unchanged.
+Small-spacing occlusion uses bounded cooperative loads and diagonal propagation, retaining the reference spacing-8 path.
+
+Density validation (M13): 37 distinct focused tests passed, including spacing 1/2/4 occlusion and packed spacing-2
+transport, exact history repetition, scrolling, parent initialization and atlas borders. Ten affected compute shader
+variants compiled and passed SPIR-V validation. The installed 2560x1440 Sponza run passed spacing 4 -> 2 -> 4 with 525
+contributors, finite captures, valid publications and RT pipeline/query/BLAS/TLAS disabled; overbudget spacing 1 was
+rejected without replacing the field. Evidence is local in `tasks/m13-*.log`, `tasks/m13-*.yaml` and captures.
+Built editor: `out/build/vs2026-x64-tests/EvoEngine_App/RelWithDebInfo/EvoEngineEditor.exe`.
+All enabled applications were installed successfully with
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --jobs 8`.
+Installed editor: `out/install/vs2026-x64/bin/EvoEngineEditor.exe`; smoke command: `python tasks/m13-check.py`.
+Interactive controls and gallery appearance remain for user review; this does not close the earlier M12 manual checks.
+
 New settings and serialized settings without `bounce_feedback` use 1.0; explicit saved values (including 0.5) remain unchanged.
 This user-selected default differs from Godot's 0.5. At 1.0 feedback retains the material albedo without the additional
 0.5 attenuation; bright materials can accumulate excessive energy. Godot's pinned `Environment.xml` warns about feedback
@@ -110,8 +138,8 @@ properties; existing `vertical_scale` and its serialized values remain unchanged
   compresses vertical coverage and can reduce leaks without adding probes. The accepted default remains 75%.
 
 Our configurable rectangular grid necessarily replaces Godot's fixed factor 64 with `voxel_count_x / 2`.
-Y coverage additionally follows `voxel_count_y` and Y Scale. Defaults yield Cascade 0 Distance 25.6 and Max Distance
-409.6 world units; the selectable 128x128x128 grid reproduces Godot's distance formulas exactly.
+Y coverage additionally follows `voxel_count_y` and Y Scale. Defaults yield Cascade 0 Distance 12.8 and Max Distance
+204.8 world units; the selectable 128x128x128 grid reproduces Godot's distance formulas exactly.
 
 Cascades, minimum cell size (including distance edits), Y Scale, occlusion, and history length recreate the field, matching Godot's
 `RenderForwardClustered::sdfgi_update` reset condition.
@@ -163,7 +191,8 @@ Packed light and probe images use `R32_UINT` storage and `E5B9G9R9_UFLOAT_PACK32
 `R16_UINT` storage and `R4G4B4A4_UNORM_PACK16` sampled views. Each pair shares one image and graph identity, with explicit
 format lists, mutable/extended image usage, and per-view storage-only or sampled-only usage. All views use `GENERAL`
 during maintenance. The reference signed SH formats and 25% solid-cell capacity are unchanged. Grid/probe dimensions
-are configurable; atlas dimensions are `(probe_x * probe_z * 8, probe_y * 8)` with `2C` layers. The original 128-cell
+are configurable; atlas dimensions normally are `(probe_x * probe_z * 8, probe_y * 8)` with `2C` layers. If that width
+exceeds the device limit, logical XZY probe indices are repacked into bounded rows shared by history and atlas addressing. The original 128-cell
 grid / 17-probe axes / 2312-by-136 atlas remain selectable, but are no longer the default.
 
 Preprocessing/direct-light/integration constants retain 48/48/112-byte layouts. Cascade records retain 48-byte stride.
@@ -198,14 +227,14 @@ No image, editor UI, or full-suite run was performed; this is storage/ABI eviden
 ## Cascade placement and scene snapshots
 
 CPU cascade centers follow Godot's creation rounding (`floor(position / probe_size + 0.5)`) and update truncation toward
-zero, including negative coordinates. Cascades have four-cell drag margins, eight-cell shifts, and the exact reference
+zero, including negative coordinates. Cascades have half-probe drag margins, whole-probe shifts, and the exact reference
 dirty-volume threshold (`dirty_volume > safe_volume / 2`). Entering X/Y/Z slabs are chipped to avoid duplicate coverage.
 World bounds undo the vertical multiplier; cascade offsets remain in vertically scaled field coordinates and probe world
-offsets are center cells divided by eight. Unused CPU cascade ABI records are zeroed.
+offsets are center cells divided by the selected spacing. Unused CPU cascade ABI records are zeroed.
 
 Anchor identity changes are diagnosed explicitly but preserve only the overlap mapped by the reference movement rules.
 Large moves select full redraw. The reference's per-axis early exit on a full-cascade shift is retained. Missing anchors
-leave coverage stationary. The eight-cell stepping loops are evaluated with equivalent 64-bit arithmetic to avoid long
+leave coverage stationary. The whole-probe stepping loops are evaluated with equivalent 64-bit arithmetic to avoid long
 teleport loops and signed overflow; coordinates outside the reference integer range or finite float extent are rejected
 before field allocation. No new relocation budget or scheduling policy is introduced.
 
@@ -451,7 +480,7 @@ was run; installation and the agreed manual checkpoints remain later milestones.
 ## Stationary probe transport and storage
 
 M7 ports the executed PROCESS/STORE bodies from the pinned `sdfgi_integrate.glsl` and their `gi.cpp` callers. Every frame
-processes the full probe grid in every cascade (33x17x33 by default; each axis is voxel count / 8 + 1), then stores all cascades. Deterministic world-hashed Vogel
+processes the full probe grid in every cascade (33x17x33 by default; each axis is voxel count / spacing + 1), then stores all cascades. Deterministic world-hashed Vogel
 directions interleave the reference ray count across the history cycle. Cross-cascade SDF sphere tracing, ray bias,
 SDF-gradient surface normal, and six-lobe voxel radiance remain reference equations. No DDGI ray/update/convergence path
 is used. The reference signed 16-coefficient SH values use 10 fractional bits and int16 saturation; each new history

@@ -2993,6 +2993,12 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("Automatic SDFGI")) {
       auto& settings = lighting.sdfgi_settings;
+      const auto previous_settings = settings;
+      const auto valid_density = [&](const SdfgiSettings& candidate) {
+        return QuerySdfgiCapabilities(candidate.cascade_count, candidate.history_size, candidate.voxel_count_x,
+                                      candidate.voxel_count_y, candidate.probe_spacing_cells)
+            .Supported();
+      };
       const auto voxel_count = [&](const char* label, uint32_t& value) {
         if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
           for (uint32_t count = 64; count <= 256; count += 16)
@@ -3003,11 +3009,26 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           ImGui::EndCombo();
         }
         ImGui::SetItemTooltip(
-            "Voxel count, not physical cell size. Probes remain eight voxels apart. "
+            "Voxel count, not physical cell size. Probe spacing is controlled separately. "
             "Larger counts increase coverage, memory, and GI work.");
       };
       voxel_count("Voxel count X/Z", settings.voxel_count_x);
       voxel_count("Voxel count Y", settings.voxel_count_y);
+      if (ImGui::BeginCombo("Probe spacing", std::to_string(settings.probe_spacing_cells).c_str())) {
+        for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
+          auto candidate = settings;
+          candidate.probe_spacing_cells = spacing;
+          if (valid_density(candidate) &&
+              ImGui::Selectable(std::to_string(spacing).c_str(), settings.probe_spacing_cells == spacing)) {
+            settings.probe_spacing_cells = spacing;
+            changed = true;
+          }
+        }
+        ImGui::EndCombo();
+      }
+      ImGui::SetItemTooltip(
+          "Voxel intervals between probes. Unavailable layouts are omitted. Changes recreate the field and restart "
+          "convergence.");
       const auto grid = settings.GridSize();
       const auto probes = settings.ProbeSize();
       ImGui::TextDisabled("%dx%dx%d voxels; %dx%dx%d probes per cascade. Coverage follows one camera.", grid.x, grid.y,
@@ -3111,6 +3132,16 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         changed = true;
       }
       ImGui::EndDisabled();
+      if (!(settings == previous_settings) && !valid_density(settings)) {
+        settings = previous_settings;
+        ImGui::OpenPopup("SDFGI density unavailable");
+      }
+      if (ImGui::BeginPopup("SDFGI density unavailable")) {
+        ImGui::TextWrapped(
+            "Edit rejected: the probe layout exceeds device limits or the history budget of less than 4 GiB. Previous "
+            "settings were retained.");
+        ImGui::EndPopup();
+      }
       if (const auto error = settings.Validate(); !error.empty())
         ImGui::TextWrapped("Unavailable: %s", error.c_str());
       ImGui::EndTabItem();
