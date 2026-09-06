@@ -1128,3 +1128,19 @@ disabled, 525 contributors, generation 60 ready, no failure flags and zero nonfi
 The test build passed (`tasks/m12g-build.log`); 37 focused asset/lighting-contract/provider/multi-volume checks passed
 (`tasks/m12g-tests.log/.xml`). They cover new/missing-provider defaults, explicit saved choices, invalid-provider fallback,
 unassigned assets, and explicit DDGI resolution. No broad GPU matrix or shader algorithm changes were needed.
+
+### M12h: Ray-camera invalidation isolation
+
+Dynamic reflection texture-binding and transition-weight changes no longer trigger global camera-history resets merely
+because SDFGI (or Environment) is selected. The existing binding-only comparison exclusion now runs independently of DDGI
+tracking, and live bindings are restored before rendering. Geometry/material/light/camera and probe placement/membership
+comparisons remain unchanged. No SDFGI algorithm, shader, resource ownership or scheduling change was required.
+
+SDK/test build and all enabled application/package/Python installation passed (`tasks/m12h-build.log`, `tasks/m12h-install.log`):
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+Editor built before runtime check: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+All 26 reflection-probe/ray-history tests passed (`tasks/m12h-tests.log/.xml`), including the source regression that places
+binding exclusion before the DDGI branch and restoration after both comparison paths. Installed RT-disabled RTX 5070
+Sponza at 2560x1440 published generation 60, ready 1, failure flags 0, with zero nonfinite pixels; capture inspected
+(`tasks/m12h-runtime.log`, `tasks/m12h-sponza.png/.yaml`). Build/bin/Python SDK hashes match. These checks do not constitute
+an RT-enabled accumulation reproduction; that remains manual/pending separate authorization under the RT-disabled rule.

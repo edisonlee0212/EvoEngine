@@ -7331,13 +7331,13 @@ bool RenderLayer::UpdateRenderInstanceStorage(
       render_instances_list_[(current_frame_index + Platform::GetMaxFramesInFlight() - 1) %
                              Platform::GetMaxFramesInFlight()];
   bool render_instance_updated = false;
+  const auto current_render_info = current_render_instances->render_info_block;
+  if (dynamic_reflection_probe_contributing_) {
+    PreserveReflectionProbeTextureBindings(current_render_instances->render_info_block,
+                                           previous_render_instances->render_info_block);
+  }
   if (track_ddgi_scene_inputs) {
-    const auto current_render_info = current_render_instances->render_info_block;
     PreserveDdgiRenderInfo(current_render_instances->render_info_block, previous_render_instances->render_info_block);
-    if (dynamic_reflection_probe_contributing_) {
-      PreserveReflectionProbeTextureBindings(current_render_instances->render_info_block,
-                                             previous_render_instances->render_info_block);
-    }
     render_instance_updated = *current_render_instances != *previous_render_instances;
     auto active_light_keys = CollectDdgiActiveLightKeys(scene);
     auto light_signatures = CollectDdgiLightSignatures(scene);
@@ -7409,11 +7409,11 @@ bool RenderLayer::UpdateRenderInstanceStorage(
     ddgi_previous_light_signatures_ = std::move(light_signatures);
     ddgi_previous_geometry_signatures_ = std::move(geometry_signatures);
     PreserveDdgiRenderInfo(current_render_instances->render_info_block, current_render_info);
-    current_render_instances->render_info_block.reflection_probe_header = current_render_info.reflection_probe_header;
-    current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;
   } else {
     render_instance_updated = *current_render_instances != *previous_render_instances;
   }
+  current_render_instances->render_info_block.reflection_probe_header = current_render_info.reflection_probe_header;
+  current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;
   const auto camera_info_changed = [&](const std::shared_ptr<Camera>& camera) {
     if (!camera || !previous_render_instances) {
       return true;

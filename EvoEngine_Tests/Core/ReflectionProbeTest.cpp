@@ -409,6 +409,22 @@ TEST(ReflectionProbe, DynamicUpdatesAreContinuousBudgetedBlendedAndAssetIndepend
   EXPECT_EQ(render_layer.find("InvalidateAllDynamicReflectionProbes"), std::string::npos);
   EXPECT_EQ(render_layer.find("DDGI runtime lighting updated"), std::string::npos);
   EXPECT_NE(render_layer.find("PreserveReflectionProbeTextureBindings"), std::string::npos);
+  const auto comparison_start = render_layer.find("bool RenderLayer::UpdateRenderInstanceStorage(");
+  ASSERT_NE(comparison_start, std::string::npos);
+  const auto comparison = render_layer.substr(comparison_start);
+  const auto preserve_bindings = comparison.find("PreserveReflectionProbeTextureBindings(");
+  const auto ddgi_branch = comparison.find("if (track_ddgi_scene_inputs)");
+  ASSERT_NE(preserve_bindings, std::string::npos);
+  ASSERT_NE(ddgi_branch, std::string::npos);
+  EXPECT_LT(preserve_bindings, ddgi_branch);
+  const auto last_comparison =
+      comparison.rfind("render_instance_updated = *current_render_instances != *previous_render_instances;");
+  const auto restore_bindings = comparison.find(
+      "current_render_instances->render_info_block.reflection_probes = current_render_info.reflection_probes;");
+  ASSERT_NE(last_comparison, std::string::npos);
+  ASSERT_NE(restore_bindings, std::string::npos);
+  EXPECT_GT(restore_bindings, last_comparison);
+  EXPECT_LT(restore_bindings, comparison.find("const auto camera_info_changed"));
   EXPECT_EQ(render_layer.find("PreserveReflectionProbeRenderInfo"), std::string::npos);
   EXPECT_EQ(record.find("SetUnsaved"), std::string::npos);
   EXPECT_EQ(record.find("Save"), std::string::npos);

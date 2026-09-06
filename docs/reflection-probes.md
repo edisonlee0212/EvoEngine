@@ -105,6 +105,9 @@ finish.
 - Raster cameras use local probes and the scene-global prefiltered fallback.
 - Ray cameras trace scene geometry and sample the indirect environment source; they do not sample local or global
   prefiltered probe assets as environment radiance.
+- Dynamic probe texture bindings and blend weights are excluded from scene-change detection for every GI provider,
+  including Automatic SDFGI and Environment, not only DDGI. Current bindings are restored before rendering. Actual
+  scene/material/light/camera changes and probe placement/membership changes retain existing invalidation behavior.
 - DDGI remains diffuse-only. Its visibility may occlude rough probe lighting, and its irradiance may provide a broad
   fallback where global probe weight is missing.
 - Reflection-probe captures include available diffuse GI from the selected provider but always exclude local reflection probes.
