@@ -839,3 +839,43 @@ export, selection clamping from 99/9999/999 to 3/4912/127, and live excluded/ski
 pair has generation 91, ready 1, failures 0, zero nonfinite pixels, and unchanged maintenance/transport/representation
 counters across export. This installed build has graphics validation off; the prior debug-pass session supplies Vulkan
 validation coverage. No interactive GUI operation or user acceptance is inferred from either automated capture.
+
+## Final installed review (M12 - awaiting user acceptance)
+
+Follow-up M12a is committed as `7bab0293`: positional-light cascade coverage defaults to all active levels. The install
+retry and RT-disabled 1440p Sponza 8->3->8 control check passed (`tasks/m12a-install-retry.log` and
+`tasks/m12a-installed-check-retry.log`). Manual confirmation of the reported gallery darkening remains pending.
+
+Implementation through M11 is committed as `742fba6f`, following M9 `a5e025ac` and M10 `df6d2dc0`. The technical acceptance
+audit is recorded locally in `tasks/m12-audit.md`, reusing accepted M8/M9 and focused M10/M11 evidence. No broad suite,
+extra GPU, extra image resolution/scene, DDGI comparison, or new performance gate was introduced.
+
+The normal build was reconfigured with `cmake -S . -B out/build/vs2026-x64` to discover new source files. All enabled
+applications (editor and launcher), runtime packages, and Python installed successfully with:
+
+```powershell
+python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8
+```
+
+Final result: exit 0, `tasks/m12-verified-install.log`. The installed editor is
+`C:\Users\lllll\Documents\GitHub\EvoEngine\out\install\vs2026-x64\bin\EvoEngineEditor.exe`; the launcher is alongside it.
+The installed build has graphics validation off; RT is explicitly disabled by the review launch, not inferred from that
+build option. The Godot notice is installed under `bin/licenses/Godot-MIT.txt`.
+
+From the repository root, launch the disposable Sponza review (1440p, Automatic SDFGI, occlusion on, all RT features off):
+
+```powershell
+& ./out/install/vs2026-x64/bin/EvoEngineEditor.exe --sdfgi-review ./tasks/m4-resources
+```
+
+Review **Render Layer > Automatic SDFGI**: choose probes/visibility and a probe index, freeze and step, inspect isolated
+diffuse/specular, and export image + state. Resume, make one supported light/material edit, and disable/re-enable the
+provider. Check dynamic/skinned receivers and any remaining concerns about sphere undersides/reflections. Reuse the
+accepted M8/M9 movement result unless you see a concrete regression. This manual review remains required before M12 is
+marked complete or its closeout changes are committed.
+
+The installed 2560-by-1440 captures are `tasks/m12-installed-sponza.png` (SHA256
+`1e8d1382b0481f36df83ac50ee6d205189c70306c9d474a278019740f1c62ded`) and
+`tasks/m12-installed-sponza-debug.png` / `.yaml` (PNG SHA256
+`9f2f68ade51e0bdd1438855f3a3b5dff4158fbd110745d973282ae948da03252`). They are installation/diagnostic evidence, not proof of
+interactive GUI acceptance or exact image equality between validation-enabled and normal-build capture sessions.
