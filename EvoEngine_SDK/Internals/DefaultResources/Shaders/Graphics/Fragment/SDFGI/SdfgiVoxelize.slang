@@ -23,7 +23,9 @@ void main(SdfgiVoxelVertex input) {
   float3 field_position = input.world_position * float3(1, voxel.region_offset_y_mult.w, 1);
   float3 local = (field_position - voxel.cascade_min_cell.xyz) / voxel.cascade_min_cell.w - voxel.region_offset_y_mult.xyz;
   int3 grid = int3(voxel.region_offset_y_mult.xyz) + int3(local);
-  if (any(grid < 0) || any(grid >= 128))
+  uint width, height, depth;
+  albedo.GetDimensions(width, height, depth);
+  if (any(grid < 0) || any(grid >= int3(width, height, depth)))
     discard;
   float3 normal = normalize(input.normal);
   albedo[grid] = SdfgiPackAlbedo(base.rgb);

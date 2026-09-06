@@ -7,6 +7,8 @@
 #include <sstream>
 
 #include "Platform.hpp"
+#include "SdfgiSettings.hpp"
+#include "SdfgiTypes.hpp"
 
 using namespace evo_engine;
 
@@ -20,39 +22,76 @@ VkImageCreateFlags SdfgiImageRequirement::CreateFlags() const {
 }
 
 std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const uint32_t cascade_count,
-                                                                         const uint32_t history_size) {
+                                                                         const uint32_t history_size,
+                                                                         const bool wide_horizontal_field) {
   if (cascade_count < 1 || cascade_count > 8 || history_size < 5 || history_size > 30 || history_size % 5 != 0) {
     return {};
   }
+  const uint32_t horizontal = wide_horizontal_field ? 256 : 128;
+  const uint32_t probes = horizontal / 8 + 1;
   return {
-      {"albedo", VK_FORMAT_R16_UINT, VK_FORMAT_R16_UINT, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 2},
-      {"emission", VK_FORMAT_R32_UINT, VK_FORMAT_R32_UINT, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 4},
-      {"facing", VK_FORMAT_R32_UINT, VK_FORMAT_R32_UINT, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 4, false, true},
-      {"jump_flood", VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_R8G8B8A8_UINT, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 4},
-      {"jump_flood_half", VK_FORMAT_R8G8B8A8_UINT, VK_FORMAT_R8G8B8A8_UINT, VK_IMAGE_TYPE_3D, {64, 64, 64}, 1, 4},
+      {"albedo", VK_FORMAT_R16_UINT, VK_FORMAT_R16_UINT, VK_IMAGE_TYPE_3D, {horizontal, 128, horizontal}, 1, 2},
+      {"emission", VK_FORMAT_R32_UINT, VK_FORMAT_R32_UINT, VK_IMAGE_TYPE_3D, {horizontal, 128, horizontal}, 1, 4},
+      {"facing",
+       VK_FORMAT_R32_UINT,
+       VK_FORMAT_R32_UINT,
+       VK_IMAGE_TYPE_3D,
+       {horizontal, 128, horizontal},
+       1,
+       4,
+       false,
+       true},
+      {"jump_flood",
+       VK_FORMAT_R8G8B8A8_UINT,
+       VK_FORMAT_R8G8B8A8_UINT,
+       VK_IMAGE_TYPE_3D,
+       {horizontal, 128, horizontal},
+       1,
+       4},
+      {"jump_flood_half",
+       VK_FORMAT_R8G8B8A8_UINT,
+       VK_FORMAT_R8G8B8A8_UINT,
+       VK_IMAGE_TYPE_3D,
+       {horizontal / 2, 64, horizontal / 2},
+       1,
+       4},
       {"sdf_and_occlusion_scratch",
        VK_FORMAT_R8_UNORM,
        VK_FORMAT_R8_UNORM,
        VK_IMAGE_TYPE_3D,
-       {128, 128, 128},
+       {horizontal, 128, horizontal},
        1,
        1,
        true},
-      {"radiance", VK_FORMAT_R32_UINT, VK_FORMAT_E5B9G9R9_UFLOAT_PACK32, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 4, true},
+      {"radiance",
+       VK_FORMAT_R32_UINT,
+       VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,
+       VK_IMAGE_TYPE_3D,
+       {horizontal, 128, horizontal},
+       1,
+       4,
+       true},
       {"anisotropy_0",
        VK_FORMAT_R8G8B8A8_UNORM,
        VK_FORMAT_R8G8B8A8_UNORM,
        VK_IMAGE_TYPE_3D,
-       {128, 128, 128},
+       {horizontal, 128, horizontal},
        1,
        4,
        true},
-      {"anisotropy_1", VK_FORMAT_R8G8_UNORM, VK_FORMAT_R8G8_UNORM, VK_IMAGE_TYPE_3D, {128, 128, 128}, 1, 2, true},
+      {"anisotropy_1",
+       VK_FORMAT_R8G8_UNORM,
+       VK_FORMAT_R8G8_UNORM,
+       VK_IMAGE_TYPE_3D,
+       {horizontal, 128, horizontal},
+       1,
+       2,
+       true},
       {"occlusion",
        VK_FORMAT_R16_UINT,
        VK_FORMAT_R4G4B4A4_UNORM_PACK16,
        VK_IMAGE_TYPE_3D,
-       {256, 128, 128 * cascade_count},
+       {2 * horizontal, 128, horizontal * cascade_count},
        1,
        2,
        true},
@@ -60,15 +99,21 @@ std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const u
        VK_FORMAT_R16G16B16A16_SINT,
        VK_FORMAT_R16G16B16A16_SINT,
        VK_IMAGE_TYPE_2D,
-       {289, 272, 1},
+       {probes * probes, 272, 1},
        history_size,
        8},
-      {"average", VK_FORMAT_R32G32B32A32_SINT, VK_FORMAT_R32G32B32A32_SINT, VK_IMAGE_TYPE_2D, {289, 272, 1}, 1, 16},
+      {"average",
+       VK_FORMAT_R32G32B32A32_SINT,
+       VK_FORMAT_R32G32B32A32_SINT,
+       VK_IMAGE_TYPE_2D,
+       {probes * probes, 272, 1},
+       1,
+       16},
       {"probe_atlas",
        VK_FORMAT_R32_UINT,
        VK_FORMAT_E5B9G9R9_UFLOAT_PACK32,
        VK_IMAGE_TYPE_2D,
-       {2312, 136, 1},
+       {probes * probes * 8, 136, 1},
        2 * cascade_count,
        4,
        true},
@@ -76,14 +121,15 @@ std::vector<SdfgiImageRequirement> evo_engine::GetSdfgiImageRequirements(const u
        VK_FORMAT_R16G16B16A16_SFLOAT,
        VK_FORMAT_R16G16B16A16_SFLOAT,
        VK_IMAGE_TYPE_2D,
-       {289, 17, 1},
+       {probes * probes, 17, 1},
        cascade_count,
        8},
   };
 }
 
 std::vector<SdfgiCapabilityCheck> evo_engine::EvaluateSdfgiDeviceLimits(const VkPhysicalDeviceFeatures& features,
-                                                                        const VkPhysicalDeviceLimits& limits) {
+                                                                        const VkPhysicalDeviceLimits& limits,
+                                                                        const bool wide_horizontal_field) {
   std::vector<SdfgiCapabilityCheck> checks{
       {"fragmentStoresAndAtomics", features.fragmentStoresAndAtomics == VK_TRUE},
       {"shaderStorageImageExtendedFormats", features.shaderStorageImageExtendedFormats == VK_TRUE},
@@ -98,14 +144,16 @@ std::vector<SdfgiCapabilityCheck> evo_engine::EvaluateSdfgiDeviceLimits(const Vk
   require("maxBoundDescriptorSets", limits.maxBoundDescriptorSets, 6);
   require("maxPushConstantsSize", limits.maxPushConstantsSize, 112);
   require("maxUniformBufferRange", limits.maxUniformBufferRange, 512);
-  require("maxStorageBufferRange", limits.maxStorageBufferRange, 128u * 128u * 128u / 4u * 16u);
+  SdfgiSettings settings;
+  settings.wide_horizontal_field = wide_horizontal_field;
+  require("maxStorageBufferRange", limits.maxStorageBufferRange, settings.SolidCellCapacity() * sizeof(SdfgiSolidCell));
   require("maxComputeWorkGroupInvocations", limits.maxComputeWorkGroupInvocations, 512);
   require("maxComputeWorkGroupSize.x", limits.maxComputeWorkGroupSize[0], 64);
   require("maxComputeWorkGroupSize.y", limits.maxComputeWorkGroupSize[1], 8);
   require("maxComputeWorkGroupSize.z", limits.maxComputeWorkGroupSize[2], 8);
-  require("maxComputeWorkGroupCount.x", limits.maxComputeWorkGroupCount[0], 8192);
+  require("maxComputeWorkGroupCount.x", limits.maxComputeWorkGroupCount[0], (settings.SolidCellCapacity() + 63) / 64);
   require("maxComputeWorkGroupCount.y", limits.maxComputeWorkGroupCount[1], 32);
-  require("maxComputeWorkGroupCount.z", limits.maxComputeWorkGroupCount[2], 32);
+  require("maxComputeWorkGroupCount.z", limits.maxComputeWorkGroupCount[2], settings.GridSize().z / 4);
   require("maxComputeSharedMemorySize", limits.maxComputeSharedMemorySize, 16000);
   require("maxPerStageDescriptorStorageImages", limits.maxPerStageDescriptorStorageImages, 15);
   require("maxDescriptorSetStorageImages", limits.maxDescriptorSetStorageImages, 15);
@@ -159,9 +207,10 @@ std::string SdfgiCapabilityReport::ToString() const {
   return stream.str();
 }
 
-SdfgiCapabilityReport evo_engine::QuerySdfgiCapabilities(const uint32_t cascade_count, const uint32_t history_size) {
+SdfgiCapabilityReport evo_engine::QuerySdfgiCapabilities(const uint32_t cascade_count, const uint32_t history_size,
+                                                         const bool wide_horizontal_field) {
   SdfgiCapabilityReport report;
-  const auto requirements = GetSdfgiImageRequirements(cascade_count, history_size);
+  const auto requirements = GetSdfgiImageRequirements(cascade_count, history_size, wide_horizontal_field);
   report.checks.push_back({"configuration: cascades 1..8, history 5..30 in steps of 5", !requirements.empty()});
   report.checks.push_back({"Vulkan platform initialized", Platform::Initialized()});
   if (!Platform::Initialized()) {
@@ -176,7 +225,8 @@ SdfgiCapabilityReport evo_engine::QuerySdfgiCapabilities(const uint32_t cascade_
   if (requirements.empty()) {
     return report;
   }
-  const auto device_checks = EvaluateSdfgiDeviceLimits(device->features, device->properties.limits);
+  const auto device_checks =
+      EvaluateSdfgiDeviceLimits(device->features, device->properties.limits, wide_horizontal_field);
   report.checks.insert(report.checks.end(), device_checks.begin(), device_checks.end());
   for (const auto& requirement : requirements) {
     const std::array formats{requirement.storage_format, requirement.sampled_format};

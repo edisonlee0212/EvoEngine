@@ -10,6 +10,7 @@ namespace evo_engine {
 class EVOENGINE_API SdfgiProbeDebug : public std::enable_shared_from_this<SdfgiProbeDebug> {
  public:
   uint32_t cascade, probe, cascade_count, history_size;
+  uint32_t probe_axis, columns;
   bool recorded = false;
   std::array<std::shared_ptr<Buffer>, 4> data;
   SdfgiProbeDebug(const SdfgiSettings& settings, uint32_t cascade, uint32_t probe);

@@ -14,7 +14,7 @@ import EvoEngine.SdfgiTypes;
 void main(uint3 id : SV_DispatchThreadID) {
   if (field_status[0].failure_flags != 0 || id.x >= min(dispatch_data[0].total_count, field_status[0].solid_cell_capacity)) return;
   SdfgiSolidCell cell = cells[id.x];
-  int3 p = int3((uint3(cell.position) >> uint3(0, 7, 14)) & 127);
+  int3 p = SdfgiUnpackPosition(cell);
   uint color = albedo[p];
   // Godot MODE_STORE retains a zero-payload origin cell for an entirely empty cascade.
   if (dispatch_data[0].total_count == 1 && all(p == 0) && color == 0 && facing[p] == 0 &&

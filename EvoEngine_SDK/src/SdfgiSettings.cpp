@@ -45,23 +45,24 @@ std::string SdfgiSettings::Validate() const {
 }
 
 bool SdfgiSettings::HasSameLayout(const SdfgiSettings& other) const {
-  return cascade_count == other.cascade_count && min_cell_size == other.min_cell_size &&
-         vertical_scale == other.vertical_scale && history_size == other.history_size &&
-         use_occlusion == other.use_occlusion;
+  return wide_horizontal_field == other.wide_horizontal_field && cascade_count == other.cascade_count &&
+         min_cell_size == other.min_cell_size && vertical_scale == other.vertical_scale &&
+         history_size == other.history_size && use_occlusion == other.use_occlusion;
 }
 
 bool SdfgiSettings::operator==(const SdfgiSettings& other) const {
-  return std::tie(cascade_count, positional_light_cascade_count, min_cell_size, vertical_scale, use_occlusion,
-                  ray_count, history_size, light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias,
-                  probe_bias, anchor_camera_entity) ==
-         std::tie(other.cascade_count, other.positional_light_cascade_count, other.min_cell_size, other.vertical_scale,
-                  other.use_occlusion, other.ray_count, other.history_size, other.light_update_frames,
-                  other.bounce_feedback, other.read_sky_light, other.energy, other.normal_bias, other.probe_bias,
-                  other.anchor_camera_entity);
+  return std::tie(wide_horizontal_field, cascade_count, positional_light_cascade_count, min_cell_size, vertical_scale,
+                  use_occlusion, ray_count, history_size, light_update_frames, bounce_feedback, read_sky_light, energy,
+                  normal_bias, probe_bias, anchor_camera_entity) ==
+         std::tie(other.wide_horizontal_field, other.cascade_count, other.positional_light_cascade_count,
+                  other.min_cell_size, other.vertical_scale, other.use_occlusion, other.ray_count, other.history_size,
+                  other.light_update_frames, other.bounce_feedback, other.read_sky_light, other.energy,
+                  other.normal_bias, other.probe_bias, other.anchor_camera_entity);
 }
 
 void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings& settings) {
   out << YAML::BeginMap;
+  out << YAML::Key << "wide_horizontal_field" << YAML::Value << settings.wide_horizontal_field;
   out << YAML::Key << "cascade_count" << YAML::Value << settings.cascade_count;
   out << YAML::Key << "positional_light_cascade_count" << YAML::Value << settings.positional_light_cascade_count;
   out << YAML::Key << "min_cell_size" << YAML::Value << settings.min_cell_size;
@@ -81,6 +82,8 @@ void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings&
 
 void evo_engine::DeserializeSdfgiSettings(const YAML::Node& in, SdfgiSettings& settings) {
   settings = {};
+  if (in["wide_horizontal_field"])
+    settings.wide_horizontal_field = in["wide_horizontal_field"].as<bool>();
   if (in["cascade_count"])
     settings.cascade_count = in["cascade_count"].as<uint32_t>();
   if (in["positional_light_cascade_count"])

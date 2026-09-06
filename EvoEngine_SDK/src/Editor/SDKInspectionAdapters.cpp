@@ -2135,14 +2135,16 @@ void InspectSdfgiRuntime(InspectorContext& context) {
       value = static_cast<uint32_t>(input);
   };
   slider("Cascade", debug.cascade, std::max(0, static_cast<int>(runtime->cascades.size()) - 1));
-  slider("Probe (X, Z, Y order)", debug.probe, 4912);
-  slider("Distance slice Z", debug.slice, 127);
+  const auto probes = runtime->settings.ProbeSize();
+  slider("Probe (X, Z, Y order)", debug.probe, probes.x * probes.y * probes.z - 1);
+  slider("Distance slice Z", debug.slice, runtime->settings.GridSize().z - 1);
   ImGui::Checkbox("Depth-test overlays", &debug.depth_test);
-  ImGui::TextDisabled("Cascade colors identify bounds; dim boxes mark the anchor-relative 5.5..7.5-probe blend zone.");
+  ImGui::TextDisabled("Cascade colors identify bounds; dim boxes mark the anchor-relative two-probe blend zone.");
   if (debug.cascade < runtime->cascades.size()) {
     const auto& cascade = runtime->cascades[debug.cascade];
-    const glm::vec3 cell(debug.probe % 17, debug.probe / 289, (debug.probe / 17) % 17);
-    const auto position = (glm::vec3(cascade.position - glm::ivec3(64)) + cell * 8.0f) * cascade.cell_size /
+    const glm::vec3 cell(debug.probe % probes.x, debug.probe / (probes.x * probes.z),
+                         (debug.probe / probes.x) % probes.z);
+    const auto position = (glm::vec3(cascade.position - cascade.size / 2) + cell * 8.0f) * cascade.cell_size /
                           glm::vec3(1, SdfgiYMultiplier(runtime->settings.vertical_scale), 1);
     ImGui::Text("Selected probe world: %.3f, %.3f, %.3f", position.x, position.y, position.z);
   }
@@ -3044,9 +3046,17 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("Automatic SDFGI")) {
       auto& settings = lighting.sdfgi_settings;
-      ImGui::TextDisabled("128 cells per cascade; coverage follows one camera automatically.");
+      changed = ImGui::Checkbox("Wide horizontal field (experimental)", &settings.wide_horizontal_field) || changed;
+      ImGui::SetItemTooltip(
+          "Doubles X/Z coverage at unchanged spacing: 33x17x33 probes over 256x128x256 voxels. "
+          "Uses 4x the voxels and about 3.77x the probes. Off restores Godot's 17x17x17 layout.");
+      const auto grid = settings.GridSize();
+      const auto probes = settings.ProbeSize();
+      ImGui::TextDisabled("%dx%dx%d voxels; %dx%dx%d probes per cascade. Coverage follows one camera.", grid.x, grid.y,
+                          grid.z, probes.x, probes.y, probes.z);
       ImGui::TextWrapped(
-          "Changing cascades, minimum cell size, vertical scale, history frames, or Use Occlusion recreates the field "
+          "Changing field layout, cascades, minimum cell size, vertical scale, history frames, or Use Occlusion "
+          "recreates the field "
           "and restarts convergence. Other controls update at the next scene boundary; anchor changes scroll or redraw "
           "as needed. Frozen diagnostics defer changes until resumed or stepped.");
       int cascades = static_cast<int>(settings.cascade_count);

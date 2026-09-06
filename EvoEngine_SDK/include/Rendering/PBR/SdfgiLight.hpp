@@ -4,6 +4,7 @@
 
 #include "SdfgiResources.hpp"
 #include "SdfgiScene.hpp"
+#include "SdfgiSliceLayout.hpp"
 
 namespace evo_engine {
 
@@ -13,7 +14,8 @@ class EVOENGINE_API SdfgiLightDebug : public std::enable_shared_from_this<SdfgiL
   uint32_t slice;
   bool recorded = false;
   std::array<std::shared_ptr<Buffer>, 3> planes;
-  SdfgiLightDebug(uint32_t cascade, uint32_t slice);
+  SdfgiSliceLayout slices;
+  SdfgiLightDebug(uint32_t cascade, uint32_t slice, glm::ivec3 grid = glm::ivec3(128));
   void AddPass(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                const std::shared_ptr<SdfgiResources>& resources, const std::string& dependency);
   void StoreToPng(const std::filesystem::path& path) const;

@@ -14,11 +14,13 @@ void main(uint3 id : SV_DispatchThreadID) {
   float2 uv = (float2(id.xy) + 0.5) / float2(width, height);
   if (data.selection.x == 6) {
     // XY plane at the selected Z slice, preserving square voxels on a wide output.
-    float2 xy = (uv - 0.5) * float2(float(width) / height, 1) + 0.5;
+    float aspect = float(width) / height * float(debug_grid().y) / debug_grid().x;
+    float2 scale = aspect >= 1 ? float2(aspect, 1) : float2(1, 1 / aspect);
+    float2 xy = (uv - 0.5) * scale + 0.5;
     float3 color = float3(0);
     if (all(xy >= 0) && all(xy < 1)) {
       float d = sdf_textures[data.selection.y].SampleLevel(linear_sampler,
-          float3(xy, (data.selection.w + 0.5) / 128.0), 0) * 255;
+          float3(xy, (data.selection.w + 0.5) / debug_grid().z), 0) * 255;
       color = d < 0.5 ? float3(1, 0.3, 0.05) : float3(saturate(d / 32));
     }
     output_image[id.xy] = float4(color, 1);
@@ -34,7 +36,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   for (uint c = 0; c < data.field.x; ++c) {
     float3 pos = (ray_pos - data.cascades[c].offset) * data.cascades[c].to_cell;
     float3 t0 = -pos * inv_dir;
-    float3 t1 = (128 - pos) * inv_dir;
+    float3 t1 = (debug_grid() - pos) * inv_dir;
     float3 tmin = min(t0, t1), tmax = max(t0, t1);
     float advance = max(0.0, max(tmin.x, max(tmin.y, tmin.z)));
     float maximum = min(tmax.x, min(tmax.y, tmax.z));
@@ -42,7 +44,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     bool hit = false;
     float3 uvw = float3(0);
     while (advance < maximum) {
-      uvw = (pos + ray_dir * advance) / 128.0;
+      uvw = (pos + ray_dir * advance) / float3(debug_grid());
       float distance = sdf_textures[c].SampleLevel(linear_sampler, uvw, 0) * 255 - 1.7;
       if (distance < 0.001) { hit = true; break; }
       advance += distance;
@@ -51,11 +53,11 @@ void main(uint3 id : SV_DispatchThreadID) {
       ray_pos = (pos + ray_dir * min(advance, maximum)) / data.cascades[c].to_cell + data.cascades[c].offset;
       continue;
     }
-    const float EPSILON = 0.001;
+    const float3 EPSILON = 0.128 / float3(debug_grid());
     float3 normal = normalize(float3(
-        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(EPSILON, 0, 0), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(EPSILON, 0, 0), 0),
-        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(0, EPSILON, 0), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(0, EPSILON, 0), 0),
-        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(0, 0, EPSILON), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(0, 0, EPSILON), 0)));
+        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(EPSILON.x, 0, 0), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(EPSILON.x, 0, 0), 0),
+        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(0, EPSILON.y, 0), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(0, EPSILON.y, 0), 0),
+        sdf_textures[c].SampleLevel(linear_sampler, uvw + float3(0, 0, EPSILON.z), 0) - sdf_textures[c].SampleLevel(linear_sampler, uvw - float3(0, 0, EPSILON.z), 0)));
     float4 aniso0 = aniso0_textures[c].SampleLevel(linear_sampler, uvw, 0);
     float3 aniso1 = float3(aniso0.a, aniso1_textures[c].SampleLevel(linear_sampler, uvw, 0));
     light = light_textures[c].SampleLevel(linear_sampler, uvw, 0) *

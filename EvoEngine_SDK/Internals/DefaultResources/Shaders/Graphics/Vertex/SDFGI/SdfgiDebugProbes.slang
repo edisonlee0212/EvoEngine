@@ -36,9 +36,9 @@ Output main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
   int3 global_cell = probe_cell + data.cascades[c].probe_world_offset;
   uint layer = (global_cell.x & 1) | ((global_cell.y & 1) << 1) | ((global_cell.z & 1) << 2);
   float visibility = 0;
-  if (all(texel >= 0) && all(texel < 128)) {
-    texel.z += c * 128;
-    if (layer >= 4) { texel.x += 128; layer -= 4; }
+  if (all(texel >= 0) && all(texel < debug_grid())) {
+    texel.z += c * debug_grid().z;
+    if (layer >= 4) { texel.x += debug_grid().x; layer -= 4; }
     visibility = occlusion_texture.Load(int4(texel, 0))[layer];
   }
   output.color = float4(1, visibility, visibility, 1);

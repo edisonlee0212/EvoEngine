@@ -227,11 +227,11 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
       //avoid reading different texture from different threads
       for (uint j = params.cascade; j < params.max_cascades; j++) {
         if (j == hit_cascade) {
-          const float EPSILON = 0.001;
+          const float3 EPSILON = 0.128 / params.grid_size;
           float3 hit_normal = normalize(float3(
-              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(EPSILON, 0.0, 0.0), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(EPSILON, 0.0, 0.0), 0.0),
-              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(0.0, EPSILON, 0.0), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(0.0, EPSILON, 0.0), 0.0),
-              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(0.0, 0.0, EPSILON), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(0.0, 0.0, EPSILON), 0.0)));
+              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(EPSILON.x, 0.0, 0.0), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(EPSILON.x, 0.0, 0.0), 0.0),
+              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(0.0, EPSILON.y, 0.0), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(0.0, EPSILON.y, 0.0), 0.0),
+              sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw + float3(0.0, 0.0, EPSILON.z), 0.0).r - sdf_cascades[hit_cascade].SampleLevel(linear_sampler, uvw - float3(0.0, 0.0, EPSILON.z), 0.0)));
 
           float3 hit_light = light_cascades[hit_cascade].SampleLevel(linear_sampler, uvw, 0.0);
           float4 aniso0 = aniso0_cascades[hit_cascade].SampleLevel(linear_sampler, uvw, 0.0);
@@ -454,7 +454,7 @@ void main(uint3 id : SV_DispatchThreadID) {
 #ifdef MODE_SCROLL
   int3 probe_cell = int3(pos.x % int(params.probe_axis_size), pos.y, pos.x / int(params.probe_axis_size));
   int3 read_probe = probe_cell - params.scroll;
-  bool retained = all(read_probe >= 0) && all(read_probe < int(params.probe_axis_size));
+  bool retained = all(read_probe >= 0) && all(read_probe < int3(params.grid_size / 8) + 1);
   if (retained || params.cascade == params.max_cascades - 1) {
     // Godot keeps the destination's old value at the highest cascade's entering edge.
     int2 tex_pos = retained ? int2(read_probe.x + read_probe.z * int(params.probe_axis_size), read_probe.y) : pos;

@@ -5639,7 +5639,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
                           runtime->settings.Validate().empty() != lighting.sdfgi_settings.Validate().empty()))) {
       const auto capabilities =
           lighting.sdfgi_settings.Validate().empty()
-              ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size)
+              ? QuerySdfgiCapabilities(lighting.sdfgi_settings.cascade_count, lighting.sdfgi_settings.history_size,
+                                       lighting.sdfgi_settings.wide_horizontal_field)
               : SdfgiCapabilityReport{};
       debug->Invalidate(runtime ? "settings" : "provider",
                         runtime ? "Field layout/settings replaced" : "Automatic SDFGI activated");
@@ -5765,8 +5766,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             frame->payload_cascades = runtime->payload_cascades;
             frame->reset_failure = retry_field;
             if (resources->voxel_debug_request)
-              frame->debug = std::make_shared<SdfgiVoxelDebug>(resources->voxel_debug_request->x,
-                                                               resources->voxel_debug_request->y);
+              frame->debug = std::make_shared<SdfgiVoxelDebug>(
+                  resources->voxel_debug_request->x, resources->voxel_debug_request->y, resources->settings.GridSize());
             resources->voxel_frames[current_frame_index] = frame;
             resources->last_voxel_frame = scene_frame;
             frame->AddPasses(scene_graph, registry, resources, runtime);
@@ -5847,8 +5848,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       }
       if (resources->light_debug_request && resources->lighting_recorded) {
         try {
-          auto snapshot =
-              std::make_shared<SdfgiLightDebug>(resources->light_debug_request->x, resources->light_debug_request->y);
+          auto snapshot = std::make_shared<SdfgiLightDebug>(
+              resources->light_debug_request->x, resources->light_debug_request->y, resources->settings.GridSize());
           resources->light_debug_frames.resize(Platform::GetMaxFramesInFlight());
           resources->light_debug_frames[current_frame_index] = snapshot;
           resources->light_debug = snapshot;
@@ -5868,7 +5869,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
           (resources->preprocessed_cascades & (1u << resources->preprocess_debug_request->x))) {
         try {
           auto snapshot = std::make_shared<SdfgiPreprocessDebug>(resources->preprocess_debug_request->x,
-                                                                 resources->preprocess_debug_request->y);
+                                                                 resources->preprocess_debug_request->y,
+                                                                 resources->settings.GridSize());
           resources->preprocess_debug_frames.resize(Platform::GetMaxFramesInFlight());
           resources->preprocess_debug_frames[current_frame_index] = snapshot;
           resources->preprocess_debug = snapshot;

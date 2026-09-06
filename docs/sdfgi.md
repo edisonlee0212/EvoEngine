@@ -260,7 +260,8 @@ reconstructs retained cells after rasterization before preprocessing and publica
 
 The PNG is always 2560 x 1440. Columns are albedo, tone-mapped emission, facing, and occupancy; rows are X-, Y-, and
 Z-normal slices. Within a row, horizontal/vertical axes are cyclic `(Y,Z)`, `(Z,X)`, `(X,Y)`, with positive vertical upward.
-Each 128-cell plane uses 3 pixels/cell. Albedo uses display gamma 2.2; emission uses `radiance/(1+radiance)` and that gamma.
+Each plane is resampled into the existing diagnostic tile; the reference 128-cell plane uses 3 pixels/cell.
+Albedo uses display gamma 2.2; emission uses `radiance/(1+radiance)` and that gamma.
 Facing maps X/Y/Z to red/green/blue; positive bits are full intensity and negative bits 40%; multiple bits combine.
 This is a surface-payload diagnostic, not a beauty image or a DDGI comparison.
 
@@ -370,12 +371,13 @@ World-space distance and cone direction drive host photometry; SDF ray positions
 No camera exposure, Godot physical-unit conversion, DDGI light adapter, or new per-light GI controls are introduced.
 
 Necessary host implementation of the accepted static-light reseed contract: each cascade retains an `UnlitCells` buffer,
-a bounded copy of STORE's unbaked compact records. It uses the same 524,288-record capacity and 16-byte stride, adding
-8 MiB per cascade (32 MiB for defaults). Copying after preprocessing keeps emission, anisotropy, geometry, and neighbor
+a bounded copy of STORE's unbaked compact records. The original baseline used a 524,288-record capacity and 16-byte stride,
+adding 8 MiB per cascade. M12b extends the record to 20 bytes for high X/Z coordinate bits; the reference seed now uses
+10 MiB per cascade, and the wide seed uses 40 MiB. Copying after preprocessing keeps emission, anisotropy, geometry, and neighbor
 bits aligned without extra descriptor bindings or a second seed shader. On static-light edits/removal, copy that seed
 back before reinjection; unchanged static lighting is never added again. This refresh does not rerasterize geometry or
 rebuild SDF/occlusion. M10 will refresh the seed for the accepted occupancy-preserving material-edit extension.
-Default field allocation becomes 328,543,376 bytes; scratch is unchanged. Per-frame light staging is included in upload
+The recorded M6 default field allocation was 328,543,376 bytes; scratch was unchanged. Per-frame light staging is included in upload
 memory, and optional debug plane buffers in diagnostic memory.
 
 Per-cascade lists are selected deterministically by type/handle and bounded to 1024 static or 128 dynamic inputs. Counts
@@ -410,7 +412,7 @@ was run; installation and the agreed manual checkpoints remain later milestones.
 ## Stationary probe transport and storage
 
 M7 ports the executed PROCESS/STORE bodies from the pinned `sdfgi_integrate.glsl` and their `gi.cpp` callers. Every frame
-processes the full 17-cubed probe grid in every cascade, then stores all cascades. Deterministic world-hashed Vogel
+processes the full probe grid in every cascade (17-cubed by default, 33x17x33 with the M12b experiment), then stores all cascades. Deterministic world-hashed Vogel
 directions interleave the reference ray count across the history cycle. Cross-cascade SDF sphere tracing, ray bias,
 SDF-gradient surface normal, and six-lobe voxel radiance remain reference equations. No DDGI ray/update/convergence path
 is used. The reference signed 16-coefficient SH values use 10 fractional bits and int16 saturation; each new history
@@ -770,7 +772,7 @@ the normal frame fence. Turning diagnostics off leaves no additional debug draw/
 | Beauty | Normal composition; enables matching image/state capture without an overlay. |
 | Cascades | Per-cascade colored world bounds. Dim boxes mark the anchor-relative 5.5-to-7.5-probe gather blend zone; exact spacing/extents are in the cascade panel. |
 | SDF | Godot's fine-to-coarse SDF raymarch, anisotropic voxel-light sampling, and sRGB output. Camera-outside-coverage clipping is a host debug adapter. |
-| Probes / Probe visibility | Reference 17-cubed probe spheres and 16-cubed selected-probe occlusion samples. Red samples are hidden, white visible. The probe index uses X/Z/Y order (`x + z*17 + y*289`); world position is displayed. |
+| Probes / Probe visibility | All probe spheres for the selected layout and 16-cubed selected-probe occlusion samples. Red samples are hidden, white visible. The probe index uses X/Z/Y order (`x + z*horizontal_probes + y*horizontal_probes^2`); world position is displayed. |
 | Dirty regions | The most recent maintenance boundary's entering slabs or full-cascade redraw regions. Freeze holds those regions; a stationary normal update clears them. |
 | Distance slice | XY distance/occupancy at selected cascade/Z, with square cells and letterboxing. Orange denotes occupied samples. |
 | SDFGI diffuse / specular | The material/AO-weighted SDFGI contribution only, including the reference sharp-reflection path. Environment fallback, local reflection probes, SSR, direct/emissive light, and forward/external draws are excluded from this selected diagnostic camera. Only tone mapping remains. |
@@ -879,3 +881,62 @@ The installed 2560-by-1440 captures are `tasks/m12-installed-sponza.png` (SHA256
 `tasks/m12-installed-sponza-debug.png` / `.yaml` (PNG SHA256
 `9f2f68ade51e0bdd1438855f3a3b5dff4158fbd110745d973282ae948da03252`). They are installation/diagnostic evidence, not proof of
 interactive GUI acceptance or exact image equality between validation-enabled and normal-build capture sessions.
+
+## Wider horizontal field experiment (M12b)
+
+The pre-experiment baseline is checkpointed at `5313246e`; M12 manual acceptance remains open. This is an explicitly
+requested coverage experiment, not a claim that insufficient coverage caused the reported gallery darkening.
+
+In **Environmental Lighting > Automatic SDFGI**, enable **Wide horizontal field (experimental)**. Off retains the
+Godot 128x128x128 voxel / 17x17x17 probe layout; on selects 256x128x256 voxels / 33x17x33 probes in every cascade.
+Cell size, eight-cell probe spacing, vertical scaling, cascade count, and lighting settings are unchanged. X/Z coverage
+doubles; Y coverage does not. Layout changes recreate the field and restart convergence. The setting is serialized as
+`wide_horizontal_field`, is exposed in Python, and defaults off for both new settings and older saved scenes.
+
+The reference remains `C:/Users/lllll/Documents/GitHub/godot` at `34d06658a85845111a50db9e485ec4a0701d4298`.
+Check that reference first whenever behavior is uncertain. Necessary experimental deviations:
+
+- Rectangular resource extents, raster bounds, jump-flood dispatches, packed occlusion offsets, history/atlas addressing,
+  scroll retention, parent initialization, and all diagnostics follow the selected dimensions. Half-resolution JFA uses
+  one extra jump on the wide grid and consumes the matching ping-pong output.
+- Compact cells retain Godot's original payload and neighbor packing, with a fifth 32-bit word holding the extra X/Z
+  coordinate bits. Both layouts use a 20-byte stride; the compact capacity remains 25% of the voxel count. This is a
+  storage adaptation, not a transport change. Public push-constant/uniform sizes remain unchanged.
+- Diffuse/rough-specular cascade fading retains the two-probe fade width independently on each axis. Sharp reflections
+  use inscribed ellipsoidal coverage instead of spherical coverage for the rectangular field; SDF ray distances remain
+  in voxel/world units. SDF-gradient sample offsets preserve equal voxel-space distances on all axes.
+- Probe previews fit the larger atlas into the existing 1440p diagnostic tiles. Three-axis offline slice requests still
+  use a common slice index 0..127 (valid on every axis); the interactive Z-slice view supports 0..255 in the wide layout.
+
+The wide field contains 4x the voxels and 18,513 probes per cascade versus 4,913 (about 3.77x). This increases memory and
+GI work; it is not a total-frame-time prediction. Historical baseline measurements above describe their original builds.
+No DDGI reuse, authored regions, dedicated asynchronous compute, sparse scheduling, or new lighting behavior is added.
+
+Validation completed on the current RTX 5070 with RT pipeline, ray query, BLAS, and TLAS explicitly disabled:
+
+- SDK, tests, editor, and Python built with `cmake --build out/build/vs2026-x64-tests --config RelWithDebInfo --target
+  EvoEngine_Tests EvoEngineEditor PyEvoEngine --parallel 8` (`tasks/m12b-final-build.log`). The test target was refreshed
+  after the final diagnostic shader edit (`tasks/m12b-resource-refresh.log`).
+- Sixteen focused tests passed in 16.727 seconds (`tasks/m12b-final-tests.log` / `.xml`): reference regressions,
+  rectangular settings/bounds/capabilities, signed scrolling and history retention, high-coordinate voxel packing,
+  occlusion, probe transport, and diffuse/sharp-reflection coverage with unchanged Y extent. All 32 generated SPIR-V
+  variants pass `spirv-val --target-env vulkan1.3 --scalar-block-layout`. No Vulkan or synchronization errors occurred.
+- One validation-enabled 2560x1440 Sponza session switched reference -> wide -> reference, verified publication and
+  allocation reset, and exported matching beauty/probe PNG/YAML pairs (`tasks/m12b-sponza-retry.log`,
+  `tasks/m12b-validation-reference.*`, `tasks/m12b-validation-wide.*`, `tasks/m12b-validation-probes.*`). Both beauty
+  captures use generation 90, ready 1, failures 0; all three captures have zero nonfinite pixels and were visually
+  inspected. The first harness attempt lacked disposable Sponza assets; the corrected run provisioned them explicitly.
+- With four cascades and 30 history frames, live field/scratch storage is 345,320,592 / 94,085,120 bytes in reference
+  mode and 1,342,286,992 / 367,763,456 bytes in wide mode (about 0.41 / 1.59 GiB combined). These are active allocations,
+  not total GPU memory or performance measurements; retired fields can temporarily increase layout-switch memory.
+- All enabled applications, packages, and Python installed successfully with
+  `python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --no-clean-install --jobs 8`.
+  An explicit incremental confirmation returned exit 0 (`tasks/m12b-install-confirm.log`). Installed editor:
+  `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`.
+  `python tasks/m12b-check.py --installed` passed (`tasks/m12b-installed-check.log`): 1440p Sponza, wide layout, all RT
+  flags false, generation 5, ready 1, failures 0. Build, installed-bin, and installed-Python SDK hashes match. The normal
+  installed build has graphics validation off; the test build supplies validation coverage.
+
+Manual gallery movement/darkening comparison remains pending. Launch the review command above, enable the wide-field
+checkbox, allow reconvergence, and compare the same camera movement with it off. No interactive GUI operation or M12
+acceptance is inferred from these automated checks; no broad test matrix or timing gate was run.

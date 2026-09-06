@@ -120,6 +120,8 @@ std::string evo_engine::BuildSdfgiDebugSnapshot(const SdfgiRuntime& runtime) {
   YAML::Emitter settings;
   SerializeSdfgiSettings(settings, runtime.settings);
   node["settings"] = YAML::Load(settings.c_str());
+  node["voxel_grid"] = runtime.settings.GridSize();
+  node["probe_grid"] = runtime.settings.ProbeSize();
   node["published"] = runtime.published;
   node["scene_frame"] = runtime.last_scene_frame;
   node["maintenance_count"] = runtime.maintenance_count;

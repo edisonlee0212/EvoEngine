@@ -27,6 +27,7 @@ struct ResolvedEnvironmentalLighting;
 struct EVOENGINE_API SdfgiCascade {
   float cell_size = 0;
   glm::ivec3 position{0};
+  glm::ivec3 size{128};
   glm::ivec3 dirty_regions{0};
   bool full_redraw = true;
 

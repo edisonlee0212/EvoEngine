@@ -202,6 +202,74 @@ TEST(SdfgiResources, DescriptorLimitsIncludeTheWholeHostPipeline) {
   EXPECT_FALSE(SdfgiResources::ValidateDescriptorLimits({nullptr}, limits).empty());
 }
 
+TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
+  SdfgiSettings reference, wide;
+  wide.wide_horizontal_field = true;
+  EXPECT_EQ(reference.GridSize(), glm::ivec3(128));
+  EXPECT_EQ(reference.ProbeSize(), glm::ivec3(17));
+  EXPECT_EQ(wide.GridSize(), glm::ivec3(256, 128, 256));
+  EXPECT_EQ(wide.ProbeSize(), glm::ivec3(33, 17, 33));
+  EXPECT_EQ(wide.SolidCellCapacity(), reference.SolidCellCapacity() * 4);
+  EXPECT_FALSE(wide.HasSameLayout(reference));
+  EXPECT_FALSE(wide == reference);
+  YAML::Emitter out;
+  SerializeSdfgiSettings(out, wide);
+  SdfgiSettings loaded;
+  DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
+  EXPECT_EQ(loaded, wide);
+  DeserializeSdfgiSettings(YAML::Load("{}"), loaded);
+  EXPECT_FALSE(loaded.wide_horizontal_field);
+  std::vector<SdfgiCascade> a, b;
+  ASSERT_TRUE(UpdateSdfgiCascades(reference, glm::vec3(0), a).empty());
+  ASSERT_TRUE(UpdateSdfgiCascades(wide, glm::vec3(0), b).empty());
+  for (uint32_t c = 0; c < a.size(); ++c) {
+    EXPECT_EQ(b[c].size, wide.GridSize());
+    EXPECT_EQ(a[c].cell_size, b[c].cell_size);
+    const auto before = a[c].WorldBounds(1), after = b[c].WorldBounds(1);
+    EXPECT_EQ(after.max - after.min, (before.max - before.min) * glm::vec3(2, 1, 2));
+  }
+  const auto gather = BuildSdfgiGatherData(wide, b, glm::vec3(0), 1);
+  EXPECT_EQ(gather.probe_axis_size, 33);
+  EXPECT_EQ(gather.grid_size[1], 128);
+  EXPECT_EQ(gather.cascade_probe_size[0], 32);
+  EXPECT_EQ(gather.cascade_probe_size[1], 16);
+  EXPECT_FLOAT_EQ(gather.cascades[0].to_probe, 1 / (8 * wide.min_cell_size));
+  EXPECT_FLOAT_EQ(gather.lightprobe_tex_pixel_size[0], 1.0f / 8712);
+  EXPECT_FLOAT_EQ(gather.lightprobe_uv_offset[2], 264.0f / 8712);
+  const auto requirements = GetSdfgiImageRequirements(8, 30, true);
+  ASSERT_EQ(requirements.size(), 14u);
+  EXPECT_EQ(requirements[0].extent.width, 256u);
+  EXPECT_EQ(requirements[0].extent.height, 128u);
+  EXPECT_EQ(requirements[9].extent.width, 512u);
+  EXPECT_EQ(requirements[9].extent.depth, 2048u);
+  EXPECT_EQ(requirements[12].extent.width, 8712u);
+  EXPECT_EQ(requirements[12].extent.height, 136u);
+  SdfgiSliceLayout slices{wide.GridSize()};
+  EXPECT_EQ(slices.Total(), 131072u);
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    for (uint32_t edge : {0u, 255u}) {
+      EXPECT_LT(slices.Pixel(axis, edge, edge, 256), slices.Count(axis));
+      EXPECT_LE(slices.Offset(axis) + slices.Count(axis), slices.Total());
+    }
+  for (const auto anchor : {glm::vec3(2, -2, 2), glm::vec3(-2, 2, -2), glm::vec3(200, 0, -200)}) {
+    ASSERT_TRUE(UpdateSdfgiCascades(wide, anchor, b).empty());
+    const auto regions = GetSdfgiPendingRegions(b, 1);
+    for (uint32_t c = 0; c < b.size(); ++c) {
+      uint32_t total = 0;
+      for (const auto& region : regions) {
+        if (region.cascade != c)
+          continue;
+        EXPECT_TRUE(glm::all(glm::greaterThan(region.size, glm::ivec3(0))));
+        EXPECT_TRUE(glm::all(glm::greaterThanEqual(region.offset, glm::ivec3(0))));
+        EXPECT_TRUE(glm::all(glm::lessThanEqual(region.offset + region.size, wide.GridSize())));
+        total += region.size.x * region.size.y * region.size.z;
+      }
+      const auto retained = b[c].size - glm::abs(b[c].dirty_regions);
+      EXPECT_EQ(total, b[c].full_redraw ? 256u * 128 * 256 : 256u * 128 * 256 - retained.x * retained.y * retained.z);
+    }
+  }
+}
+
 TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);

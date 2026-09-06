@@ -66,7 +66,7 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
       int3 occ_indexv = abs((sdfgi.cascades[cascade].probe_world_offset + probe_posi) & int3(1, 1, 1)) * int3(1, 2, 4);
       float4 occ_mask = select(int4(occ_indexv.x | occ_indexv.y) == int4(0, 1, 2, 3), float4(1.0), float4(0.0));
 
-      float3 occ_pos = clamp(cascade_pos, probe_pos - sdfgi.occlusion_clamp, probe_pos + sdfgi.occlusion_clamp) * sdfgi.probe_to_uvw;
+      float3 occ_pos = clamp(cascade_pos, probe_pos - sdfgi.occlusion_clamp, probe_pos + sdfgi.occlusion_clamp) / sdfgi.cascade_probe_size;
       occ_pos.z += float(cascade);
       if (occ_indexv.z != 0) { //z bit is on, means index is >=4, so make it switch to the other half of textures
         occ_pos.x += 1.0;
@@ -153,21 +153,10 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
 
     {
       //process blend
-      float blend_from = (float(sdfgi.probe_axis_size - 1) / 2.0) - 2.5;
-      float blend_to = blend_from + 2.0;
-
-      float3 inner_pos = cam_pos * sdfgi.cascades[cascade].to_probe;
-
-      float len = length(inner_pos);
-
-      inner_pos = abs(normalize(inner_pos));
-      len *= max(inner_pos.x, max(inner_pos.y, inner_pos.z));
-
-      if (len >= blend_from) {
-        blend = smoothstep(blend_from, blend_to, len);
-      } else {
-        blend = 0.0;
-      }
+      float3 blend_from = sdfgi.cascade_probe_size * 0.5 - 2.5;
+      float3 inner_pos = abs(cam_pos * sdfgi.cascades[cascade].to_probe);
+      float3 axis_blend = smoothstep(blend_from, blend_from + 2.0, inner_pos);
+      blend = max(axis_blend.x, max(axis_blend.y, axis_blend.z));
     }
 
     if (blend > 0.0) {
@@ -196,9 +185,10 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
       float radius_sizes[SDFGI_MAX_CASCADES];
       cascade = 0xFFFF;
 
-      float base_distance = length(cam_pos);
+      float3 radius_scale = (sdfgi.grid_size - blend_size * 2.0) / (sdfgi.grid_size.y - blend_size * 2.0);
+      float base_distance = length(cam_pos / radius_scale);
       for (uint i = 0; i < sdfgi.max_cascades; i++) {
-        radius_sizes[i] = (1.0 / sdfgi.cascades[i].to_cell) * (sdfgi.grid_size.x * 0.5 - blend_size);
+        radius_sizes[i] = (1.0 / sdfgi.cascades[i].to_cell) * (sdfgi.grid_size.y * 0.5 - blend_size);
         if (cascade == 0xFFFF && base_distance < radius_sizes[i]) {
           cascade = i;
         }
@@ -221,10 +211,10 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
       uint i = 0;
       bool found = false;
       while (true) {
-        if (length(ray_pos) >= max_distance || light_accum.a > 0.99) {
+        if (length(ray_pos / radius_scale) >= max_distance || light_accum.a > 0.99) {
           break;
         }
-        if (!found && i >= cascade && length(ray_pos) < radius_sizes[i]) {
+        if (!found && i >= cascade && length(ray_pos / radius_scale) < radius_sizes[i]) {
           uint next_i = min(i + 1, sdfgi.max_cascades - 1);
           cascade = max(i, cascade); //never go down
 
@@ -258,7 +248,7 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
             }
 
             float prev_radius = i == 0 ? 0.0 : radius_sizes[max(0, i - 1)];
-            float blend = clamp((length(ray_pos) - prev_radius) / (radius_sizes[i] - prev_radius), 0.0, 1.0);
+            float blend = clamp((length(ray_pos / radius_scale) - prev_radius) / (radius_sizes[i] - prev_radius), 0.0, 1.0);
 
             fdistance2 /= sdfgi.cascades[next_i].to_cell;
 

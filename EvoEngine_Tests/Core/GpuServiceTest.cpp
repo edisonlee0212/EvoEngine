@@ -1128,13 +1128,138 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
+TEST(SdfgiWide, GatherExtendsOnlyHorizontalCoverageAndSharpReflectionsWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  SdfgiSettings settings;
+  settings.wide_horizontal_field = true;
+  settings.cascade_count = 1;
+  settings.history_size = 5;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  auto runtime = std::make_shared<SdfgiRuntime>(settings, QuerySdfgiCapabilities(1, 5, true));
+  ASSERT_TRUE(runtime->capabilities.Supported());
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), runtime->cascades).empty());
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  runtime->resources = field;
+  auto output_layout = std::make_shared<DescriptorSetLayout>();
+  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = 14 * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  auto output_set = std::make_shared<DescriptorSet>(output_layout);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  auto gather = std::make_shared<ComputePipeline>();
+  gather->descriptor_set_layouts = SdfgiTestAccess::HostLayouts(*render);
+  gather->descriptor_set_layouts[4] = output_layout;
+  gather->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
+  gather->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.Sdfgi;
+[[vk::binding(0,4)]] RWStructuredBuffer<float4> result;
+[numthreads(1,1,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  const float3 positions[7] = {float3(80,0,0), float3(0,0,80), float3(0,52,0),
+      float3(0,80,0), float3(116,0,0), float3(0,0,132), float3(200,0,0)};
+  EeSdfgiLighting value = EE_SDFGI_GATHER(positions[id.x], float3(0,1,0), float3(1,0,0), id.x < 2 ? 0.0 : 0.5);
+  result[id.x * 2] = float4(value.diffuse, value.weight);
+  result[id.x * 2 + 1] = float4(value.specular, value.specular_weight);
+}
+)"));
+  gather->Initialize();
+  ASSERT_TRUE(gather->Initialized());
+  PlatformLifecycleTestAccess::PreUpdate();
+  auto publication = SdfgiGatherFrame::Create(*runtime, 1);
+  RenderGraph graph;
+  RenderGraphResourceRegistry registry;
+  field->Import(graph, registry);
+  graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                [](const RenderGraphExecutionContext&) {
+                });
+  graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->Clear(command, context);
+    });
+  });
+  graph.AddPass({"SdfgiProbeStore", RenderPassQueue::Graphics, RenderPassScope::Frame, {}, {"SdfgiInitialize"}},
+                [&](const RenderGraphExecutionContext&) {
+                  Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+                    field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+                    VkClearColorValue clear{};
+                    clear.uint32[0] = 2 | (2 << 9) | (2 << 18) | (24u << 27);
+                    VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 2};
+                    Platform::ClearColorImage(command, *field->textures.at("Atlas").image, clear, 1, &range);
+                    range.layerCount = 1;
+                    clear.uint32[0] = 8 | (8 << 9) | (8 << 18) | (24u << 27);
+                    Platform::ClearColorImage(command, *field->textures.at("Cascade0.Light").image, clear, 1, &range);
+                    clear.uint32[0] = 0xffff;
+                    Platform::ClearColorImage(command, *field->textures.at("Occlusion").image, clear, 1, &range);
+                    field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, generation), 4, 1);
+                  });
+                  field->transport_recorded = true;
+                  field->transport_pass = 1;
+                });
+  publication->AddPublication(graph, runtime);
+  RenderResourceDescriptor target;
+  target.name = "WideGatherOutput";
+  target.type = RenderResourceType::Buffer;
+  target.lifetime = RenderResourceLifetime::Persistent;
+  target.byte_size = info.size;
+  graph.AddResource(target);
+  registry.BindBuffer(target.name, output);
+  RenderPassDescriptor pass{"WideGather", RenderPassQueue::Graphics, RenderPassScope::Camera, {}, {"SdfgiPublish"}};
+  pass.resources = publication->CameraReads();
+  pass.resources.push_back({target.name, RenderResourceUsage::Write, RenderResourceState::General});
+  graph.AddPass(pass, [&](const RenderGraphExecutionContext&) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                         VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      gather->Bind(command);
+      gather->BindDescriptorSet(command, 4, output_set->GetVkDescriptorSet());
+      gather->BindDescriptorSet(command, 5, publication->descriptor_set->GetVkDescriptorSet());
+      gather->Dispatch(command, 7);
+    });
+  });
+  const auto plan = graph.Compile({});
+  ASSERT_TRUE(plan.valid);
+  EXPECT_FALSE(plan.uses_compute_queue);
+  graph.Execute(plan, registry);
+  PlatformLifecycleTestAccess::LateUpdate();
+  Platform::WaitForFrameSubmissions("SDFGI rectangular coverage fixture");
+  std::vector<glm::vec4> values;
+  output->DownloadVector(values, 14);
+  const float weights[]{1, 1, 0.5f, 0, 0.5f, 0, 0};
+  for (uint32_t i = 0; i < 7; ++i) {
+    EXPECT_NEAR(values[i * 2].w, weights[i], 1e-5f);
+    EXPECT_NEAR(values[i * 2].x, weights[i] > 0 ? 2.0f : 0.0f, 1e-5f);
+    for (uint32_t component = 0; component < 4; ++component) {
+      EXPECT_TRUE(std::isfinite(values[i * 2][component]));
+      EXPECT_TRUE(std::isfinite(values[i * 2 + 1][component]));
+    }
+  }
+  for (uint32_t i : {1u, 3u}) {
+    EXPECT_NEAR(values[i].x, 4, 1e-5f);
+    EXPECT_FLOAT_EQ(values[i].w, 1);
+  }
+}
+
+void CheckSdfgiScrolling(const bool wide) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.wide_horizontal_field = wide;
+  const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
+  const auto grid = settings.GridSize();
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1155,8 +1280,11 @@ TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
 [[vk::push_constant]] ConstantBuffer<uint> cascade;
 [numthreads(8,8,1)]
 void main(uint3 id : SV_DispatchThreadID) {
-  if (id.x >= 289 || id.y >= 272) return;
-  int base = int(cascade) * 500 + int(id.x % 17) + int(id.y / 16) * 2 + int(id.x / 17) * 4 + int(id.y % 16) * 16;
+  uint width, height;
+  average.GetDimensions(width, height);
+  uint axis = uint(sqrt(float(width)));
+  if (id.x >= width || id.y >= height) return;
+  int base = int(cascade) * 500 + int(id.x % axis) + int(id.y / 16) * 2 + int(id.x / axis) * 4 + int(id.y % 16) * 16;
   int4 sum = 0;
   for (int h = 0; h < 5; ++h) {
     int v = base + h;
@@ -1171,7 +1299,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   ASSERT_TRUE(seed->Initialized());
   const glm::ivec3 shifts[]{{8, 0, 0}, {-8, 0, 0}, {0, 8, 0},   {0, -8, 0},
                             {0, 0, 8}, {0, 0, -8}, {8, -16, 8}, {8, 0, 0}};
-  const SdfgiSolidCell cell{64 | (64 << 7) | (64 << 14), 0x4321 | (13 << 15), 0x12345678, 0x23456789};
+  const SdfgiSolidCell cell{64 | (64 << 7) | (64 << 14), 0x4321 | (13 << 15), 0x12345678, 0x23456789, wide ? 3u : 0u};
   const SdfgiDispatchData dispatch{1, 1, 1, 1};
   const auto value_at = [](const glm::vec3 p, const uint32_t cascade, const int coefficient, const int history) {
     const float v = cascade * 500 + p.x + 2 * p.y + 4 * p.z + coefficient * 16 + history;
@@ -1224,7 +1352,7 @@ void main(uint3 id : SV_DispatchThreadID) {
                   field->sets.at("Frame" + std::to_string(slot) + ".Cascade" + std::to_string(c) + ".Integrate")
                       ->GetVkDescriptorSet());
               seed->PushConstant(command, 0, c);
-              seed->Dispatch(command, 37, 34);
+              seed->Dispatch(command, (columns + 7) / 8, 34);
             }
           });
         });
@@ -1247,34 +1375,35 @@ void main(uint3 id : SV_DispatchThreadID) {
       const auto prefix = "Cascade" + std::to_string(c) + ".";
       VkBufferImageCopy copy{};
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {289, 272, 1};
-      Buffer average_buffer(289 * 272 * sizeof(glm::ivec4));
+      copy.imageExtent = {columns, 272, 1};
+      Buffer average_buffer(columns * 272 * sizeof(glm::ivec4));
       average_buffer.CopyFromImage(*field->textures.at(prefix + "Average").image, copy);
       std::vector<glm::ivec4> average;
-      average_buffer.DownloadVector(average, 289 * 272);
+      average_buffer.DownloadVector(average, columns * 272);
       copy.imageSubresource.layerCount = 5;
-      Buffer history_buffer(289 * 272 * 5 * 8);
+      Buffer history_buffer(columns * 272 * 5 * 8);
       history_buffer.CopyFromImage(*field->textures.at(prefix + "History").image, copy);
       std::vector<int16_t> history;
-      history_buffer.DownloadVector(history, 289 * 272 * 5 * 4);
-      for (const glm::ivec3 p : {glm::ivec3(0), glm::ivec3(16), glm::ivec3(8), glm::ivec3(0, 16, 8),
-                                 glm::ivec3(16, 0, 8), glm::ivec3(8, 8, 0), glm::ivec3(8, 8, 16)}) {
+      history_buffer.DownloadVector(history, columns * 272 * 5 * 4);
+      for (const glm::ivec3 p :
+           {glm::ivec3(0), settings.ProbeSize() - 1, settings.ProbeSize() / 2, glm::ivec3(0, 16, 8),
+            glm::ivec3(16, 0, 8), glm::ivec3(8, 8, 0), glm::ivec3(8, 8, 16)}) {
         const glm::ivec3 read = p - shifts[phase] / 8;
         const bool retained =
-            glm::all(glm::greaterThanEqual(read, glm::ivec3(0))) && glm::all(glm::lessThan(read, glm::ivec3(17)));
+            glm::all(glm::greaterThanEqual(read, glm::ivec3(0))) && glm::all(glm::lessThan(read, settings.ProbeSize()));
         const bool parent = !failed && !retained && c == 0;
         const glm::vec3 source = failed     ? glm::vec3(p)
                                  : retained ? glm::vec3(read)
-                                 : parent   ? glm::vec3(p) * 0.5f + 4.0f
+                                 : parent   ? glm::vec3(p) * 0.5f + glm::vec3(settings.ProbeSize() - 1) * 0.25f
                                             : glm::vec3(p);
         for (int coefficient = 0; coefficient < 16; ++coefficient) {
-          const auto pixel = (p.y * 16 + coefficient) * 289 + p.z * 17 + p.x;
+          const auto pixel = (p.y * 16 + coefficient) * columns + p.z * axis + p.x;
           glm::ivec4 sum(0);
           for (int h = 0; h < 5; ++h) {
             const auto expected = value_at(source, parent ? 1 : c, coefficient, parent ? 2 : h);
             sum += expected;
             for (int channel = 0; channel < 4; ++channel)
-              EXPECT_NEAR(history[(h * 289 * 272 + pixel) * 4 + channel], expected[channel], parent ? 1 : 0);
+              EXPECT_NEAR(history[(h * columns * 272 + pixel) * 4 + channel], expected[channel], parent ? 1 : 0);
           }
           for (int channel = 0; channel < 4; ++channel)
             EXPECT_NEAR(average[pixel][channel], sum[channel], parent ? 5 : 0);
@@ -1284,13 +1413,14 @@ void main(uint3 id : SV_DispatchThreadID) {
         ASSERT_EQ(field->solid_cell_dispatch[c].total_count, 1u);
         SdfgiSolidCell retained;
         field->buffers.at(prefix + "UnlitCells").buffer->Download(retained);
-        const glm::ivec3 write = glm::ivec3(64) + shifts[phase];
-        EXPECT_EQ(retained.position & 0x1fffffu, write.x | (write.y << 7) | (write.z << 14));
+        const glm::ivec3 write = glm::ivec3(wide ? 192 : 64, 64, wide ? 192 : 64) + shifts[phase];
+        EXPECT_EQ(retained.position & 0x1fffffu, (write.x & 127) | (write.y << 7) | ((write.z & 127) << 14));
+        EXPECT_EQ(retained.position_high, uint32_t((write.x >> 7) | ((write.z >> 7) << 1)));
         EXPECT_EQ(retained.albedo & 0x1fffffu, cell.albedo);
         EXPECT_EQ(retained.light & 0x3fffffffu, cell.light);
         EXPECT_EQ(retained.light_aniso & 0x3fffffffu, cell.light_aniso);
         copy.imageSubresource.layerCount = 1;
-        copy.imageOffset = {32, 32, static_cast<int>(c * 128 + 32)};
+        copy.imageOffset = {32, 32, static_cast<int>(c * grid.z + 32)};
         copy.imageExtent = {1, 1, 1};
         Buffer packed_buffer(2);
         packed_buffer.CopyFromImage(*field->textures.at("Occlusion").image, copy);
@@ -1301,11 +1431,11 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 4};
-    copy.imageExtent = {2312, 136, 1};
-    Buffer atlas_buffer(2312 * 136 * 4 * 4);
+    copy.imageExtent = {atlas_width, 136, 1};
+    Buffer atlas_buffer(atlas_width * 136 * 4 * 4);
     atlas_buffer.CopyFromImage(*field->textures.at("Atlas").image, copy);
     std::vector<uint32_t> atlas;
-    atlas_buffer.DownloadVector(atlas, 2312 * 136 * 4);
+    atlas_buffer.DownloadVector(atlas, atlas_width * 136 * 4);
     EXPECT_EQ(std::any_of(atlas.begin(), atlas.end(),
                           [](uint32_t value) {
                             return value != 0;
@@ -1314,13 +1444,25 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
+TEST(SdfgiScrolling, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
+  CheckSdfgiScrolling(false);
+}
+
+TEST(SdfgiWide, SignedRetentionParentHistoryOcclusionAndFailureWithoutRt) {
+  CheckSdfgiScrolling(true);
+}
+
+void CheckSdfgiTransport(const bool wide) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   EXPECT_FALSE(Platform::RayTracingEnabled());
   EXPECT_FALSE(Platform::RayQueryEnabled());
   EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
   SdfgiSettings settings;
+  settings.wide_horizontal_field = wide;
+  const uint32_t axis = settings.ProbeSize().x, columns = axis * axis, atlas_width = columns * 8;
+  const auto grid = settings.GridSize();
+  const uint32_t center_column = (axis / 2) * (axis + 1);
   settings.cascade_count = 2;
   settings.min_cell_size = 1;
   settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
@@ -1339,7 +1481,9 @@ TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutR
 [[vk::binding(7,0)]] [vk::image_format("r8")] RWTexture3D<float> sdf;
 [numthreads(4,4,4)]
 void main(uint3 id : SV_DispatchThreadID) {
-  float3 p = abs(float3(id) + 0.5 - 64);
+  uint width, height, depth;
+  sdf.GetDimensions(width, height, depth);
+  float3 p = abs(float3(id) + 0.5 - float3(width, height, depth) * 0.5);
   float d = max(0.0, abs(max(p.x, max(p.y, p.z)) - 48) - 1);
   sdf[id] = d == 0 ? 0 : (d + 1) / 255.0;
 }
@@ -1455,14 +1599,14 @@ void main(uint3 id : SV_DispatchThreadID) {
               field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
               shell->Bind(command);
               shell->BindDescriptorSet(command, 0, field->sets.at("Cascade1.Store")->GetVkDescriptorSet());
-              shell->Dispatch(command, 32, 32, 32);
+              shell->Dispatch(command, grid.x / 4, grid.y / 4, grid.z / 4);
             }
           });
         });
     field->lighting_recorded = true;
     frame->AddPasses(graph, registry, field, "SdfgiTransportSeed");
     if (iteration == 4) {
-      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, 2456);
+      retained_debug = std::make_shared<SdfgiProbeDebug>(settings, 0, columns * 8 + center_column);
       retained_debug->AddPass(graph, registry, field, "SdfgiProbeStore");
     }
     const auto plan = graph.Compile({});
@@ -1480,7 +1624,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     EXPECT_EQ(status.generation, field->transport_pass);
     VkBufferImageCopy copy{};
     copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    copy.imageOffset = {144, 128, 0};
+    copy.imageOffset = {int32_t(center_column), 128, 0};
     copy.imageExtent = {1, 1, 1};
     Buffer sample(sizeof(glm::ivec4));
     sample.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
@@ -1504,16 +1648,16 @@ void main(uint3 id : SV_DispatchThreadID) {
       EXPECT_EQ(retained_debug->ReadStatus().generation, 5u);
       EXPECT_EQ(retained_debug->ReadStatus().failure_flags, 0u);
       std::vector<glm::ivec4> old_average;
-      retained_debug->data[1]->DownloadVector(old_average, 289 * 272);
+      retained_debug->data[1]->DownloadVector(old_average, columns * 272);
       EXPECT_EQ(old_average, first_average);
     }
     if (iteration == 4 || iteration == 9) {
       copy.imageOffset = {0, 0, 0};
-      copy.imageExtent = {289, 272, 1};
-      Buffer averages(289 * 272 * sizeof(glm::ivec4));
+      copy.imageExtent = {columns, 272, 1};
+      Buffer averages(columns * 272 * sizeof(glm::ivec4));
       averages.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
       std::vector<glm::ivec4> values;
-      averages.DownloadVector(values, 289 * 272);
+      averages.DownloadVector(values, columns * 272);
       if (iteration == 4)
         first_average = values;
       else
@@ -1521,12 +1665,12 @@ void main(uint3 id : SV_DispatchThreadID) {
       EXPECT_TRUE(std::any_of(values.begin(), values.end(), [](const auto& value) {
         return value.x < 0;
       }));
-      copy.imageExtent = {2312, 136, 1};
+      copy.imageExtent = {atlas_width, 136, 1};
       copy.imageSubresource.layerCount = 4;
-      Buffer atlas(2312 * 136 * 4 * sizeof(uint32_t));
+      Buffer atlas(atlas_width * 136 * 4 * sizeof(uint32_t));
       atlas.CopyFromImage(*field->textures.at("Atlas").image, copy);
       std::vector<uint32_t> packed;
-      atlas.DownloadVector(packed, 2312 * 136 * 4);
+      atlas.DownloadVector(packed, atlas_width * 136 * 4);
       if (iteration == 4)
         first_atlas = packed;
       else
@@ -1534,7 +1678,7 @@ void main(uint3 id : SV_DispatchThreadID) {
       bool distinct_layers = false;
       for (uint32_t layer : {0u, 2u}) {
         const auto at = [&](const uint32_t x, const uint32_t y) {
-          return packed[layer * 2312 * 136 + (64 + y) * 2312 + 1152 + x];
+          return packed[layer * atlas_width * 136 + (64 + y) * atlas_width + center_column * 8 + x];
         };
         for (uint32_t i = 1; i <= 6; ++i) {
           EXPECT_EQ(at(i, 0), at(7 - i, 1));
@@ -1547,11 +1691,19 @@ void main(uint3 id : SV_DispatchThreadID) {
         EXPECT_EQ(at(0, 7), at(6, 1));
         EXPECT_EQ(at(7, 7), at(1, 1));
       }
-      for (uint32_t i = 0; i < 2312 * 136; ++i)
-        distinct_layers |= packed[i] != packed[i + 2 * 2312 * 136];
+      for (uint32_t i = 0; i < atlas_width * 136; ++i)
+        distinct_layers |= packed[i] != packed[i + 2 * atlas_width * 136];
       EXPECT_TRUE(distinct_layers);
     }
   }
+}
+
+TEST(SdfgiTransport, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
+  CheckSdfgiTransport(false);
+}
+
+TEST(SdfgiWide, HistorySkyMipOrientationCrossCascadeAndAtlasBordersWithoutRt) {
+  CheckSdfgiTransport(true);
 }
 
 TEST(SdfgiLighting, InjectionCadenceStaticReseedShadowsAndOverflowWithoutRt) {
@@ -1764,10 +1916,15 @@ void main(uint3 id : SV_DispatchThreadID) {
   }
 }
 
-TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
+void CheckSdfgiPreprocess(const bool wide) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   SdfgiSettings settings;
+  settings.wide_horizontal_field = wide;
+  const auto grid = settings.GridSize();
+  const uint32_t volume = grid.x * grid.y * grid.z;
+  const uint32_t width = grid.x;
+  const glm::ivec3 center(wide ? 192 : 64, 64, wide ? 192 : 64);
   settings.cascade_count = 1;
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
   std::string failure;
@@ -1789,14 +1946,16 @@ import EvoEngine.SdfgiTypes;
 [[vk::binding(12,0)]] RWStructuredBuffer<SdfgiFieldStatus> status;
 [numthreads(4,4,4)]
 void main(uint3 id : SV_DispatchThreadID) {
-  bool solid = pattern == 0 ? all(id == uint3(64)) : pattern == 2 && all(id >= uint3(32)) && all(id < uint3(64));
+  uint width, height, depth;
+  albedo.GetDimensions(width, height, depth);
+  bool solid = pattern == 0 ? all(id == uint3(width == 256 ? 192 : 64, 64, depth == 256 ? 192 : 64)) : pattern == 2 && all(id >= uint3(32)) && all(id < uint3(64));
   if (solid) {
     albedo[id] = 1u | (12u << 11) | (6u << 6) | (3u << 1);
     emission[id] = (17u << 25) | 128u;
     aniso[id] = 31;
     facing[id] = 63;
   }
-  if (all(id == uint3(0))) status[0].solid_cell_capacity = pattern == 2 ? 64 : 524288;
+  if (all(id == uint3(0))) status[0].solid_cell_capacity = pattern == 2 ? 64 : width * height * depth / 4;
 }
 )"));
   seed->Initialize();
@@ -1844,7 +2003,7 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
                       seed->Bind(command);
                       seed->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
                       seed->PushConstant(command, 0, pattern);
-                      seed->Dispatch(command, 32, 32, 32);
+                      seed->Dispatch(command, grid.x / 4, grid.y / 4, grid.z / 4);
                     });
                   });
     const auto previous = AddSdfgiPreprocessPass(graph, registry, field, readback, 0, glm::ivec3(0), "SdfgiSeed");
@@ -1887,6 +2046,7 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
     EXPECT_EQ(cells[pattern == 2 ? 64 : 1].position, 0xdeadbeefu);
     if (pattern == 0) {
       EXPECT_EQ(cells[0].position & 0x1fffffu, 64u | (64u << 7) | (64u << 14));
+      EXPECT_EQ(cells[0].position_high, wide ? 3u : 0u);
       EXPECT_EQ(cells[0].albedo & 0x7fffu, (12u << 10) | (6u << 5) | 3u);
       EXPECT_EQ((cells[0].albedo >> 15) & 63, 63u);
       EXPECT_EQ((cells[0].albedo >> 21) | ((cells[0].position >> 21) << 11) | ((cells[0].light >> 30) << 22) |
@@ -1894,34 +2054,35 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
                 0x3ffffffu);
       EXPECT_EQ(cells[0].light & 0x3fffffffu, (17u << 25) | 128u);
       EXPECT_EQ(cells[0].light_aniso & 0x3fffffffu, 31u);
-      Buffer pixels(128 * 128 * 128);
+      Buffer pixels(volume);
       VkBufferImageCopy copy{};
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {128, 128, 128};
+      copy.imageExtent = {uint32_t(grid.x), uint32_t(grid.y), uint32_t(grid.z)};
       pixels.CopyFromImage(*field->textures.at("Cascade0.Sdf").image, copy);
       std::vector<uint8_t> sdf;
-      pixels.DownloadVector(sdf, 128 * 128 * 128);
-      for (int z = 0; z < 128; z += 8)
+      pixels.DownloadVector(sdf, volume);
+      for (int z = 0; z < grid.z; z += 8)
         for (int y = 0; y < 128; y += 8)
-          for (int x = 0; x < 128; x += 8) {
-            const float distance = glm::length(glm::vec3(x - 64, y - 64, z - 64));
+          for (int x = 0; x < grid.x; x += 8) {
+            const float distance = glm::length(glm::vec3(glm::ivec3(x, y, z) - center));
             // Vulkan permits either adjacent integer for floating-point to UNORM conversion.
-            const float encoded = distance == 0 ? 0 : distance + 1;
-            EXPECT_GE(sdf[x + y * 128 + z * 128 * 128], std::floor(encoded));
-            EXPECT_LE(sdf[x + y * 128 + z * 128 * 128], std::ceil(encoded));
+            const float encoded = distance == 0 ? 0 : std::min(255.0f, distance + 1);
+            EXPECT_GE(sdf[x + y * width + z * width * 128], std::floor(encoded));
+            EXPECT_LE(sdf[x + y * width + z * width * 128], std::ceil(encoded));
           }
     }
     if (pattern == 1) {
       // Godot STORE deliberately tests the xyz position, not w; its empty-grid origin sentinel is preserved.
       EXPECT_EQ(cells[0].position & 0x1fffffu, 0u);
+      EXPECT_EQ(cells[0].position_high, 0u);
       EXPECT_EQ(cells[0].albedo & 0x1fffffu, 0u);
-      Buffer pixels(256 * 128 * 128 * 2);
+      Buffer pixels(volume * 2 * 2);
       VkBufferImageCopy copy{};
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {256, 128, 128};
+      copy.imageExtent = {2 * width, 128, width};
       pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
       std::vector<uint16_t> occlusion;
-      pixels.DownloadVector(occlusion, 256 * 128 * 128);
+      pixels.DownloadVector(occlusion, volume * 2);
       for (uint32_t i = 0; i < occlusion.size(); i += 1331)
         EXPECT_EQ(occlusion[i], 0xffffu);
     }
@@ -1944,21 +2105,30 @@ void main(uint3 id : SV_DispatchThreadID) { InterlockedAdd(count[0], 1); }
     store->Bind(command);
     store->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
     SdfgiPreprocessPushConstant params{};
-    params.grid_size = 128;
+    params.grid_size = width;
+    params.wide_horizontal_field = wide;
     store->PushConstant(command, 0, params);
-    store->Dispatch(command, 32, 32, 32);
+    store->Dispatch(command, grid.x / 4, grid.y / 4, grid.z / 4);
   });
   PlatformLifecycleTestAccess::LateUpdate();
   Platform::WaitForFrameSubmissions("SDFGI occlusion channel packing readback");
-  Buffer pixels(256 * 128 * 128 * 2);
+  Buffer pixels(volume * 2 * 2);
   VkBufferImageCopy copy{};
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-  copy.imageExtent = {256, 128, 128};
+  copy.imageExtent = {2 * width, 128, width};
   pixels.CopyFromImage(*field->textures.at("Occlusion").image, copy);
   std::vector<uint16_t> occlusion;
-  pixels.DownloadVector(occlusion, 256 * 128 * 128);
-  EXPECT_EQ(occlusion[64 + 64 * 256 + 64 * 256 * 128], 0x05afu);
-  EXPECT_EQ(occlusion[192 + 64 * 256 + 64 * 256 * 128], 0xfa50u);
+  pixels.DownloadVector(occlusion, volume * 2);
+  EXPECT_EQ(occlusion[64 + 64 * width * 2 + 64 * width * 2 * 128], 0x05afu);
+  EXPECT_EQ(occlusion[64 + width + 64 * width * 2 + 64 * width * 2 * 128], 0xfa50u);
+}
+
+TEST(SdfgiPreprocess, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
+  CheckSdfgiPreprocess(false);
+}
+
+TEST(SdfgiWide, DistanceOcclusionPackingAndBoundedIndirectOverflowWithoutRt) {
+  CheckSdfgiPreprocess(true);
 }
 
 TEST(StaticBlasBuilder, PublishesCompactedSharedGeometryAfterGpuCompletion) {

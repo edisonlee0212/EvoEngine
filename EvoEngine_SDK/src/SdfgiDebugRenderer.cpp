@@ -127,8 +127,10 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   auto& debug = *runtime->debug;
   const auto resources = runtime->resources;
   debug.cascade = std::min(debug.cascade, static_cast<uint32_t>(std::max<size_t>(1, runtime->cascades.size()) - 1));
-  debug.probe = std::min(debug.probe, 4912u);
-  debug.slice = std::min(debug.slice, 127u);
+  const auto probes = runtime->settings.ProbeSize();
+  const uint32_t probe_count = probes.x * probes.y * probes.z;
+  debug.probe = std::min(debug.probe, probe_count - 1);
+  debug.slice = std::min(debug.slice, uint32_t(runtime->settings.GridSize().z - 1));
   const auto remember = [runtime, resources, camera, camera_data, view = debug.view,
                          selection =
                              glm::uvec3(debug.cascade, debug.probe, debug.slice)](const RenderGraphExecutionContext&) {
@@ -163,8 +165,9 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   data.origin_y_mult =
       glm::vec4(glm::vec3(camera_data.inverse_view[3]), SdfgiYMultiplier(runtime->settings.vertical_scale));
   data.selection = {static_cast<uint32_t>(debug.view), std::min(debug.cascade, runtime->settings.cascade_count - 1),
-                    std::min(debug.probe, 4912u), std::min(debug.slice, 127u)};
-  data.field = {runtime->settings.cascade_count, 0, debug.depth_test, 0};
+                    std::min(debug.probe, probe_count - 1),
+                    std::min(debug.slice, uint32_t(runtime->settings.GridSize().z - 1))};
+  data.field = {runtime->settings.cascade_count, 0, debug.depth_test, uint32_t(runtime->settings.GridSize().x)};
   data.cascades = BuildSdfgiCascadeBlock(runtime->cascades);
   const auto box = [&](const Bound& bounds, const glm::vec4 color) {
     if (glm::all(glm::lessThanEqual(bounds.min, bounds.max)) &&
@@ -175,9 +178,11 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
     for (uint32_t c = 0; c < runtime->cascades.size(); ++c) {
       const auto bounds = runtime->cascades[c].WorldBounds(data.origin_y_mult.w);
       box(bounds, CascadeColor(c));
-      // Godot's gather blends over probe radii 5.5..7.5, inside the 8-probe half extent.
+      // The reference fade width remains two probes on every axis.
       for (const float radius : {44.0f, 60.0f}) {
-        const auto extent = glm::vec3(radius * runtime->cascades[c].cell_size) / glm::vec3(1, data.origin_y_mult.w, 1);
+        const auto extent =
+            ((glm::vec3(runtime->cascades[c].size) * 0.5f - 64.0f + radius) * runtime->cascades[c].cell_size) /
+            glm::vec3(1, data.origin_y_mult.w, 1);
         box({runtime->anchor.world_position - extent, runtime->anchor.world_position + extent},
             CascadeColor(c) * glm::vec4(0.5f, 0.5f, 0.5f, 1));
       }
@@ -310,7 +315,7 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
           };
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Probes) ||
               frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
-            draw(0, 112, 4913);
+            draw(0, 112, (frame->data.field.w / 8 + 1) * (frame->data.field.w / 8 + 1) * 17);
           if (frame->data.selection.x == static_cast<uint32_t>(SdfgiDebugView::Visibility))
             draw(1, 112, 4096);
           if (!frame->boxes.empty())

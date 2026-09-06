@@ -110,7 +110,8 @@ std::shared_ptr<SdfgiResources> SdfgiResources::TryCreate(
   failure = settings.Validate();
   if (!failure.empty())
     return {};
-  const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size);
+  const auto report =
+      QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.wide_horizontal_field);
   if (!report.Supported()) {
     failure = report.ToString();
     return {};
@@ -134,7 +135,8 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
     if (allocations++ == fail_after_allocations)
       throw std::runtime_error("forced allocation failure");
   };
-  const auto requirements = GetSdfgiImageRequirements(settings.cascade_count, settings.history_size);
+  const auto requirements =
+      GetSdfgiImageRequirements(settings.cascade_count, settings.history_size, settings.wide_horizontal_field);
   const auto add_image = [&](const std::string& name, SdfgiImageRequirement requirement,
                              const SdfgiMemoryClass memory_class, const bool cube = false) {
     checkpoint();
@@ -217,9 +219,9 @@ void SdfgiResources::Allocate(const std::vector<std::shared_ptr<DescriptorSetLay
     add_image(CascadeName(c, "Aniso1"), requirements[8], SdfgiMemoryClass::Field);
     add_image(CascadeName(c, "History"), requirements[10], SdfgiMemoryClass::Field);
     add_image(CascadeName(c, "Average"), requirements[11], SdfgiMemoryClass::Field);
-    add_buffer(CascadeName(c, "SolidCells"), sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity,
+    add_buffer(CascadeName(c, "SolidCells"), sizeof(SdfgiSolidCell) * settings.SolidCellCapacity(),
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
-    add_buffer(CascadeName(c, "UnlitCells"), sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity,
+    add_buffer(CascadeName(c, "UnlitCells"), sizeof(SdfgiSolidCell) * settings.SolidCellCapacity(),
                VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, SdfgiMemoryClass::Field);
     add_buffer(CascadeName(c, "Dispatch"), sizeof(SdfgiDispatchData), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
                SdfgiMemoryClass::Field);
@@ -382,7 +384,7 @@ void SdfgiResources::CreateDescriptors() {
   }
   auto set = make_set("Upscale", SdfgiLayout::Upscale);
   image(set, 1, "Albedo");
-  image(set, 2, "JumpFloodHalf0");
+  image(set, 2, settings.wide_horizontal_field ? "JumpFloodHalf1" : "JumpFloodHalf0");
   image(set, 3, "JumpFlood0");
   set = make_set("Occlusion", SdfgiLayout::Occlusion);
   image(set, 1, "Albedo");
@@ -677,7 +679,7 @@ void SdfgiResources::Clear(const VkCommandBuffer command_buffer, const RenderGra
   for (const auto& [name, resource] : buffers)
     vkCmdFillBuffer(command_buffer, resource.buffer->GetVkBuffer(), 0, VK_WHOLE_SIZE, 0);
   OrderAccess(command_buffer, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
-  const SdfgiFieldStatus status{0, 0, 0, kSdfgiSolidCellCapacity};
+  const SdfgiFieldStatus status{0, 0, 0, settings.SolidCellCapacity()};
   vkCmdUpdateBuffer(command_buffer, buffers.at("Status").buffer->GetVkBuffer(), 0, sizeof(status), &status);
   OrderAccess(command_buffer, kFieldStages, kFieldAccess);
   initialization_recorded = true;

@@ -84,7 +84,7 @@ uint32_t evo_engine::BoundSdfgiLightList(std::vector<SdfgiLightInput>& lights, c
 
 Bound SdfgiCascade::WorldBounds(const float y_mult) const {
   const glm::vec3 scale = cell_size * glm::vec3(1, 1 / y_mult, 1);
-  return {glm::vec3(position - glm::ivec3(64)) * scale, glm::vec3(position + glm::ivec3(64)) * scale};
+  return {glm::vec3(position - size / 2) * scale, glm::vec3(position + size / 2) * scale};
 }
 
 std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const glm::vec3& anchor,
@@ -103,6 +103,7 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
     for (uint32_t i = 0; i < settings.cascade_count; ++i) {
       SdfgiCascade cascade;
       cascade.cell_size = cell_size;
+      cascade.size = settings.GridSize();
       cascade.position = glm::ivec3(glm::floor(world_position / (cell_size * 8) + glm::vec3(0.5f))) * 8;
       cascades.push_back(cascade);
       cell_size *= 2;
@@ -119,7 +120,7 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
       const int64_t delta = static_cast<int64_t>(cell_position[axis]) - cascade.position[axis];
       const int64_t shift = std::abs(delta) > 4 ? ((std::abs(delta) - 4 + 7) / 8) * 8 * (delta < 0 ? -1 : 1) : 0;
       cascade.position[axis] = static_cast<int32_t>(cascade.position[axis] + shift);
-      if (std::abs(shift) >= 128) {
+      if (std::abs(shift) >= cascade.size[axis]) {
         cascade.full_redraw = true;
         break;
       }
@@ -128,8 +129,8 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
     if (!cascade.full_redraw) {
       uint32_t safe_volume = 1;
       for (int axis = 0; axis < 3; ++axis)
-        safe_volume *= 128 - std::abs(cascade.dirty_regions[axis]);
-      cascade.full_redraw = 128 * 128 * 128 - safe_volume > safe_volume / 2;
+        safe_volume *= cascade.size[axis] - std::abs(cascade.dirty_regions[axis]);
+      cascade.full_redraw = cascade.size.x * cascade.size.y * cascade.size.z - safe_volume > safe_volume / 2;
     }
     if (cascade.full_redraw)
       cascade.dirty_regions = glm::ivec3(0);
@@ -144,21 +145,21 @@ std::vector<SdfgiPendingRegion> evo_engine::GetSdfgiPendingRegions(const std::ve
     const auto& cascade = cascades[i];
     const auto append = [&](const glm::ivec3& from, const glm::ivec3& to) {
       const glm::vec3 scale = cascade.cell_size * glm::vec3(1, 1 / y_mult, 1);
-      const glm::vec3 min = glm::vec3(from - glm::ivec3(64) + cascade.position) * scale;
+      const glm::vec3 min = glm::vec3(from - cascade.size / 2 + cascade.position) * scale;
       regions.push_back({i, from, to - from, {min, min + glm::vec3(to - from) * scale}});
     };
     if (cascade.full_redraw) {
-      append(glm::ivec3(0), glm::ivec3(128));
+      append(glm::ivec3(0), cascade.size);
       continue;
     }
     for (int axis = 0; axis < 3; ++axis) {
       if (cascade.dirty_regions[axis] == 0)
         continue;
-      glm::ivec3 from(0), to(128);
+      glm::ivec3 from(0), to(cascade.size);
       if (cascade.dirty_regions[axis] > 0)
         to[axis] = cascade.dirty_regions[axis];
       else
-        from[axis] += 128 + cascade.dirty_regions[axis];
+        from[axis] += cascade.size[axis] + cascade.dirty_regions[axis];
       for (int previous = 0; previous < axis; ++previous) {
         if (cascade.dirty_regions[previous] > 0)
           from[previous] += cascade.dirty_regions[previous];
@@ -177,7 +178,7 @@ SdfgiCascadeBlock evo_engine::BuildSdfgiCascadeBlock(const std::vector<SdfgiCasc
     const auto& cascade = cascades[i];
     auto& data = result.data[i];
     for (int axis = 0; axis < 3; ++axis) {
-      data.offset[axis] = (cascade.position[axis] - 64) * cascade.cell_size;
+      data.offset[axis] = (cascade.position[axis] - cascade.size[axis] / 2) * cascade.cell_size;
       data.probe_world_offset[axis] = cascade.position[axis] / 8;
     }
     data.to_cell = 1 / cascade.cell_size;

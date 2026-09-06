@@ -22,10 +22,11 @@ bool SameLights(const std::vector<SdfgiLight>& a, const std::vector<SdfgiLight>&
 }
 }  // namespace
 
-SdfgiLightDebug::SdfgiLightDebug(const uint32_t index, const uint32_t plane) : cascade(index), slice(plane) {
+SdfgiLightDebug::SdfgiLightDebug(const uint32_t index, const uint32_t plane, const glm::ivec3 grid)
+    : cascade(index), slice(plane), slices{grid} {
   for (uint32_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = 3 * 128 * 128 * (i == 2 ? 2 : 4);
+    info.size = slices.Total() * (i == 2 ? 2 : 4);
     info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     VmaAllocationCreateInfo allocation{};
     allocation.usage = VMA_MEMORY_USAGE_AUTO;
@@ -62,9 +63,10 @@ void SdfgiLightDebug::AddPass(RenderGraph& graph, RenderGraphResourceRegistry& r
         std::array<VkBufferImageCopy, 3> copies{};
         for (uint32_t axis = 0; axis < 3; ++axis) {
           auto& copy = copies[axis];
-          copy.bufferOffset = axis * 128 * 128 * (i == 2 ? 2 : 4);
+          copy.bufferOffset = snapshot->slices.Offset(axis) * (i == 2 ? 2 : 4);
           copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-          copy.imageExtent = {128, 128, 128};
+          copy.imageExtent = {uint32_t(snapshot->slices.grid.x), uint32_t(snapshot->slices.grid.y),
+                              uint32_t(snapshot->slices.grid.z)};
           if (axis == 0) {
             copy.imageOffset.x = snapshot->slice;
             copy.imageExtent.width = 1;
@@ -100,9 +102,9 @@ void SdfgiLightDebug::StoreToPng(const std::filesystem::path& path) const {
   Platform::WaitForFrameSubmissions("SDFGI explicit light-volume diagnostic readback");
   std::vector<uint32_t> light;
   std::vector<uint8_t> aniso0, aniso1;
-  planes[0]->DownloadVector(light, 3 * 128 * 128);
-  planes[1]->DownloadVector(aniso0, 3 * 128 * 128 * 4);
-  planes[2]->DownloadVector(aniso1, 3 * 128 * 128 * 2);
+  planes[0]->DownloadVector(light, slices.Total());
+  planes[1]->DownloadVector(aniso0, slices.Total() * 4);
+  planes[2]->DownloadVector(aniso1, slices.Total() * 2);
   std::vector<uint8_t> pixels(2560 * 1440 * 4, 255);
   for (int y = 0; y < 1440; ++y)
     for (int x = 0; x < 2560; ++x) {
@@ -110,8 +112,7 @@ void SdfgiLightDebug::StoreToPng(const std::filesystem::path& path) const {
       const int u = x % 365 - 54, v = y % 480 - 112;
       glm::vec3 color(6.0f / 255.0f);
       if (column < 7 && u >= 0 && v >= 0 && u < 256 && v < 256) {
-        const uint32_t right = u / 2, up = 127 - v / 2;
-        const uint32_t offset = axis * 128 * 128 + (axis == 1 ? up + right * 128 : right + up * 128);
+        const uint32_t offset = slices.Offset(axis) + slices.Pixel(axis, u, v, 256);
         const uint32_t packed = light[offset];
         color = glm::vec3(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511) *
                 std::ldexp(1.0f, static_cast<int>(packed >> 27) - 24);
@@ -141,8 +142,8 @@ SdfgiCascadeLights evo_engine::BuildSdfgiCascadeLights(const std::vector<SdfgiLi
   SdfgiCascadeLights result;
   std::array<std::vector<SdfgiLightInput>, 2> selected;
   // Preserve the reference cascade-AABB comparison before Y-adjusting uploaded light positions.
-  const Bound bounds{glm::vec3(cascade.position - glm::ivec3(64)) * cascade.cell_size,
-                     glm::vec3(cascade.position + glm::ivec3(64)) * cascade.cell_size};
+  const Bound bounds{glm::vec3(cascade.position - cascade.size / 2) * cascade.cell_size,
+                     glm::vec3(cascade.position + cascade.size / 2) * cascade.cell_size};
   for (const auto& input : inputs) {
     const bool directional = input.type == SdfgiLightInput::Type::Directional;
     if (!directional && (index >= positional_light_cascade_count ||
@@ -252,7 +253,7 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
       ApplyGraphResourceBarriers(command, context);
-      const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
+      const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * resources->settings.SolidCellCapacity()};
       if (overflow)
         return;
       const auto timing =
@@ -265,10 +266,10 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
           command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
           VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
       SdfgiDirectLightPushConstant params{};
-      for (auto& size : params.grid_size)
-        size = 128;
+      for (uint32_t axis = 0; axis < 3; ++axis)
+        params.grid_size[axis] = resources->settings.GridSize()[axis];
       params.max_cascades = frame->settings.cascade_count;
-      params.probe_axis_size = 17;
+      params.probe_axis_size = resources->settings.ProbeSize().x;
       params.y_mult = SdfgiYMultiplier(frame->settings.vertical_scale);
       params.use_occlusion = frame->settings.use_occlusion;
       for (uint32_t kind = 0; kind < 2; ++kind) {

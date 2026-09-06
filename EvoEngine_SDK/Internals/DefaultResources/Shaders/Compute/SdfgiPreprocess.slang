@@ -51,6 +51,10 @@ import EvoEngine.SdfgiTypes;
 #endif
 
 
+int3 grid_size() {
+  return int3(params.grid_size, params.wide_horizontal_field != 0 ? params.grid_size / 2 : params.grid_size, params.grid_size);
+}
+
 #define GROUP_SIZE 8
 #define OCCLUSION_SIZE 8
 #ifdef MODE_JUMPFLOOD_OPTIMIZED
@@ -113,9 +117,9 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
   uint index = id.x;
   if (field_status[0].failure_flags != 0 || index >= min(dispatch_data[0].total_count, field_status[0].solid_cell_capacity)) return;
   SdfgiSolidCell voxel = src_process_voxels[index];
-  int3 read_pos = int3((uint3(voxel.position) >> uint3(0, 7, 14)) & 127);
+  int3 read_pos = SdfgiUnpackPosition(voxel);
   int3 write_pos = read_pos + params.scroll;
-  if (any(write_pos < 0) || any(write_pos >= int3(params.grid_size))) return;
+  if (any(write_pos < 0) || any(write_pos >= grid_size())) return;
   dst_albedo[write_pos] = ((voxel.albedo & 0x7fff) << 1) | 1;
   dst_facing[write_pos] = (voxel.albedo >> 15) & 0x3f;
   dst_light[write_pos] = voxel.light & 0x3fffffff;
@@ -124,7 +128,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
 #ifdef MODE_SCROLL_OCCLUSION
   int3 pos = int3(id);
-  if (any(pos >= int3(params.grid_size) - abs(params.scroll))) return;
+  if (any(pos >= grid_size() - abs(params.scroll))) return;
   int3 read_pos = pos + max(int3(0), -params.scroll);
   int3 write_pos = pos + max(int3(0), params.scroll);
   read_pos.z += int(params.cascade * params.grid_size);
@@ -239,7 +243,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
   for (uint i = 0; i < offset_count; i++) {
     int3 ofs = pos + offsets[i] * params.step_size;
-    if (any((ofs < int3(0))) || any((ofs >= int3(params.grid_size)))) {
+    if (any((ofs < int3(0))) || any((ofs >= grid_size()))) {
       continue;
     }
     uint4 q = uint4(src_positions[ofs]);
@@ -273,7 +277,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
       int3 load_pos = base_pos + ((int3(i) >> int3(0, 1, 2)) & int3(1, 1, 1));
       int3 load_global_pos = group_pos + (load_pos - int3(1)) * params.step_size;
       uint4 q;
-      if (all((load_global_pos >= int3(0))) && all((load_global_pos < int3(params.grid_size)))) {
+      if (all((load_global_pos >= int3(0))) && all((load_global_pos < grid_size()))) {
         q = uint4(src_positions[load_global_pos]);
       } else {
         q = uint4(0); //unused
@@ -288,7 +292,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
   int3 global_pos = group_pos + int3(local_id.xyz) * params.step_size;
 
-  if (any((global_pos < int3(0))) || any((global_pos >= int3(params.grid_size)))) {
+  if (any((global_pos < int3(0))) || any((global_pos >= grid_size()))) {
     return; //do nothing else, end here because outside range
   }
 
@@ -405,8 +409,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     //validate scroll region
     int3 region_offset_to = region_offset + int3(OCCLUSION_SIZE * 2);
     uint3 scroll_mask = uint3(params.scroll != int3(0));
-    int3 scroll_from = select((params.scroll < int3(0)), int3(params.grid_size) + params.scroll, int3(0));
-    int3 scroll_to = select((params.scroll > int3(0)), params.scroll, int3(params.grid_size));
+    int3 scroll_from = select((params.scroll < int3(0)), grid_size() + params.scroll, int3(0));
+    int3 scroll_to = select((params.scroll > int3(0)), params.scroll, grid_size());
 
     if (all(((uint3(region_offset_to <= scroll_from) | uint3(region_offset >= scroll_to)) * scroll_mask) == scroll_mask)) {
       region_out_of_bounds = true; //region outside scroll bounds, quit
@@ -425,7 +429,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
       uint facing_pack = 0;
       for (int j = 0; j < 4; j++) {
         int3 foffset = region_offset + offset + int3(j, 0, 0);
-        if (all((foffset >= int3(0))) && all((foffset < int3(params.grid_size)))) {
+        if (all((foffset >= int3(0))) && all((foffset < grid_size()))) {
           uint f = uint4(src_facing[foffset]).r;
           facing_pack |= f << (j * 8);
         }
@@ -461,7 +465,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           int3 proc_sign = bits * 2 - 1;
           int3 local_offset = int3(OCCLUSION_SIZE) + proc_abs * proc_sign - (int3(1) - bits);
           int3 offset = local_offset + region_offset;
-          if (all((offset >= int3(0))) && all((offset < int3(params.grid_size)))) {
+          if (all((offset >= int3(0))) && all((offset < grid_size()))) {
             float occ;
 
             uint facing = get_facing(local_offset);
@@ -498,7 +502,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
               uint facing_x = get_facing(read_x - region_offset);
               if (facing_x == 0) {
-                if (all((read_x >= int3(0))) && all((read_x < int3(params.grid_size)))) {
+                if (all((read_x >= int3(0))) && all((read_x < grid_size()))) {
                   occ += float4(dst_occlusion[params.occlusion_index][read_x]).r;
                   avg += 1.0;
                 }
@@ -510,7 +514,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
               uint facing_y = get_facing(read_y - region_offset);
               if (facing_y == 0) {
-                if (all((read_y >= int3(0))) && all((read_y < int3(params.grid_size)))) {
+                if (all((read_y >= int3(0))) && all((read_y < grid_size()))) {
                   occ += float4(dst_occlusion[params.occlusion_index][read_y]).r;
                   avg += 1.0;
                 }
@@ -522,7 +526,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
 
               uint facing_z = get_facing(read_z - region_offset);
               if (facing_z == 0) {
-                if (all((read_z >= int3(0))) && all((read_z < int3(params.grid_size)))) {
+                if (all((read_z >= int3(0))) && all((read_z < grid_size()))) {
                   occ += float4(dst_occlusion[params.occlusion_index][read_z]).r;
                   avg += 1.0;
                 }
@@ -552,7 +556,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
       int3 local_offset = local_ofs + ((int3(i) >> int3(0, 2, 4)) & int3(3, 3, 3));
       int3 offset = region_offset + local_offset;
 
-      if (all((offset >= int3(0))) && all((offset < int3(params.grid_size)))) {
+      if (all((offset >= int3(0))) && all((offset < grid_size()))) {
         uint facing = get_facing(local_offset);
 
         if (facing != 0) {
@@ -579,7 +583,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -591,7 +595,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -603,7 +607,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -617,7 +621,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -629,7 +633,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -641,7 +645,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -655,7 +659,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             uint f = get_facing(read_offset);
             if (f == 0) {
               read_offset += region_offset;
-              if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+              if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
                 occ += float4(dst_occlusion[params.occlusion_index][read_offset]).r;
                 avg += 1.0;
               }
@@ -683,7 +687,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     int3 local_offset = local_ofs + ((int3(i) >> int3(0, 2, 4)) & int3(3, 3, 3));
     int3 offset = region_offset + local_offset;
 
-    if (all((offset >= int3(0))) && all((offset < int3(params.grid_size)))) {
+    if (all((offset >= int3(0))) && all((offset < grid_size()))) {
       uint facing = get_facing(local_offset);
 
       if (facing == 0) {
@@ -710,7 +714,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint x_mask = get_facing(read_offset);
           if (x_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(x_mask & read_mask.x) && !bool(x_mask & block_mask.x)) {
                 visible += 1.0;
@@ -724,7 +728,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint y_mask = get_facing(read_offset);
           if (y_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(y_mask & read_mask.y) && !bool(y_mask & block_mask.y)) {
                 visible += 1.0;
@@ -738,7 +742,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint z_mask = get_facing(read_offset);
           if (z_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(z_mask & read_mask.z) && !bool(z_mask & block_mask.z)) {
                 visible += 1.0;
@@ -758,7 +762,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint x_mask = get_facing(read_offset);
           if (x_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(x_mask & read_mask.x) && !bool(x_mask & block_mask.x)) {
                 visible += 1.0;
@@ -772,7 +776,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint y_mask = get_facing(read_offset);
           if (y_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(y_mask & read_mask.y) && !bool(y_mask & block_mask.y)) {
                 visible += 1.0;
@@ -786,7 +790,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
           uint z_mask = get_facing(read_offset);
           if (z_mask != 0) {
             read_offset += region_offset;
-            if (all((read_offset >= int3(0))) && all((read_offset < int3(params.grid_size)))) {
+            if (all((read_offset >= int3(0))) && all((read_offset < grid_size()))) {
               occlude_total += 1.0;
               if (bool(z_mask & read_mask.z) && !bool(z_mask & block_mask.z)) {
                 visible += 1.0;
@@ -857,7 +861,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
     uint index;
     InterlockedAdd(store_position_count, 1, index);
     // At least do the conversion work in parallel
-    store_positions[index].position = uint(pos.x | (pos.y << 7) | (pos.z << 14));
+    store_positions[index].position = uint((pos.x & 127) | (pos.y << 7) | ((pos.z & 127) << 14));
+    store_positions[index].position_high = uint((pos.x >> 7) | ((pos.z >> 7) << 1));
 
     //see around which voxels point to this one, add them to the list
     uint bit_index = 0;
@@ -869,7 +874,7 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID, uin
             continue;
           }
           int3 npos = pos + int3(i, j, k);
-          if (all((npos >= int3(0))) && all((npos < int3(params.grid_size)))) {
+          if (all((npos >= int3(0))) && all((npos < grid_size()))) {
             p = uint4(src_positions[npos]);
             if (all(int3(p.xyz) == pos)) {
               neighbour_bits |= (1 << bit_index);

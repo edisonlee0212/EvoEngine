@@ -4,6 +4,7 @@
 
 #include "SdfgiResources.hpp"
 #include "SdfgiScene.hpp"
+#include "SdfgiSliceLayout.hpp"
 
 namespace evo_engine {
 
@@ -17,7 +18,8 @@ class EVOENGINE_API SdfgiVoxelDebug {
   uint32_t slice = 64;
   bool recorded = false;
   std::array<std::shared_ptr<Buffer>, 4> planes;
-  SdfgiVoxelDebug(uint32_t cascade, uint32_t slice);
+  SdfgiSliceLayout slices;
+  SdfgiVoxelDebug(uint32_t cascade, uint32_t slice, glm::ivec3 grid = glm::ivec3(128));
   void Record(VkCommandBuffer command, const SdfgiResources& resources);
   [[nodiscard]] std::array<std::vector<uint32_t>, 4> Read() const;
   void StoreToPng(const std::filesystem::path& path) const;

@@ -24,9 +24,11 @@ SdfgiProbeDebug::SdfgiProbeDebug(const SdfgiSettings& settings, const uint32_t i
     : cascade(index),
       probe(selected_probe),
       cascade_count(settings.cascade_count),
-      history_size(settings.history_size) {
-  const VkDeviceSize sizes[]{2312ull * 136 * 2 * cascade_count * 4, 289ull * 272 * 16, 16ull * history_size * 8,
-                             sizeof(SdfgiFieldStatus)};
+      history_size(settings.history_size),
+      probe_axis(settings.ProbeSize().x),
+      columns(probe_axis * probe_axis) {
+  const VkDeviceSize sizes[]{uint64_t(columns) * 8 * 136 * 2 * cascade_count * 4, uint64_t(columns) * 272 * 16,
+                             16ull * history_size * 8, sizeof(SdfgiFieldStatus)};
   for (uint32_t i = 0; i < data.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
     info.size = sizes[i];
@@ -69,9 +71,12 @@ void SdfgiProbeDebug::AddPass(RenderGraph& graph, RenderGraphResourceRegistry& r
                                  i == 0   ? 2 * snapshot->cascade_count
                                  : i == 2 ? snapshot->history_size
                                           : 1};
-        copy.imageExtent = i == 0 ? VkExtent3D{2312, 136, 1} : i == 1 ? VkExtent3D{289, 272, 1} : VkExtent3D{1, 16, 1};
+        copy.imageExtent = i == 0   ? VkExtent3D{snapshot->columns * 8, 136, 1}
+                           : i == 1 ? VkExtent3D{snapshot->columns, 272, 1}
+                                    : VkExtent3D{1, 16, 1};
         if (i == 2)
-          copy.imageOffset = {static_cast<int>(snapshot->probe % 289), static_cast<int>(snapshot->probe / 289 * 16), 0};
+          copy.imageOffset = {static_cast<int>(snapshot->probe % snapshot->columns),
+                              static_cast<int>(snapshot->probe / snapshot->columns * 16), 0};
         vkCmdCopyImageToBuffer(command, resources->textures.at(names[i]).image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
                                snapshot->data[i]->GetVkBuffer(), 1, &copy);
       }
@@ -107,8 +112,8 @@ void SdfgiProbeDebug::StoreToPng(const std::filesystem::path& path) const {
   std::vector<uint32_t> atlas;
   std::vector<glm::ivec4> average;
   std::vector<int16_t> history;
-  data[0]->DownloadVector(atlas, 2312 * 136 * 2 * cascade_count);
-  data[1]->DownloadVector(average, 289 * 272);
+  data[0]->DownloadVector(atlas, columns * 8 * 136 * 2 * cascade_count);
+  data[1]->DownloadVector(average, columns * 272);
   data[2]->DownloadVector(history, 16 * history_size * 4);
   std::vector<uint8_t> pixels(2560 * 1440 * 4, 255);
   const auto tonemap = [](const glm::vec3 color) {
@@ -123,19 +128,22 @@ void SdfgiProbeDebug::StoreToPng(const std::filesystem::path& path) const {
       for (uint32_t kind = 0; kind < 2; ++kind) {
         const int u = x - 64 - kind * 1280, v = y - 64;
         if (u >= 0 && u < 1156 && v >= 0 && v < static_cast<int>(cascade_count * 68)) {
-          const uint32_t packed = atlas[(kind * cascade_count + v / 68) * 2312 * 136 + (v % 68 * 2) * 2312 + u * 2];
+          const uint32_t packed = atlas[(kind * cascade_count + v / 68) * columns * 8 * 136 +
+                                        (v % 68 * 2) * columns * 8 + u * columns * 8 / 1156];
           color = tonemap(glm::vec3(packed & 511, (packed >> 9) & 511, (packed >> 18) & 511) *
                           std::ldexp(1.0f, static_cast<int>(packed >> 27) - 24));
         }
       }
       if (x >= 64 && x < 642 && y >= 760 && y < 1304)
-        color = signed_color(glm::vec3(average[(y - 760) / 2 * 289 + (x - 64) / 2]) / (history_size * 1024.0f));
+        color = signed_color(glm::vec3(average[(y - 760) / 2 * columns + (x - 64) * columns / 578]) /
+                             (history_size * 1024.0f));
       if (x >= 780 && x < 1292 && y >= 800 && y < static_cast<int>(800 + history_size * 16)) {
         const uint32_t index = ((y - 800) / 16 * 16 + (x - 780) / 32) * 4;
         color = signed_color(glm::vec3(history[index], history[index + 1], history[index + 2]) / 1024.0f);
       }
       if (x >= 1450 && x < 1926 && y >= 800 && y < 1276) {
-        const uint32_t index = probe / 289 * 16 * 289 + (y - 800) / 28 * 17 + (x - 1450) / 28;
+        const uint32_t index =
+            probe / columns * 16 * columns + (y - 800) * probe_axis / 476 * probe_axis + (x - 1450) * probe_axis / 476;
         color = tonemap(glm::vec3(average[index]) / (history_size * 1024.0f) * 0.88622f);
       }
       for (uint32_t channel = 0; channel < 3; ++channel)
@@ -162,16 +170,16 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
   frame->sky = sky;
   frame->sky_set = resources.sets.at("Sky");
   SdfgiIntegratePushConstant params{};
-  for (auto& size : params.grid_size)
-    size = 128;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    params.grid_size[axis] = resources.settings.GridSize()[axis];
   params.max_cascades = resources.settings.cascade_count;
-  params.probe_axis_size = 17;
+  params.probe_axis_size = resources.settings.ProbeSize().x;
   params.history_index = resources.transport_pass % resources.settings.history_size;
   params.history_size = resources.settings.history_size;
   params.ray_count = resources.settings.ray_count;
   params.ray_bias = resources.settings.probe_bias;
   params.pad = resources.debug_seed;
-  params.image_size[0] = 17 * 17;
+  params.image_size[0] = params.probe_axis_size * params.probe_axis_size;
   params.image_size[1] = 17;
   params.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   if (resources.settings.read_sky_light) {
@@ -258,7 +266,7 @@ void SdfgiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
             resources->sets.at(FrameName(frame->frame_slot, CascadeName(params.cascade, "Integrate")))
                 ->GetVkDescriptorSet());
         pipeline->PushConstant(command, 0, params);
-        pipeline->Dispatch(command, (17 * 17 + 7) / 8, (17 + 7) / 8);
+        pipeline->Dispatch(command, (params.image_size[0] + 7) / 8, (params.image_size[1] + 7) / 8);
       }
       Platform::EndGpuTimestampScope(command, timing);
     });
@@ -295,7 +303,7 @@ void SdfgiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
             resources->sets.at(FrameName(frame->frame_slot, CascadeName(params.cascade, "Integrate")))
                 ->GetVkDescriptorSet());
         pipeline->PushConstant(command, 0, params);
-        pipeline->Dispatch(command, (17 * 17 * 6 + 7) / 8, (17 * 6 + 7) / 8);
+        pipeline->Dispatch(command, (params.image_size[0] + 7) / 8, (params.image_size[1] + 7) / 8);
       }
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
       vkCmdUpdateBuffer(command, resources->buffers.at("Status").buffer->GetVkBuffer(),

@@ -23,19 +23,21 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
   SdfgiGatherData result{};
   result.max_cascades = cascades.size();
   result.use_occlusion = settings.use_occlusion;
-  result.probe_axis_size = 17;
-  result.probe_to_uvw = 1.0f / 16;
+  const auto grid = settings.GridSize();
+  const auto probes = settings.ProbeSize();
+  result.probe_axis_size = probes.x;
+  result.probe_to_uvw = 1.0f / (probes.x - 1);
   result.normal_bias = settings.normal_bias / 8;
   result.energy = settings.energy;
   result.y_mult = SdfgiYMultiplier(settings.vertical_scale);
   result.generation = generation;
   anchor_world.y *= result.y_mult;
-  const glm::vec3 texel(1.0f / 2312, 1.0f / 136, 1);
-  const glm::vec3 uv_offset(8 * texel.x, 8 * texel.y, 136 * texel.x);
+  const glm::vec3 texel(1.0f / (probes.x * probes.z * 8), 1.0f / (probes.y * 8), 1);
+  const glm::vec3 uv_offset(8 * texel.x, 8 * texel.y, probes.x * 8 * texel.x);
   const glm::vec3 renormalize(0.5f, 1, 1.0f / result.max_cascades);
   for (uint32_t axis = 0; axis < 3; ++axis) {
-    result.grid_size[axis] = 128;
-    result.cascade_probe_size[axis] = 16;
+    result.grid_size[axis] = grid[axis];
+    result.cascade_probe_size[axis] = probes[axis] - 1;
     result.anchor_origin[axis] = anchor_world[axis];
     result.lightprobe_tex_pixel_size[axis] = texel[axis];
     result.lightprobe_uv_offset[axis] = uv_offset[axis];
@@ -45,7 +47,7 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
   for (uint32_t c = 0; c < cascades.size(); ++c) {
     auto& out = result.cascades[c];
     const auto& input = cascades[c];
-    const glm::vec3 position = glm::vec3(input.position - glm::ivec3(64)) * input.cell_size - anchor_world;
+    const glm::vec3 position = glm::vec3(input.position - grid / 2) * input.cell_size - anchor_world;
     for (uint32_t axis = 0; axis < 3; ++axis) {
       out.position[axis] = position[axis];
       out.probe_world_offset[axis] = input.position[axis] / 8;

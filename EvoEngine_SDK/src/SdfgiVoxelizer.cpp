@@ -44,7 +44,7 @@ SdfgiVoxelData VoxelView(const SdfgiPendingRegion& region, const SdfgiCascade& c
   SdfgiVoxelData result{};
   std::memcpy(result.view_projection, &projection, sizeof(projection));
   for (int i = 0; i < 3; ++i) {
-    result.cascade_min_cell[i] = (cascade.position[i] - 64) * cascade.cell_size;
+    result.cascade_min_cell[i] = (cascade.position[i] - cascade.size[i] / 2) * cascade.cell_size;
     result.region_offset_y_mult[i] = static_cast<float>(region.offset[i]);
   }
   result.cascade_min_cell[3] = cascade.cell_size;
@@ -53,13 +53,13 @@ SdfgiVoxelData VoxelView(const SdfgiPendingRegion& region, const SdfgiCascade& c
 }
 }  // namespace
 
-SdfgiVoxelDebug::SdfgiVoxelDebug(const uint32_t cascade_index, const uint32_t slice_index)
-    : cascade(cascade_index), slice(slice_index) {
+SdfgiVoxelDebug::SdfgiVoxelDebug(const uint32_t cascade_index, const uint32_t slice_index, const glm::ivec3 grid)
+    : cascade(cascade_index), slice(slice_index), slices{grid} {
   if (slice >= 128)
     throw std::invalid_argument("SDFGI voxel slice must be in [0, 127]");
   for (size_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = 3 * 128 * 128 * (i == 0 ? 2 : 4);
+    info.size = slices.Total() * (i == 0 ? 2 : 4);
     info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     VmaAllocationCreateInfo allocation{};
     allocation.usage = VMA_MEMORY_USAGE_AUTO;
@@ -76,9 +76,9 @@ void SdfgiVoxelDebug::Record(const VkCommandBuffer command, const SdfgiResources
     std::array<VkBufferImageCopy, 3> copies{};
     for (uint32_t axis = 0; axis < 3; ++axis) {
       auto& copy = copies[axis];
-      copy.bufferOffset = axis * 128 * 128 * (i == 0 ? 2 : 4);
+      copy.bufferOffset = slices.Offset(axis) * (i == 0 ? 2 : 4);
       copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-      copy.imageExtent = {128, 128, 128};
+      copy.imageExtent = {uint32_t(slices.grid.x), uint32_t(slices.grid.y), uint32_t(slices.grid.z)};
       if (axis == 0) {
         copy.imageOffset.x = slice;
         copy.imageExtent.width = 1;
@@ -111,10 +111,10 @@ std::array<std::vector<uint32_t>, 4> SdfgiVoxelDebug::Read() const {
   Platform::WaitForFrameSubmissions("SDFGI explicit voxel diagnostic readback");
   std::array<std::vector<uint32_t>, 4> result;
   std::vector<uint16_t> albedo;
-  planes[0]->DownloadVector(albedo, 3 * 128 * 128);
+  planes[0]->DownloadVector(albedo, slices.Total());
   result[0].assign(albedo.begin(), albedo.end());
   for (size_t i = 1; i < planes.size(); ++i)
-    planes[i]->DownloadVector(result[i], 3 * 128 * 128);
+    planes[i]->DownloadVector(result[i], slices.Total());
   return result;
 }
 
@@ -127,8 +127,7 @@ void SdfgiVoxelDebug::StoreToPng(const std::filesystem::path& path) const {
       const int u = x % 640 - 128, v = y % 480 - 48;
       glm::vec3 color(0.025f);
       if (u >= 0 && v >= 0 && u < 384 && v < 384) {
-        const uint32_t right = u / 3, up = 127 - v / 3;
-        const uint32_t index = axis * 128 * 128 + (axis == 1 ? up + right * 128 : right + up * 128);
+        const uint32_t index = slices.Offset(axis) + slices.Pixel(axis, u, v, 384);
         const auto albedo = data[0][index], emission = data[1][index], facing = data[3][index];
         color = glm::vec3(0);
         switch (x / 640) {
@@ -317,7 +316,7 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
       if (frame->reset_failure) {
         resources->buffers.at("Status").buffer->Fill(command, 0, 12, 0);
         resources->minimum_readback_frame = frame->preprocess_readback->scene_frame;
-        resources->preprocess_status = {0, 0, 0, kSdfgiSolidCellCapacity};
+        resources->preprocess_status = {0, 0, 0, resources->settings.SolidCellCapacity()};
         resources->preprocess_status_available = false;
       }
     });
@@ -430,7 +429,7 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
     }
     const bool full_cascade = std::any_of(regions.begin(), regions.end(), [&](const auto& region) {
       return region.pending.cascade == cascade && region.pending.offset == glm::ivec3(0) &&
-             region.pending.size == glm::ivec3(128);
+             region.pending.size == resources->settings.GridSize();
     });
     previous = AddSdfgiPreprocessPass(
         graph, registry, resources, preprocess_readback, cascade, cascades[cascade].position, previous,

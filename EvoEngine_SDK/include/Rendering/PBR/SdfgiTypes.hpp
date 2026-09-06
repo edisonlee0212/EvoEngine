@@ -40,7 +40,7 @@ struct alignas(16) SdfgiPreprocessPushConstant {
   uint32_t half_size{};
   uint32_t occlusion_index{};
   int32_t cascade{};
-  uint32_t pad{};
+  uint32_t wide_horizontal_field{};
 };
 static_assert(sizeof(SdfgiPreprocessPushConstant) == 48);
 
@@ -99,13 +99,14 @@ struct alignas(16) SdfgiLight {
 };
 static_assert(sizeof(SdfgiLight) == 128);
 
-struct alignas(16) SdfgiSolidCell {
+struct SdfgiSolidCell {
   uint32_t position{};
   uint32_t albedo{};
   uint32_t light{};
   uint32_t light_aniso{};
+  uint32_t position_high{};
 };
-static_assert(sizeof(SdfgiSolidCell) == 16);
+static_assert(sizeof(SdfgiSolidCell) == 20);
 
 struct alignas(16) SdfgiDispatchData {
   uint32_t x{};

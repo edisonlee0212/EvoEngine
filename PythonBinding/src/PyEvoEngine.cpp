@@ -565,6 +565,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def(py::init<>())
       .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
       .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
+      .def_readwrite("wide_horizontal_field", &SdfgiSettings::wide_horizontal_field)
       .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
@@ -682,7 +683,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
         if (!runtime || !runtime->resources)
           throw py::value_error("Automatic SDFGI resources are not available");
-        if (cascade >= runtime->settings.cascade_count || probe >= 4913)
+        const auto size = runtime->settings.ProbeSize();
+        if (cascade >= runtime->settings.cascade_count || probe >= uint32_t(size.x * size.y * size.z))
           throw py::value_error("SDFGI cascade or probe is out of range");
         runtime->resources->probe_debug_request = glm::uvec2(cascade, probe);
       },
@@ -923,8 +925,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def(
       "SdfgiCapabilityReport",
-      [](const uint32_t cascade_count, const uint32_t history_size) {
-        const auto report = QuerySdfgiCapabilities(cascade_count, history_size);
+      [](const uint32_t cascade_count, const uint32_t history_size, const bool wide_horizontal_field) {
+        const auto report = QuerySdfgiCapabilities(cascade_count, history_size, wide_horizontal_field);
         py::dict result;
         result["supported"] = report.Supported();
         result["device_name"] = report.device_name;
@@ -942,7 +944,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         result["checks"] = checks;
         return result;
       },
-      py::arg("cascade_count") = 4, py::arg("history_size") = 30);
+      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("wide_horizontal_field") = false);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

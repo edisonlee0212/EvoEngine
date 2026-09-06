@@ -3,6 +3,7 @@
 #pragma once
 
 #include "SdfgiResources.hpp"
+#include "SdfgiSliceLayout.hpp"
 
 namespace evo_engine {
 
@@ -12,7 +13,8 @@ class EVOENGINE_API SdfgiPreprocessDebug : public std::enable_shared_from_this<S
   uint32_t slice;
   bool recorded = false;
   std::array<std::shared_ptr<Buffer>, 2> planes;
-  SdfgiPreprocessDebug(uint32_t cascade, uint32_t slice);
+  SdfgiSliceLayout slices;
+  SdfgiPreprocessDebug(uint32_t cascade, uint32_t slice, glm::ivec3 grid = glm::ivec3(128));
   void AddPass(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                const std::shared_ptr<SdfgiResources>& resources, const std::string& dependency);
   void StoreToPng(const std::filesystem::path& path) const;

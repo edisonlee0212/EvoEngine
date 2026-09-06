@@ -75,7 +75,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   uint voxel_position = process_voxels[voxel_index].position;
 
   //keep for storing to texture
-  int3 positioni = int3((uint3(voxel_position, voxel_position, voxel_position) >> uint3(0, 7, 14)) & uint3(0x7F));
+  int3 positioni = SdfgiUnpackPosition(process_voxels[voxel_index]);
 
   float3 position = float3(positioni) + float3(0.5);
   position /= cascades.data[params.cascade].to_cell;
@@ -99,7 +99,7 @@ void main(uint3 id : SV_DispatchThreadID) {
 #ifdef MODE_PROCESS_DYNAMIC
   if (params.bounce_feedback > 0.001) {
     float3 feedback = (params.bounce_feedback < 1.0) ? (albedo * params.bounce_feedback) : lerp(albedo, float3(1.0), params.bounce_feedback - 1.0);
-    float3 pos = (float3(positioni) + float3(0.5)) * float(params.probe_axis_size - 1) / params.grid_size;
+    float3 pos = (float3(positioni) + float3(0.5)) / 8.0;
     int3 probe_base_pos = int3(pos);
 
     float weight_accum[6] = {0, 0, 0, 0, 0, 0};
@@ -110,7 +110,7 @@ void main(uint3 id : SV_DispatchThreadID) {
     tex_pos.xy = tex_pos.xy * (OCT_SIZE + 2) + int2(1);
 
     float3 base_tex_posf = float3(tex_pos);
-    float2 tex_pixel_size = 1.0 / float2(int2((OCT_SIZE + 2) * params.probe_axis_size * params.probe_axis_size, (OCT_SIZE + 2) * params.probe_axis_size));
+    float2 tex_pixel_size = 1.0 / float2(int2((OCT_SIZE + 2) * params.probe_axis_size * params.probe_axis_size, (OCT_SIZE + 2) * (int(params.grid_size.y) / 8 + 1)));
     float3 probe_uv_offset = float3(int3(OCT_SIZE + 2, OCT_SIZE + 2, (OCT_SIZE + 2) * params.probe_axis_size)) * tex_pixel_size.xyx;
 
     for (uint j = 0; j < 8; j++) {

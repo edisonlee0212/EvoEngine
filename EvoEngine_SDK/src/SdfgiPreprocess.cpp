@@ -26,11 +26,12 @@ void ClearLighting(const VkCommandBuffer command, const SdfgiResources& resource
 }
 }  // namespace
 
-SdfgiPreprocessDebug::SdfgiPreprocessDebug(const uint32_t cascade_index, const uint32_t slice_index)
-    : cascade(cascade_index), slice(slice_index) {
+SdfgiPreprocessDebug::SdfgiPreprocessDebug(const uint32_t cascade_index, const uint32_t slice_index,
+                                           const glm::ivec3 grid)
+    : cascade(cascade_index), slice(slice_index), slices{grid} {
   for (size_t i = 0; i < planes.size(); ++i) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-    info.size = 3 * 128 * 128 * (i == 0 ? 1 : 4);
+    info.size = slices.Total() * (i == 0 ? 1 : 4);
     info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
     VmaAllocationCreateInfo allocation{};
     allocation.usage = VMA_MEMORY_USAGE_AUTO;
@@ -67,11 +68,13 @@ void SdfgiPreprocessDebug::AddPass(RenderGraph& graph, RenderGraphResourceRegist
         for (uint32_t axis = 0; axis < 3; ++axis)
           for (uint32_t half = 0; half < halves; ++half) {
             VkBufferImageCopy copy{};
-            copy.bufferOffset = (axis * halves + half) * 128 * 128 * (i == 0 ? 1 : 2);
+            copy.bufferOffset =
+                (snapshot->slices.Offset(axis) * halves + half * snapshot->slices.Count(axis)) * (i == 0 ? 1 : 2);
             copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-            copy.imageOffset = {static_cast<int32_t>(half * 128), 0,
-                                i == 0 ? 0 : static_cast<int32_t>(snapshot->cascade * 128)};
-            copy.imageExtent = {128, 128, 128};
+            copy.imageOffset = {static_cast<int32_t>(half * snapshot->slices.grid.x), 0,
+                                i == 0 ? 0 : static_cast<int32_t>(snapshot->cascade * snapshot->slices.grid.z)};
+            copy.imageExtent = {uint32_t(snapshot->slices.grid.x), uint32_t(snapshot->slices.grid.y),
+                                uint32_t(snapshot->slices.grid.z)};
             if (axis == 0) {
               copy.imageOffset.x += snapshot->slice;
               copy.imageExtent.width = 1;
@@ -108,8 +111,8 @@ void SdfgiPreprocessDebug::StoreToPng(const std::filesystem::path& path) const {
   Platform::WaitForFrameSubmissions("SDFGI explicit SDF/occlusion diagnostic readback");
   std::vector<uint8_t> sdf;
   std::vector<uint16_t> occlusion;
-  planes[0]->DownloadVector(sdf, 3 * 128 * 128);
-  planes[1]->DownloadVector(occlusion, 6 * 128 * 128);
+  planes[0]->DownloadVector(sdf, slices.Total());
+  planes[1]->DownloadVector(occlusion, 2 * slices.Total());
   std::vector<uint8_t> pixels(2560 * 1440 * 4, 255);
   for (int y = 0; y < 1440; ++y)
     for (int x = 0; x < 2560; ++x) {
@@ -118,13 +121,12 @@ void SdfgiPreprocessDebug::StoreToPng(const std::filesystem::path& path) const {
       const int u = x % 284 - 14, v = y % 480 - 112;
       uint8_t value = 6;
       if (column < 9 && u >= 0 && v >= 0 && u < 256 && v < 256) {
-        const uint32_t right = u / 2, up = 127 - v / 2;
-        const uint32_t offset = axis == 1 ? up + right * 128 : right + up * 128;
+        const uint32_t offset = slices.Pixel(axis, u, v, 256);
         if (column == 0)
-          value = static_cast<uint8_t>(std::min(255u, sdf[axis * 128 * 128 + offset] * 8u));
+          value = static_cast<uint8_t>(std::min(255u, sdf[slices.Offset(axis) + offset] * 8u));
         else {
           const uint32_t channel = column - 1;
-          const auto packed = occlusion[(axis * 2 + channel / 4) * 128 * 128 + offset];
+          const auto packed = occlusion[slices.Offset(axis) * 2 + (channel / 4) * slices.Count(axis) + offset];
           value = ((packed >> (12 - 4 * (channel % 4))) & 15) * 17;
         }
       }
@@ -170,7 +172,8 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
                                    const uint32_t cascade, const glm::ivec3 cascade_position, const glm::ivec3 scroll,
                                    const uint32_t frame_slot) {
   SdfgiPreprocessPushConstant params{};
-  params.grid_size = 128;
+  params.grid_size = resources.settings.GridSize().x;
+  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
   params.cascade = cascade;
   for (uint32_t axis = 0; axis < 3; ++axis)
     params.scroll[axis] = scroll[axis];
@@ -185,20 +188,20 @@ void evo_engine::RecordSdfgiScroll(const VkCommandBuffer command, const SdfgiRes
   occlusion->Bind(command);
   occlusion->BindDescriptorSet(command, 0, resources.sets.at("ScrollOcclusion")->GetVkDescriptorSet());
   occlusion->PushConstant(command, 0, params);
-  const glm::ivec3 groups = (glm::ivec3(128) - glm::abs(scroll) + 3) / 4;
+  const glm::ivec3 groups = (resources.settings.GridSize() - glm::abs(scroll) + 3) / 4;
   occlusion->Dispatch(command, groups.x, groups.y, groups.z);
 
   SdfgiIntegratePushConstant probes{};
   for (uint32_t axis = 0; axis < 3; ++axis) {
-    probes.grid_size[axis] = 128;
+    probes.grid_size[axis] = resources.settings.GridSize()[axis];
     probes.scroll[axis] = scroll[axis] / 8;
     probes.world_offset[axis] = cascade_position[axis] / 8;
   }
   probes.max_cascades = resources.settings.cascade_count;
   probes.cascade = cascade;
-  probes.probe_axis_size = 17;
+  probes.probe_axis_size = resources.settings.ProbeSize().x;
   probes.history_size = resources.settings.history_size;
-  probes.image_size[0] = 289;
+  probes.image_size[0] = probes.probe_axis_size * probes.probe_axis_size;
   probes.image_size[1] = 17;
   probes.y_mult = SdfgiYMultiplier(resources.settings.vertical_scale);
   const auto dispatch = [&](const char* name) {
@@ -227,7 +230,9 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
                                        const uint32_t cascade, const glm::ivec3 cascade_position,
                                        const glm::ivec3 scroll) {
   SdfgiPreprocessPushConstant params{};
-  params.grid_size = 64;
+  const auto grid = resources.settings.GridSize();
+  params.grid_size = grid.x / 2;
+  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
   params.cascade = cascade;
   for (uint32_t axis = 0; axis < 3; ++axis)
     params.scroll[axis] = scroll[axis];
@@ -244,24 +249,25 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
   resources.OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
   vkCmdFillBuffer(command, resources.buffers.at(CascadeName(cascade, "Dispatch")).buffer->GetVkBuffer(), 0, 16, 0);
   barrier();
-  dispatch("InitializeHalf", "InitializeHalf", {16, 16, 16});
+  dispatch("InitializeHalf", "InitializeHalf", glm::uvec3(grid / 8));
   barrier();
   params.half_size = 1;
   uint32_t source = 0;
-  for (const uint32_t step : {32, 16, 8, 4, 2, 1}) {
+  for (uint32_t step = grid.x / 4; step > 0; step /= 2) {
     params.step_size = step;
     const bool optimized = step <= 8;
     dispatch(optimized ? "JumpFloodOptimized" : "JumpFlood", "JumpFloodHalf" + std::to_string(source),
-             glm::uvec3(optimized ? 8 : 16));
+             glm::uvec3(grid / (optimized ? 16 : 8)));
     barrier();
     source = 1 - source;
   }
-  params.grid_size = 128;
-  dispatch("Upscale", "Upscale", {32, 32, 32});
+  params.grid_size = resources.settings.GridSize().x;
+  params.wide_horizontal_field = resources.settings.wide_horizontal_field;
+  dispatch("Upscale", "Upscale", glm::uvec3(grid / 4));
   barrier();
   params.half_size = 0;
   params.step_size = 1;
-  dispatch("JumpFloodOptimized", "JumpFlood0", {16, 16, 16});
+  dispatch("JumpFloodOptimized", "JumpFlood0", glm::uvec3(grid / 8));
   barrier();
   const glm::ivec3 parity = (cascade_position / 8) & glm::ivec3(1);
   for (uint32_t i = 0; i < 8; ++i) {
@@ -269,16 +275,16 @@ void evo_engine::RecordSdfgiPreprocess(const VkCommandBuffer command, const Sdfg
     for (int axis = 0; axis < 3; ++axis)
       params.probe_offset[axis] = offset[axis];
     params.occlusion_index = i;
-    dispatch("Occlusion", "Occlusion", glm::uvec3(glm::ivec3(9) - offset));
+    dispatch("Occlusion", "Occlusion", glm::uvec3(grid / 16 + 1 - offset));
   }
   barrier();
-  dispatch("Store", CascadeName(cascade, "Store"), {32, 32, 32});
+  dispatch("Store", CascadeName(cascade, "Store"), glm::uvec3(grid / 4));
   resources.OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
   const VkBufferCopy copy{0, 0, sizeof(SdfgiDispatchData)};
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "Dispatch")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "Indirect")).buffer->GetVkBuffer(), 1, &copy);
-  const VkBufferCopy seed_copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
+  const VkBufferCopy seed_copy{0, 0, sizeof(SdfgiSolidCell) * resources.settings.SolidCellCapacity()};
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(), 1, &seed_copy);
   ClearLighting(command, resources, cascade);
@@ -295,7 +301,7 @@ void evo_engine::RecordSdfgiPayloadRefresh(const VkCommandBuffer command, const 
   pipeline->DispatchIndirect(command, *resources.buffers.at(CascadeName(cascade, "Indirect")).buffer);
   resources.OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                         VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
-  const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * kSdfgiSolidCellCapacity};
+  const VkBufferCopy copy{0, 0, sizeof(SdfgiSolidCell) * resources.settings.SolidCellCapacity()};
   vkCmdCopyBuffer(command, resources.buffers.at(CascadeName(cascade, "UnlitCells")).buffer->GetVkBuffer(),
                   resources.buffers.at(CascadeName(cascade, "SolidCells")).buffer->GetVkBuffer(), 1, &copy);
   ClearLighting(command, resources, cascade);
