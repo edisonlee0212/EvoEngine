@@ -23,8 +23,8 @@ struct EVOENGINE_API DdgiSettings {
   struct RuntimeSettings {
     bool enabled = false;
     bool enable_emissive_mesh_sampling = true;
-    int ray_count = 192;
-    int emissive_ray_count = 64;
+    int ray_count = 64;
+    int emissive_ray_count = 8;
     int warmup_frames = 16;
     int history_count = 30;
     float normal_bias = 0.1f;
@@ -35,7 +35,7 @@ struct EVOENGINE_API DdgiSettings {
     float visibility_moment_bias = 0.02f;
     float visibility_smoothing = 0.90f;
     bool enable_probe_relocation = true;
-    bool enable_probe_classification = false;
+    bool enable_probe_classification = true;
     float relocation_distance = 0.25f;
     float random_ray_backface_threshold = 0.1f;
     float fixed_ray_backface_threshold = 0.25f;

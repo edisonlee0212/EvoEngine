@@ -81,7 +81,7 @@ App installation includes the notice at `bin/licenses/Godot-MIT.txt`.
 
 ## Capability report
 
-`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30, voxel_count_x = 128, voxel_count_y = 64, probe_spacing_cells = 4, other_history_bytes = 0)` checks image/view pairs, dimensions, array
+`QuerySdfgiCapabilities(cascade_count = 4, history_size = 30, voxel_count_x = 256, voxel_count_y = 128, probe_spacing_cells = 8, other_history_bytes = 0)` checks image/view pairs, dimensions, array
 layers, transfer/storage/sampled/filter/atomic support, per-image allocation limits, feature bits, buffer ranges, descriptor
 limits, push constants, and workgroups. It performs no field allocation. `Supported()` requires every check to pass;
 `ToString()` names failed checks. Invalid configuration or an uninitialized platform is unsupported. Actual allocation
@@ -113,10 +113,10 @@ the reference controls; no GI entity, volume, or pack is needed. Requested and e
 Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
 failure, and generation checks remain authoritative before any camera samples the field.
 
-Defaults are four 128x64x128-voxel cascades with four-cell probe spacing (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
+Defaults are four 256x128x256-voxel cascades with eight-cell probe spacing (33x17x33 probes), derived minimum cell size 0.1, 100% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 1.0, sky read on, energy 1.0, and both biases 1.1.
 **Environmental Lighting > GI > Probe settings** edits shared **Probe count X/Z**, **Probe count Y**, **Cascades**,
-**Base probe distance**, and **Y Scale**. Defaults are 33/17 probes, four cascades, distance 0.8 and Y Scale 75%.
+**Base probe distance**, and **Y Scale**. Defaults are 33/17 probes, four cascades, distance 0.8 and Y Scale 100%.
 Probe counts are odd 3..257; SDFGI additionally requires derived voxels 64..256 in multiples of 16.
 **Probe spacing** selects 4 or 8 voxel intervals at runtime, deriving voxels as `(probe_count - 1) * spacing` and
 cell size as `base_probe_distance / spacing`. Unavailable choices are omitted. Spacing changes voxel resolution,
@@ -135,8 +135,8 @@ resources do not block a valid SDFGI switch; runtime, GUI and Python use whole-c
 The layout estimate includes padded atlas rows; device preflight additionally checks Vulkan image allocation requirements.
 Retiring generations are excluded from this steady-state cap, so runtime transitions can temporarily require more memory.
 Invalid interactive/Python/runtime edits retain the prior configuration; unsupported initial scene settings use diagnosed
-Environment fallback without silently reducing density. With four cascades and 30 history entries, the default spacing 4
-uses about 0.353 GiB before device padding. Spacing 8 has the same nominal history size at the same shared probe count.
+Environment fallback without silently reducing density. With four cascades and 30 history entries, the default spacing 8
+uses about 0.353 GiB before device padding. Spacing 4 has the same nominal history size at the same shared probe count.
 
 These density controls intentionally depart from Godot's fixed eight-voxel spacing. Cascade scrolling remains in whole
 probe intervals, fades remain two probes wide, and signed SH history formats and periodic sampling are unchanged.

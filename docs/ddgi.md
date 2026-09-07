@@ -11,7 +11,7 @@ the raster renderer, but it cannot update DDGI probes.
 ## Automatic Cascades
 
 EnvironmentalLighting owns the shared camera-following probe layout: 33 x 17 x 33 probes per cascade,
-four cascades, horizontal base interval 0.8 and Y Scale 75% by default. Each cascade doubles the interval.
+four cascades, horizontal base interval 0.8 and Y Scale 100% by default. Each cascade doubles the interval.
 DDGI uses the same nominal positions, half-interval snapping and signed integer scroll deltas as SDFGI.
 Changing SDFGI's voxel spacing does not change DDGI coverage.
 
@@ -56,7 +56,7 @@ records the following work when required:
 5. Sample ready atlases during deferred lighting and recursive DDGI hit shading.
 
 Probe directions use a spherical Fibonacci distribution. Fixed relocation/classification rays are deterministic; normal
-lighting rays receive a periodic per-cascade rotation. The default runtime settings trace 192 scene rays and 64 exact
+lighting rays receive a periodic per-cascade rotation. The default runtime settings trace 64 scene rays and 8 exact
 emissive-triangle rays per updated probe.
 
 The DDGI acceleration structure includes supported triangle geometry and explicitly registered external DDGI geometry.
@@ -121,7 +121,7 @@ Relocation moves probes away from nearby or enclosing geometry while keeping the
 during initialization, reset, scrolling exposure, and relevant geometry changes rather than oscillating every steady
 lighting frame.
 
-Classification marks probes inside geometry inactive. It can reduce leaking and wasted work, but thin or double-sided
+Classification is enabled by default and marks probes inside geometry inactive. It can reduce leaking and wasted work, but thin or double-sided
 content may require leaving classification disabled. Relocation and classification use a deterministic prefix of the
 probe-ray set and do not change the number of lighting rays.
 

@@ -275,8 +275,8 @@ TEST(DdgiVolume, SessionDebugStateIsTransient) {
   EXPECT_EQ(yaml.find("pause_updates"), std::string::npos);
   EXPECT_EQ(yaml.find("reset_probe_history"), std::string::npos);
   EXPECT_EQ(yaml.find("debug:"), std::string::npos);
-  EXPECT_NE(yaml.find("ray_count: 192"), std::string::npos);
-  EXPECT_NE(yaml.find("emissive_ray_count: 64"), std::string::npos);
+  EXPECT_NE(yaml.find("ray_count: 64"), std::string::npos);
+  EXPECT_NE(yaml.find("emissive_ray_count: 8"), std::string::npos);
   EXPECT_EQ(yaml.find("enable_probe_variability"), std::string::npos);
   EXPECT_EQ(yaml.find("pause_probe_updates_after_convergence"), std::string::npos);
   EXPECT_NE(yaml.find("random_ray_backface_threshold"), std::string::npos);
@@ -300,8 +300,9 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
   EXPECT_EQ(sizeof(DdgiProbeRaySampleInfo), 8u);
   EXPECT_EQ(alignof(DdgiProbeRaySampleInfo), 8u);
   EXPECT_EQ(offsetof(DdgiProbeRaySampleInfo, packed_direction_and_inverse_pdf), 0u);
-  EXPECT_EQ(DdgiSettings{}.runtime.ray_count, 192);
-  EXPECT_EQ(DdgiSettings{}.runtime.emissive_ray_count, 64);
+  EXPECT_EQ(DdgiSettings{}.runtime.ray_count, 64);
+  EXPECT_EQ(DdgiSettings{}.runtime.emissive_ray_count, 8);
+  EXPECT_TRUE(DdgiSettings{}.runtime.enable_probe_classification);
   EXPECT_EQ(sizeof(PointCloudSample), 128u);
   EXPECT_EQ(sizeof(DdgiProbeRayTracingPushConstant), 128u);
   EXPECT_EQ(offsetof(DdgiProbeRayTracingPushConstant, selected_probe_volume_flags_environment), 80u);
@@ -391,9 +392,9 @@ TEST(DdgiVolume, ExactEmissiveResourcesUseDefaultPresetAndRemainOptional) {
   DdgiSettings settings;
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32u);
   ASSERT_TRUE(layout.valid) << layout.error;
-  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 64ull * sizeof(DdgiProbeRaySampleInfo));
-  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 256ull * sizeof(DdgiProbeRayData));
-  EXPECT_EQ(layout.selected_ray_diagnostics_byte_size, 256ull * sizeof(PointCloudSample));
+  EXPECT_EQ(layout.ray_sample_info_byte_size, 32ull * 8ull * sizeof(DdgiProbeRaySampleInfo));
+  EXPECT_EQ(layout.ray_output_byte_size, 32ull * 72ull * sizeof(DdgiProbeRayData));
+  EXPECT_EQ(layout.selected_ray_diagnostics_byte_size, 72ull * sizeof(PointCloudSample));
 
   settings.runtime.ray_count = 96;
   settings.runtime.emissive_ray_count = 32;

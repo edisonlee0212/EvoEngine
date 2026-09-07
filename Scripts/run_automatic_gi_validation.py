@@ -112,7 +112,7 @@ def main():
             print("Direct DDGI/SDFGI/DDGI switch passed", flush=True)
         else:
             edited = engine.GetCurrentSceneGiSettings()
-            edited.sdfgi.probe_spacing_cells = 8
+            edited.sdfgi.probe_spacing_cells = 4 if settings.sdfgi.probe_spacing_cells == 8 else 8
             engine.SetCurrentSceneGiSettings(edited)
             advance_ready()
             engine.SetCurrentSceneGiSettings(settings)

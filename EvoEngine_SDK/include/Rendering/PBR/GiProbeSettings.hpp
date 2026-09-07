@@ -19,7 +19,7 @@ struct EVOENGINE_API GiProbeSettings {
   uint32_t probe_count_y = 17;
   uint32_t cascade_count = 4;
   float base_probe_distance = 0.8f;
-  VerticalScale vertical_scale = VerticalScale::Percent75;
+  VerticalScale vertical_scale = VerticalScale::Percent100;
   uint64_t anchor_camera_entity = 0;
 
   [[nodiscard]] glm::ivec3 ProbeSize() const;

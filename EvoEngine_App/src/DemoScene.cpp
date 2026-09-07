@@ -1240,8 +1240,8 @@ void ConfigureStandardDdgiRuntime(DdgiSettings& settings, const float normal_bia
                                   const float visibility_moment_bias = 0.02f) {
   SetDdgiUpdatesPaused(false);
   settings.runtime.enable_emissive_mesh_sampling = true;
-  settings.runtime.ray_count = 192;
-  settings.runtime.emissive_ray_count = 64;
+  settings.runtime.ray_count = DdgiSettings{}.runtime.ray_count;
+  settings.runtime.emissive_ray_count = DdgiSettings{}.runtime.emissive_ray_count;
   settings.runtime.normal_bias = normal_bias;
   settings.runtime.visibility_moment_bias = visibility_moment_bias;
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
@@ -1556,7 +1556,7 @@ void ConfigureRenderingDemoDdgi(const std::shared_ptr<Scene>& scene) {
   auto& ddgi_volume = lighting->ddgi_settings.runtime;
   ddgi_volume.relocation_distance = 0.25f;
   ddgi_volume.enable_probe_relocation = true;
-  ddgi_volume.enable_probe_classification = false;
+  ddgi_volume.enable_probe_classification = DdgiSettings{}.runtime.enable_probe_classification;
 }
 
 bool SponzaProbeAuthoringRequested() {
@@ -1810,7 +1810,7 @@ void ConfigureCornellBoxDdgi(const std::shared_ptr<Scene>& scene) {
   auto& ddgi_volume = lighting->ddgi_settings.runtime;
   ddgi_volume.relocation_distance = 0.1f;
   ddgi_volume.enable_probe_relocation = true;
-  ddgi_volume.enable_probe_classification = false;
+  ddgi_volume.enable_probe_classification = DdgiSettings{}.runtime.enable_probe_classification;
 }
 
 void ConfigureCornellBoxScene(const std::shared_ptr<Scene>& scene) {
@@ -1864,7 +1864,7 @@ void ConfigureThinWallDdgi(const std::shared_ptr<Scene>& scene) {
   auto& ddgi_volume = lighting->ddgi_settings.runtime;
   ddgi_volume.relocation_distance = 0.25f;
   ddgi_volume.enable_probe_relocation = true;
-  ddgi_volume.enable_probe_classification = false;
+  ddgi_volume.enable_probe_classification = DdgiSettings{}.runtime.enable_probe_classification;
 }
 
 void ConfigureThinWallScene(const std::shared_ptr<Scene>& scene) {

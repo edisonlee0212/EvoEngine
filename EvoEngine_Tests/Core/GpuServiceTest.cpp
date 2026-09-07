@@ -1109,7 +1109,7 @@ TEST(SdfgiScene, CornellContributesWithoutChangingAuthoredStaticFlags) {
   registry.Update(SnapshotSdfgiScene(scene, lighting).contributors);
   EXPECT_TRUE(registry.entries.empty());
   EXPECT_EQ(registry.changes.size(), 8u);
-  EXPECT_FLOAT_EQ(lighting.sdfgi_settings.min_cell_size, 0.2f);
+  EXPECT_FLOAT_EQ(lighting.sdfgi_settings.min_cell_size, 0.1f);
 }
 
 TEST(SdfgiRelocation, ClearanceHistoryGeometryAndSignedScrollWithoutRt) {

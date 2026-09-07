@@ -1119,6 +1119,41 @@ storage:
   EXPECT_FALSE(settings == restored);
 }
 
+TEST(EnvironmentalLightingAsset, GiTunedDefaultsPreserveExplicitSavedValues) {
+  Application app;
+  ApplicationContextScope scope(app);
+  app.Initialize(EmptyProjectSettings());
+  EnvironmentalLighting lighting;
+  DeserializeEnvironmentalLighting(YAML::Load("{}"), lighting);
+  EXPECT_EQ(lighting.gi_probe_settings.vertical_scale, GiProbeSettings::VerticalScale::Percent100);
+  EXPECT_EQ(lighting.sdfgi_settings.probe_spacing_cells, 8u);
+  EXPECT_EQ(lighting.sdfgi_settings.GridSize(), glm::ivec3(256, 128, 256));
+  EXPECT_EQ(lighting.sdfgi_settings.ProbeSize(), glm::ivec3(33, 17, 33));
+  EXPECT_FLOAT_EQ(lighting.sdfgi_settings.min_cell_size, 0.1f);
+  EXPECT_EQ(lighting.ddgi_settings.runtime.ray_count, 64);
+  EXPECT_EQ(lighting.ddgi_settings.runtime.emissive_ray_count, 8);
+  EXPECT_TRUE(lighting.ddgi_settings.runtime.enable_probe_classification);
+  DeserializeEnvironmentalLighting(YAML::Load(R"(
+gi_probe_settings: {vertical_scale: 1}
+sdfgi_settings: {probe_spacing_cells: 4, voxel_count_x: 128, voxel_count_y: 64, min_cell_size: 0.2}
+ddgi_settings:
+  runtime: {ray_count: 192, emissive_ray_count: 64, enable_probe_classification: false}
+)"),
+                                   lighting);
+  EXPECT_EQ(lighting.gi_probe_settings.vertical_scale, GiProbeSettings::VerticalScale::Percent75);
+  EXPECT_EQ(lighting.sdfgi_settings.probe_spacing_cells, 4u);
+  EXPECT_EQ(lighting.ddgi_settings.runtime.ray_count, 192);
+  EXPECT_EQ(lighting.ddgi_settings.runtime.emissive_ray_count, 64);
+  EXPECT_FALSE(lighting.ddgi_settings.runtime.enable_probe_classification);
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeEnvironmentalLighting(out, lighting);
+  out << YAML::EndMap;
+  EnvironmentalLighting restored;
+  DeserializeEnvironmentalLighting(YAML::Load(out.c_str()), restored);
+  EXPECT_EQ(restored.GetGiSettings(), lighting.GetGiSettings());
+}
+
 TEST(EnvironmentalLightingAsset, WholeGiConfigurationValidatesOnlyActiveProviderStorage) {
   GiSettings settings;
   EXPECT_TRUE(settings.Validate(false).empty());

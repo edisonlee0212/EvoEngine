@@ -1096,8 +1096,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         result["checks"] = checks;
         return result;
       },
-      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("voxel_count_x") = 128,
-      py::arg("voxel_count_y") = 64, py::arg("probe_spacing_cells") = 4);
+      py::arg("cascade_count") = 4, py::arg("history_size") = 30, py::arg("voxel_count_x") = 256,
+      py::arg("voxel_count_y") = 128, py::arg("probe_spacing_cells") = 8);
   m.def("Run", &Run);
   m.def("RunWithScene", &RunWithScene);
   m.def("Loop", &Loop);

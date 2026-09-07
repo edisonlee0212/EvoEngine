@@ -19,13 +19,13 @@ EVOENGINE_API const char* GetIndirectGiProviderName(IndirectGiProvider provider)
 struct EVOENGINE_API SdfgiSettings {
   using VerticalScale = GiProbeSettings::VerticalScale;
 
-  uint32_t voxel_count_x = 128;
-  uint32_t voxel_count_y = 64;
-  uint32_t probe_spacing_cells = 4;
+  uint32_t voxel_count_x = 256;
+  uint32_t voxel_count_y = 128;
+  uint32_t probe_spacing_cells = 8;
   uint32_t cascade_count = 4;
   uint32_t positional_light_cascade_count = 8;
-  float min_cell_size = 0.2f;
-  VerticalScale vertical_scale = VerticalScale::Percent75;
+  float min_cell_size = 0.1f;
+  VerticalScale vertical_scale = VerticalScale::Percent100;
   bool use_occlusion = true;
   bool probe_relocation = false;
   bool static_entities_only = false;

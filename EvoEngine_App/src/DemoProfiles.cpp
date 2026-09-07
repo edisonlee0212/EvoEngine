@@ -678,8 +678,8 @@ void ConfigureDdgiCornellBoxScene(const std::shared_ptr<Scene>& scene, const Ddg
 
   auto& ddgi_settings = lighting->ddgi_settings;
   lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
-  ddgi_settings.runtime.ray_count = 192;
-  ddgi_settings.runtime.emissive_ray_count = 64;
+  ddgi_settings.runtime.ray_count = DdgiSettings{}.runtime.ray_count;
+  ddgi_settings.runtime.emissive_ray_count = DdgiSettings{}.runtime.emissive_ray_count;
   ddgi_settings.runtime.normal_bias = kDdgiCornellBoxNormalBias;
   ddgi_settings.runtime.view_bias = kDdgiCornellBoxViewBias;
   if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {

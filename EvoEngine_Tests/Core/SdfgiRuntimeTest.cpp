@@ -30,8 +30,11 @@ TEST(GiProbes, DefaultsValidationAndCoverageAreIndependentOfVoxelDensity) {
   EXPECT_EQ(probes.ProbeSize(), glm::ivec3(33, 17, 33));
   EXPECT_EQ(probes.cascade_count, 4u);
   EXPECT_FLOAT_EQ(probes.base_probe_distance, 0.8f);
+  EXPECT_EQ(probes.vertical_scale, GiProbeSettings::VerticalScale::Percent100);
   EXPECT_TRUE(probes.Validate().empty());
-  const auto fine = DeriveSdfgiSettings(probes, {});
+  auto fine_settings = SdfgiSettings{};
+  fine_settings.probe_spacing_cells = 4;
+  const auto fine = DeriveSdfgiSettings(probes, fine_settings);
   auto coarse = fine;
   coarse.probe_spacing_cells = 8;
   coarse = DeriveSdfgiSettings(probes, coarse);
@@ -117,6 +120,8 @@ TEST(GiProbes, SignedTiesAnisotropyAndTransactionalInvalidAnchor) {
   for (const auto anchor : {glm::vec3(-1000, 500, -200), glm::vec3(0.9f, -0.6f, 1.1f)}) {
     std::vector<SdfgiCascade> a, b;
     auto first = DeriveSdfgiSettings(settings, {});
+    first.probe_spacing_cells = 4;
+    first = DeriveSdfgiSettings(settings, first);
     auto second = first;
     second.probe_spacing_cells = 8;
     second = DeriveSdfgiSettings(settings, second);
@@ -215,12 +220,12 @@ TEST(SdfgiDensity, LayoutBudgetAndPackingCoverAllChoices) {
 
 TEST(SdfgiDensity, SpacingMigrationRoundTripAndLayoutReset) {
   SdfgiSettings settings;
-  EXPECT_EQ(settings.GridSize(), glm::ivec3(128, 64, 128));
+  EXPECT_EQ(settings.GridSize(), glm::ivec3(256, 128, 256));
   EXPECT_EQ(settings.ProbeSize(), glm::ivec3(33, 17, 33));
   for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
     settings.probe_spacing_cells = spacing;
     ASSERT_TRUE(settings.Validate().empty());
-    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), spacing == 4);
+    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), spacing == 8);
     YAML::Emitter out;
     SerializeSdfgiSettings(out, settings);
     SdfgiSettings loaded;
@@ -229,7 +234,7 @@ TEST(SdfgiDensity, SpacingMigrationRoundTripAndLayoutReset) {
   }
   DeserializeSdfgiSettings(YAML::Load("voxel_count_x: 256\nvoxel_count_y: 128"), settings);
   EXPECT_EQ(settings.GridSize(), glm::ivec3(256, 128, 256));
-  EXPECT_EQ(settings.probe_spacing_cells, 4u);
+  EXPECT_EQ(settings.probe_spacing_cells, 8u);
   for (const uint32_t invalid : {0u, 3u, 5u, 16u, UINT32_MAX}) {
     settings.probe_spacing_cells = invalid;
     EXPECT_FALSE(settings.Validate().empty());
@@ -331,7 +336,7 @@ TEST(SdfgiGather, ReferenceMetadataAndOrdinaryCameraEligibility) {
   EXPECT_EQ(data.generation, 17u);
   EXPECT_EQ(data.max_cascades, 4u);
   EXPECT_EQ(data.probe_axis_size, 17);
-  EXPECT_FLOAT_EQ(data.anchor_origin[1], 3);
+  EXPECT_FLOAT_EQ(data.anchor_origin[1], 2);
   EXPECT_FLOAT_EQ(data.normal_bias, 1.1f / 8);
   EXPECT_FLOAT_EQ(data.occlusion_clamp[0], 0.9375f);
   EXPECT_FLOAT_EQ(data.occlusion_renormalize[2], 0.25f);
@@ -508,7 +513,7 @@ TEST(SdfgiRuntime, WideHorizontalFieldPreservesSpacingAndReferenceSelection) {
   DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
   EXPECT_EQ(loaded, wide);
   DeserializeSdfgiSettings(YAML::Load("{}"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 64, 128));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
   std::vector<SdfgiCascade> a, b;
   ASSERT_TRUE(UpdateSdfgiCascades(reference, glm::vec3(0), a).empty());
   ASSERT_TRUE(UpdateSdfgiCascades(wide, glm::vec3(0), b).empty());
@@ -564,12 +569,12 @@ TEST(SdfgiConfigurable, DefaultsLegacyMigrationAndInvalidCounts) {
   SdfgiSettings loaded;
   for (const char* yaml : {"{}", "wide_horizontal_field: false", "wide_horizontal_field: true"}) {
     DeserializeSdfgiSettings(YAML::Load(yaml), loaded);
-    EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 64, 128));
+    EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 128, 256));
   }
   DeserializeSdfgiSettings(YAML::Load("voxel_count_x: 80\nwide_horizontal_field: true"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(80, 64, 80));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(80, 128, 80));
   DeserializeSdfgiSettings(YAML::Load("voxel_count_y: 144"), loaded);
-  EXPECT_EQ(loaded.GridSize(), glm::ivec3(128, 144, 128));
+  EXPECT_EQ(loaded.GridSize(), glm::ivec3(256, 144, 256));
   for (uint32_t invalid : {0u, 63u, 65u, 255u, 257u, UINT32_MAX}) {
     for (bool vertical : {false, true}) {
       SdfgiSettings settings;
@@ -727,10 +732,11 @@ TEST(SdfgiRuntime, DefaultsAndSettingsRoundTrip) {
   SdfgiSettings settings;
   EXPECT_EQ(settings.cascade_count, 4u);
   EXPECT_EQ(settings.positional_light_cascade_count, 8u);
-  EXPECT_EQ(settings.voxel_count_x, 128u);
-  EXPECT_EQ(settings.voxel_count_y, 64u);
-  EXPECT_FLOAT_EQ(settings.min_cell_size, 0.2f);
-  EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent75);
+  EXPECT_EQ(settings.voxel_count_x, 256u);
+  EXPECT_EQ(settings.voxel_count_y, 128u);
+  EXPECT_FLOAT_EQ(settings.min_cell_size, 0.1f);
+  EXPECT_EQ(settings.probe_spacing_cells, 8u);
+  EXPECT_EQ(settings.vertical_scale, SdfgiSettings::VerticalScale::Percent100);
   EXPECT_TRUE(settings.use_occlusion);
   EXPECT_FALSE(settings.static_entities_only);
   EXPECT_EQ(settings.ray_count, 16u);
@@ -809,7 +815,7 @@ TEST(SdfgiRuntime, ReferenceLayoutChangesAndInvalidSettings) {
   changed.min_cell_size = 1;
   EXPECT_FALSE(defaults.HasSameLayout(changed));
   changed = defaults;
-  changed.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  changed.vertical_scale = SdfgiSettings::VerticalScale::Percent75;
   EXPECT_FALSE(defaults.HasSameLayout(changed));
   changed = defaults;
   changed.use_occlusion = false;
@@ -900,7 +906,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   DeserializeEnvironmentalLighting(legacy_node, loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
   EXPECT_TRUE(loaded.sdfgi_settings == SdfgiSettings{});
-  EXPECT_TRUE(loaded.ddgi_settings.runtime.enabled);
+  EXPECT_FALSE(loaded.ddgi_settings.runtime.enabled);
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings.anchor_camera_entity = 12;
   lighting.gi_probe_settings.anchor_camera_entity = 12;
@@ -911,7 +917,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   DeserializeEnvironmentalLighting(YAML::Load(automatic.c_str()), loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
   EXPECT_TRUE(loaded.sdfgi_settings == lighting.sdfgi_settings);
-  EXPECT_TRUE(loaded.ddgi_settings.runtime.enabled);
+  EXPECT_FALSE(loaded.ddgi_settings.runtime.enabled);
   legacy_node["indirect_gi_provider"] = 999;
   DeserializeEnvironmentalLighting(legacy_node, loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::Environment);
