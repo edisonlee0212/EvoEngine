@@ -840,6 +840,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
       const std::vector<std::pair<GlobalTransform, std::shared_ptr<Camera>>>* injected_cameras = nullptr,
       bool include_reflection_probes = true, bool immediate_upload = false);
 
+  const GiProbeFrame& PrepareGiProbeFrame(const std::shared_ptr<Scene>& scene, const GiProbeSettings& settings);
   void PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                              const std::shared_ptr<RenderInstanceStorage>& render_instances);
   void PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scene,

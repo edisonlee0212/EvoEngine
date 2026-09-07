@@ -2482,6 +2482,7 @@ int main(const int argc, char** argv) {
         throw std::runtime_error("SDFGI review scene is unavailable.");
       lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
       lighting->sdfgi_settings = {};
+      lighting->gi_probe_settings = {};
       camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
       camera->Resize({2560, 1440});
       const auto transform = scene->GetDataComponent<GlobalTransform>(camera->GetOwner());

@@ -115,11 +115,17 @@ failure, and generation checks remain authoritative before any camera samples th
 
 Defaults are four 128x64x128-voxel cascades with four-cell probe spacing (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 1.0, sky read on, energy 1.0, and both biases 1.1.
-**Environmental Lighting > Automatic SDFGI > Probe spacing** selects 1, 2, 4 or 8 voxel intervals at runtime. Unavailable
-choices are omitted. Probe counts are `(X / spacing + 1, Y / spacing + 1, X / spacing + 1)`. Changing spacing, dimensions,
-cascade count or history recreates resources and restarts convergence; physical cell size and update cadence do not change.
-Missing voxel fields adopt 128/64 and missing spacing adopts 4; explicit serialized dimensions remain unchanged.
-Select 128/128 with spacing 8 for the pinned Godot reference layout.
+**Environmental Lighting > Automatic SDFGI** now edits shared **Probe count X/Z**, **Probe count Y**, **Cascades**,
+**Base probe distance**, and **Y Scale**. Defaults are 33/17 probes, four cascades, distance 0.8 and Y Scale 75%.
+Probe counts are odd 3..257; SDFGI additionally requires derived voxels 64..256 in multiples of 16.
+**Probe spacing** selects 4 or 8 voxel intervals at runtime, deriving voxels as `(probe_count - 1) * spacing` and
+cell size as `base_probe_distance / spacing`. Unavailable choices are omitted. Spacing changes voxel resolution,
+not nominal probe positions or coverage. Layout/history edits recreate resources and restart convergence.
+Shared settings serialize as `gi_probe_settings` and are exposed as Python `GiProbeSettings` through
+`GetCurrentSceneGiProbeSettings` / `SetCurrentSceneGiProbeSettings`. New fields win individually over migrated legacy
+SDFGI fields; otherwise defaults apply. Legacy spacing 1/2 first migrates counts and physical interval, then becomes 4;
+unsupported resulting dimensions use fallback without coarsening shared probes. Select 17/17 probes and spacing 8
+for the pinned Godot voxel/probe layout. Automatic DDGI consumption and the unified GI tab follow in M17/M18.
 
 History rings, integer sums and shared history-scroll scratch must remain strictly below 4 GiB (4,294,967,296 bytes).
 This is shared with active DDGI rolling histories, their integer sums, and history-origin records; runtime, GUI and
@@ -128,7 +134,7 @@ The layout estimate includes padded atlas rows; device preflight additionally ch
 Retiring generations are excluded from this steady-state cap, so runtime transitions can temporarily require more memory.
 Invalid interactive/Python/runtime edits retain the prior configuration; unsupported initial scene settings use diagnosed
 Environment fallback without silently reducing density. With four cascades and 30 history entries, the default spacing 4
-uses about 0.353 GiB before device padding; spacing 2 fits, whereas spacing 1 does not at the default voxel dimensions.
+uses about 0.353 GiB before device padding. Spacing 8 has the same nominal history size at the same shared probe count.
 
 These density controls intentionally depart from Godot's fixed eight-voxel spacing. Cascade scrolling remains in whole
 probe intervals, fades remain two probes wide, and signed SH history formats and periodic sampling are unchanged.
@@ -164,17 +170,14 @@ values stay false; only new/default settings turn it on. It reweights neighborin
 reduce leaks, including bounce feedback; it can suppress bright or dark hidden probes and may produce dark patches.
 It is not a second ambient-occlusion multiplier and does not disable SDF transport/shadow tracing when off. Both states
 still generate the reference occlusion volume. The checkbox tooltip notes field recreation and reconvergence on change.
-**Environmental Lighting > Automatic SDFGI** also exposes **Cascade 0 Distance**, **Max Distance**, and **Y Scale**.
-The two distances are linked views of `min_cell_size`, not additional serialized settings, matching pinned Godot
-`scene/resources/environment.cpp` setters/getters. Python exposes writable `cascade0_distance` and `max_distance`
-properties; existing `vertical_scale` and its serialized values remain unchanged.
+**Cascade 0 Distance**, **Max Distance**, minimum cell size and voxel dimensions are now derived, not independent
+GUI/Python controls. The internal dispatch snapshot retains the reference formulas:
 
 - Cascade 0 Distance = `min_cell_size * voxel_count_x / 2` (nearest cascade horizontal half extent).
 - Max Distance = `Cascade 0 Distance * 2^cascade_count`. Godot's convention is the outer cascade's **full horizontal
   width**, not a camera-centered radius. Actual coverage scrolls on the probe grid and fades near cascade edges.
-- Editing either distance changes minimum cell size and the other distance, recreating the field and restarting
-  convergence. Changing cascade count or voxel count X/Z updates derived distances; probe counts/cadence are unchanged
-  by distance edits. Keep Max Distance below Camera Far as a coverage guideline; it does not set camera clipping.
+- Edit Base probe distance to change physical scale. Keep Max Distance below Camera Far as a coverage guideline;
+  it does not set camera clipping.
 - Y Scale is the existing Vertical scale control renamed for discoverability. 100% uses equal physical cell spacing;
   Godot's 75% mode divides vertical spacing by **1.5** (not 0.75 times), and 50% divides it by **2**. Smaller spacing
   compresses vertical coverage and can reduce leaks without adding probes. The accepted default remains 75%.
@@ -183,8 +186,23 @@ Our configurable rectangular grid necessarily replaces Godot's fixed factor 64 w
 Y coverage additionally follows `voxel_count_y` and Y Scale. Defaults yield Cascade 0 Distance 12.8 and Max Distance
 204.8 world units; the selectable 128x128x128 grid reproduces Godot's distance formulas exactly.
 
-Cascades, minimum cell size (including distance edits), Y Scale, occlusion, and history length recreate the field, matching Godot's
+Cascades, derived minimum cell size, Y Scale, occlusion, and history length recreate the field, matching Godot's
 `RenderForwardClustered::sdfgi_update` reset condition.
+
+Shared placement deliberately replaces Godot's voxel-truncated movement threshold: each axis uses
+`floor(anchor / probe_interval + 0.5)` for both creation and movement, with ties toward positive infinity.
+SDFGI converts whole-probe deltas to voxels at preprocessing. Signed slabs and large-movement/full-redraw policy
+remain unchanged; teleports update all axes together. Spacing 4/8 therefore cannot change camera snap thresholds.
+
+Shared-layout validation (M16): 89 focused tests passed, including the targeted rerun of the updated UI contract.
+CPU coverage includes migration/overrides, invalid counts, density-independent bounds, signed ties/teleports and
+frame-once anchor snapshots. Existing RT-off GPU fixtures cover scrolling, relocation and reflection-capture retirement.
+Installed 2560x1440 Sponza passed spacing 4 -> 8 -> 4 with 525 contributors and 35 updates per stage, finite captures,
+unchanged shared counts/distance, rejected even counts, removed spacing 2 and unsupported derived dimensions.
+RT pipeline, ray query, BLAS and TLAS were explicitly disabled. Evidence: local `tasks/m16-tests-final.xml`,
+`tasks/m16-contract.xml`, `tasks/m16-runtime.log` and `tasks/m16-{default,eight,restored}.{png,yaml}`.
+The editor was built before runtime checking; the existing all-enabled-applications install command above succeeded.
+Appearance acceptance remains with the user; M17/M18 still provide automatic DDGI and final interface cleanup.
 
 One non-serialized runtime belongs to each active scene, never to its lighting asset or cameras. An enabled explicit scene
 camera overrides selection; otherwise play/pause/step uses the enabled main camera, editing uses the canonical editor

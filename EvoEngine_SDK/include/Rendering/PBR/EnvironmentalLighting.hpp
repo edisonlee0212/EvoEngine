@@ -73,6 +73,7 @@ class EVOENGINE_API EnvironmentalLighting final : public IAsset {
   float diffuse_fallback_intensity = kDefaultDiffuseFallbackIntensity;
   float specular_fallback_intensity = kDefaultSpecularFallbackIntensity;
   DdgiSettings ddgi_settings{};
+  GiProbeSettings gi_probe_settings{};
   IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings{};
   bool local_reflection_probes_enabled = true;

@@ -157,6 +157,8 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
   out << YAML::Key << "specular_fallback_intensity" << YAML::Value << lighting.specular_fallback_intensity;
   out << YAML::Key << "ddgi_settings" << YAML::Value;
   SerializeDdgiSettings(out, lighting.ddgi_settings);
+  out << YAML::Key << "gi_probe_settings" << YAML::Value;
+  SerializeGiProbeSettings(out, lighting.gi_probe_settings);
   out << YAML::Key << "indirect_gi_provider" << YAML::Value << static_cast<uint32_t>(lighting.indirect_gi_provider);
   if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi ||
       !(lighting.sdfgi_settings == SdfgiSettings{})) {
@@ -178,6 +180,7 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   lighting.ddgi_settings = {};
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings = {};
+  lighting.gi_probe_settings = {};
   lighting.local_reflection_probes_enabled = true;
   lighting.reflection_probe_pack.Clear();
   lighting.ddgi_volume_pack.Clear();
@@ -201,8 +204,15 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
                                         ? static_cast<IndirectGiProvider>(provider)
                                         : IndirectGiProvider::Environment;
   }
-  if (const auto settings = in["sdfgi_settings"])
+  if (const auto settings = in["sdfgi_settings"]) {
     DeserializeSdfgiSettings(settings, lighting.sdfgi_settings);
+    lighting.gi_probe_settings = GiProbesFromSdfgi(lighting.sdfgi_settings);
+    if (lighting.sdfgi_settings.probe_spacing_cells == 1 || lighting.sdfgi_settings.probe_spacing_cells == 2)
+      lighting.sdfgi_settings.probe_spacing_cells = 4;
+  }
+  if (const auto settings = in["gi_probe_settings"])
+    DeserializeGiProbeSettings(settings, lighting.gi_probe_settings);
+  lighting.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
   if (in["local_reflection_probes_enabled"])
     lighting.local_reflection_probes_enabled = in["local_reflection_probes_enabled"].as<bool>();
   lighting.reflection_probe_pack.Load("reflection_probe_pack", in);

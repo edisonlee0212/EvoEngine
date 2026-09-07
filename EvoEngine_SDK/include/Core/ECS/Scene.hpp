@@ -17,6 +17,7 @@
 namespace evo_engine {
 
 struct SdfgiRuntime;
+struct GiProbeFrame;
 
 /**
  * @brief Enum for categorizing system groups in the engine.
@@ -68,6 +69,7 @@ void ReadSceneDataComponentStorage(Scene& scene, size_t storage_index, DataCompo
 class EVOENGINE_API Scene final : public IAsset {
   friend class RenderLayer;
   std::shared_ptr<SdfgiRuntime> sdfgi_runtime_;
+  std::shared_ptr<GiProbeFrame> gi_probe_frame_;
 
  public:
   [[nodiscard]] std::shared_ptr<const SdfgiRuntime> GetSdfgiRuntime() const {

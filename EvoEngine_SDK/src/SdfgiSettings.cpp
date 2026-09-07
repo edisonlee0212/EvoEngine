@@ -10,6 +10,131 @@
 
 using namespace evo_engine;
 
+bool GiProbeFrame::Update(const uint64_t scene_frame, const GiProbeSettings& probes, const GiAnchor& selected_anchor) {
+  if (frame == scene_frame)
+    return false;
+  frame = scene_frame;
+  settings = probes;
+  anchor = selected_anchor;
+  failure = anchor.camera_id ? BuildGiCascadePlacements(settings, anchor.world_position, placements)
+                             : "No eligible GI anchor";
+  return true;
+}
+
+bool GiProbeSettings::operator==(const GiProbeSettings& other) const {
+  return std::tie(probe_count_x, probe_count_y, cascade_count, base_probe_distance, vertical_scale,
+                  anchor_camera_entity) == std::tie(other.probe_count_x, other.probe_count_y, other.cascade_count,
+                                                    other.base_probe_distance, other.vertical_scale,
+                                                    other.anchor_camera_entity);
+}
+
+glm::ivec3 GiProbeSettings::ProbeSize() const {
+  return {probe_count_x, probe_count_y, probe_count_x};
+}
+
+glm::vec3 GiProbeSettings::Interval(const uint32_t cascade) const {
+  const float distance = std::ldexp(base_probe_distance, static_cast<int>(cascade));
+  const float y_multiplier = vertical_scale == VerticalScale::Percent50   ? 2.0f
+                             : vertical_scale == VerticalScale::Percent75 ? 1.5f
+                                                                          : 1.0f;
+  return {distance, distance / y_multiplier, distance};
+}
+
+std::string GiProbeSettings::Validate() const {
+  if (probe_count_x < 3 || probe_count_x > 257 || !(probe_count_x & 1) || probe_count_y < 3 || probe_count_y > 257 ||
+      !(probe_count_y & 1))
+    return "GI probe counts must be odd numbers from 3 to 257";
+  if (cascade_count < 1 || cascade_count > 8)
+    return "GI cascade count must be 1..8";
+  if (static_cast<uint32_t>(vertical_scale) > 2)
+    return "GI Y Scale must be 50%, 75%, or 100%";
+  if (!std::isfinite(base_probe_distance) || base_probe_distance <= 0 || !std::isfinite(1.0f / base_probe_distance) ||
+      !std::isfinite(std::ldexp(base_probe_distance, static_cast<int>(cascade_count) + 8)))
+    return "GI base probe distance exceeds the supported floating-point range";
+  return {};
+}
+
+std::string evo_engine::BuildGiCascadePlacements(const GiProbeSettings& settings, const glm::vec3 anchor,
+                                                 std::vector<GiCascadePlacement>& placements) {
+  if (const auto error = settings.Validate(); !error.empty())
+    return error;
+  std::vector<GiCascadePlacement> candidate;
+  for (uint32_t cascade = 0; cascade < settings.cascade_count; ++cascade) {
+    const auto interval = settings.Interval(cascade);
+    const auto center = glm::floor(glm::dvec3(anchor) / glm::dvec3(interval) + 0.5);
+    for (uint32_t axis = 0; axis < 3; ++axis)
+      if (!std::isfinite(center[axis]) || std::abs(center[axis]) > INT32_MAX / 8 - 257)
+        return "GI anchor exceeds the supported integer-grid range";
+    const glm::vec3 first = (glm::vec3(center) - glm::vec3(settings.ProbeSize() - 1) * 0.5f) * interval;
+    const auto last = first + glm::vec3(settings.ProbeSize() - 1) * interval;
+    for (uint32_t axis = 0; axis < 3; ++axis)
+      if (!std::isfinite(first[axis]) || !std::isfinite(last[axis]))
+        return "GI bounds exceed the supported floating-point range";
+    candidate.push_back({glm::ivec3(center), interval, first});
+  }
+  placements = std::move(candidate);
+  return {};
+}
+
+GiProbeSettings evo_engine::GiProbesFromSdfgi(const SdfgiSettings& settings) {
+  GiProbeSettings result;
+  const auto count = [&](const uint32_t voxels) {
+    return settings.probe_spacing_cells && voxels % settings.probe_spacing_cells == 0 &&
+                   voxels / settings.probe_spacing_cells < UINT32_MAX
+               ? voxels / settings.probe_spacing_cells + 1
+               : 0u;
+  };
+  result.probe_count_x = count(settings.voxel_count_x);
+  result.probe_count_y = count(settings.voxel_count_y);
+  result.cascade_count = settings.cascade_count;
+  result.base_probe_distance = settings.min_cell_size * settings.probe_spacing_cells;
+  result.vertical_scale = settings.vertical_scale;
+  result.anchor_camera_entity = settings.anchor_camera_entity;
+  return result;
+}
+
+SdfgiSettings evo_engine::DeriveSdfgiSettings(const GiProbeSettings& probes, SdfgiSettings settings) {
+  const auto dimension = [&](const uint32_t count) {
+    if (settings.probe_spacing_cells != 4 && settings.probe_spacing_cells != 8)
+      return 0u;
+    const auto cells = count ? uint64_t(count - 1) * settings.probe_spacing_cells : 0;
+    return cells <= UINT32_MAX ? static_cast<uint32_t>(cells) : 0u;
+  };
+  settings.voxel_count_x = dimension(probes.probe_count_x);
+  settings.voxel_count_y = dimension(probes.probe_count_y);
+  settings.min_cell_size = settings.probe_spacing_cells ? probes.base_probe_distance / settings.probe_spacing_cells : 0;
+  settings.cascade_count = probes.cascade_count;
+  settings.vertical_scale = probes.vertical_scale;
+  settings.anchor_camera_entity = probes.anchor_camera_entity;
+  return settings;
+}
+
+void evo_engine::SerializeGiProbeSettings(YAML::Emitter& out, const GiProbeSettings& settings) {
+  out << YAML::BeginMap;
+  out << YAML::Key << "probe_count_x" << YAML::Value << settings.probe_count_x;
+  out << YAML::Key << "probe_count_y" << YAML::Value << settings.probe_count_y;
+  out << YAML::Key << "cascade_count" << YAML::Value << settings.cascade_count;
+  out << YAML::Key << "base_probe_distance" << YAML::Value << settings.base_probe_distance;
+  out << YAML::Key << "vertical_scale" << YAML::Value << static_cast<uint32_t>(settings.vertical_scale);
+  out << YAML::Key << "anchor_camera_entity" << YAML::Value << settings.anchor_camera_entity;
+  out << YAML::EndMap;
+}
+
+void evo_engine::DeserializeGiProbeSettings(const YAML::Node& in, GiProbeSettings& settings) {
+  if (in["probe_count_x"])
+    settings.probe_count_x = in["probe_count_x"].as<uint32_t>();
+  if (in["probe_count_y"])
+    settings.probe_count_y = in["probe_count_y"].as<uint32_t>();
+  if (in["cascade_count"])
+    settings.cascade_count = in["cascade_count"].as<uint32_t>();
+  if (in["base_probe_distance"])
+    settings.base_probe_distance = in["base_probe_distance"].as<float>();
+  if (in["vertical_scale"])
+    settings.vertical_scale = static_cast<GiProbeSettings::VerticalScale>(in["vertical_scale"].as<uint32_t>());
+  if (in["anchor_camera_entity"])
+    settings.anchor_camera_entity = in["anchor_camera_entity"].as<uint64_t>();
+}
+
 const char* evo_engine::GetIndirectGiProviderName(const IndirectGiProvider provider) {
   switch (provider) {
     case IndirectGiProvider::AuthoredDdgi:

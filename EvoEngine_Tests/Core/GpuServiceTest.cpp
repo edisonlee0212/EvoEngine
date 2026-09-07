@@ -1698,8 +1698,8 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
     scene->SetEntityStatic(entity, true);
     lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
     lighting->indirect_environment_source.color = glm::vec3(0.5f, 0.25f, 0.125f);
-    lighting->sdfgi_settings.voxel_count_x = lighting->sdfgi_settings.voxel_count_y = 64;
-    lighting->sdfgi_settings.cascade_count = 1;
+    lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 17;
+    lighting->gi_probe_settings.cascade_count = 1;
   }
   lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting->dynamic_reflection_probe_settings.enabled = false;
@@ -1773,8 +1773,8 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
     return render->GetDynamicReflectionProbeStats().completed_face_count == 1;
   }));
   std::weak_ptr<SdfgiResources> retired = scene->GetSdfgiRuntime()->resources;
-  lighting->sdfgi_settings.voxel_count_x = 80;
-  lighting->sdfgi_settings.voxel_count_y = 144;
+  lighting->gi_probe_settings.probe_count_x = 21;
+  lighting->gi_probe_settings.probe_count_y = 37;
   const auto generation = render->GetDynamicReflectionProbeStats().published_generation_count;
   ASSERT_TRUE(app.Loop());
   EXPECT_FALSE(retired.expired());
@@ -1790,8 +1790,8 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
   if (sponza_resources) {
     lighting->reflection_probe_pack = original_pack;
     lighting->sdfgi_settings.energy = 1;
-    lighting->sdfgi_settings.voxel_count_x = 256;
-    lighting->sdfgi_settings.voxel_count_y = 128;
+    lighting->gi_probe_settings.probe_count_x = 65;
+    lighting->gi_probe_settings.probe_count_y = 33;
     ASSERT_TRUE(loop_until([&] {
       const auto runtime = scene->GetSdfgiRuntime();
       return runtime->published && runtime->resources->transport_pass >= 90 &&

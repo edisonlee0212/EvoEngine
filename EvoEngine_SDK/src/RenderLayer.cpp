@@ -3390,6 +3390,48 @@ void RenderLayer::PrepareSceneForRendering(
   BindRenderInstanceStorage(current_frame_index, current_render_instances);
 }
 
+const GiProbeFrame& RenderLayer::PrepareGiProbeFrame(const std::shared_ptr<Scene>& scene,
+                                                     const GiProbeSettings& settings) {
+  auto& snapshot = scene->gi_probe_frame_;
+  if (!snapshot)
+    snapshot = std::make_shared<GiProbeFrame>();
+  const auto frame = Platform::GetFrameCount();
+  if (snapshot->frame == frame)
+    return *snapshot;
+  const auto scene_camera_anchor = [&](const std::shared_ptr<Camera>& camera) -> SdfgiAnchor {
+    if (!camera || camera->GetScene() != scene || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
+        !scene->IsEntityEnabled(camera->GetOwner()))
+      return {};
+    const auto position = scene->GetDataComponent<GlobalTransform>(camera->GetOwner()).GetPosition();
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
+      return {};
+    return {camera->GetHandle().GetValue(), position};
+  };
+  SdfgiAnchor explicit_anchor;
+  if (const auto entity = scene->GetEntity(Handle(settings.anchor_camera_entity));
+      scene->IsEntityValid(entity) && scene->HasPrivateComponent<Camera>(entity)) {
+    explicit_anchor = scene_camera_anchor(scene->GetOrSetPrivateComponent<Camera>(entity).lock());
+  }
+  const auto main_anchor = scene_camera_anchor(scene->main_camera.Get<Camera>());
+  SdfgiAnchor editor_anchor;
+  const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
+  if (editor) {
+    if (const auto camera = editor->GetSceneCamera(); camera && camera->IsEnabled()) {
+      const auto position = editor->GetSceneCameraPosition();
+      if (std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z))
+        editor_anchor = {camera->GetHandle().GetValue(), position};
+    }
+  }
+  const auto play_status = ApplicationContext::Get().GetApplicationStatus();
+  const bool playable_view = play_status == Application::ExecutionStatus::Playing ||
+                             play_status == Application::ExecutionStatus::Pause ||
+                             play_status == Application::ExecutionStatus::Step;
+  const auto anchor = SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor, settings.anchor_camera_entity != 0,
+                                        playable_view, editor != nullptr);
+  snapshot->Update(frame, settings, anchor);
+  return *snapshot;
+}
+
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                                         const std::shared_ptr<RenderInstanceStorage>& render_instances) {
   const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
@@ -5492,8 +5534,11 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
       if (!candidate.Supported() || !lighting.sdfgi_settings.Validate().empty()) {
         EVOENGINE_ERROR("SDFGI settings edit rejected; retaining the current field. " + candidate.ToString());
         lighting.sdfgi_settings = runtime->settings;
-        if (const auto asset = scene->environmental_lighting.Get<EnvironmentalLighting>())
+        lighting.gi_probe_settings = GiProbesFromSdfgi(runtime->settings);
+        if (const auto asset = scene->environmental_lighting.Get<EnvironmentalLighting>()) {
           asset->sdfgi_settings = runtime->settings;
+          asset->gi_probe_settings = lighting.gi_probe_settings;
+        }
       }
     }
     if (!runtime ||
@@ -5519,37 +5564,7 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     }
     if (update_field)
       runtime->settings = lighting.sdfgi_settings;
-    const auto scene_camera_anchor = [&](const std::shared_ptr<Camera>& camera) -> SdfgiAnchor {
-      if (!camera || camera->GetScene() != scene || !camera->IsEnabled() || !scene->IsEntityValid(camera->GetOwner()) ||
-          !scene->IsEntityEnabled(camera->GetOwner()))
-        return {};
-      const auto position = scene->GetDataComponent<GlobalTransform>(camera->GetOwner()).GetPosition();
-      if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z))
-        return {};
-      return {camera->GetHandle().GetValue(), position};
-    };
-    SdfgiAnchor explicit_anchor;
-    if (const auto entity = scene->GetEntity(Handle(lighting.sdfgi_settings.anchor_camera_entity));
-        scene->IsEntityValid(entity) && scene->HasPrivateComponent<Camera>(entity)) {
-      explicit_anchor = scene_camera_anchor(scene->GetOrSetPrivateComponent<Camera>(entity).lock());
-    }
-    const auto main_anchor = scene_camera_anchor(scene->main_camera.Get<Camera>());
-    SdfgiAnchor editor_anchor;
-    const auto editor = ApplicationContext::Get().GetLayer<EditorLayer>();
-    if (editor) {
-      if (const auto camera = editor->GetSceneCamera(); camera && camera->IsEnabled()) {
-        const auto position = editor->GetSceneCameraPosition();
-        if (std::isfinite(position.x) && std::isfinite(position.y) && std::isfinite(position.z))
-          editor_anchor = {camera->GetHandle().GetValue(), position};
-      }
-    }
-    const auto play_status = ApplicationContext::Get().GetApplicationStatus();
-    const bool playable_view = play_status == Application::ExecutionStatus::Playing ||
-                               play_status == Application::ExecutionStatus::Pause ||
-                               play_status == Application::ExecutionStatus::Step;
-    const auto anchor =
-        SelectSdfgiAnchor(explicit_anchor, main_anchor, editor_anchor,
-                          lighting.sdfgi_settings.anchor_camera_entity != 0, playable_view, editor != nullptr);
+    const auto& anchor = PrepareGiProbeFrame(scene, lighting.gi_probe_settings).anchor;
     if (update_field && runtime->Maintain(scene_frame, anchor))
       runtime->UpdateSceneSnapshot(SnapshotSdfgiScene(scene, lighting));
     if (update_field && !runtime->allocation_attempted && !runtime->missing_anchor &&

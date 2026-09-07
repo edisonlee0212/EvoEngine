@@ -2932,7 +2932,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
     if (ImGui::BeginTabItem("Automatic SDFGI")) {
       auto& settings = lighting.sdfgi_settings;
+      auto& shared = lighting.gi_probe_settings;
+      settings = DeriveSdfgiSettings(shared, settings);
       const auto previous_settings = settings;
+      const auto previous_shared = shared;
       const auto valid_density = [&](const SdfgiSettings& candidate) {
         const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
         return QuerySdfgiCapabilities(candidate.cascade_count, candidate.history_size, candidate.voxel_count_x,
@@ -2940,26 +2943,33 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
                                       render ? render->GetDdgiHistoryAllocationBytes() : 0)
             .Supported();
       };
-      const auto voxel_count = [&](const char* label, uint32_t& value) {
+      const auto probe_count = [&](const char* label, uint32_t& value) {
         if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
-          for (uint32_t count = 64; count <= 256; count += 16)
+          for (uint32_t count = 3; count <= 257; count += 2) {
+            auto candidate = shared;
+            (std::string_view(label) == "Probe count X/Z" ? candidate.probe_count_x : candidate.probe_count_y) = count;
+            const auto sdfgi = DeriveSdfgiSettings(candidate, settings);
+            if (!sdfgi.Validate().empty() || !valid_density(sdfgi))
+              continue;
             if (ImGui::Selectable(std::to_string(count).c_str(), value == count)) {
               changed = changed || value != count;
               value = count;
             }
+          }
           ImGui::EndCombo();
         }
         ImGui::SetItemTooltip(
-            "Voxel count, not physical cell size. Probe spacing is controlled separately. "
-            "Larger counts increase coverage, memory, and GI work.");
+            "Shared nominal probes per cascade. Larger counts increase coverage, memory, and GI work. "
+            "Unavailable layouts are omitted. Changes recreate resources and restart convergence.");
       };
-      voxel_count("Voxel count X/Z", settings.voxel_count_x);
-      voxel_count("Voxel count Y", settings.voxel_count_y);
+      probe_count("Probe count X/Z", shared.probe_count_x);
+      probe_count("Probe count Y", shared.probe_count_y);
       if (ImGui::BeginCombo("Probe spacing", std::to_string(settings.probe_spacing_cells).c_str())) {
-        for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
+        for (const uint32_t spacing : {4u, 8u}) {
           auto candidate = settings;
           candidate.probe_spacing_cells = spacing;
-          if (valid_density(candidate) &&
+          candidate = DeriveSdfgiSettings(shared, candidate);
+          if (candidate.Validate().empty() && valid_density(candidate) &&
               ImGui::Selectable(std::to_string(spacing).c_str(), settings.probe_spacing_cells == spacing)) {
             settings.probe_spacing_cells = spacing;
             changed = true;
@@ -2968,40 +2978,23 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         ImGui::EndCombo();
       }
       ImGui::SetItemTooltip(
-          "Voxel intervals between probes. Unavailable layouts are omitted. Changes recreate the field and restart "
-          "convergence.");
+          "Voxel intervals between probes. Changes voxel resolution, not probe positions or physical coverage. "
+          "Unavailable layouts are omitted. Changes recreate the field and restart convergence.");
+      settings = DeriveSdfgiSettings(shared, settings);
       const auto grid = settings.GridSize();
       const auto probes = settings.ProbeSize();
       ImGui::TextDisabled("%dx%dx%d voxels; %dx%dx%d probes per cascade. Coverage follows one camera.", grid.x, grid.y,
                           grid.z, probes.x, probes.y, probes.z);
       ImGui::TextDisabled("Layout changes recreate the field and restart convergence.");
-      int cascades = static_cast<int>(settings.cascade_count);
+      int cascades = static_cast<int>(shared.cascade_count);
       if (ImGui::SliderInt("Cascades", &cascades, 1, 8)) {
-        settings.cascade_count = static_cast<uint32_t>(cascades);
+        shared.cascade_count = static_cast<uint32_t>(cascades);
         changed = true;
       }
-      changed = ImGui::DragFloat("Minimum cell size", &settings.min_cell_size, 0.01f, 0.01f, 64.0f) || changed;
-      float cascade0_distance = settings.GetCascade0Distance();
-      if (ImGui::DragFloat("Cascade 0 Distance", &cascade0_distance, 0.1f, 0.001f, FLT_MAX, "%.3f",
-                           ImGuiSliderFlags_AlwaysClamp)) {
-        settings.SetCascade0Distance(cascade0_distance);
-        changed = true;
-      }
+      changed = ImGui::DragFloat("Base probe distance", &shared.base_probe_distance, 0.01f, 0.001f, 512.0f) || changed;
       ImGui::SetItemTooltip(
-          "Nearest cascade's horizontal half extent. Increasing this reduces detail and increases coverage. "
-          "Linked to Minimum cell size and Max Distance; editing recreates the field and restarts convergence.");
-      float max_distance = settings.GetMaxDistance();
-      if (ImGui::DragFloat("Max Distance", &max_distance, 0.1f, 0.001f, FLT_MAX, "%.3f",
-                           ImGuiSliderFlags_AlwaysClamp)) {
-        settings.SetMaxDistance(max_distance);
-        changed = true;
-      }
-      ImGui::SetItemTooltip(
-          "Godot convention: outer cascade's full horizontal width, not a radius from the camera. "
-          "Keep below Camera Far to avoid unnecessary coverage. Linked to Minimum cell size and Cascade 0 Distance. "
-          "Actual bounds scroll with the camera and fade near edges; Y coverage also depends on voxel count Y and Y "
-          "Scale. "
-          "Editing recreates the field and restarts convergence.");
+          "Horizontal distance between neighboring probes in cascade 0. Each successive cascade doubles it. "
+          "Editing recreates resources and restarts convergence.");
       int light_cascades = static_cast<int>(settings.positional_light_cascade_count);
       if (ImGui::SliderInt("Positional light cascades", &light_cascades, 1, 8)) {
         settings.positional_light_cascade_count = static_cast<uint32_t>(light_cascades);
@@ -3011,10 +3004,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           "Point/spot lights inject into the first N active cascades. 8 covers all cascades; 3 matches Godot's "
           "default. Directional lights are unaffected. Updates use normal light cadence and probe convergence; "
           "no geometry-field rebuild is needed.");
-      int vertical_scale = static_cast<int>(settings.vertical_scale);
+      int vertical_scale = static_cast<int>(shared.vertical_scale);
       const char* vertical_scales[]{"50%", "75%", "100%"};
       if (ImGui::Combo("Y Scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {
-        settings.vertical_scale = static_cast<SdfgiSettings::VerticalScale>(vertical_scale);
+        shared.vertical_scale = static_cast<GiProbeSettings::VerticalScale>(vertical_scale);
         changed = true;
       }
       ImGui::SetItemTooltip(
@@ -3065,22 +3058,25 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       changed = ImGui::DragFloat("Probe bias", &settings.probe_bias, 0.01f, 0.0f, 8.0f) || changed;
       PrivateComponentRef anchor;
       if (lighting_asset) {
-        if (const auto entity = active_scene->GetEntity(Handle(settings.anchor_camera_entity));
+        if (const auto entity = active_scene->GetEntity(Handle(shared.anchor_camera_entity));
             active_scene->IsEntityValid(entity) && active_scene->HasPrivateComponent<Camera>(entity))
           anchor = active_scene->GetOrSetPrivateComponent<Camera>(entity).lock();
       }
       ImGui::BeginDisabled(!lighting_asset);
       if (editor_layer->DragAndDropButton<Camera>(anchor, "Optional anchor camera")) {
-        settings.anchor_camera_entity = anchor.GetEntityHandle().GetValue();
+        shared.anchor_camera_entity = anchor.GetEntityHandle().GetValue();
         changed = true;
       }
-      if (settings.anchor_camera_entity != 0 && ImGui::Button("Use automatic anchor")) {
-        settings.anchor_camera_entity = 0;
+      if (shared.anchor_camera_entity != 0 && ImGui::Button("Use automatic anchor")) {
+        shared.anchor_camera_entity = 0;
         changed = true;
       }
       ImGui::EndDisabled();
-      if (!(settings == previous_settings) && !valid_density(settings)) {
+      settings = DeriveSdfgiSettings(shared, settings);
+      if (!(settings == previous_settings) &&
+          (!shared.Validate().empty() || !settings.Validate().empty() || !valid_density(settings))) {
         settings = previous_settings;
+        shared = previous_shared;
         ImGui::OpenPopup("SDFGI density unavailable");
       }
       if (ImGui::BeginPopup("SDFGI density unavailable")) {

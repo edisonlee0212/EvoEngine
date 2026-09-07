@@ -571,15 +571,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .value("Percent100", SdfgiSettings::VerticalScale::Percent100);
   py::class_<SdfgiSettings>(m, "SdfgiSettings")
       .def(py::init<>())
-      .def_readwrite("cascade_count", &SdfgiSettings::cascade_count)
       .def_readwrite("positional_light_cascade_count", &SdfgiSettings::positional_light_cascade_count)
-      .def_readwrite("voxel_count_x", &SdfgiSettings::voxel_count_x)
       .def_readwrite("probe_spacing_cells", &SdfgiSettings::probe_spacing_cells)
-      .def_readwrite("voxel_count_y", &SdfgiSettings::voxel_count_y)
-      .def_readwrite("min_cell_size", &SdfgiSettings::min_cell_size)
-      .def_property("cascade0_distance", &SdfgiSettings::GetCascade0Distance, &SdfgiSettings::SetCascade0Distance)
-      .def_property("max_distance", &SdfgiSettings::GetMaxDistance, &SdfgiSettings::SetMaxDistance)
-      .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
       .def_readwrite("probe_relocation", &SdfgiSettings::probe_relocation)
       .def_readwrite("static_entities_only", &SdfgiSettings::static_entities_only)
@@ -590,8 +583,40 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("read_sky_light", &SdfgiSettings::read_sky_light)
       .def_readwrite("energy", &SdfgiSettings::energy)
       .def_readwrite("normal_bias", &SdfgiSettings::normal_bias)
-      .def_readwrite("probe_bias", &SdfgiSettings::probe_bias)
-      .def_readwrite("anchor_camera_entity", &SdfgiSettings::anchor_camera_entity);
+      .def_readwrite("probe_bias", &SdfgiSettings::probe_bias);
+  py::class_<GiProbeSettings>(m, "GiProbeSettings")
+      .def(py::init<>())
+      .def_readwrite("probe_count_x", &GiProbeSettings::probe_count_x)
+      .def_readwrite("probe_count_y", &GiProbeSettings::probe_count_y)
+      .def_readwrite("cascade_count", &GiProbeSettings::cascade_count)
+      .def_readwrite("base_probe_distance", &GiProbeSettings::base_probe_distance)
+      .def_readwrite("vertical_scale", &GiProbeSettings::vertical_scale)
+      .def_readwrite("anchor_camera_entity", &GiProbeSettings::anchor_camera_entity);
+  m.def("GetCurrentSceneGiProbeSettings", [] {
+    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).gi_probe_settings;
+  });
+  m.def("SetCurrentSceneGiProbeSettings", [](const GiProbeSettings& settings) {
+    if (const auto error = settings.Validate(); !error.empty())
+      throw py::value_error(error);
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    const auto sdfgi = DeriveSdfgiSettings(settings, lighting->sdfgi_settings);
+    if (lighting->indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+      if (const auto error = sdfgi.Validate(); !error.empty())
+        throw py::value_error(error);
+      const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+      const auto report =
+          QuerySdfgiCapabilities(sdfgi.cascade_count, sdfgi.history_size, sdfgi.voxel_count_x, sdfgi.voxel_count_y,
+                                 sdfgi.probe_spacing_cells, render ? render->GetDdgiHistoryAllocationBytes() : 0);
+      if (!report.Supported())
+        throw py::value_error(report.ToString());
+    }
+    lighting->gi_probe_settings = settings;
+    lighting->sdfgi_settings = sdfgi;
+    lighting->SetUnsaved();
+  });
   m.def("SetCurrentSceneGiProvider", [](const IndirectGiProvider provider) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
@@ -602,7 +627,14 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       lighting->ddgi_settings.runtime.enabled = true;
     lighting->SetUnsaved();
   });
-  m.def("SetCurrentSceneSdfgiSettings", [](const SdfgiSettings& settings) {
+  m.def("SetCurrentSceneSdfgiSettings", [](SdfgiSettings settings) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    if (settings.probe_spacing_cells != 4 && settings.probe_spacing_cells != 8)
+      throw py::value_error("Probe spacing must be 4 or 8 cells");
+    settings = DeriveSdfgiSettings(lighting->gi_probe_settings, settings);
     if (const auto error = settings.Validate(); !error.empty())
       throw py::value_error(error);
     const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
@@ -611,10 +643,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
                                                render ? render->GetDdgiHistoryAllocationBytes() : 0);
     if (!report.Supported())
       throw py::value_error(report.ToString());
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-    if (!lighting)
-      throw py::value_error("The active scene has no EnvironmentalLighting asset");
     lighting->sdfgi_settings = settings;
     lighting->SetUnsaved();
   });

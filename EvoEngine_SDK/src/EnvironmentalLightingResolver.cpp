@@ -261,7 +261,8 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
       lighting.specular_fallback_intensity, ResolvedEnvironmentalLighting::kDefaultSpecularFallbackIntensity);
   resolved.ddgi_settings = lighting.ddgi_settings;
   resolved.indirect_gi_provider = lighting.indirect_gi_provider;
-  resolved.sdfgi_settings = lighting.sdfgi_settings;
+  resolved.gi_probe_settings = lighting.gi_probe_settings;
+  resolved.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
   if (lighting.indirect_gi_provider != IndirectGiProvider::AuthoredDdgi)
     resolved.ddgi_settings.runtime.enabled = false;
   auto dynamic_settings = lighting.dynamic_reflection_probe_settings;

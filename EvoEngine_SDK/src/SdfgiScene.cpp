@@ -91,13 +91,13 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
                                             std::vector<SdfgiCascade>& cascades) {
   if (const auto failure = settings.Validate(); !failure.empty())
     return failure;
-  if (!std::isfinite(std::ldexp(settings.min_cell_size, settings.cascade_count + 6)) ||
-      !std::isfinite(1 / settings.min_cell_size))
+  if (!std::isfinite(1.0f / settings.min_cell_size))
     return "Cell sizes exceed SDFGI floating-point coordinate range";
-  const glm::vec3 world_position = anchor * glm::vec3(1, SdfgiYMultiplier(settings.vertical_scale), 1);
-  const glm::vec3 cells = world_position / settings.min_cell_size;
-  if (!Finite(cells) || glm::any(glm::greaterThan(glm::abs(glm::dvec3(cells)), glm::dvec3(INT32_MAX - 256))))
-    return "Anchor exceeds SDFGI reference integer-grid range";
+  std::vector<GiCascadePlacement> placements;
+  if (const auto failure = BuildGiCascadePlacements(GiProbesFromSdfgi(settings), anchor, placements); !failure.empty())
+    return failure;
+  if (!cascades.empty() && cascades.size() != placements.size())
+    return "SDFGI cascade count changed without a layout reset";
   if (cascades.empty()) {
     float cell_size = settings.min_cell_size;
     for (uint32_t i = 0; i < settings.cascade_count; ++i) {
@@ -105,33 +105,27 @@ std::string evo_engine::UpdateSdfgiCascades(const SdfgiSettings& settings, const
       cascade.cell_size = cell_size;
       cascade.probe_spacing_cells = settings.probe_spacing_cells;
       cascade.size = settings.GridSize();
-      cascade.position =
-          glm::ivec3(glm::floor(world_position / (cell_size * settings.probe_spacing_cells) + glm::vec3(0.5f))) *
-          static_cast<int>(settings.probe_spacing_cells);
+      cascade.position = placements[i].center * static_cast<int>(settings.probe_spacing_cells);
       cascades.push_back(cascade);
       cell_size *= 2;
     }
     return {};
   }
-  for (auto& cascade : cascades) {
+  for (size_t i = 0; i < cascades.size(); ++i) {
+    auto& cascade = cascades[i];
     cascade.dirty_regions = glm::ivec3(0);
     cascade.full_redraw = false;
-    // Godot truncates here, unlike the floor(x + 0.5) used at creation.
-    const glm::ivec3 cell_position(world_position / cascade.cell_size);
+    // Both providers snap in probe coordinates; voxel density must not alter movement thresholds.
+    const auto position = placements[i].center * static_cast<int>(settings.probe_spacing_cells);
     for (int axis = 0; axis < 3; ++axis) {
-      // Algebraically identical to the reference eight-cell while loops, without overflow or long teleport loops.
-      const int64_t delta = static_cast<int64_t>(cell_position[axis]) - cascade.position[axis];
-      const int64_t spacing = settings.probe_spacing_cells;
-      const int64_t shift = std::abs(delta) > spacing / 2 ? ((std::abs(delta) - spacing / 2 + spacing - 1) / spacing) *
-                                                                spacing * (delta < 0 ? -1 : 1)
-                                                          : 0;
-      cascade.position[axis] = static_cast<int32_t>(cascade.position[axis] + shift);
+      const int64_t shift = static_cast<int64_t>(position[axis]) - cascade.position[axis];
       if (std::abs(shift) >= cascade.size[axis]) {
         cascade.full_redraw = true;
-        break;
+      } else {
+        cascade.dirty_regions[axis] = static_cast<int32_t>(-shift);
       }
-      cascade.dirty_regions[axis] = static_cast<int32_t>(-shift);
     }
+    cascade.position = position;
     if (!cascade.full_redraw) {
       uint32_t safe_volume = 1;
       for (int axis = 0; axis < 3; ++axis)

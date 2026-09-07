@@ -1,5 +1,7 @@
 #pragma once
 
+#include "GiProbeSettings.hpp"
+
 #include <cstdint>
 #include <glm/vec3.hpp>
 #include <string>
@@ -15,7 +17,7 @@ enum class IndirectGiProvider : uint32_t { Environment = 0, AuthoredDdgi = 1, Au
 EVOENGINE_API const char* GetIndirectGiProviderName(IndirectGiProvider provider);
 
 struct EVOENGINE_API SdfgiSettings {
-  enum class VerticalScale : uint32_t { Percent50 = 0, Percent75 = 1, Percent100 = 2 };
+  using VerticalScale = GiProbeSettings::VerticalScale;
 
   uint32_t voxel_count_x = 128;
   uint32_t voxel_count_y = 64;

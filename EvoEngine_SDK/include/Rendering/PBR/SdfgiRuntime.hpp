@@ -13,14 +13,8 @@ namespace evo_engine {
 class SdfgiResources;
 struct SdfgiDebugState;
 
-enum class SdfgiAnchorSource : uint32_t { None, Explicit, MainCamera, EditorScene };
-
-struct SdfgiAnchor {
-  uint64_t camera_id = 0;
-  glm::vec3 world_position = glm::vec3(0.0f);
-  SdfgiAnchorSource source = SdfgiAnchorSource::None;
-  bool override_fell_back = false;
-};
+using SdfgiAnchorSource = GiAnchorSource;
+using SdfgiAnchor = GiAnchor;
 
 EVOENGINE_API SdfgiAnchor SelectSdfgiAnchor(const SdfgiAnchor& explicit_camera, const SdfgiAnchor& main_camera,
                                             const SdfgiAnchor& editor_camera, bool override_requested, bool playing,

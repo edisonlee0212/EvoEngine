@@ -1,4 +1,4 @@
-// Reference-loop fixture adapted from Godot gi.cpp::SDFGI::update,
+// Region fixtures adapted from Godot gi.cpp::SDFGI::update; snapping follows the shared GI contract,
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 #include "EvoEngine_SDK_PCH.hpp"
 
@@ -24,6 +24,128 @@
 #include "SkinnedMeshRenderer.hpp"
 
 using namespace evo_engine;
+
+TEST(GiProbes, DefaultsValidationAndCoverageAreIndependentOfVoxelDensity) {
+  GiProbeSettings probes;
+  EXPECT_EQ(probes.ProbeSize(), glm::ivec3(33, 17, 33));
+  EXPECT_EQ(probes.cascade_count, 4u);
+  EXPECT_FLOAT_EQ(probes.base_probe_distance, 0.8f);
+  EXPECT_TRUE(probes.Validate().empty());
+  const auto fine = DeriveSdfgiSettings(probes, {});
+  auto coarse = fine;
+  coarse.probe_spacing_cells = 8;
+  coarse = DeriveSdfgiSettings(probes, coarse);
+  EXPECT_EQ(fine.GridSize(), glm::ivec3(128, 64, 128));
+  EXPECT_EQ(coarse.GridSize(), glm::ivec3(256, 128, 256));
+  EXPECT_EQ(fine.ProbeSize(), coarse.ProbeSize());
+  EXPECT_FLOAT_EQ(fine.GetMaxDistance(), coarse.GetMaxDistance());
+  EXPECT_FALSE(fine.HasSameLayout(coarse));
+  for (uint32_t x = 3; x <= 257; ++x) {
+    probes.probe_count_x = x;
+    EXPECT_EQ(probes.Validate().empty(), (x & 1) != 0);
+    for (const uint32_t spacing : {4u, 8u}) {
+      auto settings = fine;
+      settings.probe_spacing_cells = spacing;
+      settings = DeriveSdfgiSettings(probes, settings);
+      const uint32_t voxels = (x - 1) * spacing;
+      EXPECT_EQ(settings.Validate().empty(), voxels >= 64 && voxels <= 256 && voxels % 16 == 0);
+    }
+  }
+  probes.probe_count_x = UINT32_MAX;
+  EXPECT_FALSE(probes.Validate().empty());
+  EXPECT_FALSE(DeriveSdfgiSettings(probes, fine).Validate().empty());
+  probes = {};
+  probes.base_probe_distance = std::numeric_limits<float>::infinity();
+  EXPECT_FALSE(probes.Validate().empty());
+}
+
+TEST(GiProbes, LegacyMigrationAndExplicitSharedOverrides) {
+  Application app;
+  ApplicationInitializationSettings initialization;
+  initialization.allow_empty_project = true;
+  initialization.load_default_resources = false;
+  initialization.load_project_assets = false;
+  initialization.load_project_start_scene = false;
+  initialization.enable_runtime_packages = false;
+  app.Initialize(initialization);
+  EnvironmentalLighting lighting;
+  DeserializeEnvironmentalLighting(YAML::Load("{}"), lighting);
+  EXPECT_EQ(lighting.gi_probe_settings, GiProbeSettings{});
+  for (const uint32_t spacing : {1u, 2u, 4u, 8u}) {
+    YAML::Node node =
+        YAML::Load("sdfgi_settings: {voxel_count_x: 128, voxel_count_y: 64, min_cell_size: 0.5, cascade_count: 3}");
+    node["sdfgi_settings"]["probe_spacing_cells"] = spacing;
+    DeserializeEnvironmentalLighting(node, lighting);
+    EXPECT_EQ(lighting.gi_probe_settings.probe_count_x, 128 / spacing + 1);
+    EXPECT_EQ(lighting.gi_probe_settings.probe_count_y, 64 / spacing + 1);
+    EXPECT_FLOAT_EQ(lighting.gi_probe_settings.base_probe_distance, 0.5f * spacing);
+    EXPECT_EQ(lighting.sdfgi_settings.probe_spacing_cells, std::max(spacing, 4u));
+    EXPECT_EQ(lighting.gi_probe_settings.cascade_count, 3u);
+    if (spacing < 2)
+      EXPECT_FALSE(lighting.sdfgi_settings.Validate().empty());
+    node["gi_probe_settings"]["probe_count_y"] = 17;
+    node["gi_probe_settings"]["base_probe_distance"] = 2.0f;
+    DeserializeEnvironmentalLighting(node, lighting);
+    EXPECT_EQ(lighting.gi_probe_settings.probe_count_x, 128 / spacing + 1);
+    EXPECT_EQ(lighting.gi_probe_settings.probe_count_y, 17u);
+    EXPECT_FLOAT_EQ(lighting.gi_probe_settings.base_probe_distance, 2.0f);
+    YAML::Emitter out;
+    out << YAML::BeginMap;
+    SerializeEnvironmentalLighting(out, lighting);
+    out << YAML::EndMap;
+    EnvironmentalLighting copy;
+    DeserializeEnvironmentalLighting(YAML::Load(out.c_str()), copy);
+    EXPECT_EQ(copy.gi_probe_settings, lighting.gi_probe_settings);
+    EXPECT_EQ(copy.sdfgi_settings, lighting.sdfgi_settings);
+  }
+}
+
+TEST(GiProbes, SignedTiesAnisotropyAndTransactionalInvalidAnchor) {
+  GiProbeSettings settings;
+  settings.base_probe_distance = 2;
+  settings.vertical_scale = GiProbeSettings::VerticalScale::Percent50;
+  std::vector<GiCascadePlacement> placements;
+  ASSERT_TRUE(BuildGiCascadePlacements(settings, {-1, -0.5f, 1}, placements).empty());
+  EXPECT_EQ(placements[0].center, glm::ivec3(0, 0, 1));
+  EXPECT_EQ(placements[0].interval, glm::vec3(2, 1, 2));
+  EXPECT_EQ(placements[0].first_probe, glm::vec3(-32, -8, -30));
+  for (size_t c = 0; c < placements.size(); ++c)
+    EXPECT_EQ(placements[c].interval, placements[0].interval * std::ldexp(1.0f, c));
+  const auto previous = placements;
+  EXPECT_FALSE(BuildGiCascadePlacements(settings, glm::vec3(NAN), placements).empty());
+  EXPECT_EQ(placements[0].first_probe, previous[0].first_probe);
+  for (const auto anchor : {glm::vec3(-1000, 500, -200), glm::vec3(0.9f, -0.6f, 1.1f)}) {
+    std::vector<SdfgiCascade> a, b;
+    auto first = DeriveSdfgiSettings(settings, {});
+    auto second = first;
+    second.probe_spacing_cells = 8;
+    second = DeriveSdfgiSettings(settings, second);
+    ASSERT_TRUE(UpdateSdfgiCascades(first, glm::vec3(0), a).empty());
+    ASSERT_TRUE(UpdateSdfgiCascades(first, anchor, a).empty());
+    ASSERT_TRUE(UpdateSdfgiCascades(second, anchor, b).empty());
+    for (size_t c = 0; c < a.size(); ++c) {
+      EXPECT_EQ(a[c].position / 4, b[c].position / 8);
+      EXPECT_EQ(a[c].WorldBounds(2).min, b[c].WorldBounds(2).min);
+      EXPECT_EQ(a[c].WorldBounds(2).max, b[c].WorldBounds(2).max);
+    }
+  }
+}
+
+TEST(GiProbes, FrameSnapshotIsIndependentOfAdditionalCameraCalls) {
+  GiProbeFrame frame;
+  GiProbeSettings settings;
+  ASSERT_TRUE(frame.Update(5, settings, {7, glm::vec3(0)}));
+  const auto first = frame.placements[0].first_probe;
+  EXPECT_FALSE(frame.Update(5, settings, {9, glm::vec3(100)}));
+  EXPECT_EQ(frame.anchor.camera_id, 7u);
+  EXPECT_EQ(frame.placements[0].first_probe, first);
+  ASSERT_TRUE(frame.Update(6, settings, {}));
+  EXPECT_FALSE(frame.failure.empty());
+  EXPECT_EQ(frame.placements[0].first_probe, first);
+  ASSERT_TRUE(frame.Update(7, settings, {7, glm::vec3(100)}));
+  EXPECT_TRUE(frame.failure.empty());
+  EXPECT_NE(frame.placements[0].first_probe, first);
+}
 
 TEST(SdfgiRelocation, DefaultMigrationRoundTripAndLayoutReset) {
   SdfgiSettings settings;
@@ -781,6 +903,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   EXPECT_TRUE(loaded.ddgi_settings.runtime.enabled);
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings.anchor_camera_entity = 12;
+  lighting.gi_probe_settings.anchor_camera_entity = 12;
   YAML::Emitter automatic;
   automatic << YAML::BeginMap;
   SerializeEnvironmentalLighting(automatic, lighting);
@@ -795,6 +918,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   for (const auto provider : {IndirectGiProvider::Environment, IndirectGiProvider::AuthoredDdgi}) {
     lighting.indirect_gi_provider = provider;
     lighting.sdfgi_settings = {};
+    lighting.gi_probe_settings = {};
     YAML::Emitter explicit_choice;
     explicit_choice << YAML::BeginMap;
     SerializeEnvironmentalLighting(explicit_choice, lighting);
@@ -806,7 +930,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   }
 }
 
-TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
+TEST(SdfgiScene, PlacementUsesSharedRoundingAndDisjointSlabs) {
   SdfgiSettings settings;
   settings.voxel_count_x = settings.voxel_count_y = 128;
   settings.probe_spacing_cells = 8;
@@ -820,7 +944,7 @@ TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
   EXPECT_EQ(GetSdfgiPendingRegions(cascades, 1).size(), 4u);
   cascades.clear();
   ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
-  ASSERT_TRUE(UpdateSdfgiCascades(settings, {-4.99f, 4.99f, 0}, cascades).empty());
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, {-4, 3.99f, 0}, cascades).empty());
   EXPECT_TRUE(GetSdfgiPendingRegions(cascades, 1).empty());
   ASSERT_TRUE(UpdateSdfgiCascades(settings, {-5, 5, 5}, cascades).empty());
   EXPECT_EQ(cascades[0].position, glm::ivec3(-8, 8, 8));
@@ -856,7 +980,7 @@ TEST(SdfgiScene, PlacementMatchesReferenceRoundingThresholdsAndDisjointSlabs) {
   }
 }
 
-TEST(SdfgiScene, MovementMatchesPinnedReferenceLoopsAcrossScriptedTeleports) {
+TEST(SdfgiScene, MovementMatchesFreshSharedPlacementAcrossScriptedTeleports) {
   SdfgiSettings settings;
   settings.voxel_count_x = settings.voxel_count_y = 128;
   settings.probe_spacing_cells = 8;
@@ -875,21 +999,14 @@ TEST(SdfgiScene, MovementMatchesPinnedReferenceLoopsAcrossScriptedTeleports) {
     for (auto& cascade : expected) {
       cascade.full_redraw = false;
       cascade.dirty_regions = glm::ivec3(0);
-      const glm::ivec3 pos(anchor / cascade.cell_size);
+      const glm::ivec3 pos = glm::ivec3(glm::floor(anchor / (cascade.cell_size * 8) + 0.5f)) * 8;
       for (int axis = 0; axis < 3; ++axis) {
-        while (pos[axis] < cascade.position[axis] - 4) {
-          cascade.position[axis] -= 8;
-          cascade.dirty_regions[axis] += 8;
-        }
-        while (pos[axis] > cascade.position[axis] + 4) {
-          cascade.position[axis] += 8;
-          cascade.dirty_regions[axis] -= 8;
-        }
+        cascade.dirty_regions[axis] = cascade.position[axis] - pos[axis];
         if (std::abs(cascade.dirty_regions[axis]) >= 128) {
           cascade.full_redraw = true;
-          break;
         }
       }
+      cascade.position = pos;
       if (!cascade.full_redraw) {
         uint32_t safe_volume = 1;
         for (int axis = 0; axis < 3; ++axis)
