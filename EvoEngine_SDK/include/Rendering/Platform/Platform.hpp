@@ -16,8 +16,6 @@
 #include <optional>
 #include <set>
 
-#define ENABLE_EXTERNAL_MEMORY true
-
 #define ENABLE_NV_RAY_TRACING_VALIDATION false
 
 #ifndef USE_RENDERDOC

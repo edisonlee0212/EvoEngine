@@ -66,41 +66,32 @@ TEST(DdgiHistoryTest, AutomaticDefaultBudgetAndAtlasPackingDoNotUseAuthoredProbe
   EXPECT_FALSE(DdgiRuntime::ValidateProbeGrid(glm::ivec3(258), UINT32_MAX));
 }
 
-TEST(DdgiHistoryTest, VisibilityResolutionMigrationAndLayoutIdentity) {
+TEST(DdgiHistoryTest, FixedStorageIgnoresLegacySettings) {
   DdgiSettings settings;
-  EXPECT_EQ(settings.storage.visibility_tile_resolution, 8);
-  const auto initial = DdgiRuntime::CalculateFrameResourceLayout(settings, 100);
-  for (const int resolution : {8, 12, 16}) {
-    settings.storage.visibility_tile_resolution = resolution;
-    YAML::Emitter out;
-    SerializeDdgiSettings(out, settings);
-    DdgiSettings loaded;
-    DeserializeDdgiSettings(YAML::Load(out.c_str()), loaded);
-    EXPECT_EQ(loaded.storage.visibility_tile_resolution, resolution);
-    EXPECT_EQ(
-        DdgiRuntime::ArePersistentLayoutsCompatible(initial, DdgiRuntime::CalculateFrameResourceLayout(loaded, 100)),
-        resolution == 8);
-  }
-  DeserializeDdgiSettings(YAML::Load("runtime: {visibility_smoothing: 0.5}"), settings);
-  EXPECT_EQ(settings.storage.visibility_tile_resolution, 8);
+  const auto defaults = settings;
+  DeserializeDdgiSettings(
+      YAML::Load("storage: {atlas_probe_columns: 128, irradiance_tile_resolution: 16, visibility_tile_resolution: 16}"),
+      settings);
+  EXPECT_EQ(settings, defaults);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 33 * 17 * 33, 16384);
+  ASSERT_TRUE(layout.valid);
+  EXPECT_EQ(layout.irradiance_atlas.columns, 16u);
+  EXPECT_EQ(layout.visibility_atlas.columns, 16u);
+  EXPECT_EQ(layout.irradiance_atlas.tile_resolution, 8u);
+  EXPECT_EQ(layout.visibility_atlas.tile_resolution, 8u);
+  EXPECT_EQ(layout.irradiance_atlas.resolution, glm::uvec2(160, 11580));
+  YAML::Emitter out;
+  SerializeDdgiSettings(out, settings);
+  EXPECT_FALSE(YAML::Load(out.c_str())["storage"]);
 }
 
-TEST(DdgiHistoryTest, VisibilityResolutionBudgetRejectsWithoutCoarsening) {
-  for (const int resolution : {8, 12, 16}) {
+TEST(DdgiHistoryTest, FixedStorageHistoryBudgetScalesWithWindow) {
+  for (const int count : {5, 10, 15, 20, 25, 30}) {
     DdgiSettings settings;
-    settings.storage.visibility_tile_resolution = resolution;
+    settings.runtime.history_count = count;
     const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 33 * 17 * 33, 16384);
-    ASSERT_TRUE(layout.valid) << layout.error;
-    const uint64_t expected = 74052ull * (64 * (30 * 8 + 16) + resolution * resolution * (30 * 4 + 8) + 16);
-    EXPECT_EQ(layout.history_allocation_bytes * 4, expected);
-    GiHistoryBudget budget;
-    for (uint32_t cascade = 0; cascade < 4; ++cascade)
-      ASSERT_TRUE(DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, budget));
-    const auto before = budget.bytes;
-    EXPECT_EQ(DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, budget), resolution != 16);
-    if (resolution == 16)
-      EXPECT_EQ(budget.bytes, before);
-    EXPECT_EQ(settings.storage.visibility_tile_resolution, resolution);
+    ASSERT_TRUE(layout.valid);
+    EXPECT_EQ(layout.history_allocation_bytes * 4, 74052ull * (64 * (count * 8 + 16) + 64 * (count * 4 + 8) + 16));
   }
 }
 
@@ -372,7 +363,6 @@ TEST(DdgiVolume, RuntimeHelperContractsPreserveLayoutsAndSelection) {
 
   DdgiSettings settings{};
   settings.runtime.enabled = true;
-  settings.storage.atlas_probe_columns = 16;
 
   const auto runtime_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 256u, 4096u);
   EXPECT_TRUE(runtime_layout.valid);
@@ -578,6 +568,19 @@ TEST(DdgiVolume, DdgiProbeUpdateDispatchUsesTwoDimensionsAndSerialFallbackShape)
   EXPECT_EQ(dispatch.y, 5u);
 }
 
+TEST(DdgiVolume, FrameworkDoesNotExportGpuMemoryOrSemaphores) {
+  const auto root = std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK";
+  for (const auto* path :
+       {"src/GraphicsResources.cpp", "src/Platform.cpp", "src/GpuService.cpp",
+        "include/Rendering/Platform/GraphicsResources.hpp", "include/Rendering/Platform/Platform.hpp"}) {
+    const auto source = ReadTextFile(root / path);
+    for (const auto* symbol : {"ENABLE_EXTERNAL_MEMORY", "VkExternalMemory", "VkExternalImageFormatProperties",
+                               "pTypeExternalMemoryHandleTypes", "GetVkImageMemHandle", "GetVkSemaphoreHandle",
+                               "VK_KHR_EXTERNAL_MEMORY", "VK_KHR_EXTERNAL_SEMAPHORE"})
+      EXPECT_EQ(source.find(symbol), std::string::npos) << path << ": " << symbol;
+  }
+}
+
 TEST(DdgiVolume, ProbeGridIndexUsesXFastestOrder) {
   EXPECT_EQ(DdgiRuntime::GetProbeGridIndex({4, 3, 2}, 17), glm::uvec3(1, 1, 1));
   EXPECT_EQ(DdgiRuntime::GetProbeGridIndex({4, 3, 2}, 23), glm::uvec3(3, 2, 1));
@@ -588,9 +591,6 @@ TEST(DdgiVolume, ProbeGridIndexUsesXFastestOrder) {
 TEST(DdgiVolume, RenderLayerIgnoresObsoleteProbeCapWithoutTruncation) {
   DdgiSettings settings;
   const glm::ivec3 probe_counts{8, 8, 8};
-  settings.storage.atlas_probe_columns = 6;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 64;
 
   const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, DdgiRuntime::GetProbeCount(probe_counts));
@@ -606,9 +606,6 @@ TEST(DdgiVolume, RenderLayerIgnoresObsoleteProbeCapWithoutTruncation) {
 
 TEST(DdgiVolume, RenderLayerFrameResourceLayoutUsesActiveVolumeProbeCount) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 16;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 128;
   settings.runtime.emissive_ray_count = 0;
 
@@ -619,7 +616,7 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutUsesActiveVolumeProbeCount) {
   EXPECT_EQ(layout.probe_count, 252u);
   EXPECT_EQ(layout.irradiance_atlas.rows, 16u);
   EXPECT_EQ(layout.irradiance_atlas.resolution, glm::uvec2(160, 160));
-  EXPECT_EQ(layout.visibility_atlas.resolution, glm::uvec2(192, 192));
+  EXPECT_EQ(layout.visibility_atlas.resolution, glm::uvec2(160, 160));
   EXPECT_EQ(layout.probe_metadata_byte_size, 252ull * sizeof(glm::vec4) * 3ull);
   EXPECT_EQ(layout.probe_state_byte_size, 252ull * sizeof(glm::vec4));
   EXPECT_EQ(layout.ray_output_byte_size, 252ull * 128ull * sizeof(DdgiProbeRayData));
@@ -628,9 +625,6 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutUsesActiveVolumeProbeCount) {
 
 TEST(DdgiVolume, CompactRayMemoryAccountingCoversRepresentativeAndMaximumLayouts) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 128;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 256;
   settings.runtime.emissive_ray_count = 0;
 
@@ -741,9 +735,6 @@ TEST(DdgiVolume, CompactRayShadersMatchHostLayoutAndPreserveSelectedDiagnostics)
 
 TEST(DdgiVolume, RenderLayerUsesDeviceLimitsInsteadOfObsoleteProbeCap) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 4;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 8;
   settings.runtime.ray_count = 16;
   settings.runtime.emissive_ray_count = 0;
 
@@ -776,33 +767,17 @@ TEST(DdgiVolume, RenderLayerRepackagesAtlasWhenPreferredColumnsExceedDeviceExten
   EXPECT_FALSE(DdgiRuntime::CalculateAtlasLayout(50, 8, 4, 79).valid);
 }
 
-TEST(DdgiVolume, RenderLayerRejectsZeroAtlasColumnsWithoutReshaping) {
-  const auto layout = DdgiRuntime::CalculateAtlasLayout(16, 8, 0, 1024);
-  EXPECT_FALSE(layout.valid);
-  EXPECT_FALSE(layout.error.empty());
-
-  DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 0;
-  EXPECT_FALSE(DdgiRuntime::CalculateFrameResourceLayout(settings).valid);
-}
-
-TEST(DdgiVolume, RenderLayerPropagatesVisibilityAtlasDeviceLimitFailure) {
-  DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 4;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 16;
-
-  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 32, 100);
-
-  EXPECT_FALSE(layout.valid);
-  EXPECT_TRUE(layout.irradiance_atlas.valid);
-  EXPECT_FALSE(layout.visibility_atlas.valid);
-  EXPECT_FALSE(layout.error.empty());
+TEST(DdgiVolume, FixedAtlasRejectsDeviceExtentWithoutRepacking) {
+  const auto exact = DdgiRuntime::CalculateFrameResourceLayout({}, 33 * 17 * 33, 11580);
+  const auto rejected = DdgiRuntime::CalculateFrameResourceLayout({}, 33 * 17 * 33, 11579);
+  EXPECT_TRUE(exact.valid);
+  EXPECT_FALSE(rejected.valid);
+  EXPECT_EQ(rejected.irradiance_atlas.columns, 16u);
+  EXPECT_FALSE(rejected.error.empty());
 }
 
 TEST(DdgiVolume, RenderLayerRejectsStorageBuffersBeyondDeviceRange) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 4;
   settings.runtime.ray_count = 16;
   const auto unrestricted = DdgiRuntime::CalculateFrameResourceLayout(settings, 32, 1024);
   ASSERT_TRUE(unrestricted.valid) << unrestricted.error;
@@ -831,7 +806,6 @@ TEST(DdgiVolume, InspectorUsesWholeConfigurationEditBoundary) {
 
 TEST(DdgiVolume, PausedHistoryRequiresCompatiblePersistentLayout) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 4;
   settings.runtime.ray_count = 16;
   const auto previous = DdgiRuntime::CalculateFrameResourceLayout(settings, 32, 1024);
   ASSERT_TRUE(previous.valid) << previous.error;
@@ -840,8 +814,7 @@ TEST(DdgiVolume, PausedHistoryRequiresCompatiblePersistentLayout) {
   const auto transient_only_change = DdgiRuntime::CalculateFrameResourceLayout(settings, 32, 1024);
   EXPECT_TRUE(DdgiRuntime::ArePersistentLayoutsCompatible(previous, transient_only_change));
 
-  settings.storage.atlas_probe_columns = 8;
-  const auto atlas_change = DdgiRuntime::CalculateFrameResourceLayout(settings, 32, 1024);
+  const auto atlas_change = DdgiRuntime::CalculateFrameResourceLayout(settings, 48, 1024);
   EXPECT_FALSE(DdgiRuntime::ArePersistentLayoutsCompatible(previous, atlas_change));
   EXPECT_FALSE(DdgiRuntime::ArePersistentLayoutsCompatible({}, previous));
 }
@@ -2160,19 +2133,16 @@ TEST(DdgiVolume, DdgiShadowRaysIgnoreNonShadowCastingLightVisualizers) {
 
 TEST(DdgiVolume, RenderLayerFrameResourceLayoutRespondsToResourceSizingInputs) {
   DdgiSettings settings;
-  settings.storage.atlas_probe_columns = 5;
-  settings.storage.irradiance_tile_resolution = 6;
-  settings.storage.visibility_tile_resolution = 14;
   settings.runtime.ray_count = 11;
   settings.runtime.emissive_ray_count = 0;
 
   auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 37);
 
   EXPECT_EQ(layout.probe_count, 37u);
-  EXPECT_EQ(layout.irradiance_atlas.columns, 5u);
-  EXPECT_EQ(layout.irradiance_atlas.rows, 8u);
-  EXPECT_EQ(layout.irradiance_atlas.resolution, glm::uvec2(40, 64));
-  EXPECT_EQ(layout.visibility_atlas.resolution, glm::uvec2(80, 128));
+  EXPECT_EQ(layout.irradiance_atlas.columns, 16u);
+  EXPECT_EQ(layout.irradiance_atlas.rows, 3u);
+  EXPECT_EQ(layout.irradiance_atlas.resolution, glm::uvec2(160, 30));
+  EXPECT_EQ(layout.visibility_atlas.resolution, glm::uvec2(160, 30));
   EXPECT_EQ(layout.probe_metadata_byte_size, 37ull * sizeof(glm::vec4) * 3ull);
   EXPECT_EQ(layout.probe_state_byte_size, 37ull * sizeof(glm::vec4));
   EXPECT_EQ(layout.ray_output_byte_size, 37ull * 11ull * sizeof(DdgiProbeRayData));
@@ -2185,12 +2155,10 @@ TEST(DdgiVolume, RenderLayerFrameResourceLayoutRespondsToResourceSizingInputs) {
   EXPECT_EQ(resized_layout.ray_output_byte_size, 37ull * 23ull * sizeof(DdgiProbeRayData));
   EXPECT_EQ(resized_layout.selected_ray_diagnostics_byte_size, 23ull * sizeof(PointCloudSample));
 
-  settings.storage.irradiance_tile_resolution = 10;
-  settings.storage.visibility_tile_resolution = 18;
-  resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 37);
-  EXPECT_EQ(resized_layout.irradiance_atlas.resolution, glm::uvec2(60, 96));
-  EXPECT_EQ(resized_layout.visibility_atlas.resolution, glm::uvec2(100, 160));
-  EXPECT_EQ(resized_layout.ray_output_byte_size, 37ull * 23ull * sizeof(DdgiProbeRayData));
+  resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 65);
+  EXPECT_EQ(resized_layout.irradiance_atlas.resolution, glm::uvec2(160, 50));
+  EXPECT_EQ(resized_layout.visibility_atlas.resolution, glm::uvec2(160, 50));
+  EXPECT_EQ(resized_layout.ray_output_byte_size, 65ull * 23ull * sizeof(DdgiProbeRayData));
   EXPECT_EQ(resized_layout.selected_ray_diagnostics_byte_size, 23ull * sizeof(PointCloudSample));
 }
 

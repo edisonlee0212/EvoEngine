@@ -1434,18 +1434,7 @@ bool Platform::SupportsCubemapFormat(const VkFormat format, const uint32_t resol
                      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
   image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
 
-  VkExternalImageFormatProperties external_properties{VK_STRUCTURE_TYPE_EXTERNAL_IMAGE_FORMAT_PROPERTIES};
   VkImageFormatProperties2 image_properties{VK_STRUCTURE_TYPE_IMAGE_FORMAT_PROPERTIES_2};
-#if ENABLE_EXTERNAL_MEMORY
-  VkPhysicalDeviceExternalImageFormatInfo external_info{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_IMAGE_FORMAT_INFO};
-#  ifdef _WIN64
-  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-  external_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
-#  endif
-  image_info.pNext = &external_info;
-  image_properties.pNext = &external_properties;
-#endif
   if (vkGetPhysicalDeviceImageFormatProperties2(physical_device->vk_physical_device, &image_info, &image_properties) !=
       VK_SUCCESS) {
     return false;
@@ -1456,13 +1445,6 @@ bool Platform::SupportsCubemapFormat(const VkFormat format, const uint32_t resol
       (properties.sampleCounts & VK_SAMPLE_COUNT_1_BIT) == 0) {
     return false;
   }
-#if ENABLE_EXTERNAL_MEMORY
-  const auto& external = external_properties.externalMemoryProperties;
-  if ((external.externalMemoryFeatures & VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) == 0 ||
-      (external.compatibleHandleTypes & external_info.handleType) == 0) {
-    return false;
-  }
-#endif
   return true;
 }
 
@@ -1897,15 +1879,6 @@ void Platform::SelectPhysicalDevice() {
   if (const auto window_layer = ApplicationContext::Get().GetLayer<WindowLayer>()) {
     required_device_extension_names_.emplace_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
   }
-#if ENABLE_EXTERNAL_MEMORY
-#  ifdef _WIN64
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_WIN32_EXTENSION_NAME);
-#  else
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
-  required_device_extension_names_.emplace_back(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME);
-#  endif
-#endif
   required_device_extension_names_.emplace_back(VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME);
 #ifdef ENABLE_NVIDIA_NSIGHT_AFTERMATH
   required_device_extension_names_.emplace_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME);
@@ -2814,21 +2787,6 @@ void Platform::SetupVmaAllocator() {
   vma_allocator_create_info.instance = vk_instance_;
   vma_allocator_create_info.vulkanApiVersion = volkGetInstanceVersion();
   vma_allocator_create_info.pVulkanFunctions = &vulkan_functions;
-#if ENABLE_EXTERNAL_MEMORY
-  std::vector<VkExternalMemoryHandleTypeFlagsKHR> handle_types;
-  handle_types.resize(graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount);
-  for (int i = 0; i < graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypeCount; i++) {
-    if (graphics.selected_physical_device->vk_physical_device_memory_properties.memoryTypes[i].propertyFlags &
-        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) {
-#  ifdef _WIN64
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32_BIT;
-#  else
-      handle_types[i] = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-#  endif
-    }
-  }
-  vma_allocator_create_info.pTypeExternalMemoryHandleTypes = handle_types.data();
-#endif
   CheckVk(vmaCreateAllocator(&vma_allocator_create_info, &vma_allocator_));
 #pragma endregion
 }

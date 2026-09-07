@@ -27,11 +27,6 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
       << settings.runtime.deterministic_ray_seed_enabled;
   out << YAML::Key << "deterministic_ray_seed" << YAML::Value << settings.runtime.deterministic_ray_seed;
   out << YAML::EndMap;
-  out << YAML::Key << "storage" << YAML::Value << YAML::BeginMap;
-  out << YAML::Key << "irradiance_tile_resolution" << YAML::Value << settings.storage.irradiance_tile_resolution;
-  out << YAML::Key << "visibility_tile_resolution" << YAML::Value << settings.storage.visibility_tile_resolution;
-  out << YAML::Key << "atlas_probe_columns" << YAML::Value << settings.storage.atlas_probe_columns;
-  out << YAML::EndMap;
   out << YAML::EndMap;
 }
 
@@ -81,14 +76,6 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
     if (values["deterministic_ray_seed"])
       settings.runtime.deterministic_ray_seed = values["deterministic_ray_seed"].as<uint32_t>();
   }
-  if (const auto values = in["storage"]) {
-    if (values["irradiance_tile_resolution"])
-      settings.storage.irradiance_tile_resolution = values["irradiance_tile_resolution"].as<int>();
-    if (values["visibility_tile_resolution"])
-      settings.storage.visibility_tile_resolution = values["visibility_tile_resolution"].as<int>();
-    if (values["atlas_probe_columns"])
-      settings.storage.atlas_probe_columns = values["atlas_probe_columns"].as<int>();
-  }
 }
 
 void evo_engine::DdgiSettings::ClampSettings() {
@@ -102,9 +89,6 @@ void evo_engine::DdgiSettings::ClampSettings() {
   runtime.irradiance_gamma = glm::clamp(runtime.irradiance_gamma, 0.1f, 16.0f);
   runtime.visibility_moment_bias = glm::clamp(runtime.visibility_moment_bias, 0.0f, 10.0f);
   runtime.relocation_distance = glm::clamp(runtime.relocation_distance, 0.0f, 10000.0f);
-  storage.irradiance_tile_resolution = glm::clamp(storage.irradiance_tile_resolution, 1, 128);
-  storage.visibility_tile_resolution = glm::clamp(storage.visibility_tile_resolution, 1, 128);
-  storage.atlas_probe_columns = glm::clamp(storage.atlas_probe_columns, 1, 4096);
 }
 
 bool DdgiSettings::operator==(const DdgiSettings& other) const {
@@ -113,9 +97,8 @@ bool DdgiSettings::operator==(const DdgiSettings& other) const {
                   runtime.warmup_frames, runtime.history_count, runtime.normal_bias, runtime.view_bias,
                   runtime.max_ray_distance, runtime.distance_exponent, runtime.irradiance_gamma,
                   runtime.visibility_moment_bias, runtime.enable_probe_relocation, runtime.enable_probe_classification,
-                  runtime.relocation_distance, runtime.deterministic_ray_seed_enabled, runtime.deterministic_ray_seed,
-                  storage.irradiance_tile_resolution, storage.visibility_tile_resolution,
-                  storage.atlas_probe_columns) ==
+                  runtime.relocation_distance, runtime.deterministic_ray_seed_enabled,
+                  runtime.deterministic_ray_seed) ==
          std::tie(other.runtime.fixed_ray_backface_threshold, other.runtime.random_ray_backface_threshold,
                   other.runtime.enable_emissive_mesh_sampling, other.runtime.ray_count,
                   other.runtime.emissive_ray_count, other.runtime.warmup_frames, other.runtime.history_count,
@@ -123,6 +106,5 @@ bool DdgiSettings::operator==(const DdgiSettings& other) const {
                   other.runtime.distance_exponent, other.runtime.irradiance_gamma, other.runtime.visibility_moment_bias,
                   other.runtime.enable_probe_relocation, other.runtime.enable_probe_classification,
                   other.runtime.relocation_distance, other.runtime.deterministic_ray_seed_enabled,
-                  other.runtime.deterministic_ray_seed, other.storage.irradiance_tile_resolution,
-                  other.storage.visibility_tile_resolution, other.storage.atlas_probe_columns);
+                  other.runtime.deterministic_ray_seed);
 }

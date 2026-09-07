@@ -42,14 +42,7 @@ struct EVOENGINE_API DdgiSettings {
     uint32_t deterministic_ray_seed = 0;
   };
 
-  struct StorageSettings {
-    int irradiance_tile_resolution = 8;
-    int visibility_tile_resolution = 8;
-    int atlas_probe_columns = 16;
-  };
-
   RuntimeSettings runtime{};
-  StorageSettings storage{};
 
   void ClampSettings();
   [[nodiscard]] bool operator==(const DdgiSettings& other) const;

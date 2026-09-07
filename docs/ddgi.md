@@ -21,14 +21,30 @@ are ignored without deleting resource files. The runtime creates one allocation 
 cascade, with stable scene/cascade identity. Auxiliary cameras and reflection captures cannot move the field.
 
 There is no artificial 8,192-probe cap. Shared odd counts 3..257, atlas dimensions, buffer/ray limits and
-the strict history budget determine whether a layout is supported. Preferred atlas packing is retained
-when it fits and repacked into bounded rows otherwise.
+the strict history budget determine whether a layout is supported.
+
+DDGI atlas packing is fixed at 16 probe columns, with 8x8 interior texels for both irradiance and visibility.
+These are no longer GUI, serialization or Python settings; legacy storage values are ignored. Layouts that exceed
+the device image limit are rejected rather than repacked. Probe counts and history length remain configurable.
+
+GPU resources now use ordinary, non-exportable VMA allocations. Vulkan external-memory/semaphore interoperability
+has been removed: no automatic export chains, external-handle APIs or required interoperability extensions remain.
+DDGI needs no dedicated allocation or environment switch. VMA remains pinned to 3.4.0; the upgrade alone did not
+resolve the observed regression, while disabling external export restored lighting in the diagnostic comparisons.
+
+Fixed-layout delivery validation passed 174 focused DDGI/GI/GpuService/RenderGraph tests and the repository format
+check. The installed RT-enabled 2560x1440 Sponza fixture with editor layers retained visible indirect lighting in
+two fresh 600-loop runs (normal and Vulkan validation), with captures at 240 and 600 iterations. These are display
+loop counts, not completed-update counts; the readiness counter saturates at the 30-update history window.
+Vulkan validation still reports the previously observed `VUID-vkCmdDraw-None-09600` image-layout errors.
+This is not a validation-clean result or manual appearance acceptance. Temporary allocation/readback instrumentation
+was removed; editor and Python runtime were rebuilt and all enabled applications installed.
 
 ## Settings and runtime edits
 
 The GI tab contains shared **Probe settings**, **Indirect GI provider**, and selected-provider controls.
 Shared odd probe counts, cascade count, base distance, Y Scale and optional anchor determine nominal coverage.
-DDGI-specific controls include tracing, shared irradiance/visibility history, tile resolutions, biases, relocation and classification.
+DDGI-specific controls include tracing, shared irradiance/visibility history, biases, relocation and classification.
 RenderLayer contains only session pause and visualization/debug controls, not duplicate persistent settings.
 
 Python exposes `GiSettings` (`probes`, `provider`, `sdfgi`, `ddgi`), `GetCurrentSceneGiSettings`,
@@ -113,19 +129,18 @@ Visibility lookup uses hardware bilinear filtering. Initial and exposed tiles cl
 to (0, 0). Atlas output is clamped to RG16F's finite range after averaging; no negative atlas sentinel is used.
 The former visibility-smoothing setting is ignored on load and removed from active APIs.
 
-The earlier hardware-filtered visibility behavior and half-moment normalization have been restored without changing
-automatic cascade selection. Focused editor-layer testing still reproduces missing indirect lighting at 33x17x33
-after a full history window; smaller grids recover lighting. This restoration is not a fix for that regression.
+The earlier hardware-filtered visibility behavior and half-moment normalization were restored without changing
+automatic cascade selection. That restoration alone did not fix missing indirect lighting at 33x17x33.
+The subsequent external-memory interoperability removal restored lighting in installed editor-layer tests.
 
-Default irradiance and visibility interior tiles are both 8x8; explicit saved resolutions are preserved.
-Four cascades with 33x17x33 probes and 30 updates use 1,821,086,784 logical history bytes (about 1.696 GiB),
-including both rings/sums and origin records. Visibility 12x12 uses about 2.402 GiB; 16x16 uses about 3.391 GiB.
+Irradiance and visibility interior tiles are fixed at 8x8. The default 33x17x33 probes, four cascades and
+30-update history use about 1.696 GiB for history, including both rings/sums and origin records.
 Device padding, output atlases and ray buffers remain additional allocations. Runtime edits recreate incompatible
 layouts and reject configurations whose padded histories reach 4 GiB, without silently reducing quality.
 
-Visibility-history restoration passed 126 focused CPU/shader/GPU tests, including 100 repeated quantized windows,
+Historical visibility-history restoration passed 126 focused CPU/shader/GPU tests, including 100 repeated quantized windows,
 invalid-estimate preservation and moved/reactivated-probe clearing. Installed RTX 5070, RT-enabled 2560x1440 Sponza
-coverage passed visibility 8/16/8 transitions, signed scrolling, teleports, provider switching, memory rejection and
+coverage exercised the then-configurable visibility 8/16/8 transitions, signed scrolling, teleports, provider switching, memory rejection and
 finite captures. Flicker and light-leak appearance acceptance remains manual.
 
 ## Relocation And Classification

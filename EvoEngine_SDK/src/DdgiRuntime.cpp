@@ -247,24 +247,19 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
     layout.error = "DDGI ray settings are outside their supported ranges.";
     return layout;
   }
-  if (settings.storage.irradiance_tile_resolution < 1 || settings.storage.irradiance_tile_resolution > 128 ||
-      settings.storage.visibility_tile_resolution < 1 || settings.storage.visibility_tile_resolution > 128 ||
-      settings.storage.atlas_probe_columns < 1 || settings.storage.atlas_probe_columns > 4096) {
-    layout.error = "DDGI storage settings are outside their supported ranges.";
-    return layout;
-  }
   layout.probe_count = GetAllocatedProbeCount(settings, probe_count);
   if (layout.probe_count == 0u) {
     layout.error = probe_count == 0u ? "DDGI probe grid is invalid."
                                      : "DDGI probe grid exceeds the configured maximum probe count.";
     return layout;
   }
-  layout.irradiance_atlas =
-      CalculateAtlasLayout(layout.probe_count, static_cast<uint32_t>(settings.storage.irradiance_tile_resolution),
-                           static_cast<uint32_t>(settings.storage.atlas_probe_columns), max_image_dimension_2d);
-  layout.visibility_atlas =
-      CalculateAtlasLayout(layout.probe_count, static_cast<uint32_t>(settings.storage.visibility_tile_resolution),
-                           static_cast<uint32_t>(settings.storage.atlas_probe_columns), max_image_dimension_2d);
+  layout.irradiance_atlas = CalculateAtlasLayout(layout.probe_count, 8u, 16u);
+  layout.visibility_atlas = layout.irradiance_atlas;
+  if (layout.irradiance_atlas.resolution.x > max_image_dimension_2d ||
+      layout.irradiance_atlas.resolution.y > max_image_dimension_2d) {
+    layout.error = "DDGI fixed 16-column 8x8 atlas exceeds the device image extent.";
+    return layout;
+  }
   if (!layout.irradiance_atlas.valid || !layout.visibility_atlas.valid) {
     layout.error = !layout.irradiance_atlas.valid ? layout.irradiance_atlas.error : layout.visibility_atlas.error;
     return layout;

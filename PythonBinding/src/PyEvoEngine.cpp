@@ -612,15 +612,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("fixed_ray_backface_threshold", &DdgiSettings::RuntimeSettings::fixed_ray_backface_threshold)
       .def_readwrite("deterministic_ray_seed_enabled", &DdgiSettings::RuntimeSettings::deterministic_ray_seed_enabled)
       .def_readwrite("deterministic_ray_seed", &DdgiSettings::RuntimeSettings::deterministic_ray_seed);
-  py::class_<DdgiSettings::StorageSettings>(m, "DdgiStorageSettings")
-      .def(py::init<>())
-      .def_readwrite("irradiance_tile_resolution", &DdgiSettings::StorageSettings::irradiance_tile_resolution)
-      .def_readwrite("visibility_tile_resolution", &DdgiSettings::StorageSettings::visibility_tile_resolution)
-      .def_readwrite("atlas_probe_columns", &DdgiSettings::StorageSettings::atlas_probe_columns);
-  py::class_<DdgiSettings>(m, "DdgiSettings")
-      .def(py::init<>())
-      .def_readwrite("runtime", &DdgiSettings::runtime)
-      .def_readwrite("storage", &DdgiSettings::storage);
+  py::class_<DdgiSettings>(m, "DdgiSettings").def(py::init<>()).def_readwrite("runtime", &DdgiSettings::runtime);
   py::class_<GiSettings>(m, "GiSettings")
       .def(py::init<>())
       .def_readwrite("probes", &GiSettings::gi_probe_settings)

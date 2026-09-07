@@ -995,9 +995,6 @@ TEST(RenderGraph, RenderPassUtilitiesApplyQueueFamilyOwnershipTransfersForQueueC
 TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
   DdgiSettings settings;
   uint32_t probe_count = 64u;
-  settings.storage.atlas_probe_columns = 8;
-  settings.storage.irradiance_tile_resolution = 8;
-  settings.storage.visibility_tile_resolution = 16;
   settings.runtime.ray_count = 32;
   const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
 
@@ -1392,17 +1389,11 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
 
   DdgiSettings settings;
   uint32_t probe_count = 8u;
-  settings.storage.atlas_probe_columns = 4;
-  settings.storage.irradiance_tile_resolution = 6;
-  settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 12;
   const auto initial_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
   validate_layout(initial_layout);
 
   probe_count = 30u;
-  settings.storage.atlas_probe_columns = 5;
-  settings.storage.irradiance_tile_resolution = 10;
-  settings.storage.visibility_tile_resolution = 18;
   settings.runtime.ray_count = 48;
   const auto resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
   ASSERT_NE(resized_layout.irradiance_atlas.resolution, initial_layout.irradiance_atlas.resolution);

@@ -2917,7 +2917,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       } else if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
         ImGui::SeparatorText("Automatic DDGI settings");
         auto& runtime = candidate.ddgi_settings.runtime;
-        auto& storage = candidate.ddgi_settings.storage;
         if (ImGui::BeginCombo("History count", std::to_string(runtime.history_count).c_str())) {
           for (int count = 5; count <= 30; count += 5)
             if (ImGui::Selectable(std::to_string(count).c_str(), runtime.history_count == count)) {
@@ -2949,16 +2948,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           if (runtime.deterministic_ray_seed_enabled)
             gi_changed =
                 ImGui::InputScalar("Ray seed", ImGuiDataType_U32, &runtime.deterministic_ray_seed) || gi_changed;
-          ImGui::TreePop();
-        }
-        if (ImGui::TreeNode("Atlas storage")) {
-          gi_changed = ImGui::DragInt("Atlas probe columns", &storage.atlas_probe_columns, 1.0f, 1, 4096) || gi_changed;
-          gi_changed =
-              ImGui::DragInt("Irradiance tile resolution", &storage.irradiance_tile_resolution, 1.0f, 1, 128) ||
-              gi_changed;
-          gi_changed =
-              ImGui::DragInt("Visibility tile resolution", &storage.visibility_tile_resolution, 1.0f, 1, 128) ||
-              gi_changed;
           ImGui::TreePop();
         }
 

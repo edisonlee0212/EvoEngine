@@ -91,13 +91,6 @@ def main():
         advance_ready()
 
         if rt:
-            visibility = engine.GetCurrentSceneGiSettings()
-            visibility.ddgi.storage.visibility_tile_resolution = 16
-            engine.SetCurrentSceneGiSettings(visibility)
-            advance_ready()
-            capture("visibility-16")
-            engine.SetCurrentSceneGiSettings(settings)
-            advance_ready()
             alternate = engine.GetCurrentSceneGiSettings()
             alternate.provider = engine.IndirectGiProvider.AutomaticSdfgi
             engine.SetCurrentSceneGiSettings(alternate)

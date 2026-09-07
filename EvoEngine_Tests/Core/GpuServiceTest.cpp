@@ -351,7 +351,7 @@ TEST(GiSettings, CurrentGpuRejectsEditsAtomicallyAndIgnoresInactiveHistory) {
   EXPECT_FALSE(lighting.TrySetGiSettings(candidate, error));
   EXPECT_EQ(lighting.GetGiSettings(), accepted);
   candidate = accepted;
-  candidate.ddgi_settings.storage.irradiance_tile_resolution = 128;
+  candidate.ddgi_settings.runtime.history_count = 5;
   ASSERT_TRUE(lighting.TrySetGiSettings(candidate, error)) << error;
   candidate.sdfgi_settings.probe_spacing_cells = 8;
   ASSERT_TRUE(lighting.TrySetGiSettings(candidate, error)) << error;
