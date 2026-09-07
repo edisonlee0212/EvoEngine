@@ -1785,6 +1785,7 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
            runtime->resources->transport_pass >= 90;
   }));
   const auto anchor = scene->GetSdfgiRuntime()->anchor;
+  const auto original_probe_settings = lighting->gi_probe_settings;
   const auto original_pack = lighting->reflection_probe_pack;
   auto pack = AssetManager::CreateTemporaryAsset<ReflectionProbePack>();
   lighting->reflection_probe_pack = pack;
@@ -1836,7 +1837,7 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
   }));
   std::weak_ptr<SdfgiResources> retired = scene->GetSdfgiRuntime()->resources;
   lighting->gi_probe_settings.probe_count_x = 21;
-  lighting->gi_probe_settings.probe_count_y = 37;
+  lighting->gi_probe_settings.probe_count_y = 19;
   const auto generation = render->GetDynamicReflectionProbeStats().published_generation_count;
   ASSERT_TRUE(app.Loop());
   EXPECT_FALSE(retired.expired());
@@ -1845,6 +1846,7 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
            render->GetDynamicReflectionProbeStats().published_generation_count > generation;
   }));
   EXPECT_TRUE(retired.expired());
+  EXPECT_EQ(scene->GetSdfgiRuntime()->resources->settings.ProbeSize(), glm::ivec3(21, 19, 21));
   EXPECT_EQ(scene->GetSdfgiRuntime()->anchor.camera_id, anchor.camera_id);
   EXPECT_EQ(scene->GetSdfgiRuntime()->anchor.world_position, anchor.world_position);
   ASSERT_TRUE(payload->ReadCanonicalPayload(lit));
@@ -1852,8 +1854,7 @@ TEST(SdfgiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
   if (sponza_resources) {
     lighting->reflection_probe_pack = original_pack;
     lighting->sdfgi_settings.energy = 1;
-    lighting->gi_probe_settings.probe_count_x = 65;
-    lighting->gi_probe_settings.probe_count_y = 33;
+    lighting->gi_probe_settings = original_probe_settings;
     ASSERT_TRUE(loop_until([&] {
       const auto runtime = scene->GetSdfgiRuntime();
       return runtime->published && runtime->resources->transport_pass >= 90 &&
@@ -4926,6 +4927,7 @@ TEST(GpuService, GeometryStorageUploadsCompactedMeshTail) {
   ASSERT_EQ(second_mesh->GetTriangleRange()->prev_frame_offset, 0u);
 
   const auto downloaded_bytes = GeometryStorage::GetVertexBuffer()->DownloadDataAsync(sizeof(VertexDataChunk)).get();
+  ASSERT_EQ(downloaded_bytes.size(), sizeof(VertexDataChunk));
   VertexDataChunk output{};
   memcpy(&output, downloaded_bytes.data(), downloaded_bytes.size());
   EXPECT_FLOAT_EQ(output.vertex_data[0].position.x, second_vertices[0].position.x);

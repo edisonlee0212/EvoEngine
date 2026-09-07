@@ -42,6 +42,7 @@ struct RenderCaptureCase {
   bool meshlet_enabled = false;
   bool indirect_enabled = false;
   bool baseline_reference = false;
+  const char* gi_provider = nullptr;
 };
 
 constexpr std::array<RenderCaptureCase, 4> kRasterPathMatrix{{
@@ -66,6 +67,23 @@ constexpr RenderCaptureCase kRayTracingCapture{
     kRayAccumulationFrames,
     kRaySamplesPerFrame,
     3,
+};
+constexpr RenderCaptureCase kSdfgiCapture{
+    "Rasterization",
+    "rendering_demo_sdfgi.png",
+    "RenderingDemo.SdfgiGoldenImage.2560x1440.png",
+    "RenderingDemo.SdfgiGoldenImage.png",
+    2560,
+    1440,
+    1800,
+    0,
+    4,
+    4,
+    true,
+    true,
+    true,
+    true,
+    "sdfgi",
 };
 constexpr RenderCaptureCase kRayQueryCapture{
     "RayQuery",
@@ -346,6 +364,9 @@ void RunRenderingDemoCapture(const RenderCaptureCase& capture, const bool enable
   command += " --samples-per-frame " + std::to_string(capture.samples_per_frame);
   command += " --bounces " + std::to_string(capture.bounces);
   command += std::string(" --ray-features ") + (enable_ray_features ? "enabled" : "disabled");
+  if (capture.gi_provider) {
+    command += " --gi-provider " + std::string(capture.gi_provider);
+  }
   if (texture_lifecycle_stress) {
     command += " --texture-lifecycle-stress";
   }
@@ -401,6 +422,10 @@ TEST(RenderingDemo, RasterPathMatrixGoldenImage) {
 
 TEST(RenderingDemo, RasterOnlyBindlessTextureSmoke) {
   RunRenderingDemoCapture(kRasterPathMatrix.front(), false, false);
+}
+
+TEST(RenderingDemo, SdfgiGoldenImage) {
+  RunRenderingDemoCapture(kSdfgiCapture, false);
 }
 
 TEST(RenderingDemo, TextureLifecycleStressThenCanonicalRasterGolden) {

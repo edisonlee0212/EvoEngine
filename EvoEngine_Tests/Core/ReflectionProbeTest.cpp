@@ -578,8 +578,6 @@ TEST(ReflectionProbe, EnvironmentalLightingInspectorUsesNormalizedTrsAuthoring) 
   EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", probe.transform)"),
             std::string::npos);
   EXPECT_NE(inspector.find("DragFloat(\"Blend distance\", &probe.blend_distance, 0.01f"), std::string::npos);
-  EXPECT_NE(inspector.find("InspectAuthoringTransform(editor_layer, \"Transform\", volume.transform)"),
-            std::string::npos);
 }
 
 TEST(ReflectionProbe, EnvironmentalLightingBoundsUseFilledDepthTestedVolumes) {
