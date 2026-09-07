@@ -15,13 +15,27 @@ four cascades, horizontal base interval 0.8 and Y Scale 75% by default. Each cas
 DDGI uses the same nominal positions, half-interval snapping and signed integer scroll deltas as SDFGI.
 Changing SDFGI's voxel spacing does not change DDGI coverage.
 
-Authored DDGI packs no longer affect placement. Their editor/asset surfaces are pending removal in the
-unified-GI interface milestone. Select DDGI on an RT-enabled startup; the runtime creates one allocation per
+Select **Environmental Lighting → GI → Indirect GI provider → Automatic DDGI** on an RT-enabled startup.
+Authored DDGI packs, transforms, priorities and per-volume overrides are removed; obsolete serialized pack keys
+are ignored without deleting resource files. The runtime creates one allocation per
 cascade, with stable scene/cascade identity. Auxiliary cameras and reflection captures cannot move the field.
 
 There is no artificial 8,192-probe cap. Shared odd counts 3..257, atlas dimensions, buffer/ray limits and
 the strict history budget determine whether a layout is supported. Preferred atlas packing is retained
 when it fits and repacked into bounded rows otherwise.
+
+## Settings and runtime edits
+
+The GI tab contains shared **Probe settings**, **Indirect GI provider**, and selected-provider controls.
+Shared odd probe counts, cascade count, base distance, Y Scale and optional anchor determine nominal coverage.
+DDGI-specific controls include tracing, history, visibility smoothing, biases, relocation and classification.
+RenderLayer contains only session pause and visualization/debug controls, not duplicate persistent settings.
+
+Python exposes `GiSettings` (`probes`, `provider`, `sdfgi`, `ddgi`), `GetCurrentSceneGiSettings`,
+`SetCurrentSceneGiSettings` and `GiSettings.validate()`. Submit the whole bundle when changing a provider
+and its layout together. Failed edits leave the previous configuration intact; unsupported loaded values
+remain authored and use fallback before allocation. Only the active provider counts toward the steady-state
+history budget; inactive and fence-retiring allocations do not block a valid provider switch.
 
 ## Cascade Selection
 
@@ -42,7 +56,7 @@ records the following work when required:
 5. Sample ready atlases during deferred lighting and recursive DDGI hit shading.
 
 Probe directions use a spherical Fibonacci distribution. Fixed relocation/classification rays are deterministic; normal
-lighting rays receive a periodic per-volume rotation. The default runtime settings trace 192 scene rays and 64 exact
+lighting rays receive a periodic per-cascade rotation. The default runtime settings trace 192 scene rays and 64 exact
 emissive-triangle rays per updated probe.
 
 The DDGI acceleration structure includes supported triangle geometry and explicitly registered external DDGI geometry.
@@ -52,7 +66,7 @@ rays. Volume attenuation is applied between entry and exit intersections, but DD
 
 ## Rolling Probe History
 
-**RenderLayer → DDGI → Blending → History count** selects 5–30 probe updates in steps of 5 (default 30).
+**Environmental Lighting → GI → Automatic DDGI settings → History count** selects 5–30 probe updates in steps of 5 (default 30).
 The value belongs to the scene's EnvironmentalLighting DDGI settings, is serialized as `runtime.history_count`,
 and is available through Python's `GetCurrentSceneDdgiHistoryCount` and `SetCurrentSceneDdgiHistoryCount`.
 Missing keys use 30; obsolete hysteresis, temporal-response, convergence, and per-volume trigger keys are ignored.
@@ -63,7 +77,7 @@ to 64 before 16-bit quantization. Integer
 writing the lighting atlas. Borders are rebuilt from those averaged interiors. Invalid estimates leave the old slot intact.
 
 New/reset histories start at zero and always divide by the full selected window. Both uniform rotations and emissive
-sampling repeat over the same window using stable volume/probe identities and optional custom seeds. The phase advances
+sampling repeat over the same window using stable cascade/probe identities and optional custom seeds. The phase advances
 only after a completed paired irradiance/visibility update, not with display-frame indices. In-flight updates reserve
 successive ring slots without waiting on fences or reducing normal update cadence.
 For unchanged sampled inputs, replacing a repeated sample leaves the integer sum exactly unchanged. Bounce feedback,
@@ -170,3 +184,20 @@ viewport and does not appear in game cameras or ray-camera output.
 - Local reflection probes affect raster specular lighting and are excluded from the DDGI source signature.
 
 Contributor capture commands and acceptance checks live in [Rendering validation](rendering-validation.md).
+
+## Shared GI delivery validation
+
+M16–M18 introduce shared automatic placement, compact DDGI visibility, and the unified GI interface.
+The final focused suite passed 125 CPU, source-contract, shader and current-GPU tests, including migration,
+active-only padded history budgets, atomic API/runtime rejection, unsupported loaded-data fallback, scene replacement,
+quantized irradiance replacement and moved/reactivated probe invalidation.
+
+Installed Sponza checks used 2560×1440 on RTX 5070: SDFGI with RT pipeline, ray query, BLAS and TLAS explicitly off,
+and DDGI with RT enabled. Signed scrolling, teleports, shared-layout edits, rejected allocations, spacing 4/8/4,
+visibility-filter edits, provider off/on and direct DDGI/SDFGI/DDGI transitions passed with finite float captures.
+These are smoke checks, not gallery/Cornell/EcoSysLab appearance or performance acceptance.
+
+The editor was built before runtime checks. All enabled applications (editor and launcher), packages and Python were
+installed using `python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --jobs 8`.
+Editor: `out/install/vs2026-x64/bin/EvoEngineEditor.exe`; the installed Python smoke uses
+`out/install/vs2026-x64/python/PyEvoEngine.cp315-win_amd64.pyd`.

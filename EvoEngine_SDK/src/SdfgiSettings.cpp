@@ -137,8 +137,8 @@ void evo_engine::DeserializeGiProbeSettings(const YAML::Node& in, GiProbeSetting
 
 const char* evo_engine::GetIndirectGiProviderName(const IndirectGiProvider provider) {
   switch (provider) {
-    case IndirectGiProvider::AuthoredDdgi:
-      return "Authored DDGI (RT)";
+    case IndirectGiProvider::AutomaticDdgi:
+      return "Automatic DDGI (RT)";
     case IndirectGiProvider::AutomaticSdfgi:
       return "Automatic SDFGI";
     default:

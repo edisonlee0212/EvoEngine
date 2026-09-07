@@ -11,7 +11,7 @@ manual diagnostics and capture workflow. M12 final installation/audit and user a
 
 ## Optional surface-clearance relocation (M15)
 
-**Environmental Lighting → Automatic SDFGI → Probe relocation** is off by default. The serialized/Python
+**Environmental Lighting → GI → Automatic SDFGI → Probe relocation** is off by default. The serialized/Python
 `probe_relocation` setting enables deterministic placement searches in the existing unsigned field. Missing keys remain
 off. Toggling recreates the field and restarts lighting convergence; voxel dimensions, probe density and update cadence
 are unchanged.
@@ -108,14 +108,14 @@ normal main queue, with synchronization present as soon as each resource use exi
 
 ## Provider shell and settings
 
-Inspect the scene's Environmental Lighting asset and choose **Indirect GI provider > Automatic SDFGI**. Its tab exposes
+Inspect the scene's Environmental Lighting asset and choose **GI > Indirect GI provider > Automatic SDFGI**. The GI tab exposes
 the reference controls; no GI entity, volume, or pack is needed. Requested and effective providers are shown separately.
 Environment is reported until a complete transport/gather generation has been recorded for publication. The GPU readiness,
 failure, and generation checks remain authoritative before any camera samples the field.
 
 Defaults are four 128x64x128-voxel cascades with four-cell probe spacing (33x17x33 probes), minimum cell size 0.2, 75% vertical scale, occlusion on, 16 rays per probe,
 30-frame history, four-frame dynamic-light cadence, bounce feedback 1.0, sky read on, energy 1.0, and both biases 1.1.
-**Environmental Lighting > Automatic SDFGI** now edits shared **Probe count X/Z**, **Probe count Y**, **Cascades**,
+**Environmental Lighting > GI > Probe settings** edits shared **Probe count X/Z**, **Probe count Y**, **Cascades**,
 **Base probe distance**, and **Y Scale**. Defaults are 33/17 probes, four cascades, distance 0.8 and Y Scale 75%.
 Probe counts are odd 3..257; SDFGI additionally requires derived voxels 64..256 in multiples of 16.
 **Probe spacing** selects 4 or 8 voxel intervals at runtime, deriving voxels as `(probe_count - 1) * spacing` and
@@ -125,11 +125,13 @@ Shared settings serialize as `gi_probe_settings` and are exposed as Python `GiPr
 `GetCurrentSceneGiProbeSettings` / `SetCurrentSceneGiProbeSettings`. New fields win individually over migrated legacy
 SDFGI fields; otherwise defaults apply. Legacy spacing 1/2 first migrates counts and physical interval, then becomes 4;
 unsupported resulting dimensions use fallback without coarsening shared probes. Select 17/17 probes and spacing 8
-for the pinned Godot voxel/probe layout. Automatic DDGI consumption and the unified GI tab follow in M17/M18.
+for the pinned Godot voxel/probe layout. Automatic DDGI consumes the same shared nominal cascade placements.
+The selected-provider section contains SDFGI spacing and estimator controls or DDGI tracing/history/visibility controls.
+Python also exposes a whole-configuration `GiSettings` bundle and `SetCurrentSceneGiSettings` for atomic combined edits.
 
 History rings, integer sums and shared history-scroll scratch must remain strictly below 4 GiB (4,294,967,296 bytes).
-This is shared with active DDGI rolling histories, their integer sums, and history-origin records; runtime, GUI and
-Python capability checks include the active DDGI allocation footprint.
+Only the selected provider's active cascades count toward this limit. Inactive DDGI allocations and fence-retiring
+resources do not block a valid SDFGI switch; runtime, GUI and Python use whole-configuration preflight.
 The layout estimate includes padded atlas rows; device preflight additionally checks Vulkan image allocation requirements.
 Retiring generations are excluded from this steady-state cap, so runtime transitions can temporarily require more memory.
 Invalid interactive/Python/runtime edits retain the prior configuration; unsupported initial scene settings use diagnosed

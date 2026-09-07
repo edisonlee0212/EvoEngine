@@ -13,7 +13,7 @@ class EVOENGINE_API Scene;
 
 [[nodiscard]] EVOENGINE_API ResolvedEnvironmentalLighting
 ResolveEnvironmentalLighting(const std::shared_ptr<Scene>& scene);
-[[nodiscard]] EVOENGINE_API std::vector<DdgiVolumeRuntimeInfo> CollectDdgiVolumeRuntimeInfos(
+[[nodiscard]] EVOENGINE_API std::vector<DdgiCascadeRuntimeInfo> CollectDdgiCascadeRuntimeInfos(
     const ResolvedEnvironmentalLighting& lighting);
 
 }  // namespace evo_engine

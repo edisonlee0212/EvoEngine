@@ -1644,16 +1644,6 @@ void InspectStrandsSettings(RenderSettings& render_settings) {
   ImGui::DragInt("Max ring subdivision", &render_settings.strands_subdivision_max_y, 1, 1, 15);
 }
 
-void ClampDdgiSettings(DdgiSettings& settings) {
-  settings.ClampSettings();
-}
-
-bool InspectDdgiRuntimeControls(DdgiSettings::RuntimeSettings& runtime) {
-  bool changed = false;
-  changed = ImGui::Checkbox("Enable DDGI", &runtime.enabled) || changed;
-  return changed;
-}
-
 std::string FormatDdgiBytes(const uint64_t bytes) {
   constexpr std::array<const char*, 4> units{"B", "KiB", "MiB", "GiB"};
   double value = static_cast<double>(bytes);
@@ -1679,18 +1669,19 @@ const char* GetDdgiSceneStatus(const RenderLayer::DdgiInspectorSnapshot& snapsho
     return "Reset pending";
   if (session.pause_updates)
     return "Paused";
-  if (std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
+  if (std::any_of(snapshot.cascades.begin(), snapshot.cascades.end(), [](const auto& volume) {
         return volume.warmup_active;
       }))
     return "Relocation warmup";
-  if (snapshot.volumes.empty() || std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [](const auto& volume) {
+  if (snapshot.cascades.empty() ||
+      std::any_of(snapshot.cascades.begin(), snapshot.cascades.end(), [](const auto& volume) {
         return !volume.sampling_complete;
       }))
     return "Updating";
   return "Updating / history window filled";
 }
 
-const char* GetDdgiVolumeStatus(const DdgiVolumeRuntimeStats& volume, const RenderLayer::DdgiSessionState& session) {
+const char* GetDdgiCascadeStatus(const DdgiCascadeRuntimeStats& volume, const RenderLayer::DdgiSessionState& session) {
   if (!volume.resources_ready)
     return "Resources unavailable";
   if (session.reset_history_requested)
@@ -1753,12 +1744,7 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
   if (session.show_probes && context.editor_layer) {
     const auto settings = MakeBoundingVolumeGizmoSettings();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-    for (const auto& volume : snapshot.volumes) {
-      if (lighting &&
-          context.editor_layer->IsEnvironmentalLightingGizmoTarget(EnvironmentalLightingGizmoTargetType::DdgiVolume,
-                                                                   lighting->GetHandle(), volume.stable_entity_id)) {
-        continue;
-      }
+    for (const auto& volume : snapshot.cascades) {
       const auto extent_x = volume.probe_step_x * static_cast<float>(glm::max(volume.probe_counts.x - 1, 1));
       const auto extent_y = volume.probe_step_y * static_cast<float>(glm::max(volume.probe_counts.y - 1, 1));
       const auto extent_z = volume.probe_step_z * static_cast<float>(glm::max(volume.probe_counts.z - 1, 1));
@@ -1771,49 +1757,17 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     }
   }
 
-  if (ImGui::TreeNodeEx("Blending", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-    static std::string history_error;
-    if (lighting) {
-      const auto count = lighting->ddgi_settings.runtime.history_count;
-      if (ImGui::BeginCombo("History count", std::to_string(count).c_str())) {
-        for (const int candidate : {5, 10, 15, 20, 25, 30})
-          if (ImGui::Selectable(std::to_string(candidate).c_str(), candidate == count))
-            render_layer.SetDdgiHistoryCount(scene, candidate, history_error);
-        ImGui::EndCombo();
-      }
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Number of probe updates in the rolling average. Changes clear history. New histories ramp "
-            "from zero over the full window; updates continue afterward. Combined histories must stay below 4 GiB.");
-      if (!history_error.empty())
-        ImGui::TextWrapped("%s", history_error.c_str());
-    } else {
-      ImGui::TextDisabled("The scene has no EnvironmentalLighting asset.");
-    }
-    ImGui::TreePop();
-  }
-
-  if (ImGui::TreeNodeEx("Probe validity", ImGuiTreeNodeFlags_DefaultOpen)) {
-    auto& settings = render_layer.render_settings;
-    ImGui::DragFloat("Random ray backface threshold", &settings.ddgi_random_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
-    ImGui::DragFloat("Fixed ray backface threshold", &settings.ddgi_fixed_ray_backface_threshold, 0.01f, 0.0f, 1.0f);
-    settings.ddgi_random_ray_backface_threshold = glm::clamp(settings.ddgi_random_ray_backface_threshold, 0.0f, 1.0f);
-    settings.ddgi_fixed_ray_backface_threshold = glm::clamp(settings.ddgi_fixed_ray_backface_threshold, 0.0f, 1.0f);
-    ImGui::TreePop();
-  }
-
   if (ImGui::TreeNodeEx("Overview", ImGuiTreeNodeFlags_DefaultOpen)) {
-    const auto resident_probes = std::accumulate(snapshot.volumes.begin(), snapshot.volumes.end(), 0ull,
+    const auto resident_probes = std::accumulate(snapshot.cascades.begin(), snapshot.cascades.end(), 0ull,
                                                  [](const uint64_t total, const auto& volume) {
                                                    return total + volume.probe_count;
                                                  });
-    const auto resident_bytes = std::accumulate(snapshot.volumes.begin(), snapshot.volumes.end(), 0ull,
+    const auto resident_bytes = std::accumulate(snapshot.cascades.begin(), snapshot.cascades.end(), 0ull,
                                                 [](const uint64_t total, const auto& volume) {
                                                   return total + volume.resident_byte_size;
                                                 });
     ImGui::Text("Status: %s", GetDdgiSceneStatus(snapshot, session));
-    ImGui::Text("Volumes: %zu   Probes: %llu   Memory: %s", snapshot.volumes.size(),
+    ImGui::Text("Cascades: %zu   Probes: %llu   Memory: %s", snapshot.cascades.size(),
                 static_cast<unsigned long long>(resident_probes), FormatDdgiBytes(resident_bytes).c_str());
     if (!snapshot.validation_error.empty()) {
       ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", snapshot.validation_error.c_str());
@@ -1825,20 +1779,20 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         render_layer.RequestDdgiHistoryReset();
     }
 
-    if (ImGui::BeginTable("DdgiRuntimeVolumes", 6,
+    if (ImGui::BeginTable("DdgiRuntimeCascades", 6,
                           ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_Resizable)) {
-      ImGui::TableSetupColumn("Volume");
+      ImGui::TableSetupColumn("Cascade");
       ImGui::TableSetupColumn("Grid");
       ImGui::TableSetupColumn("Probes");
       ImGui::TableSetupColumn("Memory");
       ImGui::TableSetupColumn("State");
       ImGui::TableSetupColumn("Target");
       ImGui::TableHeadersRow();
-      for (const auto& volume : snapshot.volumes) {
+      for (const auto& volume : snapshot.cascades) {
         ImGui::PushID(static_cast<int>(volume.stable_entity_id));
         ImGui::TableNextRow();
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(volume.name.empty() ? "DDGI Volume" : volume.name.c_str());
+        ImGui::TextUnformatted(volume.name.empty() ? "DDGI Cascade" : volume.name.c_str());
         ImGui::TextDisabled("%llu", static_cast<unsigned long long>(volume.stable_entity_id));
         ImGui::TableNextColumn();
         ImGui::Text("%d x %d x %d", volume.probe_counts.x, volume.probe_counts.y, volume.probe_counts.z);
@@ -1847,67 +1801,35 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(FormatDdgiBytes(volume.resident_byte_size).c_str());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(GetDdgiVolumeStatus(volume, session));
+        ImGui::TextUnformatted(GetDdgiCascadeStatus(volume, session));
         ImGui::TextDisabled("%s", DdgiRuntime::FormatUpdateReasons(volume.last_probe_update_reasons).c_str());
         ImGui::TableNextColumn();
-        if (session.selected_volume_id == volume.stable_entity_id) {
+        if (session.selected_cascade_id == volume.stable_entity_id) {
           ImGui::TextUnformatted("Selected");
         } else if (ImGui::SmallButton("Inspect")) {
-          session.selected_volume_id = volume.stable_entity_id;
+          session.selected_cascade_id = volume.stable_entity_id;
           session.selected_probe_grid = glm::ivec3(0);
         }
         ImGui::PopID();
-      }
-      if (const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-          lighting) {
-        const auto pack = lighting->GetDdgiVolumePack();
-        if (pack)
-          for (const auto& authored : pack->volumes) {
-            if (!authored.enabled ||
-                std::any_of(snapshot.volumes.begin(), snapshot.volumes.end(), [&](const auto& volume) {
-                  return volume.stable_entity_id == authored.stable_id;
-                }))
-              continue;
-            std::string reason;
-            (void)DdgiRuntime::ValidateProbeGrid(
-                authored.probe_counts,
-                static_cast<uint32_t>(glm::max(lighting->ddgi_settings.storage.max_probe_count, 0)), &reason);
-            if (reason.empty())
-              reason = snapshot.validation_error.empty() ? "Rejected by runtime validation or volume limit."
-                                                         : snapshot.validation_error;
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted(authored.name.c_str());
-            ImGui::TableNextColumn();
-            ImGui::Text("%d x %d x %d", authored.probe_counts.x, authored.probe_counts.y, authored.probe_counts.z);
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted("-");
-            ImGui::TableNextColumn();
-            ImGui::TextUnformatted("-");
-            ImGui::TableNextColumn();
-            ImGui::TextColored({1.0f, 0.35f, 0.25f, 1.0f}, "%s", reason.c_str());
-            ImGui::TableNextColumn();
-            ImGui::TextDisabled("Unavailable");
-          }
       }
       ImGui::EndTable();
     }
     ImGui::TreePop();
   }
 
-  const auto selected = std::find_if(snapshot.volumes.begin(), snapshot.volumes.end(), [&](const auto& volume) {
-    return volume.stable_entity_id == session.selected_volume_id;
+  const auto selected = std::find_if(snapshot.cascades.begin(), snapshot.cascades.end(), [&](const auto& volume) {
+    return volume.stable_entity_id == session.selected_cascade_id;
   });
-  if (selected == snapshot.volumes.end() && session.selected_volume_id != 0u) {
-    session.selected_volume_id = 0u;
+  if (selected == snapshot.cascades.end() && session.selected_cascade_id != 0u) {
+    session.selected_cascade_id = 0u;
     session.selected_probe_grid = glm::ivec3(0);
   }
 
   if (ImGui::TreeNode("Visualization")) {
     ImGui::Checkbox("Show probes", &session.show_probes);
     const auto scene_camera = context.editor_layer ? context.editor_layer->GetSceneCamera() : nullptr;
-    if (snapshot.volumes.empty()) {
-      ImGui::TextDisabled("Unavailable: no enabled DDGI volume with runtime resources.");
+    if (snapshot.cascades.empty()) {
+      ImGui::TextDisabled("Unavailable: no DDGI cascade with runtime resources.");
     } else if (!scene_camera) {
       ImGui::TextDisabled("Unavailable: the editor scene viewport has no camera.");
     } else if (scene_camera->camera_render_mode != Camera::CameraRenderMode::Rasterization) {
@@ -1923,7 +1845,7 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
                      "%.3f");
     ImGui::DragFloat("Probe intensity", &session.probe_visualization_intensity, 0.01f, 0.0f, 1000.0f);
     ImGui::SliderFloat("Probe opacity", &session.probe_visualization_alpha, 0.0f, 1.0f);
-    if (selected != snapshot.volumes.end()) {
+    if (selected != snapshot.cascades.end()) {
       ImGui::SeparatorText(selected->name.empty() ? "Diagnostic target" : selected->name.c_str());
       ImGui::Checkbox("Show selected marker", &session.show_selected_probe);
       ImGui::DragFloat("Selected marker scale", &session.selected_probe_visualization_scale, 0.05f, 1.0f, 20.0f);
@@ -1941,12 +1863,12 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
 
   session.selected_probe_readback_requested = false;
   if (ImGui::TreeNode("Diagnostics")) {
-    if (selected != snapshot.volumes.end()) {
+    if (selected != snapshot.cascades.end()) {
       ImGui::Checkbox("Read selected probe state", &session.show_selected_probe_state);
       session.selected_probe_readback_requested = session.show_selected_probe_state;
     }
     const auto debug_data = render_layer.RefreshDdgiProbeDebugData();
-    if (selected != snapshot.volumes.end() && session.show_selected_probe_state) {
+    if (selected != snapshot.cascades.end() && session.show_selected_probe_state) {
       const auto logical =
           DdgiRuntime::GetProbeCount(selected->probe_counts) == 0u
               ? 0u
@@ -1961,7 +1883,7 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
                                                   wrapped.z * selected->probe_counts.x * selected->probe_counts.y);
       DrawDdgiSelectedProbeStateReadoutCompact(debug_data, logical, physical);
     }
-    if (selected != snapshot.volumes.end() && session.show_rays) {
+    if (selected != snapshot.cascades.end() && session.show_rays) {
       DrawDdgiSelectedRayReadoutCompact(debug_data);
     }
     ImGui::SeparatorText("Emissive inventory");
@@ -1974,7 +1896,7 @@ void InspectDdgiRuntime(InspectorContext& context, RenderLayer& render_layer) {
     ImGui::Text("Build / upload: %.3f / %.3f ms", snapshot.aggregate.emissive_distribution_build_ms,
                 snapshot.aggregate.emissive_distribution_upload_ms);
     ImGui::Text("Estimated power: %.3f", snapshot.aggregate.emissive_estimated_power);
-    ImGui::Text("Sampling enabled volumes / candidate rays: %u / %llu",
+    ImGui::Text("Sampling enabled cascades / candidate rays: %u / %llu",
                 snapshot.aggregate.emissive_sampling_enabled_volume_count,
                 static_cast<unsigned long long>(snapshot.aggregate.emissive_sampling_candidate_ray_count));
     if (snapshot.aggregate.emissive_excluded_instance_count != 0u) {
@@ -2080,8 +2002,9 @@ void InspectSdfgiRuntime(InspectorContext& context) {
     const auto& cascade = runtime->cascades[debug.cascade];
     const glm::vec3 cell(debug.probe % probes.x, debug.probe / (probes.x * probes.z),
                          (debug.probe / probes.x) % probes.z);
-    const auto position = (glm::vec3(cascade.position - cascade.size / 2) + cell * 8.0f) * cascade.cell_size /
-                          glm::vec3(1, SdfgiYMultiplier(runtime->settings.vertical_scale), 1);
+    const auto position = (glm::vec3(cascade.position - cascade.size / 2) +
+                           cell * static_cast<float>(runtime->settings.probe_spacing_cells)) *
+                          cascade.cell_size / glm::vec3(1, SdfgiYMultiplier(runtime->settings.vertical_scale), 1);
     ImGui::Text("Selected probe world: %.3f, %.3f, %.3f", position.x, position.y, position.z);
   }
   if (!debug.failure.empty())
@@ -2519,18 +2442,6 @@ void RenderEnvironmentalLightingDebugProbeBounds(const std::shared_ptr<EditorLay
   }
 }
 
-glm::vec3 SanitizeDdgiGizmoVector(const glm::vec3& value, const glm::vec3& fallback) {
-  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z) ? value : fallback;
-}
-
-glm::mat4 GetDdgiAuthoringBoundTransform(const EnvironmentalLighting::DdgiVolume& volume) {
-  const auto counts = glm::clamp(volume.probe_counts, glm::ivec3(1), glm::ivec3(256));
-  const auto spacing = glm::max(SanitizeDdgiGizmoVector(volume.probe_spacing, glm::vec3(1.0f)), glm::vec3(0.001f));
-  const auto size = glm::vec3(glm::max(counts - glm::ivec3(1), glm::ivec3(1))) * spacing;
-  const auto origin = SanitizeDdgiGizmoVector(volume.volume_origin, glm::vec3(0.0f));
-  return volume.transform * glm::translate(origin) * glm::scale(size);
-}
-
 void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLayer>& editor_layer,
                                                  const EnvironmentalLighting& lighting) {
   if (!editor_layer) {
@@ -2542,17 +2453,6 @@ void RenderActiveEnvironmentalLightingGizmoBound(const std::shared_ptr<EditorLay
     if (editor_layer->IsEnvironmentalLightingGizmoTarget(
             lighting, EnvironmentalLightingGizmoTargetType::LocalReflectionProbe, index, probe.stable_id)) {
       RenderEnvironmentalLightingProbeBound(editor_layer, probe, glm::vec4(0.1f, 0.8f, 1.0f, 0.55f), true);
-      return;
-    }
-  }
-  const auto settings = MakeBoundingVolumeGizmoSettings();
-  const auto ddgi_pack = lighting.GetDdgiVolumePack();
-  for (size_t index = 0; ddgi_pack && index < ddgi_pack->volumes.size(); ++index) {
-    const auto& volume = ddgi_pack->volumes[index];
-    if (editor_layer->IsEnvironmentalLightingGizmoTarget(lighting, EnvironmentalLightingGizmoTargetType::DdgiVolume,
-                                                         index, volume.stable_id)) {
-      editor_layer->DrawGizmoCube(glm::vec4(1.0f, 0.45f, 0.05f, 0.35f), GetDdgiAuthoringBoundTransform(volume), 1.0f,
-                                  settings);
       return;
     }
   }
@@ -2687,58 +2587,6 @@ bool InspectReflectionProbePack(InspectorContext& context, ReflectionProbePack& 
   }
   if (changed) {
     (void)pack.RepairStableIds();
-    pack.SetUnsaved();
-  }
-  return changed;
-}
-
-bool InspectDdgiVolumePack(InspectorContext& context, DdgiVolumePack& pack) {
-  if (!context.editor_layer)
-    return false;
-  bool changed = pack.RepairStableIds();
-  ImGui::Text("DDGI volumes: %zu", pack.volumes.size());
-  if (ImGui::Button("Add DDGI Volume")) {
-    pack.volumes.emplace_back();
-    (void)pack.RepairStableIds();
-    changed = true;
-  }
-  for (size_t index = 0; index < pack.volumes.size(); ++index) {
-    auto& volume = pack.volumes[index];
-    ImGui::PushID(static_cast<int>(index));
-    if (ImGui::TreeNode((volume.name + "##DdgiVolumePackEntry").c_str())) {
-      changed = InspectEnvironmentalLightingEntryName(volume.name) || changed;
-      changed = ImGui::Checkbox("Enabled", &volume.enabled) || changed;
-      changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id) || changed;
-      changed = InspectAuthoringTransform(context.editor_layer, "Transform", volume.transform) || changed;
-      changed = ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256) || changed;
-      changed = ImGui::DragFloat3("Probe spacing", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f) || changed;
-      changed = ImGui::DragFloat3("Volume origin", &volume.volume_origin.x, 0.05f) || changed;
-      changed = ImGui::DragInt("Artist priority", &volume.artist_priority) || changed;
-      const char* movement_types[]{"Default", "Scrolling"};
-      changed =
-          ImGui::Combo("Movement type", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types)) || changed;
-      const char* emissive_modes[]{"Inherit", "On", "Off"};
-      changed = ImGui::Combo("Emissive mesh sampling", &volume.emissive_mesh_sampling_mode, emissive_modes,
-                             IM_ARRAYSIZE(emissive_modes)) ||
-                changed;
-      changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
-      changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-      changed = ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-      if (ImGui::Button("Remove")) {
-        pack.volumes.erase(pack.volumes.begin() + static_cast<std::ptrdiff_t>(index));
-        changed = true;
-        ImGui::TreePop();
-        ImGui::PopID();
-        break;
-      }
-      ImGui::TreePop();
-    }
-    ImGui::PopID();
-  }
-  if (changed) {
-    (void)pack.RepairStableIds();
-    for (auto& volume : pack.volumes)
-      volume.ClampSettings();
     pack.SetUnsaved();
   }
   return changed;
@@ -2882,39 +2730,9 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
   const auto lighting_asset = active_lighting.get() == &lighting ? active_lighting : nullptr;
   const bool scene_gizmo_available = lighting_asset != nullptr;
   auto reflection_pack = lighting.GetReflectionProbePack();
-  auto ddgi_pack = lighting.GetDdgiVolumePack();
   bool changed = false;
   if (reflection_pack && reflection_pack->RepairStableIds())
     reflection_pack->SetUnsaved();
-  if (ddgi_pack && ddgi_pack->RepairStableIds())
-    ddgi_pack->SetUnsaved();
-  int provider = static_cast<int>(lighting.indirect_gi_provider);
-  if (ImGui::Combo("Indirect GI provider", &provider, "Environment\0Authored DDGI (RT)\0Automatic SDFGI\0")) {
-    lighting.indirect_gi_provider = static_cast<IndirectGiProvider>(provider);
-    if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi)
-      lighting.ddgi_settings.runtime.enabled = true;
-    changed = true;
-  }
-  auto effective_provider = IndirectGiProvider::Environment;
-  if (lighting_asset) {
-    if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
-      if (const auto runtime = active_scene->GetSdfgiRuntime()) {
-        if (runtime->published)
-          effective_provider = IndirectGiProvider::AutomaticSdfgi;
-        else
-          ImGui::TextWrapped("Fallback: %s", runtime->fallback_reason.c_str());
-        if (runtime->anchor.override_fell_back)
-          ImGui::TextDisabled("Explicit anchor unavailable; automatic selection used.");
-      }
-    } else if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
-      if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
-        const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
-        if (snapshot.enabled && snapshot.aggregate.active_probe_count && snapshot.aggregate.lighting_descriptors_bound)
-          effective_provider = IndirectGiProvider::AuthoredDdgi;
-      }
-    }
-  }
-  ImGui::Text("Effective GI provider: %s", GetIndirectGiProviderName(effective_provider));
   if (ImGui::BeginTabBar("EnvironmentalLightingInspectionTabs")) {
     if (ImGui::BeginTabItem("General")) {
       changed = InspectEnvironmentalLightingSource(context, lighting.indirect_environment_source) || changed;
@@ -2930,132 +2748,54 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       ImGui::EndTabItem();
     }
 
-    if (ImGui::BeginTabItem("Automatic SDFGI")) {
-      auto& settings = lighting.sdfgi_settings;
-      auto& shared = lighting.gi_probe_settings;
-      settings = DeriveSdfgiSettings(shared, settings);
-      const auto previous_settings = settings;
-      const auto previous_shared = shared;
-      const auto valid_density = [&](const SdfgiSettings& candidate) {
-        const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
-        return QuerySdfgiCapabilities(candidate.cascade_count, candidate.history_size, candidate.voxel_count_x,
-                                      candidate.voxel_count_y, candidate.probe_spacing_cells,
-                                      render ? render->GetDdgiHistoryAllocationBytes() : 0)
-            .Supported();
-      };
-      const auto probe_count = [&](const char* label, uint32_t& value) {
+    if (ImGui::BeginTabItem("GI")) {
+      auto candidate = lighting.GetGiSettings();
+      auto& shared = candidate.gi_probe_settings;
+      auto& settings = candidate.sdfgi_settings;
+      bool gi_changed = false;
+      static std::string gi_error;
+      ImGui::SeparatorText("Probe settings");
+      const auto probe_count = [&](const char* label, uint32_t& value, bool horizontal) {
         if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
           for (uint32_t count = 3; count <= 257; count += 2) {
-            auto candidate = shared;
-            (std::string_view(label) == "Probe count X/Z" ? candidate.probe_count_x : candidate.probe_count_y) = count;
-            const auto sdfgi = DeriveSdfgiSettings(candidate, settings);
-            if (!sdfgi.Validate().empty() || !valid_density(sdfgi))
+            auto choice = candidate;
+            (horizontal ? choice.gi_probe_settings.probe_count_x : choice.gi_probe_settings.probe_count_y) = count;
+            if (!choice.Validate().empty())
               continue;
             if (ImGui::Selectable(std::to_string(count).c_str(), value == count)) {
-              changed = changed || value != count;
               value = count;
+              gi_changed = true;
             }
           }
           ImGui::EndCombo();
         }
         ImGui::SetItemTooltip(
-            "Shared nominal probes per cascade. Larger counts increase coverage, memory, and GI work. "
-            "Unavailable layouts are omitted. Changes recreate resources and restart convergence.");
+            "Odd probe counts per cascade. Unavailable layouts are omitted. Changes recreate resources and restart "
+            "lighting.");
       };
-      probe_count("Probe count X/Z", shared.probe_count_x);
-      probe_count("Probe count Y", shared.probe_count_y);
-      if (ImGui::BeginCombo("Probe spacing", std::to_string(settings.probe_spacing_cells).c_str())) {
-        for (const uint32_t spacing : {4u, 8u}) {
-          auto candidate = settings;
-          candidate.probe_spacing_cells = spacing;
-          candidate = DeriveSdfgiSettings(shared, candidate);
-          if (candidate.Validate().empty() && valid_density(candidate) &&
-              ImGui::Selectable(std::to_string(spacing).c_str(), settings.probe_spacing_cells == spacing)) {
-            settings.probe_spacing_cells = spacing;
-            changed = true;
-          }
-        }
-        ImGui::EndCombo();
-      }
-      ImGui::SetItemTooltip(
-          "Voxel intervals between probes. Changes voxel resolution, not probe positions or physical coverage. "
-          "Unavailable layouts are omitted. Changes recreate the field and restart convergence.");
-      settings = DeriveSdfgiSettings(shared, settings);
-      const auto grid = settings.GridSize();
-      const auto probes = settings.ProbeSize();
-      ImGui::TextDisabled("%dx%dx%d voxels; %dx%dx%d probes per cascade. Coverage follows one camera.", grid.x, grid.y,
-                          grid.z, probes.x, probes.y, probes.z);
-      ImGui::TextDisabled("Layout changes recreate the field and restart convergence.");
+      probe_count("Probe count X/Z", shared.probe_count_x, true);
+      probe_count("Probe count Y", shared.probe_count_y, false);
       int cascades = static_cast<int>(shared.cascade_count);
       if (ImGui::SliderInt("Cascades", &cascades, 1, 8)) {
         shared.cascade_count = static_cast<uint32_t>(cascades);
-        changed = true;
+        gi_changed = true;
       }
-      changed = ImGui::DragFloat("Base probe distance", &shared.base_probe_distance, 0.01f, 0.001f, 512.0f) || changed;
+      gi_changed =
+          ImGui::DragFloat("Base probe distance", &shared.base_probe_distance, 0.01f, 0.001f, 512.0f) || gi_changed;
       ImGui::SetItemTooltip(
           "Horizontal distance between neighboring probes in cascade 0. Each successive cascade doubles it. "
           "Editing recreates resources and restarts convergence.");
-      int light_cascades = static_cast<int>(settings.positional_light_cascade_count);
-      if (ImGui::SliderInt("Positional light cascades", &light_cascades, 1, 8)) {
-        settings.positional_light_cascade_count = static_cast<uint32_t>(light_cascades);
-        changed = true;
-      }
-      ImGui::SetItemTooltip(
-          "Point/spot lights inject into the first N active cascades. 8 covers all cascades; 3 matches Godot's "
-          "default. Directional lights are unaffected. Updates use normal light cadence and probe convergence; "
-          "no geometry-field rebuild is needed.");
       int vertical_scale = static_cast<int>(shared.vertical_scale);
       const char* vertical_scales[]{"50%", "75%", "100%"};
       if (ImGui::Combo("Y Scale", &vertical_scale, vertical_scales, IM_ARRAYSIZE(vertical_scales))) {
         shared.vertical_scale = static_cast<GiProbeSettings::VerticalScale>(vertical_scale);
-        changed = true;
+        gi_changed = true;
       }
       ImGui::SetItemTooltip(
           "Compresses vertical cell/probe spacing and coverage without changing probe count. "
           "Godot modes: 100% = full spacing, 75% = spacing / 1.5, 50% = spacing / 2. "
           "Compact modes can improve detail and reduce leaks in low spaces. Recreates the field and restarts "
           "convergence.");
-      const auto inspect_choice = [&](const char* label, uint32_t& value,
-                                      const std::initializer_list<uint32_t> choices) {
-        if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
-          for (const auto choice : choices) {
-            if (ImGui::Selectable(std::to_string(choice).c_str(), value == choice)) {
-              value = choice;
-              changed = true;
-            }
-          }
-          ImGui::EndCombo();
-        }
-      };
-      inspect_choice("Rays per probe", settings.ray_count, {4, 8, 16, 32, 64, 96, 128});
-      inspect_choice("History frames", settings.history_size, {5, 10, 15, 20, 25, 30});
-      inspect_choice("Dynamic-light update frames", settings.light_update_frames, {1, 2, 4, 8, 16});
-      int contributors = settings.static_entities_only ? 1 : 0;
-      if (ImGui::Combo("Geometry contributors", &contributors, "All supported entities\0Static entities only\0")) {
-        settings.static_entities_only = contributors == 1;
-        changed = true;
-      }
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "All includes non-static regular meshes; skinned, morphing and other unsupported geometry stay excluded.\n"
-            "Moving geometry can trigger expensive cascade rebuilds. Changes need time to reconverge.\n"
-            "Entity Static flags are not modified.");
-      changed = ImGui::Checkbox("Use Occlusion", &settings.use_occlusion) || changed;
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
-            "Changing this recreates the field and restarts convergence.");
-      changed = ImGui::Checkbox("Probe relocation", &settings.probe_relocation) || changed;
-      if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Avoids nearby surfaces using the unsigned SDF; cannot reliably escape closed interiors. "
-            "Uses bounded segment visibility from relocated probes. Changing this recreates the field "
-            "and restarts convergence.");
-      changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || changed;
-      changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || changed;
-      changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || changed;
-      changed = ImGui::DragFloat("Normal bias", &settings.normal_bias, 0.01f, 0.0f, 4.0f) || changed;
-      changed = ImGui::DragFloat("Probe bias", &settings.probe_bias, 0.01f, 0.0f, 8.0f) || changed;
       PrivateComponentRef anchor;
       if (lighting_asset) {
         if (const auto entity = active_scene->GetEntity(Handle(shared.anchor_camera_entity));
@@ -3065,162 +2805,183 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
       ImGui::BeginDisabled(!lighting_asset);
       if (editor_layer->DragAndDropButton<Camera>(anchor, "Optional anchor camera")) {
         shared.anchor_camera_entity = anchor.GetEntityHandle().GetValue();
-        changed = true;
+        gi_changed = true;
       }
       if (shared.anchor_camera_entity != 0 && ImGui::Button("Use automatic anchor")) {
         shared.anchor_camera_entity = 0;
-        changed = true;
+        gi_changed = true;
       }
       ImGui::EndDisabled();
-      settings = DeriveSdfgiSettings(shared, settings);
-      if (!(settings == previous_settings) &&
-          (!shared.Validate().empty() || !settings.Validate().empty() || !valid_density(settings))) {
-        settings = previous_settings;
-        shared = previous_shared;
-        ImGui::OpenPopup("SDFGI density unavailable");
-      }
-      if (ImGui::BeginPopup("SDFGI density unavailable")) {
-        ImGui::TextWrapped(
-            "Edit rejected: the probe layout exceeds device limits or the history budget of less than 4 GiB. Previous "
-            "settings were retained.");
-        ImGui::EndPopup();
-      }
-      if (const auto error = settings.Validate(); !error.empty())
-        ImGui::TextWrapped("Unavailable: %s", error.c_str());
-      ImGui::EndTabItem();
-    }
 
-    if (ImGui::BeginTabItem("DDGI")) {
-      if (lighting.indirect_gi_provider != IndirectGiProvider::AuthoredDdgi)
-        ImGui::TextDisabled("DDGI settings and volumes are retained but inactive.");
-      if (editor_layer->DragAndDropButton<DdgiVolumePack>(lighting.ddgi_volume_pack, "DDGI Volume Pack")) {
-        ddgi_pack = lighting.GetDdgiVolumePack();
-        changed = true;
+      ImGui::SeparatorText("Indirect GI provider");
+      int provider = static_cast<int>(candidate.indirect_gi_provider);
+      if (ImGui::Combo("Provider", &provider, "Environment\0Automatic DDGI (RT)\0Automatic SDFGI\0")) {
+        candidate.indirect_gi_provider = static_cast<IndirectGiProvider>(provider);
+        gi_changed = true;
       }
-      if (ImGui::TreeNodeEx("Settings", ImGuiTreeNodeFlags_DefaultOpen)) {
-        auto& settings = lighting.ddgi_settings;
-        auto& runtime = settings.runtime;
-        auto& storage = settings.storage;
-        auto& defaults = settings.volume_defaults;
-        changed = InspectDdgiRuntimeControls(runtime) || changed;
+      auto effective_provider = IndirectGiProvider::Environment;
+      if (lighting_asset) {
+        if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+          if (const auto runtime = active_scene->GetSdfgiRuntime()) {
+            if (runtime->published)
+              effective_provider = IndirectGiProvider::AutomaticSdfgi;
+            else
+              ImGui::TextWrapped("Fallback: %s", runtime->fallback_reason.c_str());
+            if (runtime->anchor.override_fell_back)
+              ImGui::TextDisabled("Explicit anchor unavailable; automatic selection used.");
+          }
+        } else if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
+          if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
+            const auto snapshot = render_layer->GetDdgiInspectorSnapshot();
+            if (snapshot.enabled && snapshot.aggregate.active_probe_count &&
+                snapshot.aggregate.lighting_descriptors_bound)
+              effective_provider = IndirectGiProvider::AutomaticDdgi;
+          }
+        }
+      }
+      ImGui::Text("Effective GI provider: %s", GetIndirectGiProviderName(effective_provider));
+
+      if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
+        ImGui::SeparatorText("Automatic SDFGI settings");
+        if (ImGui::BeginCombo("Probe spacing", std::to_string(settings.probe_spacing_cells).c_str())) {
+          for (const uint32_t spacing : {4u, 8u}) {
+            auto choice = candidate;
+            choice.sdfgi_settings.probe_spacing_cells = spacing;
+            if (choice.Validate().empty() &&
+                ImGui::Selectable(std::to_string(spacing).c_str(), settings.probe_spacing_cells == spacing)) {
+              settings.probe_spacing_cells = spacing;
+              gi_changed = true;
+            }
+          }
+          ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip(
+            "Voxels per probe interval. Changes voxel resolution, not nominal probe positions or coverage. Recreates "
+            "the field.");
+        const auto derived = DeriveSdfgiSettings(shared, settings);
+        const auto grid = derived.GridSize();
+        ImGui::TextDisabled("%dx%dx%d voxels; %ux%ux%u probes per cascade.", grid.x, grid.y, grid.z,
+                            shared.probe_count_x, shared.probe_count_y, shared.probe_count_x);
+        const auto inspect_choice = [&](const char* label, uint32_t& value,
+                                        const std::initializer_list<uint32_t> choices) {
+          if (ImGui::BeginCombo(label, std::to_string(value).c_str())) {
+            for (const auto choice : choices) {
+              if (ImGui::Selectable(std::to_string(choice).c_str(), value == choice)) {
+                value = choice;
+                gi_changed = true;
+              }
+            }
+            ImGui::EndCombo();
+          }
+        };
+        inspect_choice("Rays per probe", settings.ray_count, {4, 8, 16, 32, 64, 96, 128});
+        inspect_choice("History frames", settings.history_size, {5, 10, 15, 20, 25, 30});
+        inspect_choice("Dynamic-light update frames", settings.light_update_frames, {1, 2, 4, 8, 16});
+        int contributors = settings.static_entities_only ? 1 : 0;
+        if (ImGui::Combo("Geometry contributors", &contributors, "All supported entities\0Static entities only\0")) {
+          settings.static_entities_only = contributors == 1;
+          gi_changed = true;
+        }
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip(
+              "All includes non-static regular meshes; skinned, morphing and other unsupported geometry stay "
+              "excluded.\n"
+              "Moving geometry can trigger expensive cascade rebuilds. Changes need time to reconverge.\n"
+              "Entity Static flags are not modified.");
+        gi_changed = ImGui::Checkbox("Use Occlusion", &settings.use_occlusion) || gi_changed;
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip(
+              "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
+              "Changing this recreates the field and restarts convergence.");
+        gi_changed = ImGui::Checkbox("Probe relocation", &settings.probe_relocation) || gi_changed;
+        if (ImGui::IsItemHovered())
+          ImGui::SetTooltip(
+              "Avoids nearby surfaces using the unsigned SDF; cannot reliably escape closed interiors. "
+              "Uses bounded segment visibility from relocated probes. Changing this recreates the field "
+              "and restarts convergence.");
+        gi_changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || gi_changed;
+        gi_changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || gi_changed;
+        gi_changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || gi_changed;
+        gi_changed = ImGui::DragFloat("Normal bias", &settings.normal_bias, 0.01f, 0.0f, 4.0f) || gi_changed;
+        gi_changed = ImGui::DragFloat("Probe bias", &settings.probe_bias, 0.01f, 0.0f, 8.0f) || gi_changed;
+
+        int light_cascades = static_cast<int>(settings.positional_light_cascade_count);
+        if (ImGui::SliderInt("Positional light cascades", &light_cascades, 1, 8)) {
+          settings.positional_light_cascade_count = static_cast<uint32_t>(light_cascades);
+          gi_changed = true;
+        }
+        ImGui::SetItemTooltip(
+            "Point/spot lights inject into the first N active cascades. 8 covers all cascades; 3 matches Godot's "
+            "default. Directional lights are unaffected. Updates use normal light cadence and probe convergence; "
+            "no geometry-field rebuild is needed.");
+      } else if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
+        ImGui::SeparatorText("Automatic DDGI settings");
+        auto& runtime = candidate.ddgi_settings.runtime;
+        auto& storage = candidate.ddgi_settings.storage;
+        if (ImGui::BeginCombo("History count", std::to_string(runtime.history_count).c_str())) {
+          for (int count = 5; count <= 30; count += 5)
+            if (ImGui::Selectable(std::to_string(count).c_str(), runtime.history_count == count)) {
+              runtime.history_count = count;
+              gi_changed = true;
+            }
+          ImGui::EndCombo();
+        }
+        ImGui::SetItemTooltip(
+            "Irradiance rolling window in completed updates. Zero-filled on reset; visibility uses a separate "
+            "exponential filter.");
         if (ImGui::TreeNodeEx("Tracing and blending", ImGuiTreeNodeFlags_DefaultOpen)) {
-          changed = ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling) || changed;
-          changed = ImGui::DragInt("Uniform ray count", &runtime.ray_count, 1.0f, 1, 4096) || changed;
-          changed = ImGui::DragInt("Emissive ray count", &runtime.emissive_ray_count, 1.0f, 0, 4096) || changed;
-          changed = ImGui::DragInt("Relocation warmup frames", &runtime.warmup_frames, 1.0f, 0, 4096) || changed;
-          changed = ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
-          changed = ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f") || changed;
-          changed = ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f) || changed;
-          changed = ImGui::DragFloat("Distance exponent", &runtime.distance_exponent, 0.1f, 0.0f, 256.0f) || changed;
-          changed = ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f) || changed;
-          changed = ImGui::SliderFloat("Visibility smoothing", &runtime.visibility_smoothing, 0.0f, 0.99f) || changed;
+          gi_changed = ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling) || gi_changed;
+          gi_changed = ImGui::DragInt("Uniform ray count", &runtime.ray_count, 1.0f, 1, 4096) || gi_changed;
+          gi_changed = ImGui::DragInt("Emissive ray count", &runtime.emissive_ray_count, 1.0f, 0, 4096) || gi_changed;
+          gi_changed = ImGui::DragInt("Relocation warmup frames", &runtime.warmup_frames, 1.0f, 0, 4096) || gi_changed;
+          gi_changed = ImGui::DragFloat("Normal bias", &runtime.normal_bias, 0.001f, 0.0f, 10.0f, "%.3f") || gi_changed;
+          gi_changed = ImGui::DragFloat("View bias", &runtime.view_bias, 0.001f, 0.0f, 10.0f, "%.3f") || gi_changed;
+          gi_changed =
+              ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f) || gi_changed;
+          gi_changed =
+              ImGui::DragFloat("Distance exponent", &runtime.distance_exponent, 0.1f, 0.0f, 256.0f) || gi_changed;
+          gi_changed =
+              ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f) || gi_changed;
+          gi_changed =
+              ImGui::SliderFloat("Visibility smoothing", &runtime.visibility_smoothing, 0.0f, 0.99f) || gi_changed;
           ImGui::SetItemTooltip(
               "Retains this fraction of the previous valid visibility estimate. No visibility history ring. Changes do "
               "not restart lighting.");
-          changed = ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f) ||
-                    changed;
-          changed = ImGui::Checkbox("Deterministic ray seed", &runtime.deterministic_ray_seed_enabled) || changed;
+          gi_changed =
+              ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f) ||
+              gi_changed;
+          gi_changed = ImGui::Checkbox("Deterministic ray seed", &runtime.deterministic_ray_seed_enabled) || gi_changed;
           if (runtime.deterministic_ray_seed_enabled)
-            changed = ImGui::InputScalar("Ray seed", ImGuiDataType_U32, &runtime.deterministic_ray_seed) || changed;
+            gi_changed =
+                ImGui::InputScalar("Ray seed", ImGuiDataType_U32, &runtime.deterministic_ray_seed) || gi_changed;
           ImGui::TreePop();
         }
         if (ImGui::TreeNode("Atlas storage")) {
-          changed = ImGui::DragInt("Maximum resident probes", &storage.max_probe_count, 1.0f, 1, 16777216) || changed;
-          changed = ImGui::DragInt("Atlas probe columns", &storage.atlas_probe_columns, 1.0f, 1, 4096) || changed;
-          changed = ImGui::DragInt("Irradiance tile resolution", &storage.irradiance_tile_resolution, 1.0f, 1, 128) ||
-                    changed;
-          changed = ImGui::DragInt("Visibility tile resolution", &storage.visibility_tile_resolution, 1.0f, 1, 128) ||
-                    changed;
+          gi_changed = ImGui::DragInt("Atlas probe columns", &storage.atlas_probe_columns, 1.0f, 1, 4096) || gi_changed;
+          gi_changed =
+              ImGui::DragInt("Irradiance tile resolution", &storage.irradiance_tile_resolution, 1.0f, 1, 128) ||
+              gi_changed;
+          gi_changed =
+              ImGui::DragInt("Visibility tile resolution", &storage.visibility_tile_resolution, 1.0f, 1, 128) ||
+              gi_changed;
           ImGui::TreePop();
         }
-        if (ImGui::TreeNode("New volume defaults")) {
-          changed = ImGui::DragInt3("Probe counts", &defaults.probe_counts.x, 1.0f, 1, 256) || changed;
-          changed = ImGui::DragFloat3("Probe spacing", &defaults.probe_spacing.x, 0.05f, 0.05f, 10000.0f) || changed;
-          changed = ImGui::DragFloat3("Volume origin", &defaults.volume_origin.x, 0.05f) || changed;
-          const char* movement_types[]{"Default", "Scrolling"};
-          changed =
-              ImGui::Combo("Movement type", &defaults.movement_type, movement_types, IM_ARRAYSIZE(movement_types)) ||
-              changed;
-          changed = ImGui::Checkbox("Probe relocation", &defaults.enable_probe_relocation) || changed;
-          changed = ImGui::Checkbox("Probe classification", &defaults.enable_probe_classification) || changed;
-          changed =
-              ImGui::DragFloat("Relocation distance", &defaults.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-          ImGui::TreePop();
-        }
-        ImGui::TreePop();
-      }
 
-      const bool lighting_changed_before_volumes = changed;
-      changed = false;
-      if (ImGui::TreeNodeEx("Volumes", ImGuiTreeNodeFlags_DefaultOpen)) {
-        ImGui::BeginDisabled(!ddgi_pack);
-        if (ImGui::Button("Add DDGI Volume")) {
-          auto& volume = ddgi_pack->volumes.emplace_back();
-          const auto& defaults = lighting.ddgi_settings.volume_defaults;
-          volume.probe_counts = defaults.probe_counts;
-          volume.probe_spacing = defaults.probe_spacing;
-          volume.volume_origin = defaults.volume_origin;
-          volume.movement_type = defaults.movement_type;
-          volume.enable_probe_relocation = defaults.enable_probe_relocation;
-          volume.enable_probe_classification = defaults.enable_probe_classification;
-          volume.relocation_distance = defaults.relocation_distance;
-          (void)ddgi_pack->RepairStableIds();
-          changed = true;
-        }
-        ImGui::EndDisabled();
-        for (size_t index = 0; ddgi_pack && index < ddgi_pack->volumes.size(); ++index) {
-          auto& volume = ddgi_pack->volumes[index];
-          ImGui::PushID(static_cast<int>(index));
-          const auto label = volume.name + "##EnvironmentalLightingDdgiVolume";
-          if (ImGui::TreeNode(label.c_str())) {
-            changed = InspectEnvironmentalLightingEntryName(volume.name) || changed;
-            changed = ImGui::Checkbox("Enabled", &volume.enabled) || changed;
-            const bool editing_in_scene = InspectEnvironmentalLightingSceneGizmoToggle(
-                editor_layer, lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id,
-                scene_gizmo_available);
-            const bool stable_id_changed = ImGui::InputScalar("Stable id", ImGuiDataType_U64, &volume.stable_id);
-            changed = stable_id_changed || changed;
-            if (stable_id_changed) {
-              (void)ddgi_pack->RepairStableIds();
-              if (editing_in_scene) {
-                editor_layer->SetEnvironmentalLightingGizmoTarget(
-                    lighting_asset, EnvironmentalLightingGizmoTargetType::DdgiVolume, index, volume.stable_id);
-              }
-            }
-            changed = InspectAuthoringTransform(editor_layer, "Transform", volume.transform) || changed;
-            changed = ImGui::DragInt3("Probe counts", &volume.probe_counts.x, 1.0f, 1, 256) || changed;
-            changed = ImGui::DragFloat3("Probe spacing", &volume.probe_spacing.x, 0.05f, 0.05f, 10000.0f) || changed;
-            changed = ImGui::DragFloat3("Volume origin", &volume.volume_origin.x, 0.05f) || changed;
-            changed = ImGui::DragInt("Artist priority", &volume.artist_priority) || changed;
-            const char* movement_types[]{"Default", "Scrolling"};
-            changed =
-                ImGui::Combo("Movement type", &volume.movement_type, movement_types, IM_ARRAYSIZE(movement_types)) ||
-                changed;
-            const char* emissive_modes[]{"Inherit", "On", "Off"};
-            changed = ImGui::Combo("Emissive mesh sampling", &volume.emissive_mesh_sampling_mode, emissive_modes,
-                                   IM_ARRAYSIZE(emissive_modes)) ||
-                      changed;
-            changed = ImGui::Checkbox("Probe relocation", &volume.enable_probe_relocation) || changed;
-            changed = ImGui::Checkbox("Probe classification", &volume.enable_probe_classification) || changed;
-            changed =
-                ImGui::DragFloat("Relocation distance", &volume.relocation_distance, 0.01f, 0.0f, 10000.0f) || changed;
-            if (ImGui::Button("Remove")) {
-              editor_layer->ClearEnvironmentalLightingGizmoTarget(lighting.GetHandle());
-              ddgi_pack->volumes.erase(ddgi_pack->volumes.begin() + static_cast<std::ptrdiff_t>(index));
-              changed = true;
-              ImGui::TreePop();
-              ImGui::PopID();
-              break;
-            }
-            ImGui::TreePop();
-          }
-          ImGui::PopID();
-        }
-        ImGui::TreePop();
+        gi_changed =
+            ImGui::SliderFloat("Random ray backface threshold", &runtime.random_ray_backface_threshold, 0.0f, 1.0f) ||
+            gi_changed;
+        gi_changed =
+            ImGui::SliderFloat("Fixed ray backface threshold", &runtime.fixed_ray_backface_threshold, 0.0f, 1.0f) ||
+            gi_changed;
+        gi_changed = ImGui::Checkbox("Probe relocation", &runtime.enable_probe_relocation) || gi_changed;
+        gi_changed = ImGui::Checkbox("Probe classification", &runtime.enable_probe_classification) || gi_changed;
+        gi_changed =
+            ImGui::DragFloat("Relocation distance", &runtime.relocation_distance, 0.01f, 0.0f, 10000.0f) || gi_changed;
       }
-      if (changed && ddgi_pack)
-        ddgi_pack->SetUnsaved();
-      changed = lighting_changed_before_volumes || changed;
+      if (gi_changed && lighting.TrySetGiSettings(candidate, gi_error))
+        changed = true;
+      if (!gi_error.empty())
+        ImGui::TextWrapped("Edit rejected; previous settings retained: %s", gi_error.c_str());
       ImGui::EndTabItem();
     }
 
@@ -3355,12 +3116,7 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
   }
   RenderEnvironmentalLightingDebugProbeBounds(editor_layer, lighting, glm::vec4(0.1f, 0.8f, 1.0f, 0.55f));
   RenderActiveEnvironmentalLightingGizmoBound(editor_layer, lighting);
-  if (changed) {
-    ClampDdgiSettings(lighting.ddgi_settings);
-    if (ddgi_pack)
-      for (auto& volume : ddgi_pack->volumes)
-        volume.ClampSettings();
-  }
+
   return changed;
 }
 
@@ -4431,7 +4187,6 @@ void evo_engine::RegisterSdkInspectionAdapters() {
                                                                             "EnvironmentalLighting");
   InspectorRegistry::GetInstance().RegisterInspector<ReflectionProbePack>(InspectReflectionProbePack, {},
                                                                           "ReflectionProbePack");
-  InspectorRegistry::GetInstance().RegisterInspector<DdgiVolumePack>(InspectDdgiVolumePack, {}, "DdgiVolumePack");
   InspectorRegistry::GetInstance().RegisterInspector<EnvironmentalMap>(InspectEnvironmentalMap, {}, "EnvironmentalMap");
   InspectorRegistry::GetInstance().RegisterInspector<EditorLayer>(InspectEditorLayer, {}, "EditorLayer");
   InspectorRegistry::GetInstance().RegisterInspector<LightProbe>(InspectLightProbe, {}, "LightProbe");

@@ -994,12 +994,12 @@ TEST(RenderGraph, RenderPassUtilitiesApplyQueueFamilyOwnershipTransfersForQueueC
 
 TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
   DdgiSettings settings;
-  settings.volume_defaults.probe_counts = {4, 4, 4};
+  uint32_t probe_count = 64u;
   settings.storage.atlas_probe_columns = 8;
   settings.storage.irradiance_tile_resolution = 8;
   settings.storage.visibility_tile_resolution = 16;
   settings.runtime.ray_count = 32;
-  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_ddgi_probe_metadata,
@@ -1069,9 +1069,9 @@ TEST(RenderGraph, CompilePlansDdgiAtlasPrepareResources) {
 
 TEST(RenderGraph, CompilePlansDdgiProbeTraceWithoutRayClear) {
   DdgiSettings settings;
-  settings.volume_defaults.probe_counts = {2, 2, 2};
+  uint32_t probe_count = 8u;
   settings.runtime.ray_count = 16;
-  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
@@ -1170,9 +1170,9 @@ TEST(RenderGraph, CompilePlansDdgiProbeTraceWithoutRayClear) {
 
 TEST(RenderGraph, CompilePlansDdgiProbeUpdateAfterProbeTrace) {
   DdgiSettings settings;
-  settings.volume_defaults.probe_counts = {2, 2, 2};
+  uint32_t probe_count = 8u;
   settings.runtime.ray_count = 16;
-  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
+  const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
 
   RenderGraph graph;
   graph.AddResource({RenderResourceNames::frame_per_frame_descriptor_set, RenderResourceType::DescriptorSet,
@@ -1391,20 +1391,20 @@ TEST(RenderGraph, DdgiAtlasPrepareResourcesRemainValidAfterResizeAndReset) {
   };
 
   DdgiSettings settings;
-  settings.volume_defaults.probe_counts = {2, 2, 2};
+  uint32_t probe_count = 8u;
   settings.storage.atlas_probe_columns = 4;
   settings.storage.irradiance_tile_resolution = 6;
   settings.storage.visibility_tile_resolution = 10;
   settings.runtime.ray_count = 12;
-  const auto initial_layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
+  const auto initial_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
   validate_layout(initial_layout);
 
-  settings.volume_defaults.probe_counts = {5, 3, 2};
+  probe_count = 30u;
   settings.storage.atlas_probe_columns = 5;
   settings.storage.irradiance_tile_resolution = 10;
   settings.storage.visibility_tile_resolution = 18;
   settings.runtime.ray_count = 48;
-  const auto resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings);
+  const auto resized_layout = DdgiRuntime::CalculateFrameResourceLayout(settings, probe_count);
   ASSERT_NE(resized_layout.irradiance_atlas.resolution, initial_layout.irradiance_atlas.resolution);
   ASSERT_NE(resized_layout.visibility_atlas.resolution, initial_layout.visibility_atlas.resolution);
   validate_layout(resized_layout);

@@ -1095,7 +1095,7 @@ TEST(EditorLayer, SceneLoadingPopupWaitsForFirstFullyLitFrame) {
   EXPECT_NE(readiness.find("GeometryStorage::HasPendingPresentationUploads()"), std::string::npos);
   EXPECT_NE(readiness.find("GetReflectionProbeInfoBlocks()"), std::string::npos);
   EXPECT_NE(readiness.find("if (!resolved_lighting.local_reflection_probes[index].payload)"), std::string::npos);
-  EXPECT_NE(readiness.find("resolved_lighting.ddgi_volumes.empty()"), std::string::npos);
+  EXPECT_NE(readiness.find("resolved_lighting.ddgi_cascades.empty()"), std::string::npos);
   EXPECT_NE(readiness.find("volume.contributes_lighting"), std::string::npos);
 }
 

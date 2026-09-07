@@ -55,6 +55,10 @@ using namespace evo_engine;
 namespace evo_engine {
 class SdfgiTestAccess {
  public:
+  static void ValidateGiSettings(RenderLayer& render, const std::shared_ptr<Scene>& scene) {
+    render.ValidateSceneGiSettings(scene);
+  }
+
   static std::vector<std::shared_ptr<DescriptorSetLayout>> HostLayouts(const RenderLayer& render) {
     return {render.per_frame_layout_, render.camera_g_buffer_layout_, render.lighting_layout_,
             render.raster_lighting_texture_layout_, render.deferred_compute_lighting_layout_};
@@ -66,7 +70,7 @@ class SdfgiTestAccess {
   }
 
   static bool HasDdgiResources(const RenderLayer& render) {
-    return !render.ddgi_volume_runtime_states_.empty() || render.ddgi_probe_update_pipeline_ ||
+    return !render.ddgi_cascade_runtime_states_.empty() || render.ddgi_probe_update_pipeline_ ||
            render.ddgi_probe_update_layout_ || render.ddgi_probe_ray_output_layout_ || render.ddgi_atlas_sampler_;
   }
   static uint64_t CaptureImmediately(RenderLayer& render, const std::shared_ptr<Scene>& scene,
@@ -331,6 +335,67 @@ TEST(SdfgiCapabilities, PackedSampledViewsDoNotRequireStorageOrLinearIntegerFilt
                          VK_SUCCESS, properties));
 }
 
+TEST(GiSettings, CurrentGpuRejectsEditsAtomicallyAndIgnoresInactiveHistory) {
+  ScopedGpuPlatform platform(false);
+  EnvironmentalLighting lighting;
+  std::string error;
+  auto candidate = lighting.GetGiSettings();
+  ASSERT_TRUE(lighting.TrySetGiSettings(candidate, error)) << error;
+  const auto accepted = lighting.GetGiSettings();
+  candidate.gi_probe_settings.probe_count_x = 64;
+  EXPECT_FALSE(lighting.TrySetGiSettings(candidate, error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_EQ(lighting.GetGiSettings(), accepted);
+  candidate = accepted;
+  candidate.indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
+  EXPECT_FALSE(lighting.TrySetGiSettings(candidate, error));
+  EXPECT_EQ(lighting.GetGiSettings(), accepted);
+  candidate = accepted;
+  candidate.ddgi_settings.storage.irradiance_tile_resolution = 128;
+  ASSERT_TRUE(lighting.TrySetGiSettings(candidate, error)) << error;
+  candidate.sdfgi_settings.probe_spacing_cells = 8;
+  ASSERT_TRUE(lighting.TrySetGiSettings(candidate, error)) << error;
+  EXPECT_EQ(lighting.GetGiSettings().sdfgi_settings.probe_spacing_cells, 8u);
+}
+
+TEST(GiSettings, RawRuntimeEditsRollbackButUnsupportedLoadedAssetsRetainValues) {
+  ScopedGpuPlatform platform(false);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  ASSERT_TRUE(render);
+  const auto scene = std::make_shared<Scene>();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  scene->environmental_lighting = lighting;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  const auto accepted = lighting->GetGiSettings();
+  lighting->gi_probe_settings.probe_count_x = 64;
+  lighting->ddgi_settings.runtime.history_count = 7;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  EXPECT_EQ(lighting->GetGiSettings(), accepted);
+
+  const auto replacement = std::make_shared<EnvironmentalLighting>();
+  replacement->gi_probe_settings.probe_count_y = 18;
+  scene->environmental_lighting = replacement;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  EXPECT_EQ(replacement->gi_probe_settings.probe_count_y, 18u);
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  ASSERT_TRUE(scene->GetSdfgiRuntime());
+  EXPECT_FALSE(scene->GetSdfgiRuntime()->resources);
+  EXPECT_FALSE(scene->GetSdfgiRuntime()->fallback_reason.empty());
+  replacement->gi_probe_settings.probe_count_y = 17;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  replacement->gi_probe_settings.probe_count_y = 18;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  EXPECT_EQ(replacement->gi_probe_settings.probe_count_y, 17u);
+
+  const auto next_scene = std::make_shared<Scene>();
+  const auto next_lighting = std::make_shared<EnvironmentalLighting>();
+  next_lighting->indirect_gi_provider = IndirectGiProvider::AutomaticDdgi;
+  next_scene->environmental_lighting = next_lighting;
+  SdfgiTestAccess::ValidateGiSettings(*render, next_scene);
+  EXPECT_EQ(next_lighting->indirect_gi_provider, IndirectGiProvider::AutomaticDdgi);
+  EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
+}
+
 TEST(SdfgiCapabilities, CurrentGpuPreflightWithRayFeaturesDisabled) {
   ScopedGpuPlatform platform(false);
   const auto report = QuerySdfgiCapabilities();
@@ -352,9 +417,6 @@ TEST(SdfgiRuntime, SceneFrameBoundaryRunsExternalPassOnceWithoutDdgiOrRayFeature
   scene->environmental_lighting = lighting;
   lighting->indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting->ddgi_settings.runtime.enabled = true;
-  const auto pack = std::make_shared<DdgiVolumePack>();
-  pack->volumes.emplace_back();
-  lighting->ddgi_volume_pack = pack;
   uint32_t calls = 0;
   bool expect_sdfgi = true;
   render->RegisterFrameRenderPass({"SdfgiFrameBoundaryTest", RenderPassQueue::Graphics, RenderPassScope::Frame},

@@ -36,7 +36,7 @@ struct ProfilerPanelState;
 struct EntityBatchInspectionContext;
 struct EntityBatchSelectionBound;
 
-enum class EnvironmentalLightingGizmoTargetType : uint8_t { LocalReflectionProbe, DdgiVolume };
+enum class EnvironmentalLightingGizmoTargetType : uint8_t { LocalReflectionProbe };
 enum class LocalTransformGizmoOperation : uint8_t { Translate, Rotate, Scale, Select };
 
 struct EditorFloatingWindowLayout {

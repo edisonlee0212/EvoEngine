@@ -1,5 +1,6 @@
 #include "DdgiRuntime.hpp"
 #include "DdgiProbeRayData.hpp"
+#include "GiProbeSettings.hpp"
 #include "Platform.hpp"
 
 #include <algorithm>
@@ -12,14 +13,6 @@ using namespace evo_engine;
 namespace {
 glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
   return glm::clamp(value, glm::ivec3(1), glm::ivec3(257));
-}
-
-float AxisCoordinate(const glm::vec3& delta, const glm::vec3& axis) {
-  const auto length_squared = glm::dot(axis, axis);
-  if (!(length_squared > 1e-8f)) {
-    return 0.0f;
-  }
-  return glm::dot(delta, axis) / length_squared;
 }
 
 }  // namespace
@@ -101,7 +94,7 @@ DdgiProbeUpdateVariant DdgiRuntime::ResolveProbeUpdateVariant(const DdgiProbeUpd
 }
 
 uint32_t DdgiRuntime::GetAllocatedProbeCount(const DdgiSettings& settings) {
-  return GetAllocatedProbeCount(settings, GetProbeCount(settings.volume_defaults.probe_counts));
+  return GetAllocatedProbeCount(settings, GetProbeCount(GiProbeSettings{}.ProbeSize()));
 }
 
 uint32_t DdgiRuntime::GetAllocatedProbeCount(const DdgiSettings&, const uint32_t probe_count) {
@@ -134,16 +127,6 @@ bool DdgiRuntime::ValidateProbeGrid(const glm::ivec3& probe_counts, const uint32
     error->clear();
   }
   return true;
-}
-
-bool DdgiRuntime::ResolveEmissiveMeshSampling(const bool global_enabled, const int volume_mode) {
-  if (volume_mode == static_cast<int>(DdgiEmissiveMeshSamplingMode::On)) {
-    return true;
-  }
-  if (volume_mode == static_cast<int>(DdgiEmissiveMeshSamplingMode::Off)) {
-    return false;
-  }
-  return global_enabled;
 }
 
 uint32_t DdgiRuntime::GetProbeRayFlags(const bool skip_inactive_probes, const bool emissive_mesh_sampling) {
@@ -239,7 +222,7 @@ DdgiAtlasLayout DdgiRuntime::CalculateAtlasLayout(const uint32_t probe_count, co
 }
 
 DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSettings& settings) {
-  return CalculateFrameResourceLayout(settings, GetProbeCount(settings.volume_defaults.probe_counts));
+  return CalculateFrameResourceLayout(settings, GetProbeCount(GiProbeSettings{}.ProbeSize()));
 }
 
 DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSettings& settings,
@@ -382,49 +365,9 @@ std::string DdgiRuntime::FormatUpdateReasons(const uint32_t reasons) {
   return result.empty() ? "Unknown" : result;
 }
 
-float DdgiRuntime::CalculateVolumeBlendWeight(const glm::vec3& probe_coordinate, const glm::ivec3& probe_counts,
-                                              const glm::vec3& probe_step_lengths) {
-  const auto counts = ClampDdgiProbeCounts(probe_counts);
-  const auto max_probe_coordinate = glm::vec3(counts - glm::ivec3(1));
-  const auto inside_volume = !glm::any(glm::lessThan(probe_coordinate, glm::vec3(0.0f))) &&
-                             !glm::any(glm::greaterThan(probe_coordinate, max_probe_coordinate));
-  if (inside_volume) {
-    return 1.0f;
-  }
-
-  const auto step_lengths = glm::max(probe_step_lengths, glm::vec3(0.0001f));
-  const auto lower_distance = glm::max(-probe_coordinate * step_lengths, glm::vec3(0.0f));
-  const auto upper_distance = glm::max((probe_coordinate - max_probe_coordinate) * step_lengths, glm::vec3(0.0f));
-  const auto outside_distance = glm::max(lower_distance, upper_distance);
-  const auto axis_weight =
-      glm::vec3(1.0f) - glm::clamp(outside_distance / step_lengths, glm::vec3(0.0f), glm::vec3(1.0f));
-  return axis_weight.x * axis_weight.y * axis_weight.z;
-}
-
-float DdgiRuntime::CalculateProbeDensity(const glm::vec3& probe_step_x, const glm::vec3& probe_step_y,
-                                         const glm::vec3& probe_step_z) {
-  const auto cell_volume = std::abs(glm::dot(probe_step_x, glm::cross(probe_step_y, probe_step_z)));
-  return std::isfinite(cell_volume) && cell_volume > 1e-8f ? 1.0f / cell_volume : 0.0f;
-}
-
-void DdgiRuntime::SortVolumeRuntimeInfos(std::vector<DdgiVolumeRuntimeInfo>& infos) {
-  std::sort(infos.begin(), infos.end(), [](const auto& lhs, const auto& rhs) {
-    if (lhs.artist_priority != rhs.artist_priority) {
-      return lhs.artist_priority > rhs.artist_priority;
-    }
-    if (lhs.probe_density != rhs.probe_density) {
-      return lhs.probe_density > rhs.probe_density;
-    }
-    return lhs.stable_entity_id < rhs.stable_entity_id;
-  });
-  for (size_t i = 0; i < infos.size(); ++i) {
-    infos[i].sorted_index = static_cast<uint32_t>(i);
-  }
-}
-
-DdgiVolumeSetValidation DdgiRuntime::ValidateVolumeSet(const std::vector<DdgiVolumeRuntimeInfo>& infos,
-                                                       const uint32_t configured_probe_limit) {
-  DdgiVolumeSetValidation result;
+DdgiCascadeSetValidation DdgiRuntime::ValidateCascadeSet(const std::vector<DdgiCascadeRuntimeInfo>& infos,
+                                                         const uint32_t configured_probe_limit) {
+  DdgiCascadeSetValidation result;
   if (infos.size() > kMaxVolumeCount) {
     result.error = "DDGI volume limit exceeded: " + std::to_string(infos.size()) + " enabled volumes; maximum is " +
                    std::to_string(kMaxVolumeCount) + ".";
@@ -457,74 +400,5 @@ DdgiVolumeSetValidation DdgiRuntime::ValidateVolumeSet(const std::vector<DdgiVol
   }
   result.aggregate_probe_count = static_cast<uint32_t>(aggregate_probe_count);
   result.valid = true;
-  return result;
-}
-
-DdgiVolumeSelection DdgiRuntime::SelectVolumes(const std::vector<DdgiVolumeRuntimeInfo>& infos,
-                                               const glm::vec3& world_position) {
-  struct Candidate {
-    const DdgiVolumeRuntimeInfo* info = nullptr;
-    glm::vec3 probe_coordinate = glm::vec3(0.0f);
-    float coverage = 0.0f;
-    bool inside = false;
-  };
-  auto sorted_infos = infos;
-  SortVolumeRuntimeInfos(sorted_infos);
-  std::vector<Candidate> candidates;
-  candidates.reserve(sorted_infos.size());
-  for (const auto& info : sorted_infos) {
-    if (!info.contributes_lighting) {
-      continue;
-    }
-    const auto delta = world_position - info.first_probe;
-    const glm::vec3 coordinate{AxisCoordinate(delta, info.probe_step_x), AxisCoordinate(delta, info.probe_step_y),
-                               AxisCoordinate(delta, info.probe_step_z)};
-    const auto max_coordinate = glm::vec3(ClampDdgiProbeCounts(info.probe_counts) - glm::ivec3(1));
-    const auto inside = !glm::any(glm::lessThan(coordinate, glm::vec3(0.0f))) &&
-                        !glm::any(glm::greaterThan(coordinate, max_coordinate));
-    const glm::vec3 step_lengths{glm::length(info.probe_step_x), glm::length(info.probe_step_y),
-                                 glm::length(info.probe_step_z)};
-    const auto coverage = CalculateVolumeBlendWeight(coordinate, info.probe_counts, step_lengths);
-    candidates.push_back({&info, coordinate, coverage, inside});
-  }
-  const auto primary = std::find_if(candidates.begin(), candidates.end(), [](const auto& candidate) {
-    return candidate.coverage > 0.0f;
-  });
-  DdgiVolumeSelection result;
-  if (primary == candidates.end()) {
-    return result;
-  }
-  result.valid = true;
-  result.primary_entity_id = primary->info->stable_entity_id;
-  result.primary_weight = glm::clamp(primary->coverage, 0.0f, 1.0f);
-  result.ibl_weight = 1.0f - result.primary_weight;
-
-  float boundary_weight = 1.0f;
-  if (primary->inside) {
-    const auto max_coordinate = glm::vec3(ClampDdgiProbeCounts(primary->info->probe_counts) - glm::ivec3(1));
-    const auto distance_to_boundary = glm::min(primary->probe_coordinate, max_coordinate - primary->probe_coordinate);
-    const auto nearest_boundary =
-        glm::min(distance_to_boundary.x, glm::min(distance_to_boundary.y, distance_to_boundary.z));
-    boundary_weight = glm::clamp(1.0f - nearest_boundary, 0.0f, 1.0f);
-  }
-  if (!(boundary_weight > 0.0f)) {
-    return result;
-  }
-  const auto secondary = std::find_if(candidates.begin(), candidates.end(), [&](const auto& candidate) {
-    return candidate.info->stable_entity_id != primary->info->stable_entity_id && candidate.coverage > 0.0f;
-  });
-  if (secondary == candidates.end()) {
-    return result;
-  }
-  const auto weighted_secondary_coverage = secondary->coverage * boundary_weight;
-  const auto weight_sum = primary->coverage + weighted_secondary_coverage;
-  if (!(weight_sum > 0.0f) || !std::isfinite(weight_sum)) {
-    return result;
-  }
-  result.secondary_entity_id = secondary->info->stable_entity_id;
-  const auto combined_coverage = glm::clamp(weight_sum, 0.0f, 1.0f);
-  result.primary_weight = primary->coverage / weight_sum * combined_coverage;
-  result.secondary_weight = weighted_secondary_coverage / weight_sum * combined_coverage;
-  result.ibl_weight = 1.0f - combined_coverage;
   return result;
 }

@@ -61,9 +61,6 @@ struct EVOENGINE_API RenderSettings {
   float shadow_cascade_transition_width = 5.0f;  ///< Cascade blend width in positive linear view-depth units.
   float shadow_distance_fade = 20.0f;            ///< Final max-shadow-distance fade width in view-depth units.
 
-  float ddgi_random_ray_backface_threshold = 0.1f;
-  float ddgi_fixed_ray_backface_threshold = 0.25f;
-
   float strands_subdivision_x_factor = 50.0f;  ///< Subdivision factor for strands (in the X-axis).
   float strands_subdivision_y_factor = 50.0f;  ///< Subdivision factor for strands (in the Y-axis).
   int strands_subdivision_max_x = 15;          ///< Maximum subdivision in X-axis for strands.

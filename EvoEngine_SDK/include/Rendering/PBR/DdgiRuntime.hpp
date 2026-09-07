@@ -96,11 +96,9 @@ enum DdgiUpdateReason : uint32_t {
   DdgiUpdateReasonSceneChange = 1u << 5u,
 };
 
-struct DdgiVolumeRuntimeInfo {
+struct DdgiCascadeRuntimeInfo {
   uint32_t sorted_index = 0;
   uint64_t stable_entity_id = 0;
-  int artist_priority = 0;
-  float probe_density = 0.0f;
   glm::ivec3 probe_counts = {1, 1, 1};
   uint32_t probe_count = 1;
   bool contributes_lighting = true;
@@ -110,12 +108,10 @@ struct DdgiVolumeRuntimeInfo {
   glm::vec3 probe_step_z = glm::vec3(0.0f, 0.0f, 1.0f);
 };
 
-struct DdgiVolumeRuntimeStats {
+struct DdgiCascadeRuntimeStats {
   std::string name{};
   uint64_t stable_entity_id = 0;
   uint32_t sorted_index = 0;
-  int artist_priority = 0;
-  float probe_density = 0.0f;
   glm::ivec3 probe_counts = glm::ivec3(0);
   uint32_t probe_count = 0;
   uint32_t history_phase = 0;
@@ -141,19 +137,10 @@ struct DdgiVolumeRuntimeStats {
   std::array<uint64_t, 4> resource_ids{};
 };
 
-struct DdgiVolumeSetValidation {
+struct DdgiCascadeSetValidation {
   bool valid = false;
   uint32_t aggregate_probe_count = 0;
   std::string error{};
-};
-
-struct DdgiVolumeSelection {
-  bool valid = false;
-  uint64_t primary_entity_id = 0;
-  uint64_t secondary_entity_id = 0;
-  float primary_weight = 0.0f;
-  float secondary_weight = 0.0f;
-  float ibl_weight = 1.0f;
 };
 
 enum class DdgiProbeUpdateVariant { Serial, ParallelDirect, ParallelShared };
@@ -181,7 +168,6 @@ class EVOENGINE_API DdgiRuntime final {
   static constexpr uint32_t kProbeUpdateGroupSize = 64u;
   static constexpr uint32_t kProbeUpdateSharedMemoryBytes = 2u * 256u * sizeof(glm::vec4);
   static constexpr uint32_t kMaxVolumeCount = RenderInstanceStorage::kDdgiMaxVolumeCount;
-  static constexpr uint32_t kMaxResidentProbeCount = 8192u;
   static constexpr uint32_t kProbeRayFlagSkipInactive = 1u << 0u;
   static constexpr uint32_t kProbeRayFlagEmissiveMeshSampling = 1u << 1u;
 
@@ -201,7 +187,6 @@ class EVOENGINE_API DdgiRuntime final {
   [[nodiscard]] static uint32_t GetAllocatedProbeCount(const DdgiSettings& settings, uint32_t probe_count);
   [[nodiscard]] static bool ValidateProbeGrid(const glm::ivec3& probe_counts, uint32_t max_probe_count,
                                               std::string* error = nullptr);
-  [[nodiscard]] static bool ResolveEmissiveMeshSampling(bool global_enabled, int volume_mode);
   [[nodiscard]] static uint32_t GetProbeRayFlags(bool skip_inactive_probes, bool emissive_mesh_sampling);
   [[nodiscard]] static uint64_t CalculateEmissiveSamplingCandidateRayCount(uint32_t updated_probe_count,
                                                                            uint32_t ray_count, uint32_t fixed_ray_count,
@@ -227,15 +212,7 @@ class EVOENGINE_API DdgiRuntime final {
   [[nodiscard]] static bool ArePersistentLayoutsCompatible(const DdgiFrameResourceLayout& previous,
                                                            const DdgiFrameResourceLayout& current);
   [[nodiscard]] static std::string FormatUpdateReasons(uint32_t reasons);
-  [[nodiscard]] static float CalculateVolumeBlendWeight(const glm::vec3& probe_coordinate,
-                                                        const glm::ivec3& probe_counts,
-                                                        const glm::vec3& probe_step_lengths);
-  [[nodiscard]] static float CalculateProbeDensity(const glm::vec3& probe_step_x, const glm::vec3& probe_step_y,
-                                                   const glm::vec3& probe_step_z);
-  static void SortVolumeRuntimeInfos(std::vector<DdgiVolumeRuntimeInfo>& infos);
-  [[nodiscard]] static DdgiVolumeSetValidation ValidateVolumeSet(const std::vector<DdgiVolumeRuntimeInfo>& infos,
-                                                                 uint32_t configured_probe_limit);
-  [[nodiscard]] static DdgiVolumeSelection SelectVolumes(const std::vector<DdgiVolumeRuntimeInfo>& infos,
-                                                         const glm::vec3& world_position);
+  [[nodiscard]] static DdgiCascadeSetValidation ValidateCascadeSet(const std::vector<DdgiCascadeRuntimeInfo>& infos,
+                                                                   uint32_t configured_probe_limit);
 };
 }  // namespace evo_engine

@@ -563,7 +563,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("RayAccelerationStructureEnabled", &Platform::RayAccelerationStructureEnabled);
   py::enum_<IndirectGiProvider>(m, "IndirectGiProvider")
       .value("Environment", IndirectGiProvider::Environment)
-      .value("AuthoredDdgi", IndirectGiProvider::AuthoredDdgi)
+      .value("AutomaticDdgi", IndirectGiProvider::AutomaticDdgi)
       .value("AutomaticSdfgi", IndirectGiProvider::AutomaticSdfgi);
   py::enum_<SdfgiSettings::VerticalScale>(m, "SdfgiVerticalScale")
       .value("Percent50", SdfgiSettings::VerticalScale::Percent50)
@@ -592,59 +592,96 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("base_probe_distance", &GiProbeSettings::base_probe_distance)
       .def_readwrite("vertical_scale", &GiProbeSettings::vertical_scale)
       .def_readwrite("anchor_camera_entity", &GiProbeSettings::anchor_camera_entity);
-  m.def("GetCurrentSceneGiProbeSettings", [] {
-    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).gi_probe_settings;
-  });
-  m.def("SetCurrentSceneGiProbeSettings", [](const GiProbeSettings& settings) {
-    if (const auto error = settings.Validate(); !error.empty())
-      throw py::value_error(error);
+  py::class_<DdgiSettings::RuntimeSettings>(m, "DdgiRuntimeSettings")
+      .def(py::init<>())
+      .def_readwrite("enable_emissive_mesh_sampling", &DdgiSettings::RuntimeSettings::enable_emissive_mesh_sampling)
+      .def_readwrite("ray_count", &DdgiSettings::RuntimeSettings::ray_count)
+      .def_readwrite("emissive_ray_count", &DdgiSettings::RuntimeSettings::emissive_ray_count)
+      .def_readwrite("warmup_frames", &DdgiSettings::RuntimeSettings::warmup_frames)
+      .def_readwrite("history_count", &DdgiSettings::RuntimeSettings::history_count)
+      .def_readwrite("normal_bias", &DdgiSettings::RuntimeSettings::normal_bias)
+      .def_readwrite("view_bias", &DdgiSettings::RuntimeSettings::view_bias)
+      .def_readwrite("max_ray_distance", &DdgiSettings::RuntimeSettings::max_ray_distance)
+      .def_readwrite("distance_exponent", &DdgiSettings::RuntimeSettings::distance_exponent)
+      .def_readwrite("irradiance_gamma", &DdgiSettings::RuntimeSettings::irradiance_gamma)
+      .def_readwrite("visibility_moment_bias", &DdgiSettings::RuntimeSettings::visibility_moment_bias)
+      .def_readwrite("visibility_smoothing", &DdgiSettings::RuntimeSettings::visibility_smoothing)
+      .def_readwrite("enable_probe_relocation", &DdgiSettings::RuntimeSettings::enable_probe_relocation)
+      .def_readwrite("enable_probe_classification", &DdgiSettings::RuntimeSettings::enable_probe_classification)
+      .def_readwrite("relocation_distance", &DdgiSettings::RuntimeSettings::relocation_distance)
+      .def_readwrite("random_ray_backface_threshold", &DdgiSettings::RuntimeSettings::random_ray_backface_threshold)
+      .def_readwrite("fixed_ray_backface_threshold", &DdgiSettings::RuntimeSettings::fixed_ray_backface_threshold)
+      .def_readwrite("deterministic_ray_seed_enabled", &DdgiSettings::RuntimeSettings::deterministic_ray_seed_enabled)
+      .def_readwrite("deterministic_ray_seed", &DdgiSettings::RuntimeSettings::deterministic_ray_seed);
+  py::class_<DdgiSettings::StorageSettings>(m, "DdgiStorageSettings")
+      .def(py::init<>())
+      .def_readwrite("irradiance_tile_resolution", &DdgiSettings::StorageSettings::irradiance_tile_resolution)
+      .def_readwrite("visibility_tile_resolution", &DdgiSettings::StorageSettings::visibility_tile_resolution)
+      .def_readwrite("atlas_probe_columns", &DdgiSettings::StorageSettings::atlas_probe_columns);
+  py::class_<DdgiSettings>(m, "DdgiSettings")
+      .def(py::init<>())
+      .def_readwrite("runtime", &DdgiSettings::runtime)
+      .def_readwrite("storage", &DdgiSettings::storage);
+  py::class_<GiSettings>(m, "GiSettings")
+      .def(py::init<>())
+      .def_readwrite("probes", &GiSettings::gi_probe_settings)
+      .def_readwrite("provider", &GiSettings::indirect_gi_provider)
+      .def_readwrite("sdfgi", &GiSettings::sdfgi_settings)
+      .def_readwrite("ddgi", &GiSettings::ddgi_settings)
+      .def("validate", &GiSettings::Validate, py::arg("device_limits") = true);
+  m.def("GetCurrentSceneGiSettings", [] {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
     if (!lighting)
       throw py::value_error("The active scene has no EnvironmentalLighting asset");
-    const auto sdfgi = DeriveSdfgiSettings(settings, lighting->sdfgi_settings);
-    if (lighting->indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
-      if (const auto error = sdfgi.Validate(); !error.empty())
-        throw py::value_error(error);
-      const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
-      const auto report =
-          QuerySdfgiCapabilities(sdfgi.cascade_count, sdfgi.history_size, sdfgi.voxel_count_x, sdfgi.voxel_count_y,
-                                 sdfgi.probe_spacing_cells, render ? render->GetDdgiHistoryAllocationBytes() : 0);
-      if (!report.Supported())
-        throw py::value_error(report.ToString());
-    }
-    lighting->gi_probe_settings = settings;
-    lighting->sdfgi_settings = sdfgi;
-    lighting->SetUnsaved();
+    return lighting->GetGiSettings();
+  });
+  m.def("SetCurrentSceneGiSettings", [](const GiSettings& settings) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    std::string error;
+    if (!lighting->TrySetGiSettings(settings, error))
+      throw py::value_error(error);
+  });
+  m.def("GetCurrentSceneGiProbeSettings", [] {
+    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).gi_probe_settings;
+  });
+  m.def("SetCurrentSceneGiProbeSettings", [](const GiProbeSettings& probes) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    auto candidate = lighting->GetGiSettings();
+    candidate.gi_probe_settings = probes;
+    std::string error;
+    if (!lighting->TrySetGiSettings(candidate, error))
+      throw py::value_error(error);
   });
   m.def("SetCurrentSceneGiProvider", [](const IndirectGiProvider provider) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
     if (!lighting)
       throw py::value_error("The active scene has no EnvironmentalLighting asset");
-    lighting->indirect_gi_provider = provider;
-    if (provider == IndirectGiProvider::AuthoredDdgi)
-      lighting->ddgi_settings.runtime.enabled = true;
-    lighting->SetUnsaved();
+    auto candidate = lighting->GetGiSettings();
+    candidate.indirect_gi_provider = provider;
+    std::string error;
+    if (!lighting->TrySetGiSettings(candidate, error))
+      throw py::value_error(error);
   });
-  m.def("SetCurrentSceneSdfgiSettings", [](SdfgiSettings settings) {
+  m.def("SetCurrentSceneSdfgiSettings", [](const SdfgiSettings& settings) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
     if (!lighting)
       throw py::value_error("The active scene has no EnvironmentalLighting asset");
     if (settings.probe_spacing_cells != 4 && settings.probe_spacing_cells != 8)
       throw py::value_error("Probe spacing must be 4 or 8 cells");
-    settings = DeriveSdfgiSettings(lighting->gi_probe_settings, settings);
-    if (const auto error = settings.Validate(); !error.empty())
+    auto candidate = lighting->GetGiSettings();
+    candidate.sdfgi_settings = settings;
+    std::string error;
+    if (!lighting->TrySetGiSettings(candidate, error))
       throw py::value_error(error);
-    const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
-    const auto report = QuerySdfgiCapabilities(settings.cascade_count, settings.history_size, settings.voxel_count_x,
-                                               settings.voxel_count_y, settings.probe_spacing_cells,
-                                               render ? render->GetDdgiHistoryAllocationBytes() : 0);
-    if (!report.Supported())
-      throw py::value_error(report.ToString());
-    lighting->sdfgi_settings = settings;
-    lighting->SetUnsaved();
   });
   m.def("GetCurrentSceneDdgiHistoryCount", [] {
     return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).ddgi_settings.runtime.history_count;
@@ -660,16 +697,19 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
     if (!lighting)
       throw py::value_error("The active scene has no EnvironmentalLighting asset");
-    lighting->ddgi_settings.runtime.visibility_smoothing = retention;
-    lighting->SetUnsaved();
+    auto candidate = lighting->GetGiSettings();
+    candidate.ddgi_settings.runtime.visibility_smoothing = retention;
+    std::string error;
+    if (!lighting->TrySetGiSettings(candidate, error))
+      throw py::value_error(error);
   });
   m.def("GetCurrentSceneDdgiHistoryStatus", [] {
     py::list volumes;
     if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
       const auto snapshot = render->GetDdgiInspectorSnapshot();
-      for (const auto& volume : snapshot.volumes) {
+      for (const auto& volume : snapshot.cascades) {
         py::dict item;
-        item["volume_id"] = volume.stable_entity_id;
+        item["cascade_id"] = volume.stable_entity_id;
         item["phase"] = volume.history_phase;
         item["count"] = volume.history_count;
         item["completed_updates"] = volume.history_completed_updates;
@@ -877,11 +917,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     auto effective = IndirectGiProvider::Environment;
     if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi && runtime && runtime->published)
       effective = IndirectGiProvider::AutomaticSdfgi;
-    if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
+    if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
       if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
         const auto snapshot = render->GetDdgiInspectorSnapshot();
         if (snapshot.enabled && snapshot.aggregate.active_probe_count && snapshot.aggregate.lighting_descriptors_bound)
-          effective = IndirectGiProvider::AuthoredDdgi;
+          effective = IndirectGiProvider::AutomaticDdgi;
       }
     }
     result["effective_provider"] = GetIndirectGiProviderName(effective);
@@ -1035,10 +1075,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       "SdfgiCapabilityReport",
       [](const uint32_t cascade_count, const uint32_t history_size, const uint32_t voxel_count_x,
          const uint32_t voxel_count_y, const uint32_t probe_spacing_cells) {
-        const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+        if (probe_spacing_cells != 4 && probe_spacing_cells != 8)
+          throw py::value_error("Probe spacing must be 4 or 8 cells");
         const auto report =
-            QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y, probe_spacing_cells,
-                                   render ? render->GetDdgiHistoryAllocationBytes() : 0);
+            QuerySdfgiCapabilities(cascade_count, history_size, voxel_count_x, voxel_count_y, probe_spacing_cells, 0);
         py::dict result;
         result["supported"] = report.Supported();
         result["device_name"] = report.device_name;
@@ -1238,7 +1278,7 @@ bool PyEvoEngine::IsCurrentSceneDdgiEnabled() {
     return false;
   }
 
-  return !resolved_lighting.ddgi_volumes.empty();
+  return !resolved_lighting.ddgi_cascades.empty();
 }
 
 void PyEvoEngine::Run(const std::filesystem::path& project_path) {

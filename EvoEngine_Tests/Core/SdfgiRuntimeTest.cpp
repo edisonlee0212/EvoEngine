@@ -383,7 +383,7 @@ TEST(SdfgiGather, ReflectionCaptureSelectsOnlyPublishedProviderWithoutChangingAn
   EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
   runtime->published = true;
   EXPECT_EQ(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi), runtime->resources);
-  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AuthoredDdgi));
+  EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticDdgi));
   EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::Environment));
   runtime->resources->preprocess_status.failure_flags = kSdfgiFailureSolidOverflow;
   EXPECT_FALSE(SelectSdfgiCaptureResources(runtime, IndirectGiProvider::AutomaticSdfgi));
@@ -915,7 +915,7 @@ TEST(SdfgiRuntime, ProviderDefaultsToAutomaticAndPreservesExplicitChoices) {
   legacy_node["indirect_gi_provider"] = 999;
   DeserializeEnvironmentalLighting(legacy_node, loaded);
   EXPECT_EQ(loaded.indirect_gi_provider, IndirectGiProvider::Environment);
-  for (const auto provider : {IndirectGiProvider::Environment, IndirectGiProvider::AuthoredDdgi}) {
+  for (const auto provider : {IndirectGiProvider::Environment, IndirectGiProvider::AutomaticDdgi}) {
     lighting.indirect_gi_provider = provider;
     lighting.sdfgi_settings = {};
     lighting.gi_probe_settings = {};

@@ -46,14 +46,6 @@ float NonNegativeFiniteOr(const float value, const float fallback) {
   return glm::max(FiniteOr(value, fallback), 0.0f);
 }
 
-glm::vec3 ClampProbeSpacing(const glm::vec3& value) {
-  return glm::clamp(FiniteOr(value, glm::vec3(1.5f)), glm::vec3(0.05f), glm::vec3(10000.0f));
-}
-
-glm::vec3 TransformVector(const glm::mat4& transform, const glm::vec3& vector) {
-  return glm::vec3(transform * glm::vec4(vector, 0.0f));
-}
-
 float CalculateTransformedLocalProbeInfluenceVolume(const ResolvedEnvironmentalLighting::LocalReflectionProbe& probe) {
   if (!IsFinite(probe.transform)) {
     return 0.0f;
@@ -66,16 +58,6 @@ float CalculateTransformedLocalProbeInfluenceVolume(const ResolvedEnvironmentalL
   const float influence_volume = local_volume * volume_scale;
   return std::isfinite(volume_scale) && volume_scale > 1.0e-8f && std::isfinite(influence_volume) ? influence_volume
                                                                                                   : 0.0f;
-}
-
-float CalculateDdgiProbeDensity(const EnvironmentalLighting::DdgiVolume& volume) {
-  if (!IsFinite(volume.transform)) {
-    return 0.0f;
-  }
-  const auto spacing = ClampProbeSpacing(volume.probe_spacing);
-  return DdgiRuntime::CalculateProbeDensity(TransformVector(volume.transform, {spacing.x, 0.0f, 0.0f}),
-                                            TransformVector(volume.transform, {0.0f, spacing.y, 0.0f}),
-                                            TransformVector(volume.transform, {0.0f, 0.0f, spacing.z}));
 }
 
 ResolvedEnvironmentalLighting::IndirectEnvironmentSource ToResolvedSource(
@@ -118,37 +100,10 @@ ResolvedEnvironmentalLighting::LocalReflectionProbe ToResolvedLocalProbe(
   return probe;
 }
 
-ResolvedEnvironmentalLighting::DdgiVolume ToResolvedDdgiVolume(const EnvironmentalLighting::DdgiVolume& source) {
-  ResolvedEnvironmentalLighting::DdgiVolume volume;
-  volume.name = source.name;
-  volume.transform = IsFinite(source.transform) ? source.transform : glm::mat4(1.0f);
-  volume.probe_counts = source.probe_counts;
-  volume.probe_spacing = ClampProbeSpacing(source.probe_spacing);
-  volume.volume_origin = FiniteOr(source.volume_origin, glm::vec3(0.0f));
-  volume.stable_id = source.stable_id;
-  volume.artist_priority = source.artist_priority;
-  volume.movement_type = glm::clamp(source.movement_type, static_cast<int>(DdgiVolumeMovementType::Default),
-                                    static_cast<int>(DdgiVolumeMovementType::Scrolling));
-  volume.emissive_mesh_sampling_mode =
-      glm::clamp(source.emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Inherit),
-                 static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
-  volume.enabled = source.enabled;
-  volume.enable_probe_relocation = source.enable_probe_relocation;
-  volume.enable_probe_classification = source.enable_probe_classification;
-  volume.relocation_distance = glm::clamp(FiniteOr(source.relocation_distance, 0.25f), 0.0f, 10000.0f);
-  return volume;
-}
-
 struct LocalProbeCandidate {
   ResolvedEnvironmentalLighting::LocalReflectionProbe probe;
   size_t source_index = 0;
   float influence_volume = 0.0f;
-};
-
-struct DdgiVolumeCandidate {
-  EnvironmentalLighting::DdgiVolume volume;
-  size_t source_index = 0;
-  float probe_density = 0.0f;
 };
 
 void SortLocalProbeCandidates(std::vector<LocalProbeCandidate>& candidates) {
@@ -161,21 +116,6 @@ void SortLocalProbeCandidates(std::vector<LocalProbeCandidate>& candidates) {
     }
     if (lhs.probe.stable_id != rhs.probe.stable_id) {
       return lhs.probe.stable_id < rhs.probe.stable_id;
-    }
-    return lhs.source_index < rhs.source_index;
-  });
-}
-
-void SortDdgiVolumeCandidates(std::vector<DdgiVolumeCandidate>& candidates) {
-  std::sort(candidates.begin(), candidates.end(), [](const DdgiVolumeCandidate& lhs, const DdgiVolumeCandidate& rhs) {
-    if (lhs.volume.artist_priority != rhs.volume.artist_priority) {
-      return lhs.volume.artist_priority > rhs.volume.artist_priority;
-    }
-    if (lhs.probe_density != rhs.probe_density) {
-      return lhs.probe_density > rhs.probe_density;
-    }
-    if (lhs.volume.stable_id != rhs.volume.stable_id) {
-      return lhs.volume.stable_id < rhs.volume.stable_id;
     }
     return lhs.source_index < rhs.source_index;
   });
@@ -214,40 +154,6 @@ void ResolveLocalProbes(const EnvironmentalLighting& lighting, ResolvedEnvironme
   }
 }
 
-void ResolveDdgiVolumes(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
-  const auto pack = lighting.GetDdgiVolumePack();
-  if (!pack) {
-    return;
-  }
-  std::vector<DdgiVolumeCandidate> candidates;
-  candidates.reserve(pack->volumes.size());
-  const auto max_probe_count = lighting.ddgi_settings.storage.max_probe_count > 0
-                                   ? static_cast<uint32_t>(lighting.ddgi_settings.storage.max_probe_count)
-                                   : 0u;
-  for (size_t index = 0; index < pack->volumes.size(); ++index) {
-    const auto& volume = pack->volumes[index];
-    if (!volume.enabled || !IsFinite(volume.transform) ||
-        !DdgiRuntime::ValidateProbeGrid(volume.probe_counts, max_probe_count)) {
-      continue;
-    }
-    const float probe_density = CalculateDdgiProbeDensity(volume);
-    if (!(probe_density > 0.0f) || !std::isfinite(probe_density)) {
-      continue;
-    }
-    candidates.push_back({volume, index, probe_density});
-  }
-  SortDdgiVolumeCandidates(candidates);
-  if (candidates.size() > ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount) {
-    resolved.truncated_ddgi_volume_count =
-        static_cast<uint32_t>(candidates.size() - ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
-    candidates.resize(ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
-  }
-  resolved.ddgi_volumes.reserve(candidates.size());
-  for (const auto& candidate : candidates) {
-    resolved.ddgi_volumes.push_back(ToResolvedDdgiVolume(candidate.volume));
-  }
-}
-
 void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironmentalLighting& resolved) {
   resolved.indirect_environment_source = ToResolvedSource(lighting.indirect_environment_source);
   resolved.uses_engine_default_indirect_environment_source =
@@ -263,7 +169,7 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
   resolved.indirect_gi_provider = lighting.indirect_gi_provider;
   resolved.gi_probe_settings = lighting.gi_probe_settings;
   resolved.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
-  resolved.ddgi_settings.runtime.enabled = lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi;
+  resolved.ddgi_settings.runtime.enabled = lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi;
   auto dynamic_settings = lighting.dynamic_reflection_probe_settings;
   dynamic_settings.Clamp();
   resolved.dynamic_reflection_probe_settings = {static_cast<uint32_t>(dynamic_settings.faces_per_frame),
@@ -293,43 +199,36 @@ ResolvedEnvironmentalLighting evo_engine::ResolveEnvironmentalLighting(const std
     if (frame && frame->settings.Validate().empty() && (frame->failure.empty() || !frame->anchor.camera_id)) {
       for (uint32_t cascade = 0; cascade < frame->placements.size(); ++cascade) {
         const auto& placement = frame->placements[cascade];
-        auto& volume = resolved.ddgi_volumes.emplace_back();
+        auto& volume = resolved.ddgi_cascades.emplace_back();
         volume.name = "Cascade " + std::to_string(cascade);
         volume.stable_id = cascade + 1;
         volume.probe_center = placement.center;
         volume.probe_counts = frame->settings.ProbeSize();
         volume.probe_spacing = placement.interval;
-        volume.volume_origin = glm::vec3(placement.center) * placement.interval;
-        volume.movement_type = static_cast<int>(DdgiVolumeMovementType::Scrolling);
-        volume.enable_probe_relocation = resolved.ddgi_settings.volume_defaults.enable_probe_relocation;
-        volume.enable_probe_classification = resolved.ddgi_settings.volume_defaults.enable_probe_classification;
-        volume.relocation_distance = resolved.ddgi_settings.volume_defaults.relocation_distance;
       }
     }
   }
   return resolved;
 }
 
-std::vector<DdgiVolumeRuntimeInfo> evo_engine::CollectDdgiVolumeRuntimeInfos(
+std::vector<DdgiCascadeRuntimeInfo> evo_engine::CollectDdgiCascadeRuntimeInfos(
     const ResolvedEnvironmentalLighting& lighting) {
-  std::vector<DdgiVolumeRuntimeInfo> infos;
-  infos.reserve(lighting.ddgi_volumes.size());
-  for (size_t i = 0; i < lighting.ddgi_volumes.size(); ++i) {
-    const auto& volume = lighting.ddgi_volumes[i];
+  std::vector<DdgiCascadeRuntimeInfo> infos;
+  infos.reserve(lighting.ddgi_cascades.size());
+  for (size_t i = 0; i < lighting.ddgi_cascades.size(); ++i) {
+    const auto& volume = lighting.ddgi_cascades[i];
     const auto counts = glm::max(volume.probe_counts, glm::ivec3(1));
     const auto spacing = volume.probe_spacing;
     const auto first_probe_local = (glm::vec3(volume.probe_center) - glm::vec3(counts - 1) * 0.5f) * spacing;
     auto& info = infos.emplace_back();
     info.sorted_index = static_cast<uint32_t>(i);
     info.stable_entity_id = volume.stable_id;
-    info.artist_priority = volume.artist_priority;
     info.probe_counts = counts;
     info.probe_count = DdgiRuntime::GetProbeCount(counts);
-    info.first_probe = glm::vec3(volume.transform * glm::vec4(first_probe_local, 1.0f));
-    info.probe_step_x = glm::vec3(volume.transform * glm::vec4(spacing.x, 0.0f, 0.0f, 0.0f));
-    info.probe_step_y = glm::vec3(volume.transform * glm::vec4(0.0f, spacing.y, 0.0f, 0.0f));
-    info.probe_step_z = glm::vec3(volume.transform * glm::vec4(0.0f, 0.0f, spacing.z, 0.0f));
-    info.probe_density = DdgiRuntime::CalculateProbeDensity(info.probe_step_x, info.probe_step_y, info.probe_step_z);
+    info.first_probe = first_probe_local;
+    info.probe_step_x = glm::vec3(spacing.x, 0.0f, 0.0f);
+    info.probe_step_y = glm::vec3(0.0f, spacing.y, 0.0f);
+    info.probe_step_z = glm::vec3(0.0f, 0.0f, spacing.z);
   }
   return infos;
 }

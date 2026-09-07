@@ -48,7 +48,7 @@ The Rendering profile loads Sponza with:
 
 - a tracked indirect environment source and scene-global reflection probe;
 - five local box-projected reflection probes covering the hallway and galleries;
-- an enabled 10 by 8 by 16 DDGI volume with 1.5-unit spacing, relocation enabled, and classification disabled;
+- shared camera-following GI cascades, with Automatic SDFGI selected by default and Automatic DDGI available with RT;
 - disabled imported Sponza punctual lights plus enabled EvoEngine-authored directional and point lights;
 - the Capoeira character enabled;
 - a ray-tracing main camera and raster editor Scene camera in the standard editor setup.

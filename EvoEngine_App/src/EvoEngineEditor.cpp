@@ -2207,7 +2207,7 @@ void CaptureDemoPreview(
       }
       const auto paused_snapshot = render_layer->GetDdgiInspectorSnapshot();
       ddgi_paused_change_latched =
-          std::any_of(paused_snapshot.volumes.begin(), paused_snapshot.volumes.end(), [](const auto& volume) {
+          std::any_of(paused_snapshot.cascades.begin(), paused_snapshot.cascades.end(), [](const auto& volume) {
             return volume.pending_scene_changes;
           });
       session.pause_updates = false;
@@ -2648,22 +2648,6 @@ int main(const int argc, char** argv) {
         } catch (const std::exception& error) {
           ApplicationContext::Get().Terminate();
           std::cerr << "EVOENGINE_DDGI_EMISSIVE_ERROR " << error.what() << std::endl;
-          std::cout.flush();
-          std::cerr.flush();
-          std::_Exit(1);
-        }
-        try {
-          if (RunDdgiMultiVolumeValidationFromEnvironment(command_line.preview_capture_width,
-                                                          command_line.preview_capture_height)) {
-            ApplicationContext::Get().Terminate();
-            std::cout << "EVOENGINE_DDGI_MULTI_VOLUME_SHUTDOWN_COMPLETE" << std::endl;
-            std::cout.flush();
-            std::cerr.flush();
-            std::_Exit(0);
-          }
-        } catch (const std::exception& error) {
-          ApplicationContext::Get().Terminate();
-          std::cerr << "EVOENGINE_DDGI_MULTI_VOLUME_ERROR " << error.what() << std::endl;
           std::cout.flush();
           std::cerr.flush();
           std::_Exit(1);

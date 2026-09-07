@@ -41,7 +41,7 @@ TEST(EnvironmentalLightingContract, DefaultRuntimeViewEncodesNoAssetFallback) {
   EXPECT_FALSE(resolved.environmental_lighting_asset_assigned);
   EXPECT_TRUE(resolved.uses_engine_default_indirect_environment_source);
   EXPECT_TRUE(resolved.local_reflection_probes.empty());
-  EXPECT_TRUE(resolved.ddgi_volumes.empty());
+  EXPECT_TRUE(resolved.ddgi_cascades.empty());
 }
 
 TEST(EnvironmentalLightingContract, FallbackControlsApplyOnlyToFallbackUses) {
@@ -123,7 +123,7 @@ TEST(EnvironmentalLightingContract, CameraBackgroundFieldsStayOutOfEnvironmental
 
 TEST(EnvironmentalLightingContract, LocalProbeAndDdgiContractsPreserveCurrentRendererCaps) {
   EXPECT_EQ(ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount, 32u);
-  EXPECT_EQ(ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount, 8u);
+  EXPECT_EQ(ResolvedEnvironmentalLighting::kMaxDdgiCascadeCount, 8u);
 
   EnvironmentalLighting::LocalReflectionProbe authored_local_probe;
   EXPECT_FLOAT_EQ(authored_local_probe.blend_distance, 0.05f);
@@ -134,10 +134,9 @@ TEST(EnvironmentalLightingContract, LocalProbeAndDdgiContractsPreserveCurrentRen
   EXPECT_FLOAT_EQ(local_probe.reflection_intensity, 1.0f);
   EXPECT_FLOAT_EQ(local_probe.blend_distance, 0.05f);
 
-  ResolvedEnvironmentalLighting::DdgiVolume ddgi_volume;
-  EXPECT_TRUE(ddgi_volume.enabled);
-  EXPECT_EQ(ddgi_volume.probe_counts, glm::ivec3(10, 6, 16));
-  EXPECT_EQ(ddgi_volume.probe_spacing, glm::vec3(1.5f));
+  ResolvedEnvironmentalLighting::DdgiCascade ddgi_volume;
+  EXPECT_EQ(ddgi_volume.probe_counts, glm::ivec3(0));
+  EXPECT_EQ(ddgi_volume.probe_spacing, glm::vec3(0));
 }
 
 TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTransientAndSceneScoped) {
@@ -155,7 +154,7 @@ TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTrans
   EXPECT_NE(inspector.find("ImGuiHoveredFlags_AllowWhenDisabled"), std::string::npos);
   EXPECT_NE(inspector.find("RenderActiveEnvironmentalLightingGizmoBound"), std::string::npos);
   EXPECT_NE(inspector.find("EnvironmentalLightingGizmoTargetType::LocalReflectionProbe"), std::string::npos);
-  EXPECT_NE(inspector.find("EnvironmentalLightingGizmoTargetType::DdgiVolume"), std::string::npos);
+  EXPECT_EQ(inspector.find("EnvironmentalLightingGizmoTargetType::DdgiVolume"), std::string::npos);
   EXPECT_NE(inspector.find("Position##Authoring"), std::string::npos);
   EXPECT_NE(inspector.find("Rotation##Authoring"), std::string::npos);
   EXPECT_NE(inspector.find("Scale##Authoring"), std::string::npos);
@@ -167,7 +166,7 @@ TEST(EnvironmentalLightingContract, ProbeAuthoringGizmoIsInspectorActivatedTrans
   EXPECT_NE(editor.find("TryConvertAuthoringGizmoTransform(gizmo_transform, pivot, normalized)"), std::string::npos);
   EXPECT_NE(editor.find("active_lighting != lighting"), std::string::npos);
   EXPECT_NE(editor.find("reflection_pack->SetUnsaved()"), std::string::npos);
-  EXPECT_NE(editor.find("ddgi_pack->SetUnsaved()"), std::string::npos);
+  EXPECT_EQ(editor.find("ddgi_pack->SetUnsaved()"), std::string::npos);
   EXPECT_NE(editor.find("entity_selection_.PruneInvalid()"), std::string::npos);
   EXPECT_NE(editor.find("else if (selected_entity.GetIndex() != 0)"), std::string::npos);
   EXPECT_NE(editor.find("suppress_scene_camera_selection_ = true"), std::string::npos);
@@ -230,7 +229,7 @@ TEST(EnvironmentalLightingContract, InspectorSeparatesAuthoringIntoOwnershipTabs
 
   const auto tab_bar = inspector.find("BeginTabBar(\"EnvironmentalLightingInspectionTabs\")");
   const auto general = inspector.find("BeginTabItem(\"General\")");
-  const auto ddgi = inspector.find("BeginTabItem(\"DDGI\")");
+  const auto ddgi = inspector.find("BeginTabItem(\"GI\")");
   const auto reflection_probes = inspector.find("BeginTabItem(\"Reflection Probes\")");
   const auto tab_bar_end = inspector.find("EndTabBar()", reflection_probes);
   ASSERT_NE(tab_bar, std::string::npos);
@@ -243,14 +242,18 @@ TEST(EnvironmentalLightingContract, InspectorSeparatesAuthoringIntoOwnershipTabs
   EXPECT_LT(ddgi, reflection_probes);
   EXPECT_LT(reflection_probes, tab_bar_end);
   EXPECT_NE(inspector.find("reflection_pack->RepairStableIds()"), std::string::npos);
-  EXPECT_NE(inspector.find("ddgi_pack->RepairStableIds()"), std::string::npos);
+  EXPECT_EQ(inspector.find("ddgi_pack->RepairStableIds()"), std::string::npos);
 
   const auto environment_source = inspector.find("InspectEnvironmentalLightingSource(");
   const auto environment_intensity = inspector.find("Environment lighting intensity");
   const auto diffuse_intensity = inspector.find("Diffuse fallback intensity");
   const auto specular_intensity = inspector.find("Specular fallback intensity");
-  const auto ddgi_settings = inspector.find("TreeNodeEx(\"Settings\"");
-  const auto ddgi_volumes = inspector.find("TreeNodeEx(\"Volumes\"");
+  const auto ddgi_settings = inspector.find("SeparatorText(\"Probe settings\"");
+  const auto ddgi_volumes = inspector.find("SeparatorText(\"Indirect GI provider\"");
+  EXPECT_LT(ddgi_settings, ddgi_volumes);
+  EXPECT_LT(ddgi_volumes, inspector.find("SeparatorText(\"Automatic DDGI settings\""));
+  EXPECT_EQ(inspector.find("BeginTabItem(\"Automatic SDFGI\")"), std::string::npos);
+  EXPECT_EQ(inspector.find("BeginTabItem(\"DDGI\")"), std::string::npos);
   const auto reflection_master = inspector.find("Enable local probe reflections");
   const auto bake_background = inspector.find("InspectCameraBackground(");
   const auto add_reflection_probe = inspector.find("Add Local Reflection Probe");

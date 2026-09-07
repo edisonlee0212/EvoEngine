@@ -153,7 +153,7 @@ The installed-editor validation scripts write their captures, logs, and reports 
 | Area | Command |
 | --- | --- |
 | DDGI application smoke | `python Scripts\run_ddgi_app_validation.py --config RelWithDebInfo` |
-| Multi-volume selection and lifecycle | `python Scripts\run_ddgi_multivolume_validation.py --config RelWithDebInfo --width 1920 --height 1080` |
+| Automatic GI cascades and provider edits | `python Scripts/run_automatic_gi_validation.py --provider ddgi --resources Resources/.generated/demos` (installed RT-enabled 1440p Sponza); use `--provider sdfgi` for RT-disabled SDFGI |
 | Emissive sampling | `python Scripts\run_ddgi_emissive_validation.py --config RelWithDebInfo --width 1920 --height 1080` |
 | Environment controls | `python Scripts\run_environment_lighting_validation.py --config RelWithDebInfo --output-dir out\environment-lighting-validation` |
 | Reflection probes | `python Scripts\run_reflection_probe_validation.py --config RelWithDebInfo --output-dir out\reflection-probe-validation` |
