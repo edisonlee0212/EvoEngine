@@ -377,7 +377,7 @@ void Lighting::Initialize() {
   {
     VkDescriptorImageInfo image_info{};
     auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>();
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 
     image_info.imageView = directional_light_shadow_map_view_->GetVkImageView();
     image_info.sampler = directional_shadow_map_sampler_->GetVkSampler();
@@ -400,7 +400,7 @@ VkRenderingAttachmentInfo Lighting::GetDirectionalLightDepthAttachmentInfo(const
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
@@ -414,7 +414,7 @@ VkRenderingAttachmentInfo Lighting::GetPointLightDepthAttachmentInfo(const VkAtt
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
@@ -428,7 +428,7 @@ VkRenderingAttachmentInfo Lighting::GetLayeredDirectionalLightDepthAttachmentInf
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
   attachment.clearValue.depthStencil.depth = 1.0f;
@@ -442,7 +442,7 @@ VkRenderingAttachmentInfo Lighting::GetLayeredPointLightDepthAttachmentInfo(cons
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
@@ -456,7 +456,7 @@ VkRenderingAttachmentInfo Lighting::GetSpotLightDepthAttachmentInfo(const VkAtta
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 

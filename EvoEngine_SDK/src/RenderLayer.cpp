@@ -592,7 +592,18 @@ std::shared_ptr<Image> CreateDdgiAtlasImage(const DdgiAtlasLayout& layout, const
   } else {
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
   }
-  return std::make_shared<Image>(image_info);
+  auto image = std::make_shared<Image>(image_info);
+  // Descriptors can expose this atlas before its deferred prepare pass is submitted.
+  Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+    image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+    VkClearColorValue clear{};
+    if (format == VK_FORMAT_R16G16_SFLOAT)
+      clear.float32[0] = 1.0f;
+    const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    Platform::ClearColorImage(command, *image, clear, 1, &range);
+    image->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+  });
+  return image;
 }
 
 std::shared_ptr<Sampler> CreateDdgiAtlasSampler() {
@@ -4280,7 +4291,7 @@ bool RenderLayer::PrepareReflectionProbeCaptureResources(const VkFormat raw_form
         std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo descriptor_image_info{};
     descriptor_image_info.imageView = reflection_probe_capture_raw_cubemap_->GetImageView()->GetVkImageView();
-    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     descriptor_image_info.sampler = reflection_probe_capture_raw_cubemap_->GetSampler()->GetVkSampler();
     reflection_probe_capture_filter_descriptor_set_->UpdateImageDescriptorBinding(0, descriptor_image_info);
   }
@@ -4313,7 +4324,7 @@ bool RenderLayer::PrepareDynamicReflectionProbeCaptureResources(const VkFormat r
     second_slot.descriptor_set = std::make_shared<DescriptorSet>(GetRenderTexturePresentDescriptorSetLayout());
     VkDescriptorImageInfo descriptor_image_info{};
     descriptor_image_info.imageView = second_slot.cubemap->GetImageView()->GetVkImageView();
-    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     descriptor_image_info.sampler = second_slot.cubemap->GetSampler()->GetVkSampler();
     second_slot.descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
   }
@@ -4629,8 +4640,7 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
       const auto capture_timestamp = Platform::BeginGpuTimestampScope(
           command_buffer, {"ReflectionProbeFaceCapture", "Reflection Probe Face Capture", "Reflection Probes",
                            GpuTimestampQueue::Graphics, requests[request_index].stable_id, 0, false});
-      reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+      reflection_probe_capture_raw_cubemap_->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       for (uint32_t face = 0; face < 6u; ++face) {
         const auto face_index = request_index * 6u + face;
         ReflectionProbeCaptureGraphContext capture_context{
@@ -4649,14 +4659,14 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
         reflection_probe_capture_graph_context_ = &capture_context;
         reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
         reflection_probe_capture_graph_context_ = nullptr;
-        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         VkImageCopy copy{};
         copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, face, 1};
         copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(),
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                       reflection_probe_capture_raw_cubemap_->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, 1,
+                       &copy);
       }
       reflection_probe_capture_raw_cubemap_->GetImage()->GenerateMipmaps(command_buffer);
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
@@ -4669,14 +4679,14 @@ void RenderLayer::RecordPreparedReflectionProbeBake(const std::shared_ptr<Render
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
           reflection_probe_capture_filter_descriptor_set_, reflection_probe_capture_prefilter_pipeline_);
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, outputs[request_index]->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
-      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-          command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                     VK_IMAGE_LAYOUT_GENERAL, outputs[request_index]->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                     static_cast<uint32_t>(copies.size()), copies.data());
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      outputs[request_index]->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
     }
     Platform::EndGpuTimestampScope(command_buffer, total_timestamp);
@@ -5202,7 +5212,7 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
           command_buffer, {"DynamicReflectionProbeFaceCapture", "Dynamic Reflection Probe Face Capture",
                            "Reflection Probes", GpuTimestampQueue::Graphics, job.stable_id, job.first_face, false});
       if (job.first_face == 0u) {
-        raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        raw_cubemap->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       }
       for (uint32_t face_offset = 0; face_offset < job.face_count; ++face_offset) {
         const auto camera_offset = job.first_camera + face_offset;
@@ -5222,13 +5232,13 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
         reflection_probe_capture_graph_context_ = &capture_context;
         reflection_probe_capture_render_graph_.Execute(reflection_probe_capture_render_graph_plan_, resources);
         reflection_probe_capture_graph_context_ = nullptr;
-        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        source_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         VkImageCopy copy{};
         copy.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         copy.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, job.first_face + face_offset, 1};
         copy.extent = {GlobalReflectionProbe::kResolution, GlobalReflectionProbe::kResolution, 1};
-        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+        vkCmdCopyImage(command_buffer, source_image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                       raw_cubemap->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, 1, &copy);
       }
       Platform::EndGpuTimestampScope(command_buffer, capture_timestamp);
       if (job.first_face + job.face_count == 6u) {
@@ -5251,8 +5261,8 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
           reflection_probe_capture_filter_depth_image_, reflection_probe_capture_filter_depth_view_,
           slot.descriptor_set, reflection_probe_capture_prefilter_pipeline_, job.first_face, job.face_count);
       reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
-                                                                                 VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-      output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
+      output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       std::vector<VkImageCopy> copies;
       copies.reserve(static_cast<size_t>(GlobalReflectionProbe::kMipLevels) * job.face_count);
       for (uint32_t face = job.first_face; face < job.first_face + job.face_count; ++face) {
@@ -5266,12 +5276,12 @@ void RenderLayer::RecordPreparedDynamicReflectionProbeUpdate(
         }
       }
       vkCmdCopyImage(command_buffer, reflection_probe_capture_filtered_cubemap_->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, output->GetImage()->GetVkImage(),
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, static_cast<uint32_t>(copies.size()), copies.data());
-      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(
-          command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+                     VK_IMAGE_LAYOUT_GENERAL, output->GetImage()->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL,
+                     static_cast<uint32_t>(copies.size()), copies.data());
+      reflection_probe_capture_filtered_cubemap_->GetImage()->TransitImageLayout(command_buffer,
+                                                                                 VK_IMAGE_LAYOUT_GENERAL);
       if (job.first_face + job.face_count == 6u) {
-        output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        output->GetImage()->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       }
       Platform::EndGpuTimestampScope(command_buffer, prefilter_timestamp);
     }
@@ -6737,7 +6747,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
     render_area.offset = {0, 0};
     render_area.extent.width = lighting_->point_light_shadow_map_->GetExtent().width;
     render_area.extent.height = lighting_->point_light_shadow_map_->GetExtent().height;
-    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 
     for (int face = 0; face < 6; face++) {
       VkRenderingInfo render_info{};
@@ -6834,7 +6844,7 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
     render_area.extent.height = lighting_->spot_light_shadow_map_->GetExtent().height;
 
 #pragma endregion
-    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkRenderingInfo render_info{};
     const auto depth_attachment =
         lighting_->GetSpotLightDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
@@ -6919,8 +6929,8 @@ void RenderLayer::PreparePointAndSpotLightShadowMap(const bool immediate, const 
         Platform::EndGpuTimestampScope(vk_command_buffer, spot_shadow_timestamp);
       }
     });
-    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    lighting_->point_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    lighting_->spot_light_shadow_map_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 
@@ -7198,8 +7208,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
   environmental_brdf_pipeline->Initialize();
 
   Platform::ImmediateSubmit([&](VkCommandBuffer vk_command_buffer) {
-    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -7225,7 +7234,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       VkRenderingAttachmentInfo attachment{};
       attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -7253,8 +7262,7 @@ void RenderLayer::PrepareEnvironmentalBrdfLut() {
       });
 #pragma endregion
     }
-    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer,
-                                                                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    environmental_brdf_lut_texture_storage.image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const GlobalTransform& camera_global_transform,
@@ -7804,7 +7812,7 @@ void RenderLayer::RenderToCamera(const std::shared_ptr<Scene>& scene, const Glob
       if (binding && binding->image) {
         const auto image_view = CreateGraphImageMipView(binding->image, 0);
         VkDescriptorImageInfo image_info{};
-        image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
         image_info.imageView = image_view->GetVkImageView();
         image_info.sampler = post_processing_renderer_resources_->ambient_occlusion.sampler->GetVkSampler();
         raster_lighting_texture_descriptor_set->UpdateImageDescriptorBinding(kRasterLightingAmbientOcclusionBinding,

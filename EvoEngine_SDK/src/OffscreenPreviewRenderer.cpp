@@ -360,18 +360,18 @@ std::shared_ptr<Texture2D> OffscreenPreviewRenderer::CopyColorTexture(const std:
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
     const auto source_layout = source->GetLayout();
-    source->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    source->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkImageCopy copy_region{};
     copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     copy_region.srcSubresource.layerCount = 1;
     copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     copy_region.dstSubresource.layerCount = 1;
     copy_region.extent = {resolution.x, resolution.y, 1};
-    vkCmdCopyImage(command_buffer, source->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, target->GetVkImage(),
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+    vkCmdCopyImage(command_buffer, source->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, target->GetVkImage(),
+                   VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
     source->TransitImageLayout(command_buffer, source_layout);
-    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    target->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
   texture->red_channel = true;
   texture->green_channel = true;

@@ -832,7 +832,7 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
   region.imageSubresource.layerCount = 1;
   region.imageOffset = {0, 0, 0};
   region.imageExtent = extent_;
-  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 }
 
 void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuffer& src_buffer,
@@ -840,7 +840,7 @@ void Image::CopyFromBuffer(const VkCommandBuffer vk_command_buffer, const VkBuff
   if (regions.empty()) {
     return;
   }
-  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+  vkCmdCopyBufferToImage(vk_command_buffer, src_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL,
                          static_cast<uint32_t>(regions.size()), regions.data());
 }
 
@@ -870,8 +870,8 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
 
   for (uint32_t i = 1; i < mip_levels_; i++) {
     barrier.subresourceRange.baseMipLevel = i - 1;
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
 
@@ -892,11 +892,11 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
     blit.dstSubresource.baseArrayLayer = 0;
     blit.dstSubresource.layerCount = array_layers_;
 
-    vkCmdBlitImage(vk_command_buffer, vk_image_, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk_image_,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR);
+    vkCmdBlitImage(vk_command_buffer, vk_image_, VK_IMAGE_LAYOUT_GENERAL, vk_image_, VK_IMAGE_LAYOUT_GENERAL, 1, &blit,
+                   VK_FILTER_LINEAR);
 
-    barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
@@ -909,14 +909,14 @@ void Image::GenerateMipmaps(const VkCommandBuffer vk_command_buffer) {
       mip_height /= 2;
   }
   barrier.subresourceRange.baseMipLevel = mip_levels_ - 1;
-  barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-  barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
   barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
   barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 
   vkCmdPipelineBarrier(vk_command_buffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0,
                        nullptr, 0, nullptr, 1, &barrier);
-  layout_ = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  layout_ = VK_IMAGE_LAYOUT_GENERAL;
 }
 
 VkImage Image::GetVkImage() const {
@@ -952,7 +952,7 @@ Image::~Image() {
 }
 
 void Image::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkImageLayout new_layout) {
-  // if (newLayout == layout_) return;
+  // Equal layouts still need a memory dependency between successive accesses.
   Platform::TransitImageLayout(vk_command_buffer, vk_image_, format_, array_layers_, layout_, new_layout, mip_levels_);
   layout_ = new_layout;
 }
@@ -1390,12 +1390,12 @@ void Buffer::CopyFromImageOnGpuThread(const std::shared_ptr<GpuState>& state, Im
   Platform::GetGpuService().SubmitImmediate([&](const VkCommandBuffer vk_command_buffer) {
     const auto tracked_layout = src_image.GetLayout();
     const auto prev_layout = tracked_layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_GENERAL : tracked_layout;
-    src_image.TransitImageLayout(vk_command_buffer, prev_layout, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    src_image.TransitImageLayout(vk_command_buffer, prev_layout, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED,
+                                 VK_QUEUE_FAMILY_IGNORED, true);
     vkCmdCopyImageToBuffer(vk_command_buffer, src_image.GetVkImage(), src_image.GetLayout(), state->vk_buffer, 1,
                            &image_copy_info);
-    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, prev_layout,
-                                 VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+    src_image.TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL, prev_layout, VK_QUEUE_FAMILY_IGNORED,
+                                 VK_QUEUE_FAMILY_IGNORED, true);
   });
 }
 

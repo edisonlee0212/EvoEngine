@@ -981,9 +981,9 @@ void Platform::TransitImageLayout(VkCommandBuffer vk_command_buffer, const VkIma
 
   SelectStageFlagsAccessMask(old_layout, barrier.subresourceRange.aspectMask, barrier.srcAccessMask, source_stage);
   SelectStageFlagsAccessMask(new_layout, barrier.subresourceRange.aspectMask, barrier.dstAccessMask, destination_stage);
-  if (const auto& swapchain = GetSwapchain(); swapchain && target_image == swapchain->GetVkImage() &&
-                                              old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
-                                              new_layout == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL) {
+  if (const auto& swapchain = GetSwapchain();
+      swapchain && target_image == swapchain->GetVkImage() && old_layout == VK_IMAGE_LAYOUT_UNDEFINED &&
+      (new_layout == VK_IMAGE_LAYOUT_GENERAL || new_layout == VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL)) {
     source_stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
   }
   if (src_queue_family_index != VK_QUEUE_FAMILY_IGNORED || dst_queue_family_index != VK_QUEUE_FAMILY_IGNORED) {

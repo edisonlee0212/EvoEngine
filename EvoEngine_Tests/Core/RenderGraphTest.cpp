@@ -2566,3 +2566,39 @@ TEST(RenderGraph, ImageMemoryBarriersCoverRayTracingAndComputeShaderAccess) {
   EXPECT_NE(ray_camera.find("VK_ACCESS_2_MEMORY_WRITE_BIT"), std::string::npos);
   EXPECT_EQ(ray_camera.find("Platform::EverythingBarrier"), std::string::npos);
 }
+
+TEST(RenderGraph, OrdinaryImagesUseGeneralWithoutRemovingAccessDependencies) {
+  for (const auto* file :
+       {"Camera.cpp", "RenderTexture.cpp", "ScreenSpaceReflection.cpp", "TextureStorage.cpp", "RenderLayer.cpp",
+        "Cubemap.cpp", "WindowLayer.cpp", "GraphicsResources.cpp", "RenderPasses/RenderPassUtilities.cpp"}) {
+    const auto source = ReadTextFile(SdkPath(std::string("src/") + file));
+    ASSERT_FALSE(source.empty());
+    for (const auto* layout : {"VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL", "VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL",
+                               "VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL", "VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL"})
+      EXPECT_EQ(source.find(layout), std::string::npos) << file << ": " << layout;
+  }
+  const auto utilities = ReadTextFile(SdkPath("src/RenderPasses/RenderPassUtilities.cpp"));
+  EXPECT_NE(utilities.find("return VK_IMAGE_LAYOUT_PRESENT_SRC_KHR"), std::string::npos);
+  EXPECT_NE(utilities.find("return VK_IMAGE_LAYOUT_UNDEFINED"), std::string::npos);
+  EXPECT_NE(utilities.find("image_barrier.oldLayout = target_layout"), std::string::npos);
+  EXPECT_NE(utilities.find("image_barrier.newLayout = target_layout"), std::string::npos);
+  EXPECT_NE(utilities.find("ResourceAccess(barrier.previous_state, barrier.previous_usage)"), std::string::npos);
+  EXPECT_NE(utilities.find("ResourceAccess(barrier.next_state, barrier.next_usage)"), std::string::npos);
+  EXPECT_NE(utilities.find("image->GetFormat() == Platform::Constants::render_texture_depth"), std::string::npos);
+}
+
+TEST(RenderGraph, DdgiAtlasInitializationPrecedesDescriptorPublication) {
+  const auto source = ReadTextFile(SdkPath("src/RenderLayer.cpp"));
+  const auto begin = source.find("std::shared_ptr<Image> CreateDdgiAtlasImage(");
+  const auto end = source.find("std::shared_ptr<Sampler> CreateDdgiAtlasSampler(", begin);
+  ASSERT_NE(begin, std::string::npos);
+  ASSERT_NE(end, std::string::npos);
+  const auto create = source.substr(begin, end - begin);
+  const auto submit = create.find("Platform::ImmediateSubmit(");
+  ASSERT_NE(submit, std::string::npos);
+  EXPECT_LT(submit, create.find("return image;"));
+  EXPECT_NE(create.find("VK_IMAGE_LAYOUT_GENERAL"), std::string::npos);
+  EXPECT_NE(create.find("VK_FORMAT_R16G16_SFLOAT"), std::string::npos);
+  EXPECT_NE(create.find("clear.float32[0] = 1.0f"), std::string::npos);
+  EXPECT_NE(create.find("Platform::ClearColorImage(command, *image, clear"), std::string::npos);
+}

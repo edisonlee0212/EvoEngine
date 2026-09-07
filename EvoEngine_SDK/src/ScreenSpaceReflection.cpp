@@ -167,7 +167,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   const auto resolution = target_camera->GetSize();
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -187,7 +187,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
 
   if (blur) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
                                                                              VK_IMAGE_LAYOUT_GENERAL);
@@ -205,10 +205,9 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
 
   if (temporal_enabled) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-      target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       current_reflection_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
-      context.motion_vectors_image_view->GetImage()->TransitImageLayout(vk_command_buffer,
-                                                                        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      context.motion_vectors_image_view->GetImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       for (const auto& texture : temporal_resources.reflection_history)
         texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
       for (const auto& texture : temporal_resources.geometry_history)
@@ -233,7 +232,7 @@ void ScreenSpaceReflection::Process(const PostProcessingStack& post_processing_s
   }
 
   Platform::RecordCommandsMainQueue([&](const VkCommandBuffer vk_command_buffer) {
-    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    target_camera->TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     result_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);

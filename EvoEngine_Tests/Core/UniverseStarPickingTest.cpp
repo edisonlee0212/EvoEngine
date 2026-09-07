@@ -391,7 +391,7 @@ TEST(UniverseStarPicking, RealGpuReductionMatchesReferenceAcrossCountsCamerasAnd
     const auto slot = static_cast<uint32_t>(frame % 2);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
       const auto target = camera->GetRenderTexture();
-      target->GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      target->GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       auto depth = target->GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
       depth.clearValue.depthStencil.depth = clear_depth;
       VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};

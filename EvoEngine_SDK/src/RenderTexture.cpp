@@ -71,7 +71,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
     color_image_ = std::make_shared<Image>(image_info);
     Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
       if (mip_levels > 1) {
-        color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
         color_image_->GenerateMipmaps(vk_command_buffer);
       }
       color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -206,7 +206,7 @@ void RenderTexture::Initialize(const RenderTextureCreateInfo& render_texture_cre
 void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
   if (depth_) {
     const auto prev_depth_layout = depth_image_->GetLayout();
-    depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkImageSubresourceRange depth_subresource_range{};
     depth_subresource_range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     depth_subresource_range.baseMipLevel = 0;
@@ -221,7 +221,7 @@ void RenderTexture::Clear(VkCommandBuffer vk_command_buffer) const {
   }
   if (color_) {
     const auto prev_color_layout = color_image_->GetLayout();
-    color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkImageSubresourceRange color_subresource_range{};
     color_subresource_range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     color_subresource_range.baseMipLevel = 0;
@@ -260,7 +260,7 @@ void RenderTexture::AppendColorAttachmentInfos(std::vector<VkRenderingAttachment
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
@@ -276,7 +276,7 @@ VkRenderingAttachmentInfo RenderTexture::GetDepthAttachmentInfo(const VkAttachme
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 
@@ -339,7 +339,7 @@ void RenderTexture::Render(const VkCommandBuffer vk_command_buffer, const VkAtta
                            const VkAttachmentStoreOp store_op, const std::function<void()>& func,
                            const uint32_t mip_level) const {
   if (depth_)
-    depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    depth_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   if (color_)
     color_image_->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   VkRect2D render_area;

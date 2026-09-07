@@ -485,7 +485,7 @@ void Camera::UpdateGBuffer() {
   CreateGBufferAttachment(render_texture_->GetExtent(), Platform::Constants::g_buffer_utility, g_buffer_utility_,
                           g_buffer_utility_view_);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    TransitGBufferImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
   EditorLayer::UpdateTextureId(g_buffer_base_color_ao_im_texture_id_, g_buffer_sampler_->GetVkSampler(),
@@ -499,7 +499,7 @@ void Camera::UpdateGBuffer() {
                                g_buffer_emissive_view_->GetVkImageView(), g_buffer_emissive_->GetLayout());
   {
     VkDescriptorImageInfo image_info{};
-    image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
     image_info.imageView = render_texture_->GetDepthImageView()->GetVkImageView();
     image_info.sampler = render_texture_->GetDepthSampler()->GetVkSampler();
     g_buffer_descriptor_set_->UpdateImageDescriptorBinding(17, image_info);
@@ -645,7 +645,7 @@ void Camera::AppendGBufferColorAttachmentInfos(std::vector<VkRenderingAttachment
   VkRenderingAttachmentInfo attachment{};
   attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-  attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+  attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   attachment.loadOp = load_op;
   attachment.storeOp = store_op;
 

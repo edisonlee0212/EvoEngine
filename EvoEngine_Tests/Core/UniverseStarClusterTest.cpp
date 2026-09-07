@@ -920,8 +920,8 @@ Output main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
     EXPECT_TRUE(pipeline.states.depth_test);
     EXPECT_EQ(depth_write, pipeline.states.depth_write);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       std::vector<VkRenderingAttachmentInfo> colors;
       target.AppendColorAttachmentInfos(colors, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
       auto depth = target.GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
@@ -938,7 +938,7 @@ Output main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
       pipeline.PushConstant(command, 0, near_first);
       Platform::Draw(command, 6, 2);
       Platform::EndRendering(command);
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
     });
     std::vector<glm::vec4> pixels;
     target.GetRgbaChannelData(pixels);
@@ -1037,8 +1037,8 @@ TEST(UniverseStarCluster, MinimumPixelStarsFadeWithDistanceAndStayBelowBloom) {
     const auto height = static_cast<uint32_t>(push.viewport_size.y);
     ConfigureStarRenderStates(pipeline, {0, 0, width, height}, depth_write);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       std::vector<VkRenderingAttachmentInfo> colors;
       target.AppendColorAttachmentInfos(colors, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
       auto depth = target.GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
@@ -1057,7 +1057,7 @@ TEST(UniverseStarCluster, MinimumPixelStarsFadeWithDistanceAndStayBelowBloom) {
       pipeline.PushConstant(command, 0, push);
       Platform::Draw(command, 6, 1);
       Platform::EndRendering(command);
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
     });
     std::vector<glm::vec4> pixels;
     target.GetRgbaChannelData(pixels);
@@ -1209,8 +1209,8 @@ TEST(UniverseStarCluster, HoverRingUsesDisplayPixelsCurrentGpuIndexAndOpaqueDept
     blend.alphaBlendOp = VK_BLEND_OP_ADD;
     EXPECT_FALSE(pipeline.states.depth_write);
     Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
+      target.GetDepthImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
       std::vector<VkRenderingAttachmentInfo> colors;
       target.AppendColorAttachmentInfos(colors, VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
       auto depth = target.GetDepthAttachmentInfo(VK_ATTACHMENT_LOAD_OP_CLEAR, VK_ATTACHMENT_STORE_OP_STORE);
@@ -1229,7 +1229,7 @@ TEST(UniverseStarCluster, HoverRingUsesDisplayPixelsCurrentGpuIndexAndOpaqueDept
       pipeline.PushConstant(command, 0, StarHoverPushConstant{0, brightness, {65, 65}, display_size, 3, 1});
       Platform::Draw(command, 6, 1);
       Platform::EndRendering(command);
-      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+      target.GetColorImage()->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL);
     });
     std::vector<glm::vec4> pixels;
     target.GetRgbaChannelData(pixels);

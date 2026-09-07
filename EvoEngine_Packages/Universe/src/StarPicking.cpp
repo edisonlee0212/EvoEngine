@@ -177,12 +177,11 @@ void StarPicker::Record(const VkCommandBuffer command, const uint32_t slot_index
   for (auto& descriptor : slot.descriptors) {
     descriptor->UpdateBufferDescriptorBinding(0, stars);
     descriptor->UpdateImageDescriptorBinding(
-        4, {target->GetDepthSampler()->GetVkSampler(), slot.depth_view->GetVkImageView(),
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+        4, {target->GetDepthSampler()->GetVkSampler(), slot.depth_view->GetVkImageView(), VK_IMAGE_LAYOUT_GENERAL});
   }
   // ForwardExternal's render graph owns ATTACHMENT_OPTIMAL; restore it before drawing stars.
-  depth->TransitImageLayout(command, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+  depth->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED,
+                            VK_QUEUE_FAMILY_IGNORED, true);
   Platform::BufferMemoryBarrier(command, *stars, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT,
                                 VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
   StarPickPushConstant constants;
@@ -232,8 +231,8 @@ void StarPicker::Record(const VkCommandBuffer command, const uint32_t slot_index
   Platform::BufferMemoryBarrier(command, *slot.staging, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                 VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
                                 VK_ACCESS_2_HOST_READ_BIT);
-  depth->TransitImageLayout(command, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL,
-                            VK_QUEUE_FAMILY_IGNORED, VK_QUEUE_FAMILY_IGNORED, true);
+  depth->TransitImageLayout(command, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_QUEUE_FAMILY_IGNORED,
+                            VK_QUEUE_FAMILY_IGNORED, true);
   slot.request = std::move(request);
   slot.pending = true;
 }

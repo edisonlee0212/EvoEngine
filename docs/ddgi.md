@@ -206,8 +206,9 @@ with RT pipeline, ray query, BLAS and TLAS disabled.
 
 The fixed-layout delivery passed 174 focused tests. Two fresh installed Sponza runs retained visible DDGI at
 240 and 600 display-loop iterations. These are not completed-update counts: the readiness counter saturates
-at the selected history length. Vulkan validation still reports `VUID-vkCmdDraw-None-09600` depth/color image-layout
-errors. This remains unresolved; successful captures do not establish validation-clean rendering.
+at the selected history length. That delivery still reported `VUID-vkCmdDraw-None-09600` depth/color image-layout
+errors. The subsequent GENERAL-layout policy and allocation-time atlas initialization removed these errors in a
+fresh installed RT-enabled 600-loop Sponza validation run; see [image layout policy](rendering.md#image-layouts-and-synchronization).
 Gallery/Cornell/EcoSysLab appearance acceptance remains manual.
 
 The post-investigation cleanup passed 186 focused tests and the repository format check, and retained visible DDGI

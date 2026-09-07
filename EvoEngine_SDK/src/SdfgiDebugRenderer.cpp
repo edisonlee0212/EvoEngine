@@ -257,8 +257,7 @@ void evo_engine::AddSdfgiCameraDebug(RenderGraph& graph, RenderGraphResourceRegi
   frame->descriptor->UpdateBufferDescriptorBinding(8, frame->uniform);
   image(9, frame->target->GetColorImageView());
   frame->descriptor->UpdateImageDescriptorBinding(
-      10,
-      {VK_NULL_HANDLE, frame->target->GetDepthImageView()->GetVkImageView(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL});
+      10, {VK_NULL_HANDLE, frame->target->GetDepthImageView()->GetVkImageView(), VK_IMAGE_LAYOUT_GENERAL});
   frame->descriptor->UpdateBufferDescriptorBinding(11, frame->box_buffer);
   frame->descriptor->UpdateBufferDescriptorBinding(12, resources->buffers.at("ProbePlacement").buffer);
   resources->Import(graph, registry);

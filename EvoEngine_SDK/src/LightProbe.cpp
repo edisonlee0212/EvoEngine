@@ -14,7 +14,7 @@ void LightProbe::Initialize(const uint32_t resolution) {
   cubemap_ = AssetManager::CreateTemporaryAsset<Cubemap>();
   cubemap_->Initialize(resolution);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 
@@ -50,7 +50,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
 
   const auto depth_image = std::make_shared<Image>(depth_image_info);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    depth_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 
   VkImageViewCreateInfo depth_view_info{};
@@ -108,7 +108,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
 
   cubemap_->BeginGpuWrite();
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 #pragma region Viewport and scissor
     VkRect2D render_area;
     render_area.offset = {0, 0};
@@ -135,7 +135,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
       VkRenderingAttachmentInfo attachment{};
       attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -145,7 +145,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
       VkRenderingAttachmentInfo depth_attachment{};
       depth_attachment.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO;
 
-      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 
@@ -180,7 +180,7 @@ void LightProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cub
 
       Platform::EverythingBarrier(vk_command_buffer);
     }
-    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    cubemap_->RefStorage().image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
   cubemap_->MarkGpuContentValid();
 }

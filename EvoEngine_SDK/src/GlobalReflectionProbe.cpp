@@ -231,8 +231,8 @@ void GlobalReflectionProbe::RecordPrefilterFaces(
       first_face + face_count > 6u) {
     throw std::runtime_error("Global reflection probe prefilter resources are unavailable.");
   }
-  filtered->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
-  depth_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+  filtered->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+  depth_image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   GeometryStorage::BindVertices(command_buffer);
   const glm::mat4 projection = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 10.0f);
   const glm::mat4 views[] = {glm::lookAt(glm::vec3(0), glm::vec3(1, 0, 0), glm::vec3(0, -1, 0)),
@@ -258,13 +258,13 @@ void GlobalReflectionProbe::RecordPrefilterFaces(
       }
       VkRenderingAttachmentInfo color_attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
       color_attachment.imageView = filtered_mip_views[face][mip]->GetVkImageView();
-      color_attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      color_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       color_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       color_attachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
       color_attachment.clearValue = {{0, 0, 0, 1}};
       VkRenderingAttachmentInfo depth_attachment{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
       depth_attachment.imageView = depth_view->GetVkImageView();
-      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      depth_attachment.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
       depth_attachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
       depth_attachment.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
       depth_attachment.clearValue.depthStencil = {1.0f, 0};
@@ -290,8 +290,8 @@ void GlobalReflectionProbe::RecordPrefilterFaces(
       depth_reuse.dstStageMask = depth_reuse.srcStageMask;
       depth_reuse.dstAccessMask =
           VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-      depth_reuse.oldLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
-      depth_reuse.newLayout = VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL;
+      depth_reuse.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      depth_reuse.newLayout = VK_IMAGE_LAYOUT_GENERAL;
       depth_reuse.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       depth_reuse.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
       depth_reuse.image = depth_image->GetVkImage();
@@ -302,7 +302,7 @@ void GlobalReflectionProbe::RecordPrefilterFaces(
       vkCmdPipelineBarrier2(command_buffer, &dependency);
     }
   }
-  filtered->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  filtered->RefStorage().image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
 }
 
 bool GlobalReflectionProbe::ConstructFromCubemap(const std::shared_ptr<Cubemap>& target_cubemap) {

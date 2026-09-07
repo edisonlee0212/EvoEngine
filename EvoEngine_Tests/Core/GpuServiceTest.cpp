@@ -3125,7 +3125,7 @@ TEST(GpuService, CubemapFaceMipUploadReadbackRoundTrip) {
     }
   }
   ASSERT_TRUE(cubemap.GetImage());
-  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
 }
 
 TEST(GpuService, CubemapUninitializedGpuStorageRejectsReadback) {
@@ -3133,13 +3133,13 @@ TEST(GpuService, CubemapUninitializedGpuStorageRejectsReadback) {
   Cubemap cubemap;
   cubemap.Initialize(2u);
   ASSERT_TRUE(cubemap.GetImage());
-  ASSERT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  ASSERT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
 
   std::vector<glm::vec4> pixels = {glm::vec4(1.0f)};
   cubemap.GetRgbaChannelData(pixels);
   EXPECT_TRUE(pixels.empty());
   EXPECT_TRUE(cubemap.PeekLocalData().empty());
-  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(cubemap.GetImage()->GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
 }
 
 TEST(GpuService, RasterOnlyConfigurationSamplesSharedBindlessTextureArrays) {
@@ -4213,7 +4213,7 @@ TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
   VkDescriptorImageInfo descriptor_image_info{};
   descriptor_image_info.sampler = sampler->GetVkSampler();
   descriptor_image_info.imageView = image_view->GetVkImageView();
-  descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  descriptor_image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   descriptor_set->UpdateImageDescriptorBinding(0, descriptor_image_info);
   descriptor_set->UpdateBufferDescriptorBinding(1, output);
 
@@ -4228,13 +4228,13 @@ TEST(GpuService, DirectionalShadowComparisonSamplerFiltersDepthStep) {
   ASSERT_TRUE(pipeline->Initialized());
 
   Platform::ImmediateSubmit([&](const VkCommandBuffer command_buffer) {
-    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkBufferImageCopy copy_region{};
     copy_region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
     copy_region.imageSubresource.layerCount = 1;
     copy_region.imageExtent = {2, 1, 1};
     image->CopyFromBuffer(command_buffer, staging_buffer.GetVkBuffer(), {copy_region});
-    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    image->TransitImageLayout(command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     Platform::EverythingBarrier(command_buffer);
     pipeline->Bind(command_buffer);
     pipeline->BindDescriptorSet(command_buffer, 0, descriptor_set->GetVkDescriptorSet());
@@ -4705,7 +4705,7 @@ TEST(GpuService, Texture2DAsyncUploadProducesReadyImage) {
   EXPECT_NE(texture_storage.GetVkImage(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
-  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
   EXPECT_EQ(texture_storage.GetMipLevels(), 2u);
 
   Buffer mip_readback(sizeof(glm::vec4), true);
@@ -4797,7 +4797,7 @@ TEST(GpuService, Texture2DRuntimeUpdateTracksGpuReadiness) {
   Platform::GetGpuService().WaitIdle();
 
   EXPECT_FALSE(texture_storage.IsGpuUploadPending());
-  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
 
   std::vector<glm::vec4> readback;
   texture.GetRgbaChannelData(readback);
@@ -4851,7 +4851,7 @@ TEST(GpuService, TextureStorageDeviceSyncUsesAsyncUploadPath) {
   EXPECT_NE(texture_storage.GetVkImage(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkImageView(), VK_NULL_HANDLE);
   EXPECT_NE(texture_storage.GetVkSampler(), VK_NULL_HANDLE);
-  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+  EXPECT_EQ(texture_storage.GetLayout(), VK_IMAGE_LAYOUT_GENERAL);
 }
 
 TEST(GpuService, GeometryStorageCommitsMeshRangesAfterAsyncUpload) {

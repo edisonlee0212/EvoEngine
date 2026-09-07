@@ -70,9 +70,9 @@ void UploadSmaaLookupImage(const std::shared_ptr<Image>& image, const unsigned c
   Buffer staging_buffer(byte_size, false);
   staging_buffer.UploadData(byte_size, bytes);
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 
@@ -388,7 +388,7 @@ void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
   image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
   prepare_descriptor_set->UpdateImageDescriptorBinding(2, image_info);
 
-  image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+  image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
   image_info.imageView = context.camera.stack.swap_texture->GetColorImageView()->GetVkImageView();
   image_info.sampler = context.camera.stack.swap_texture->GetColorSampler()->GetVkSampler();
   edge_descriptor_set->UpdateImageDescriptorBinding(0, image_info);
@@ -460,24 +460,18 @@ void AntiAliasing::Process(const PostProcessingStack& post_processing_stack,
     renderer.smaa_prepare_pipeline->Dispatch(vk_command_buffer, Platform::DivUp(size.x, 8), Platform::DivUp(size.y, 8));
     Platform::EverythingBarrier(vk_command_buffer);
 
-    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(
-        vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                           VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    context.camera.stack.source_color_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
+                                                                                   VK_IMAGE_LAYOUT_GENERAL);
+    context.camera.stack.swap_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     render_fullscreen(camera.smaa_edges_texture, renderer.smaa_edge_pipelines[preset_index], edge_descriptor_set);
 
-    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    camera.smaa_edges_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     render_fullscreen(camera.smaa_blend_texture, renderer.smaa_weight_pipelines[preset_index], weight_descriptor_set);
 
-    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer,
-                                                                           VK_IMAGE_LAYOUT_ATTACHMENT_OPTIMAL);
+    camera.smaa_blend_texture->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     render_fullscreen(target_camera->GetRenderTexture(), renderer.smaa_neighborhood_pipeline,
                       neighborhood_descriptor_set);
     target_camera->GetRenderTexture()->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
@@ -558,16 +552,16 @@ void Bloom::Process(const PostProcessingStack& post_processing_stack, const std:
   record_commands([&](const VkCommandBuffer vk_command_buffer) {
     const auto target_image = target_camera->GetRenderTexture()->GetColorImage();
     const auto source_image = stack.source_color_texture->GetColorImage();
-    target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-    source_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
+    source_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     VkImageCopy copy_region{};
     copy_region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     copy_region.srcSubresource.layerCount = 1;
     copy_region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     copy_region.dstSubresource.layerCount = 1;
     copy_region.extent = {target_size.x, target_size.y, 1};
-    vkCmdCopyImage(vk_command_buffer, target_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   source_image->GetVkImage(), VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy_region);
+    vkCmdCopyImage(vk_command_buffer, target_image->GetVkImage(), VK_IMAGE_LAYOUT_GENERAL, source_image->GetVkImage(),
+                   VK_IMAGE_LAYOUT_GENERAL, 1, &copy_region);
     target_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     source_image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     camera.downsample_texture_a->GetColorImage()->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);

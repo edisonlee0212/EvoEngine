@@ -17,6 +17,34 @@ Focused guides:
 
 ## Architecture
 
+### Image layouts and synchronization
+
+First-party sampled, storage, attachment and transfer images use `VK_IMAGE_LAYOUT_GENERAL` during GPU access,
+including textures/cubemaps, camera targets, shadows, GI, post-processing, previews and Universe picking.
+Descriptors and rendering attachments declare the same layout. Image creation still uses `UNDEFINED` followed
+by an initialization transition; swapchain images still transition to `PRESENT_SRC_KHR` for presentation.
+The generic low-level transition helper retains support for other legal layouts for external callers.
+
+Render-graph states continue to describe access intent (depth/color writes, shader reads/writes and transfers).
+Equal-layout image barriers are retained with the corresponding stage/access masks and queue ownership rules;
+`GENERAL` is not a replacement for memory synchronization. Depth barrier aspects derive from the image format,
+including when neither adjacent access is an attachment use. This policy does not require unified-image-layout
+extensions and makes no cross-device performance guarantee.
+
+DDGI atlases are initialized and cleared synchronously on allocation before descriptor publication, since the
+deferred prepare pass may not yet be submitted when a consumer sees them. This allocation-only cost does not
+change steady-state update scheduling or history policy.
+
+The motivating validation errors involved camera depth (sampled-read descriptor versus attachment layout),
+SSR motion vectors (GENERAL descriptor versus an explicit read-only transition), and newly published DDGI
+atlases still in UNDEFINED. These are image-state/lifetime issues, not atlas-size or VMA allocation limits.
+
+Validation: 248 focused tests passed. Installed 2560x1440 Sponza runs with editor layers passed Vulkan core/sync
+validation with DDGI enabled (600 iterations) and SDFGI with RT disabled (300 iterations plus capture frames).
+This is focused coverage, not full-suite or cross-device/performance acceptance.
+
+### Rendering flow
+
 ```mermaid
 flowchart LR
   A[Scene, assets, and package callbacks] --> B[RenderInstanceStorage]

@@ -317,9 +317,9 @@ void UploadCloudNoiseImage(const std::shared_ptr<Image>& image, const std::vecto
   Buffer staging_buffer(bytes.size(), false);
   staging_buffer.UploadData(bytes.size(), bytes.data());
   Platform::ImmediateSubmit([&](const VkCommandBuffer vk_command_buffer) {
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
     image->CopyFromBuffer(vk_command_buffer, staging_buffer.GetVkBuffer());
-    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    image->TransitImageLayout(vk_command_buffer, VK_IMAGE_LAYOUT_GENERAL);
   });
 }
 
@@ -513,7 +513,7 @@ void VolumetricCloudsPass::Execute(const RenderGraphExecutionContext& context, c
           image_info.imageView = transmittance_view->GetVkImageView();
           descriptor_set->UpdateImageDescriptorBinding(5, image_info);
 
-          image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+          image_info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
           image_info.imageView = noise_resources.base_shape_view->GetVkImageView();
           image_info.sampler = noise_resources.sampler->GetVkSampler();
           descriptor_set->UpdateImageDescriptorBinding(6, image_info);
