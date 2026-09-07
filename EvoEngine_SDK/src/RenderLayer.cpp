@@ -2767,20 +2767,6 @@ void RenderLayer::EnsureDdgiPipelines() {
       ddgi_probe_update_irradiance_pipeline_.reset();
       ddgi_probe_update_visibility_pipeline_.reset();
     }
-    ddgi_probe_update_path_reported_ = false;
-    const auto variant_name = [](const DdgiProbeUpdateVariant variant) {
-      switch (variant) {
-        case DdgiProbeUpdateVariant::Serial:
-          return "serial";
-        case DdgiProbeUpdateVariant::ParallelShared:
-          return "parallel-shared";
-        default:
-          return "parallel-direct";
-      }
-    };
-    EVOENGINE_WARNING("EVOENGINE_DDGI_PROBE_UPDATE_VARIANT requested=" + requested_name +
-                      " selected=" + variant_name(ddgi_probe_update_variant_) +
-                      " required_shared_bytes=" + std::to_string(DdgiRuntime::kProbeUpdateSharedMemoryBytes))
   }
   if (!ddgi_probe_relocation_pipeline_) {
     ddgi_probe_relocation_pipeline_ = std::make_shared<ComputePipeline>();
@@ -5980,7 +5966,7 @@ void RenderLayer::RenderAll() {
                  per_frame_descriptor_sets_[current_frame_index], ddgi_probe_update_layout_,
                  active_frame_transient_resources, ddgi_probe_update_push_constant, ddgi_probe_metadata_readback_buffer,
                  &metadata_readback_recorded, &ddgi_runtime.last_performance_stats.recorded_probe_update_count,
-                 &ddgi_probe_update_path_reported_, use_emissive_sampling, ddgi_runtime.clear_probe_atlas_this_frame});
+                 use_emissive_sampling, ddgi_runtime.clear_probe_atlas_this_frame});
           });
       if (reset_ddgi_probe_relocation || relocate_ddgi_probes) {
         frame_render_graph.AddPass(

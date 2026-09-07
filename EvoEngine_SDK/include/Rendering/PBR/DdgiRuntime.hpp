@@ -194,11 +194,7 @@ class EVOENGINE_API DdgiRuntime final {
                                                                            bool trace_probe_rays);
   [[nodiscard]] static bool RequiresFullScrollReset(const glm::ivec3& probe_counts, const glm::ivec3& scroll_delta);
   [[nodiscard]] static glm::uvec3 GetProbeGridIndex(const glm::ivec3& probe_counts, uint32_t probe_index);
-  [[nodiscard]] static DdgiAtlasLayout CalculateAtlasLayout(uint32_t probe_count, uint32_t tile_resolution,
-                                                            uint32_t preferred_columns);
-  [[nodiscard]] static DdgiAtlasLayout CalculateAtlasLayout(uint32_t probe_count, uint32_t tile_resolution,
-                                                            uint32_t preferred_columns,
-                                                            uint32_t max_image_dimension_2d);
+  [[nodiscard]] static DdgiAtlasLayout CalculateAtlasLayout(uint32_t probe_count, uint32_t max_image_dimension_2d);
   [[nodiscard]] static DdgiFrameResourceLayout CalculateFrameResourceLayout(const DdgiSettings& settings);
   [[nodiscard]] static DdgiFrameResourceLayout CalculateFrameResourceLayout(const DdgiSettings& settings,
                                                                             uint32_t probe_count);

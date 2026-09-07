@@ -1111,7 +1111,7 @@ storage:
   const auto node = YAML::Load(out.c_str());
   EXPECT_FALSE(node["volume_defaults"]);
   EXPECT_FALSE(node["runtime"]["enabled"]);
-  EXPECT_FALSE(node["storage"]["max_probe_count"]);
+  EXPECT_FALSE(node["storage"]);
   DdgiSettings restored;
   DeserializeDdgiSettings(node, restored);
   EXPECT_EQ(settings, restored);

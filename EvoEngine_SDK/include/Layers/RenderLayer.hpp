@@ -1061,7 +1061,6 @@ class EVOENGINE_API RenderLayer final : public ILayer {
   std::shared_ptr<ComputePipeline> ddgi_probe_update_irradiance_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_update_visibility_pipeline_;
   DdgiProbeUpdateVariant ddgi_probe_update_variant_ = DdgiProbeUpdateVariant::Serial;
-  bool ddgi_probe_update_path_reported_ = false;
   std::shared_ptr<ComputePipeline> ddgi_probe_scroll_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_relocation_pipeline_;
   std::shared_ptr<ComputePipeline> ddgi_probe_classification_pipeline_;

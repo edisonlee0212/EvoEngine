@@ -120,13 +120,6 @@ void RecordProbeUpdate(const VkCommandBuffer vk_command_buffer, const RenderGrap
     ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
     return;
   }
-  if (parameters.path_reported && !*parameters.path_reported) {
-    *parameters.path_reported = true;
-    EVOENGINE_WARNING(
-        std::string("EVOENGINE_DDGI_PROBE_UPDATE_PATH executed=") + (use_parallel ? "parallel" : "serial") +
-        " probe_count=" + std::to_string(parameters.push_constant.probe_count_ray_count_and_tile_sizes.x) +
-        " groups=" + std::to_string(dispatch.x) + "x" + std::to_string(dispatch.y))
-  }
   const auto& irradiance_pipeline = use_parallel ? parameters.parallel_irradiance_pipeline : parameters.pipeline;
   const auto& visibility_pipeline = use_parallel ? parameters.parallel_visibility_pipeline : parameters.pipeline;
   DispatchProbeUpdate(vk_command_buffer, context, parameters, irradiance_pipeline, descriptor_set, 1u, dispatch.x,

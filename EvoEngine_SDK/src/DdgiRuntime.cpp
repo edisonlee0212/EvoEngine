@@ -169,55 +169,22 @@ glm::uvec3 DdgiRuntime::GetProbeGridIndex(const glm::ivec3& probe_counts, const 
   return {safe_index % x_count, (safe_index / x_count) % y_count, safe_index / (x_count * y_count)};
 }
 
-DdgiAtlasLayout DdgiRuntime::CalculateAtlasLayout(const uint32_t probe_count, const uint32_t tile_resolution,
-                                                  const uint32_t preferred_columns) {
-  return CalculateAtlasLayout(probe_count, tile_resolution, preferred_columns, (std::numeric_limits<uint32_t>::max)());
-}
-
-DdgiAtlasLayout DdgiRuntime::CalculateAtlasLayout(const uint32_t probe_count, const uint32_t tile_resolution,
-                                                  const uint32_t preferred_columns,
-                                                  const uint32_t max_image_dimension_2d) {
+DdgiAtlasLayout DdgiRuntime::CalculateAtlasLayout(const uint32_t probe_count, const uint32_t max_image_dimension_2d) {
   DdgiAtlasLayout layout;
   if (probe_count == 0u) {
     layout.error = "DDGI atlas requires at least one probe.";
     return layout;
   }
-  if (tile_resolution == 0u) {
-    layout.error = "DDGI atlas tile resolution must be greater than zero.";
-    return layout;
-  }
-  if (preferred_columns == 0u) {
-    layout.error = "DDGI atlas column count must be greater than zero.";
-    return layout;
-  }
-  if (max_image_dimension_2d == 0u) {
-    layout.error = "The Vulkan device reports a zero 2D image-dimension limit.";
-    return layout;
-  }
-  const uint64_t tile_stride = static_cast<uint64_t>(tile_resolution) + 2ull;
-  const uint64_t max_tiles = max_image_dimension_2d / tile_stride;
-  if (!max_tiles || uint64_t(probe_count) > max_tiles * max_tiles) {
-    layout.error = "DDGI probes cannot fit within the Vulkan 2D image limit.";
-    return layout;
-  }
-  const uint64_t minimum_columns = (uint64_t(probe_count) + max_tiles - 1) / max_tiles;
-  const uint64_t columns =
-      std::clamp(uint64_t(preferred_columns), minimum_columns, std::min(uint64_t(probe_count), max_tiles));
-  const uint64_t rows = (static_cast<uint64_t>(probe_count) + columns - 1ull) / columns;
-  const uint64_t width = columns * tile_stride;
-  const uint64_t height = rows * tile_stride;
-  if (width > max_image_dimension_2d || height > max_image_dimension_2d ||
-      width > (std::numeric_limits<uint32_t>::max)() || height > (std::numeric_limits<uint32_t>::max)()) {
-    layout.error = "DDGI atlas extent " + std::to_string(width) + "x" + std::to_string(height) +
-                   " exceeds the Vulkan 2D image limit " + std::to_string(max_image_dimension_2d) + ".";
+  layout.probe_count = probe_count;
+  layout.tile_resolution = 8u;
+  layout.columns = std::min(probe_count, 16u);
+  layout.rows = static_cast<uint32_t>((uint64_t(probe_count) + layout.columns - 1u) / layout.columns);
+  layout.resolution = {layout.columns * 10u, layout.rows * 10u};
+  if (layout.resolution.x > max_image_dimension_2d || layout.resolution.y > max_image_dimension_2d) {
+    layout.error = "DDGI fixed 16-column 8x8 atlas exceeds the device image extent.";
     return layout;
   }
   layout.valid = true;
-  layout.probe_count = probe_count;
-  layout.tile_resolution = tile_resolution;
-  layout.columns = static_cast<uint32_t>(columns);
-  layout.rows = static_cast<uint32_t>(rows);
-  layout.resolution = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
   return layout;
 }
 
@@ -253,13 +220,8 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                      : "DDGI probe grid exceeds the configured maximum probe count.";
     return layout;
   }
-  layout.irradiance_atlas = CalculateAtlasLayout(layout.probe_count, 8u, 16u);
+  layout.irradiance_atlas = CalculateAtlasLayout(layout.probe_count, max_image_dimension_2d);
   layout.visibility_atlas = layout.irradiance_atlas;
-  if (layout.irradiance_atlas.resolution.x > max_image_dimension_2d ||
-      layout.irradiance_atlas.resolution.y > max_image_dimension_2d) {
-    layout.error = "DDGI fixed 16-column 8x8 atlas exceeds the device image extent.";
-    return layout;
-  }
   if (!layout.irradiance_atlas.valid || !layout.visibility_atlas.valid) {
     layout.error = !layout.irradiance_atlas.valid ? layout.irradiance_atlas.error : layout.visibility_atlas.error;
     return layout;

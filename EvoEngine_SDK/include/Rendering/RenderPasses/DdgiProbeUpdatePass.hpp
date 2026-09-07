@@ -29,7 +29,6 @@ class EVOENGINE_API DdgiProbeUpdatePass final {
     std::shared_ptr<Buffer> metadata_readback_buffer;
     bool* metadata_readback_recorded = nullptr;
     uint32_t* recorded_probe_update_count = nullptr;
-    bool* path_reported = nullptr;
     bool use_emissive_sampling = false;
     bool clear_history = false;
     bool invalidate_moved_history = false;

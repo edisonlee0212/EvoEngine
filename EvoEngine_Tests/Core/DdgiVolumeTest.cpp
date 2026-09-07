@@ -752,19 +752,18 @@ TEST(DdgiVolume, RenderLayerUsesDeviceLimitsInsteadOfObsoleteProbeCap) {
   EXPECT_EQ(overflow_layout.probe_count, 33u);
 }
 
-TEST(DdgiVolume, RenderLayerRepackagesAtlasWhenPreferredColumnsExceedDeviceExtent) {
-  constexpr uint32_t probe_count = 32;
-  const auto exact_layout = DdgiRuntime::CalculateAtlasLayout(probe_count, 8, 4, 80);
-  const auto rejected_layout = DdgiRuntime::CalculateAtlasLayout(probe_count, 8, 4, 79);
-
-  ASSERT_TRUE(exact_layout.valid) << exact_layout.error;
-  EXPECT_EQ(exact_layout.columns, 4u);
-  EXPECT_EQ(exact_layout.rows, 8u);
-  EXPECT_EQ(exact_layout.resolution, glm::uvec2(40, 80));
-  EXPECT_TRUE(rejected_layout.valid);
-  EXPECT_EQ(rejected_layout.columns, 5u);
-  EXPECT_EQ(rejected_layout.resolution, glm::uvec2(50, 70));
-  EXPECT_FALSE(DdgiRuntime::CalculateAtlasLayout(50, 8, 4, 79).valid);
+TEST(DdgiVolume, FixedAtlasHandlesPartialRowsAndExtremeCounts) {
+  EXPECT_FALSE(DdgiRuntime::CalculateAtlasLayout(0, UINT32_MAX).valid);
+  EXPECT_FALSE(DdgiRuntime::CalculateAtlasLayout(1, 0).valid);
+  for (const uint32_t count : {1u, 15u, 16u, 17u, 33u, UINT32_MAX}) {
+    const auto layout = DdgiRuntime::CalculateAtlasLayout(count, UINT32_MAX);
+    ASSERT_TRUE(layout.valid);
+    EXPECT_EQ(layout.tile_resolution, 8u);
+    EXPECT_EQ(layout.columns, std::min(count, 16u));
+    EXPECT_GE(uint64_t(layout.columns) * layout.rows, count);
+    EXPECT_LT(uint64_t(layout.columns) * (layout.rows - 1u), count);
+    EXPECT_EQ(layout.resolution, glm::uvec2(layout.columns, layout.rows) * 10u);
+  }
 }
 
 TEST(DdgiVolume, FixedAtlasRejectsDeviceExtentWithoutRepacking) {
@@ -2094,7 +2093,7 @@ TEST(DdgiVolume, DdgiProbeUpdateUsesCooperativeVariantsAndExactSynchronization) 
   EXPECT_NE(update.find("DdgiProbeUpdatePass::CalculateDispatchSize"), std::string::npos);
   EXPECT_NE(update.find("irradiance_pipeline, descriptor_set, 1u"), std::string::npos);
   EXPECT_NE(update.find("visibility_pipeline, descriptor_set, 2u"), std::string::npos);
-  EXPECT_NE(update.find("EVOENGINE_DDGI_PROBE_UPDATE_PATH executed="), std::string::npos);
+  EXPECT_EQ(update.find("EVOENGINE_DDGI_PROBE_UPDATE_PATH executed="), std::string::npos);
   EXPECT_EQ(update.find("EverythingBarrier"), std::string::npos);
   for (const auto* file : {"DdgiProbeTracePass.cpp", "DdgiProbeRelocationPass.cpp", "DdgiProbeClassificationPass.cpp",
                            "DdgiProbeScrollPass.cpp"}) {

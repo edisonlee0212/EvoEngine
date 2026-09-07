@@ -27,18 +27,9 @@ DDGI atlas packing is fixed at 16 probe columns, with 8x8 interior texels for bo
 These are no longer GUI, serialization or Python settings; legacy storage values are ignored. Layouts that exceed
 the device image limit are rejected rather than repacked. Probe counts and history length remain configurable.
 
-GPU resources now use ordinary, non-exportable VMA allocations. Vulkan external-memory/semaphore interoperability
-has been removed: no automatic export chains, external-handle APIs or required interoperability extensions remain.
-DDGI needs no dedicated allocation or environment switch. VMA remains pinned to 3.4.0; the upgrade alone did not
-resolve the observed regression, while disabling external export restored lighting in the diagnostic comparisons.
+GPU resources use ordinary, non-exportable VMA 3.4.0 allocations. Vulkan external-memory/semaphore interoperability
+is not required or enabled. No dedicated DDGI allocation or allocation override is needed.
 
-Fixed-layout delivery validation passed 174 focused DDGI/GI/GpuService/RenderGraph tests and the repository format
-check. The installed RT-enabled 2560x1440 Sponza fixture with editor layers retained visible indirect lighting in
-two fresh 600-loop runs (normal and Vulkan validation), with captures at 240 and 600 iterations. These are display
-loop counts, not completed-update counts; the readiness counter saturates at the 30-update history window.
-Vulkan validation still reports the previously observed `VUID-vkCmdDraw-None-09600` image-layout errors.
-This is not a validation-clean result or manual appearance acceptance. Temporary allocation/readback instrumentation
-was removed; editor and Python runtime were rebuilt and all enabled applications installed.
 
 ## Settings and runtime edits
 
@@ -62,7 +53,7 @@ All cascade clears/scroll clears are recorded before any cascade traces against 
 
 ## Runtime Flow
 
-Each active cascade owns persistent probe state, irradiance/visibility atlases, and quantized irradiance history. The render graph
+Each active cascade owns persistent probe state, irradiance/visibility atlases, and quantized history for both. The render graph
 records the following work when required:
 
 1. Prepare or clear persistent state for a new layout, reset, or newly exposed scrolling region.
@@ -114,10 +105,6 @@ This rolling-history policy intentionally departs from DDGI hysteresis, followin
 `C:/Users/lllll/Documents/GitHub/godot` at `34d06658a85845111a50db9e485ec4a0701d4298`.
 Godot remains the first reference when behavior is uncertain; DDGI's geometry-based relocation is unchanged.
 
-The rolling-history delivery was checked on RTX 5070 with an installed 2560×1440 Sponza run, RT pipeline/query and
-BLAS/TLAS enabled, 30 → 5 → 30 history transitions, finite float captures, and continued per-frame periodic updates.
-Focused CPU/shader and Vulkan fixtures cover quantized startup/replacement, rejected samples, moved/reactivated probe
-invalidation, and signed scrolling. Appearance acceptance remains manual; old hysteresis images are not acceptance baselines.
 
 ## Rolling Visibility
 
@@ -129,19 +116,12 @@ Visibility lookup uses hardware bilinear filtering. Initial and exposed tiles cl
 to (0, 0). Atlas output is clamped to RG16F's finite range after averaging; no negative atlas sentinel is used.
 The former visibility-smoothing setting is ignored on load and removed from active APIs.
 
-The earlier hardware-filtered visibility behavior and half-moment normalization were restored without changing
-automatic cascade selection. That restoration alone did not fix missing indirect lighting at 33x17x33.
-The subsequent external-memory interoperability removal restored lighting in installed editor-layer tests.
 
 Irradiance and visibility interior tiles are fixed at 8x8. The default 33x17x33 probes, four cascades and
 30-update history use about 1.696 GiB for history, including both rings/sums and origin records.
 Device padding, output atlases and ray buffers remain additional allocations. Runtime edits recreate incompatible
 layouts and reject configurations whose padded histories reach 4 GiB, without silently reducing quality.
 
-Historical visibility-history restoration passed 126 focused CPU/shader/GPU tests, including 100 repeated quantized windows,
-invalid-estimate preservation and moved/reactivated-probe clearing. Installed RTX 5070, RT-enabled 2560x1440 Sponza
-coverage exercised the then-configurable visibility 8/16/8 transitions, signed scrolling, teleports, provider switching, memory rejection and
-finite captures. Flicker and light-leak appearance acceptance remains manual.
 
 ## Relocation And Classification
 
@@ -203,6 +183,10 @@ runtime state, including:
 Debug selection is editor-session state and is never serialized. Debug visualization is restricted to the editor scene
 viewport and does not appear in game cameras or ray-camera output.
 
+For targeted shader comparisons, `EVOENGINE_DDGI_PROBE_UPDATE_VARIANT` accepts `serial`, `parallel-direct`, or
+`parallel-shared` (default). Device limits and pipeline availability still select a safe fallback. This hook changes
+the update shader variant, not atlas allocation or lighting settings.
+
 ## Limitations
 
 - DDGI uses ray-tracing-pipeline traversal; there is no inline-ray-query DDGI backend.
@@ -213,19 +197,22 @@ viewport and does not appear in game cameras or ray-camera output.
 
 Contributor capture commands and acceptance checks live in [Rendering validation](rendering-validation.md).
 
-## Shared GI delivery validation
+## Validation and known issues
 
-M16–M18 introduce shared automatic placement, compact DDGI visibility, and the unified GI interface.
-The final focused suite passed 125 CPU, source-contract, shader and current-GPU tests, including migration,
-active-only padded history budgets, atomic API/runtime rejection, unsupported loaded-data fallback, scene replacement,
-quantized irradiance replacement and moved/reactivated probe invalidation.
+Focused tests cover fixed atlas addressing and device limits, legacy-setting migration, history budgets,
+periodic sampling, rolling replacement, rejected estimates, scrolling and moved/reactivated probe invalidation.
+Installed smoke coverage uses RT-enabled Sponza at 2560x1440 with editor layers; SDFGI is checked separately
+with RT pipeline, ray query, BLAS and TLAS disabled.
 
-Installed Sponza checks used 2560×1440 on RTX 5070: SDFGI with RT pipeline, ray query, BLAS and TLAS explicitly off,
-and DDGI with RT enabled. Signed scrolling, teleports, shared-layout edits, rejected allocations, spacing 4/8/4,
-visibility-filter edits, provider off/on and direct DDGI/SDFGI/DDGI transitions passed with finite float captures.
-These are smoke checks, not gallery/Cornell/EcoSysLab appearance or performance acceptance.
+The fixed-layout delivery passed 174 focused tests. Two fresh installed Sponza runs retained visible DDGI at
+240 and 600 display-loop iterations. These are not completed-update counts: the readiness counter saturates
+at the selected history length. Vulkan validation still reports `VUID-vkCmdDraw-None-09600` depth/color image-layout
+errors. This remains unresolved; successful captures do not establish validation-clean rendering.
+Gallery/Cornell/EcoSysLab appearance acceptance remains manual.
 
-The editor was built before runtime checks. All enabled applications (editor and launcher), packages and Python were
-installed using `python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --jobs 8`.
-Editor: `out/install/vs2026-x64/bin/EvoEngineEditor.exe`; the installed Python smoke uses
-`out/install/vs2026-x64/python/PyEvoEngine.cp315-win_amd64.pyd`.
+The post-investigation cleanup passed 186 focused tests and the repository format check, and retained visible DDGI
+through 600 iterations in a fresh installed 2560x1440 Sponza smoke. Obsolete atlas repacking and unconditional path
+logging were removed without changing shader selection, allocations or lighting policy.
+
+Removing automatic external-memory export restored lighting in diagnostic comparisons; changing atlas columns
+or upgrading VMA alone did not. The precise underlying allocation/driver failure mechanism is not established.
