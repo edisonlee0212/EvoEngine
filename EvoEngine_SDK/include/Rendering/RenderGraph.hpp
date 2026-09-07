@@ -138,7 +138,8 @@ inline constexpr const char* frame_ddgi_selected_ray_diagnostics = "Frame.DDGI.S
 inline constexpr const char* frame_ddgi_irradiance_atlas = "Frame.DDGI.IrradianceAtlas";
 inline constexpr const char* frame_ddgi_visibility_atlas = "Frame.DDGI.VisibilityAtlas";
 inline constexpr const char* frame_ddgi_history[] = {"Frame.DDGI.IrradianceHistory", "Frame.DDGI.IrradianceSum",
-                                                     "Frame.DDGI.HistoryOrigins"};
+                                                     "Frame.DDGI.HistoryOrigins", "Frame.DDGI.VisibilityHistory",
+                                                     "Frame.DDGI.VisibilitySum"};
 }  // namespace RenderResourceNames
 
 namespace RenderPassNames {

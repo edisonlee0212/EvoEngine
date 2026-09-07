@@ -33,7 +33,6 @@ struct EVOENGINE_API DdgiSettings {
     float distance_exponent = 50.0f;
     float irradiance_gamma = 5.0f;
     float visibility_moment_bias = 0.02f;
-    float visibility_smoothing = 0.90f;
     bool enable_probe_relocation = true;
     bool enable_probe_classification = true;
     float relocation_distance = 0.25f;
@@ -45,7 +44,7 @@ struct EVOENGINE_API DdgiSettings {
 
   struct StorageSettings {
     int irradiance_tile_resolution = 8;
-    int visibility_tile_resolution = 16;
+    int visibility_tile_resolution = 8;
     int atlas_probe_columns = 16;
   };
 

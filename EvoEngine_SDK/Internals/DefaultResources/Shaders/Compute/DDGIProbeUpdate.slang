@@ -340,8 +340,10 @@ void EE_DDGI_STORE_IRRADIANCE_TEXEL(uint2 tile_origin, uint tile_size, uint texe
 void EE_DDGI_STORE_VISIBILITY_TEXEL(uint2 tile_origin, uint tile_size, uint texel_index, float2 sample,
                                     float retain_history, float2 unused) {
   int2 pixel = int2(tile_origin + uint2(1u) + uint2(texel_index % tile_size, texel_index / tile_size));
-  EE_DDGI_VISIBILITY_ATLAS[pixel] = EE_DDGI_FILTER_VISIBILITY(
-      EE_DDGI_VISIBILITY_ATLAS[pixel], sample, asfloat(constants.probe_scroll_delta.w), retain_history < 0.5f);
+  uint texel = EE_DDGI_HISTORY_TEXEL(tile_origin, tile_size,
+      constants.atlas_columns_fixed_ray_count_and_update_mode.y, texel_index);
+  EE_DDGI_VISIBILITY_ATLAS[pixel] = EE_DDGI_ROLL_VISIBILITY(texel, uint(constants.blend_parameters.z),
+      uint(constants.blend_parameters.w), sample, EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE(), retain_history < 0.5f);
 }
 
 #if EE_DDGI_PROBE_UPDATE_MODE == EE_DDGI_PROBE_UPDATE_SERIAL
@@ -354,6 +356,8 @@ void EE_DDGI_INVALIDATE_MOVED_HISTORY(uint probe_index) {
   uint visibility_size = constants.probe_count_ray_count_and_tile_sizes.w;
   for (uint i = 0u; i < irradiance_size * irradiance_size; ++i)
     EE_DDGI_CLEAR_IRRADIANCE_HISTORY(probe_index * irradiance_size * irradiance_size + i, count);
+  for (uint i = 0u; i < visibility_size * visibility_size; ++i)
+    EE_DDGI_CLEAR_VISIBILITY_HISTORY(probe_index * visibility_size * visibility_size + i, count);
   uint2 columns = constants.atlas_columns_fixed_ray_count_and_update_mode.xy;
   uint2 irradiance_origin = uint2(probe_index % columns.x, probe_index / columns.x) * (irradiance_size + 2u);
   uint2 visibility_origin = uint2(probe_index % columns.y, probe_index / columns.y) * (visibility_size + 2u);

@@ -1,6 +1,8 @@
 [[vk::binding(7, 1)]] RWStructuredBuffer<uint2> EE_DDGI_IRRADIANCE_RING;
 [[vk::binding(8, 1)]] RWStructuredBuffer<uint4> EE_DDGI_IRRADIANCE_SUM;
 [[vk::binding(9, 1)]] RWStructuredBuffer<float4> EE_DDGI_HISTORY_ORIGINS;
+[[vk::binding(10, 1)]] RWStructuredBuffer<uint> EE_DDGI_VISIBILITY_RING;
+[[vk::binding(11, 1)]] RWStructuredBuffer<uint2> EE_DDGI_VISIBILITY_SUM;
 
 uint2 EE_DDGI_PACK_HISTORY(uint4 value) {
   return uint2(value.x | (value.y << 16u), value.z | (value.w << 16u));
@@ -31,12 +33,23 @@ float4 EE_DDGI_ROLL_IRRADIANCE(uint texel, uint count, uint phase, float4 sample
   return float4(float3(sum.xyz) * (64.0f / (65535.0f * float(count))), sum.w > 0u ? 1.0f : 0.0f);
 }
 
-float2 EE_DDGI_FILTER_VISIBILITY(float2 previous, float2 sample, float retention, bool reset) {
-  if (reset || !all(isfinite(previous)) || any(previous < 0.0f))
-    previous = float2(-1.0f);
-  if (!all(isfinite(sample)) || any(sample < 0.0f))
-    return previous;
-  // RG16F storage remains finite even for large authored ray bounds.
-  sample = min(sample, float2(65504.0f));
-  return any(previous < 0.0f) ? sample : lerp(sample, previous, retention);
+void EE_DDGI_CLEAR_VISIBILITY_HISTORY(uint texel, uint count) {
+  for (uint slot = 0u; slot < count; ++slot)
+    EE_DDGI_VISIBILITY_RING[texel * count + slot] = 0u;
+  EE_DDGI_VISIBILITY_SUM[texel] = uint2(0u);
+}
+
+float2 EE_DDGI_ROLL_VISIBILITY(uint texel, uint count, uint phase, float2 sample, float distance_bound, bool reset) {
+  if (reset) EE_DDGI_CLEAR_VISIBILITY_HISTORY(texel, count);
+  float2 bounds = min(float2(distance_bound, distance_bound * distance_bound), float2(65504.0f));
+  uint2 sum = EE_DDGI_VISIBILITY_SUM[texel];
+  if (all(isfinite(sample)) && all(sample >= 0.0f)) {
+    uint slot = texel * count + phase;
+    uint previous = EE_DDGI_VISIBILITY_RING[slot];
+    uint2 value = uint2(floor(saturate(sample / bounds) * 65535.0f + 0.5f));
+    sum = sum - uint2(previous & 65535u, previous >> 16u) + value;
+    EE_DDGI_VISIBILITY_RING[slot] = value.x | (value.y << 16u);
+    EE_DDGI_VISIBILITY_SUM[texel] = sum;
+  }
+  return min(float2(sum) * (bounds / (65535.0f * float(count))), float2(65504.0f));
 }

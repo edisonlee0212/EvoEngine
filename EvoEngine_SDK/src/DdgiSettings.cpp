@@ -20,7 +20,6 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "visibility_moment_bias" << YAML::Value << settings.runtime.visibility_moment_bias;
   out << YAML::Key << "random_ray_backface_threshold" << YAML::Value << settings.runtime.random_ray_backface_threshold;
   out << YAML::Key << "fixed_ray_backface_threshold" << YAML::Value << settings.runtime.fixed_ray_backface_threshold;
-  out << YAML::Key << "visibility_smoothing" << YAML::Value << settings.runtime.visibility_smoothing;
   out << YAML::Key << "enable_probe_relocation" << YAML::Value << settings.runtime.enable_probe_relocation;
   out << YAML::Key << "enable_probe_classification" << YAML::Value << settings.runtime.enable_probe_classification;
   out << YAML::Key << "relocation_distance" << YAML::Value << settings.runtime.relocation_distance;
@@ -67,8 +66,6 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.irradiance_gamma = values["irradiance_gamma"].as<float>();
     if (values["visibility_moment_bias"])
       settings.runtime.visibility_moment_bias = values["visibility_moment_bias"].as<float>();
-    if (values["visibility_smoothing"])
-      settings.runtime.visibility_smoothing = values["visibility_smoothing"].as<float>();
     if (values["enable_probe_relocation"])
       settings.runtime.enable_probe_relocation = values["enable_probe_relocation"].as<bool>();
     if (values["enable_probe_classification"])
@@ -115,9 +112,8 @@ bool DdgiSettings::operator==(const DdgiSettings& other) const {
                   runtime.enable_emissive_mesh_sampling, runtime.ray_count, runtime.emissive_ray_count,
                   runtime.warmup_frames, runtime.history_count, runtime.normal_bias, runtime.view_bias,
                   runtime.max_ray_distance, runtime.distance_exponent, runtime.irradiance_gamma,
-                  runtime.visibility_moment_bias, runtime.visibility_smoothing, runtime.enable_probe_relocation,
-                  runtime.enable_probe_classification, runtime.relocation_distance,
-                  runtime.deterministic_ray_seed_enabled, runtime.deterministic_ray_seed,
+                  runtime.visibility_moment_bias, runtime.enable_probe_relocation, runtime.enable_probe_classification,
+                  runtime.relocation_distance, runtime.deterministic_ray_seed_enabled, runtime.deterministic_ray_seed,
                   storage.irradiance_tile_resolution, storage.visibility_tile_resolution,
                   storage.atlas_probe_columns) ==
          std::tie(other.runtime.fixed_ray_backface_threshold, other.runtime.random_ray_backface_threshold,
@@ -125,9 +121,8 @@ bool DdgiSettings::operator==(const DdgiSettings& other) const {
                   other.runtime.emissive_ray_count, other.runtime.warmup_frames, other.runtime.history_count,
                   other.runtime.normal_bias, other.runtime.view_bias, other.runtime.max_ray_distance,
                   other.runtime.distance_exponent, other.runtime.irradiance_gamma, other.runtime.visibility_moment_bias,
-                  other.runtime.visibility_smoothing, other.runtime.enable_probe_relocation,
-                  other.runtime.enable_probe_classification, other.runtime.relocation_distance,
-                  other.runtime.deterministic_ray_seed_enabled, other.runtime.deterministic_ray_seed,
-                  other.storage.irradiance_tile_resolution, other.storage.visibility_tile_resolution,
-                  other.storage.atlas_probe_columns);
+                  other.runtime.enable_probe_relocation, other.runtime.enable_probe_classification,
+                  other.runtime.relocation_distance, other.runtime.deterministic_ray_seed_enabled,
+                  other.runtime.deterministic_ray_seed, other.storage.irradiance_tile_resolution,
+                  other.storage.visibility_tile_resolution, other.storage.atlas_probe_columns);
 }

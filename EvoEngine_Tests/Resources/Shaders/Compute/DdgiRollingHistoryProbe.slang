@@ -56,13 +56,21 @@ void main(uint3 thread : SV_DispatchThreadID) {
   EE_DDGI_ROLL_IRRADIANCE(texel, count, 0u, float4(asfloat(0x7fc00000u), 1.0f, 1.0f, 1.0f), false);
   if (any(filled_irradiance != EE_DDGI_IRRADIANCE_SUM[texel]))
     ++errors;
-  float2 visibility = EE_DDGI_FILTER_VISIBILITY(float2(-1.0f), float2(4.0f, 8.0f), 0.9f, false);
-  if (any(visibility != float2(4.0f, 8.0f))) ++errors;
-  visibility = EE_DDGI_FILTER_VISIBILITY(visibility, float2(14.0f, 28.0f), 0.9f, false);
-  if (any(abs(visibility - float2(5.0f, 10.0f)) > 0.0001f)) ++errors;
-  if (any(EE_DDGI_FILTER_VISIBILITY(visibility, float2(-1.0f), 0.9f, false) != visibility)) ++errors;
-  if (any(EE_DDGI_FILTER_VISIBILITY(visibility, float2(-1.0f), 0.9f, true) >= 0.0f)) ++errors;
-  if (any(EE_DDGI_FILTER_VISIBILITY(visibility, float2(2.0f, 4.0f), 0.9f, true) != float2(2.0f, 4.0f))) ++errors;
+  float2 visibility = float2(0);
+  uint2 filled_visibility = uint2(0);
+  for (uint update = 0u; update < count * 100u; ++update) {
+    uint phase = update % count;
+    float value = float(phase + 1u);
+    visibility = EE_DDGI_ROLL_VISIBILITY(texel, count, phase, float2(value, value * value), 64.0f, update == 0u);
+    if (update == 0u && abs(visibility.x - 1.0f / float(count)) > 0.001f) ++errors;
+    if (update == count - 1u) filled_visibility = EE_DDGI_VISIBILITY_SUM[texel];
+    if (update >= count && any(filled_visibility != EE_DDGI_VISIBILITY_SUM[texel])) ++errors;
+  }
+  if (any(EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(-1.0f), 64.0f, false) != visibility)) ++errors;
+  EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(asfloat(0x7fc00000u)), 64.0f, false);
+  if (any(filled_visibility != EE_DDGI_VISIBILITY_SUM[texel])) ++errors;
+  EE_DDGI_CLEAR_VISIBILITY_HISTORY(texel, count);
+  if (any(EE_DDGI_VISIBILITY_SUM[texel] != uint2(0))) ++errors;
   float2 interpolated = EE_DDGI_SAMPLE_VALID_VISIBILITY(VisibilityFixture(), 0u, float2(0.5f), float2(2.0f));
   if (any(abs(interpolated - float2(4.0f, 8.0f)) > 0.0001f)) ++errors;
   if (any(EE_DDGI_SAMPLE_VALID_VISIBILITY(VisibilityFixture(), 1u, float2(0.5f), float2(2.0f)) >= 0.0f)) ++errors;

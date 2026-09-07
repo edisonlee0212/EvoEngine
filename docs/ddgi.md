@@ -28,7 +28,7 @@ when it fits and repacked into bounded rows otherwise.
 
 The GI tab contains shared **Probe settings**, **Indirect GI provider**, and selected-provider controls.
 Shared odd probe counts, cascade count, base distance, Y Scale and optional anchor determine nominal coverage.
-DDGI-specific controls include tracing, history, visibility smoothing, biases, relocation and classification.
+DDGI-specific controls include tracing, shared irradiance/visibility history, tile resolutions, biases, relocation and classification.
 RenderLayer contains only session pause and visualization/debug controls, not duplicate persistent settings.
 
 Python exposes `GiSettings` (`probes`, `provider`, `sdfgi`, `ddgi`), `GetCurrentSceneGiSettings`,
@@ -103,17 +103,24 @@ BLAS/TLAS enabled, 30 → 5 → 30 history transitions, finite float captures, a
 Focused CPU/shader and Vulkan fixtures cover quantized startup/replacement, rejected samples, moved/reactivated probe
 invalidation, and signed scrolling. Appearance acceptance remains manual; old hysteresis images are not acceptance baselines.
 
-## Filtered Visibility
+## Rolling Visibility
 
-Visibility has no history ring or running sum. The RG16F moment atlas uses exponential smoothing:
-old-estimate retention 0..0.99, default 0.90. The first valid estimate initializes directly.
-Negative sentinel texels are invalid; gather ignores invalid bilinear taps and renormalizes the remaining taps.
-Rejected/nonfinite samples preserve a valid estimate. Origin changes and newly exposed probes invalidate
-interiors and borders before reuse. Editing smoothing does not reset resources.
+Visibility uses the same periodic history window as irradiance: two 16-bit moment samples and two 32-bit running sums
+per interior texel. Samples use the existing cascade distance bound and its square. New histories are zero-filled and
+always divided by the full window; rejected/nonfinite samples preserve valid slots. Origin changes, reactivation and
+scroll exposure reset affected histories before reuse. The averaged output remains RG16F with regenerated borders.
+The former visibility-smoothing setting is ignored on load and removed from active APIs.
 
-Default four-cascade, 30-update irradiance history is 1,214,452,800 logical bytes (about 1.13 GiB):
-1,137,438,720 ring + 75,829,248 sums + 1,184,832 origin records. Visibility atlases and ray buffers remain
-additional rendering allocations outside that history total. Eight cascades double the history total.
+Default irradiance and visibility interior tiles are both 8x8; explicit saved resolutions are preserved.
+Four cascades with 33x17x33 probes and 30 updates use 1,821,086,784 logical history bytes (about 1.696 GiB),
+including both rings/sums and origin records. Visibility 12x12 uses about 2.402 GiB; 16x16 uses about 3.391 GiB.
+Device padding, output atlases and ray buffers remain additional allocations. Runtime edits recreate incompatible
+layouts and reject configurations whose padded histories reach 4 GiB, without silently reducing quality.
+
+Visibility-history restoration passed 126 focused CPU/shader/GPU tests, including 100 repeated quantized windows,
+invalid-estimate preservation and moved/reactivated-probe clearing. Installed RTX 5070, RT-enabled 2560x1440 Sponza
+coverage passed visibility 8/16/8 transitions, signed scrolling, teleports, provider switching, memory rejection and
+finite captures. Flicker and light-leak appearance acceptance remains manual.
 
 ## Relocation And Classification
 

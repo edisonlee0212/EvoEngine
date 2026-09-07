@@ -91,12 +91,13 @@ def main():
         advance_ready()
 
         if rt:
-            before = engine.GetCurrentSceneDdgiHistoryStatus()
-            engine.SetCurrentSceneDdgiVisibilitySmoothing(0.5)
-            assert engine.Loop()
-            after = engine.GetCurrentSceneDdgiHistoryStatus()
-            assert [c["resource_ids"] for c in before] == [c["resource_ids"] for c in after]
-            engine.SetCurrentSceneDdgiVisibilitySmoothing(0.9)
+            visibility = engine.GetCurrentSceneGiSettings()
+            visibility.ddgi.storage.visibility_tile_resolution = 16
+            engine.SetCurrentSceneGiSettings(visibility)
+            advance_ready()
+            capture("visibility-16")
+            engine.SetCurrentSceneGiSettings(settings)
+            advance_ready()
             alternate = engine.GetCurrentSceneGiSettings()
             alternate.provider = engine.IndirectGiProvider.AutomaticSdfgi
             engine.SetCurrentSceneGiSettings(alternate)

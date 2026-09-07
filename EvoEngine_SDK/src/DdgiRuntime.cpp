@@ -242,11 +242,6 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                                                   const uint32_t max_image_dimension_2d,
                                                                   const uint64_t max_storage_buffer_range) {
   DdgiFrameResourceLayout layout;
-  if (!std::isfinite(settings.runtime.visibility_smoothing) || settings.runtime.visibility_smoothing < 0.0f ||
-      settings.runtime.visibility_smoothing > 0.99f) {
-    layout.error = "DDGI visibility smoothing must be finite and between 0 and 0.99.";
-    return layout;
-  }
   if (settings.runtime.ray_count < 1 || settings.runtime.ray_count > 4096 || settings.runtime.emissive_ray_count < 0 ||
       settings.runtime.emissive_ray_count > 4096) {
     layout.error = "DDGI ray settings are outside their supported ranges.";
@@ -275,7 +270,8 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
     return layout;
   }
   if (!DdgiHistoryLayout::Calculate(layout.probe_count, layout.irradiance_atlas.tile_resolution,
-                                    settings.runtime.history_count, layout.history)) {
+                                    layout.visibility_atlas.tile_resolution, settings.runtime.history_count,
+                                    layout.history)) {
     layout.error = "DDGI history count must be 5 to 30 in steps of 5, with representable storage sizes.";
     return layout;
   }

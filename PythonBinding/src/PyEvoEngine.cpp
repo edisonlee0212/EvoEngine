@@ -605,7 +605,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("distance_exponent", &DdgiSettings::RuntimeSettings::distance_exponent)
       .def_readwrite("irradiance_gamma", &DdgiSettings::RuntimeSettings::irradiance_gamma)
       .def_readwrite("visibility_moment_bias", &DdgiSettings::RuntimeSettings::visibility_moment_bias)
-      .def_readwrite("visibility_smoothing", &DdgiSettings::RuntimeSettings::visibility_smoothing)
       .def_readwrite("enable_probe_relocation", &DdgiSettings::RuntimeSettings::enable_probe_relocation)
       .def_readwrite("enable_probe_classification", &DdgiSettings::RuntimeSettings::enable_probe_classification)
       .def_readwrite("relocation_distance", &DdgiSettings::RuntimeSettings::relocation_distance)
@@ -685,23 +684,6 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   });
   m.def("GetCurrentSceneDdgiHistoryCount", [] {
     return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).ddgi_settings.runtime.history_count;
-  });
-  m.def("GetCurrentSceneDdgiVisibilitySmoothing", [] {
-    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene())
-        .ddgi_settings.runtime.visibility_smoothing;
-  });
-  m.def("SetCurrentSceneDdgiVisibilitySmoothing", [](const float retention) {
-    if (!std::isfinite(retention) || retention < 0.0f || retention > 0.99f)
-      throw py::value_error("Visibility smoothing must be between 0 and 0.99");
-    const auto scene = ApplicationContext::Get().GetActiveScene();
-    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
-    if (!lighting)
-      throw py::value_error("The active scene has no EnvironmentalLighting asset");
-    auto candidate = lighting->GetGiSettings();
-    candidate.ddgi_settings.runtime.visibility_smoothing = retention;
-    std::string error;
-    if (!lighting->TrySetGiSettings(candidate, error))
-      throw py::value_error(error);
   });
   m.def("GetCurrentSceneDdgiHistoryStatus", [] {
     py::list volumes;

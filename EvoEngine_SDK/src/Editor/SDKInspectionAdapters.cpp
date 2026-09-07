@@ -2927,8 +2927,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           ImGui::EndCombo();
         }
         ImGui::SetItemTooltip(
-            "Irradiance rolling window in completed updates. Zero-filled on reset; visibility uses a separate "
-            "exponential filter.");
+            "Shared irradiance and visibility rolling window in completed updates. Zero-filled on reset; changes "
+            "restart lighting.");
         if (ImGui::TreeNodeEx("Tracing and blending", ImGuiTreeNodeFlags_DefaultOpen)) {
           gi_changed = ImGui::Checkbox("Emissive mesh sampling", &runtime.enable_emissive_mesh_sampling) || gi_changed;
           gi_changed = ImGui::DragInt("Uniform ray count", &runtime.ray_count, 1.0f, 1, 4096) || gi_changed;
@@ -2942,11 +2942,6 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               ImGui::DragFloat("Distance exponent", &runtime.distance_exponent, 0.1f, 0.0f, 256.0f) || gi_changed;
           gi_changed =
               ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f) || gi_changed;
-          gi_changed =
-              ImGui::SliderFloat("Visibility smoothing", &runtime.visibility_smoothing, 0.0f, 0.99f) || gi_changed;
-          ImGui::SetItemTooltip(
-              "Retains this fraction of the previous valid visibility estimate. No visibility history ring. Changes do "
-              "not restart lighting.");
           gi_changed =
               ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f) ||
               gi_changed;

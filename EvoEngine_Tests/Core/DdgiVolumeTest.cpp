@@ -40,8 +40,8 @@ TEST(DdgiHistoryTest, AutomaticDefaultBudgetAndAtlasPackingDoNotUseAuthoredProbe
   EXPECT_EQ(layout.probe_count, probes);
   EXPECT_LE(layout.visibility_atlas.resolution.x, 16384u);
   EXPECT_LE(layout.visibility_atlas.resolution.y, 16384u);
-  EXPECT_GT(layout.visibility_atlas.columns, 16u);
-  EXPECT_EQ(layout.history_allocation_bytes * 4, 1'214'452'800ull);
+  EXPECT_EQ(layout.visibility_atlas.columns, 16u);
+  EXPECT_EQ(layout.history_allocation_bytes * 4, 1'821'086'784ull);
   GiHistoryBudget budget;
   for (int cascade = 0; cascade < 8; ++cascade)
     EXPECT_TRUE(DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, budget));
@@ -50,25 +50,41 @@ TEST(DdgiHistoryTest, AutomaticDefaultBudgetAndAtlasPackingDoNotUseAuthoredProbe
   EXPECT_FALSE(DdgiRuntime::ValidateProbeGrid(glm::ivec3(258), UINT32_MAX));
 }
 
-TEST(DdgiHistoryTest, VisibilitySmoothingMigrationValidationAndLayoutIdentity) {
+TEST(DdgiHistoryTest, VisibilityResolutionMigrationAndLayoutIdentity) {
   DdgiSettings settings;
-  EXPECT_FLOAT_EQ(settings.runtime.visibility_smoothing, 0.90f);
+  EXPECT_EQ(settings.storage.visibility_tile_resolution, 8);
   const auto initial = DdgiRuntime::CalculateFrameResourceLayout(settings, 100);
-  for (const float retention : {0.0f, 0.5f, 0.90f, 0.99f}) {
-    settings.runtime.visibility_smoothing = retention;
+  for (const int resolution : {8, 12, 16}) {
+    settings.storage.visibility_tile_resolution = resolution;
     YAML::Emitter out;
     SerializeDdgiSettings(out, settings);
     DdgiSettings loaded;
     DeserializeDdgiSettings(YAML::Load(out.c_str()), loaded);
-    EXPECT_FLOAT_EQ(loaded.runtime.visibility_smoothing, retention);
-    EXPECT_TRUE(
-        DdgiRuntime::ArePersistentLayoutsCompatible(initial, DdgiRuntime::CalculateFrameResourceLayout(loaded, 100)));
+    EXPECT_EQ(loaded.storage.visibility_tile_resolution, resolution);
+    EXPECT_EQ(
+        DdgiRuntime::ArePersistentLayoutsCompatible(initial, DdgiRuntime::CalculateFrameResourceLayout(loaded, 100)),
+        resolution == 8);
   }
-  DeserializeDdgiSettings(YAML::Load("{}"), settings);
-  EXPECT_FLOAT_EQ(settings.runtime.visibility_smoothing, 0.90f);
-  for (const float invalid : {-0.1f, 1.0f, std::numeric_limits<float>::quiet_NaN()}) {
-    settings.runtime.visibility_smoothing = invalid;
-    EXPECT_FALSE(DdgiRuntime::CalculateFrameResourceLayout(settings, 100).valid);
+  DeserializeDdgiSettings(YAML::Load("runtime: {visibility_smoothing: 0.5}"), settings);
+  EXPECT_EQ(settings.storage.visibility_tile_resolution, 8);
+}
+
+TEST(DdgiHistoryTest, VisibilityResolutionBudgetRejectsWithoutCoarsening) {
+  for (const int resolution : {8, 12, 16}) {
+    DdgiSettings settings;
+    settings.storage.visibility_tile_resolution = resolution;
+    const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, 33 * 17 * 33, 16384);
+    ASSERT_TRUE(layout.valid) << layout.error;
+    const uint64_t expected = 74052ull * (64 * (30 * 8 + 16) + resolution * resolution * (30 * 4 + 8) + 16);
+    EXPECT_EQ(layout.history_allocation_bytes * 4, expected);
+    GiHistoryBudget budget;
+    for (uint32_t cascade = 0; cascade < 4; ++cascade)
+      ASSERT_TRUE(DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, budget));
+    const auto before = budget.bytes;
+    EXPECT_EQ(DdgiHistoryLayout::AddAllocationBytes(layout.history.buffer_bytes, budget), resolution != 16);
+    if (resolution == 16)
+      EXPECT_EQ(budget.bytes, before);
+    EXPECT_EQ(settings.storage.visibility_tile_resolution, resolution);
   }
 }
 
@@ -76,20 +92,23 @@ TEST(DdgiHistoryTest, SupportedWindowsAndCheckedInteriorStorage) {
   for (int count = -1; count <= 35; ++count) {
     DdgiHistoryLayout layout;
     const bool supported = count >= 5 && count <= 30 && count % 5 == 0;
-    ASSERT_EQ(DdgiHistoryLayout::Calculate(8192, 8, count, layout), supported);
+    ASSERT_EQ(DdgiHistoryLayout::Calculate(8192, 8, 8, count, layout), supported);
     if (!supported)
       continue;
     EXPECT_EQ(layout.buffer_bytes[DdgiHistoryLayout::IrradianceRing], 8192ull * 64 * count * 8);
     EXPECT_EQ(layout.buffer_bytes[DdgiHistoryLayout::IrradianceSum], 8192ull * 64 * 16);
     EXPECT_EQ(layout.buffer_bytes[DdgiHistoryLayout::ProbeOrigins], 8192ull * 16);
+    EXPECT_EQ(layout.buffer_bytes[DdgiHistoryLayout::VisibilityRing], 8192ull * 64 * count * 4);
+    EXPECT_EQ(layout.buffer_bytes[DdgiHistoryLayout::VisibilitySum], 8192ull * 64 * 8);
   }
   DdgiHistoryLayout layout;
-  ASSERT_TRUE(DdgiHistoryLayout::Calculate(1, 8, 30, layout));
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(1, 8, 8, 30, layout));
   const auto previous = layout.buffer_bytes;
-  EXPECT_FALSE(DdgiHistoryLayout::Calculate((std::numeric_limits<uint64_t>::max)(), 128, 30, layout));
+  EXPECT_FALSE(DdgiHistoryLayout::Calculate((std::numeric_limits<uint64_t>::max)(), 128, 128, 30, layout));
   EXPECT_EQ(layout.buffer_bytes, previous);
-  EXPECT_FALSE(DdgiHistoryLayout::Calculate(0, 8, 30, layout));
-  EXPECT_FALSE(DdgiHistoryLayout::Calculate(1, 0, 30, layout));
+  EXPECT_FALSE(DdgiHistoryLayout::Calculate(0, 8, 8, 30, layout));
+  EXPECT_FALSE(DdgiHistoryLayout::Calculate(1, 0, 8, 30, layout));
+  EXPECT_FALSE(DdgiHistoryLayout::Calculate(1, 8, 0, 30, layout));
 }
 
 TEST(DdgiHistoryTest, PaddedAllocationsShareStrictBudgetAtomically) {
@@ -976,8 +995,7 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   ASSERT_FALSE(atlas_prepare_source.empty());
   ASSERT_FALSE(render_layer_source.empty());
 
-  EXPECT_NE(render_layer_source.find("glm::floatBitsToInt(settings.runtime.visibility_smoothing)"), std::string::npos);
-  EXPECT_NE(probe_update_source.find("asfloat(constants.probe_scroll_delta.w)"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("EE_DDGI_ROLL_VISIBILITY"), std::string::npos);
   EXPECT_NE(probe_update_source.find("1.0f / (2.0f * max(uniform_accumulator.weight_sum, uniform_epsilon))"),
             std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE()"), std::string::npos);

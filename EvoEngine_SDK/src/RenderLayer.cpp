@@ -760,8 +760,7 @@ DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(const Dd
       glm::clamp(source.random_ray_backface_threshold, 0.0f, 1.0f), glm::max(settings.runtime.distance_exponent, 0.0f),
       static_cast<float>(settings.runtime.history_count), static_cast<float>(history_phase)};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
-  push_constant.probe_scroll_delta =
-      glm::ivec4(source.probe_scroll_delta, glm::floatBitsToInt(settings.runtime.visibility_smoothing));
+  push_constant.probe_scroll_delta = glm::ivec4(source.probe_scroll_delta, 0);
   push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
   push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
   push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);

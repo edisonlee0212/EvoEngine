@@ -15,12 +15,12 @@ inline bool IsDdgiHistoryCountSupported(const int count) {
 
 // Packed uint storage avoids requiring 16-bit storage-buffer shader support.
 struct DdgiHistoryLayout {
-  enum BufferIndex { IrradianceRing, IrradianceSum, ProbeOrigins, BufferCount };
+  enum BufferIndex { IrradianceRing, IrradianceSum, ProbeOrigins, VisibilityRing, VisibilitySum, BufferCount };
   std::array<uint64_t, BufferCount> buffer_bytes{};
 
-  static bool Calculate(const uint64_t probe_count, const uint32_t irradiance_size, const int history_count,
-                        DdgiHistoryLayout& result) {
-    if (!probe_count || !irradiance_size || !IsDdgiHistoryCountSupported(history_count))
+  static bool Calculate(const uint64_t probe_count, const uint32_t irradiance_size, const uint32_t visibility_size,
+                        const int history_count, DdgiHistoryLayout& result) {
+    if (!probe_count || !irradiance_size || !visibility_size || !IsDdgiHistoryCountSupported(history_count))
       return false;
     DdgiHistoryLayout candidate;
     for (size_t i = 0; i < BufferCount; ++i) {
@@ -31,9 +31,12 @@ struct DdgiHistoryLayout {
         candidate.buffer_bytes[i] = bytes;
         continue;
       }
-      if (!MultiplyGiHistoryBytes(bytes, irradiance_size) || !MultiplyGiHistoryBytes(bytes, irradiance_size) ||
-          !MultiplyGiHistoryBytes(bytes, i == IrradianceRing ? 8 : 16) ||
-          !MultiplyGiHistoryBytes(bytes, i == IrradianceRing ? history_count : 1))
+      const bool visibility = i == VisibilityRing || i == VisibilitySum;
+      const bool ring = i == IrradianceRing || i == VisibilityRing;
+      const auto size = visibility ? visibility_size : irradiance_size;
+      if (!MultiplyGiHistoryBytes(bytes, size) || !MultiplyGiHistoryBytes(bytes, size) ||
+          !MultiplyGiHistoryBytes(bytes, visibility ? (ring ? 4 : 8) : (ring ? 8 : 16)) ||
+          !MultiplyGiHistoryBytes(bytes, ring ? history_count : 1))
         return false;
       candidate.buffer_bytes[i] = bytes;
     }

@@ -4369,7 +4369,7 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   DdgiHistoryLayout layout;
-  ASSERT_TRUE(DdgiHistoryLayout::Calculate(6, 1, 30, layout));
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(6, 1, 1, 30, layout));
   GiHistoryBudget budget;
   std::string error;
   ASSERT_TRUE(DdgiRuntime::AddDeviceHistoryAllocations(layout, budget, error)) << error;
@@ -4424,7 +4424,7 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
     }
     EXPECT_EQ(results[i].x, 0u) << count;
     EXPECT_EQ(results[i].y, irradiance_sum);
-    EXPECT_NEAR(glm::uintBitsToFloat(results[i].z), 5.0f, 0.0001f);
+    EXPECT_NEAR(glm::uintBitsToFloat(results[i].z), (count + 1.0f) * 0.5f, 0.001f);
     EXPECT_NEAR(glm::uintBitsToFloat(results[i].w), 1.0f / count, 0.001f);
   }
 }
@@ -4440,7 +4440,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     return std::make_shared<Buffer>(info);
   };
   DdgiHistoryLayout layout;
-  ASSERT_TRUE(DdgiHistoryLayout::Calculate(3, 1, 5, layout));
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(3, 1, 1, 5, layout));
   const auto descriptors = std::make_shared<DescriptorSetLayout>();
   for (uint32_t binding = 0; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
     if (binding != 5)
@@ -4520,7 +4520,9 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     pipeline->Dispatch(command, 1);
     Platform::EverythingBarrier(command);
   });
-  for (size_t i = 0; i < DdgiHistoryLayout::ProbeOrigins; ++i) {
+  for (size_t i = 0; i < DdgiHistoryLayout::BufferCount; ++i) {
+    if (i == DdgiHistoryLayout::ProbeOrigins)
+      continue;
     std::vector<uint32_t> values;
     history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
     for (size_t word = 0; word < values.size(); ++word)
@@ -4557,7 +4559,9 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
       Platform::EverythingBarrier(command);
     }
   });
-  for (size_t i = 0; i < DdgiHistoryLayout::ProbeOrigins; ++i) {
+  for (size_t i = 0; i < DdgiHistoryLayout::BufferCount; ++i) {
+    if (i == DdgiHistoryLayout::ProbeOrigins)
+      continue;
     std::vector<uint32_t> values;
     history[i]->DownloadVector(values, layout.buffer_bytes[i] / 4);
     for (size_t word = 0; word < values.size(); ++word)
