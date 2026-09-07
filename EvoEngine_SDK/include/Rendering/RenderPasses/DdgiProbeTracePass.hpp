@@ -11,6 +11,11 @@ class EVOENGINE_API Sampler;
 
 class EVOENGINE_API DdgiProbeTracePass final {
  public:
+  struct CascadeResources {
+    std::shared_ptr<Image> irradiance;
+    std::shared_ptr<Image> visibility;
+    std::shared_ptr<Buffer> probe_state;
+  };
   struct Parameters {
     std::shared_ptr<RayTracingPipeline> pipeline;
     std::shared_ptr<DescriptorSet> per_frame_descriptor_set;
@@ -25,6 +30,7 @@ class EVOENGINE_API DdgiProbeTracePass final {
     bool* selected_ray_readback_recorded = nullptr;
     bool use_emissive_sampling = false;
     uint32_t* recorded_ray_sample_count = nullptr;
+    std::array<CascadeResources, 8> cascades{};
   };
 
   [[nodiscard]] static RenderPassDescriptor CreateDescriptor(bool use_emissive_sampling = false);

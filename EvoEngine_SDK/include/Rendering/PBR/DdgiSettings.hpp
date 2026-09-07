@@ -36,6 +36,7 @@ struct EVOENGINE_API DdgiSettings {
     float distance_exponent = 50.0f;
     float irradiance_gamma = 5.0f;
     float visibility_moment_bias = 0.02f;
+    float visibility_smoothing = 0.90f;
     bool deterministic_ray_seed_enabled = false;
     uint32_t deterministic_ray_seed = 0;
   };

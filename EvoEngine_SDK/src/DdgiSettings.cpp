@@ -22,6 +22,7 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
   out << YAML::Key << "distance_exponent" << YAML::Value << settings.runtime.distance_exponent;
   out << YAML::Key << "irradiance_gamma" << YAML::Value << settings.runtime.irradiance_gamma;
   out << YAML::Key << "visibility_moment_bias" << YAML::Value << settings.runtime.visibility_moment_bias;
+  out << YAML::Key << "visibility_smoothing" << YAML::Value << settings.runtime.visibility_smoothing;
   out << YAML::Key << "deterministic_ray_seed_enabled" << YAML::Value
       << settings.runtime.deterministic_ray_seed_enabled;
   out << YAML::Key << "deterministic_ray_seed" << YAML::Value << settings.runtime.deterministic_ray_seed;
@@ -50,6 +51,7 @@ void evo_engine::SerializeDdgiSettings(YAML::Emitter& out, const DdgiSettings& s
 
 void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& settings) {
   settings.runtime.history_count = 30;
+  settings.runtime.visibility_smoothing = 0.90f;
   if (const auto runtime = in["runtime"]) {
     if (runtime["enabled"])
       settings.runtime.enabled = runtime["enabled"].as<bool>();
@@ -75,6 +77,8 @@ void evo_engine::DeserializeDdgiSettings(const YAML::Node& in, DdgiSettings& set
       settings.runtime.irradiance_gamma = runtime["irradiance_gamma"].as<float>();
     if (runtime["visibility_moment_bias"])
       settings.runtime.visibility_moment_bias = runtime["visibility_moment_bias"].as<float>();
+    if (runtime["visibility_smoothing"])
+      settings.runtime.visibility_smoothing = runtime["visibility_smoothing"].as<float>();
     if (runtime["deterministic_ray_seed_enabled"])
       settings.runtime.deterministic_ray_seed_enabled = runtime["deterministic_ray_seed_enabled"].as<bool>();
     if (runtime["deterministic_ray_seed"])

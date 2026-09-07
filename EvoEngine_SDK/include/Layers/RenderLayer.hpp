@@ -537,6 +537,7 @@ class EVOENGINE_API RenderLayer final : public ILayer {
     bool frame_clear_scrolled_probes = false;
     bool clear_probe_atlas_this_frame = false;
     glm::ivec3 previous_probe_counts = {0, 0, 0};
+    glm::ivec3 previous_probe_center{0};
     glm::vec3 previous_first_probe = glm::vec3(0.0f);
     glm::vec3 previous_probe_step_x = glm::vec3(0.0f);
     glm::vec3 previous_probe_step_y = glm::vec3(0.0f);

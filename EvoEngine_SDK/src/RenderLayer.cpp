@@ -515,7 +515,7 @@ uint32_t GetDdgiProbeVisualizationMode(const RenderLayer::DdgiSessionState& sess
 }
 
 glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
-  return {glm::clamp(value.x, 1, 256), glm::clamp(value.y, 1, 256), glm::clamp(value.z, 1, 256)};
+  return glm::clamp(value, glm::ivec3(1), glm::ivec3(257));
 }
 
 glm::ivec3 WrapDdgiProbeGrid(const glm::ivec3& probe_grid, const glm::ivec3& probe_counts) {
@@ -718,8 +718,8 @@ DdgiProbeRayDiagnosticSource CreateDdgiProbeRayDiagnosticSourceFromResolvedVolum
   DdgiProbeRayDiagnosticSource source;
   source.probe_counts = volume.probe_counts;
   const auto counts = ClampDdgiProbeCounts(volume.probe_counts);
-  const auto spacing = ClampDdgiProbeSpacing(volume.probe_spacing);
-  const auto first_probe_local = volume.volume_origin - glm::vec3(counts - glm::ivec3(1)) * spacing * 0.5f;
+  const auto spacing = volume.probe_spacing;
+  const auto first_probe_local = (glm::vec3(volume.probe_center) - glm::vec3(counts - glm::ivec3(1)) * 0.5f) * spacing;
   source.first_probe = TransformPoint(volume.transform, first_probe_local);
   source.probe_step_x = TransformVector(volume.transform, {spacing.x, 0.0f, 0.0f});
   source.probe_step_y = TransformVector(volume.transform, {0.0f, spacing.y, 0.0f});
@@ -815,7 +815,8 @@ DdgiProbeAtlasUpdatePushConstant CreateDdgiProbeAtlasUpdatePushConstant(const Dd
       glm::clamp(source.random_ray_backface_threshold, 0.0f, 1.0f), glm::max(settings.runtime.distance_exponent, 0.0f),
       static_cast<float>(settings.runtime.history_count), static_cast<float>(history_phase)};
   push_constant.probe_scroll_offset = CreateDdgiProbeScrollPushConstant(source);
-  push_constant.probe_scroll_delta = glm::ivec4(source.probe_scroll_delta, 0);
+  push_constant.probe_scroll_delta =
+      glm::ivec4(source.probe_scroll_delta, glm::floatBitsToInt(settings.runtime.visibility_smoothing));
   push_constant.probe_step_x = glm::vec4(source.probe_step_x, 0.0f);
   push_constant.probe_step_y = glm::vec4(source.probe_step_y, 0.0f);
   push_constant.probe_step_z = glm::vec4(source.probe_step_z, 0.0f);
@@ -2689,9 +2690,11 @@ void RenderLayer::EnsureDdgiPipelines() {
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(2, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(17, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(18, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0);
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
+    ddgi_probe_ray_output_layout_->PushDescriptorBinding(19, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+                                                         VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR, 0, 8);
     ddgi_probe_ray_output_layout_->PushDescriptorBinding(21, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                          VK_SHADER_STAGE_RAYGEN_BIT_KHR, 0);
     ddgi_probe_ray_output_layout_->Initialize();
@@ -2710,7 +2713,7 @@ void RenderLayer::EnsureDdgiPipelines() {
                                                      0);
     ddgi_probe_update_layout_->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT,
                                                      0);
-    for (uint32_t binding = 7; binding <= 11; ++binding)
+    for (uint32_t binding = 7; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
       ddgi_probe_update_layout_->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                        VK_SHADER_STAGE_COMPUTE_BIT, 0);
     ddgi_probe_update_layout_->Initialize();
@@ -3434,7 +3437,11 @@ const GiProbeFrame& RenderLayer::PrepareGiProbeFrame(const std::shared_ptr<Scene
 
 void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
                                         const std::shared_ptr<RenderInstanceStorage>& render_instances) {
-  const auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  auto resolved_lighting = ResolveEnvironmentalLighting(scene);
+  if (scene && resolved_lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi) {
+    PrepareGiProbeFrame(scene, resolved_lighting.gi_probe_settings);
+    resolved_lighting = ResolveEnvironmentalLighting(scene);
+  }
   auto ddgi_settings = resolved_lighting.ddgi_settings;
   if (!render_instances) {
     return;
@@ -3490,8 +3497,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
     info.probe_density =
         DdgiRuntime::CalculateProbeDensity(source.probe_step_x, source.probe_step_y, source.probe_step_z);
   }
-  const auto configured_probe_limit =
-      ddgi_settings.storage.max_probe_count > 0 ? static_cast<uint32_t>(ddgi_settings.storage.max_probe_count) : 0u;
+  const auto configured_probe_limit = (std::numeric_limits<uint32_t>::max)();
   const auto validation = DdgiRuntime::ValidateVolumeSet(infos, configured_probe_limit);
   if (!validation.valid) {
     reject_volume_set(validation.error);
@@ -3572,12 +3578,7 @@ void RenderLayer::PrepareDdgiFrameState(const std::shared_ptr<Scene>& scene,
       source.probe_step_x = runtime->previous_probe_step_x;
       source.probe_step_y = runtime->previous_probe_step_y;
       source.probe_step_z = runtime->previous_probe_step_z;
-      source.first_probe =
-          runtime->previous_movement_type == static_cast<int>(DdgiVolumeMovementType::Scrolling)
-              ? CalculateDdgiEffectiveFirstProbe(runtime->probe_scroll_base_first_probe, runtime->previous_probe_step_x,
-                                                 runtime->previous_probe_step_y, runtime->previous_probe_step_z,
-                                                 runtime->probe_scroll_offset)
-              : runtime->previous_first_probe;
+      source.first_probe = runtime->previous_first_probe;
     }
     const auto& layout = runtime->frame_resource_layout;
     auto& gpu_info = runtime->gpu_info;
@@ -3805,9 +3806,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
       runtime_state.previous_movement_type != ddgi_ray_source.movement_type ||
       runtime_state.previous_emissive_mesh_sampling_enabled != runtime_state.emissive_mesh_sampling_enabled;
   const auto first_probe_changed =
-      runtime_state.has_previous_ray_source && runtime_state.previous_first_probe != ddgi_ray_source.first_probe;
-  const auto ddgi_scrolling_enabled =
-      ddgi_ray_source.movement_type == static_cast<int>(DdgiVolumeMovementType::Scrolling);
+      runtime_state.has_previous_ray_source && runtime_state.previous_probe_center != volume.probe_center;
   bool ddgi_ray_source_changed = ddgi_ray_source_common_changed;
   bool ddgi_full_scroll_reset = false;
   runtime_state.probe_scroll_clear = glm::ivec3(0);
@@ -3818,6 +3817,7 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     runtime_state.probe_scroll_offset = glm::ivec3(0);
     runtime_state.probe_scroll_directions = glm::ivec3(1);
     runtime_state.previous_probe_counts = ddgi_ray_source.probe_counts;
+    runtime_state.previous_probe_center = volume.probe_center;
     runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
     runtime_state.previous_probe_step_x = ddgi_ray_source.probe_step_x;
     runtime_state.previous_probe_step_y = ddgi_ray_source.probe_step_y;
@@ -3832,42 +3832,18 @@ void RenderLayer::PrepareDdgiVolumeFrameState(const std::shared_ptr<Scene>& scen
     runtime_state.previous_movement_type = ddgi_ray_source.movement_type;
     runtime_state.previous_emissive_mesh_sampling_enabled = runtime_state.emissive_mesh_sampling_enabled;
   } else if (first_probe_changed) {
-    if (ddgi_scrolling_enabled) {
-      NormalizeDdgiProbeScrollOrigin(runtime_state.probe_scroll_base_first_probe, runtime_state.probe_scroll_offset,
-                                     ddgi_ray_source.probe_counts, ddgi_ray_source.probe_step_x,
-                                     ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      const auto effective_first_probe = CalculateDdgiEffectiveFirstProbe(
-          runtime_state.probe_scroll_base_first_probe, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
-          ddgi_ray_source.probe_step_z, runtime_state.probe_scroll_offset);
-      const auto first_probe_delta = ddgi_ray_source.first_probe - effective_first_probe;
-      runtime_state.probe_scroll_directions = {
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_x) >= 0.0f ? 1 : -1,
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_y) >= 0.0f ? 1 : -1,
-          AxisCoordinate(first_probe_delta, ddgi_ray_source.probe_step_z) >= 0.0f ? 1 : -1};
-      runtime_state.last_probe_scroll_delta = CalculateDdgiProbeScrollDelta(
-          first_probe_delta, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      ddgi_full_scroll_reset =
-          DdgiRuntime::RequiresFullScrollReset(ddgi_ray_source.probe_counts, runtime_state.last_probe_scroll_delta);
-      for (int axis = 0; axis < 3; ++axis) {
-        runtime_state.probe_scroll_offset[axis] += runtime_state.last_probe_scroll_delta[axis];
-        runtime_state.probe_scroll_clear[axis] = glm::abs(runtime_state.last_probe_scroll_delta[axis]);
-      }
-      NormalizeDdgiProbeScrollOrigin(runtime_state.probe_scroll_base_first_probe, runtime_state.probe_scroll_offset,
-                                     ddgi_ray_source.probe_counts, ddgi_ray_source.probe_step_x,
-                                     ddgi_ray_source.probe_step_y, ddgi_ray_source.probe_step_z);
-      runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
-    } else {
-      ddgi_ray_source_changed = true;
-      runtime_state.probe_scroll_base_first_probe = ddgi_ray_source.first_probe;
-      runtime_state.probe_scroll_offset = glm::ivec3(0);
-      runtime_state.probe_scroll_directions = glm::ivec3(1);
-      runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
+    runtime_state.last_probe_scroll_delta = volume.probe_center - runtime_state.previous_probe_center;
+    ddgi_full_scroll_reset =
+        DdgiRuntime::RequiresFullScrollReset(ddgi_ray_source.probe_counts, runtime_state.last_probe_scroll_delta);
+    for (int axis = 0; axis < 3; ++axis) {
+      const auto delta = runtime_state.last_probe_scroll_delta[axis];
+      runtime_state.probe_scroll_directions[axis] = delta >= 0 ? 1 : -1;
+      runtime_state.probe_scroll_clear[axis] = std::abs(delta);
     }
-  }
-  if (ddgi_scrolling_enabled) {
-    ddgi_ray_source.first_probe = CalculateDdgiEffectiveFirstProbe(
-        runtime_state.probe_scroll_base_first_probe, ddgi_ray_source.probe_step_x, ddgi_ray_source.probe_step_y,
-        ddgi_ray_source.probe_step_z, runtime_state.probe_scroll_offset);
+    runtime_state.probe_scroll_offset = WrapDdgiProbeGrid(
+        runtime_state.probe_scroll_offset + runtime_state.last_probe_scroll_delta, ddgi_ray_source.probe_counts);
+    runtime_state.previous_probe_center = volume.probe_center;
+    runtime_state.previous_first_probe = ddgi_ray_source.first_probe;
   }
   ddgi_ray_source.probe_scroll_offset = runtime_state.probe_scroll_offset;
   ddgi_ray_source.probe_scroll_clear = runtime_state.probe_scroll_clear;
@@ -5894,6 +5870,49 @@ void RenderLayer::RenderAll() {
     aggregate.lighting_descriptors_bound &= volume_stats.lighting_descriptors_bound;
   };
 
+  std::array<DdgiProbeTracePass::CascadeResources, 8> ddgi_cascade_resources{};
+  const auto prepare_ddgi_cascade = [&](DdgiVolumeRuntimeState& runtime, const uint32_t cascade) {
+    if (!runtime.frame_resource_layout.valid || !runtime.irradiance_atlas || !runtime.visibility_atlas ||
+        !runtime.probe_state_buffer || !runtime.probe_metadata_buffer)
+      return;
+    ddgi_cascade_resources[cascade] = {runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer};
+    if (!runtime.clear_probe_atlas_this_frame && !runtime.frame_clear_scrolled_probes)
+      return;
+    // All cascade origins must be cleared before any ray can gather from another cascade.
+    RenderGraph graph;
+    AddDdgiFrameResources(graph, runtime.frame_resource_layout);
+    auto& transient = current_frame_transient_resources.emplace_back();
+    if (runtime.clear_probe_atlas_this_frame)
+      graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(), [](const RenderGraphExecutionContext& context) {
+        DdgiAtlasPreparePass::Execute(context);
+      });
+    if (runtime.frame_clear_scrolled_probes)
+      graph.AddPass(DdgiProbeScrollPass::CreateDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        DdgiProbeScrollPass::Execute(context, {ddgi_probe_scroll_pipeline_, ddgi_probe_update_layout_, &transient,
+                                               runtime.frame_probe_scroll_push_constant});
+      });
+    const auto plan = graph.Compile(CreateFrameRenderGraphCompileContext());
+    auto registry = CreateFrameRenderGraphResourceRegistry(per_frame_descriptor_sets_[current_frame_index]);
+    registry.BindBuffer(RenderResourceNames::frame_ddgi_probe_metadata, runtime.probe_metadata_buffer);
+    registry.BindBuffer(RenderResourceNames::frame_ddgi_probe_state, runtime.probe_state_buffer);
+    registry.BindImage(RenderResourceNames::frame_ddgi_irradiance_atlas, runtime.irradiance_atlas);
+    registry.BindImage(RenderResourceNames::frame_ddgi_visibility_atlas, runtime.visibility_atlas);
+    transient.Allocate(graph.GetResources(), plan);
+    transient.Bind(registry);
+    transient.RetainImage(runtime.irradiance_atlas);
+    transient.RetainImage(runtime.visibility_atlas);
+    transient.RetainBuffer(runtime.probe_state_buffer);
+    transient.RetainBuffer(runtime.probe_metadata_buffer);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      AcquireDdgiFrameResources(command, runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer,
+                                runtime.probe_metadata_buffer, nullptr);
+    });
+    graph.Execute(plan, registry);
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      PublishDdgiFrameResources(command, runtime.irradiance_atlas, runtime.visibility_atlas, runtime.probe_state_buffer,
+                                runtime.probe_metadata_buffer, nullptr);
+    });
+  };
   const auto execute_ddgi_runtime = [&](DdgiVolumeRuntimeState& ddgi_runtime, const uint32_t volume_slot) {
     ddgi_runtime.frame_selected_ray_diagnostics_buffer.reset();
     ddgi_runtime.last_performance_stats = {};
@@ -5968,24 +5987,7 @@ void RenderLayer::RenderAll() {
     const auto use_emissive_sampling = trace_ddgi_probe_rays && ddgi_runtime.frame_emissive_ray_count > 0u;
     const auto use_ddgi_frame_resources = ddgi_settings.runtime.enabled && ddgi_runtime.frame_resource_layout.valid;
     if (use_ddgi_frame_resources) {
-      const auto clear_ddgi_probe_atlas = ddgi_runtime.clear_probe_atlas_this_frame;
-      const auto clear_scrolled_probes = ddgi_runtime.frame_clear_scrolled_probes;
-      const auto ddgi_probe_scroll_push_constant = ddgi_runtime.frame_probe_scroll_push_constant;
       AddDdgiFrameResources(frame_render_graph, ddgi_runtime.frame_resource_layout);
-      if (clear_ddgi_probe_atlas) {
-        frame_render_graph.AddPass(DdgiAtlasPreparePass::CreateDescriptor(),
-                                   [&](const RenderGraphExecutionContext& context) {
-                                     DdgiAtlasPreparePass::Execute(context);
-                                   });
-      }
-      if (clear_scrolled_probes) {
-        frame_render_graph.AddPass(DdgiProbeScrollPass::CreateDescriptor(),
-                                   [&, ddgi_probe_scroll_push_constant](const RenderGraphExecutionContext& context) {
-                                     DdgiProbeScrollPass::Execute(
-                                         context, {ddgi_probe_scroll_pipeline_, ddgi_probe_update_layout_,
-                                                   active_frame_transient_resources, ddgi_probe_scroll_push_constant});
-                                   });
-      }
     }
     const auto reset_ddgi_probe_relocation = ddgi_runtime.frame_probe_relocation_reset;
     const auto relocate_ddgi_probes = ddgi_runtime.frame_probe_relocation_enabled;
@@ -6030,7 +6032,8 @@ void RenderLayer::RenderAll() {
                           active_frame_transient_resources, ddgi_atlas_sampler_, ddgi_ray_push_constant,
                           ddgi_runtime.frame_resource_layout.probe_count, ddgi_probe_ray_readback_buffer,
                           ddgi_runtime.frame_selected_probe_ray_sample_count, &selected_ray_readback_recorded,
-                          use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count});
+                          use_emissive_sampling, &ddgi_runtime.last_performance_stats.recorded_ray_sample_count,
+                          ddgi_cascade_resources});
           });
       frame_render_graph.AddPass(
           DdgiProbeUpdatePass::CreateDescriptor(use_emissive_sampling),
@@ -6219,6 +6222,10 @@ void RenderLayer::RenderAll() {
   };
 
   if (ddgi_settings.runtime.enabled && !ddgi_ordered_volume_ids_.empty()) {
+    for (size_t i = 0; i < ddgi_ordered_volume_ids_.size(); ++i)
+      if (const auto runtime = ddgi_volume_runtime_states_.find(ddgi_ordered_volume_ids_[i]);
+          runtime != ddgi_volume_runtime_states_.end())
+        prepare_ddgi_cascade(*runtime->second, static_cast<uint32_t>(i));
     for (size_t i = ddgi_ordered_volume_ids_.size(); i-- > 0u;) {
       const auto runtime = ddgi_volume_runtime_states_.find(ddgi_ordered_volume_ids_[i]);
       if (runtime == ddgi_volume_runtime_states_.end()) {

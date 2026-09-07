@@ -37,7 +37,7 @@ void EE_DDGI_CLEAR_VISIBILITY_TILE(uint2 tile_origin, uint tile_size) {
   uint tile_stride = EE_DDGI_ATLAS_TILE_STRIDE(tile_size);
   for (uint y = 0u; y < tile_stride; ++y) {
     for (uint x = 0u; x < tile_stride; ++x) {
-      EE_DDGI_VISIBILITY_ATLAS[int2(tile_origin + uint2(x, y))] = float2(1.0f, 0.0f);
+      EE_DDGI_VISIBILITY_ATLAS[int2(tile_origin + uint2(x, y))] = float2(-1.0f);
     }
   }
 }

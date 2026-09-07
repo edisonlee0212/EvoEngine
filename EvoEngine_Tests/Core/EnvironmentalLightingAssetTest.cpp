@@ -935,7 +935,7 @@ TEST(EnvironmentalLightingAsset, ProviderSelectionKeepsAuthoredSettingsButIsolat
   lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
   const auto resolved = ResolveEnvironmentalLighting(scene);
   EXPECT_TRUE(resolved.ddgi_settings.runtime.enabled);
-  EXPECT_EQ(resolved.ddgi_volumes.size(), 1u);
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());  // Authored packs cannot create camera-following cascades.
   EXPECT_FALSE(scene->GetSdfgiRuntime());
 }
 
@@ -1029,16 +1029,12 @@ TEST(EnvironmentalLightingAsset, ResolverUsesAssignedAsset) {
   EXPECT_FALSE(ContainsStableId(resolved.local_reflection_probes, 99u));
   EXPECT_FALSE(resolved.local_reflection_probes[2].payload);
 
-  ASSERT_EQ(resolved.ddgi_volumes.size(), 2u);
-  EXPECT_EQ(resolved.ddgi_volumes[0].stable_id, 200u);
-  EXPECT_EQ(resolved.ddgi_volumes[1].stable_id, 100u);
-  EXPECT_EQ(resolved.ddgi_volumes[0].emissive_mesh_sampling_mode, static_cast<int>(DdgiEmissiveMeshSamplingMode::Off));
-  EXPECT_TRUE(resolved.ddgi_volumes[1].enable_probe_classification);
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());
 
   lighting->local_reflection_probes_enabled = false;
   const auto master_disabled = ResolveEnvironmentalLighting(scene);
   EXPECT_TRUE(master_disabled.local_reflection_probes.empty());
-  EXPECT_EQ(master_disabled.ddgi_volumes.size(), 2u);
+  EXPECT_TRUE(master_disabled.ddgi_volumes.empty());
 }
 
 TEST(EnvironmentalLightingAsset, SdfgiInspectorKeepsControlsWithoutAnalysisPanels) {
@@ -1095,7 +1091,7 @@ TEST(EnvironmentalLightingAsset, EcoSysLabComparisonVolumeCoversWallsAndPreserve
   lighting->indirect_gi_provider = IndirectGiProvider::AuthoredDdgi;
   const auto resolved = ResolveEnvironmentalLighting(scene);
   EXPECT_TRUE(resolved.ddgi_settings.runtime.enabled);
-  EXPECT_EQ(resolved.ddgi_volumes.size(), 1u);
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());
   YAML::Emitter out;
   out << YAML::BeginMap;
   SerializeDdgiVolumePack(out, *pack);
@@ -1169,7 +1165,7 @@ TEST(EnvironmentalLightingAsset, ResolverSafelyIgnoresWrongPackTypesAndSupportsS
   second_lighting->ddgi_volume_pack = ddgi_pack;
   resolved = ResolveEnvironmentalLighting(scene);
   ASSERT_EQ(resolved.local_reflection_probes.size(), 1u);
-  ASSERT_EQ(resolved.ddgi_volumes.size(), 1u);
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());
   EXPECT_EQ(second_lighting->GetReflectionProbePack(), reflection_pack);
   EXPECT_EQ(second_lighting->GetDdgiVolumePack(), ddgi_pack);
 }
@@ -1228,12 +1224,10 @@ TEST(EnvironmentalLightingAsset, ResolverCapsAssetOwnedEntriesDeterministically)
 
   const auto resolved = ResolveEnvironmentalLighting(scene);
   ASSERT_EQ(resolved.local_reflection_probes.size(), ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount);
-  ASSERT_EQ(resolved.ddgi_volumes.size(), ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
+  EXPECT_TRUE(resolved.ddgi_volumes.empty());
   EXPECT_EQ(resolved.truncated_local_reflection_probe_count, 1u);
-  EXPECT_EQ(resolved.truncated_ddgi_volume_count, 1u);
+  EXPECT_EQ(resolved.truncated_ddgi_volume_count, 0u);
   EXPECT_EQ(resolved.local_reflection_probes.front().stable_id, 1u);
   EXPECT_EQ(resolved.local_reflection_probes.back().stable_id,
             ResolvedEnvironmentalLighting::kMaxLocalReflectionProbeCount);
-  EXPECT_EQ(resolved.ddgi_volumes.front().stable_id, 1u);
-  EXPECT_EQ(resolved.ddgi_volumes.back().stable_id, ResolvedEnvironmentalLighting::kMaxDdgiVolumeCount);
 }

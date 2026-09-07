@@ -11,7 +11,7 @@ using namespace evo_engine;
 
 namespace {
 glm::ivec3 ClampDdgiProbeCounts(const glm::ivec3& value) {
-  return {glm::clamp(value.x, 1, 256), glm::clamp(value.y, 1, 256), glm::clamp(value.z, 1, 256)};
+  return glm::clamp(value, glm::ivec3(1), glm::ivec3(257));
 }
 
 float AxisCoordinate(const glm::vec3& delta, const glm::vec3& axis) {
@@ -104,11 +104,7 @@ uint32_t DdgiRuntime::GetAllocatedProbeCount(const DdgiSettings& settings) {
   return GetAllocatedProbeCount(settings, GetProbeCount(settings.volume_defaults.probe_counts));
 }
 
-uint32_t DdgiRuntime::GetAllocatedProbeCount(const DdgiSettings& settings, const uint32_t probe_count) {
-  if (settings.storage.max_probe_count <= 0 || probe_count == 0u ||
-      probe_count > static_cast<uint32_t>(settings.storage.max_probe_count)) {
-    return 0u;
-  }
+uint32_t DdgiRuntime::GetAllocatedProbeCount(const DdgiSettings&, const uint32_t probe_count) {
   return probe_count;
 }
 
@@ -121,8 +117,8 @@ bool DdgiRuntime::ValidateProbeGrid(const glm::ivec3& probe_counts, const uint32
     return false;
   };
   for (int axis = 0; axis < 3; ++axis) {
-    if (probe_counts[axis] < 1 || probe_counts[axis] > 256) {
-      return fail("DDGI probe counts must be between 1 and 256 on every axis.");
+    if (probe_counts[axis] < 1 || probe_counts[axis] > 257) {
+      return fail("DDGI probe counts must be between 1 and 257 on every axis.");
     }
   }
   if (max_probe_count == 0u) {
@@ -216,7 +212,14 @@ DdgiAtlasLayout DdgiRuntime::CalculateAtlasLayout(const uint32_t probe_count, co
     return layout;
   }
   const uint64_t tile_stride = static_cast<uint64_t>(tile_resolution) + 2ull;
-  const uint64_t columns = glm::min(static_cast<uint64_t>(probe_count), static_cast<uint64_t>(preferred_columns));
+  const uint64_t max_tiles = max_image_dimension_2d / tile_stride;
+  if (!max_tiles || uint64_t(probe_count) > max_tiles * max_tiles) {
+    layout.error = "DDGI probes cannot fit within the Vulkan 2D image limit.";
+    return layout;
+  }
+  const uint64_t minimum_columns = (uint64_t(probe_count) + max_tiles - 1) / max_tiles;
+  const uint64_t columns =
+      std::clamp(uint64_t(preferred_columns), minimum_columns, std::min(uint64_t(probe_count), max_tiles));
   const uint64_t rows = (static_cast<uint64_t>(probe_count) + columns - 1ull) / columns;
   const uint64_t width = columns * tile_stride;
   const uint64_t height = rows * tile_stride;
@@ -256,13 +259,17 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
                                                                   const uint32_t max_image_dimension_2d,
                                                                   const uint64_t max_storage_buffer_range) {
   DdgiFrameResourceLayout layout;
+  if (!std::isfinite(settings.runtime.visibility_smoothing) || settings.runtime.visibility_smoothing < 0.0f ||
+      settings.runtime.visibility_smoothing > 0.99f) {
+    layout.error = "DDGI visibility smoothing must be finite and between 0 and 0.99.";
+    return layout;
+  }
   if (settings.runtime.ray_count < 1 || settings.runtime.ray_count > 4096 || settings.runtime.emissive_ray_count < 0 ||
       settings.runtime.emissive_ray_count > 4096) {
     layout.error = "DDGI ray settings are outside their supported ranges.";
     return layout;
   }
-  if (settings.storage.max_probe_count < 1 || settings.storage.max_probe_count > 16777216 ||
-      settings.storage.irradiance_tile_resolution < 1 || settings.storage.irradiance_tile_resolution > 128 ||
+  if (settings.storage.irradiance_tile_resolution < 1 || settings.storage.irradiance_tile_resolution > 128 ||
       settings.storage.visibility_tile_resolution < 1 || settings.storage.visibility_tile_resolution > 128 ||
       settings.storage.atlas_probe_columns < 1 || settings.storage.atlas_probe_columns > 4096) {
     layout.error = "DDGI storage settings are outside their supported ranges.";
@@ -285,8 +292,7 @@ DdgiFrameResourceLayout DdgiRuntime::CalculateFrameResourceLayout(const DdgiSett
     return layout;
   }
   if (!DdgiHistoryLayout::Calculate(layout.probe_count, layout.irradiance_atlas.tile_resolution,
-                                    layout.visibility_atlas.tile_resolution, settings.runtime.history_count,
-                                    layout.history)) {
+                                    settings.runtime.history_count, layout.history)) {
     layout.error = "DDGI history count must be 5 to 30 in steps of 5, with representable storage sizes.";
     return layout;
   }
@@ -424,7 +430,7 @@ DdgiVolumeSetValidation DdgiRuntime::ValidateVolumeSet(const std::vector<DdgiVol
                    std::to_string(kMaxVolumeCount) + ".";
     return result;
   }
-  const auto probe_limit = glm::min(configured_probe_limit, kMaxResidentProbeCount);
+  const auto probe_limit = configured_probe_limit;
   if (probe_limit == 0u) {
     result.error = "DDGI aggregate probe limit must be greater than zero.";
     return result;

@@ -3113,6 +3113,10 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
           changed = ImGui::DragFloat("Max ray distance", &runtime.max_ray_distance, 0.1f, 0.05f, 1e27f) || changed;
           changed = ImGui::DragFloat("Distance exponent", &runtime.distance_exponent, 0.1f, 0.0f, 256.0f) || changed;
           changed = ImGui::DragFloat("Irradiance gamma", &runtime.irradiance_gamma, 0.01f, 0.1f, 16.0f) || changed;
+          changed = ImGui::SliderFloat("Visibility smoothing", &runtime.visibility_smoothing, 0.0f, 0.99f) || changed;
+          ImGui::SetItemTooltip(
+              "Retains this fraction of the previous valid visibility estimate. No visibility history ring. Changes do "
+              "not restart lighting.");
           changed = ImGui::DragFloat("Visibility moment bias", &runtime.visibility_moment_bias, 0.001f, 0.0f, 10.0f) ||
                     changed;
           changed = ImGui::Checkbox("Deterministic ray seed", &runtime.deterministic_ray_seed_enabled) || changed;

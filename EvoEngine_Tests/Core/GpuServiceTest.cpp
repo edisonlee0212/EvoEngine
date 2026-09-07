@@ -4307,7 +4307,7 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
   DdgiHistoryLayout layout;
-  ASSERT_TRUE(DdgiHistoryLayout::Calculate(6, 1, 1, 30, layout));
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(6, 1, 30, layout));
   GiHistoryBudget budget;
   std::string error;
   ASSERT_TRUE(DdgiRuntime::AddDeviceHistoryAllocations(layout, budget, error)) << error;
@@ -4323,11 +4323,11 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
     return std::make_shared<Buffer>(info, allocation);
   };
   const auto history_layout = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t binding = 7; binding <= 11; ++binding)
+  for (uint32_t binding = 7; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
     history_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   history_layout->Initialize();
   const auto output_layout = std::make_shared<DescriptorSetLayout>();
-  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->PushDescriptorBinding(31, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   output_layout->Initialize();
   const auto history_set = std::make_shared<DescriptorSet>(history_layout);
   std::array<std::shared_ptr<Buffer>, DdgiHistoryLayout::BufferCount> history;
@@ -4337,7 +4337,7 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
   }
   const auto output = make_buffer(6 * sizeof(glm::uvec4));
   const auto output_set = std::make_shared<DescriptorSet>(output_layout);
-  output_set->UpdateBufferDescriptorBinding(0, output);
+  output_set->UpdateBufferDescriptorBinding(31, output);
   const auto pipeline = std::make_shared<ComputePipeline>();
   pipeline->descriptor_set_layouts = {output_layout, history_layout};
   pipeline->compute_shader =
@@ -4356,14 +4356,13 @@ TEST(GpuService, DdgiQuantizedHistoryStartupReplacementRejectionAndReset) {
   output->DownloadVector(results, 6);
   for (uint32_t i = 0; i < 6; ++i) {
     const auto count = (i + 1) * 5;
-    uint32_t irradiance_sum = 0, visibility_sum = 0;
+    uint32_t irradiance_sum = 0;
     for (uint32_t value = 1; value <= count; ++value) {
       irradiance_sum += QuantizeDdgiHistorySample(static_cast<float>(value), 64.0f);
-      visibility_sum += QuantizeDdgiHistorySample(static_cast<float>(value * value), 1024.0f);
     }
     EXPECT_EQ(results[i].x, 0u) << count;
     EXPECT_EQ(results[i].y, irradiance_sum);
-    EXPECT_EQ(results[i].z, visibility_sum);
+    EXPECT_NEAR(glm::uintBitsToFloat(results[i].z), 5.0f, 0.0001f);
     EXPECT_NEAR(glm::uintBitsToFloat(results[i].w), 1.0f / count, 0.001f);
   }
 }
@@ -4379,9 +4378,9 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     return std::make_shared<Buffer>(info);
   };
   DdgiHistoryLayout layout;
-  ASSERT_TRUE(DdgiHistoryLayout::Calculate(3, 1, 1, 5, layout));
+  ASSERT_TRUE(DdgiHistoryLayout::Calculate(3, 1, 5, layout));
   const auto descriptors = std::make_shared<DescriptorSetLayout>();
-  for (uint32_t binding = 0; binding <= 11; ++binding)
+  for (uint32_t binding = 0; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
     if (binding != 5)
       descriptors->PushDescriptorBinding(
           binding, binding == 1 || binding == 2 ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
@@ -4475,7 +4474,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     std::vector<uint16_t> values;
     output->DownloadVector(values, 9 * 3 * components);
     for (size_t word = 0; word < values.size(); ++word)
-      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : 0u);
+      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : i == 0 ? 0u : 0xbc00u);
   }
   const auto rays = make_buffer(3 * sizeof(glm::vec4));
   rays->UploadVector(std::vector<glm::vec4>(3, glm::vec4(std::numeric_limits<float>::quiet_NaN())));

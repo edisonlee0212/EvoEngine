@@ -1,3 +1,4 @@
+#include "DdgiHistory.hpp"
 #include "EvoEngine_SDK_PCH.hpp"
 
 #include "Application.hpp"
@@ -1418,7 +1419,7 @@ TEST(ShaderCache, ProductionDdgiComputeSlangShadersMatchHostLayouts) {
   ddgi_probe_update_layout->PushDescriptorBinding(3, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_update_layout->PushDescriptorBinding(4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   ddgi_probe_update_layout->PushDescriptorBinding(6, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
-  for (uint32_t binding = 7; binding <= 11; ++binding)
+  for (uint32_t binding = 7; binding < 7 + DdgiHistoryLayout::BufferCount; ++binding)
     ddgi_probe_update_layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
                                                     VK_SHADER_STAGE_COMPUTE_BIT, 0);
   auto ddgi_probe_relocation_layout = std::make_shared<DescriptorSetLayout>();

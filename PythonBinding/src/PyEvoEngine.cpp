@@ -649,6 +649,20 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   m.def("GetCurrentSceneDdgiHistoryCount", [] {
     return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene()).ddgi_settings.runtime.history_count;
   });
+  m.def("GetCurrentSceneDdgiVisibilitySmoothing", [] {
+    return ResolveEnvironmentalLighting(ApplicationContext::Get().GetActiveScene())
+        .ddgi_settings.runtime.visibility_smoothing;
+  });
+  m.def("SetCurrentSceneDdgiVisibilitySmoothing", [](const float retention) {
+    if (!std::isfinite(retention) || retention < 0.0f || retention > 0.99f)
+      throw py::value_error("Visibility smoothing must be between 0 and 0.99");
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    const auto lighting = scene ? scene->environmental_lighting.Get<EnvironmentalLighting>() : nullptr;
+    if (!lighting)
+      throw py::value_error("The active scene has no EnvironmentalLighting asset");
+    lighting->ddgi_settings.runtime.visibility_smoothing = retention;
+    lighting->SetUnsaved();
+  });
   m.def("GetCurrentSceneDdgiHistoryStatus", [] {
     py::list volumes;
     if (const auto render = ApplicationContext::Get().GetLayer<RenderLayer>()) {
@@ -662,6 +676,14 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
         item["ready"] = volume.sampling_complete;
         item["relocation_warmup"] = volume.warmup_active;
         item["resources_ready"] = volume.resources_ready;
+        item["probe_counts"] = py::make_tuple(volume.probe_counts.x, volume.probe_counts.y, volume.probe_counts.z);
+        item["first_probe"] = py::make_tuple(volume.first_probe.x, volume.first_probe.y, volume.first_probe.z);
+        item["scroll_offset"] =
+            py::make_tuple(volume.probe_scroll_offset.x, volume.probe_scroll_offset.y, volume.probe_scroll_offset.z);
+        item["scroll_delta"] = py::make_tuple(volume.last_probe_scroll_delta.x, volume.last_probe_scroll_delta.y,
+                                              volume.last_probe_scroll_delta.z);
+        item["resource_ids"] = py::make_tuple(volume.resource_ids[0], volume.resource_ids[1], volume.resource_ids[2],
+                                              volume.resource_ids[3]);
         volumes.append(item);
       }
     }

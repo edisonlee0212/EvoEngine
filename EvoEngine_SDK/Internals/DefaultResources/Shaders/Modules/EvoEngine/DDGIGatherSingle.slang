@@ -11,8 +11,8 @@ struct EeDdgiSingleVolumeResources : IDdgiGatherResources {
   float4 sampleIrradiance(uint volume_index, float2 uv) {
     return EE_DDGI_IRRADIANCE_ATLAS.SampleLevel(uv, 0.0f);
   }
-  float4 sampleVisibility(uint volume_index, float2 uv) {
-    return EE_DDGI_VISIBILITY_ATLAS.SampleLevel(uv, 0.0f);
+  float4 loadVisibility(uint volume_index, int2 pixel) {
+    return EE_DDGI_VISIBILITY_ATLAS.Load(int3(pixel, 0));
   }
 };
 

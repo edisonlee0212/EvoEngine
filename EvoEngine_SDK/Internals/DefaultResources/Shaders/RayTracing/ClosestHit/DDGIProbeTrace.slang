@@ -1,5 +1,5 @@
 import EvoEngine.DDGI;
-import EvoEngine.DDGIGatherSingle;
+import EvoEngine.DDGIGatherMulti;
 import EvoEngine.DDGIProbeRayConstants;
 import EvoEngine.DDGIProbeRayPayload;
 import EvoEngine.EmissiveTriangleSampling;
@@ -249,8 +249,7 @@ float3 EE_DDGI_EMISSIVE_MESH_IRRADIANCE(const float3 diffuse_albedo, const float
     float3 recursive_irradiance = float3(0.0f);
     if (!skip_recursive_ddgi) {
       const EeDdgiGatherResult recursive_gather =
-          EE_DDGI_GATHER_IRRADIANCE(EE_DDGI_PROBE_RAY_CONSTANTS.selected_probe_volume_flags_environment.y, world_normal,
-                                    -ray_direction, world_position);
+          EE_DDGI_GATHER_IRRADIANCE(world_normal, -ray_direction, world_position);
       recursive_irradiance = EE_DDGI_WEIGHTED_DIFFUSE(recursive_gather, min(diffuse_albedo, float3(0.9f)));
     }
     float3 emissive_mesh_irradiance = float3(0.0f);

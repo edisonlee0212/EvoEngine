@@ -75,6 +75,9 @@ class EVOENGINE_API Scene final : public IAsset {
   [[nodiscard]] std::shared_ptr<const SdfgiRuntime> GetSdfgiRuntime() const {
     return sdfgi_runtime_;
   }
+  [[nodiscard]] std::shared_ptr<const GiProbeFrame> GetGiProbeFrame() const {
+    return gi_probe_frame_;
+  }
   static bool RegisterAssetIoHandlers(const std::string& owner_name = {}, const std::string& type_name = "Scene");
 
   /**

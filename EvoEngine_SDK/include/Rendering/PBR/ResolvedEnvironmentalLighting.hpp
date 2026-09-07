@@ -67,6 +67,7 @@ struct ResolvedEnvironmentalLighting {
   };
 
   struct DdgiVolume {
+    glm::ivec3 probe_center{0};
     std::string name{};
     glm::mat4 transform = glm::mat4(1.0f);
     glm::ivec3 probe_counts = glm::ivec3(10, 6, 16);

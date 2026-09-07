@@ -263,15 +263,12 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
   resolved.indirect_gi_provider = lighting.indirect_gi_provider;
   resolved.gi_probe_settings = lighting.gi_probe_settings;
   resolved.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
-  if (lighting.indirect_gi_provider != IndirectGiProvider::AuthoredDdgi)
-    resolved.ddgi_settings.runtime.enabled = false;
+  resolved.ddgi_settings.runtime.enabled = lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi;
   auto dynamic_settings = lighting.dynamic_reflection_probe_settings;
   dynamic_settings.Clamp();
   resolved.dynamic_reflection_probe_settings = {static_cast<uint32_t>(dynamic_settings.faces_per_frame),
                                                 dynamic_settings.enabled};
   ResolveLocalProbes(lighting, resolved);
-  if (lighting.indirect_gi_provider == IndirectGiProvider::AuthoredDdgi)
-    ResolveDdgiVolumes(lighting, resolved);
 }
 }  // namespace
 
@@ -291,6 +288,25 @@ ResolvedEnvironmentalLighting evo_engine::ResolveEnvironmentalLighting(const std
     return resolved;
   }
   ResolveFromAsset(*lighting, resolved);
+  if (resolved.ddgi_settings.runtime.enabled) {
+    const auto frame = scene->GetGiProbeFrame();
+    if (frame && frame->settings.Validate().empty() && (frame->failure.empty() || !frame->anchor.camera_id)) {
+      for (uint32_t cascade = 0; cascade < frame->placements.size(); ++cascade) {
+        const auto& placement = frame->placements[cascade];
+        auto& volume = resolved.ddgi_volumes.emplace_back();
+        volume.name = "Cascade " + std::to_string(cascade);
+        volume.stable_id = cascade + 1;
+        volume.probe_center = placement.center;
+        volume.probe_counts = frame->settings.ProbeSize();
+        volume.probe_spacing = placement.interval;
+        volume.volume_origin = glm::vec3(placement.center) * placement.interval;
+        volume.movement_type = static_cast<int>(DdgiVolumeMovementType::Scrolling);
+        volume.enable_probe_relocation = resolved.ddgi_settings.volume_defaults.enable_probe_relocation;
+        volume.enable_probe_classification = resolved.ddgi_settings.volume_defaults.enable_probe_classification;
+        volume.relocation_distance = resolved.ddgi_settings.volume_defaults.relocation_distance;
+      }
+    }
+  }
   return resolved;
 }
 
@@ -301,8 +317,8 @@ std::vector<DdgiVolumeRuntimeInfo> evo_engine::CollectDdgiVolumeRuntimeInfos(
   for (size_t i = 0; i < lighting.ddgi_volumes.size(); ++i) {
     const auto& volume = lighting.ddgi_volumes[i];
     const auto counts = glm::max(volume.probe_counts, glm::ivec3(1));
-    const auto spacing = glm::max(volume.probe_spacing, glm::vec3(kMinimumExtent));
-    const auto first_probe_local = volume.volume_origin - glm::vec3(counts - glm::ivec3(1)) * spacing * 0.5f;
+    const auto spacing = volume.probe_spacing;
+    const auto first_probe_local = (glm::vec3(volume.probe_center) - glm::vec3(counts - 1) * 0.5f) * spacing;
     auto& info = infos.emplace_back();
     info.sorted_index = static_cast<uint32_t>(i);
     info.stable_entity_id = volume.stable_id;

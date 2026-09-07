@@ -8,50 +8,31 @@ raster lighting. It provides diffuse indirect light and visibility; it is not a 
 EvoEngine's DDGI probe tracing uses the Vulkan ray-tracing pipeline. A device without ray-tracing support can still run
 the raster renderer, but it cannot update DDGI probes.
 
-## Authoring And Ownership
+## Automatic Cascades
 
-### EcoSysLab comparison volume
+EnvironmentalLighting owns the shared camera-following probe layout: 33 x 17 x 33 probes per cascade,
+four cascades, horizontal base interval 0.8 and Y Scale 75% by default. Each cascade doubles the interval.
+DDGI uses the same nominal positions, half-interval snapping and signed integer scroll deltas as SDFGI.
+Changing SDFGI's voxel spacing does not change DDGI coverage.
 
-`Resources/EcoSysLabProject/Assets/Default.evescene` embeds one **EcoSysLab Walls** volume for provider comparisons.
-It stays fixed at world center `(0, 2, 0)`, with `15 x 13 x 15` probes at `0.5` spacing (2,925 probes).
-Probe-grid bounds are `(-3.5, -1, -3.5)` to `(3.5, 5, 3.5)`, covering the room walls with padding rather than the enormous
-ground plane. Relocation is on (distance `0.25`); classification is off. Other DDGI runtime settings retain engine defaults.
-The scene still selects Automatic SDFGI. In **Environmental Lighting**, select **Authored DDGI (RT)** to compare, then
-switch back to **Automatic SDFGI**; the inactive volume remains stored. DDGI requires RT-enabled engine startup.
-Entity transforms, enabled/Static flags, materials, lights, and the currently disabled Wall0 are unchanged.
+Authored DDGI packs no longer affect placement. Their editor/asset surfaces are pending removal in the
+unified-GI interface milestone. Select DDGI on an RT-enabled startup; the runtime creates one allocation per
+cascade, with stable scene/cascade identity. Auxiliary cameras and reflection captures cannot move the field.
 
-### Asset ownership
+There is no artificial 8,192-probe cap. Shared odd counts 3..257, atlas dimensions, buffer/ray limits and
+the strict history budget determine whether a layout is supported. Preferred atlas packing is retained
+when it fits and repacked into bounded rows otherwise.
 
-`EnvironmentalLighting` owns shared DDGI settings and references a `DdgiVolumePack`. The pack is a YAML asset containing
-volume definitions and stable IDs. GPU buffers, atlases, probe history, relocation, classification, and
-diagnostic readbacks are transient `RenderLayer` state.
+## Cascade Selection
 
-Create or assign a DDGI volume pack from the Environmental Lighting inspector, add one or more volumes, enable DDGI, and
-position the probe grids around the receivers they should light. Volume transforms use position, Euler rotation, and
-scale. The authored `volume_origin` is the center of the lattice.
-
-The first untransformed probe position is:
-
-```text
-volume_origin - 0.5 * (probe_counts - 1) * probe_spacing
-```
-
-The renderer accepts at most eight enabled volumes and 8,192 resident probes in total. Paused volumes keep their
-resources and count toward both limits. An invalid edit does not silently discard another volume: an existing runtime
-volume retains its last valid state, while a new invalid volume remains disabled.
-
-## Volume Selection
-
-Enabled volumes are ordered by artist priority, probe density, then stable ID. A shaded point selects the first ready
-volume with positive coverage. Near the primary volume's boundary, one additional lower-ranked volume may blend with it.
-Any uncovered diffuse weight uses the environment diffuse fallback.
-
-A volume contributes only after its layout and probe history are ready. A higher-ranked volume that is warming or
-rebuilding does not hide a lower-ranked ready volume.
+All lighting consumers, including recursive ray-hit feedback and reflection capture, gather the finest
+containing cascade. A two-nominal-probe boundary band blends toward coarser cascades; the last cascade
+fades to environment diffuse. Invalid or uninitialized probes leave environment fallback weight.
+All cascade clears/scroll clears are recorded before any cascade traces against the shared atlas set.
 
 ## Runtime Flow
 
-Each active volume owns persistent probe state, irradiance/visibility atlases, and quantized rolling histories. The render graph
+Each active cascade owns persistent probe state, irradiance/visibility atlases, and quantized irradiance history. The render graph
 records the following work when required:
 
 1. Prepare or clear persistent state for a new layout, reset, or newly exposed scrolling region.
@@ -76,8 +57,8 @@ The value belongs to the scene's EnvironmentalLighting DDGI settings, is seriali
 and is available through Python's `GetCurrentSceneDdgiHistoryCount` and `SetCurrentSceneDdgiHistoryCount`.
 Missing keys use 30; obsolete hysteresis, temporal-response, convergence, and per-volume trigger keys are ignored.
 
-Each active volume stores interior irradiance and visibility texels in a ring. Irradiance samples are linear and bounded
-to 64 before 16-bit quantization. Visibility moments are normalized by their per-volume distance bounds. Integer
+Each active cascade stores interior irradiance texels in a ring. Irradiance samples are linear and bounded
+to 64 before 16-bit quantization. Integer
 32-bit running sums replace the outgoing quantized sample exactly; averaged irradiance is gamma-encoded only when
 writing the lighting atlas. Borders are rebuilt from those averaged interiors. Invalid estimates leave the old slot intact.
 
@@ -107,6 +88,18 @@ The rolling-history delivery was checked on RTX 5070 with an installed 2560×144
 BLAS/TLAS enabled, 30 → 5 → 30 history transitions, finite float captures, and continued per-frame periodic updates.
 Focused CPU/shader and Vulkan fixtures cover quantized startup/replacement, rejected samples, moved/reactivated probe
 invalidation, and signed scrolling. Appearance acceptance remains manual; old hysteresis images are not acceptance baselines.
+
+## Filtered Visibility
+
+Visibility has no history ring or running sum. The RG16F moment atlas uses exponential smoothing:
+old-estimate retention 0..0.99, default 0.90. The first valid estimate initializes directly.
+Negative sentinel texels are invalid; gather ignores invalid bilinear taps and renormalizes the remaining taps.
+Rejected/nonfinite samples preserve a valid estimate. Origin changes and newly exposed probes invalidate
+interiors and borders before reuse. Editing smoothing does not reset resources.
+
+Default four-cascade, 30-update irradiance history is 1,214,452,800 logical bytes (about 1.13 GiB):
+1,137,438,720 ring + 75,829,248 sums + 1,184,832 origin records. Visibility atlases and ray buffers remain
+additional rendering allocations outside that history total. Eight cascades double the history total.
 
 ## Relocation And Classification
 
@@ -149,7 +142,7 @@ probability calculation.
 
 Eligible rigid, skinned, instanced, and compatible external triangles can enter the emissive distribution. Unsupported
 geometry remains visible through ordinary hit shading when the DDGI traversal supports it, but it is not sampled as an
-emitter. Emissive sampling can be enabled globally and overridden per volume without disabling direct-hit emission.
+emitter. Emissive sampling can be enabled globally without disabling direct-hit emission.
 
 Mesh and skinned-mesh inspectors expose emissive radiance, estimated emitting area and power, eligibility, and an
 explicit action that scales radiance to a target power. The renderer never creates an analytic-light proxy or changes
@@ -157,10 +150,10 @@ emissive radiance automatically when geometry changes.
 
 ## Diagnostics
 
-The Environmental Lighting inspector owns persistent settings and volume authoring. The Render Layer inspector exposes
+The Environmental Lighting inspector owns persistent settings. The Render Layer inspector exposes
 runtime state, including:
 
-- volume readiness, memory, history-window completion, relocation warmup, and rejection reasons;
+- cascade readiness, memory, history-window completion, relocation warmup, and rejection reasons;
 - probe positions, irradiance/state visualization, and one explicitly selected probe;
 - selected-probe rays and metadata such as hit distance, backface ratio, relocation, and active state;
 - emissive inventory and sampling eligibility summaries.
