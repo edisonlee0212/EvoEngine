@@ -2,6 +2,7 @@
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 // Host changes: native photometry, no area/projector family, whole-field capacity guard.
 import EvoEngine.SdfgiTypes;
+import EvoEngine.SdfgiRelocation;
 
 
 [[vk::binding(1, 0)]] Texture3D<float> sdf_cascades[8];
@@ -18,6 +19,7 @@ import EvoEngine.SdfgiTypes;
 [[vk::binding(11, 0)]] Texture2DArray<float3> lightprobe_texture;
 [[vk::binding(12, 0)]] Texture3D<float4> occlusion_texture;
 [[vk::binding(13, 0)]] RWStructuredBuffer<SdfgiFieldStatus> field_status;
+[[vk::binding(14, 0)]] StructuredBuffer<float4> probe_placement;
 [[vk::push_constant]] ConstantBuffer<SdfgiDirectLightPushConstant> params;
 
 #define OCT_SIZE 6
@@ -119,19 +121,29 @@ void main(uint3 id : SV_DispatchThreadID) {
       // Compute weight
 
       float3 probe_pos = float3(probe_posi);
+      if ((params.use_occlusion & 2) != 0) {
+        int3 size = int3(params.grid_size / spacing) + 1;
+        if (any(probe_posi < 0) || any(probe_posi >= size)) continue;
+        float4 placement = probe_placement[SdfgiPlacementIndex(probe_posi, size, params.cascade)];
+        if (placement.w <= 0) continue;
+        probe_pos += placement.xyz;
+      }
       float3 probe_to_pos = pos - probe_pos;
-      float3 probe_dir = normalize(-probe_to_pos);
+      float3 probe_dir = (params.use_occlusion & 2) != 0 ? -probe_to_pos * rsqrt(max(dot(probe_to_pos, probe_to_pos), 1e-12)) : normalize(-probe_to_pos);
 
       // Compute lightprobe texture position
 
-      float3 trilinear = float3(1.0) - abs(probe_to_pos);
+      float3 trilinear = float3(1.0) - abs(pos - float3(probe_posi));
 
       for (uint k = 0; k < 6; k++) {
         if (bool(valid_aniso & (1 << k))) {
           float3 n = aniso_dir[k];
           float weight = trilinear.x * trilinear.y * trilinear.z * max(0, dot(n, probe_dir));
 
-          if (weight > 0.0 && params.use_occlusion) {
+          if (weight > 0.0 && (params.use_occlusion & 2) != 0) {
+            weight *= SdfgiSegmentVisibility(sdf_cascades[params.cascade], linear_sampler, probe_pos * spacing,
+                                             float3(positioni) + float3(0.5) + aniso_dir[k], params.grid_size);
+          } else if (weight > 0.0 && (params.use_occlusion & 1) != 0) {
             int3 occ_indexv = abs((cascades.data[params.cascade].probe_world_offset + probe_posi) & int3(1, 1, 1)) * int3(1, 2, 4);
             float4 occ_mask = select(int4(occ_indexv.x | occ_indexv.y) == int4(0, 1, 2, 3), float4(1.0), float4(0.0));
 

@@ -581,6 +581,7 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_property("max_distance", &SdfgiSettings::GetMaxDistance, &SdfgiSettings::SetMaxDistance)
       .def_readwrite("vertical_scale", &SdfgiSettings::vertical_scale)
       .def_readwrite("use_occlusion", &SdfgiSettings::use_occlusion)
+      .def_readwrite("probe_relocation", &SdfgiSettings::probe_relocation)
       .def_readwrite("static_entities_only", &SdfgiSettings::static_entities_only)
       .def_readwrite("ray_count", &SdfgiSettings::ray_count)
       .def_readwrite("history_size", &SdfgiSettings::history_size)

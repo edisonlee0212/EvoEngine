@@ -38,6 +38,8 @@ class EVOENGINE_API SdfgiPreprocessReadback {
 
 EVOENGINE_API void RecordSdfgiPreprocess(VkCommandBuffer command, const SdfgiResources& resources, uint32_t cascade,
                                          glm::ivec3 cascade_position, glm::ivec3 scroll = glm::ivec3(0));
+EVOENGINE_API void RecordSdfgiProbeRelocation(VkCommandBuffer command, const SdfgiResources& resources,
+                                              uint32_t cascade, glm::ivec3 scroll = glm::ivec3(0));
 EVOENGINE_API void RecordSdfgiScroll(VkCommandBuffer command, const SdfgiResources& resources, uint32_t cascade,
                                      glm::ivec3 cascade_position, glm::ivec3 scroll, uint32_t frame_slot);
 EVOENGINE_API void RecordSdfgiPayloadRefresh(VkCommandBuffer command, const SdfgiResources& resources,

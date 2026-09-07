@@ -1,6 +1,7 @@
 // Godot sdfgi_debug_probes.glsl, 34d06658a85845111a50db9e485ec4a0701d4298.
 // See docs/licenses/Godot-MIT.txt. MODE_BOXES is a host-only bounds/classification overlay.
 import EvoEngine.SdfgiDebug;
+import EvoEngine.SdfgiRelocation;
 
 struct Output {
   float4 position : SV_Position;
@@ -39,9 +40,16 @@ Output main(uint vertex : SV_VertexID, uint instance : SV_InstanceID) {
   uint layer = (global_cell.x & 1) | ((global_cell.y & 1) << 1) | ((global_cell.z & 1) << 2);
   float visibility = 0;
   if (all(texel >= 0) && all(texel < debug_grid())) {
+    if (data.cascades[c].pad2.x != 0) {
+      float4 placement = debug_placements[SdfgiPlacementIndex(probe_cell, debug_grid() / spacing + 1, c)];
+      float3 origin = (float3(probe_cell) + placement.xyz) * spacing;
+      visibility = placement.w > 0 ? SdfgiSegmentVisibility(sdf_textures[c], linear_sampler, origin,
+          origin + float3(offset) + 0.5, float3(debug_grid())) : 0;
+    } else {
     texel.z += c * debug_grid().z;
     if (layer >= 4) { texel.x += debug_grid().x; layer -= 4; }
     visibility = occlusion_texture.Load(int4(texel, 0))[layer];
+    }
   }
   output.color = float4(1, visibility, visibility, 1);
 #else

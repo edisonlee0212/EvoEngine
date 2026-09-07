@@ -188,8 +188,8 @@ std::vector<SdfgiCapabilityCheck> evo_engine::EvaluateSdfgiDeviceLimits(const Vk
   require("maxDescriptorSetSampledImages", limits.maxDescriptorSetSampledImages, 33);
   require("maxPerStageDescriptorSamplers", limits.maxPerStageDescriptorSamplers, 2);
   require("maxDescriptorSetSamplers", limits.maxDescriptorSetSamplers, 2);
-  require("maxPerStageDescriptorStorageBuffers", limits.maxPerStageDescriptorStorageBuffers, 4);
-  require("maxDescriptorSetStorageBuffers", limits.maxDescriptorSetStorageBuffers, 4);
+  require("maxPerStageDescriptorStorageBuffers", limits.maxPerStageDescriptorStorageBuffers, 5);
+  require("maxDescriptorSetStorageBuffers", limits.maxDescriptorSetStorageBuffers, 5);
   require("maxPerStageResources", limits.maxPerStageResources, 48);
   return checks;
 }

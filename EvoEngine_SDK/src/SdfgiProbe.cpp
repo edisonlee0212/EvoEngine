@@ -221,6 +221,8 @@ std::shared_ptr<SdfgiProbeFrame> SdfgiProbeFrame::Create(const SdfgiResources& r
       params.sky_lod_inverse_gamma[1] = 1 / sky.gamma;
     }
   }
+  if (resources.settings.probe_relocation)
+    params.sky_flags |= 8;
   for (uint32_t c = 0; c < cascades.size(); ++c) {
     params.cascade = c;
     for (uint32_t axis = 0; axis < 3; ++axis)
@@ -239,6 +241,7 @@ void SdfgiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
   process.resources.push_back(
       {"Frame.SDFGI." + FrameName(frame_slot, "Cascades"), RenderResourceUsage::Read, RenderResourceState::General});
   process.resources.push_back({"Frame.SDFGI.Status", RenderResourceUsage::Read, RenderResourceState::General});
+  process.resources.push_back({"Frame.SDFGI.ProbePlacement", RenderResourceUsage::Read, RenderResourceState::General});
   if (sky_image) {
     RenderResourceDescriptor descriptor;
     descriptor.name = "Frame.SDFGI.SceneSky";

@@ -133,7 +133,7 @@ struct alignas(16) SdfgiGatherData {
   float lightprobe_uv_offset[3]{};
   float y_mult{};
   float occlusion_clamp[3]{};
-  uint32_t pad3{};
+  uint32_t probe_relocation{};
   float occlusion_renormalize[3]{};
   uint32_t pad4{};
   float cascade_probe_size[3]{};

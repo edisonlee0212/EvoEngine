@@ -236,7 +236,7 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
   pass.profiler_display_name = "SDFGI Direct Light";
   for (const auto& access : upload.resources)
     pass.resources.push_back({access.resource_name, RenderResourceUsage::Read, RenderResourceState::General});
-  for (const auto* name : {"Atlas", "Occlusion", "Status"})
+  for (const auto* name : {"Atlas", "Occlusion", "Status", "ProbePlacement"})
     pass.resources.push_back(
         {"Frame.SDFGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
   for (uint32_t c = 0; c < lights.size(); ++c) {
@@ -273,7 +273,7 @@ void SdfgiLightFrame::AddPasses(RenderGraph& graph, const std::shared_ptr<SdfgiR
       params.max_cascades = frame->settings.cascade_count;
       params.probe_axis_size = resources->settings.ProbeSize().x;
       params.y_mult = SdfgiYMultiplier(frame->settings.vertical_scale);
-      params.use_occlusion = frame->settings.use_occlusion;
+      params.use_occlusion = (frame->settings.use_occlusion ? 1u : 0u) | (frame->settings.probe_relocation ? 2u : 0u);
       for (uint32_t kind = 0; kind < 2; ++kind) {
         const auto kind_timing =
             Platform::BeginGpuTimestampScope(command, {kind == 0 ? "SdfgiStaticLight" : "SdfgiDynamicLight",

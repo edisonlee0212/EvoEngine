@@ -2,6 +2,7 @@
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 // Host sky uses scene-linear cubemap radiance at explicit coarse LOD; no camera exposure.
 import EvoEngine.SdfgiTypes;
+import EvoEngine.SdfgiRelocation;
 
 
 [[vk::binding(1, 0)]] Texture3D<float> sdf_cascades[8];
@@ -19,6 +20,8 @@ import EvoEngine.SdfgiTypes;
 [[vk::binding(14, 0)]] [vk::image_format("rgba16f")] RWTexture2DArray<float4> lightprobe_ambient_texture;
 
 [[vk::binding(15, 0)]] RWStructuredBuffer<SdfgiFieldStatus> field_status;
+[[vk::binding(16, 0)]] RWStructuredBuffer<float4> probe_placement;
+[[vk::binding(17, 0)]] RWStructuredBuffer<float4> probe_placement_scroll;
 [[vk::binding(0, 1)]] TextureCube<float4> sky_irradiance;
 [[vk::binding(1, 1)]] SamplerState linear_sampler_mipmaps;
 [[vk::push_constant]] ConstantBuffer<SdfgiIntegratePushConstant> params;
@@ -58,6 +61,46 @@ void main(uint3 id : SV_DispatchThreadID) {
   field_status[0].generation = asuint(cascades.data[7].pad2.w);
 }
 
+
+#elif defined(MODE_RELOCATE)
+[numthreads(8, 8, 1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  int2 pos = int2(id.xy);
+  if (any(pos >= params.image_size) || field_status[0].failure_flags != 0) return;
+  float spacing = params.grid_size.x / float(params.probe_axis_size - 1);
+  int3 size = int3(params.grid_size / spacing) + 1;
+  int3 cell = SdfgiProbeCell(pos, params.probe_axis_size, params.image_size.x);
+  if (any(cell >= size)) return;
+  uint index = SdfgiPlacementIndex(cell, size, params.cascade);
+  float4 previous = probe_placement[index];
+  if (any(params.scroll != 0) && previous.w != 0) {
+    float3 previous_position = (float3(cell) + previous.xyz) * spacing;
+    bool affected = any(previous_position < 0) || any(previous_position >= params.grid_size);
+    float margin = 0.45 + 1.0 / spacing;
+    for (uint axis = 0; axis < 3; ++axis) {
+      if (params.scroll[axis] > 0 && cell[axis] <= params.scroll[axis] + margin) affected = true;
+      if (params.scroll[axis] < 0 && cell[axis] >= size[axis] - 1 + params.scroll[axis] - margin) affected = true;
+    }
+    if (!affected) return;
+  }
+  float4 placement = SdfgiFindPlacement(sdf_cascades[params.cascade], linear_sampler, float3(cell) * spacing,
+                                       params.grid_size, spacing);
+  if (any(previous != placement)) {
+    for (int y = 0; y < OCT_SIZE + 2; ++y)
+      for (int x = 0; x < OCT_SIZE + 2; ++x) {
+        int2 texel = pos * (OCT_SIZE + 2) + int2(x, y);
+        lightprobe_texture_data[int3(texel, params.cascade)] = 0;
+        lightprobe_texture_data[int3(texel, params.cascade + params.max_cascades)] = 0;
+      }
+    lightprobe_ambient_texture[int3(pos, params.cascade)] = float4(0);
+    for (int i = 0; i < SH_SIZE; ++i) {
+      lightprobe_average_texture[int2(pos.x, pos.y * SH_SIZE + i)] = int4(0);
+      for (uint h = 0; h < params.history_size; ++h)
+        lightprobe_history_texture[int3(pos.x, pos.y * SH_SIZE + i, h)] = int4(0);
+    }
+    probe_placement[index] = placement;
+  }
+}
 
 #elif defined(MODE_PROCESS) || defined(MODE_STORE)
 static const float PI = 3.14159265f;
@@ -148,6 +191,12 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
   if (probe_cell.y > int(params.grid_size.y / (params.grid_size.x / float(params.probe_axis_size - 1)))) return;
 
   float3 probe_pos = cascades.data[params.cascade].offset + float3(probe_cell) * probe_cell_size;
+  if ((params.sky_flags & 8) != 0) {
+    int3 size = int3(params.grid_size / (params.grid_size.x / float(params.probe_axis_size - 1))) + 1;
+    float4 placement = probe_placement[SdfgiPlacementIndex(probe_cell, size, params.cascade)];
+    if (placement.w <= 0) return;
+    probe_pos += placement.xyz * probe_cell_size;
+  }
   float3 pos_to_uvw = 1.0 / params.grid_size;
 
   for (uint i = 0; i < SH_SIZE * 3; i++) {
@@ -176,6 +225,8 @@ void main(uint3 id : SV_DispatchThreadID, uint3 local_id : SV_GroupThreadID) {
     uint hit_cascade;
 
     float bias = params.ray_bias;
+    if ((params.sky_flags & 8) != 0)
+      bias = min(bias, min(1.0, 0.25 * params.grid_size.x / float(params.probe_axis_size - 1)) * 0.5);
     float3 abs_ray_dir = abs(ray_dir);
     ray_pos += ray_dir * 1.0 / max(abs_ray_dir.x, max(abs_ray_dir.y, abs_ray_dir.z)) * bias / cascades.data[params.cascade].to_cell;
     float3 uvw;
@@ -460,6 +511,18 @@ void main(uint3 id : SV_DispatchThreadID) {
   if (any(probe_cell >= probe_size)) return;
   int3 read_probe = probe_cell - params.scroll;
   bool retained = all(read_probe >= 0) && all(read_probe < probe_size);
+  if ((params.sky_flags & 8) != 0) {
+    probe_placement_scroll[SdfgiPlacementIndex(probe_cell, probe_size, 0)] = retained ?
+        probe_placement[SdfgiPlacementIndex(read_probe, probe_size, params.cascade)] : float4(0);
+    if (!retained) {
+      for (int i = 0; i < SH_SIZE; ++i) {
+        lightprobe_average_scroll_texture[int2(pos.x, pos.y * SH_SIZE + i)] = int4(0);
+        for (uint h = 0; h < params.history_size; ++h)
+          lightprobe_history_scroll_texture[int3(pos.x, pos.y * SH_SIZE + i, h)] = int4(0);
+      }
+      return;
+    }
+  }
   if (retained || params.cascade == params.max_cascades - 1) {
     // Godot keeps the destination's old value at the highest cascade's entering edge.
     int2 tex_pos = retained ? SdfgiProbeTexel(read_probe, params.probe_axis_size, params.image_size.x) : pos;
@@ -500,6 +563,12 @@ void main(uint3 id : SV_DispatchThreadID) {
     }
   }
 #else
+  if ((params.sky_flags & 8) != 0) {
+    int3 size = int3(params.grid_size / (params.grid_size.x / float(params.probe_axis_size - 1))) + 1;
+    int3 cell = SdfgiProbeCell(pos, params.probe_axis_size, params.image_size.x);
+    if (any(cell >= size)) return;
+    probe_placement[SdfgiPlacementIndex(cell, size, params.cascade)] = probe_placement_scroll[SdfgiPlacementIndex(cell, size, 0)];
+  }
   for (uint h = 0; h < params.history_size; ++h)
     for (int i = 0; i < SH_SIZE; ++i) {
       int3 p = int3(pos.x, pos.y * SH_SIZE + i, h);

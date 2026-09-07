@@ -70,19 +70,20 @@ bool SdfgiSettings::HasSameLayout(const SdfgiSettings& other) const {
   return voxel_count_x == other.voxel_count_x && voxel_count_y == other.voxel_count_y &&
          probe_spacing_cells == other.probe_spacing_cells && cascade_count == other.cascade_count &&
          min_cell_size == other.min_cell_size && vertical_scale == other.vertical_scale &&
-         history_size == other.history_size && use_occlusion == other.use_occlusion;
+         history_size == other.history_size && use_occlusion == other.use_occlusion &&
+         probe_relocation == other.probe_relocation;
 }
 
 bool SdfgiSettings::operator==(const SdfgiSettings& other) const {
   return std::tie(voxel_count_x, voxel_count_y, probe_spacing_cells, cascade_count, positional_light_cascade_count,
-                  min_cell_size, vertical_scale, use_occlusion, static_entities_only, ray_count, history_size,
-                  light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias, probe_bias,
+                  min_cell_size, vertical_scale, use_occlusion, probe_relocation, static_entities_only, ray_count,
+                  history_size, light_update_frames, bounce_feedback, read_sky_light, energy, normal_bias, probe_bias,
                   anchor_camera_entity) ==
          std::tie(other.voxel_count_x, other.voxel_count_y, other.probe_spacing_cells, other.cascade_count,
                   other.positional_light_cascade_count, other.min_cell_size, other.vertical_scale, other.use_occlusion,
-                  other.static_entities_only, other.ray_count, other.history_size, other.light_update_frames,
-                  other.bounce_feedback, other.read_sky_light, other.energy, other.normal_bias, other.probe_bias,
-                  other.anchor_camera_entity);
+                  other.probe_relocation, other.static_entities_only, other.ray_count, other.history_size,
+                  other.light_update_frames, other.bounce_feedback, other.read_sky_light, other.energy,
+                  other.normal_bias, other.probe_bias, other.anchor_camera_entity);
 }
 
 void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings& settings) {
@@ -95,6 +96,7 @@ void evo_engine::SerializeSdfgiSettings(YAML::Emitter& out, const SdfgiSettings&
   out << YAML::Key << "min_cell_size" << YAML::Value << settings.min_cell_size;
   out << YAML::Key << "vertical_scale" << YAML::Value << static_cast<uint32_t>(settings.vertical_scale);
   out << YAML::Key << "use_occlusion" << YAML::Value << settings.use_occlusion;
+  out << YAML::Key << "probe_relocation" << YAML::Value << settings.probe_relocation;
   out << YAML::Key << "static_entities_only" << YAML::Value << settings.static_entities_only;
   out << YAML::Key << "ray_count" << YAML::Value << settings.ray_count;
   out << YAML::Key << "history_size" << YAML::Value << settings.history_size;
@@ -126,6 +128,8 @@ void evo_engine::DeserializeSdfgiSettings(const YAML::Node& in, SdfgiSettings& s
     settings.vertical_scale = static_cast<SdfgiSettings::VerticalScale>(in["vertical_scale"].as<uint32_t>());
   if (in["use_occlusion"])
     settings.use_occlusion = in["use_occlusion"].as<bool>();
+  if (in["probe_relocation"])
+    settings.probe_relocation = in["probe_relocation"].as<bool>();
   if (in["static_entities_only"])
     settings.static_entities_only = in["static_entities_only"].as<bool>();
   if (in["ray_count"])

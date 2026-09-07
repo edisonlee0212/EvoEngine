@@ -9,6 +9,46 @@ user accepted the occlusion-on stationary result. Occlusion stays on by default 
 enabled. M9 movement review is accepted. M10 adds validated payload-only refresh and lifecycle recovery; M11 adds the
 manual diagnostics and capture workflow. M12 final installation/audit and user acceptance are the remaining closeout gate.
 
+## Optional surface-clearance relocation (M15)
+
+**Environmental Lighting → Automatic SDFGI → Probe relocation** is off by default. The serialized/Python
+`probe_relocation` setting enables deterministic placement searches in the existing unsigned field. Missing keys remain
+off. Toggling recreates the field and restarts lighting convergence; voxel dimensions, probe density and update cadence
+are unchanged.
+
+The search starts at each nominal grid position, follows SDF gradients and then tries a fixed neighboring-direction
+fallback. Offsets are bounded to 0.45 probe intervals in anisotropic grid coordinates. Required clearance is the smaller
+of one voxel and one-quarter probe interval. A probe without a qualifying in-bounds candidate has zero gather weight;
+receivers without valid visible neighbors use the existing Environment fallback. An unsigned distance field cannot
+reliably identify a closed interior, so this is surface avoidance, not DDGI's geometry-based inside/outside relocation.
+
+Placement runs with topology preprocessing, not every lighting update. Retained offsets and validity scroll with their
+history; entering probes and probes affected by incoming geometry or field bounds are searched again. Topology edits
+reconsider the affected cascade. Unchanged placements retain history; changed placements clear their SH ring, sums and
+both atlas layers before bounce feedback can read them. Occupancy-preserving payload and ordinary lighting edits do not
+move probes. Disabling the option preserves the Godot-style nominal-origin occlusion and cascade blending paths.
+
+This is an intentional departure from the pinned reference: nominal-grid neighbor selection is retained, but tracing,
+directional weights and probe visualization use actual relocated positions. Relocation mode replaces nominal occlusion
+with bounded (256-step maximum) SDF segment visibility, even if Use Occlusion is off. It adds placement and scroll-scratch
+buffers, checked against device limits, but no history-window storage. Parent-history initialization and highest-cascade
+destination-history reuse are disabled for exposed relocated probes because their origins/validity are incompatible.
+There is no new ray-tracing dependency, DDGI behavior change or asynchronous-compute scheduling.
+
+Validation: 85 focused SDFGI/environmental-lighting tests pass, including default/migration/layout resets and an
+RT-disabled GPU fixture for deterministic clearance (spacing 1/2/4/8), occupied-field failure exclusion, finite gather,
+unchanged-history preservation, geometry changes, signed scrolling, boundary repair and exposed-history clearing.
+Ten affected standalone shader variants pass SPIR-V validation; production gather compiles in GPU/runtime checks.
+The installed 2560×1440 Sponza off/on/off session completed 35 transport updates per setting with finite captures and
+RT pipeline, ray query, BLAS and TLAS explicitly disabled. Local evidence is `tasks/m15-tests-final.log/.xml`,
+`m15-runtime-final2.log`, and `m15-final-{off,on,restored}.png/.yaml`. Appearance acceptance remains manual.
+
+Editor/tests build: `cmake --build out/build/vs2026-x64-tests --config RelWithDebInfo --target EvoEngine_Tests EvoEngineEditor --parallel 8`.
+All enabled applications and Python installed successfully with
+`python Scripts/install_apps.py --preset vs2026-x64 --config RelWithDebInfo --incremental --no-open --jobs 8`.
+Installed editor: `C:/Users/lllll/Documents/GitHub/EvoEngine/out/install/vs2026-x64/bin/EvoEngineEditor.exe`;
+the automated session uses the adjacent installed `python/PyEvoEngine.cp315-win_amd64.pyd` runtime.
+
 ## Reference
 
 The local reference repository is `C:\Users\lllll\Documents\GitHub\godot`, beside EvoEngine under the GitHub directory.

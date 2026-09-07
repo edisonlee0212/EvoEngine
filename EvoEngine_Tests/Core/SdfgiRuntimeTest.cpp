@@ -25,6 +25,25 @@
 
 using namespace evo_engine;
 
+TEST(SdfgiRelocation, DefaultMigrationRoundTripAndLayoutReset) {
+  SdfgiSettings settings;
+  EXPECT_FALSE(settings.probe_relocation);
+  for (const bool enabled : {true, false}) {
+    settings.probe_relocation = enabled;
+    EXPECT_EQ(settings == SdfgiSettings{}, !enabled);
+    EXPECT_EQ(settings.HasSameLayout(SdfgiSettings{}), !enabled);
+    EXPECT_EQ(settings.ProbeSize(), SdfgiSettings{}.ProbeSize());
+    YAML::Emitter out;
+    SerializeSdfgiSettings(out, settings);
+    SdfgiSettings loaded;
+    DeserializeSdfgiSettings(YAML::Load(out.c_str()), loaded);
+    EXPECT_EQ(loaded, settings);
+  }
+  settings.probe_relocation = true;
+  DeserializeSdfgiSettings(YAML::Load("{}"), settings);
+  EXPECT_FALSE(settings.probe_relocation);
+}
+
 TEST(SdfgiDensity, LayoutBudgetAndPackingCoverAllChoices) {
   for (uint32_t x = 64; x <= 256; x += 16)
     for (uint32_t y = 64; y <= 256; y += 16)

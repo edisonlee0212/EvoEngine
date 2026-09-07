@@ -3052,6 +3052,12 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
         ImGui::SetTooltip(
             "Weights GI probes by visibility to reduce light leaks; may produce dark patches.\n"
             "Changing this recreates the field and restarts convergence.");
+      changed = ImGui::Checkbox("Probe relocation", &settings.probe_relocation) || changed;
+      if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Avoids nearby surfaces using the unsigned SDF; cannot reliably escape closed interiors. "
+            "Uses bounded segment visibility from relocated probes. Changing this recreates the field "
+            "and restarts convergence.");
       changed = ImGui::Checkbox("Read sky light", &settings.read_sky_light) || changed;
       changed = ImGui::DragFloat("Bounce feedback", &settings.bounce_feedback, 0.01f, 0.0f, 1.99f) || changed;
       changed = ImGui::DragFloat("Energy", &settings.energy, 0.01f, 0.0f, 64.0f) || changed;

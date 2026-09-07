@@ -273,6 +273,7 @@ TEST(SdfgiCapabilities, RejectsMissingFeaturesAndInsufficientLimits) {
   EXPECT_FALSE(report.Supported());
   EXPECT_NE(report.ToString().find("fragmentStoresAndAtomics"), std::string::npos);
   EXPECT_NE(report.ToString().find("maxBoundDescriptorSets required=6 available=0"), std::string::npos);
+  EXPECT_NE(report.ToString().find("maxPerStageDescriptorStorageBuffers required=5 available=0"), std::string::npos);
   features.fragmentStoresAndAtomics = VK_TRUE;
   limits.maxBoundDescriptorSets = 6;
   report.checks = EvaluateSdfgiDeviceLimits(features, limits);
@@ -414,8 +415,10 @@ TEST(SdfgiResources, AllocatesClearsPackedViewsAndRetiresOnTheMainQueueWithoutRa
   auto field = SdfgiResources::TryCreate(reference, host_layouts, failure);
   ASSERT_TRUE(field) << failure;
   EXPECT_EQ(field->textures.size(), 46u);
-  EXPECT_EQ(field->buffers.size(), 17u + Platform::GetMaxFramesInFlight() * 10u);
-  EXPECT_EQ(field->pipelines.size(), 19u);
+  EXPECT_EQ(field->buffers.size(), 19u + Platform::GetMaxFramesInFlight() * 10u);
+  EXPECT_EQ(field->buffers.at("ProbePlacement").buffer->GetSize(), sizeof(glm::vec4));
+  EXPECT_EQ(field->buffers.at("ProbePlacementScroll").buffer->GetSize(), sizeof(glm::vec4));
+  EXPECT_EQ(field->pipelines.size(), 20u);
   EXPECT_TRUE(field->voxel_pipeline->Initialized());
   EXPECT_FALSE(field->initialization_recorded);
   for (const auto& [name, texture] : field->textures) {
@@ -1047,6 +1050,222 @@ TEST(SdfgiScene, CornellContributesWithoutChangingAuthoredStaticFlags) {
   EXPECT_FLOAT_EQ(lighting.sdfgi_settings.min_cell_size, 0.2f);
 }
 
+TEST(SdfgiRelocation, ClearanceHistoryGeometryAndSignedScrollWithoutRt) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  SdfgiSettings settings;
+  settings.voxel_count_x = settings.voxel_count_y = 64;
+  settings.cascade_count = 2;
+  settings.history_size = 5;
+  settings.probe_relocation = true;
+  settings.bounce_feedback = 0;
+  const auto layout = SdfgiProbeLayout::Create(64, 64, 4, 32768);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  std::string failure;
+  auto field = SdfgiResources::TryCreate(settings, SdfgiTestAccess::HostLayouts(*render), failure);
+  ASSERT_TRUE(field) << failure;
+  auto seed = std::make_shared<ComputePipeline>();
+  seed->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Store)]};
+  seed->push_constant_ranges = {{VK_SHADER_STAGE_COMPUTE_BIT, 0, 4}};
+  seed->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+[[vk::binding(7,0)]] [vk::image_format("r8")] RWTexture3D<float> sdf;
+[[vk::push_constant]] ConstantBuffer<uint> phase;
+[numthreads(8,8,8)]
+void main(uint3 id : SV_DispatchThreadID) {
+  sdf[id] = phase == 2 ? 0.0 : phase >= 3 ? 1.0 :
+      (floor(max(0.0, abs(float(id.x) + 0.5 - 32.0) - 0.5)) + 1.0) / 255.0;
+}
+)"));
+  seed->Initialize();
+  ASSERT_TRUE(seed->Initialized());
+  auto output_layout = std::make_shared<DescriptorSetLayout>();
+  output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+  output_layout->Initialize();
+  VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = 8 * sizeof(glm::vec4);
+  info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+  auto output = std::make_shared<Buffer>(info);
+  auto output_set = std::make_shared<DescriptorSet>(output_layout);
+  output_set->UpdateBufferDescriptorBinding(0, output);
+  auto query = std::make_shared<ComputePipeline>();
+  query->descriptor_set_layouts = {field->layouts[static_cast<size_t>(SdfgiLayout::Integrate)], output_layout};
+  query->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.SdfgiRelocation;
+import EvoEngine.SdfgiTypes;
+[[vk::binding(1,0)]] Texture3D<float> sdf[8];
+[[vk::binding(6,0)]] SamplerState linear_sampler;
+[[vk::binding(8,0)]] [vk::image_format("r32ui")] RWTexture2DArray<uint> atlas;
+[[vk::binding(9,0)]] [vk::image_format("rgba16i")] RWTexture2DArray<int4> history;
+[[vk::binding(10,0)]] [vk::image_format("rgba32i")] RWTexture2D<int4> average;
+[[vk::binding(16,0)]] StructuredBuffer<float4> placements;
+[[vk::binding(0,1)]] RWStructuredBuffer<float4> result;
+[numthreads(1,1,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  uint width, height; average.GetDimensions(width, height);
+  int2 p = SdfgiProbeTexel(int3(8), 17, width);
+  result[0] = float4(average[int2(p.x,p.y*16)].x, history[int3(p.x,p.y*16,0)].x,
+      atlas[int3(p*8,0)], atlas[int3(p*8,2)]);
+  result[1] = float4(SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(48,32,32),64),
+      SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(24,32,32),64),
+      SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(64,32,32),64),0);
+  for (uint i=0; i<4; ++i) {
+    float spacing = float(1u << i);
+    float4 p = SdfgiFindPlacement(sdf[0],linear_sampler,float3(32),64,spacing);
+    result[2+i] = float4(length(p.xyz),p.w,
+        SdfgiClearance(sdf[0],linear_sampler,float3(32)+p.xyz*spacing,64),
+        all(p == SdfgiFindPlacement(sdf[0],linear_sampler,float3(32),64,spacing)) ? 1.0 : 0.0);
+  }
+}
+)"));
+  query->Initialize();
+  ASSERT_TRUE(query->Initialized());
+  auto gather = std::make_shared<ComputePipeline>();
+  gather->descriptor_set_layouts = SdfgiTestAccess::HostLayouts(*render);
+  gather->descriptor_set_layouts[4] = output_layout;
+  gather->descriptor_set_layouts.push_back(field->layouts[static_cast<size_t>(SdfgiLayout::Gather)]);
+  gather->compute_shader = Shader::CreateTemporary(ShaderType::Compute, std::string(R"(
+import EvoEngine.Sdfgi;
+[[vk::binding(0,4)]] RWStructuredBuffer<float4> result;
+[numthreads(1,1,1)]
+void main(uint3 id : SV_DispatchThreadID) {
+  EeSdfgiLighting value = EE_SDFGI_GATHER(float3(-2,-1,-2),float3(1,0,0),float3(0,1,0),0.5);
+  result[6] = float4(value.diffuse,value.weight);
+  result[7] = float4(value.specular,all(isfinite(value.specular)) && all(isfinite(value.diffuse)) ? 1.0 : 0.0);
+}
+)"));
+  gather->Initialize();
+  ASSERT_TRUE(gather->Initialized());
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  BufferUploadArena uploads;
+  std::vector<glm::vec4> previous;
+  for (uint32_t phase = 0; phase < 8; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    const auto slot = Platform::GetCurrentFrameIndex();
+    BufferUploadBatch upload;
+    const auto metadata = BuildSdfgiGatherData(settings, cascades, glm::vec3(0), 1);
+    upload.Add(field->buffers.at("Frame" + std::to_string(slot) + ".Gather").buffer, metadata,
+               {BufferUploadUsage::Uniform});
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass({RenderPassNames::sdfgi_maintenance, RenderPassQueue::Graphics, RenderPassScope::Frame},
+                  [](const RenderGraphExecutionContext&) {
+                  });
+    if (phase == 0)
+      graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    graph.AddPass(
+        {"Relocate",
+         RenderPassQueue::Graphics,
+         RenderPassScope::Frame,
+         {},
+         {phase == 0 ? "SdfgiInitialize" : RenderPassNames::sdfgi_maintenance}},
+        [&](const RenderGraphExecutionContext&) {
+          upload.Record(uploads);
+          Platform::RecordCommandsMainQueue([&](VkCommandBuffer command) {
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+            field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, ready), 4, 1);
+            field->buffers.at("Status").buffer->Fill(command, offsetof(SdfgiFieldStatus, generation), 4, 1);
+            for (const auto& name : {"Cascade0.History", "Cascade0.Average", "Cascade1.Average", "Atlas"}) {
+              const auto& texture = field->textures.at(name);
+              VkClearColorValue value{};
+              value.int32[0] = std::string(name) == "Cascade0.Average" ? 35 : 7;
+              const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, texture.requirement.layers};
+              Platform::ClearColorImage(command, *texture.image, value, 1, &range);
+            }
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+            seed->Bind(command);
+            seed->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
+            seed->PushConstant(command, 0, phase);
+            seed->Dispatch(command, 8, 8, 8);
+            if (phase != 4 && phase != 6) {
+              RecordSdfgiProbeRelocation(command, *field, 0, glm::ivec3(phase == 5 ? 4 : phase == 7 ? -4 : 0, 0, 0));
+            } else {
+              RecordSdfgiScroll(command, *field, 0, glm::ivec3(0), glm::ivec3(phase == 4 ? 4 : -4, 0, 0), slot);
+            }
+            query->Bind(command);
+            query->BindDescriptorSet(
+                command, 0,
+                field->sets.at("Frame" + std::to_string(slot) + ".Cascade0.Integrate")->GetVkDescriptorSet());
+            query->BindDescriptorSet(command, 1, output_set->GetVkDescriptorSet());
+            query->Dispatch(command, 1, 1, 1);
+            field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                               VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+            gather->Bind(command);
+            gather->BindDescriptorSet(command, 4, output_set->GetVkDescriptorSet());
+            gather->BindDescriptorSet(command, 5,
+                                      field->sets.at("Frame" + std::to_string(slot) + ".Gather")->GetVkDescriptorSet());
+            gather->Dispatch(command, 1, 1, 1);
+          });
+        });
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("SDFGI relocation fixture");
+    std::vector<glm::vec4> placements, result;
+    field->buffers.at("ProbePlacement").buffer->DownloadVector(placements, layout.ProbeCount() * 2);
+    output->DownloadVector(result, 8);
+    if (phase == 4 || phase == 6) {
+      const auto index = layout.Index(phase == 4 ? 0 : 16, 8, 8);
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageOffset = {static_cast<int32_t>(index % layout.columns),
+                          static_cast<int32_t>(index / layout.columns * 16), 0};
+      copy.imageExtent = {1, 1, 1};
+      Buffer readback(sizeof(glm::ivec4));
+      readback.CopyFromImage(*field->textures.at("Cascade0.Average").image, copy);
+      glm::ivec4 value;
+      readback.Download(value);
+      EXPECT_EQ(value, glm::ivec4(0));
+    }
+    EXPECT_EQ(result[6].w, phase == 2 ? 0 : 1);
+    EXPECT_EQ(result[7].w, 1);
+    EXPECT_EQ(result[0], phase == 1 || phase >= 4 ? glm::vec4(35, 7, 7, 7) : glm::vec4(0));
+    if (phase == 0) {
+      EXPECT_EQ(result[1], glm::vec4(0, 1, 0, 0));
+      for (uint32_t i = 0; i < 4; ++i) {
+        EXPECT_LE(result[2 + i].x, 0.45001f);
+        EXPECT_EQ(result[2 + i].w, 1);
+        if (result[2 + i].y > 0)
+          EXPECT_GE(result[2 + i].z, std::min(1.0f, 0.25f * (1u << i)));
+      }
+      EXPECT_EQ(placements[layout.Index(8, 8, 8)].w, 1);
+      EXPECT_GT(glm::length(glm::vec3(placements[layout.Index(8, 8, 8)])), 0);
+    }
+    for (uint32_t y = 0; y < 17; ++y)
+      for (uint32_t z = 0; z < 17; ++z)
+        for (uint32_t x = 0; x < 17; ++x) {
+          const auto index = layout.Index(x, y, z);
+          const auto p = placements[index];
+          if (phase == 1)
+            EXPECT_EQ(p, previous[index]);
+          if (phase == 2)
+            EXPECT_EQ(p.w, -1);
+          if (phase == 4 || phase == 6) {
+            const int source_x = int(x) + (phase == 4 ? -1 : 1);
+            EXPECT_EQ(p, source_x >= 0 && source_x < 17 ? previous[layout.Index(source_x, y, z)] : glm::vec4(0));
+          }
+          if (p.w > 0 && phase != 4 && phase != 6) {
+            EXPECT_LE(glm::length(glm::vec3(p)), 0.45001f);
+            const auto position = (glm::vec3(x, y, z) + glm::vec3(p)) * 4.0f;
+            EXPECT_TRUE(glm::all(glm::greaterThanEqual(position, glm::vec3(0))));
+            EXPECT_TRUE(glm::all(glm::lessThan(position, glm::vec3(64))));
+          }
+        }
+    previous = std::move(placements);
+  }
+}
+
 TEST(SdfgiGather, PublicationWeightsCoverageAndTwoCameraGraphsWithoutRt) {
   ScopedGpuPlatform platform(false);
   ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
@@ -1207,7 +1426,8 @@ void main(uint3 id : SV_DispatchThreadID) {
       RenderGraph camera_graph;
       RenderGraphResourceRegistry camera_registry;
       publication->ImportCamera(camera_graph, camera_registry, *field);
-      EXPECT_EQ(publication->CameraReads().size(), 8u);
+      EXPECT_EQ(publication->CameraReads().size(), 9u);
+      EXPECT_TRUE(camera_graph.HasResource("Frame.SDFGI.ProbePlacement"));
       EXPECT_TRUE(camera_graph.HasResource("Frame.SDFGI.Cascade1.Sdf"));
       EXPECT_TRUE(camera_graph.HasResource("Frame.SDFGI.Cascade1.Light"));
       RenderResourceDescriptor target;

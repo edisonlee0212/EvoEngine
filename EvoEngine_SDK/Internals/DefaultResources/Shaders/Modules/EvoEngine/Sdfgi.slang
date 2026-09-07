@@ -2,6 +2,7 @@
 // 34d06658a85845111a50db9e485ec4a0701d4298. See docs/licenses/Godot-MIT.txt.
 // Shared-anchor coordinates and publication checks are EvoEngine host adapters.
 import EvoEngine.SdfgiTypes;
+import EvoEngine.SdfgiRelocation;
 
 [[vk::binding(0, 5)]] ConstantBuffer<SdfgiGatherData> sdfgi;
 [[vk::binding(1, 5)]] Texture2DArray<float3> sdfgi_lightprobe_texture;
@@ -10,6 +11,7 @@ import EvoEngine.SdfgiTypes;
 [[vk::binding(4, 5)]] StructuredBuffer<SdfgiFieldStatus> sdfgi_status;
 [[vk::binding(5, 5)]] Texture3D<float> sdf_cascades[8];
 [[vk::binding(6, 5)]] Texture3D<float3> light_cascades[8];
+[[vk::binding(7, 5)]] StructuredBuffer<float4> sdfgi_probe_placement;
 static const uint SDFGI_OCT_SIZE = 6;
 
 float2 EeSdfgiOctWrap(float2 v) {
@@ -27,7 +29,7 @@ float2 EeSdfgiOctEncode(float3 n) {
   return n.xy;
 }
 
-void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam_normal, float3 cam_specular_normal, float roughness, out float3 diffuse_light, out float3 specular_light, bool include_specular) {
+bool EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam_normal, float3 cam_specular_normal, float roughness, out float3 diffuse_light, out float3 specular_light, bool include_specular) {
   cascade_pos += cam_normal * sdfgi.normal_bias;
 
   float3 base_pos = floor(cascade_pos);
@@ -52,15 +54,24 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
     // Compute weight
 
     float3 probe_pos = float3(probe_posi);
+    if (sdfgi.probe_relocation != 0) {
+      float4 placement = sdfgi_probe_placement[SdfgiPlacementIndex(probe_posi, int3(sdfgi.cascade_probe_size) + 1, cascade)];
+      if (placement.w <= 0) continue;
+      probe_pos += placement.xyz;
+    }
     float3 probe_to_pos = cascade_pos - probe_pos;
-    float3 probe_dir = normalize(-probe_to_pos);
+    float3 probe_dir = sdfgi.probe_relocation != 0 ? -probe_to_pos * rsqrt(max(dot(probe_to_pos, probe_to_pos), 1e-12)) : normalize(-probe_to_pos);
 
-    float3 trilinear = float3(1.0) - abs(probe_to_pos);
+    float3 trilinear = float3(1.0) - abs(cascade_pos - float3(probe_posi));
     float weight = trilinear.x * trilinear.y * trilinear.z * max(0.005, dot(cam_normal, probe_dir));
 
     // Compute lightprobe occlusion
 
-    if (sdfgi.use_occlusion != 0) {
+    if (sdfgi.probe_relocation != 0) {
+      float spacing = sdfgi.grid_size.x / sdfgi.cascade_probe_size.x;
+      weight *= SdfgiSegmentVisibility(sdf_cascades[cascade], sdfgi_sampler, probe_pos * spacing,
+                                       cascade_pos * spacing, sdfgi.grid_size);
+    } else if (sdfgi.use_occlusion != 0) {
       int3 occ_indexv = abs((sdfgi.cascades[cascade].probe_world_offset + probe_posi) & int3(1, 1, 1)) * int3(1, 2, 4);
       float4 occ_mask = select(int4(occ_indexv.x | occ_indexv.y) == int4(0, 1, 2, 3), float4(1.0), float4(0.0));
 
@@ -109,6 +120,7 @@ void EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
   }
 
   specular_light = specular_accum;
+  return sdfgi.probe_relocation == 0 || diffuse_accum.a > 0;
 }
 
 void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, float roughness, out float4 ambient_light, out float4 reflection_light, bool include_specular) {
@@ -143,7 +155,8 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
 
     float blend;
     float3 diffuse, specular;
-    EeSdfgiProcess(cascade, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse, specular, include_specular);
+    bool valid = EeSdfgiProcess(cascade, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse, specular, include_specular);
+    ambient_light.a = reflection_light.a = valid ? 1.0 : 0.0;
 
     {
       //process blend
@@ -156,15 +169,23 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
     if (blend > 0.0) {
       //blend
       if (cascade == sdfgi.max_cascades - 1) {
-        ambient_light.a = 1.0 - blend;
-        reflection_light.a = 1.0 - blend;
+        ambient_light.a *= 1.0 - blend;
+        reflection_light.a *= 1.0 - blend;
 
       } else {
         float3 diffuse2, specular2;
         cascade_pos = (cam_pos - sdfgi.cascades[cascade + 1].position) * sdfgi.cascades[cascade + 1].to_probe;
-        EeSdfgiProcess(cascade + 1, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse2, specular2, include_specular);
-        diffuse = lerp(diffuse, diffuse2, blend);
-        specular = lerp(specular, specular2, blend);
+        bool valid2 = EeSdfgiProcess(cascade + 1, cascade_pos, cam_pos, cam_normal, reflection, roughness, diffuse2, specular2, include_specular);
+        if (sdfgi.probe_relocation == 0) {
+          diffuse = lerp(diffuse, diffuse2, blend);
+          specular = lerp(specular, specular2, blend);
+        } else {
+          float first_weight = valid ? 1.0 - blend : 0.0;
+          float second_weight = valid2 ? blend : 0.0;
+          ambient_light.a = reflection_light.a = first_weight + second_weight;
+          diffuse = (diffuse * first_weight + diffuse2 * second_weight) / max(ambient_light.a, 1e-8);
+          specular = (specular * first_weight + specular2 * second_weight) / max(ambient_light.a, 1e-8);
+        }
       }
     }
 
@@ -275,11 +296,12 @@ void EeSdfgiReferenceGather(float3 vertex, float3 normal, float3 reflection, flo
 
       float sa = 1.0 - b;
 
-      reflection_light.a = alpha * sa + b;
+      float probe_weight = sdfgi.probe_relocation != 0 ? reflection_light.a : 1.0;
+      reflection_light.a = alpha * sa + b * probe_weight;
       if (reflection_light.a == 0) {
         specular = float3(0.0);
       } else {
-        specular = (light * alpha * sa + specular * b) / reflection_light.a;
+        specular = (light * alpha * sa + specular * b * probe_weight) / reflection_light.a;
       }
     }
 

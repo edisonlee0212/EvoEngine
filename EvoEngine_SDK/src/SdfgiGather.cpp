@@ -36,6 +36,7 @@ SdfgiGatherData evo_engine::BuildSdfgiGatherData(const SdfgiSettings& settings,
   SdfgiGatherData result{};
   result.max_cascades = cascades.size();
   result.use_occlusion = settings.use_occlusion;
+  result.probe_relocation = settings.probe_relocation;
   const auto grid = settings.GridSize();
   const auto probes = settings.ProbeSize();
   result.probe_axis_size = probes.x;
@@ -122,6 +123,7 @@ std::vector<RenderResourceAccess> SdfgiGatherFrame::CameraReads() const {
   std::vector<RenderResourceAccess> reads{
       {"Frame.SDFGI.Atlas", RenderResourceUsage::Read, RenderResourceState::General},
       {"Frame.SDFGI.Occlusion", RenderResourceUsage::Read, RenderResourceState::General},
+      {"Frame.SDFGI.ProbePlacement", RenderResourceUsage::Read, RenderResourceState::General},
       {"Frame.SDFGI.Status", RenderResourceUsage::Read, RenderResourceState::General},
       {"Frame.SDFGI.Frame" + std::to_string(frame_slot) + ".Gather", RenderResourceUsage::Read,
        RenderResourceState::General}};
