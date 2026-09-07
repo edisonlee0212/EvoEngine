@@ -41,7 +41,7 @@ void EE_DDGI_CLEAR_VISIBILITY_HISTORY(uint texel, uint count) {
 
 float2 EE_DDGI_ROLL_VISIBILITY(uint texel, uint count, uint phase, float2 sample, float distance_bound, bool reset) {
   if (reset) EE_DDGI_CLEAR_VISIBILITY_HISTORY(texel, count);
-  float2 bounds = min(float2(distance_bound, distance_bound * distance_bound), float2(65504.0f));
+  float2 bounds = float2(distance_bound, distance_bound * distance_bound) * 0.5f;
   uint2 sum = EE_DDGI_VISIBILITY_SUM[texel];
   if (all(isfinite(sample)) && all(sample >= 0.0f)) {
     uint slot = texel * count + phase;
@@ -51,5 +51,5 @@ float2 EE_DDGI_ROLL_VISIBILITY(uint texel, uint count, uint phase, float2 sample
     EE_DDGI_VISIBILITY_RING[slot] = value.x | (value.y << 16u);
     EE_DDGI_VISIBILITY_SUM[texel] = sum;
   }
-  return min(float2(sum) * (bounds / (65535.0f * float(count))), float2(65504.0f));
+  return float2(sum) * (bounds / (65535.0f * float(count)));
 }

@@ -106,10 +106,16 @@ invalidation, and signed scrolling. Appearance acceptance remains manual; old hy
 ## Rolling Visibility
 
 Visibility uses the same periodic history window as irradiance: two 16-bit moment samples and two 32-bit running sums
-per interior texel. Samples use the existing cascade distance bound and its square. New histories are zero-filled and
+per interior texel. Samples normalize half-moments by half the cascade distance bound and half its square. New histories are zero-filled and
 always divided by the full window; rejected/nonfinite samples preserve valid slots. Origin changes, reactivation and
 scroll exposure reset affected histories before reuse. The averaged output remains RG16F with regenerated borders.
+Visibility lookup uses hardware bilinear filtering. Initial and exposed tiles clear to (1, 0); moved-probe tiles clear
+to (0, 0). Atlas output is clamped to RG16F's finite range after averaging; no negative atlas sentinel is used.
 The former visibility-smoothing setting is ignored on load and removed from active APIs.
+
+The earlier hardware-filtered visibility behavior and half-moment normalization have been restored without changing
+automatic cascade selection. Focused editor-layer testing still reproduces missing indirect lighting at 33x17x33
+after a full history window; smaller grids recover lighting. This restoration is not a fix for that regression.
 
 Default irradiance and visibility interior tiles are both 8x8; explicit saved resolutions are preserved.
 Four cascades with 33x17x33 probes and 30 updates use 1,821,086,784 logical history bytes (about 1.696 GiB),

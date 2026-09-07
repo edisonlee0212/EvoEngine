@@ -28,9 +28,25 @@
 #include <vector>
 
 #include <gtest/gtest.h>
-#include <glm/gtc/constants.hpp>
 
 using namespace evo_engine;
+
+TEST(DdgiHistoryTest, ProbeCountTransitionsResizeVisibilityStorage) {
+  DdgiSettings settings;
+  auto previous = DdgiRuntime::CalculateFrameResourceLayout(settings, 33 * 17 * 33, 16384);
+  for (const auto counts : {glm::uvec2(15, 17), glm::uvec2(17, 15), glm::uvec2(33, 17)}) {
+    const uint64_t probes = uint64_t(counts.x) * counts.y * counts.x;
+    const auto layout = DdgiRuntime::CalculateFrameResourceLayout(settings, static_cast<uint32_t>(probes), 16384);
+    ASSERT_TRUE(layout.valid);
+    EXPECT_FALSE(DdgiRuntime::ArePersistentLayoutsCompatible(previous, layout));
+    EXPECT_EQ(layout.history.buffer_bytes[DdgiHistoryLayout::VisibilityRing], probes * 64 * 30 * 4);
+    EXPECT_EQ(layout.history.buffer_bytes[DdgiHistoryLayout::VisibilitySum], probes * 64 * 8);
+    EXPECT_EQ(layout.visibility_atlas.probe_count, probes);
+    EXPECT_GE(uint64_t(layout.visibility_atlas.columns) * layout.visibility_atlas.rows, probes);
+    previous = layout;
+  }
+}
+#include <glm/gtc/constants.hpp>
 
 TEST(DdgiHistoryTest, AutomaticDefaultBudgetAndAtlasPackingDoNotUseAuthoredProbeCap) {
   DdgiSettings settings;
@@ -996,6 +1012,15 @@ TEST(DdgiVolume, DdgiDiffuseUsesRtxgiStyleEnergyEncoding) {
   ASSERT_FALSE(render_layer_source.empty());
 
   EXPECT_NE(probe_update_source.find("EE_DDGI_ROLL_VISIBILITY"), std::string::npos);
+  EXPECT_EQ(gather_source.find("EE_DDGI_SAMPLE_VALID_VISIBILITY"), std::string::npos);
+  EXPECT_NE(gather_source.find("resources.sampleVisibility(volume_index, visibility_atlas_uv)"), std::string::npos);
+  EXPECT_NE(gather_single_source.find("EE_DDGI_VISIBILITY_ATLAS.SampleLevel(uv, 0.0f)"), std::string::npos);
+  EXPECT_NE(gather_source.find("EE_DDGI_VISIBILITY_ATLASES[volume_index].SampleLevel(uv, 0.0f)"), std::string::npos);
+  EXPECT_NE(atlas_prepare_source.find("MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f)"), std::string::npos);
+  EXPECT_NE(scroll_source.find("= float2(1.0f, 0.0f);"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("= float2(0.0f);"), std::string::npos);
+  EXPECT_EQ(probe_update_source.find("= float2(-1.0f);"), std::string::npos);
+  EXPECT_NE(probe_update_source.find("float2(65504.0f)"), std::string::npos);
   EXPECT_NE(probe_update_source.find("1.0f / (2.0f * max(uniform_accumulator.weight_sum, uniform_epsilon))"),
             std::string::npos);
   EXPECT_NE(probe_update_source.find("EE_DDGI_PROBE_MAX_VISIBILITY_DISTANCE()"), std::string::npos);

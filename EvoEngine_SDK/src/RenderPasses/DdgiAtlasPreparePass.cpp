@@ -40,7 +40,7 @@ void RecordAtlasPrepare(const VkCommandBuffer vk_command_buffer, const RenderGra
   ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_irradiance_atlas,
                   MakeClearColor(0.0f, 0.0f, 0.0f, 0.0f));
   ClearGraphImage(vk_command_buffer, context, RenderResourceNames::frame_ddgi_visibility_atlas,
-                  MakeClearColor(-1.0f, -1.0f, 0.0f, 1.0f));
+                  MakeClearColor(1.0f, 0.0f, 0.0f, 1.0f));
   ApplyGraphResourceReleaseBarriers(vk_command_buffer, context, RenderPassQueue::Graphics);
 }
 }  // namespace

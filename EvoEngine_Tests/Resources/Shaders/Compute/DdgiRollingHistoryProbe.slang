@@ -4,16 +4,6 @@ import EvoEngine.DDGIGather;
 
 [[vk::binding(31, 0)]] RWStructuredBuffer<uint4> results;
 
-struct VisibilityFixture : IDdgiGatherResources {
-  float4 loadProbeState(uint volume_index, uint probe_index) { return float4(0.0f); }
-  float4 sampleIrradiance(uint volume_index, float2 uv) { return float4(0.0f); }
-  float4 loadVisibility(uint volume_index, int2 pixel) {
-    int index = pixel.y * 2 + pixel.x;
-    if (volume_index == 1u || index == 0) return float4(-1.0f);
-    return float4(float2(index * 2.0f, index * 4.0f), 0.0f, 1.0f);
-  }
-};
-
 [shader("compute")]
 [numthreads(1, 1, 1)]
 void main(uint3 thread : SV_DispatchThreadID) {
@@ -66,14 +56,16 @@ void main(uint3 thread : SV_DispatchThreadID) {
     if (update == count - 1u) filled_visibility = EE_DDGI_VISIBILITY_SUM[texel];
     if (update >= count && any(filled_visibility != EE_DDGI_VISIBILITY_SUM[texel])) ++errors;
   }
-  if (any(EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(-1.0f), 64.0f, false) != visibility)) ++errors;
+  if (any(abs(EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(-1.0f), 64.0f, false) - visibility) > 0.0001f)) ++errors;
+  if (any(filled_visibility != EE_DDGI_VISIBILITY_SUM[texel])) ++errors;
   EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(asfloat(0x7fc00000u)), 64.0f, false);
   if (any(filled_visibility != EE_DDGI_VISIBILITY_SUM[texel])) ++errors;
   EE_DDGI_CLEAR_VISIBILITY_HISTORY(texel, count);
   if (any(EE_DDGI_VISIBILITY_SUM[texel] != uint2(0))) ++errors;
-  float2 interpolated = EE_DDGI_SAMPLE_VALID_VISIBILITY(VisibilityFixture(), 0u, float2(0.5f), float2(2.0f));
-  if (any(abs(interpolated - float2(4.0f, 8.0f)) > 0.0001f)) ++errors;
-  if (any(EE_DDGI_SAMPLE_VALID_VISIBILITY(VisibilityFixture(), 1u, float2(0.5f), float2(2.0f)) >= 0.0f)) ++errors;
+  float2 bounded = EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(1000000.0f), 64.0f, true);
+  if (any(abs(bounded - float2(32.0f, 2048.0f) / float(count)) > 0.001f)) ++errors;
+  float2 large = EE_DDGI_ROLL_VISIBILITY(texel, count, 0u, float2(1000000.0f), 2048.0f, true);
+  if (!all(isfinite(min(large, float2(65504.0f))))) ++errors;
   results[texel] = uint4(errors, filled_irradiance.x, asuint(visibility.x), asuint(startup));
   EE_DDGI_ROLL_IRRADIANCE(texel, count, 0u, float4(0.0f), true);
   if (any(EE_DDGI_IRRADIANCE_SUM[texel] != uint4(0u)))

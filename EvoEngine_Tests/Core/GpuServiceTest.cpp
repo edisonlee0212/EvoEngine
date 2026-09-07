@@ -4538,7 +4538,7 @@ TEST(GpuService, DdgiProductionHistoryInvalidatesMovedAndReactivatedProbesOnly) 
     std::vector<uint16_t> values;
     output->DownloadVector(values, 9 * 3 * components);
     for (size_t word = 0; word < values.size(); ++word)
-      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : i == 0 ? 0u : 0xbc00u);
+      EXPECT_EQ(values[word], (word / components) % 9 < 3 ? 0x3c00u : 0u);
   }
   const auto rays = make_buffer(3 * sizeof(glm::vec4));
   rays->UploadVector(std::vector<glm::vec4>(3, glm::vec4(std::numeric_limits<float>::quiet_NaN())));

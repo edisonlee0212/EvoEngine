@@ -4,27 +4,9 @@ __exported import EvoEngine.DDGI;
 public interface IDdgiGatherResources {
   float4 loadProbeState(uint volume_index, uint probe_index);
   float4 sampleIrradiance(uint volume_index, float2 uv);
-  float4 loadVisibility(uint volume_index, int2 pixel);
+  float4 sampleVisibility(uint volume_index, float2 uv);
 }
 
-public float2 EE_DDGI_SAMPLE_VALID_VISIBILITY<T : IDdgiGatherResources>(T resources, uint volume_index,
-                                                                       float2 uv, float2 atlas_size) {
-  float2 texel = uv * atlas_size - 0.5f;
-  int2 base = int2(floor(texel));
-  float2 fraction = frac(texel);
-  float2 moments = float2(0.0f);
-  float total = 0.0f;
-  for (int y = 0; y < 2; ++y) {
-    for (int x = 0; x < 2; ++x) {
-      float2 sample = resources.loadVisibility(volume_index, clamp(base + int2(x, y), int2(0), int2(atlas_size) - 1)).rg;
-      if (!all(isfinite(sample)) || any(sample < 0.0f)) continue;
-      float weight = (x != 0 ? fraction.x : 1.0f - fraction.x) * (y != 0 ? fraction.y : 1.0f - fraction.y);
-      moments += sample * weight;
-      total += weight;
-    }
-  }
-  return total > 0.0f ? moments / total : float2(-1.0f);
-}
 public struct EeDdgiGatherResult {
   public float3 irradiance;
   public float3 linear_irradiance;
@@ -144,10 +126,9 @@ public EeDdgiGatherResult EE_DDGI_GATHER_VOLUME_IRRADIANCE<T : IDdgiGatherResour
         const float2 visibility_atlas_uv = EE_DDGI_ATLAS_UV(probe_index, visibility_atlas_columns, visibility_tile_size,
                                                             -biased_surface_to_probe_direction, visibility_atlas_size);
         const float4 irradiance = resources.sampleIrradiance(volume_index, irradiance_atlas_uv);
-        const float2 visibility_sample = EE_DDGI_SAMPLE_VALID_VISIBILITY(resources, volume_index, visibility_atlas_uv,
-                                                                           visibility_atlas_size);
+        const float4 visibility_sample = resources.sampleVisibility(volume_index, visibility_atlas_uv);
         if (any(isnan(irradiance)) || any(isinf(irradiance)) || any(isnan(visibility_sample)) ||
-            any(isinf(visibility_sample)) || any(visibility_sample < 0.0f)) {
+            any(isinf(visibility_sample))) {
           continue;
         }
         const float irradiance_validity = clamp(irradiance.a, 0.0f, 1.0f);
