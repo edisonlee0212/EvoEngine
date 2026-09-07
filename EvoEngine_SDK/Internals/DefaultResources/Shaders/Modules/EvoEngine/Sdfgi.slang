@@ -70,7 +70,7 @@ bool EeSdfgiProcess(uint cascade, float3 cascade_pos, float3 cam_pos, float3 cam
     if (sdfgi.probe_relocation != 0) {
       float spacing = sdfgi.grid_size.x / sdfgi.cascade_probe_size.x;
       weight *= SdfgiSegmentVisibility(sdf_cascades[cascade], sdfgi_sampler, probe_pos * spacing,
-                                       cascade_pos * spacing, sdfgi.grid_size);
+                                       cascade_pos * spacing, sdfgi.grid_size, cam_normal);
     } else if (sdfgi.use_occlusion != 0) {
       int3 occ_indexv = abs((sdfgi.cascades[cascade].probe_world_offset + probe_posi) & int3(1, 1, 1)) * int3(1, 2, 4);
       float4 occ_mask = select(int4(occ_indexv.x | occ_indexv.y) == int4(0, 1, 2, 3), float4(1.0), float4(0.0));

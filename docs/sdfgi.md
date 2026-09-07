@@ -30,7 +30,13 @@ move probes. Disabling the option preserves the Godot-style nominal-origin occlu
 
 This is an intentional departure from the pinned reference: nominal-grid neighbor selection is retained, but tracing,
 directional weights and probe visualization use actual relocated positions. Relocation mode replaces nominal occlusion
-with bounded (256-step maximum) SDF segment visibility, even if Use Occlusion is off. It adds placement and scroll-scratch
+with bounded SDF segment visibility, even if Use Occlusion is off. Visibility traces from the receiver toward the probe,
+rejects probes behind the receiver normal, and may escape only the receiver's initial contiguous occupied footprint
+(up to 1.5 cells per axis, including filtering support, in at most 24 short steps). Once free, any subsequent obstruction
+blocks during the normal 256-step trace. This prevents coarse receiver voxels from self-occluding corners without adding
+a nonzero visibility floor. Gather and bounce feedback share this rule. Unresolved sub-voxel/connected geometry within
+that initial footprint is still ambiguous in the unsigned field; this is not exact triangle visibility.
+It adds placement and scroll-scratch
 buffers, checked against device limits, but no history-window storage. Parent-history initialization and highest-cascade
 destination-history reuse are disabled for exposed relocated probes because their origins/validity are incompatible.
 There is no new ray-tracing dependency, DDGI behavior change or asynchronous-compute scheduling.

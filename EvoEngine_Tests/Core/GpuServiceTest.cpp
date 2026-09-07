@@ -1123,6 +1123,7 @@ TEST(SdfgiRelocation, ClearanceHistoryGeometryAndSignedScrollWithoutRt) {
   settings.cascade_count = 2;
   settings.history_size = 5;
   settings.probe_relocation = true;
+  settings.probe_spacing_cells = 4;
   settings.bounce_feedback = 0;
   const auto layout = SdfgiProbeLayout::Create(64, 64, 4, 32768);
   const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
@@ -1137,6 +1138,11 @@ TEST(SdfgiRelocation, ClearanceHistoryGeometryAndSignedScrollWithoutRt) {
 [[vk::push_constant]] ConstantBuffer<uint> phase;
 [numthreads(8,8,8)]
 void main(uint3 id : SV_DispatchThreadID) {
+  if (phase == 8) {
+    float d = min(min(float(id.x), float(id.y)), abs(float(id.x) - 32));
+    sdf[id] = d == 0 ? 0 : (1 + d) / 255.0;
+    return;
+  }
   sdf[id] = phase == 2 ? 0.0 : phase >= 3 ? 1.0 :
       (floor(max(0.0, abs(float(id.x) + 0.5 - 32.0) - 0.5)) + 1.0) / 255.0;
 }
@@ -1147,7 +1153,7 @@ void main(uint3 id : SV_DispatchThreadID) {
   output_layout->PushDescriptorBinding(0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
   output_layout->Initialize();
   VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
-  info.size = 8 * sizeof(glm::vec4);
+  info.size = 10 * sizeof(glm::vec4);
   info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
   auto output = std::make_shared<Buffer>(info);
   auto output_set = std::make_shared<DescriptorSet>(output_layout);
@@ -1173,6 +1179,15 @@ void main(uint3 id : SV_DispatchThreadID) {
   result[1] = float4(SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(48,32,32),64),
       SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(24,32,32),64),
       SdfgiSegmentVisibility(sdf[0],linear_sampler,float3(16,32,32),float3(64,32,32),64),0);
+  result[8] = float4(
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(8.5),float3(0.6,8.5,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(40,8.5,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(0.2,8.5,8.5),float3(1.6,8.5,8.5),64,float3(1,0,0)));
+  result[9] = float4(
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(1.6,8.5,8.5),float3(1.6,0.6,8.5),64,float3(1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(31,8.5,8.5),float3(33.6,8.5,8.5),64,float3(-1,0,0)),
+      SdfgiSegmentVisibility(sdf[1],linear_sampler,float3(32.5,16.5,8.5),float3(32.5,8.5,8.5),64,float3(0,1,0)),0);
   for (uint i=0; i<4; ++i) {
     float spacing = float(1u << i);
     float4 p = SdfgiFindPlacement(sdf[0],linear_sampler,float3(32),64,spacing);
@@ -1246,6 +1261,9 @@ void main(uint3 id : SV_DispatchThreadID) {
             field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
             seed->Bind(command);
+            seed->BindDescriptorSet(command, 0, field->sets.at("Cascade1.Store")->GetVkDescriptorSet());
+            seed->PushConstant(command, 0, 8u);
+            seed->Dispatch(command, 8, 8, 8);
             seed->BindDescriptorSet(command, 0, field->sets.at("Cascade0.Store")->GetVkDescriptorSet());
             seed->PushConstant(command, 0, phase);
             seed->Dispatch(command, 8, 8, 8);
@@ -1276,7 +1294,10 @@ void main(uint3 id : SV_DispatchThreadID) {
     Platform::WaitForFrameSubmissions("SDFGI relocation fixture");
     std::vector<glm::vec4> placements, result;
     field->buffers.at("ProbePlacement").buffer->DownloadVector(placements, layout.ProbeCount() * 2);
-    output->DownloadVector(result, 8);
+    output->DownloadVector(result, 10);
+    EXPECT_EQ(result[8], glm::vec4(1, 1, 0, 0));
+    EXPECT_EQ(result[9], glm::vec4(1, 0, 0, 0));
+    EXPECT_EQ(result[1].y, phase == 2 ? 0 : 1);
     if (phase == 4 || phase == 6) {
       const auto index = layout.Index(phase == 4 ? 0 : 16, 8, 8);
       VkBufferImageCopy copy{};

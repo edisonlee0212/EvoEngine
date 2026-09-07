@@ -53,16 +53,24 @@ public float4 SdfgiFindPlacement(Texture3D<float> field, SamplerState sampler_st
 }
 
 public float SdfgiSegmentVisibility(Texture3D<float> field, SamplerState sampler_state,
-                                    float3 origin, float3 target, float3 grid) {
+                                    float3 origin, float3 target, float3 grid, float3 receiver_normal = float3(0)) {
   if (any(origin < 0) || any(origin >= grid) || any(target < 0) || any(target >= grid)) return 0;
-  float3 delta = target - origin;
+  float3 delta = origin - target;
   float distance = length(delta);
   if (distance < 0.0001) return 1;
   float3 direction = delta / distance;
+  if (dot(direction, receiver_normal) < 0) return 0;
   float travel = 0;
+  // Skip only the receiver's contiguous voxel footprint (one cell plus filter support).
+  // Once in free space, every obstruction blocks, including another nearby thin wall.
+  for (uint step = 0; dot(receiver_normal, receiver_normal) > 0 && step < 24; ++step) {
+    if (SdfgiClearance(field, sampler_state, target + direction * travel, grid) >= 0.05) break;
+    travel += 0.125;
+    if (travel >= distance || any(abs(direction * travel) > 1.5)) return 0;
+  }
   for (uint step = 0; step < 256; ++step) {
     if (travel >= distance) return 1;
-    float clearance = SdfgiClearance(field, sampler_state, origin + direction * travel, grid);
+    float clearance = SdfgiClearance(field, sampler_state, target + direction * travel, grid);
     if (clearance < 0.05) return 0;
     travel += max(0.025, clearance * 0.8);
   }

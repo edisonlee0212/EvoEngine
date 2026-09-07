@@ -142,7 +142,7 @@ void main(uint3 id : SV_DispatchThreadID) {
 
           if (weight > 0.0 && (params.use_occlusion & 2) != 0) {
             weight *= SdfgiSegmentVisibility(sdf_cascades[params.cascade], linear_sampler, probe_pos * spacing,
-                                             float3(positioni) + float3(0.5) + aniso_dir[k], params.grid_size);
+                                             float3(positioni) + float3(0.5) + aniso_dir[k], params.grid_size, aniso_dir[k]);
           } else if (weight > 0.0 && (params.use_occlusion & 1) != 0) {
             int3 occ_indexv = abs((cascades.data[params.cascade].probe_world_offset + probe_posi) & int3(1, 1, 1)) * int3(1, 2, 4);
             float4 occ_mask = select(int4(occ_indexv.x | occ_indexv.y) == int4(0, 1, 2, 3), float4(1.0), float4(0.0));
