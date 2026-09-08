@@ -1,0 +1,41 @@
+#pragma once
+
+#include <array>
+#include <cstdint>
+#include <glm/glm.hpp>
+
+namespace evo_engine {
+// Matches HddagiTrace.slang and HddagiRegionStore.slang.
+struct alignas(16) HddagiCascadeData {
+  glm::vec3 offset{0};
+  float to_cell = 1;
+  glm::ivec3 region_world_offset{0};
+  float padding = 0;
+};
+struct alignas(16) HddagiCascadeBlock {
+  std::array<HddagiCascadeData, 8> data{};
+};
+struct alignas(16) HddagiRegionParams {
+  glm::ivec3 grid{0};
+  uint32_t cascade = 0;
+  glm::ivec3 offset{0};
+  uint32_t version = 1;
+  glm::ivec3 region_world_offset{0};
+  uint32_t padding = 0;
+};
+struct alignas(16) HddagiRay {
+  glm::vec3 origin{0};
+  uint32_t cascade = 0;
+  glm::vec3 direction{0};
+  uint32_t padding = 0;
+};
+struct alignas(16) HddagiTraceParams {
+  glm::ivec3 grid{0};
+  uint32_t ray_count = 0;
+  uint32_t cascade_count = 1;
+  uint32_t fractional_bits = 8;
+  glm::uvec2 padding{0};
+};
+static_assert(sizeof(HddagiCascadeData) == 32 && sizeof(HddagiCascadeBlock) == 256);
+static_assert(sizeof(HddagiRegionParams) == 48 && sizeof(HddagiRay) == 32 && sizeof(HddagiTraceParams) == 32);
+}  // namespace evo_engine

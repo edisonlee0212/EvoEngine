@@ -1,6 +1,7 @@
 // Godot HDDAGI::create layouts, da1410fa3516d08cc31b6e86bd6673b9ce776316.
 // See docs/licenses/Godot-MIT.txt. EvoEngine owns validation and allocation lifetime.
 #include "HddagiResources.hpp"
+#include "HddagiVoxelizer.hpp"
 
 #include <array>
 #include <stdexcept>
@@ -31,6 +32,14 @@ VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
   return info;
 }
 }  // namespace
+
+uint64_t HddagiResources::AllocationBytes() const {
+  uint64_t bytes = allocation_bytes;
+  for (const auto& frame : voxel_frames)
+    if (frame)
+      bytes += frame->inputs->AllocationBytes();
+  return bytes;
+}
 
 void HddagiResources::Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const {
   for (const auto& [name, texture] : images) {

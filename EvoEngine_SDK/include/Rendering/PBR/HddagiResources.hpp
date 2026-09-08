@@ -3,11 +3,16 @@
 #include "GraphicsResources.hpp"
 #include "HddagiSettings.hpp"
 #include "RenderGraph.hpp"
+#include "SdfgiScene.hpp"
 
 #include <map>
 #include <memory>
 
 namespace evo_engine {
+
+class HddagiVoxelFrame;
+class GraphicsPipeline;
+class ComputePipeline;
 
 struct HddagiImageRequirement {
   std::string name;
@@ -52,7 +57,13 @@ class EVOENGINE_API HddagiResources {
   uint64_t allocation_bytes = 0;
   uint64_t temporal_bytes = 0;
   bool initialization_recorded = false;
+  std::shared_ptr<GraphicsPipeline> voxel_pipeline;
+  std::shared_ptr<ComputePipeline> region_pipeline;
+  std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
+  uint64_t last_voxel_frame = UINT64_MAX;
+  bool voxelization_recorded = false;
 
+  [[nodiscard]] uint64_t AllocationBytes() const;
   void Import(RenderGraph& graph, RenderGraphResourceRegistry& registry) const;
   [[nodiscard]] RenderPassDescriptor ClearDescriptor() const;
   void Clear(VkCommandBuffer command, const RenderGraphExecutionContext& context);
@@ -69,6 +80,10 @@ struct EVOENGINE_API HddagiRuntime {
   HddagiCapabilityReport capabilities;
   std::shared_ptr<HddagiResources> resources;
   uint64_t retiring_bytes = 0;
+  SdfgiContributorRegistry contributors;
+  std::vector<SdfgiCascade> cascades;
+  uint32_t region_version = 0;
+  std::string voxel_failure;
   bool allocation_attempted = false;
   bool published = false;
   std::string fallback_reason = "HDDAGI transport is not ready";

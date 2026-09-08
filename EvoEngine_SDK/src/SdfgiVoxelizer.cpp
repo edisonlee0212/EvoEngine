@@ -172,18 +172,31 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
                                                          const SdfgiContributorRegistry& contributors,
                                                          const std::vector<SdfgiCascade>& cascades,
                                                          const std::vector<SdfgiPendingRegion>& pending) {
-  auto frame = std::make_shared<SdfgiVoxelFrame>();
-  frame->cascades = cascades;
-  frame->frame_slot = Platform::GetCurrentFrameIndex();
+  auto frame = CreateRasterInputs(
+      resources.voxel_pipeline, resources.layouts[static_cast<size_t>(SdfgiLayout::Voxel)],
+      {resources.textures.at("Albedo").storage_view, resources.textures.at("Emission").storage_view,
+       resources.textures.at("EmissionAniso").storage_view, resources.textures.at("Facing").storage_view},
+      SdfgiYMultiplier(resources.settings.vertical_scale), contributors, cascades, pending);
   // Godot updates its cascade UBO after render_region: SCROLL samples the previous probe coordinates.
   frame->scroll_cascades = resources.cascade_data;
   frame->input_uploads.Add(resources.buffers.at("Frame" + std::to_string(frame->frame_slot) + ".Cascades").buffer,
                            frame->scroll_cascades, {BufferUploadUsage::Uniform});
   frame->preprocess_readback = std::make_shared<SdfgiPreprocessReadback>(resources.settings.cascade_count);
   frame->preprocess_readback->scene_frame = Platform::GetFrameCount();
+  return frame;
+}
+
+std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::CreateRasterInputs(
+    const std::shared_ptr<GraphicsPipeline>& pipeline, const std::shared_ptr<DescriptorSetLayout>& layout,
+    const std::array<std::shared_ptr<ImageView>, 4>& outputs, const float y_mult,
+    const SdfgiContributorRegistry& contributors, const std::vector<SdfgiCascade>& cascades,
+    const std::vector<SdfgiPendingRegion>& pending) {
+  auto frame = std::make_shared<SdfgiVoxelFrame>();
+  frame->cascades = cascades;
+  frame->frame_slot = Platform::GetCurrentFrameIndex();
   frame->vertex_buffer = GeometryStorage::GetVertexBuffer();
   frame->index_buffer = GeometryStorage::GetTriangleBuffer();
-  frame->scene_set = std::make_shared<DescriptorSet>(resources.voxel_pipeline->descriptor_set_layouts[0]);
+  frame->scene_set = std::make_shared<DescriptorSet>(pipeline->descriptor_set_layouts[0]);
   auto& batch = frame->input_uploads;
   const auto make_buffer = [&](const std::string& name, const size_t size, const VkBufferUsageFlags usage) {
     VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
@@ -195,7 +208,7 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
   };
   GltfMaterialCache materials;
   const auto texture_capacity =
-      resources.voxel_pipeline->descriptor_set_layouts[0]->GetDescriptorBindings().at(9).binding.descriptorCount;
+      pipeline->descriptor_set_layouts[0]->GetDescriptorBindings().at(9).binding.descriptorCount;
   for (const auto& [id, contributor] : contributors.entries) {
     const auto range = contributor.mesh->GetTriangleRange();
     if (!frame->vertex_buffer || !frame->index_buffer || !range || range->prev_frame_index_count == 0)
@@ -261,24 +274,51 @@ std::shared_ptr<SdfgiVoxelFrame> SdfgiVoxelFrame::Create(const SdfgiResources& r
     auto& region = frame->regions[i];
     region.pending = pending[i];
     for (uint32_t axis = 0; axis < 3; ++axis) {
-      region.constants[axis] = VoxelView(pending[i], cascades[pending[i].cascade],
-                                         SdfgiYMultiplier(resources.settings.vertical_scale), axis);
+      region.constants[axis] = VoxelView(pending[i], cascades[pending[i].cascade], y_mult, axis);
       buffer = make_buffer("Region" + std::to_string(i) + "Axis" + std::to_string(axis), sizeof(SdfgiVoxelData),
                            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
       batch.Add(buffer, region.constants[axis], {BufferUploadUsage::Uniform});
       auto& set = region.sets[axis];
-      set = std::make_shared<DescriptorSet>(resources.layouts[static_cast<size_t>(SdfgiLayout::Voxel)]);
+      set = std::make_shared<DescriptorSet>(layout);
       set->UpdateBufferDescriptorBinding(0, buffer);
       uint32_t binding = 1;
-      for (const auto name : {"Albedo", "Emission", "EmissionAniso", "Facing"}) {
+      for (const auto& view : outputs) {
         VkDescriptorImageInfo info{};
         info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        info.imageView = resources.textures.at(name).storage_view->GetVkImageView();
+        info.imageView = view->GetVkImageView();
         set->UpdateImageDescriptorBinding(binding++, info);
       }
     }
   }
   return frame;
+}
+
+void SdfgiVoxelFrame::RecordAxis(const VkCommandBuffer command, GraphicsPipeline& pipeline, const Region& region,
+                                 const uint32_t axis) const {
+  const uint32_t width = region.pending.size[(axis + 1) % 3];
+  const uint32_t height = region.pending.size[(axis + 2) % 3];
+  VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
+  rendering.renderArea.extent = {width, height};
+  rendering.layerCount = 1;
+  Platform::BeginRendering(command, rendering);
+  pipeline.Bind(command);
+  pipeline.states.SetViewportScissor({0, 0, width, height});
+  pipeline.states.depth_test = pipeline.states.depth_write = false;
+  pipeline.states.cull_mode = VK_CULL_MODE_NONE;
+  pipeline.states.ApplyAllStates(command, true);
+  pipeline.BindDescriptorSet(command, 0, scene_set->GetVkDescriptorSet());
+  pipeline.BindDescriptorSet(command, 1, region.sets[axis]->GetVkDescriptorSet());
+  if (!draws.empty()) {
+    vertex_buffer->BindVertex(command);
+    index_buffer->BindIndex(command);
+    for (const auto& draw : draws) {
+      if (!Intersects(draw.contributor.world_bounds, region.pending.world_bounds))
+        continue;
+      pipeline.PushConstant(command, 0, draw.constants);
+      Platform::DrawIndexed(command, draw.index_count, 1, draw.first_index);
+    }
+  }
+  Platform::EndRendering(command);
 }
 
 void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry& registry,
@@ -371,30 +411,7 @@ void SdfgiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry&
           if (region.pending.cascade != cascade)
             continue;
           for (uint32_t axis = 0; axis < 3; ++axis) {
-            const uint32_t width = region.pending.size[(axis + 1) % 3];
-            const uint32_t height = region.pending.size[(axis + 2) % 3];
-            VkRenderingInfo rendering{VK_STRUCTURE_TYPE_RENDERING_INFO};
-            rendering.renderArea.extent = {width, height};
-            rendering.layerCount = 1;
-            Platform::BeginRendering(command_buffer, rendering);
-            pipeline.Bind(command_buffer);
-            pipeline.states.SetViewportScissor({0, 0, width, height});
-            pipeline.states.depth_test = pipeline.states.depth_write = false;
-            pipeline.states.cull_mode = VK_CULL_MODE_NONE;
-            pipeline.states.ApplyAllStates(command_buffer, true);
-            pipeline.BindDescriptorSet(command_buffer, 0, frame->scene_set->GetVkDescriptorSet());
-            pipeline.BindDescriptorSet(command_buffer, 1, region.sets[axis]->GetVkDescriptorSet());
-            if (!frame->draws.empty()) {
-              frame->vertex_buffer->BindVertex(command_buffer);
-              frame->index_buffer->BindIndex(command_buffer);
-              for (const auto& draw : frame->draws) {
-                if (!Intersects(draw.contributor.world_bounds, region.pending.world_bounds))
-                  continue;
-                pipeline.PushConstant(command_buffer, 0, draw.constants);
-                Platform::DrawIndexed(command_buffer, draw.index_count, 1, draw.first_index);
-              }
-            }
-            Platform::EndRendering(command_buffer);
+            frame->RecordAxis(command_buffer, pipeline, region, axis);
             resources->OrderAccess(command_buffer,
                                    VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                    VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);

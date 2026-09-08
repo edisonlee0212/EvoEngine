@@ -16,6 +16,7 @@
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
 #include "HddagiResources.hpp"
+#include "HddagiVoxelizer.hpp"
 #include "Jobs.hpp"
 #include "LodGroup.hpp"
 #include "MeshRenderer.hpp"
@@ -5468,13 +5469,56 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
             resources->Clear(command, context);
           });
         });
+      if (runtime.frame.failure.empty() && resources->last_voxel_frame != scene_frame) {
+        resources->voxel_frames.resize(Platform::GetMaxFramesInFlight());
+        resources->voxel_frames[current_frame_index].reset();
+        const bool retry_voxelization = !runtime.voxel_failure.empty();
+        resources->last_voxel_frame = scene_frame;
+        auto inputs_lighting = lighting;
+        auto input_settings = SdfgiSettings{};
+        input_settings.probe_spacing_cells = 8;
+        input_settings.static_entities_only = runtime.settings.static_entities_only;
+        inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
+        runtime.contributors.Update(SnapshotSdfgiScene(scene, inputs_lighting).contributors);
+        runtime.voxel_failure =
+            UpdateSdfgiCascades(inputs_lighting.sdfgi_settings, runtime.frame.anchor.world_position, runtime.cascades);
+        if (runtime.voxel_failure.empty()) {
+          const bool changed = retry_voxelization || !resources->voxelization_recorded ||
+                               !runtime.contributors.changes.empty() ||
+                               std::any_of(runtime.cascades.begin(), runtime.cascades.end(), [](const auto& cascade) {
+                                 return cascade.full_redraw || cascade.dirty_regions != glm::ivec3(0);
+                               });
+          if (changed) {
+            for (auto& cascade : runtime.cascades)
+              cascade.full_redraw = true;
+            const auto pending = GetSdfgiPendingRegions(
+                runtime.cascades, SdfgiYMultiplier(inputs_lighting.sdfgi_settings.vertical_scale));
+            try {
+              const auto version = runtime.region_version % UINT16_MAX + 1;
+              auto frame = HddagiVoxelFrame::Create(*resources, per_frame_layout_, runtime.contributors,
+                                                    runtime.cascades, pending, version);
+              frame->AddPasses(scene_graph, registry, resources);
+              resources->voxel_frames[current_frame_index] = std::move(frame);
+              runtime.region_version = version;
+              for (auto& cascade : runtime.cascades) {
+                cascade.full_redraw = false;
+                cascade.dirty_regions = glm::ivec3(0);
+              }
+            } catch (const std::exception& error) {
+              runtime.voxel_failure = error.what();
+            }
+          }
+        }
+        if (!runtime.voxel_failure.empty())
+          runtime.fallback_reason = runtime.voxel_failure;
+      }
     }
     runtime.retiring_bytes = 0;
     std::set<const HddagiResources*> counted;
     for (const auto& slot : hddagi_frame_resources_)
       for (const auto& field : slot)
         if (field != runtime.resources && counted.insert(field.get()).second)
-          runtime.retiring_bytes += field->allocation_bytes;
+          runtime.retiring_bytes += field->AllocationBytes();
   }
   if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi) {
     const auto sdfgi_cpu_start = std::chrono::steady_clock::now();

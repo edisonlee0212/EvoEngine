@@ -1,6 +1,6 @@
 # Automatic HDDAGI
 
-Status: implementation in progress. H0 reference contract committed; H1 adds provider/settings/preflight and allocation ownership. Selecting HDDAGI uses Environment until transport is implemented and published. No HDDAGI rendering is available yet.
+Status: implementation in progress. H0/H1 are complete. H2 now builds raster payloads and circular region/block occupancy through the scene graph; probe-style HDDA has a GPU oracle fixture. Compact light payloads, bounded visibility and local updates remain in progress. Selecting HDDAGI uses Environment until transport is implemented and published. No HDDAGI rendering is available yet.
 
 HDDAGI is an explicit third indirect-GI provider. Existing Environment=0, Automatic DDGI=1 and Automatic SDFGI=2 retain their meanings and defaults; Automatic HDDAGI uses 3. It shares nominal probe coverage and anchor selection, not DDGI/SDFGI field storage. Correctness and recorded results are required; no speedup threshold applies.
 
@@ -87,3 +87,11 @@ The RelWithDebInfo editor and test executable build with the provider foundation
 The subsequent lifecycle run passes all53 focused tests. Additional tests overwrite and clear every image before last-texel/last-layer readback, and verify that a submitted scene field survives provider removal until its frame slot retires. No Vulkan core/synchronization errors were logged. Scene allocation waits for a valid shared anchor; unsupported or unready states remain unpublished.
 
 On the NVIDIA GeForce RTX 5070, default image requirements total 802,766,848 padded bytes, including 264,568,832 temporal bytes. These figures exclude future buffers, camera resources and retired generations; they are not peak runtime memory measurements. Reproduce the focused run with `EvoEngine_Tests --gtest_filter=Hddagi*.*:GiProbes.*:GiSettings.*:EnvironmentalLighting*.*:SdfgiRuntime.ProviderDefaultsToAutomaticAndPreservesExplicitChoices` from its build output directory. Local logs and XML results are in `tasks/h1-tests.*`.
+
+## Hierarchy implementation checkpoint
+
+`HddagiVoxelFrame` reuses the SDFGI contributor/material snapshot and three-axis draw adapter, with dedicated HDDAGI images and pipelines. It builds six interleaved RGB565 albedos, RGB9E5 emission, directional emission and geometric-normal bits. The geometric-normal front-face correction is inverted relative to Godot because this world-space raster projection uses EvoEngine's counterclockwise winding convention. Derivatives are evaluated before masked fragments are discarded.
+
+The current scene path rebuilds the field on represented-geometry/payload or cascade-placement changes and skips unchanged frames. This is the H2 integration baseline; it does not yet implement H3 retained local updates. Raster inputs are immutable and retained with submitted field allocations until frame-slot retirement. No SDF/JFA resources or ray-tracing services are used.
+
+The hierarchy fixture compares GPU hits to an independent double-precision voxel DDA over 64-cubed, 128-cubed, 192x80x192 and 256x128x256 fields, both fractional precisions, signed circular offsets, empty/full/wall/corner patterns and cascade transitions. At exact voxel edges, either incident solid voxel is accepted only if it contains the oracle's first intersection. These cardinal/diagonal and near-axis checks do not establish arbitrary-angle accuracy or finite-distance direct-light semantics. Separate scene/raster fixtures cover masked UV1 input, vertex color, reversed winding, emission, repeated scratch clears, nonstatic contributor parity, movement/removal and unchanged frames.

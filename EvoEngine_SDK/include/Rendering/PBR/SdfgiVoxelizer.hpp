@@ -63,6 +63,13 @@ class EVOENGINE_API SdfgiVoxelFrame : public std::enable_shared_from_this<SdfgiV
                                                  const SdfgiContributorRegistry& contributors,
                                                  const std::vector<SdfgiCascade>& cascades,
                                                  const std::vector<SdfgiPendingRegion>& pending);
+  static std::shared_ptr<SdfgiVoxelFrame> CreateRasterInputs(const std::shared_ptr<GraphicsPipeline>& pipeline,
+                                                             const std::shared_ptr<DescriptorSetLayout>& layout,
+                                                             const std::array<std::shared_ptr<ImageView>, 4>& outputs,
+                                                             float y_mult, const SdfgiContributorRegistry& contributors,
+                                                             const std::vector<SdfgiCascade>& cascades,
+                                                             const std::vector<SdfgiPendingRegion>& pending);
+  void RecordAxis(VkCommandBuffer command, GraphicsPipeline& pipeline, const Region& region, uint32_t axis) const;
   void AddPasses(RenderGraph& graph, RenderGraphResourceRegistry& registry,
                  const std::shared_ptr<SdfgiResources>& resources, const std::shared_ptr<SdfgiRuntime>& runtime = {});
   [[nodiscard]] uint64_t AllocationBytes() const;

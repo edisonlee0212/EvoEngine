@@ -913,6 +913,10 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     result["hddagi_state_active"] = hddagi != nullptr;
     result["hddagi_fallback_reason"] = hddagi ? hddagi->fallback_reason : std::string{};
     result["hddagi_image_bytes"] = hddagi && hddagi->resources ? hddagi->resources->allocation_bytes : 0;
+    result["hddagi_allocation_bytes"] = hddagi && hddagi->resources ? hddagi->resources->AllocationBytes() : 0;
+    result["hddagi_voxelization_recorded"] = hddagi && hddagi->resources && hddagi->resources->voxelization_recorded;
+    result["hddagi_voxel_failure"] = hddagi ? hddagi->voxel_failure : std::string{};
+    result["hddagi_region_version"] = hddagi ? hddagi->region_version : 0;
     result["hddagi_temporal_bytes"] = hddagi && hddagi->resources ? hddagi->resources->temporal_bytes : 0;
     result["hddagi_retiring_bytes"] = hddagi ? hddagi->retiring_bytes : 0;
     result["hddagi_initialization_recorded"] =

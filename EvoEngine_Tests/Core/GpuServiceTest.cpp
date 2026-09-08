@@ -13,6 +13,8 @@
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
 #include "HddagiResources.hpp"
+#include "HddagiTypes.hpp"
+#include "HddagiVoxelizer.hpp"
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "Mesh.hpp"
@@ -5406,4 +5408,521 @@ TEST(HddagiRuntime, SubmittedFieldSurvivesProviderSwitchUntilItsFrameSlotRetires
     PlatformLifecycleTestAccess::LateUpdate();
   }
   EXPECT_TRUE(field.expired());
+}
+
+TEST(HddagiTraversal, HierarchyMatchesVoxelDdaAcrossSupportedDimensionsAndCircularOffsets) {
+  ScopedGpuPlatform platform(false);
+  const auto root =
+      std::filesystem::path(EVOENGINE_TEST_SOURCE_DIR) / "EvoEngine_SDK/Internals/DefaultResources/Shaders";
+  Shader::RegisterShaderIncludePath(root / "Modules");
+  const auto layout = [](std::initializer_list<VkDescriptorType> types) {
+    auto result = std::make_shared<DescriptorSetLayout>();
+    uint32_t binding = 0;
+    for (const auto type : types)
+      result->PushDescriptorBinding(binding++, type, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    result->Initialize();
+    return result;
+  };
+  const auto fill_layout = layout({VK_DESCRIPTOR_TYPE_STORAGE_IMAGE});
+  const auto region_layout = layout({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+                                     VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE});
+  const auto trace_layout =
+      layout({VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER});
+  auto fill_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(fill_shader->TryCompile(ShaderType::Compute, std::string(R"(
+struct Params { int3 grid; uint pattern; };
+[[vk::push_constant]] ConstantBuffer<Params> params;
+[[vk::binding(0, 0)]] [vk::image_format("r32ui")] RWTexture3D<uint> normals;
+[numthreads(8, 8, 8)]
+void main(uint3 id : SV_DispatchThreadID) {
+  bool solid = params.pattern == 1 || (params.pattern == 2 && (id.x == params.grid.x / 2 || id.y == params.grid.y / 3)) ||
+               (params.pattern == 3 && all(id == uint3(params.grid - 1))) ||
+               (params.pattern == 4 && id.x == uint(params.grid.x * 3 / 4));
+  normals[id] = solid ? 1u : 0u;
+})")));
+  auto region_shader = std::make_shared<Shader>();
+  auto trace_shader = std::make_shared<Shader>();
+  ASSERT_TRUE(region_shader->TryCompile(ShaderType::Compute, root / "Compute/HddagiRegionStore.slang"));
+  ASSERT_TRUE(trace_shader->TryCompile(ShaderType::Compute, root / "Compute/HddagiTraceRays.slang"));
+  const auto pipeline = [](const std::shared_ptr<Shader>& shader, const std::shared_ptr<DescriptorSetLayout>& set,
+                           const uint32_t push_size) {
+    auto result = std::make_shared<ComputePipeline>();
+    result->compute_shader = shader;
+    result->descriptor_set_layouts = {set};
+    result->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, push_size});
+    result->Initialize();
+    return result;
+  };
+  const auto fill = pipeline(fill_shader, fill_layout, 16);
+  const auto region_store = pipeline(region_shader, region_layout, sizeof(HddagiRegionParams));
+  const auto trace = pipeline(trace_shader, trace_layout, sizeof(HddagiTraceParams));
+  ASSERT_TRUE(fill->Initialized() && region_store->Initialized() && trace->Initialized());
+  const auto buffer = [](const size_t bytes, const VkBufferUsageFlags usage) {
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = bytes;
+    info.usage = usage | VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    return std::make_shared<Buffer>(info);
+  };
+  for (const auto grid : {glm::ivec3(64), glm::ivec3(128), glm::ivec3(192, 80, 192), glm::ivec3(256, 128, 256)}) {
+    SCOPED_TRACE("grid " + std::to_string(grid.x) + "x" + std::to_string(grid.y));
+    GiProbeSettings probes;
+    probes.probe_count_x = grid.x / 8 + 1;
+    probes.probe_count_y = grid.y / 8 + 1;
+    probes.cascade_count = 2;
+    std::string failure;
+    auto field = HddagiResources::TryCreate(probes, {}, failure);
+    ASSERT_TRUE(field) << failure;
+    PlatformLifecycleTestAccess::PreUpdate();
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    graph.AddPass(field->ClearDescriptor(), [&](const RenderGraphExecutionContext& context) {
+      Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+        field->Clear(command, context);
+      });
+    });
+    graph.Execute(graph.Compile({}), registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI traversal fixture initialization");
+    const auto fill_set = std::make_shared<DescriptorSet>(fill_layout);
+    const auto region_set = std::make_shared<DescriptorSet>(region_layout);
+    const auto trace_set = std::make_shared<DescriptorSet>(trace_layout);
+    const auto image_binding = [&](const std::shared_ptr<DescriptorSet>& set, const uint32_t binding, const char* name,
+                                   const bool sampled) {
+      const auto& image = field->images.at(name);
+      VkDescriptorImageInfo info{};
+      info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+      info.imageView = (sampled ? image.sampled : image.storage)->GetVkImageView();
+      set->UpdateImageDescriptorBinding(binding, info);
+    };
+    image_binding(fill_set, 0, "NormalBits", false);
+    image_binding(region_set, 0, "NormalBits", true);
+    image_binding(region_set, 1, "VoxelBits", false);
+    image_binding(region_set, 2, "Regions", false);
+    image_binding(region_set, 3, "Versions", false);
+    image_binding(trace_set, 0, "VoxelBits", true);
+    image_binding(trace_set, 1, "Regions", true);
+    HddagiCascadeBlock cascades;
+    cascades.data[0].offset = {-37, 11, -23};
+    cascades.data[0].region_world_offset = {-17, 23, -5};
+    cascades.data[1].offset = cascades.data[0].offset - glm::vec3(grid) * 0.5f;
+    cascades.data[1].to_cell = 0.5f;
+    cascades.data[1].region_world_offset = {-9, 11, -3};
+    std::vector<HddagiRay> rays;
+    const auto add_ray = [&](const glm::vec3 local, const glm::vec3 direction) {
+      rays.push_back({local + cascades.data[0].offset, 0, glm::normalize(direction), 0});
+    };
+    for (int x = -1; x <= 1; ++x)
+      for (int y = -1; y <= 1; ++y)
+        for (int z = -1; z <= 1; ++z)
+          if (x || y || z) {
+            add_ray(glm::vec3(grid) * 0.25f + 0.25f, glm::vec3(x, y, z));
+            add_ray(glm::vec3(grid) - 0.25f, glm::vec3(x, y, z));
+          }
+    add_ray({0.5f, 0.5f, 0.5f}, {1, 1e-8f, -1e-8f});
+    add_ray(glm::vec3(grid) - 0.5f, {-1, -1e-8f, 1e-8f});
+    add_ray({-1e-5f, 0.5f, 0.5f}, {1, 0, 0});
+    add_ray({1e30f, 0.5f, 0.5f}, {-1, 0, 0});
+    rays.push_back({cascades.data[0].offset + 0.5f, 0, glm::vec3(0), 0});
+    for (uint32_t bit = 0; bit < 512; ++bit)
+      add_ray(glm::vec3(grid / 2 / 8 * 8) + glm::vec3(bit % 8, bit / 8 % 8, bit / 64) + 0.25f, {1, 0, 0});
+    auto cascade_buffer = buffer(sizeof(cascades), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT);
+    auto ray_buffer = buffer(rays.size() * sizeof(HddagiRay), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    auto result_buffer = buffer(rays.size() * 3 * sizeof(glm::uvec4), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+    cascade_buffer->Upload(cascades);
+    ray_buffer->UploadVector(rays);
+    trace_set->UpdateBufferDescriptorBinding(2, cascade_buffer);
+    trace_set->UpdateBufferDescriptorBinding(3, ray_buffer);
+    trace_set->UpdateBufferDescriptorBinding(4, result_buffer);
+    for (uint32_t pattern = 0; pattern < 4; ++pattern) {
+      SCOPED_TRACE("pattern " + std::to_string(pattern));
+      const auto solid = [&](const glm::ivec3 cell) {
+        return pattern == 1 || (pattern == 2 && (cell.x == grid.x / 2 || cell.y == grid.y / 3)) ||
+               (pattern == 3 && cell == grid - 1);
+      };
+      const auto oracle = [&](const HddagiRay& ray) {
+        const glm::dvec3 origin = glm::dvec3(ray.origin) - glm::dvec3(cascades.data[0].offset);
+        const glm::dvec3 direction(ray.direction);
+        if (glm::any(glm::lessThan(origin, glm::dvec3(0))) ||
+            glm::any(glm::greaterThanEqual(origin, glm::dvec3(grid))) || direction == glm::dvec3(0))
+          return std::make_pair(glm::ivec4(0), glm::dvec3(0));
+        auto cell = glm::ivec3(glm::floor(origin));
+        const auto step = glm::ivec3(glm::sign(direction));
+        glm::dvec3 next, delta;
+        double entry = 0;
+        for (int axis = 0; axis < 3; ++axis) {
+          next[axis] = direction[axis] == 0 ? INFINITY
+                                            : (cell[axis] + (step[axis] > 0 ? 1 : 0) - origin[axis]) / direction[axis];
+          delta[axis] = direction[axis] == 0 ? INFINITY : std::abs(1.0 / direction[axis]);
+        }
+        while (glm::all(glm::greaterThanEqual(cell, glm::ivec3(0))) && glm::all(glm::lessThan(cell, grid))) {
+          if (solid(cell))
+            return std::make_pair(glm::ivec4(cell, 1), origin + direction * entry);
+          const auto t = std::min(next.x, std::min(next.y, next.z));
+          entry = t;
+          for (int axis = 0; axis < 3; ++axis)
+            if (next[axis] <= t + 1e-9) {
+              cell[axis] += step[axis];
+              next[axis] += delta[axis];
+            }
+        }
+        return std::make_pair(glm::ivec4(0), glm::dvec3(0));
+      };
+      for (const uint32_t fractional_bits : {8u, 10u}) {
+        SCOPED_TRACE("fractional bits " + std::to_string(fractional_bits));
+        Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+          field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+          fill->Bind(command);
+          fill->BindDescriptorSet(command, 0, fill_set->GetVkDescriptorSet());
+          fill->PushConstant(command, 0, glm::uvec4(glm::uvec3(grid), pattern));
+          fill->Dispatch(command, grid.x / 8, grid.y / 8, grid.z / 8);
+          field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+          region_store->Bind(command);
+          region_store->BindDescriptorSet(command, 0, region_set->GetVkDescriptorSet());
+          HddagiRegionParams region_params;
+          region_params.grid = grid;
+          region_params.region_world_offset = cascades.data[0].region_world_offset;
+          region_params.version = pattern + 1;
+          region_store->PushConstant(command, 0, region_params);
+          region_store->Dispatch(command, grid.x / 8, grid.y / 8, grid.z / 8);
+          field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+          trace->Bind(command);
+          trace->BindDescriptorSet(command, 0, trace_set->GetVkDescriptorSet());
+          HddagiTraceParams trace_params;
+          trace_params.grid = grid;
+          trace_params.ray_count = rays.size();
+          trace_params.fractional_bits = fractional_bits;
+          trace->PushConstant(command, 0, trace_params);
+          trace->Dispatch(command, Platform::DivUp(trace_params.ray_count, 64));
+          Platform::BufferMemoryBarrier(command, *result_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                        VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                        VK_ACCESS_2_TRANSFER_READ_BIT);
+        });
+        std::vector<glm::uvec4> results;
+        result_buffer->DownloadVector(results, rays.size() * 3);
+        for (size_t i = 0; i < rays.size(); ++i) {
+          const auto [expected, intersection] = oracle(rays[i]);
+          ASSERT_EQ(results[i * 3 + 1].w, uint32_t(expected.w)) << "ray " << i;
+          if (expected.w) {
+            const auto actual = glm::ivec3(results[i * 3]);
+            EXPECT_TRUE(solid(actual)) << "ray " << i;
+            // At an exact edge, either adjacent solid voxel can contain the same first intersection.
+            EXPECT_TRUE(glm::all(glm::greaterThanEqual(intersection, glm::dvec3(actual) - 1e-8)) &&
+                        glm::all(glm::lessThanEqual(intersection, glm::dvec3(actual) + 1.0 + 1e-8)))
+                << "ray " << i;
+          }
+          EXPECT_LT(results[i * 3 + 2].x, 10000u);
+        }
+      }
+    }
+    std::vector<HddagiRay> crossing{{cascades.data[0].offset + glm::vec3(grid) * 0.5f, 0, {1, 0, 0}, 0},
+                                    {cascades.data[0].offset + glm::vec3(grid) * 1.125f, 0, {-1, 0, 0}, 0},
+                                    {{1e30f, 0, 0}, 0, {-1, 0, 0}, 0}};
+    ray_buffer->UploadVector(crossing);
+    for (const uint32_t fractional_bits : {8u, 10u}) {
+      Platform::ImmediateSubmit([&](const VkCommandBuffer command) {
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_WRITE_BIT);
+        fill->Bind(command);
+        fill->BindDescriptorSet(command, 0, fill_set->GetVkDescriptorSet());
+        fill->PushConstant(command, 0, glm::uvec4(glm::uvec3(grid), 4));
+        fill->Dispatch(command, grid.x / 8, grid.y / 8, grid.z / 8);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                           VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        region_store->Bind(command);
+        region_store->BindDescriptorSet(command, 0, region_set->GetVkDescriptorSet());
+        HddagiRegionParams region_params;
+        region_params.grid = grid;
+        region_params.cascade = 1;
+        region_params.region_world_offset = cascades.data[1].region_world_offset;
+        region_store->PushConstant(command, 0, region_params);
+        region_store->Dispatch(command, grid.x / 8, grid.y / 8, grid.z / 8);
+        field->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT, VK_ACCESS_2_SHADER_READ_BIT);
+        trace->Bind(command);
+        trace->BindDescriptorSet(command, 0, trace_set->GetVkDescriptorSet());
+        HddagiTraceParams trace_params;
+        trace_params.grid = grid;
+        trace_params.ray_count = crossing.size();
+        trace_params.cascade_count = 2;
+        trace_params.fractional_bits = fractional_bits;
+        trace->PushConstant(command, 0, trace_params);
+        trace->Dispatch(command, 1);
+        Platform::BufferMemoryBarrier(command, *result_buffer, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                      VK_ACCESS_2_SHADER_WRITE_BIT, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+                                      VK_ACCESS_2_TRANSFER_READ_BIT);
+      });
+      std::vector<glm::uvec4> results;
+      result_buffer->DownloadVector(results, crossing.size() * 3);
+      EXPECT_EQ(results[0], glm::uvec4(grid.x * 3 / 4, grid.y / 2, grid.z / 2, 1));
+      EXPECT_EQ(results[1], glm::uvec4(uint32_t(-1), 0, 0, 1));
+      EXPECT_EQ(results[3], glm::uvec4(grid.x * 3 / 4, grid.y * 13 / 16, grid.z * 13 / 16, 1));
+      EXPECT_EQ(results[4], glm::uvec4(1, 0, 0, 1));
+      EXPECT_EQ(results[7].w, 0u);
+    }
+  }
+}
+
+TEST(HddagiVoxelization, ThreeAxesPayloadCoverageAndRepeatedScratchWithRtDisabled) {
+  ScopedGpuPlatform platform(false);
+  ApplicationContext::Get().RegisterAsset<Shader>("Shader", {".eveshader", ".slang"});
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  SdfgiSettings settings;
+  settings.voxel_count_x = settings.voxel_count_y = 128;
+  settings.probe_spacing_cells = 8;
+  settings.cascade_count = 1;
+  settings.min_cell_size = 1;
+  settings.vertical_scale = SdfgiSettings::VerticalScale::Percent100;
+  std::string failure;
+  auto field = HddagiResources::TryCreate(GiProbesFromSdfgi(settings), HddagiSettings{}, failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  std::vector<SdfgiCascade> cascades;
+  ASSERT_TRUE(UpdateSdfgiCascades(settings, glm::vec3(0), cascades).empty());
+  const auto pending = GetSdfgiPendingRegions(cascades, 1);
+  const auto mask_texture = std::make_shared<Texture2D>();
+  mask_texture->SetRgbaChannelData({glm::vec4(1, 1, 1, 0), glm::vec4(1)}, {2, 1});
+  Platform::GetGpuService().WaitIdle();
+  TextureStorage::DeviceSync();
+  SdfgiTextureInput texture;
+  texture.texture = mask_texture;
+  texture.image = mask_texture->GetImage();
+  texture.image_view = mask_texture->PeekTexture2DStorage().image_view;
+  texture.sampler = mask_texture->PeekTexture2DStorage().sampler;
+  texture.mapping.tex_coord = 1;
+  texture.mapping.uv_transform[2].x = 0.5f;
+  SdfgiContributorRegistry contributors;
+  for (uint32_t axis = 0; axis < 3; ++axis)
+    for (uint32_t kind = 0; kind < 4; ++kind) {
+      SdfgiContributor contributor;
+      contributor.id = {axis * 4 + kind + 1, 1};
+      contributor.mesh = std::make_shared<Mesh>();
+      contributor.mesh->OnCreate();
+      const auto right = (axis + 1) % 3, up = (axis + 2) % 3;
+      std::vector<Vertex> vertices(4);
+      for (uint32_t corner = 0; corner < 4; ++corner) {
+        auto& vertex = vertices[corner];
+        vertex.position[axis] = 0.5f;
+        vertex.position[right] = -52.0f + 12 * kind + (corner & 1 ? 8 : 0);
+        vertex.position[up] = corner & 2 ? 4 : -4;
+        vertex.normal[axis] = kind == 2 ? -1 : 1;
+        vertex.color = glm::vec4(0.5f, 0.5f, 0.5f, 1);
+        vertex.tex_coord_1 = glm::vec2(corner & 1 ? 1 : 0, 0.5f);
+      }
+      VertexAttributes attributes{};
+      attributes.normal = attributes.color = true;
+      attributes.tex_coord_1 = true;
+      const std::vector<glm::uvec3> triangles =
+          kind == 2 ? std::vector<glm::uvec3>{{0, 2, 1}, {1, 2, 3}} : std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}};
+      contributor.mesh->SetVertices(attributes, vertices, triangles);
+      contributor.world_bounds = contributor.mesh->GetBound();
+      contributor.material.base_color = glm::vec4(0.8f, 0.4f, 0.2f, 0.1f);
+      contributor.material.masked = kind == 1;
+      if (kind == 1) {
+        contributor.material.base_color.a = 1;
+        contributor.material.base_texture = texture;
+      }
+      contributor.material.double_sided = kind == 2;
+      contributor.material.cull_mode = VK_CULL_MODE_BACK_BIT;
+      contributor.material.emission = kind == 3 ? glm::vec3(2, 0, 0) : glm::vec3(0);
+      contributors.entries.emplace(contributor.id, std::move(contributor));
+    }
+  GeometryStorage::WaitForPendingUploads();
+  for (uint32_t iteration = 0; iteration < 2; ++iteration) {
+    PlatformLifecycleTestAccess::PreUpdate();
+    if (iteration == 1)
+      for (auto& [id, contributor] : contributors.entries) {
+        contributor.material.masked = false;
+        contributor.material.emission = glm::vec3(0);
+      }
+    auto frame = HddagiVoxelFrame::Create(*field, SdfgiTestAccess::HostLayouts(*render)[0], contributors, cascades,
+                                          pending, iteration + 1);
+    RenderGraph graph;
+    RenderGraphResourceRegistry registry;
+    field->Import(graph, registry);
+    if (!field->initialization_recorded)
+      graph.AddPass(field->ClearDescriptor(), [field](const RenderGraphExecutionContext& context) {
+        Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+          field->Clear(command, context);
+        });
+      });
+    frame->AddPasses(graph, registry, field);
+    const auto plan = graph.Compile({});
+    ASSERT_TRUE(plan.valid);
+    EXPECT_FALSE(plan.uses_compute_queue);
+    EXPECT_FALSE(plan.uses_ray_tracing_queue);
+    graph.Execute(plan, registry);
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI raster payload readback");
+    std::map<std::string, std::vector<uint32_t>> data;
+    for (const auto name : {"Albedo", "Emission", "EmissionAniso", "NormalBits", "VoxelBits", "Regions", "Versions"}) {
+      const auto& texture = field->images.at(name);
+      const auto extent = texture.requirement.extent;
+      const size_t count = size_t(extent.width) * extent.height * extent.depth;
+      const size_t bytes = std::string(name) == "Albedo" || std::string(name) == "Versions" ? 2
+                           : std::string(name) == "Regions"                                 ? 1
+                           : std::string(name) == "VoxelBits"                               ? 8
+                                                                                            : 4;
+      VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+      info.size = count * bytes;
+      info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+      VmaAllocationCreateInfo allocation{};
+      allocation.usage = VMA_MEMORY_USAGE_AUTO;
+      allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+      allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+      Buffer output(info, allocation);
+      VkBufferImageCopy copy{};
+      copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      copy.imageExtent = extent;
+      output.CopyFromImage(*texture.image, copy);
+      if (bytes == 1) {
+        std::vector<uint8_t> values;
+        output.DownloadVector(values, count);
+        data[name].assign(values.begin(), values.end());
+      } else if (bytes == 2) {
+        std::vector<uint16_t> values;
+        output.DownloadVector(values, count);
+        data[name].assign(values.begin(), values.end());
+      } else
+        output.DownloadVector(data[name], count * bytes / 4);
+    }
+    const auto value = [&](const std::string& name, const glm::ivec3 cell) {
+      const auto e = field->images.at(name).requirement.extent;
+      return data.at(name).at(cell.x + e.width * (cell.y + e.height * cell.z));
+    };
+    for (uint32_t axis = 0; axis < 3; ++axis)
+      for (uint32_t kind = 0; kind < 4; ++kind) {
+        SCOPED_TRACE(::testing::Message() << "frame=" << iteration << " axis=" << axis << " kind=" << kind);
+        glm::ivec3 cell(64);
+        cell[(axis + 1) % 3] = 16 + 12 * kind;
+        cell[(axis + 2) % 3] = 65;
+        const bool empty = iteration == 0 && kind == 1;
+        const uint32_t face = axis * 2 + (kind == 2 ? 0 : 1);
+        const uint32_t exclusive[6] = {(1u << 6) | (1u << 13) | (1u << 15) | (1u << 16) | (1u << 18),
+                                       (1u << 7) | (1u << 25) | (1u << 27) | (1u << 28) | (1u << 30),
+                                       (1u << 8) | (1u << 13) | (1u << 20) | (1u << 21) | (1u << 25),
+                                       (1u << 9) | (1u << 18) | (1u << 22) | (1u << 23) | (1u << 30),
+                                       (1u << 10) | (1u << 15) | (1u << 20) | (1u << 22) | (1u << 27),
+                                       (1u << 11) | (1u << 16) | (1u << 21) | (1u << 23) | (1u << 28)};
+        EXPECT_EQ(value("NormalBits", cell), empty ? 0u : (1u << face) | exclusive[face]);
+        if (kind == 1) {
+          auto visible = cell;
+          visible[(axis + 1) % 3] = 25;
+          EXPECT_EQ(value("NormalBits", visible), (1u << face) | exclusive[face]);
+        }
+        auto albedo_cell = cell / 2;
+        albedo_cell.z = albedo_cell.z * 6 + face;
+        EXPECT_EQ(value("Albedo", albedo_cell), empty ? 0u : 12u | (12u << 5) | (3u << 11));
+        EXPECT_EQ(value("Emission", cell / 2), iteration == 0 && kind == 3 ? (17u << 27) | 256u : 0u);
+        EXPECT_EQ(value("EmissionAniso", cell / 2), iteration == 0 && kind == 3 ? 31u << (face * 5) : 0u);
+        const auto circular = (cell + glm::ivec3(64)) % 128;
+        EXPECT_EQ(value("Versions", circular / 8), iteration + 1);
+        const auto block = circular / 4;
+        const auto local = circular % 4;
+        const uint32_t bit = local.x + 4 * local.y + 16 * local.z;
+        const size_t index = 2 * (block.x + 32 * (block.y + 32 * block.z)) + bit / 32;
+        EXPECT_EQ((data.at("VoxelBits")[index] >> (bit % 32)) & 1u, empty ? 0u : 1u);
+      }
+  }
+}
+
+TEST(HddagiRuntime, SceneContributorParityMovementRemovalAndUnchangedFrameWithoutRt) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  app.Initialize(initialization);
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  const auto scene = AssetManager::CreateTemporaryAsset<Scene>();
+  const auto entity = scene->CreateEntity("Non-static contributor");
+  const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+  const auto mesh = AssetManager::CreateTemporaryAsset<Mesh>();
+  renderer->mesh = mesh;
+  renderer->material = AssetManager::CreateTemporaryAsset<Material>();
+  std::vector<Vertex> vertices(4);
+  for (uint32_t i = 0; i < 4; ++i) {
+    vertices[i].position = {0.5f, i & 1 ? 4.0f : -4.0f, i & 2 ? 4.0f : -4.0f};
+    vertices[i].normal = {1, 0, 0};
+    vertices[i].color = glm::vec4(1);
+  }
+  VertexAttributes attributes{};
+  attributes.normal = attributes.color = true;
+  mesh->SetVertices(attributes, vertices, std::vector<glm::uvec3>{{0, 1, 2}, {1, 3, 2}});
+  GeometryStorage::WaitForPendingUploads();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 9;
+  lighting->gi_probe_settings.cascade_count = 1;
+  lighting->gi_probe_settings.base_probe_distance = 8;
+  scene->environmental_lighting = lighting;
+  scene->main_camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("GI anchor")).lock();
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  uint32_t previous_version = 0;
+  for (uint32_t phase = 0; phase < 6; ++phase) {
+    SCOPED_TRACE(phase);
+    PlatformLifecycleTestAccess::PreUpdate();
+    SdfgiTestAccess::RetireHddagiFrame(*render);
+    lighting->hddagi_settings.static_entities_only = phase == 1;
+    if (phase == 3) {
+      GlobalTransform transform;
+      transform.SetPosition({12, 0, 0});
+      scene->SetDataComponent(entity, transform);
+    }
+    if (phase == 4)
+      scene->DeleteEntity(entity);
+    SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+    const auto runtime = scene->GetHddagiRuntime();
+    ASSERT_TRUE(runtime);
+    ASSERT_TRUE(runtime->resources) << runtime->fallback_reason;
+    EXPECT_TRUE(runtime->voxel_failure.empty()) << runtime->voxel_failure;
+    EXPECT_TRUE(runtime->resources->voxelization_recorded);
+    if (phase != 5)
+      EXPECT_GT(runtime->resources->AllocationBytes(), runtime->resources->allocation_bytes);
+    EXPECT_FALSE(runtime->published);
+    EXPECT_FALSE(scene->GetSdfgiRuntime());
+    EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
+    ResolvedEnvironmentalLighting reference;
+    reference.sdfgi_settings.static_entities_only = lighting->hddagi_settings.static_entities_only;
+    const auto snapshot = SnapshotSdfgiScene(scene, reference);
+    SdfgiContributorRegistry registry;
+    registry.Update(snapshot.contributors);
+    EXPECT_EQ(runtime->contributors.entries.size(), registry.entries.size());
+    EXPECT_EQ(runtime->contributors.entries.size(), phase == 1 || phase >= 4 ? 0u : 1u);
+    if (phase == 5)
+      EXPECT_EQ(runtime->region_version, previous_version);
+    previous_version = runtime->region_version;
+    PlatformLifecycleTestAccess::LateUpdate();
+    Platform::WaitForFrameSubmissions("HDDAGI scene occupancy readback");
+    const auto& texture = runtime->resources->images.at("Regions");
+    VkBufferCreateInfo info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = 512;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VmaAllocationCreateInfo allocation{};
+    allocation.usage = VMA_MEMORY_USAGE_AUTO;
+    allocation.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    allocation.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    Buffer output(info, allocation);
+    VkBufferImageCopy copy{};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {8, 8, 8};
+    output.CopyFromImage(*texture.image, copy);
+    std::vector<uint8_t> occupancy;
+    output.DownloadVector(occupancy, 512);
+    EXPECT_EQ(std::any_of(occupancy.begin(), occupancy.end(),
+                          [](uint8_t v) {
+                            return v != 0;
+                          }),
+              phase != 1 && phase < 4);
+  }
 }
