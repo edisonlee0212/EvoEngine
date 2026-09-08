@@ -5434,6 +5434,8 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
     }
     runtime->settings = lighting.hddagi_settings;
     const auto& shared = PrepareGiProbeFrame(scene, lighting.gi_probe_settings);
+    runtime->force_full_update |=
+        runtime->frame.anchor.camera_id != shared.anchor.camera_id || !runtime->frame.failure.empty();
     runtime->frame = shared;
     if (!(runtime->frame.settings == runtime->probes))
       runtime->frame.failure = "GI settings change takes effect at the next scene frame";
@@ -5476,39 +5478,34 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
         resources->voxel_frames[current_frame_index].reset();
         const bool retry_voxelization = !runtime.voxel_failure.empty();
         resources->last_voxel_frame = scene_frame;
+        runtime.last_updated_regions = 0;
         auto inputs_lighting = lighting;
         auto input_settings = SdfgiSettings{};
         input_settings.probe_spacing_cells = 8;
         input_settings.static_entities_only = runtime.settings.static_entities_only;
         inputs_lighting.sdfgi_settings = DeriveSdfgiSettings(runtime.probes, input_settings);
         runtime.contributors.Update(SnapshotSdfgiScene(scene, inputs_lighting).contributors);
-        runtime.voxel_failure =
-            UpdateSdfgiCascades(inputs_lighting.sdfgi_settings, runtime.frame.anchor.world_position, runtime.cascades);
-        if (runtime.voxel_failure.empty()) {
-          const bool changed = retry_voxelization || !resources->voxelization_recorded ||
-                               !runtime.contributors.changes.empty() ||
-                               std::any_of(runtime.cascades.begin(), runtime.cascades.end(), [](const auto& cascade) {
-                                 return cascade.full_redraw || cascade.dirty_regions != glm::ivec3(0);
-                               });
-          if (changed) {
-            for (auto& cascade : runtime.cascades)
-              cascade.full_redraw = true;
-            const auto pending = GetSdfgiPendingRegions(
-                runtime.cascades, SdfgiYMultiplier(inputs_lighting.sdfgi_settings.vertical_scale));
-            try {
-              const auto version = runtime.region_version % UINT16_MAX + 1;
-              auto frame = HddagiVoxelFrame::Create(*resources, per_frame_layout_, runtime.contributors,
-                                                    runtime.cascades, pending, version);
-              frame->AddPasses(scene_graph, registry, resources);
-              resources->voxel_frames[current_frame_index] = std::move(frame);
-              runtime.region_version = version;
-              for (auto& cascade : runtime.cascades) {
-                cascade.full_redraw = false;
-                cascade.dirty_regions = glm::ivec3(0);
-              }
-            } catch (const std::exception& error) {
-              runtime.voxel_failure = error.what();
-            }
+        HddagiUpdatePlan plan;
+        runtime.voxel_failure = BuildHddagiUpdatePlan(
+            runtime.probes, runtime.settings, runtime.frame.anchor.world_position, runtime.cascades,
+            runtime.contributors.changes,
+            runtime.force_full_update || retry_voxelization || !resources->voxelization_recorded ||
+                runtime.region_version == UINT16_MAX || resources->failure_flags != 0,
+            plan);
+        if (runtime.voxel_failure.empty() && !plan.regions.empty()) {
+          try {
+            const auto version = runtime.region_version % UINT16_MAX + 1;
+            auto frame = HddagiVoxelFrame::Create(*resources, per_frame_layout_, runtime.contributors, plan, version);
+            frame->AddPasses(scene_graph, registry, resources);
+            resources->voxel_frames[current_frame_index] = std::move(frame);
+            runtime.cascades = std::move(plan.cascades);
+            runtime.region_version = version;
+            runtime.force_full_update = false;
+            runtime.last_updated_regions = plan.region_count;
+            runtime.total_updated_regions += plan.region_count;
+            ++runtime.update_count;
+          } catch (const std::exception& error) {
+            runtime.voxel_failure = error.what();
           }
         }
         if (!runtime.voxel_failure.empty())

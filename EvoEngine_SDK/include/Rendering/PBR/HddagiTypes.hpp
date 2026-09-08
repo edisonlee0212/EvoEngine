@@ -42,10 +42,34 @@ struct alignas(16) HddagiLightStoreParams {
   glm::ivec3 offset{0};
   uint32_t cascade = 0;
   glm::ivec3 limit{0};
-  uint32_t padding = 0;
+  uint32_t region_index = 0;
   glm::ivec3 region_world_offset{0};
   uint32_t padding2 = 0;
 };
+struct alignas(16) HddagiUpdateBounds {
+  glm::ivec3 begin{0};
+  uint32_t cascade = 0;
+  glm::ivec3 end{0};
+  uint32_t padding = 0;
+};
+struct alignas(16) HddagiScrollParams {
+  glm::ivec3 grid{0};
+  uint32_t capacity = 0;
+  glm::ivec3 scroll{0};
+  uint32_t cascade = 0;
+  uint32_t region_count = 0;
+  glm::uvec3 padding{0};
+};
+static_assert(sizeof(HddagiUpdateBounds) == 32 && sizeof(HddagiScrollParams) == 48);
+struct alignas(16) HddagiResetParams {
+  glm::ivec3 probe_size{0};
+  uint32_t cascade = 0;
+  glm::ivec3 region_offset{0};
+  uint32_t history_size = 0;
+  glm::ivec3 scroll{0};
+  uint32_t reset_all = 0;
+};
+static_assert(sizeof(HddagiResetParams) == 48);
 struct HddagiProcessVoxel {
   uint32_t position = 0;
   uint32_t albedo_normal = 0;

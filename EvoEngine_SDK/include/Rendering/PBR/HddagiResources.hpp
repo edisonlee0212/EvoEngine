@@ -63,6 +63,8 @@ class EVOENGINE_API HddagiResources {
   std::shared_ptr<GraphicsPipeline> voxel_pipeline;
   std::shared_ptr<ComputePipeline> region_pipeline;
   std::shared_ptr<ComputePipeline> light_store_pipeline;
+  std::shared_ptr<ComputePipeline> light_scroll_pipeline;
+  std::shared_ptr<ComputePipeline> reset_probes_pipeline;
   std::vector<std::shared_ptr<HddagiVoxelFrame>> voxel_frames;
   uint64_t last_voxel_frame = UINT64_MAX;
   bool voxelization_recorded = false;
@@ -90,6 +92,10 @@ struct EVOENGINE_API HddagiRuntime {
   SdfgiContributorRegistry contributors;
   std::vector<SdfgiCascade> cascades;
   uint32_t region_version = 0;
+  bool force_full_update = true;
+  uint64_t last_updated_regions = 0;
+  uint64_t total_updated_regions = 0;
+  uint64_t update_count = 0;
   std::string voxel_failure;
   bool allocation_attempted = false;
   bool published = false;

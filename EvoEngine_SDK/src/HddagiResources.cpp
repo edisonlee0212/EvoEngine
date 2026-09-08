@@ -258,7 +258,7 @@ HddagiCapabilityReport evo_engine::QueryHddagiCapabilities(const GiProbeSettings
     VkMemoryRequirements memory{};
     vkGetBufferMemoryRequirements(Platform::GetVkDevice(), buffer, &memory);
     vkDestroyBuffer(Platform::GetVkDevice(), buffer, nullptr);
-    report.buffer_bytes += memory.size * p.cascade_count;
+    report.buffer_bytes += memory.size * p.cascade_count * 2;
   }
   return report;
 }
@@ -307,10 +307,11 @@ std::shared_ptr<HddagiResources> HddagiResources::TryCreate(const GiProbeSetting
     }
     result->light_cell_capacity = LightCellCapacity(probes);
     for (uint32_t cascade = 0; cascade < probes.cascade_count; ++cascade)
-      for (const auto name : {"Process", "Dispatch"}) {
+      for (const auto name : {"Process", "Dispatch", "ProcessSpare", "DispatchSpare"}) {
         if (result->images.size() + result->buffers.size() == fail_after_allocations)
           throw std::runtime_error("Injected partial allocation failure");
-        auto info = BufferInfo(std::string(name) == "Process" ? uint64_t(result->light_cell_capacity) * 16 : 20);
+        auto info =
+            BufferInfo(std::string(name).find("Process") == 0 ? uint64_t(result->light_cell_capacity) * 16 : 20);
         auto buffer = std::make_shared<Buffer>(info);
         result->buffers.emplace(std::string(name) + std::to_string(cascade), std::move(buffer));
       }

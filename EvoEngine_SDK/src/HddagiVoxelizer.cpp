@@ -16,17 +16,47 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
                                                            const std::vector<SdfgiCascade>& cascades,
                                                            const std::vector<SdfgiPendingRegion>& pending,
                                                            const uint32_t version) {
+  HddagiUpdatePlan plan;
+  plan.cascades = cascades;
+  plan.scroll.resize(cascades.size(), glm::ivec3(0));
+  for (const auto& region : pending) {
+    plan.regions.push_back({region, region, region});
+    if (region.offset == glm::ivec3(0) && region.size == cascades[region.cascade].size)
+      plan.full_cascades |= 1u << region.cascade;
+  }
+  plan.reset_history_cascades = plan.full_cascades;
+  return Create(resources, host_layout, contributors, plan, version);
+}
+
+std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& resources,
+                                                           const std::shared_ptr<DescriptorSetLayout>& host_layout,
+                                                           const SdfgiContributorRegistry& contributors,
+                                                           const HddagiUpdatePlan& plan, const uint32_t version) {
   if (version == 0 || version > UINT16_MAX)
-    throw std::invalid_argument("HDDAGI region version must be a nonzero 16-bit value");
-  for (const auto& region : pending)
+    throw std::invalid_argument("HDDAGI region version must be nonzero and fit 16 bits");
+  const auto& cascades = plan.cascades;
+  std::vector<SdfgiPendingRegion> pending;
+  for (const auto& entry : plan.regions) {
+    const auto& region = entry.core;
+    if (region.size == glm::ivec3(0)) {
+      pending.push_back(entry.raster);
+      continue;
+    }
     if (region.cascade >= cascades.size() || glm::any(glm::lessThan(region.offset, glm::ivec3(0))) ||
         glm::any(glm::lessThanEqual(region.size, glm::ivec3(0))) ||
         glm::any(glm::greaterThan(region.offset + region.size, cascades[region.cascade].size)) ||
         glm::any(glm::notEqual(region.offset % 8, glm::ivec3(0))) ||
         glm::any(glm::notEqual(region.size % 8, glm::ivec3(0))))
-      throw std::invalid_argument("HDDAGI raster regions must cover aligned whole regions inside their cascade");
+      throw std::invalid_argument("HDDAGI hierarchy updates must cover aligned whole regions");
+    pending.push_back(entry.raster);
+  }
   auto frame = std::make_shared<HddagiVoxelFrame>();
+  frame->update_plan = plan;
   frame->version = version;
+  for (const auto& entry : plan.regions) {
+    frame->update_bounds.push_back({entry.light.offset, entry.light.cascade, entry.light.offset + entry.light.size, 0});
+    frame->written_cascades |= 1u << entry.core.cascade;
+  }
   frame->scene_frame = Platform::GetFrameCount();
   VkBufferCreateInfo readback_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
   readback_info.size = resources.probes.cascade_count * 20;
@@ -88,6 +118,13 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
        resources.images.at("EmissionAniso").storage, resources.images.at("NormalBits").storage},
       SdfgiYMultiplier(static_cast<SdfgiSettings::VerticalScale>(resources.probes.vertical_scale)), contributors,
       cascades, pending);
+  VkBufferCreateInfo bounds_info{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  bounds_info.size = std::max<size_t>(1, frame->update_bounds.size()) * sizeof(HddagiUpdateBounds);
+  bounds_info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  const auto bounds_buffer = std::make_shared<Buffer>(bounds_info);
+  frame->inputs->buffers.emplace("UpdateBounds", bounds_buffer);
+  if (!frame->update_bounds.empty())
+    frame->inputs->input_uploads.AddVector(bounds_buffer, frame->update_bounds);
   frame->region_set = std::make_shared<DescriptorSet>(region_layout);
   uint32_t binding = 0;
   for (const auto name : {"NormalBits", "VoxelBits", "Regions", "Versions"}) {
@@ -99,9 +136,9 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
   }
   if (!resources.light_store_pipeline) {
     auto light_layout = std::make_shared<DescriptorSetLayout>();
-    for (uint32_t binding = 0; binding < 11; ++binding) {
+    for (uint32_t binding = 0; binding < 12; ++binding) {
       const auto type = binding < 4 || binding == 6 || binding == 7 ? VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
-                        : binding < 6                               ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                        : (binding < 6 || binding == 11)            ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                                                                     : VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
       light_layout->PushDescriptorBinding(binding, type, VK_SHADER_STAGE_COMPUTE_BIT, 0);
     }
@@ -128,8 +165,8 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
     for (uint32_t binding = 0; binding < 11; ++binding) {
       if (binding == 4 || binding == 5) {
         set->UpdateBufferDescriptorBinding(
-            binding,
-            resources.buffers.at(std::string(binding == 4 ? "Dispatch" : "Process") + std::to_string(cascade)));
+            binding, resources.buffers.at(std::string(binding == 4 ? "DispatchSpare" : "ProcessSpare") +
+                                          std::to_string(cascade)));
       } else {
         VkDescriptorImageInfo info{};
         info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
@@ -138,7 +175,57 @@ std::shared_ptr<HddagiVoxelFrame> HddagiVoxelFrame::Create(HddagiResources& reso
         set->UpdateImageDescriptorBinding(binding, info);
       }
     }
+    set->UpdateBufferDescriptorBinding(11, bounds_buffer);
     frame->light_sets.push_back(std::move(set));
+  }
+  if (!resources.light_scroll_pipeline) {
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 5; ++binding)
+      layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->Initialize();
+    auto compute = std::make_shared<ComputePipeline>();
+    compute->descriptor_set_layouts = {layout};
+    compute->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HddagiScrollParams)});
+    compute->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, "", Resources::GetDefaultResourcesPath() / "Shaders/Compute/HddagiLightScroll.slang");
+    compute->Initialize();
+    if (!compute->Initialized())
+      throw std::runtime_error("HDDAGI light-scroll pipeline creation failed");
+    resources.light_scroll_pipeline = compute;
+  }
+  frame->light_scroll = resources.light_scroll_pipeline;
+  for (uint32_t cascade = 0; cascade < resources.probes.cascade_count; ++cascade) {
+    auto set = std::make_shared<DescriptorSet>(frame->light_scroll->descriptor_set_layouts[0]);
+    uint32_t binding = 0;
+    for (const auto name : {"Dispatch", "Process", "DispatchSpare", "ProcessSpare"})
+      set->UpdateBufferDescriptorBinding(binding++, resources.buffers.at(std::string(name) + std::to_string(cascade)));
+    set->UpdateBufferDescriptorBinding(4, bounds_buffer);
+    frame->scroll_sets.push_back(std::move(set));
+  }
+  if (!resources.reset_probes_pipeline) {
+    auto layout = std::make_shared<DescriptorSetLayout>();
+    for (uint32_t binding = 0; binding < 10; ++binding)
+      layout->PushDescriptorBinding(binding, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_SHADER_STAGE_COMPUTE_BIT, 0);
+    layout->Initialize();
+    auto compute = std::make_shared<ComputePipeline>();
+    compute->descriptor_set_layouts = {layout};
+    compute->push_constant_ranges.push_back({VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(HddagiResetParams)});
+    compute->compute_shader = Shader::CreateTemporary(
+        ShaderType::Compute, "", Resources::GetDefaultResourcesPath() / "Shaders/Compute/HddagiResetProbes.slang");
+    compute->Initialize();
+    if (!compute->Initialized())
+      throw std::runtime_error("HDDAGI probe-reset pipeline creation failed");
+    resources.reset_probes_pipeline = compute;
+  }
+  frame->reset_probes = resources.reset_probes_pipeline;
+  frame->reset_set = std::make_shared<DescriptorSet>(frame->reset_probes->descriptor_set_layouts[0]);
+  uint32_t reset_binding = 0;
+  for (const auto name : {"History", "HistorySum", "Diffuse", "Specular", "FilteredDiffuse", "Ambient", "Neighbors",
+                          "ProcessFrame", "Proximity", "CameraVisibility"}) {
+    VkDescriptorImageInfo info{};
+    info.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    info.imageView = resources.images.at(name).storage->GetVkImageView();
+    frame->reset_set->UpdateImageDescriptorBinding(reset_binding++, info);
   }
   return frame;
 }
@@ -188,7 +275,45 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                      texture.image->GetLayout() == VK_IMAGE_LAYOUT_GENERAL ? RenderResourceState::General
                                                                            : RenderResourceState::ShaderRead});
   }
-  std::string previous = upload.name;
+  RenderPassDescriptor invalidate{"HddagiInvalidate", RenderPassQueue::Graphics, RenderPassScope::Frame};
+  invalidate.dependencies = {upload.name};
+  for (const auto name : {"HitCache", "HitVersions", "History", "HistorySum", "Diffuse", "Specular", "FilteredDiffuse",
+                          "Ambient", "Neighbors", "ProcessFrame", "Proximity", "CameraVisibility"})
+    invalidate.resources.push_back(
+        {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Write, RenderResourceState::General});
+  graph.AddPass(invalidate, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
+    Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      ApplyGraphResourceBarriers(command, context);
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
+      for (const auto name : {"HitCache", "HitVersions"}) {
+        const auto& image = resources->images.at(name);
+        const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, image.requirement.layers};
+        Platform::ClearColorImage(command, *image.image, VkClearColorValue{}, 1, &range);
+      }
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                             VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+      frame->reset_probes->Bind(command);
+      frame->reset_probes->BindDescriptorSet(command, 0, frame->reset_set->GetVkDescriptorSet());
+      for (uint32_t cascade = 0; cascade < resources->probes.cascade_count; ++cascade) {
+        if (!((frame->written_cascades | frame->update_plan.reset_history_cascades) & (1u << cascade)))
+          continue;
+        const auto& field = frame->inputs->cascades[cascade];
+        HddagiResetParams params;
+        params.probe_size = resources->probes.ProbeSize();
+        params.cascade = cascade;
+        params.region_offset = (field.position - field.size / 2) / 8;
+        params.history_size = resources->settings.history_size;
+        params.scroll = frame->update_plan.scroll[cascade];
+        params.reset_all = (frame->update_plan.reset_history_cascades >> cascade) & 1u;
+        frame->reset_probes->PushConstant(command, 0, params);
+        frame->reset_probes->Dispatch(command, (params.probe_size.x + 3) / 4, (params.probe_size.y + 3) / 4,
+                                      (params.probe_size.z + 3) / 4);
+      }
+      resources->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                             VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
+    });
+  });
+  std::string previous = invalidate.name;
   for (uint32_t cascade = 0; cascade < inputs->cascades.size(); ++cascade) {
     if (std::none_of(inputs->regions.begin(), inputs->regions.end(), [cascade](const auto& r) {
           return r.pending.cascade == cascade;
@@ -205,9 +330,12 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                             "Disocclusion", "LightNeighbors", "Light"})
       pass.resources.push_back(
           {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Write, RenderResourceState::General});
-    for (const auto name : {"Process", "Dispatch"})
+    for (const auto name : {"ProcessSpare", "DispatchSpare"})
       pass.resources.push_back({"Frame.HDDAGI." + std::string(name) + std::to_string(cascade),
                                 RenderResourceUsage::Write, RenderResourceState::General});
+    for (const auto name : {"Process", "Dispatch"})
+      pass.resources.push_back({"Frame.HDDAGI." + std::string(name) + std::to_string(cascade),
+                                RenderResourceUsage::Read, RenderResourceState::General});
     for (const auto name : {"Occlusion0", "Occlusion1"})
       pass.resources.push_back(
           {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Read, RenderResourceState::General});
@@ -216,7 +344,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
         const RenderPassGpuTimestampScope timing(command, context);
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
         ApplyGraphResourceBarriers(command, context);
-        const auto dispatch = resources->buffers.at("Dispatch" + std::to_string(cascade));
+        const auto dispatch = resources->buffers.at("DispatchSpare" + std::to_string(cascade));
         dispatch->Fill(command, 0, dispatch->GetSize(), 0);
         const VkImageSubresourceRange range{VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         for (const auto name : {"Albedo", "Emission", "EmissionAniso", "NormalBits"})
@@ -234,38 +362,59 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                                    VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
           }
         }
+        if (!(frame->update_plan.full_cascades & (1u << cascade))) {
+          resources->OrderAccess(
+              command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT,
+              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT);
+          frame->light_scroll->Bind(command);
+          frame->light_scroll->BindDescriptorSet(command, 0, frame->scroll_sets[cascade]->GetVkDescriptorSet());
+          HddagiScrollParams params;
+          params.grid = frame->inputs->cascades[cascade].size;
+          params.capacity = resources->light_cell_capacity;
+          params.scroll = frame->update_plan.scroll[cascade];
+          params.cascade = cascade;
+          params.region_count = frame->update_bounds.size();
+          frame->light_scroll->PushConstant(command, 0, params);
+          frame->light_scroll->DispatchIndirect(command, *resources->buffers.at("Dispatch" + std::to_string(cascade)));
+          resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
+        }
         frame->region_store->Bind(command);
         frame->region_store->BindDescriptorSet(command, 0, frame->region_set->GetVkDescriptorSet());
-        for (const auto& region : frame->inputs->regions) {
-          if (region.pending.cascade != cascade)
+        for (const auto& entry : frame->update_plan.regions) {
+          const auto& region = entry.core;
+          if (region.cascade != cascade || region.size == glm::ivec3(0))
             continue;
           HddagiRegionParams params;
           params.grid = frame->inputs->cascades[cascade].size;
           params.cascade = cascade;
-          params.offset = region.pending.offset;
+          params.offset = region.offset;
           params.version = frame->version;
           params.region_world_offset = (frame->inputs->cascades[cascade].position - params.grid / 2) / 8;
           frame->region_store->PushConstant(command, 0, params);
-          frame->region_store->Dispatch(command, region.pending.size.x / 8, region.pending.size.y / 8,
-                                        region.pending.size.z / 8);
+          frame->region_store->Dispatch(command, region.size.x / 8, region.size.y / 8, region.size.z / 8);
         }
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                                VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
         frame->light_store->Bind(command);
         frame->light_store->BindDescriptorSet(command, 0, frame->light_sets[cascade]->GetVkDescriptorSet());
-        for (const auto& region : frame->inputs->regions) {
-          if (region.pending.cascade != cascade)
+        for (uint32_t region_index = 0; region_index < frame->update_plan.regions.size(); ++region_index) {
+          const auto& region = frame->update_plan.regions[region_index].light;
+          if (region.cascade != cascade)
             continue;
           HddagiLightStoreParams params;
           params.grid = frame->inputs->cascades[cascade].size;
           params.capacity = resources->light_cell_capacity;
-          params.offset = region.pending.offset;
-          params.limit = params.offset + region.pending.size;
+          params.offset = region.offset;
+          params.limit = params.offset + region.size;
           params.cascade = cascade;
+          params.region_index = region_index;
           params.region_world_offset = (frame->inputs->cascades[cascade].position - params.grid / 2) / 8;
           frame->light_store->PushConstant(command, 0, params);
-          frame->light_store->Dispatch(command, region.pending.size.x / 4, region.pending.size.y / 4,
-                                       region.pending.size.z / 4);
+          frame->light_store->Dispatch(command, (region.size.x + 3) / 4, (region.size.y + 3) / 4,
+                                       (region.size.z + 3) / 4);
+          resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
+                                 VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
         }
         resources->OrderAccess(command, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                                VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT);
@@ -284,8 +433,10 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
   complete.resources.push_back(
       {descriptor.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   for (uint32_t cascade = 0; cascade < resources->probes.cascade_count; ++cascade)
-    complete.resources.push_back(
-        {"Frame.HDDAGI.Dispatch" + std::to_string(cascade), RenderResourceUsage::Read, RenderResourceState::General});
+    complete.resources.push_back({"Frame.HDDAGI." +
+                                      std::string(written_cascades & (1u << cascade) ? "DispatchSpare" : "Dispatch") +
+                                      std::to_string(cascade),
+                                  RenderResourceUsage::Read, RenderResourceState::General});
   graph.AddPass(complete, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
       ApplyGraphResourceBarriers(command, context);
@@ -293,13 +444,22 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);
       for (uint32_t cascade = 0; cascade < resources->probes.cascade_count; ++cascade) {
         const VkBufferCopy copy{0, cascade * 20u, 20};
-        vkCmdCopyBuffer(command, resources->buffers.at("Dispatch" + std::to_string(cascade))->GetVkBuffer(),
+        vkCmdCopyBuffer(command,
+                        resources->buffers
+                            .at(std::string(frame->written_cascades & (1u << cascade) ? "DispatchSpare" : "Dispatch") +
+                                std::to_string(cascade))
+                            ->GetVkBuffer(),
                         frame->status_readback->GetVkBuffer(), 1, &copy);
       }
       Platform::BufferMemoryBarrier(command, *frame->status_readback, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                                     VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_2_HOST_BIT,
                                     VK_ACCESS_2_HOST_READ_BIT);
     });
+    for (uint32_t cascade = 0; cascade < resources->probes.cascade_count; ++cascade)
+      if (frame->written_cascades & (1u << cascade))
+        for (const auto name : {"Process", "Dispatch"})
+          std::swap(resources->buffers.at(std::string(name) + std::to_string(cascade)),
+                    resources->buffers.at(std::string(name) + "Spare" + std::to_string(cascade)));
     frame->status_recorded = resources->voxelization_recorded = true;
   });
 }

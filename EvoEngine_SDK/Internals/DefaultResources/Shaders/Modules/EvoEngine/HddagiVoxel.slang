@@ -71,3 +71,9 @@ uint2 HddagiPackEmission(float3 emitted, float3 normal) {
     aniso |= min(31u, uint(lumas[i] / max(luma, 1e-20) * 31.0)) << (i * 5);
   return uint2(HddagiEncodeRadiance(total), aniso);
 }
+
+struct HddagiProcessVoxel { uint position; uint albedo_normal; uint emission; uint occlusion; };
+struct HddagiUpdateBounds { int3 begin; uint cascade; int3 end; uint padding; };
+bool HddagiContains(HddagiUpdateBounds bounds, int3 cell, uint cascade) {
+  return bounds.cascade == cascade && all(cell >= bounds.begin) && all(cell < bounds.end);
+}

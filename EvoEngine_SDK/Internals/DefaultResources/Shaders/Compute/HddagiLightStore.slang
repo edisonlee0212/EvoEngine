@@ -11,16 +11,11 @@ struct HddagiLightStoreParams {
   int3 offset;
   uint cascade;
   int3 limit;
-  uint padding;
+  uint region_index;
   int3 region_world_pos;
   uint padding2;
 };
-struct HddagiProcessVoxel {
-  uint position;
-  uint albedo_normal;
-  uint emission;
-  uint occlusion;
-};
+
 [[vk::push_constant]] ConstantBuffer<HddagiLightStoreParams> params;
 [[vk::binding(0, 0)]][vk::image_format("r16ui")] Texture3D<uint> src_albedo;
 [[vk::binding(1, 0)]] Texture3D<uint> src_emission;
@@ -33,6 +28,7 @@ struct HddagiProcessVoxel {
 [[vk::binding(8, 0)]][vk::image_format("r8ui")] RWTexture3D<uint> dst_disocclusion;
 [[vk::binding(9, 0)]][vk::image_format("r32ui")] RWTexture3D<uint> voxel_neighbours;
 [[vk::binding(10, 0)]][vk::image_format("r32ui")] RWTexture3D<uint> light_tex;
+[[vk::binding(11, 0)]] StructuredBuffer<HddagiUpdateBounds> update_bounds;
 groupshared uint normal_facings[216];
 groupshared uint store_position_count;
 groupshared uint store_from_index;
@@ -71,10 +67,12 @@ float2 octahedron_encode(float3 n) {
       }
     }
   }
+  if (all(local == int3(0))) store_position_count = 0;
+  if (all(pos == params.offset)) dispatch_data[1] = dispatch_data[2] = 1;
   bool thread_active = true;
-  if (any(pos >= params.limit)) {
-    thread_active = false;
-  }
+  if (any(pos >= params.limit)) thread_active = false;
+  for (uint region = 0; region < params.region_index; ++region)
+    if (HddagiContains(update_bounds[region], pos, params.cascade)) thread_active = false;
   GroupMemoryBarrierWithGroupSync();
   float4 albedo_accum = float4(0.0);
   float4 emission_accum = float4(0.0);
@@ -85,13 +83,6 @@ float2 octahedron_encode(float3 n) {
   int3 base_dst_pos = int3(0);
   if (thread_active) {
     uint solid = get_normal_facing(local);
-    if (all(local == int3(0))) {
-      store_position_count = 0;
-      if (all(pos == params.offset)) {
-        dispatch_data[1] = 1;
-        dispatch_data[2] = 1;
-      }
-    }
     const int3 offsets[6] = {int3(1, 0, 0),  int3(-1, 0, 0), int3(0, 1, 0),
                              int3(0, -1, 0), int3(0, 0, 1),  int3(0, 0, -1)};
     const float3 aniso_dir[6] = {float3(-1, 0, 0), float3(1, 0, 0),  float3(0, -1, 0),

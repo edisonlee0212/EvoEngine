@@ -12,7 +12,11 @@ struct HddagiCascadeBlock {
 };
 
 int3 HddagiWrap(int3 value, int3 size) {
-  return (value % size + size) % size;
+  // Avoid negative signed remainder: rectangular GPU fields/probe histories must wrap bijectively.
+  uint3 magnitude = uint3(value);
+  magnitude = select(value < 0, uint3(0) - magnitude, magnitude);
+  uint3 remainder = magnitude % uint3(size);
+  return int3(select(value < 0 && remainder != 0, uint3(size) - remainder, remainder));
 }
 
 bool HddagiTrace(Texture3D<uint2> voxels, [vk::image_format("r8ui")] Texture3D<uint> regions, HddagiCascadeBlock cascades,
