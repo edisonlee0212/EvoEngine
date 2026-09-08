@@ -525,6 +525,22 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     scene->SetDataComponent(camera->GetOwner(), transform);
   });
   m.def("IsCurrentSceneDdgiEnabled", &IsCurrentSceneDdgiEnabled);
+  m.def("OffsetCurrentSceneStaticMeshesForCapture", [](const float x, const float y, const float z) {
+    const auto scene = ApplicationContext::Get().GetActiveScene();
+    if (!scene || !std::isfinite(x) || !std::isfinite(y) || !std::isfinite(z))
+      throw py::value_error("An active scene and finite offset are required");
+    uint32_t count = 0;
+    if (const auto owners = scene->UnsafeGetPrivateComponentOwnersList<MeshRenderer>())
+      for (const auto entity : *owners) {
+        if (!scene->IsEntityStatic(entity))
+          continue;
+        auto transform = scene->GetDataComponent<GlobalTransform>(entity);
+        transform.SetPosition(transform.GetPosition() + glm::vec3(x, y, z));
+        scene->SetDataComponent(entity, transform);
+        ++count;
+      }
+    return count;
+  });
   m.def("ScaleCurrentSceneStaticMaterialsForCapture", [](const float color_scale, const float emission_scale) {
     const auto scene = ApplicationContext::Get().GetActiveScene();
     if (!scene || !std::isfinite(color_scale) || !std::isfinite(emission_scale) || color_scale < 0 ||
@@ -919,6 +935,12 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     const auto lighting = ResolveEnvironmentalLighting(scene);
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
     py::dict result;
+    result["application_frame"] = Platform::GetFrameCount();
+    if (Platform::Initialized()) {
+      const auto memory = QueryGiValidationMemoryBytes();
+      result["vma_allocation_bytes"] = memory[0];
+      result["vma_block_bytes"] = memory[1];
+    }
     result["requested_provider"] = GetIndirectGiProviderName(lighting.indirect_gi_provider);
     const auto hddagi = scene ? scene->GetHddagiRuntime() : nullptr;
     result["hddagi_state_active"] = hddagi != nullptr;

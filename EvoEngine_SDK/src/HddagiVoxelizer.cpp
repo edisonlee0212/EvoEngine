@@ -321,6 +321,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
         {read.resource_name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   graph.AddPass(upload, [frame = shared_from_this()](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
     });
     frame->inputs->input_uploads.Record(frame->inputs->uploads);
@@ -349,6 +350,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
         {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Write, RenderResourceState::General});
   graph.AddPass(invalidate, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
       for (const auto name : {"HitCache", "HitVersions"}) {
@@ -517,6 +519,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
         {"Frame.HDDAGI." + std::string(name), RenderResourceUsage::Write, RenderResourceState::General});
   graph.AddPass(metadata_pass, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -558,6 +561,7 @@ void HddagiVoxelFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
                                   RenderResourceUsage::Read, RenderResourceState::General});
   graph.AddPass(complete, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT,
                              VK_ACCESS_2_TRANSFER_READ_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT);

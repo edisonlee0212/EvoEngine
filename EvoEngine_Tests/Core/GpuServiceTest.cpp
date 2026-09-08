@@ -7296,3 +7296,122 @@ TEST(HddagiReflectionCapture, LiveBakeDynamicUpdatesAndLayoutResetWithoutRt) {
     return scene->GetHddagiRuntime() && scene->GetHddagiRuntime()->published;
   }));
 }
+
+TEST(HddagiCamera, CompactVisualFixturesAndReceiverOnlyMovementWithoutRt) {
+  TempProject project;
+  Application app;
+  struct Terminate {
+    Application& app;
+    ~Terminate() {
+      app.Terminate();
+    }
+  } terminate{app};
+  app.PushLayer<RenderLayer>("Render Layer");
+  auto initialization = TestApplicationSettings(project);
+  initialization.load_default_resources = true;
+  initialization.load_project_assets = true;
+  initialization.load_project_start_scene = true;
+  initialization.graphics_settings.use_ray_tracing = false;
+  app.Initialize(initialization);
+  app.Start();
+  for (uint32_t i = 0; i < 30000 && !app.GetActiveScene(); ++i)
+    ASSERT_TRUE(app.Loop());
+  const auto scene = app.GetActiveScene();
+  ASSERT_TRUE(scene);
+  const auto camera = scene->GetOrSetPrivateComponent<Camera>(scene->CreateEntity("Fixture camera")).lock();
+  scene->main_camera = camera;
+  camera->camera_render_mode = Camera::CameraRenderMode::Rasterization;
+  camera->SetRequireRendering(true);
+  camera->Resize({960, 540});
+  Transform camera_transform;
+  camera_transform.SetPosition({0, 1.5f, 8});
+  scene->SetDataComponent(camera->GetOwner(), camera_transform);
+  const auto lighting = AssetManager::CreateTemporaryAsset<EnvironmentalLighting>();
+  scene->environmental_lighting = lighting;
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  lighting->gi_probe_settings.probe_count_x = lighting->gi_probe_settings.probe_count_y = 17;
+  lighting->gi_probe_settings.cascade_count = 2;
+  lighting->gi_probe_settings.base_probe_distance = 1;
+  lighting->hddagi_settings.static_entities_only = true;
+  lighting->indirect_environment_source.kind = EnvironmentalLighting::IndirectEnvironmentSourceKind::Color;
+  lighting->indirect_environment_source.color = glm::vec3(0.15f);
+  const auto material = [](glm::vec3 color, float roughness, float metallic) {
+    auto result = AssetManager::CreateTemporaryAsset<Material>();
+    auto& data = result->material_data.shade_material;
+    data.pbr_base_color_factor = glm::vec4(color, 1);
+    data.pbr_roughness_factor = roughness;
+    data.pbr_metallic_factor = metallic;
+    return result;
+  };
+  const auto shape = [&](const char* name, glm::vec3 position, glm::vec3 scale,
+                         const std::shared_ptr<Material>& surface, bool sphere = false, bool is_static = true) {
+    const auto entity = scene->CreateEntity(name);
+    Transform transform;
+    transform.SetPosition(position);
+    transform.SetScale(scale * 2.0f);
+    scene->SetDataComponent(entity, transform);
+    scene->SetEntityStatic(entity, is_static);
+    const auto renderer = scene->GetOrSetPrivateComponent<MeshRenderer>(entity).lock();
+    renderer->mesh =
+        sphere ? Resources::GetInstance().GetPrimitives().sphere : Resources::GetInstance().GetPrimitives().cube;
+    renderer->material = surface;
+    return entity;
+  };
+  const auto white = material(glm::vec3(0.65f), 1, 0);
+  shape("Floor", {0, -0.125f, 0}, {5, 0.125f, 4}, white);
+  shape("Back corner", {0, 1.5f, -4}, {5, 1.5f, 0.125f}, white);
+  shape("Thin wall", {-3.2f, 1.5f, -1}, {0.0625f, 1.5f, 2}, white);
+  const auto emissive = material({1, 0.05f, 0.02f}, 1, 0);
+  emissive->material_data.shade_material.emissive_factor = {4, 0.1f, 0.05f};
+  shape("Emissive panel", {-4, 1.5f, -2}, {0.15f, 1, 1}, emissive);
+  for (int i = 0; i < 3; ++i)
+    shape("Curved roughness receiver", {-2.0f + i * 2, 0.7f, -0.5f}, glm::vec3(0.7f),
+          material(glm::vec3(0.8f), i * 0.5f, 1), true);
+  const auto checker = AssetManager::CreateTemporaryAsset<Texture2D>();
+  std::vector<glm::vec4> texels;
+  for (int y = 0; y < 8; ++y)
+    for (int x = 0; x < 8; ++x)
+      texels.emplace_back(0.1f, 0.8f, 0.1f, (x + y) % 2 ? 1.0f : 0.0f);
+  checker->SetRgbaChannelData(texels, {8, 8});
+  const auto masked = material(glm::vec3(1), 1, 0);
+  masked->material_data.shade_material.alpha_mode = static_cast<int32_t>(GltfAlphaMode::Mask);
+  masked->SetTexture(&GltfShadeMaterial::pbr_base_color_texture, checker);
+  shape("Masked checker", {3.2f, 1.5f, -2}, {1, 1.5f, 0.05f}, masked);
+  const auto receiver =
+      shape("Receiver only", {1, 0.6f, 2}, glm::vec3(0.6f), material({0.1f, 0.2f, 0.9f}, 0.8f, 0), true, false);
+  for (uint32_t frame = 0; frame < 96; ++frame)
+    ASSERT_TRUE(app.Loop());
+  const auto runtime = scene->GetHddagiRuntime();
+  ASSERT_TRUE(runtime && runtime->published);
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  const auto update_count = runtime->update_count;
+  for (uint32_t phase = 0; phase < 3; ++phase) {
+    if (phase == 1) {
+      auto transform = scene->GetDataComponent<Transform>(receiver);
+      transform.SetPosition({-1, 0.6f, 2});
+      scene->SetDataComponent(receiver, transform);
+      lighting->hddagi_settings.filter_reflections = true;
+    } else if (phase == 2) {
+      emissive->material_data.shade_material.emissive_factor = glm::vec3(0);
+      emissive->SetUnsaved();
+      lighting->hddagi_settings.half_resolution = false;
+    }
+    for (uint32_t frame = 0; frame < 64; ++frame)
+      ASSERT_TRUE(app.Loop());
+    ASSERT_TRUE(runtime->published);
+    EXPECT_EQ(runtime->resources->transport_failure_flags, 0);
+    if (phase == 1)
+      EXPECT_EQ(runtime->update_count, update_count);
+    if (phase == 2)
+      EXPECT_GT(runtime->update_count, update_count);
+    std::vector<glm::vec4> pixels;
+    camera->GetRenderTexture()->GetRgbaChannelData(pixels);
+    for (const auto value : pixels)
+      ASSERT_TRUE(std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z));
+    if (const auto directory = std::getenv("EVOENGINE_HDDAGI_CAPTURE_DIRECTORY")) {
+      std::filesystem::create_directories(directory);
+      camera->GetRenderTexture()->StoreToPng(std::filesystem::path(directory) /
+                                             ("compact-" + std::to_string(phase) + ".png"));
+    }
+  }
+}

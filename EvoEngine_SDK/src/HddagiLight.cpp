@@ -144,6 +144,7 @@ void HddagiLightFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
   }
   graph.AddPass(upload, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
       ApplyGraphResourceBarriers(command, context);
     });
@@ -171,6 +172,7 @@ void HddagiLightFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
   }
   graph.AddPass(pass, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       HddagiDirectParams params;
       params.grid = (resources->probes.ProbeSize() - 1) * 8;

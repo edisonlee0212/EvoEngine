@@ -10,6 +10,9 @@
 
 namespace evo_engine {
 
+// All VMA allocations, including shared scene resources: allocated bytes, reserved block bytes.
+EVOENGINE_API std::array<uint64_t, 2> QueryGiValidationMemoryBytes();
+
 class HddagiVoxelFrame;
 class HddagiLightFrame;
 class HddagiProbeFrame;

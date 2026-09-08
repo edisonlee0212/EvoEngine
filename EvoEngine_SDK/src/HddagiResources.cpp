@@ -109,6 +109,12 @@ VkImageCreateInfo ImageInfo(const HddagiImageRequirement& r) {
 }
 }  // namespace
 
+std::array<uint64_t, 2> evo_engine::QueryGiValidationMemoryBytes() {
+  VmaTotalStatistics memory{};
+  vmaCalculateStatistics(Platform::GetVmaAllocator(), &memory);
+  return {memory.total.statistics.allocationBytes, memory.total.statistics.blockBytes};
+}
+
 uint64_t HddagiResources::AllocationBytes() const {
   uint64_t bytes = allocation_bytes;
   for (const auto& [name, buffer] : buffers)

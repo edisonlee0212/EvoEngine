@@ -1,0 +1,3528 @@
+{
+  "aggregation": "Median of three per-run medians and p95s; max is worst measured frame. Memory is whole-application VMA.",
+  "validation_enabled": false,
+  "validation_evidence": "Production CMake cache OFF; raw manifest wording corrected in hddagi-results.md. GPU tests separately use validation ON.",
+  "configurations": {
+    "HDDAGI half": {
+      "artifact_directory": "tasks/h6-hddagi-timed",
+      "settings": {
+        "probes": {
+          "anchor_camera_entity": 0,
+          "base_probe_distance": 0.800000011920929,
+          "cascade_count": 4,
+          "probe_count_x": 33,
+          "probe_count_y": 17,
+          "vertical_scale": "SdfgiVerticalScale.Percent100"
+        },
+        "hddagi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "filter_ambient": true,
+          "filter_probes": true,
+          "filter_reflections": false,
+          "half_resolution": true,
+          "history_size": 12,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "occlusion_bias": 0.10000000149011612,
+          "probe_bias": 1.100000023841858,
+          "read_sky_light": true,
+          "reflection_bias": 2.0,
+          "static_entities_only": false
+        },
+        "sdfgi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "history_size": 30,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "positional_light_cascade_count": 8,
+          "probe_bias": 1.100000023841858,
+          "probe_relocation": false,
+          "probe_spacing_cells": 8,
+          "ray_count": 16,
+          "read_sky_light": true,
+          "static_entities_only": false,
+          "use_occlusion": true
+        },
+        "ddgi": {
+          "deterministic_ray_seed": 0,
+          "deterministic_ray_seed_enabled": false,
+          "distance_exponent": 50.0,
+          "emissive_ray_count": 8,
+          "enable_emissive_mesh_sampling": true,
+          "enable_probe_classification": true,
+          "enable_probe_relocation": true,
+          "fixed_ray_backface_threshold": 0.25,
+          "history_count": 30,
+          "irradiance_gamma": 5.0,
+          "max_ray_distance": 9.999999884841548e+26,
+          "normal_bias": 0.019999999552965164,
+          "random_ray_backface_threshold": 0.10000000149011612,
+          "ray_count": 64,
+          "relocation_distance": 0.25,
+          "view_bias": 0.10000000149011612,
+          "visibility_moment_bias": 0.019999999552965164,
+          "warmup_frames": 16
+        }
+      },
+      "capabilities": {
+        "device_name": "NVIDIA GeForce RTX 5070",
+        "driver_version": 2496774144,
+        "ray_tracing_enabled": false,
+        "ray_query_enabled": false,
+        "blas_enabled": false,
+        "tlas_enabled": false
+      },
+      "engine_revision": "db9e2ad257203a32ead519d6adf8b5f9c40a3d92",
+      "binary_sha256": {
+        "PyEvoEngine.cp315-win_amd64.pyd": "557566f1b53e78f73257cafb48a4c2865d3853de851a457a744b8cbee58ed119",
+        "EvoEngine_SDK.dll": "56801b8b912e813edd64eee946b64a0a8e13962a8cd72ae64f2459e52b6999ae"
+      },
+      "resource_revision": "a922e948657477eba4ec36abfc5f32bf16ed9240",
+      "resource_working_tree": " D \"Rendering/Assets/New Scene.evescene\"\n",
+      "workloads": {
+        "stationary": {
+          "gpu_span_ms": {
+            "median": 19.1531,
+            "p95": 19.4534,
+            "max": 23.0923
+          },
+          "loop_ms": {
+            "median": 12.3218,
+            "p95": 14.9821,
+            "max": 20.406
+          },
+          "vma_peak_bytes": 7314940320,
+          "vma_live_bytes": 7314940320,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1554878640,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 3.8285,
+              "p95": 3.978,
+              "max": 4.8913
+            },
+            "DeferredCamera": {
+              "median": 2.1636,
+              "p95": 2.2895,
+              "max": 2.9105
+            },
+            "DeferredGeometry": {
+              "median": 1.4417,
+              "p95": 1.5009,
+              "max": 1.6728
+            },
+            "DepthPyramid": {
+              "median": 0.0775,
+              "p95": 0.0935,
+              "max": 0.2677
+            },
+            "DirectionalLightShadow": {
+              "median": 0.5504,
+              "p95": 0.5567,
+              "max": 0.7863
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7045,
+              "p95": 0.8016,
+              "max": 0.9496
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.1738,
+              "p95": 1.212,
+              "max": 1.7958
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 1.9112,
+              "p95": 2.0403,
+              "max": 2.4956
+            },
+            "HddagiCameraGather": {
+              "median": 0.3081,
+              "p95": 0.4499,
+              "max": 0.6133
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3173,
+              "p95": 0.4614,
+              "max": 0.6025
+            },
+            "HddagiDirectLight": {
+              "median": 0.4529,
+              "p95": 0.5531,
+              "max": 0.5994
+            },
+            "HddagiFilterProbes": {
+              "median": 0.1963,
+              "p95": 0.2019,
+              "max": 0.3571
+            },
+            "HddagiIntegrate": {
+              "median": 0.2862,
+              "p95": 0.4309,
+              "max": 0.5267
+            },
+            "HddagiLightInputs": {
+              "median": 0.0005,
+              "p95": 0.0005,
+              "max": 0.0006
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0005,
+              "p95": 0.0005,
+              "max": 0.0008
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0087,
+              "p95": 0.0155,
+              "max": 0.1399
+            },
+            "HddagiTransportComplete": {
+              "median": 0.015,
+              "p95": 0.0154,
+              "max": 0.1543
+            },
+            "MotionCoverage": {
+              "median": 0.0285,
+              "p95": 0.0307,
+              "max": 0.199
+            },
+            "MotionVectors": {
+              "median": 0.1231,
+              "p95": 0.1306,
+              "max": 0.283
+            },
+            "PointShadow": {
+              "median": 2.2401,
+              "p95": 2.2602,
+              "max": 2.6651
+            },
+            "PostProcessing": {
+              "median": 5.3746,
+              "p95": 5.5625,
+              "max": 6.7801
+            }
+          }
+        },
+        "slow": {
+          "gpu_span_ms": {
+            "median": 20.9888,
+            "p95": 25.3849,
+            "max": 27.4491
+          },
+          "loop_ms": {
+            "median": 8.2041,
+            "p95": 12.4212,
+            "max": 15.7162
+          },
+          "vma_peak_bytes": 7315355360,
+          "vma_live_bytes": 7314946368,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1555287632,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.3948,
+              "p95": 4.7049,
+              "max": 5.0164
+            },
+            "DeferredCamera": {
+              "median": 2.2369,
+              "p95": 2.6189,
+              "max": 2.8299
+            },
+            "DeferredGeometry": {
+              "median": 1.6006,
+              "p95": 1.8261,
+              "max": 2.0844
+            },
+            "DepthPyramid": {
+              "median": 0.0933,
+              "p95": 0.0964,
+              "max": 0.1017
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6066,
+              "p95": 0.6148,
+              "max": 0.7961
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8069,
+              "p95": 1.009,
+              "max": 1.1531
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4965,
+              "p95": 1.6901,
+              "max": 1.9074
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.332,
+              "p95": 2.6705,
+              "max": 2.9631
+            },
+            "HddagiCameraGather": {
+              "median": 0.3514,
+              "p95": 0.5697,
+              "max": 0.7678
+            },
+            "HddagiCameraSurface": {
+              "median": 0.2654,
+              "p95": 0.3489,
+              "max": 0.5065
+            },
+            "HddagiDirectLight": {
+              "median": 0.6236,
+              "p95": 0.8565,
+              "max": 1.0435
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2526,
+              "p95": 0.2596,
+              "max": 0.2626
+            },
+            "HddagiIntegrate": {
+              "median": 1.6436,
+              "p95": 1.7707,
+              "max": 2.076
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0.1832,
+              "max": 0.1898
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0.0163,
+              "max": 0.0182
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0107,
+              "p95": 0.0183,
+              "max": 0.0215
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0156,
+              "max": 0.0188
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0.3948,
+              "max": 0.4655
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3477
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3426
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3364
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0.0083,
+              "max": 0.0126
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0.0,
+              "max": 0.0003
+            },
+            "MotionCoverage": {
+              "median": 0.0288,
+              "p95": 0.0299,
+              "max": 0.1868
+            },
+            "MotionVectors": {
+              "median": 0.1468,
+              "p95": 0.1511,
+              "max": 0.1571
+            },
+            "PointShadow": {
+              "median": 2.3879,
+              "p95": 2.3977,
+              "max": 2.7268
+            },
+            "PostProcessing": {
+              "median": 5.4901,
+              "p95": 7.3703,
+              "max": 8.2435
+            }
+          }
+        },
+        "fast": {
+          "gpu_span_ms": {
+            "median": 22.3639,
+            "p95": 26.5907,
+            "max": 28.5987
+          },
+          "loop_ms": {
+            "median": 8.6156,
+            "p95": 12.9559,
+            "max": 16.0941
+          },
+          "vma_peak_bytes": 7315766848,
+          "vma_live_bytes": 7121499248,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1555699120,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.4259,
+              "p95": 4.7266,
+              "max": 5.1757
+            },
+            "DeferredCamera": {
+              "median": 2.2512,
+              "p95": 2.6077,
+              "max": 3.1269
+            },
+            "DeferredGeometry": {
+              "median": 1.589,
+              "p95": 1.7967,
+              "max": 2.0293
+            },
+            "DepthPyramid": {
+              "median": 0.0933,
+              "p95": 0.0964,
+              "max": 0.1026
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6065,
+              "p95": 0.615,
+              "max": 0.7543
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.802,
+              "p95": 0.9914,
+              "max": 1.1205
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4824,
+              "p95": 1.6829,
+              "max": 1.815
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.2369,
+              "p95": 2.6334,
+              "max": 2.8031
+            },
+            "HddagiCameraGather": {
+              "median": 0.3514,
+              "p95": 0.5709,
+              "max": 0.769
+            },
+            "HddagiCameraSurface": {
+              "median": 0.273,
+              "p95": 0.3465,
+              "max": 0.5155
+            },
+            "HddagiDirectLight": {
+              "median": 0.8808,
+              "p95": 0.9968,
+              "max": 1.2094
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2527,
+              "p95": 0.2597,
+              "max": 0.2629
+            },
+            "HddagiIntegrate": {
+              "median": 1.7704,
+              "p95": 1.9147,
+              "max": 2.1973
+            },
+            "HddagiInvalidate": {
+              "median": 0.1833,
+              "p95": 0.212,
+              "max": 0.216
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0008
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.02,
+              "p95": 0.023,
+              "max": 0.0242
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0085,
+              "p95": 0.0111,
+              "max": 0.0198
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0085,
+              "p95": 0.0154,
+              "max": 0.018
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.4041,
+              "p95": 0.621,
+              "max": 0.653
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0.3434,
+              "max": 0.4877
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0.3253,
+              "max": 0.3313
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0.3202,
+              "max": 0.3266
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0092,
+              "p95": 0.0105,
+              "max": 0.0129
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0.0001,
+              "max": 0.0003
+            },
+            "MotionCoverage": {
+              "median": 0.0286,
+              "p95": 0.0304,
+              "max": 0.0312
+            },
+            "MotionVectors": {
+              "median": 0.1467,
+              "p95": 0.151,
+              "max": 0.3051
+            },
+            "PointShadow": {
+              "median": 2.3863,
+              "p95": 2.3969,
+              "max": 2.6422
+            },
+            "PostProcessing": {
+              "median": 5.6438,
+              "p95": 7.1472,
+              "max": 8.0864
+            }
+          }
+        },
+        "geometry": {
+          "gpu_span_ms": {
+            "median": 23.2291,
+            "p95": 26.5606,
+            "max": 37.0487
+          },
+          "loop_ms": {
+            "median": 7.9224,
+            "p95": 11.5883,
+            "max": 15.3585
+          },
+          "vma_peak_bytes": 7315357856,
+          "vma_live_bytes": 7314946368,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1555290128,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6868,
+              "p95": 4.7204,
+              "max": 5.3634
+            },
+            "DeferredCamera": {
+              "median": 2.5143,
+              "p95": 2.7092,
+              "max": 3.1968
+            },
+            "DeferredGeometry": {
+              "median": 1.5253,
+              "p95": 1.7546,
+              "max": 1.8395
+            },
+            "DepthPyramid": {
+              "median": 0.0934,
+              "p95": 0.0975,
+              "max": 0.2486
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6076,
+              "p95": 0.6156,
+              "max": 0.8105
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8094,
+              "p95": 1.025,
+              "max": 1.2297
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.499,
+              "p95": 1.6912,
+              "max": 1.8785
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.3593,
+              "p95": 2.7054,
+              "max": 2.9377
+            },
+            "HddagiCameraGather": {
+              "median": 0.3813,
+              "p95": 0.4175,
+              "max": 0.7056
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3411,
+              "p95": 0.351,
+              "max": 0.7372
+            },
+            "HddagiDirectLight": {
+              "median": 0.5004,
+              "p95": 0.5242,
+              "max": 0.6797
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2535,
+              "p95": 0.2596,
+              "max": 0.2626
+            },
+            "HddagiIntegrate": {
+              "median": 1.3525,
+              "p95": 3.8846,
+              "max": 4.5089
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 5.6146
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0008
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0354
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0109,
+              "p95": 0.0187,
+              "max": 0.0197
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0156,
+              "max": 0.0191
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 2.1608
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.9185
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.8625
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.8715
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0136
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0001
+            },
+            "MotionCoverage": {
+              "median": 0.0297,
+              "p95": 0.0304,
+              "max": 0.2015
+            },
+            "MotionVectors": {
+              "median": 0.1488,
+              "p95": 0.1528,
+              "max": 0.1573
+            },
+            "PointShadow": {
+              "median": 2.3978,
+              "p95": 2.5884,
+              "max": 2.7541
+            },
+            "PostProcessing": {
+              "median": 5.9905,
+              "p95": 6.3553,
+              "max": 7.047
+            }
+          }
+        },
+        "material": {
+          "gpu_span_ms": {
+            "median": 23.3262,
+            "p95": 26.2856,
+            "max": 37.8015
+          },
+          "loop_ms": {
+            "median": 9.0826,
+            "p95": 12.7216,
+            "max": 17.4543
+          },
+          "vma_peak_bytes": 7315357856,
+          "vma_live_bytes": 7314946368,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1555290128,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6805,
+              "p95": 4.8558,
+              "max": 5.4246
+            },
+            "DeferredCamera": {
+              "median": 2.5048,
+              "p95": 2.7009,
+              "max": 2.9955
+            },
+            "DeferredGeometry": {
+              "median": 1.5934,
+              "p95": 1.7783,
+              "max": 1.9741
+            },
+            "DepthPyramid": {
+              "median": 0.0934,
+              "p95": 0.0982,
+              "max": 0.2466
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6084,
+              "p95": 0.6155,
+              "max": 0.8025
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8132,
+              "p95": 1.0596,
+              "max": 1.1777
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.5012,
+              "p95": 1.6886,
+              "max": 1.9229
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.4693,
+              "p95": 2.7125,
+              "max": 2.8264
+            },
+            "HddagiCameraGather": {
+              "median": 0.3691,
+              "p95": 0.4436,
+              "max": 0.5895
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3399,
+              "p95": 0.3468,
+              "max": 0.6647
+            },
+            "HddagiDirectLight": {
+              "median": 0.4982,
+              "p95": 0.523,
+              "max": 0.7866
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2535,
+              "p95": 0.2597,
+              "max": 0.4088
+            },
+            "HddagiIntegrate": {
+              "median": 1.3537,
+              "p95": 3.8924,
+              "max": 4.1154
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 5.6484
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0008
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.035
+            },
+            "HddagiTransportBegin": {
+              "median": 0.011,
+              "p95": 0.0188,
+              "max": 0.0199
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0157,
+              "max": 0.0187
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 2.0172
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.9186
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.7071
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.722
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.014
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0001
+            },
+            "MotionCoverage": {
+              "median": 0.0298,
+              "p95": 0.0305,
+              "max": 0.2037
+            },
+            "MotionVectors": {
+              "median": 0.1487,
+              "p95": 0.1519,
+              "max": 0.156
+            },
+            "PointShadow": {
+              "median": 2.3937,
+              "p95": 2.4001,
+              "max": 2.589
+            },
+            "PostProcessing": {
+              "median": 6.0271,
+              "p95": 6.2646,
+              "max": 6.9983
+            }
+          }
+        },
+        "light": {
+          "gpu_span_ms": {
+            "median": 22.2495,
+            "p95": 22.98,
+            "max": 24.0794
+          },
+          "loop_ms": {
+            "median": 7.7486,
+            "p95": 10.4069,
+            "max": 14.402
+          },
+          "vma_peak_bytes": 7314946368,
+          "vma_live_bytes": 7120678768,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1554878640,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6805,
+              "p95": 4.6876,
+              "max": 5.3126
+            },
+            "DeferredCamera": {
+              "median": 2.503,
+              "p95": 2.6697,
+              "max": 2.8587
+            },
+            "DeferredGeometry": {
+              "median": 1.5924,
+              "p95": 1.7721,
+              "max": 1.9722
+            },
+            "DepthPyramid": {
+              "median": 0.0934,
+              "p95": 0.0973,
+              "max": 0.2435
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6078,
+              "p95": 0.6149,
+              "max": 0.8053
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8032,
+              "p95": 1.007,
+              "max": 1.1233
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.6305,
+              "p95": 1.6878,
+              "max": 1.9358
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.4766,
+              "p95": 2.6972,
+              "max": 2.8265
+            },
+            "HddagiCameraGather": {
+              "median": 0.369,
+              "p95": 0.3996,
+              "max": 0.5654
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3392,
+              "p95": 0.346,
+              "max": 0.5105
+            },
+            "HddagiDirectLight": {
+              "median": 0.5007,
+              "p95": 0.5221,
+              "max": 0.8483
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2527,
+              "p95": 0.2593,
+              "max": 0.4033
+            },
+            "HddagiIntegrate": {
+              "median": 0.3441,
+              "p95": 0.8613,
+              "max": 0.8676
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0109,
+              "p95": 0.0186,
+              "max": 0.0198
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0157,
+              "max": 0.0188
+            },
+            "MotionCoverage": {
+              "median": 0.0297,
+              "p95": 0.0304,
+              "max": 0.0314
+            },
+            "MotionVectors": {
+              "median": 0.1487,
+              "p95": 0.153,
+              "max": 0.1572
+            },
+            "PointShadow": {
+              "median": 2.3931,
+              "p95": 2.3991,
+              "max": 2.743
+            },
+            "PostProcessing": {
+              "median": 5.8828,
+              "p95": 6.0939,
+              "max": 7.0113
+            }
+          }
+        }
+      }
+    },
+    "HDDAGI full": {
+      "artifact_directory": "tasks/h6-hddagi-full",
+      "settings": {
+        "probes": {
+          "anchor_camera_entity": 0,
+          "base_probe_distance": 0.800000011920929,
+          "cascade_count": 4,
+          "probe_count_x": 33,
+          "probe_count_y": 17,
+          "vertical_scale": "SdfgiVerticalScale.Percent100"
+        },
+        "hddagi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "filter_ambient": true,
+          "filter_probes": true,
+          "filter_reflections": false,
+          "half_resolution": false,
+          "history_size": 12,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "occlusion_bias": 0.10000000149011612,
+          "probe_bias": 1.100000023841858,
+          "read_sky_light": true,
+          "reflection_bias": 2.0,
+          "static_entities_only": false
+        },
+        "sdfgi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "history_size": 30,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "positional_light_cascade_count": 8,
+          "probe_bias": 1.100000023841858,
+          "probe_relocation": false,
+          "probe_spacing_cells": 8,
+          "ray_count": 16,
+          "read_sky_light": true,
+          "static_entities_only": false,
+          "use_occlusion": true
+        },
+        "ddgi": {
+          "deterministic_ray_seed": 0,
+          "deterministic_ray_seed_enabled": false,
+          "distance_exponent": 50.0,
+          "emissive_ray_count": 8,
+          "enable_emissive_mesh_sampling": true,
+          "enable_probe_classification": true,
+          "enable_probe_relocation": true,
+          "fixed_ray_backface_threshold": 0.25,
+          "history_count": 30,
+          "irradiance_gamma": 5.0,
+          "max_ray_distance": 9.999999884841548e+26,
+          "normal_bias": 0.019999999552965164,
+          "random_ray_backface_threshold": 0.10000000149011612,
+          "ray_count": 64,
+          "relocation_distance": 0.25,
+          "view_bias": 0.10000000149011612,
+          "visibility_moment_bias": 0.019999999552965164,
+          "warmup_frames": 16
+        }
+      },
+      "capabilities": {
+        "device_name": "NVIDIA GeForce RTX 5070",
+        "driver_version": 2496774144,
+        "ray_tracing_enabled": false,
+        "ray_query_enabled": false,
+        "blas_enabled": false,
+        "tlas_enabled": false
+      },
+      "engine_revision": "db9e2ad257203a32ead519d6adf8b5f9c40a3d92",
+      "binary_sha256": {
+        "PyEvoEngine.cp315-win_amd64.pyd": "557566f1b53e78f73257cafb48a4c2865d3853de851a457a744b8cbee58ed119",
+        "EvoEngine_SDK.dll": "56801b8b912e813edd64eee946b64a0a8e13962a8cd72ae64f2459e52b6999ae"
+      },
+      "resource_revision": "a922e948657477eba4ec36abfc5f32bf16ed9240",
+      "resource_working_tree": " D \"Rendering/Assets/New Scene.evescene\"\n",
+      "workloads": {
+        "stationary": {
+          "gpu_span_ms": {
+            "median": 19.8276,
+            "p95": 20.0476,
+            "max": 22.5087
+          },
+          "loop_ms": {
+            "median": 12.5686,
+            "p95": 15.3825,
+            "max": 22.6386
+          },
+          "vma_peak_bytes": 7363699104,
+          "vma_live_bytes": 7363699104,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602064560,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 3.834,
+              "p95": 3.9799,
+              "max": 4.7524
+            },
+            "DeferredCamera": {
+              "median": 2.1579,
+              "p95": 2.2966,
+              "max": 2.7152
+            },
+            "DeferredGeometry": {
+              "median": 1.3851,
+              "p95": 1.4991,
+              "max": 1.6854
+            },
+            "DepthPyramid": {
+              "median": 0.0794,
+              "p95": 0.0885,
+              "max": 0.2442
+            },
+            "DirectionalLightShadow": {
+              "median": 0.5541,
+              "p95": 0.561,
+              "max": 0.7407
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7343,
+              "p95": 0.8606,
+              "max": 0.984
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.1743,
+              "p95": 1.2069,
+              "max": 1.5694
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 1.9421,
+              "p95": 2.0716,
+              "max": 2.4297
+            },
+            "HddagiCameraGather": {
+              "median": 0.8942,
+              "p95": 1.0637,
+              "max": 1.2564
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3147,
+              "p95": 0.326,
+              "max": 0.5915
+            },
+            "HddagiDirectLight": {
+              "median": 0.4285,
+              "p95": 0.5629,
+              "max": 0.674
+            },
+            "HddagiFilterProbes": {
+              "median": 0.1964,
+              "p95": 0.2021,
+              "max": 0.3552
+            },
+            "HddagiIntegrate": {
+              "median": 0.2876,
+              "p95": 0.447,
+              "max": 0.4629
+            },
+            "HddagiLightInputs": {
+              "median": 0.0005,
+              "p95": 0.0005,
+              "max": 0.0005
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0005,
+              "p95": 0.0005,
+              "max": 0.0008
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0085,
+              "p95": 0.0156,
+              "max": 0.019
+            },
+            "HddagiTransportComplete": {
+              "median": 0.015,
+              "p95": 0.0153,
+              "max": 0.0183
+            },
+            "MotionCoverage": {
+              "median": 0.0278,
+              "p95": 0.0298,
+              "max": 0.0379
+            },
+            "MotionVectors": {
+              "median": 0.1238,
+              "p95": 0.1309,
+              "max": 0.4089
+            },
+            "PointShadow": {
+              "median": 2.2434,
+              "p95": 2.2588,
+              "max": 2.4801
+            },
+            "PostProcessing": {
+              "median": 5.241,
+              "p95": 5.5213,
+              "max": 6.2375
+            }
+          }
+        },
+        "slow": {
+          "gpu_span_ms": {
+            "median": 22.0618,
+            "p95": 26.1394,
+            "max": 27.8679
+          },
+          "loop_ms": {
+            "median": 8.9294,
+            "p95": 12.8298,
+            "max": 18.0015
+          },
+          "vma_peak_bytes": 7364114144,
+          "vma_live_bytes": 7363705152,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602473552,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.4082,
+              "p95": 4.712,
+              "max": 5.3276
+            },
+            "DeferredCamera": {
+              "median": 2.3224,
+              "p95": 2.6011,
+              "max": 3.031
+            },
+            "DeferredGeometry": {
+              "median": 1.6032,
+              "p95": 1.8245,
+              "max": 2.0697
+            },
+            "DepthPyramid": {
+              "median": 0.0942,
+              "p95": 0.0983,
+              "max": 0.2424
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6054,
+              "p95": 0.6131,
+              "max": 0.7983
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8581,
+              "p95": 1.0912,
+              "max": 1.2243
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.5,
+              "p95": 1.6856,
+              "max": 1.9402
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.4372,
+              "p95": 2.7019,
+              "max": 3.113
+            },
+            "HddagiCameraGather": {
+              "median": 1.0327,
+              "p95": 1.5836,
+              "max": 1.8136
+            },
+            "HddagiCameraSurface": {
+              "median": 0.2664,
+              "p95": 0.3497,
+              "max": 0.5101
+            },
+            "HddagiDirectLight": {
+              "median": 0.6389,
+              "p95": 0.8665,
+              "max": 0.9274
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2527,
+              "p95": 0.2597,
+              "max": 0.3447
+            },
+            "HddagiIntegrate": {
+              "median": 1.6485,
+              "p95": 1.7749,
+              "max": 2.25
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0.1831,
+              "max": 0.1889
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0.0166,
+              "max": 0.0182
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0108,
+              "p95": 0.0189,
+              "max": 0.0197
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0156,
+              "max": 0.0191
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0.3986,
+              "max": 0.4625
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3497
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3446
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3406
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0.0084,
+              "max": 0.0171
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0.0,
+              "max": 0.0003
+            },
+            "MotionCoverage": {
+              "median": 0.0289,
+              "p95": 0.0299,
+              "max": 0.032
+            },
+            "MotionVectors": {
+              "median": 0.1472,
+              "p95": 0.1508,
+              "max": 0.2922
+            },
+            "PointShadow": {
+              "median": 2.3888,
+              "p95": 2.3967,
+              "max": 2.74
+            },
+            "PostProcessing": {
+              "median": 5.7324,
+              "p95": 7.3629,
+              "max": 7.893
+            }
+          }
+        },
+        "fast": {
+          "gpu_span_ms": {
+            "median": 23.7,
+            "p95": 27.4322,
+            "max": 29.2095
+          },
+          "loop_ms": {
+            "median": 9.3873,
+            "p95": 13.8501,
+            "max": 18.8891
+          },
+          "vma_peak_bytes": 7364525632,
+          "vma_live_bytes": 7169471600,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602885040,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.443,
+              "p95": 4.7266,
+              "max": 5.1884
+            },
+            "DeferredCamera": {
+              "median": 2.3255,
+              "p95": 2.6207,
+              "max": 2.9028
+            },
+            "DeferredGeometry": {
+              "median": 1.6048,
+              "p95": 1.8147,
+              "max": 2.0457
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.0985,
+              "max": 0.2634
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6064,
+              "p95": 0.6137,
+              "max": 0.7734
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8547,
+              "p95": 1.0517,
+              "max": 1.362
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.5062,
+              "p95": 1.6884,
+              "max": 1.8636
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.436,
+              "p95": 2.724,
+              "max": 3.1492
+            },
+            "HddagiCameraGather": {
+              "median": 1.0491,
+              "p95": 1.5935,
+              "max": 1.9592
+            },
+            "HddagiCameraSurface": {
+              "median": 0.2788,
+              "p95": 0.3466,
+              "max": 0.5139
+            },
+            "HddagiDirectLight": {
+              "median": 0.8899,
+              "p95": 0.9944,
+              "max": 1.3333
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2527,
+              "p95": 0.2592,
+              "max": 0.424
+            },
+            "HddagiIntegrate": {
+              "median": 1.7887,
+              "p95": 1.9165,
+              "max": 2.2987
+            },
+            "HddagiInvalidate": {
+              "median": 0.1896,
+              "p95": 0.2119,
+              "max": 0.2182
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0205,
+              "p95": 0.0229,
+              "max": 0.0233
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0085,
+              "p95": 0.0115,
+              "max": 0.0197
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0086,
+              "p95": 0.0154,
+              "max": 0.0157
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.4082,
+              "p95": 0.6211,
+              "max": 0.6513
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0.3437,
+              "max": 0.3507
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0.3265,
+              "max": 0.3305
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0.3211,
+              "max": 0.3293
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0093,
+              "p95": 0.0106,
+              "max": 0.0125
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0.0001,
+              "max": 0.0003
+            },
+            "MotionCoverage": {
+              "median": 0.0287,
+              "p95": 0.0303,
+              "max": 0.0313
+            },
+            "MotionVectors": {
+              "median": 0.1471,
+              "p95": 0.1513,
+              "max": 0.1566
+            },
+            "PointShadow": {
+              "median": 2.3882,
+              "p95": 2.3961,
+              "max": 2.7416
+            },
+            "PostProcessing": {
+              "median": 5.8216,
+              "p95": 7.1843,
+              "max": 8.06
+            }
+          }
+        },
+        "geometry": {
+          "gpu_span_ms": {
+            "median": 24.1967,
+            "p95": 27.3248,
+            "max": 38.4388
+          },
+          "loop_ms": {
+            "median": 8.527,
+            "p95": 11.866,
+            "max": 16.1306
+          },
+          "vma_peak_bytes": 7364116640,
+          "vma_live_bytes": 7363705152,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602476048,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6878,
+              "p95": 4.8459,
+              "max": 5.3764
+            },
+            "DeferredCamera": {
+              "median": 2.541,
+              "p95": 2.7069,
+              "max": 3.121
+            },
+            "DeferredGeometry": {
+              "median": 1.5352,
+              "p95": 1.7033,
+              "max": 2.006
+            },
+            "DepthPyramid": {
+              "median": 0.0944,
+              "p95": 0.0984,
+              "max": 0.2458
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6077,
+              "p95": 0.6141,
+              "max": 0.8049
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8583,
+              "p95": 1.1498,
+              "max": 1.3593
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.624,
+              "p95": 1.6874,
+              "max": 1.8481
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.5135,
+              "p95": 2.751,
+              "max": 3.1164
+            },
+            "HddagiCameraGather": {
+              "median": 1.1125,
+              "p95": 1.2628,
+              "max": 1.3951
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3406,
+              "p95": 0.3493,
+              "max": 0.661
+            },
+            "HddagiDirectLight": {
+              "median": 0.5054,
+              "p95": 0.53,
+              "max": 0.7166
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2535,
+              "p95": 0.2595,
+              "max": 0.4144
+            },
+            "HddagiIntegrate": {
+              "median": 1.3513,
+              "p95": 3.8855,
+              "max": 4.4102
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 5.6362
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0006
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0334
+            },
+            "HddagiTransportBegin": {
+              "median": 0.011,
+              "p95": 0.0191,
+              "max": 0.0209
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0157,
+              "max": 0.0193
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 2.0223
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.9164
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.7092
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.7247
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0139
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0001
+            },
+            "MotionCoverage": {
+              "median": 0.0298,
+              "p95": 0.0305,
+              "max": 0.032
+            },
+            "MotionVectors": {
+              "median": 0.149,
+              "p95": 0.1518,
+              "max": 0.3045
+            },
+            "PointShadow": {
+              "median": 2.3962,
+              "p95": 2.5894,
+              "max": 2.9444
+            },
+            "PostProcessing": {
+              "median": 6.0718,
+              "p95": 6.416,
+              "max": 7.0058
+            }
+          }
+        },
+        "material": {
+          "gpu_span_ms": {
+            "median": 23.9994,
+            "p95": 27.1687,
+            "max": 38.6071
+          },
+          "loop_ms": {
+            "median": 9.6778,
+            "p95": 12.9451,
+            "max": 16.6147
+          },
+          "vma_peak_bytes": 7364116640,
+          "vma_live_bytes": 7363705152,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602476048,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6804,
+              "p95": 4.8489,
+              "max": 5.4125
+            },
+            "DeferredCamera": {
+              "median": 2.5244,
+              "p95": 2.711,
+              "max": 3.0493
+            },
+            "DeferredGeometry": {
+              "median": 1.5922,
+              "p95": 1.7738,
+              "max": 2.1457
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.0996,
+              "max": 0.2455
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6067,
+              "p95": 0.6143,
+              "max": 0.7793
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.848,
+              "p95": 1.1196,
+              "max": 1.2111
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.504,
+              "p95": 1.6807,
+              "max": 1.8638
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.4039,
+              "p95": 2.7311,
+              "max": 3.0243
+            },
+            "HddagiCameraGather": {
+              "median": 1.1135,
+              "p95": 1.2657,
+              "max": 1.4281
+            },
+            "HddagiCameraSurface": {
+              "median": 0.3385,
+              "p95": 0.345,
+              "max": 0.5079
+            },
+            "HddagiDirectLight": {
+              "median": 0.496,
+              "p95": 0.521,
+              "max": 0.6783
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2533,
+              "p95": 0.2591,
+              "max": 0.4164
+            },
+            "HddagiIntegrate": {
+              "median": 1.3427,
+              "p95": 3.8849,
+              "max": 4.5181
+            },
+            "HddagiInvalidate": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 5.7169
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiProbeMetadata": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0352
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0109,
+              "p95": 0.0188,
+              "max": 0.0205
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0156,
+              "max": 0.0188
+            },
+            "HddagiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 2.0151
+            },
+            "HddagiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.92
+            },
+            "HddagiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.7096
+            },
+            "HddagiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.7215
+            },
+            "HddagiVoxelComplete": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0139
+            },
+            "HddagiVoxelInputs": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0001
+            },
+            "MotionCoverage": {
+              "median": 0.0298,
+              "p95": 0.0305,
+              "max": 0.0318
+            },
+            "MotionVectors": {
+              "median": 0.1488,
+              "p95": 0.1529,
+              "max": 0.1564
+            },
+            "PointShadow": {
+              "median": 2.394,
+              "p95": 2.4036,
+              "max": 2.7388
+            },
+            "PostProcessing": {
+              "median": 6.065,
+              "p95": 6.3147,
+              "max": 6.8988
+            }
+          }
+        },
+        "light": {
+          "gpu_span_ms": {
+            "median": 22.2845,
+            "p95": 23.8859,
+            "max": 25.288
+          },
+          "loop_ms": {
+            "median": 8.4308,
+            "p95": 11.5232,
+            "max": 13.732
+          },
+          "vma_peak_bytes": 7363705152,
+          "vma_live_bytes": 7168651120,
+          "vma_peak_block_bytes": 7547828224,
+          "hddagi_peak_owned_bytes": 1602064560,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6802,
+              "p95": 4.6878,
+              "max": 5.3293
+            },
+            "DeferredCamera": {
+              "median": 2.5124,
+              "p95": 2.7057,
+              "max": 3.0459
+            },
+            "DeferredGeometry": {
+              "median": 1.5899,
+              "p95": 1.7783,
+              "max": 1.9997
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.0974,
+              "max": 0.2233
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6065,
+              "p95": 0.6138,
+              "max": 0.7871
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8555,
+              "p95": 1.1529,
+              "max": 1.2319
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.486,
+              "p95": 1.6831,
+              "max": 1.8264
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.3133,
+              "p95": 2.7849,
+              "max": 3.0028
+            },
+            "HddagiCameraGather": {
+              "median": 1.1132,
+              "p95": 1.2664,
+              "max": 1.5751
+            },
+            "HddagiCameraSurface": {
+              "median": 0.338,
+              "p95": 0.3459,
+              "max": 0.5072
+            },
+            "HddagiDirectLight": {
+              "median": 0.4953,
+              "p95": 0.5218,
+              "max": 0.7172
+            },
+            "HddagiFilterProbes": {
+              "median": 0.2525,
+              "p95": 0.2589,
+              "max": 0.4124
+            },
+            "HddagiIntegrate": {
+              "median": 0.3413,
+              "p95": 0.8603,
+              "max": 0.8698
+            },
+            "HddagiLightInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0006
+            },
+            "HddagiProbeInputs": {
+              "median": 0.0006,
+              "p95": 0.0006,
+              "max": 0.0009
+            },
+            "HddagiTransportBegin": {
+              "median": 0.0109,
+              "p95": 0.0188,
+              "max": 0.02
+            },
+            "HddagiTransportComplete": {
+              "median": 0.0153,
+              "p95": 0.0157,
+              "max": 0.0191
+            },
+            "MotionCoverage": {
+              "median": 0.0297,
+              "p95": 0.0305,
+              "max": 0.0325
+            },
+            "MotionVectors": {
+              "median": 0.1488,
+              "p95": 0.1533,
+              "max": 0.1565
+            },
+            "PointShadow": {
+              "median": 2.3941,
+              "p95": 2.4026,
+              "max": 2.7417
+            },
+            "PostProcessing": {
+              "median": 6.006,
+              "p95": 6.1103,
+              "max": 6.7373
+            }
+          }
+        }
+      }
+    },
+    "SDFGI": {
+      "artifact_directory": "tasks/h6-sdfgi",
+      "settings": {
+        "probes": {
+          "anchor_camera_entity": 0,
+          "base_probe_distance": 0.800000011920929,
+          "cascade_count": 4,
+          "probe_count_x": 33,
+          "probe_count_y": 17,
+          "vertical_scale": "SdfgiVerticalScale.Percent100"
+        },
+        "hddagi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "filter_ambient": true,
+          "filter_probes": true,
+          "filter_reflections": false,
+          "half_resolution": true,
+          "history_size": 12,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "occlusion_bias": 0.10000000149011612,
+          "probe_bias": 1.100000023841858,
+          "read_sky_light": true,
+          "reflection_bias": 2.0,
+          "static_entities_only": false
+        },
+        "sdfgi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "history_size": 30,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "positional_light_cascade_count": 8,
+          "probe_bias": 1.100000023841858,
+          "probe_relocation": false,
+          "probe_spacing_cells": 8,
+          "ray_count": 16,
+          "read_sky_light": true,
+          "static_entities_only": false,
+          "use_occlusion": true
+        },
+        "ddgi": {
+          "deterministic_ray_seed": 0,
+          "deterministic_ray_seed_enabled": false,
+          "distance_exponent": 50.0,
+          "emissive_ray_count": 8,
+          "enable_emissive_mesh_sampling": true,
+          "enable_probe_classification": true,
+          "enable_probe_relocation": true,
+          "fixed_ray_backface_threshold": 0.25,
+          "history_count": 30,
+          "irradiance_gamma": 5.0,
+          "max_ray_distance": 9.999999884841548e+26,
+          "normal_bias": 0.019999999552965164,
+          "random_ray_backface_threshold": 0.10000000149011612,
+          "ray_count": 64,
+          "relocation_distance": 0.25,
+          "view_bias": 0.10000000149011612,
+          "visibility_moment_bias": 0.019999999552965164,
+          "warmup_frames": 16
+        }
+      },
+      "capabilities": {
+        "device_name": "NVIDIA GeForce RTX 5070",
+        "driver_version": 2496774144,
+        "ray_tracing_enabled": false,
+        "ray_query_enabled": false,
+        "blas_enabled": false,
+        "tlas_enabled": false
+      },
+      "engine_revision": "db9e2ad257203a32ead519d6adf8b5f9c40a3d92",
+      "binary_sha256": {
+        "PyEvoEngine.cp315-win_amd64.pyd": "557566f1b53e78f73257cafb48a4c2865d3853de851a457a744b8cbee58ed119",
+        "EvoEngine_SDK.dll": "56801b8b912e813edd64eee946b64a0a8e13962a8cd72ae64f2459e52b6999ae"
+      },
+      "resource_revision": "a922e948657477eba4ec36abfc5f32bf16ed9240",
+      "resource_working_tree": " D \"Rendering/Assets/New Scene.evescene\"\n",
+      "workloads": {
+        "stationary": {
+          "gpu_span_ms": {
+            "median": 19.6556,
+            "p95": 19.8733,
+            "max": 21.1687
+          },
+          "loop_ms": {
+            "median": 13.9455,
+            "p95": 15.5621,
+            "max": 20.5986
+          },
+          "vma_peak_bytes": 7083430240,
+          "vma_live_bytes": 7083430240,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 3.8156,
+              "p95": 3.955,
+              "max": 4.2116
+            },
+            "DeferredCamera": {
+              "median": 3.1371,
+              "p95": 3.2294,
+              "max": 3.6065
+            },
+            "DeferredGeometry": {
+              "median": 1.448,
+              "p95": 1.5003,
+              "max": 1.7167
+            },
+            "DepthPyramid": {
+              "median": 0.0789,
+              "p95": 0.087,
+              "max": 0.2186
+            },
+            "DirectionalLightShadow": {
+              "median": 0.5568,
+              "p95": 0.5633,
+              "max": 0.8887
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.6361,
+              "p95": 0.7647,
+              "max": 0.9011
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.1714,
+              "p95": 1.194,
+              "max": 1.3578
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 1.8411,
+              "p95": 1.9751,
+              "max": 2.1777
+            },
+            "MotionCoverage": {
+              "median": 0.0271,
+              "p95": 0.0351,
+              "max": 0.0408
+            },
+            "MotionVectors": {
+              "median": 0.1228,
+              "p95": 0.1273,
+              "max": 0.2789
+            },
+            "PointShadow": {
+              "median": 2.2384,
+              "p95": 2.2509,
+              "max": 2.5544
+            },
+            "PostProcessing": {
+              "median": 5.1551,
+              "p95": 5.192,
+              "max": 5.8019
+            },
+            "SdfgiDirectLight": {
+              "median": 0.211,
+              "p95": 0.218,
+              "max": 0.3697
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.2082,
+              "p95": 0.2151,
+              "max": 0.3612
+            },
+            "SdfgiProbeProcess": {
+              "median": 1.3855,
+              "p95": 1.4274,
+              "max": 1.5524
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1438,
+              "p95": 0.1457,
+              "max": 0.3102
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0014,
+              "p95": 0.0018,
+              "max": 0.0023
+            }
+          }
+        },
+        "slow": {
+          "gpu_span_ms": {
+            "median": 21.2646,
+            "p95": 25.9537,
+            "max": 29.341
+          },
+          "loop_ms": {
+            "median": 9.3483,
+            "p95": 10.8651,
+            "max": 16.1314
+          },
+          "vma_peak_bytes": 7083843680,
+          "vma_live_bytes": 7083843680,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.3282,
+              "p95": 4.6947,
+              "max": 5.2494
+            },
+            "DeferredCamera": {
+              "median": 3.6571,
+              "p95": 4.2839,
+              "max": 4.801
+            },
+            "DeferredGeometry": {
+              "median": 1.5628,
+              "p95": 1.8349,
+              "max": 2.0089
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.1021,
+              "max": 0.3058
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6083,
+              "p95": 0.6189,
+              "max": 0.6245
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7456,
+              "p95": 0.9866,
+              "max": 1.1444
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4822,
+              "p95": 1.6785,
+              "max": 1.7469
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.2146,
+              "p95": 2.5383,
+              "max": 2.8342
+            },
+            "MotionCoverage": {
+              "median": 0.0288,
+              "p95": 0.0298,
+              "max": 0.203
+            },
+            "MotionVectors": {
+              "median": 0.1433,
+              "p95": 0.1504,
+              "max": 0.1563
+            },
+            "PointShadow": {
+              "median": 2.3843,
+              "p95": 2.3958,
+              "max": 2.7417
+            },
+            "PostProcessing": {
+              "median": 5.9212,
+              "p95": 7.394,
+              "max": 8.0377
+            },
+            "SdfgiDirectLight": {
+              "median": 0.26,
+              "p95": 0.3235,
+              "max": 0.3975
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.2571,
+              "p95": 0.3207,
+              "max": 0.3939
+            },
+            "SdfgiPreprocessCascade0": {
+              "median": 0.0,
+              "p95": 3.2552,
+              "max": 3.5206
+            },
+            "SdfgiPreprocessCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 3.3603
+            },
+            "SdfgiPreprocessCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 3.1846
+            },
+            "SdfgiPreprocessCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 3.524
+            },
+            "SdfgiProbeProcess": {
+              "median": 0.9574,
+              "p95": 1.0801,
+              "max": 1.2932
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1629,
+              "p95": 0.1667,
+              "max": 0.4614
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0013,
+              "p95": 0.0017,
+              "max": 0.0021
+            },
+            "SdfgiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0.265,
+              "max": 0.3378
+            },
+            "SdfgiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.268
+            },
+            "SdfgiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.2677
+            },
+            "SdfgiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.2672
+            }
+          }
+        },
+        "fast": {
+          "gpu_span_ms": {
+            "median": 23.4881,
+            "p95": 28.891,
+            "max": 32.1795
+          },
+          "loop_ms": {
+            "median": 10.4705,
+            "p95": 12.2847,
+            "max": 14.1805
+          },
+          "vma_peak_bytes": 7083844832,
+          "vma_live_bytes": 7083844832,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 3.9002,
+              "p95": 4.6495,
+              "max": 5.1612
+            },
+            "DeferredCamera": {
+              "median": 3.4225,
+              "p95": 3.9969,
+              "max": 4.5152
+            },
+            "DeferredGeometry": {
+              "median": 1.4068,
+              "p95": 1.6948,
+              "max": 1.9641
+            },
+            "DepthPyramid": {
+              "median": 0.0852,
+              "p95": 0.0932,
+              "max": 0.2427
+            },
+            "DirectionalLightShadow": {
+              "median": 0.5772,
+              "p95": 0.6015,
+              "max": 0.8025
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.6892,
+              "p95": 0.8786,
+              "max": 0.9945
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.3092,
+              "p95": 1.4675,
+              "max": 1.6581
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.0159,
+              "p95": 2.2739,
+              "max": 2.6877
+            },
+            "MotionCoverage": {
+              "median": 0.0282,
+              "p95": 0.0304,
+              "max": 0.1999
+            },
+            "MotionVectors": {
+              "median": 0.1288,
+              "p95": 0.1413,
+              "max": 0.3117
+            },
+            "PointShadow": {
+              "median": 2.1984,
+              "p95": 2.4523,
+              "max": 2.732
+            },
+            "PostProcessing": {
+              "median": 5.4138,
+              "p95": 6.5538,
+              "max": 7.8721
+            },
+            "SdfgiDirectLight": {
+              "median": 0.2774,
+              "p95": 0.3463,
+              "max": 0.6349
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.2748,
+              "p95": 0.3435,
+              "max": 0.6317
+            },
+            "SdfgiPreprocessCascade0": {
+              "median": 2.8814,
+              "p95": 3.3141,
+              "max": 3.8126
+            },
+            "SdfgiPreprocessCascade1": {
+              "median": 0.0,
+              "p95": 3.0939,
+              "max": 3.9466
+            },
+            "SdfgiPreprocessCascade2": {
+              "median": 0.0,
+              "p95": 2.9092,
+              "max": 3.4438
+            },
+            "SdfgiPreprocessCascade3": {
+              "median": 0.0,
+              "p95": 2.7108,
+              "max": 3.3579
+            },
+            "SdfgiProbeProcess": {
+              "median": 0.8332,
+              "p95": 0.8754,
+              "max": 1.0904
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1474,
+              "p95": 0.1569,
+              "max": 0.3325
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0005,
+              "p95": 0.0015,
+              "max": 0.0018
+            },
+            "SdfgiVoxelCascade0": {
+              "median": 0.2337,
+              "p95": 0.3011,
+              "max": 0.3371
+            },
+            "SdfgiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0.2464,
+              "max": 0.5197
+            },
+            "SdfgiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0.2345,
+              "max": 0.3956
+            },
+            "SdfgiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0.2132,
+              "max": 0.2614
+            }
+          }
+        },
+        "geometry": {
+          "gpu_span_ms": {
+            "median": 22.973,
+            "p95": 23.9138,
+            "max": 54.3386
+          },
+          "loop_ms": {
+            "median": 9.5085,
+            "p95": 11.244,
+            "max": 22.9827
+          },
+          "vma_peak_bytes": 7083845216,
+          "vma_live_bytes": 7083845216,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6806,
+              "p95": 5.0223,
+              "max": 5.3799
+            },
+            "DeferredCamera": {
+              "median": 3.8098,
+              "p95": 4.1224,
+              "max": 4.6832
+            },
+            "DeferredGeometry": {
+              "median": 1.5123,
+              "p95": 1.7057,
+              "max": 1.8636
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.1016,
+              "max": 0.2635
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6112,
+              "p95": 0.6222,
+              "max": 0.8183
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7451,
+              "p95": 0.9321,
+              "max": 1.091
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4936,
+              "p95": 1.6847,
+              "max": 1.957
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.265,
+              "p95": 2.6105,
+              "max": 2.7867
+            },
+            "MotionCoverage": {
+              "median": 0.0296,
+              "p95": 0.0304,
+              "max": 0.0359
+            },
+            "MotionVectors": {
+              "median": 0.1487,
+              "p95": 0.1531,
+              "max": 0.3206
+            },
+            "PointShadow": {
+              "median": 2.3922,
+              "p95": 2.5879,
+              "max": 2.9373
+            },
+            "PostProcessing": {
+              "median": 6.3987,
+              "p95": 6.6405,
+              "max": 7.1329
+            },
+            "SdfgiDirectLight": {
+              "median": 0.2627,
+              "p95": 0.2685,
+              "max": 0.4334
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.2599,
+              "p95": 0.2654,
+              "max": 0.4303
+            },
+            "SdfgiPreprocessCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 6.8023
+            },
+            "SdfgiPreprocessCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 6.6408
+            },
+            "SdfgiPreprocessCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 7.4348
+            },
+            "SdfgiPreprocessCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 7.3269
+            },
+            "SdfgiProbeProcess": {
+              "median": 1.2162,
+              "p95": 1.2551,
+              "max": 1.5684
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1632,
+              "p95": 0.1692,
+              "max": 0.29
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0013,
+              "p95": 0.0017,
+              "max": 0.002
+            },
+            "SdfgiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.6
+            },
+            "SdfgiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5876
+            },
+            "SdfgiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5824
+            },
+            "SdfgiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.8274
+            }
+          }
+        },
+        "material": {
+          "gpu_span_ms": {
+            "median": 22.778,
+            "p95": 23.6922,
+            "max": 27.6758
+          },
+          "loop_ms": {
+            "median": 9.9026,
+            "p95": 10.7837,
+            "max": 13.7736
+          },
+          "vma_peak_bytes": 7083845216,
+          "vma_live_bytes": 7083845216,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6804,
+              "p95": 4.6876,
+              "max": 5.4178
+            },
+            "DeferredCamera": {
+              "median": 3.83,
+              "p95": 4.1208,
+              "max": 4.604
+            },
+            "DeferredGeometry": {
+              "median": 1.5871,
+              "p95": 1.7943,
+              "max": 1.9587
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.2473,
+              "max": 0.2756
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6119,
+              "p95": 0.6213,
+              "max": 0.8016
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7518,
+              "p95": 1.0598,
+              "max": 1.1435
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4895,
+              "p95": 1.6844,
+              "max": 1.8709
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.3152,
+              "p95": 2.6091,
+              "max": 3.0208
+            },
+            "MotionCoverage": {
+              "median": 0.0297,
+              "p95": 0.0304,
+              "max": 0.0317
+            },
+            "MotionVectors": {
+              "median": 0.1482,
+              "p95": 0.153,
+              "max": 0.1572
+            },
+            "PointShadow": {
+              "median": 2.3943,
+              "p95": 2.4024,
+              "max": 2.7601
+            },
+            "PostProcessing": {
+              "median": 6.3993,
+              "p95": 6.465,
+              "max": 7.0763
+            },
+            "SdfgiDirectLight": {
+              "median": 0.2608,
+              "p95": 0.2647,
+              "max": 0.3506
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.258,
+              "p95": 0.2616,
+              "max": 0.3477
+            },
+            "SdfgiPayloadCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3808
+            },
+            "SdfgiPayloadCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3692
+            },
+            "SdfgiPayloadCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3663
+            },
+            "SdfgiPayloadCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.3639
+            },
+            "SdfgiProbeProcess": {
+              "median": 1.2112,
+              "p95": 1.2469,
+              "max": 1.5803
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1637,
+              "p95": 0.167,
+              "max": 0.3183
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0013,
+              "p95": 0.0017,
+              "max": 0.0068
+            },
+            "SdfgiVoxelCascade0": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5993
+            },
+            "SdfgiVoxelCascade1": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5859
+            },
+            "SdfgiVoxelCascade2": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5831
+            },
+            "SdfgiVoxelCascade3": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.5829
+            }
+          }
+        },
+        "light": {
+          "gpu_span_ms": {
+            "median": 23.0472,
+            "p95": 23.5548,
+            "max": 25.1239
+          },
+          "loop_ms": {
+            "median": 9.7179,
+            "p95": 10.4037,
+            "max": 13.1794
+          },
+          "vma_peak_bytes": 7083845216,
+          "vma_live_bytes": 7083845216,
+          "vma_peak_block_bytes": 7292598272,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6796,
+              "p95": 4.6875,
+              "max": 5.3133
+            },
+            "DeferredCamera": {
+              "median": 3.8376,
+              "p95": 4.088,
+              "max": 4.6349
+            },
+            "DeferredGeometry": {
+              "median": 1.5896,
+              "p95": 1.7858,
+              "max": 1.9075
+            },
+            "DepthPyramid": {
+              "median": 0.0943,
+              "p95": 0.1023,
+              "max": 0.2704
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6124,
+              "p95": 0.6211,
+              "max": 0.8191
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.755,
+              "p95": 1.0625,
+              "max": 1.1529
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4929,
+              "p95": 1.6782,
+              "max": 1.8508
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.2879,
+              "p95": 2.6143,
+              "max": 2.8768
+            },
+            "MotionCoverage": {
+              "median": 0.0298,
+              "p95": 0.0304,
+              "max": 0.2002
+            },
+            "MotionVectors": {
+              "median": 0.1485,
+              "p95": 0.1517,
+              "max": 0.2809
+            },
+            "PointShadow": {
+              "median": 2.3949,
+              "p95": 2.4016,
+              "max": 2.9147
+            },
+            "PostProcessing": {
+              "median": 6.3762,
+              "p95": 6.465,
+              "max": 6.9682
+            },
+            "SdfgiDirectLight": {
+              "median": 0.2609,
+              "p95": 0.2638,
+              "max": 0.2658
+            },
+            "SdfgiDynamicLight": {
+              "median": 0.2581,
+              "p95": 0.2608,
+              "max": 0.2627
+            },
+            "SdfgiProbeProcess": {
+              "median": 1.2142,
+              "p95": 1.248,
+              "max": 1.5711
+            },
+            "SdfgiProbeStore": {
+              "median": 0.1638,
+              "p95": 0.1661,
+              "max": 0.1725
+            },
+            "SdfgiStaticLight": {
+              "median": 0.0013,
+              "p95": 0.0017,
+              "max": 0.002
+            }
+          }
+        }
+      }
+    },
+    "DDGI RT": {
+      "artifact_directory": "tasks/h6-ddgi",
+      "settings": {
+        "probes": {
+          "anchor_camera_entity": 0,
+          "base_probe_distance": 0.800000011920929,
+          "cascade_count": 4,
+          "probe_count_x": 33,
+          "probe_count_y": 17,
+          "vertical_scale": "SdfgiVerticalScale.Percent100"
+        },
+        "hddagi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "filter_ambient": true,
+          "filter_probes": true,
+          "filter_reflections": false,
+          "half_resolution": true,
+          "history_size": 12,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "occlusion_bias": 0.10000000149011612,
+          "probe_bias": 1.100000023841858,
+          "read_sky_light": true,
+          "reflection_bias": 2.0,
+          "static_entities_only": false
+        },
+        "sdfgi": {
+          "bounce_feedback": 1.0,
+          "energy": 1.0,
+          "history_size": 30,
+          "light_update_frames": 4,
+          "normal_bias": 1.100000023841858,
+          "positional_light_cascade_count": 8,
+          "probe_bias": 1.100000023841858,
+          "probe_relocation": false,
+          "probe_spacing_cells": 8,
+          "ray_count": 16,
+          "read_sky_light": true,
+          "static_entities_only": false,
+          "use_occlusion": true
+        },
+        "ddgi": {
+          "deterministic_ray_seed": 0,
+          "deterministic_ray_seed_enabled": false,
+          "distance_exponent": 50.0,
+          "emissive_ray_count": 8,
+          "enable_emissive_mesh_sampling": true,
+          "enable_probe_classification": true,
+          "enable_probe_relocation": true,
+          "fixed_ray_backface_threshold": 0.25,
+          "history_count": 30,
+          "irradiance_gamma": 5.0,
+          "max_ray_distance": 9.999999884841548e+26,
+          "normal_bias": 0.019999999552965164,
+          "random_ray_backface_threshold": 0.10000000149011612,
+          "ray_count": 64,
+          "relocation_distance": 0.25,
+          "view_bias": 0.10000000149011612,
+          "visibility_moment_bias": 0.019999999552965164,
+          "warmup_frames": 16
+        }
+      },
+      "capabilities": {
+        "device_name": "NVIDIA GeForce RTX 5070",
+        "driver_version": 2496774144,
+        "ray_tracing_enabled": true,
+        "ray_query_enabled": true,
+        "blas_enabled": true,
+        "tlas_enabled": true
+      },
+      "engine_revision": "db9e2ad257203a32ead519d6adf8b5f9c40a3d92",
+      "binary_sha256": {
+        "PyEvoEngine.cp315-win_amd64.pyd": "557566f1b53e78f73257cafb48a4c2865d3853de851a457a744b8cbee58ed119",
+        "EvoEngine_SDK.dll": "56801b8b912e813edd64eee946b64a0a8e13962a8cd72ae64f2459e52b6999ae"
+      },
+      "resource_revision": "a922e948657477eba4ec36abfc5f32bf16ed9240",
+      "resource_working_tree": " D \"Rendering/Assets/New Scene.evescene\"\n",
+      "workloads": {
+        "stationary": {
+          "gpu_span_ms": {
+            "median": 23.5353,
+            "p95": 23.7796,
+            "max": 28.6465
+          },
+          "loop_ms": {
+            "median": 16.7367,
+            "p95": 20.2346,
+            "max": 25.4267
+          },
+          "vma_peak_bytes": 7531738752,
+          "vma_live_bytes": 7531738752,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 3.6696,
+              "p95": 3.829,
+              "max": 4.7074
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.0171,
+              "p95": 0.0181,
+              "max": 0.1696
+            },
+            "DDGIProbeClassification": {
+              "median": 0.0937,
+              "p95": 0.0996,
+              "max": 0.382
+            },
+            "DDGIProbeTrace": {
+              "median": 2.5986,
+              "p95": 2.7697,
+              "max": 3.4132
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.7108,
+              "p95": 1.842,
+              "max": 2.3566
+            },
+            "DeferredCamera": {
+              "median": 3.5299,
+              "p95": 3.6142,
+              "max": 4.486
+            },
+            "DeferredGeometry": {
+              "median": 1.3543,
+              "p95": 1.5159,
+              "max": 1.7917
+            },
+            "DepthPyramid": {
+              "median": 0.0801,
+              "p95": 0.0872,
+              "max": 0.2126
+            },
+            "DirectionalLightShadow": {
+              "median": 0.5524,
+              "p95": 0.5588,
+              "max": 0.7224
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.7229,
+              "p95": 0.8478,
+              "max": 1.0724
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.17,
+              "p95": 1.1803,
+              "max": 1.4944
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 1.9281,
+              "p95": 2.0515,
+              "max": 2.6019
+            },
+            "MotionCoverage": {
+              "median": 0.0273,
+              "p95": 0.0281,
+              "max": 0.0361
+            },
+            "MotionVectors": {
+              "median": 0.1244,
+              "p95": 0.1315,
+              "max": 0.2902
+            },
+            "PointShadow": {
+              "median": 2.2374,
+              "p95": 2.2504,
+              "max": 2.6964
+            },
+            "PostProcessing": {
+              "median": 6.0234,
+              "p95": 6.0693,
+              "max": 7.2685
+            }
+          }
+        },
+        "slow": {
+          "gpu_span_ms": {
+            "median": 23.5889,
+            "p95": 28.434,
+            "max": 30.7311
+          },
+          "loop_ms": {
+            "median": 7.6975,
+            "p95": 10.1673,
+            "max": 13.2375
+          },
+          "vma_peak_bytes": 7531744800,
+          "vma_live_bytes": 7531744800,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.203,
+              "p95": 4.689,
+              "max": 5.1311
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.0185,
+              "p95": 0.1259,
+              "max": 0.3489
+            },
+            "DDGIProbeClassification": {
+              "median": 0.1002,
+              "p95": 0.1146,
+              "max": 0.2385
+            },
+            "DDGIProbeRelocation": {
+              "median": 0.0,
+              "p95": 0.0135,
+              "max": 0.0246
+            },
+            "DDGIProbeScroll": {
+              "median": 0.0,
+              "p95": 0.027,
+              "max": 0.0295
+            },
+            "DDGIProbeTrace": {
+              "median": 2.815,
+              "p95": 3.1431,
+              "max": 3.5155
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.7124,
+              "p95": 1.8898,
+              "max": 2.4169
+            },
+            "DeferredCamera": {
+              "median": 3.8939,
+              "p95": 4.446,
+              "max": 4.9976
+            },
+            "DeferredGeometry": {
+              "median": 1.5089,
+              "p95": 1.7465,
+              "max": 1.9494
+            },
+            "DepthPyramid": {
+              "median": 0.0936,
+              "p95": 0.0992,
+              "max": 0.254
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6006,
+              "p95": 0.6113,
+              "max": 0.7526
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8354,
+              "p95": 1.1295,
+              "max": 1.3325
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4556,
+              "p95": 1.6566,
+              "max": 1.8132
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.1049,
+              "p95": 2.7308,
+              "max": 3.0138
+            },
+            "MotionCoverage": {
+              "median": 0.0286,
+              "p95": 0.0298,
+              "max": 0.1861
+            },
+            "MotionVectors": {
+              "median": 0.1414,
+              "p95": 0.1495,
+              "max": 0.3374
+            },
+            "PointShadow": {
+              "median": 2.3736,
+              "p95": 2.3806,
+              "max": 2.5659
+            },
+            "PostProcessing": {
+              "median": 6.5684,
+              "p95": 8.1687,
+              "max": 9.338
+            }
+          }
+        },
+        "fast": {
+          "gpu_span_ms": {
+            "median": 25.68,
+            "p95": 30.2109,
+            "max": 30.7833
+          },
+          "loop_ms": {
+            "median": 7.1212,
+            "p95": 10.1579,
+            "max": 11.7972
+          },
+          "vma_peak_bytes": 7531744800,
+          "vma_live_bytes": 7531744800,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.4165,
+              "p95": 4.708,
+              "max": 5.2617
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.1412,
+              "p95": 0.1986,
+              "max": 0.3324
+            },
+            "DDGIProbeClassification": {
+              "median": 0.1072,
+              "p95": 0.1156,
+              "max": 0.2633
+            },
+            "DDGIProbeRelocation": {
+              "median": 0.0215,
+              "p95": 0.0311,
+              "max": 0.0384
+            },
+            "DDGIProbeScroll": {
+              "median": 0.0362,
+              "p95": 0.0606,
+              "max": 0.0692
+            },
+            "DDGIProbeTrace": {
+              "median": 3.0368,
+              "p95": 3.2129,
+              "max": 3.613
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.8782,
+              "p95": 2.0342,
+              "max": 2.4875
+            },
+            "DeferredCamera": {
+              "median": 4.0252,
+              "p95": 4.4675,
+              "max": 4.8362
+            },
+            "DeferredGeometry": {
+              "median": 1.5603,
+              "p95": 1.8179,
+              "max": 1.9893
+            },
+            "DepthPyramid": {
+              "median": 0.0944,
+              "p95": 0.0966,
+              "max": 0.2472
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6034,
+              "p95": 0.6114,
+              "max": 0.7992
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8552,
+              "p95": 1.1356,
+              "max": 1.3518
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4733,
+              "p95": 1.6577,
+              "max": 1.8181
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.1003,
+              "p95": 2.7755,
+              "max": 3.0049
+            },
+            "MotionCoverage": {
+              "median": 0.0284,
+              "p95": 0.03,
+              "max": 0.0313
+            },
+            "MotionVectors": {
+              "median": 0.1447,
+              "p95": 0.1507,
+              "max": 0.3004
+            },
+            "PointShadow": {
+              "median": 2.3752,
+              "p95": 2.3821,
+              "max": 2.7305
+            },
+            "PostProcessing": {
+              "median": 7.0107,
+              "p95": 8.9494,
+              "max": 9.3534
+            }
+          }
+        },
+        "geometry": {
+          "gpu_span_ms": {
+            "median": 27.5572,
+            "p95": 28.9089,
+            "max": 30.1473
+          },
+          "loop_ms": {
+            "median": 9.1459,
+            "p95": 10.2146,
+            "max": 11.7781
+          },
+          "vma_peak_bytes": 7531744800,
+          "vma_live_bytes": 7531744800,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6855,
+              "p95": 4.7196,
+              "max": 5.3285
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.0185,
+              "p95": 0.1438,
+              "max": 0.2322
+            },
+            "DDGIProbeClassification": {
+              "median": 0.1058,
+              "p95": 0.1142,
+              "max": 0.2732
+            },
+            "DDGIProbeRelocation": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0929
+            },
+            "DDGIProbeTrace": {
+              "median": 2.9968,
+              "p95": 3.0213,
+              "max": 3.5476
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.7941,
+              "p95": 1.8101,
+              "max": 2.0325
+            },
+            "DeferredCamera": {
+              "median": 4.3522,
+              "p95": 4.59,
+              "max": 4.9601
+            },
+            "DeferredGeometry": {
+              "median": 1.5092,
+              "p95": 1.6863,
+              "max": 1.9602
+            },
+            "DepthPyramid": {
+              "median": 0.0946,
+              "p95": 0.0974,
+              "max": 0.2466
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6039,
+              "p95": 0.6129,
+              "max": 0.7734
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8553,
+              "p95": 1.137,
+              "max": 1.3228
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.489,
+              "p95": 1.6612,
+              "max": 1.8839
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.2653,
+              "p95": 2.7149,
+              "max": 3.1003
+            },
+            "MotionCoverage": {
+              "median": 0.0293,
+              "p95": 0.03,
+              "max": 0.2045
+            },
+            "MotionVectors": {
+              "median": 0.1477,
+              "p95": 0.1518,
+              "max": 0.1568
+            },
+            "PointShadow": {
+              "median": 2.3781,
+              "p95": 2.578,
+              "max": 2.7375
+            },
+            "PostProcessing": {
+              "median": 7.4791,
+              "p95": 7.8288,
+              "max": 8.5686
+            },
+            "TlasUpdate": {
+              "median": 0.0,
+              "p95": 0.0236,
+              "max": 0.0264
+            }
+          }
+        },
+        "material": {
+          "gpu_span_ms": {
+            "median": 27.2153,
+            "p95": 28.4788,
+            "max": 29.8091
+          },
+          "loop_ms": {
+            "median": 8.8636,
+            "p95": 10.2495,
+            "max": 12.089
+          },
+          "vma_peak_bytes": 7531744800,
+          "vma_live_bytes": 7531744800,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6803,
+              "p95": 4.6877,
+              "max": 5.321
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.0184,
+              "p95": 0.0192,
+              "max": 0.203
+            },
+            "DDGIProbeClassification": {
+              "median": 0.1053,
+              "p95": 0.1137,
+              "max": 0.1216
+            },
+            "DDGIProbeRelocation": {
+              "median": 0.0,
+              "p95": 0,
+              "max": 0.0909
+            },
+            "DDGIProbeTrace": {
+              "median": 2.993,
+              "p95": 3.0119,
+              "max": 3.5811
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.7929,
+              "p95": 1.7999,
+              "max": 1.9772
+            },
+            "DeferredCamera": {
+              "median": 4.3509,
+              "p95": 4.5611,
+              "max": 5.1609
+            },
+            "DeferredGeometry": {
+              "median": 1.5836,
+              "p95": 1.7619,
+              "max": 1.8695
+            },
+            "DepthPyramid": {
+              "median": 0.0946,
+              "p95": 0.0975,
+              "max": 0.2593
+            },
+            "DirectionalLightShadow": {
+              "median": 0.6038,
+              "p95": 0.6121,
+              "max": 0.7941
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8541,
+              "p95": 1.094,
+              "max": 1.2034
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4747,
+              "p95": 1.6631,
+              "max": 1.9097
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.1946,
+              "p95": 2.6983,
+              "max": 2.9544
+            },
+            "MotionCoverage": {
+              "median": 0.0292,
+              "p95": 0.03,
+              "max": 0.0318
+            },
+            "MotionVectors": {
+              "median": 0.1476,
+              "p95": 0.1516,
+              "max": 0.1572
+            },
+            "PointShadow": {
+              "median": 2.3749,
+              "p95": 2.3819,
+              "max": 2.7228
+            },
+            "PostProcessing": {
+              "median": 7.3545,
+              "p95": 7.5604,
+              "max": 8.1029
+            }
+          }
+        },
+        "light": {
+          "gpu_span_ms": {
+            "median": 27.4631,
+            "p95": 28.495,
+            "max": 29.8902
+          },
+          "loop_ms": {
+            "median": 9.4248,
+            "p95": 10.6766,
+            "max": 12.3056
+          },
+          "vma_peak_bytes": 7531744800,
+          "vma_live_bytes": 7531744800,
+          "vma_peak_block_bytes": 7837530112,
+          "hddagi_peak_owned_bytes": 0,
+          "stages_ms": {
+            "AmbientOcclusion": {
+              "median": 4.6844,
+              "p95": 4.6879,
+              "max": 5.3378
+            },
+            "DDGIHistoryInvalidate": {
+              "median": 0.0185,
+              "p95": 0.0191,
+              "max": 0.0196
+            },
+            "DDGIProbeClassification": {
+              "median": 0.1063,
+              "p95": 0.1143,
+              "max": 0.1217
+            },
+            "DDGIProbeTrace": {
+              "median": 2.995,
+              "p95": 3.0123,
+              "max": 3.6093
+            },
+            "DDGIProbeUpdate": {
+              "median": 1.7936,
+              "p95": 1.7992,
+              "max": 2.1176
+            },
+            "DeferredCamera": {
+              "median": 4.3584,
+              "p95": 4.5988,
+              "max": 5.0034
+            },
+            "DeferredGeometry": {
+              "median": 1.5857,
+              "p95": 1.7679,
+              "max": 1.9661
+            },
+            "DepthPyramid": {
+              "median": 0.0954,
+              "p95": 0.0995,
+              "max": 0.2675
+            },
+            "DirectionalLightShadow": {
+              "median": 0.605,
+              "p95": 0.6122,
+              "max": 0.7828
+            },
+            "DynamicReflectionProbeFaceCapture": {
+              "median": 0.8637,
+              "p95": 1.1549,
+              "max": 1.3319
+            },
+            "DynamicReflectionProbeGgxPrefilter": {
+              "median": 1.4841,
+              "p95": 1.668,
+              "max": 1.9267
+            },
+            "DynamicReflectionProbeUpdateTotal": {
+              "median": 2.3598,
+              "p95": 2.6996,
+              "max": 3.0982
+            },
+            "MotionCoverage": {
+              "median": 0.0294,
+              "p95": 0.0301,
+              "max": 0.0319
+            },
+            "MotionVectors": {
+              "median": 0.1486,
+              "p95": 0.1516,
+              "max": 0.2692
+            },
+            "PointShadow": {
+              "median": 2.3761,
+              "p95": 2.3811,
+              "max": 2.7102
+            },
+            "PostProcessing": {
+              "median": 7.4955,
+              "p95": 7.6132,
+              "max": 8.2179
+            }
+          }
+        }
+      }
+    }
+  }
+}

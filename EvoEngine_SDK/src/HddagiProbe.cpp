@@ -212,6 +212,7 @@ void HddagiProbeFrame::AddBeginPass(RenderGraph& graph, RenderGraphResourceRegis
          RenderResourceUsage::Read, RenderResourceState::General});
   graph.AddPass(pass, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       frame->status_pipelines[0]->Bind(command);
       for (uint32_t c = 0; c < resources->probes.cascade_count; ++c) {
@@ -244,6 +245,7 @@ void HddagiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
       {descriptor.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   graph.AddPass(upload, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT);
       ApplyGraphResourceBarriers(command, context);
     });
@@ -275,6 +277,7 @@ void HddagiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
   }
   graph.AddPass(pass, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -302,6 +305,7 @@ void HddagiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
       {"Frame.HDDAGI.FilteredDiffuse", RenderResourceUsage::Write, RenderResourceState::General});
   graph.AddPass(filter, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);
@@ -331,6 +335,7 @@ void HddagiProbeFrame::AddPasses(RenderGraph& graph, RenderGraphResourceRegistry
       {descriptor.name, RenderResourceUsage::Write, RenderResourceState::TransferDestinationGeneral});
   graph.AddPass(complete, [frame = shared_from_this(), resources](const RenderGraphExecutionContext& context) {
     Platform::RecordCommandsMainQueue([&](const VkCommandBuffer command) {
+      const RenderPassGpuTimestampScope timing(command, context);
       ApplyGraphResourceBarriers(command, context);
       resources->OrderAccess(command, VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
                              VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT);

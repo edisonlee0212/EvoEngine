@@ -163,8 +163,32 @@ const char* ShaderTypeName(const ShaderType shader_type) {
   }
 }
 
-std::string VariantDefines(const std::filesystem::path&) {
-  return {};
+std::vector<std::string> VariantDefines(const std::filesystem::path& path) {
+  const auto name = path.filename().string();
+  if (name == "SdfgiGatherAbi.slang")
+    return {"#define EE_SDFGI_ABI_ONLY 1\n"};
+  if (name == "SdfgiDirectLight.slang")
+    return {"#define MODE_PROCESS_STATIC 1\n", "#define MODE_PROCESS_DYNAMIC 1\n"};
+  if (name == "SdfgiIntegrate.slang")
+    return {"#define MODE_PROCESS 1\n", "#define MODE_STORE 1\n", "#define MODE_SCROLL 1\n"};
+  if (name == "SdfgiPreprocess.slang") {
+    std::vector<std::string> variants;
+    for (const auto mode : {"INITIALIZE_JUMP_FLOOD", "INITIALIZE_JUMP_FLOOD_HALF", "JUMPFLOOD", "JUMPFLOOD_OPTIMIZED",
+                            "UPSCALE_JUMP_FLOOD", "OCCLUSION", "STORE", "SCROLL", "SCROLL_OCCLUSION"})
+      variants.push_back(std::string("#define MODE_") + mode + " 1\n");
+    return variants;
+  }
+  if (name == "HddagiGatherAbi.slang")
+    return {"", "#define MODE_FULL_GATHER 1\n"};
+  if (name == "HddagiDirectLight.slang")
+    return {"", "#define MODE_PROCESS_STATIC 1\n"};
+  if (name == "HddagiTransportStatus.slang")
+    return {"", "#define MODE_BEGIN 1\n"};
+  if (name == "HddagiReflectionFilter.slang")
+    return {"", "#define MODE_VERTICAL 1\n"};
+  if (name == "DeferredComputeLighting.slang")
+    return {"", "#define EE_AUTOMATIC_SDFGI 1\n", "#define EE_AUTOMATIC_HDDAGI 1\n"};
+  return {""};
 }
 
 std::vector<std::filesystem::path> CollectShaderEntryPoints(const std::filesystem::path& root) {
@@ -265,25 +289,29 @@ TEST(ShaderBaseline, ProductionSdkEntryPointInventoryCompilesAndReflects) {
   const std::filesystem::path capture_root = capture_directory ? capture_directory : "";
   const std::string global_defines = ShaderGlobalDefinesForTests();
 
+  size_t variant_index = 0;
   for (size_t index = 0; index < shader_paths.size(); ++index) {
     const auto& shader_path = shader_paths[index];
     const auto shader_type = InferShaderType(shader_path);
     ASSERT_TRUE(shader_type.has_value()) << shader_path.string();
-    const auto variant_defines = VariantDefines(std::filesystem::relative(shader_path, shader_root));
-    const auto source = global_defines + variant_defines + ReadTextFile(shader_path);
-    std::vector<uint32_t> binaries;
-    ASSERT_TRUE(Shader::CompileToSpirv(*shader_type, source, binaries, shader_path)) << shader_path.string();
-    ASSERT_FALSE(binaries.empty()) << shader_path.string();
-    EXPECT_EQ(binaries.front(), 0x07230203u) << shader_path.string();
-    if (capture_directory) {
-      CaptureArtifact(capture_root, index, std::filesystem::relative(shader_path, shader_root), *shader_type,
-                      variant_defines, source, binaries);
+    for (const auto& variant_defines : VariantDefines(std::filesystem::relative(shader_path, shader_root))) {
+      const auto source = global_defines + variant_defines + ReadTextFile(shader_path);
+      std::vector<uint32_t> binaries;
+      ASSERT_TRUE(Shader::CompileToSpirv(*shader_type, source, binaries, shader_path)) << shader_path.string();
+      ASSERT_FALSE(binaries.empty()) << shader_path.string();
+      EXPECT_EQ(binaries.front(), 0x07230203u) << shader_path.string();
+      if (capture_directory) {
+        CaptureArtifact(capture_root, variant_index, std::filesystem::relative(shader_path, shader_root), *shader_type,
+                        variant_defines, source, binaries);
+      }
+      ++variant_index;
     }
   }
 
   const auto stats = Shader::GetCompileCacheStats();
   nlohmann::ordered_json summary = {
       {"entry_point_count", shader_paths.size()},
+      {"variant_count", variant_index},
       {"memory_hits", stats.memory_hits},
       {"disk_hits", stats.disk_hits},
       {"disk_misses", stats.disk_misses},
