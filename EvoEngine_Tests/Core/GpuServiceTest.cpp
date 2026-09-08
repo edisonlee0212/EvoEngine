@@ -12,6 +12,7 @@
 #include "GltfMaterial.hpp"
 #include "GpuService.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiResources.hpp"
 #include "Jobs.hpp"
 #include "Lights.hpp"
 #include "Mesh.hpp"
@@ -5215,4 +5216,76 @@ void main() {
   EXPECT_EQ(values[18], glm::vec4(0, 0, 0, 1));
   EXPECT_EQ(values[19], glm::vec4(8, 0, 0, 1));
   EXPECT_EQ(values[20], glm::vec4(8, 0, 0, 1));
+}
+
+TEST(HddagiResources, PreflightAndPartialAllocationWithoutRayTracing) {
+  ScopedGpuPlatform platform(false);
+  GiProbeSettings probes;
+  probes.probe_count_x = probes.probe_count_y = 9;
+  probes.cascade_count = 1;
+  HddagiSettings settings;
+  const auto report = QueryHddagiCapabilities(probes, settings);
+  ASSERT_TRUE(report.Supported()) << report.failure;
+  const auto default_report = QueryHddagiCapabilities({}, settings);
+  ASSERT_TRUE(default_report.Supported()) << default_report.failure;
+  std::cout << "HDDAGI device: " << report.device_name << "; default image bytes: " << default_report.image_bytes
+            << "; temporal bytes: " << default_report.temporal_bytes << std::endl;
+  EXPECT_FALSE(Platform::RayTracingEnabled());
+  EXPECT_FALSE(Platform::RayQueryEnabled());
+  EXPECT_FALSE(Platform::RayAccelerationStructureEnabled());
+  EXPECT_GE(report.temporal_bytes, HddagiLogicalTemporalBytes(probes, settings));
+  std::string failure;
+  EXPECT_FALSE(HddagiResources::TryCreate(probes, settings, failure, 3));
+  EXPECT_NE(failure.find("Injected"), std::string::npos);
+  auto field = HddagiResources::TryCreate(probes, settings, failure);
+  ASSERT_TRUE(field) << failure;
+  EXPECT_EQ(field->images.size(), GetHddagiImageRequirements(probes, settings).size());
+  EXPECT_GE(field->temporal_bytes, HddagiLogicalTemporalBytes(probes, settings));
+  const std::weak_ptr<HddagiResources> weak = field;
+  auto retained = field;
+  field.reset();
+  EXPECT_FALSE(weak.expired());
+  retained.reset();
+  EXPECT_TRUE(weak.expired());
+}
+
+TEST(HddagiRuntime, ProviderSwitchRetainsSettingsAndNeverPublishesUnreadyTransport) {
+  ScopedGpuPlatform platform(false);
+  const auto render = ApplicationContext::Get().GetLayer<RenderLayer>();
+  const auto scene = std::make_shared<Scene>();
+  const auto lighting = std::make_shared<EnvironmentalLighting>();
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  scene->environmental_lighting = lighting;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  ASSERT_TRUE(scene->GetHddagiRuntime());
+  EXPECT_FALSE(scene->GetHddagiRuntime()->published);
+  EXPECT_FALSE(scene->GetSdfgiRuntime());
+  EXPECT_FALSE(SdfgiTestAccess::HasDdgiResources(*render));
+  EXPECT_FALSE(scene->GetHddagiRuntime()->fallback_reason.empty());
+  const std::weak_ptr<const HddagiRuntime> previous = scene->GetHddagiRuntime();
+  lighting->indirect_gi_provider = IndirectGiProvider::Environment;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  EXPECT_FALSE(scene->GetHddagiRuntime());
+  EXPECT_TRUE(previous.expired());
+  EXPECT_EQ(lighting->hddagi_settings.history_size, 12u);
+  lighting->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  const auto accepted = lighting->GetGiSettings();
+  lighting->hddagi_settings.history_size = 7;
+  SdfgiTestAccess::ValidateGiSettings(*render, scene);
+  EXPECT_EQ(lighting->GetGiSettings(), accepted);
+  SdfgiTestAccess::ExecuteSceneFrame(*render, scene);
+  ASSERT_TRUE(scene->GetHddagiRuntime());
+  const auto next_scene = std::make_shared<Scene>();
+  const auto unsupported = std::make_shared<EnvironmentalLighting>();
+  unsupported->indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  unsupported->gi_probe_settings.probe_count_x = 7;
+  next_scene->environmental_lighting = unsupported;
+  SdfgiTestAccess::ExecuteSceneFrame(*render, next_scene);
+  EXPECT_FALSE(scene->GetHddagiRuntime());
+  ASSERT_TRUE(next_scene->GetHddagiRuntime());
+  EXPECT_FALSE(next_scene->GetHddagiRuntime()->capabilities.Supported());
+  EXPECT_FALSE(next_scene->GetHddagiRuntime()->resources);
+  EXPECT_FALSE(next_scene->GetHddagiRuntime()->published);
+  EXPECT_EQ(unsupported->gi_probe_settings.probe_count_x, 7u);
 }

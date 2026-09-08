@@ -139,6 +139,8 @@ const char* evo_engine::GetIndirectGiProviderName(const IndirectGiProvider provi
   switch (provider) {
     case IndirectGiProvider::AutomaticDdgi:
       return "Automatic DDGI (RT)";
+    case IndirectGiProvider::AutomaticHddagi:
+      return "Automatic HDDAGI";
     case IndirectGiProvider::AutomaticSdfgi:
       return "Automatic SDFGI";
     default:

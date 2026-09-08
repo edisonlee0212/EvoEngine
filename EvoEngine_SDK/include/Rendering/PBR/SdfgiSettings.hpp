@@ -13,7 +13,12 @@ class Node;
 
 namespace evo_engine {
 
-enum class IndirectGiProvider : uint32_t { Environment = 0, AutomaticDdgi = 1, AutomaticSdfgi = 2 };
+enum class IndirectGiProvider : uint32_t {
+  Environment = 0,
+  AutomaticDdgi = 1,
+  AutomaticSdfgi = 2,
+  AutomaticHddagi = 3
+};
 EVOENGINE_API const char* GetIndirectGiProviderName(IndirectGiProvider provider);
 
 struct EVOENGINE_API SdfgiSettings {

@@ -15,6 +15,7 @@
 #include "GpuService.hpp"
 #include "GraphicsPipeline.hpp"
 #include "GraphicsResources.hpp"
+#include "HddagiResources.hpp"
 #include "Jobs.hpp"
 #include "LodGroup.hpp"
 #include "MeshRenderer.hpp"
@@ -5416,9 +5417,28 @@ void RenderLayer::ExecuteSceneFramePasses(const std::shared_ptr<Scene>& scene) {
   const auto current_frame_index = Platform::GetCurrentFrameIndex();
   const auto scene_frame = Platform::GetFrameCount();
   auto lighting = ResolveEnvironmentalLighting(scene);
-  if (const auto previous_scene = sdfgi_scene_.lock(); previous_scene && previous_scene != scene)
+  if (const auto previous_scene = sdfgi_scene_.lock(); previous_scene && previous_scene != scene) {
     previous_scene->sdfgi_runtime_.reset();
+    previous_scene->hddagi_runtime_.reset();
+  }
   sdfgi_scene_ = scene;
+  if (scene && lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+    auto& runtime = scene->hddagi_runtime_;
+    if (!runtime || !(runtime->probes == lighting.gi_probe_settings) ||
+        !(runtime->settings == lighting.hddagi_settings)) {
+      runtime = std::make_shared<HddagiRuntime>();
+      runtime->probes = lighting.gi_probe_settings;
+      runtime->settings = lighting.hddagi_settings;
+      runtime->capabilities = QueryHddagiCapabilities(runtime->probes, runtime->settings);
+    }
+    runtime->settings = lighting.hddagi_settings;
+    const auto& shared = PrepareGiProbeFrame(scene, lighting.gi_probe_settings);
+    runtime->frame = shared;
+    runtime->fallback_reason =
+        runtime->capabilities.Supported() ? "HDDAGI transport is not ready" : runtime->capabilities.failure;
+  } else if (scene) {
+    scene->hddagi_runtime_.reset();
+  }
 
   RenderGraph scene_graph;
   AddDefaultFrameResources(scene_graph);
@@ -8004,8 +8024,10 @@ void RenderLayer::OnDestroy() {
   if (ray_camera_shader_variant_cache_)
     ray_camera_shader_variant_cache_->WaitForJobs();
   Platform::DrainGpuResourceWork();
-  if (const auto scene = sdfgi_scene_.lock())
+  if (const auto scene = sdfgi_scene_.lock()) {
     scene->sdfgi_runtime_.reset();
+    scene->hddagi_runtime_.reset();
+  }
   sdfgi_scene_.reset();
   sdfgi_frame_resources_.clear();
   for (uint32_t frame_index = 0; frame_index < submitted_reflection_probe_bakes_.size(); ++frame_index) {

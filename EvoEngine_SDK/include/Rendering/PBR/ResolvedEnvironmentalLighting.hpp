@@ -3,6 +3,7 @@
 #include "AssetRef.hpp"
 #include "DdgiSettings.hpp"
 #include "GlobalReflectionProbe.hpp"
+#include "HddagiSettings.hpp"
 #include "SdfgiSettings.hpp"
 
 #include <cstdint>
@@ -83,6 +84,7 @@ struct ResolvedEnvironmentalLighting {
   GiProbeSettings gi_probe_settings{};
   IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings{};
+  HddagiSettings hddagi_settings{};
   DynamicReflectionProbeSettings dynamic_reflection_probe_settings{};
   std::vector<LocalReflectionProbe> local_reflection_probes;
   std::vector<DdgiCascade> ddgi_cascades;

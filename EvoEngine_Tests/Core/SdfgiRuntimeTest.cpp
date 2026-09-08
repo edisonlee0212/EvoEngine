@@ -8,6 +8,7 @@
 #include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "EnvironmentalLighting.hpp"
+#include "HddagiResources.hpp"
 #include "Lights.hpp"
 #include "LodGroup.hpp"
 #include "Material.hpp"
@@ -1381,4 +1382,82 @@ TEST(SdfgiScene, AnchorReplacementPreservesOnlyReferenceOverlapAndNoAnchorFreeze
   EXPECT_FALSE(runtime.anchor_replaced);
   for (const auto& cascade : runtime.cascades)
     EXPECT_TRUE(cascade.full_redraw);
+}
+
+TEST(HddagiSettings, ReferenceDefaultsLayoutAndInactiveValidation) {
+  GiSettings settings;
+  EXPECT_EQ(static_cast<uint32_t>(IndirectGiProvider::AutomaticHddagi), 3u);
+  EXPECT_EQ(settings.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_TRUE(settings.hddagi_settings.half_resolution);
+  EXPECT_TRUE(settings.hddagi_settings.filter_probes);
+  EXPECT_TRUE(settings.hddagi_settings.filter_ambient);
+  EXPECT_FALSE(settings.hddagi_settings.filter_reflections);
+  EXPECT_FALSE(settings.hddagi_settings.static_entities_only);
+  EXPECT_EQ(settings.hddagi_settings.history_size, 12u);
+  settings.hddagi_settings.history_size = 7;
+  EXPECT_TRUE(settings.Validate(false).empty());
+  settings.indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  EXPECT_FALSE(settings.Validate(false).empty());
+  settings.hddagi_settings = {};
+  for (uint32_t count = 3; count <= 35; count += 2) {
+    settings.gi_probe_settings.probe_count_x = count;
+    EXPECT_EQ(settings.Validate(false).empty(), count >= 9 && count <= 33);
+  }
+  settings.gi_probe_settings = {};
+  EXPECT_EQ(HddagiLogicalTemporalBytes(settings.gi_probe_settings, settings.hddagi_settings),
+            uint64_t{33} * 17 * 33 * 4 * 25 * 132);
+  settings.hddagi_settings.energy = std::numeric_limits<float>::infinity();
+  EXPECT_FALSE(settings.Validate(false).empty());
+}
+
+TEST(HddagiSettings, SerializesEverySettingAndPreservesOtherProviders) {
+  Application app;
+  ApplicationInitializationSettings initialization;
+  initialization.allow_empty_project = true;
+  initialization.load_default_resources = false;
+  initialization.load_project_assets = false;
+  initialization.load_project_start_scene = false;
+  initialization.enable_runtime_packages = false;
+  app.Initialize(initialization);
+  EnvironmentalLighting lighting;
+  lighting.indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  lighting.hddagi_settings.history_size = 24;
+  lighting.hddagi_settings.light_update_frames = 8;
+  lighting.hddagi_settings.half_resolution = false;
+  lighting.hddagi_settings.filter_probes = false;
+  lighting.hddagi_settings.filter_ambient = false;
+  lighting.hddagi_settings.filter_reflections = true;
+  lighting.hddagi_settings.read_sky_light = false;
+  lighting.hddagi_settings.static_entities_only = true;
+  lighting.hddagi_settings.bounce_feedback = 0.5f;
+  lighting.hddagi_settings.energy = 2.5f;
+  lighting.hddagi_settings.normal_bias = 0.4f;
+  lighting.hddagi_settings.probe_bias = 0.6f;
+  lighting.hddagi_settings.reflection_bias = 0.8f;
+  lighting.hddagi_settings.occlusion_bias = 0.2f;
+  YAML::Emitter out;
+  out << YAML::BeginMap;
+  SerializeEnvironmentalLighting(out, lighting);
+  out << YAML::EndMap;
+  EnvironmentalLighting restored;
+  DeserializeEnvironmentalLighting(YAML::Load(out.c_str()), restored);
+  EXPECT_EQ(restored.GetGiSettings(), lighting.GetGiSettings());
+  lighting.indirect_gi_provider = IndirectGiProvider::Environment;
+  YAML::Emitter inactive;
+  inactive << YAML::BeginMap;
+  SerializeEnvironmentalLighting(inactive, lighting);
+  inactive << YAML::EndMap;
+  DeserializeEnvironmentalLighting(YAML::Load(inactive.c_str()), restored);
+  EXPECT_EQ(restored.GetGiSettings(), lighting.GetGiSettings());
+  DeserializeEnvironmentalLighting(YAML::Load("{}"), restored);
+  EXPECT_EQ(restored.indirect_gi_provider, IndirectGiProvider::AutomaticSdfgi);
+  EXPECT_EQ(restored.hddagi_settings, HddagiSettings{});
+  const auto previous = restored.GetGiSettings();
+  auto invalid = previous;
+  invalid.indirect_gi_provider = IndirectGiProvider::AutomaticHddagi;
+  invalid.hddagi_settings.history_size = 7;
+  std::string error;
+  EXPECT_FALSE(restored.TrySetGiSettings(invalid, error));
+  EXPECT_FALSE(error.empty());
+  EXPECT_EQ(restored.GetGiSettings(), previous);
 }

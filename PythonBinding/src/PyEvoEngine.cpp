@@ -2,6 +2,7 @@
 #include "Cubemap.hpp"
 #include "EnvironmentalLightingResolver.hpp"
 #include "GeometryStorage.hpp"
+#include "HddagiResources.hpp"
 #include "ImGuiLayer.hpp"
 #include "Lights.hpp"
 #include "MeshRenderer.hpp"
@@ -564,7 +565,8 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
   py::enum_<IndirectGiProvider>(m, "IndirectGiProvider")
       .value("Environment", IndirectGiProvider::Environment)
       .value("AutomaticDdgi", IndirectGiProvider::AutomaticDdgi)
-      .value("AutomaticSdfgi", IndirectGiProvider::AutomaticSdfgi);
+      .value("AutomaticSdfgi", IndirectGiProvider::AutomaticSdfgi)
+      .value("AutomaticHddagi", IndirectGiProvider::AutomaticHddagi);
   py::enum_<SdfgiSettings::VerticalScale>(m, "SdfgiVerticalScale")
       .value("Percent50", SdfgiSettings::VerticalScale::Percent50)
       .value("Percent75", SdfgiSettings::VerticalScale::Percent75)
@@ -613,12 +615,31 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
       .def_readwrite("deterministic_ray_seed_enabled", &DdgiSettings::RuntimeSettings::deterministic_ray_seed_enabled)
       .def_readwrite("deterministic_ray_seed", &DdgiSettings::RuntimeSettings::deterministic_ray_seed);
   py::class_<DdgiSettings>(m, "DdgiSettings").def(py::init<>()).def_readwrite("runtime", &DdgiSettings::runtime);
+  py::class_<HddagiSettings>(m, "HddagiSettings")
+      .def(py::init<>())
+      .def_readwrite("history_size", &HddagiSettings::history_size)
+      .def_readwrite("light_update_frames", &HddagiSettings::light_update_frames)
+      .def_readwrite("half_resolution", &HddagiSettings::half_resolution)
+      .def_readwrite("filter_probes", &HddagiSettings::filter_probes)
+      .def_readwrite("filter_ambient", &HddagiSettings::filter_ambient)
+      .def_readwrite("filter_reflections", &HddagiSettings::filter_reflections)
+      .def_readwrite("read_sky_light", &HddagiSettings::read_sky_light)
+      .def_readwrite("static_entities_only", &HddagiSettings::static_entities_only)
+      .def_readwrite("bounce_feedback", &HddagiSettings::bounce_feedback)
+      .def_readwrite("energy", &HddagiSettings::energy)
+      .def_readwrite("normal_bias", &HddagiSettings::normal_bias)
+      .def_readwrite("probe_bias", &HddagiSettings::probe_bias)
+      .def_readwrite("reflection_bias", &HddagiSettings::reflection_bias)
+      .def_readwrite("occlusion_bias", &HddagiSettings::occlusion_bias)
+      .def("validate", &HddagiSettings::Validate);
+
   py::class_<GiSettings>(m, "GiSettings")
       .def(py::init<>())
       .def_readwrite("probes", &GiSettings::gi_probe_settings)
       .def_readwrite("provider", &GiSettings::indirect_gi_provider)
       .def_readwrite("sdfgi", &GiSettings::sdfgi_settings)
       .def_readwrite("ddgi", &GiSettings::ddgi_settings)
+      .def_readwrite("hddagi", &GiSettings::hddagi_settings)
       .def("validate", &GiSettings::Validate, py::arg("device_limits") = true);
   m.def("GetCurrentSceneGiSettings", [] {
     const auto scene = ApplicationContext::Get().GetActiveScene();
@@ -888,6 +909,11 @@ void PyEvoEngine::Initialize(pybind11::module& m) {
     const auto runtime = scene ? scene->GetSdfgiRuntime() : nullptr;
     py::dict result;
     result["requested_provider"] = GetIndirectGiProviderName(lighting.indirect_gi_provider);
+    const auto hddagi = scene ? scene->GetHddagiRuntime() : nullptr;
+    result["hddagi_state_active"] = hddagi != nullptr;
+    result["hddagi_fallback_reason"] = hddagi ? hddagi->fallback_reason : std::string{};
+    result["hddagi_image_bytes"] = hddagi && hddagi->resources ? hddagi->resources->allocation_bytes : 0;
+    result["hddagi_temporal_bytes"] = hddagi && hddagi->resources ? hddagi->resources->temporal_bytes : 0;
     auto effective = IndirectGiProvider::Environment;
     if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticSdfgi && runtime && runtime->published)
       effective = IndirectGiProvider::AutomaticSdfgi;

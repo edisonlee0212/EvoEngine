@@ -14,6 +14,7 @@
 #include "EnvironmentalMap.hpp"
 #include "GaussianSplat.hpp"
 #include "GaussianSplatRenderer.hpp"
+#include "HddagiResources.hpp"
 #include "InspectorRegistry.hpp"
 #include "Jobs.hpp"
 #include "LightProbe.hpp"
@@ -2815,7 +2816,8 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
 
       ImGui::SeparatorText("Indirect GI provider");
       int provider = static_cast<int>(candidate.indirect_gi_provider);
-      if (ImGui::Combo("Provider", &provider, "Environment\0Automatic DDGI (RT)\0Automatic SDFGI\0")) {
+      if (ImGui::Combo("Provider", &provider,
+                       "Environment\0Automatic DDGI (RT)\0Automatic SDFGI\0Automatic HDDAGI\0")) {
         candidate.indirect_gi_provider = static_cast<IndirectGiProvider>(provider);
         gi_changed = true;
       }
@@ -2829,6 +2831,15 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
               ImGui::TextWrapped("Fallback: %s", runtime->fallback_reason.c_str());
             if (runtime->anchor.override_fell_back)
               ImGui::TextDisabled("Explicit anchor unavailable; automatic selection used.");
+          }
+        } else if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+          if (const auto runtime = active_scene->GetHddagiRuntime()) {
+            if (runtime->published)
+              effective_provider = IndirectGiProvider::AutomaticHddagi;
+            else
+              ImGui::TextWrapped("Fallback: %s", runtime->fallback_reason.c_str());
+          } else {
+            ImGui::TextWrapped("Fallback: HDDAGI runtime has not been prepared.");
           }
         } else if (lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
           if (const auto render_layer = ApplicationContext::Get().GetLayer<RenderLayer>()) {
@@ -2914,6 +2925,38 @@ bool InspectEnvironmentalLighting(InspectorContext& context, EnvironmentalLighti
             "Point/spot lights inject into the first N active cascades. 8 covers all cascades; 3 matches Godot's "
             "default. Directional lights are unaffected. Updates use normal light cadence and probe convergence; "
             "no geometry-field rebuild is needed.");
+      } else if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+        ImGui::SeparatorText("Automatic HDDAGI settings");
+        auto& hddagi = candidate.hddagi_settings;
+        if (ImGui::BeginCombo("History updates", std::to_string(hddagi.history_size).c_str())) {
+          for (const uint32_t count : {6u, 12u, 18u, 24u, 32u})
+            if (ImGui::Selectable(std::to_string(count).c_str(), count == hddagi.history_size)) {
+              hddagi.history_size = count;
+              gi_changed = true;
+            }
+          ImGui::EndCombo();
+        }
+        if (ImGui::BeginCombo("Light update frames", std::to_string(hddagi.light_update_frames).c_str())) {
+          for (const uint32_t count : {1u, 2u, 4u, 8u, 16u})
+            if (ImGui::Selectable(std::to_string(count).c_str(), hddagi.light_update_frames == count)) {
+              hddagi.light_update_frames = count;
+              gi_changed = true;
+            }
+          ImGui::EndCombo();
+        }
+        gi_changed |= ImGui::DragFloat("Bounce feedback", &hddagi.bounce_feedback, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::DragFloat("Energy", &hddagi.energy, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::DragFloat("Normal bias", &hddagi.normal_bias, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::DragFloat("Probe bias", &hddagi.probe_bias, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::DragFloat("Reflection bias", &hddagi.reflection_bias, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::DragFloat("Occlusion bias", &hddagi.occlusion_bias, 0.01f, 0.0f, 16.0f);
+        gi_changed |= ImGui::Checkbox("Half resolution GI", &hddagi.half_resolution);
+        gi_changed |= ImGui::Checkbox("Filter probes", &hddagi.filter_probes);
+        gi_changed |= ImGui::Checkbox("Filter ambient", &hddagi.filter_ambient);
+        gi_changed |= ImGui::Checkbox("Filter reflections", &hddagi.filter_reflections);
+        gi_changed |= ImGui::Checkbox("Static entities only", &hddagi.static_entities_only);
+        gi_changed |= ImGui::Checkbox("Read sky light", &hddagi.read_sky_light);
+        ImGui::TextWrapped("Eight cells per probe. HDDAGI transport is not ready; Environment is used.");
       } else if (candidate.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi) {
         ImGui::SeparatorText("Automatic DDGI settings");
         auto& runtime = candidate.ddgi_settings.runtime;

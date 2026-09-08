@@ -3,6 +3,7 @@
 #include "AssetManager.hpp"
 #include "Camera.hpp"
 #include "DdgiRuntime.hpp"
+#include "HddagiResources.hpp"
 #include "Platform.hpp"
 #include "SdfgiCapabilities.hpp"
 #include "SdfgiProbeLayout.hpp"
@@ -14,7 +15,7 @@ using namespace evo_engine;
 
 GiSettings EnvironmentalLighting::GetGiSettings() const {
   return {gi_probe_settings, indirect_gi_provider, DeriveSdfgiSettings(gi_probe_settings, sdfgi_settings),
-          ddgi_settings};
+          ddgi_settings, hddagi_settings};
 }
 
 void EnvironmentalLighting::ApplyGiSettings(const GiSettings& settings) {
@@ -22,6 +23,7 @@ void EnvironmentalLighting::ApplyGiSettings(const GiSettings& settings) {
   indirect_gi_provider = settings.indirect_gi_provider;
   sdfgi_settings = DeriveSdfgiSettings(gi_probe_settings, settings.sdfgi_settings);
   ddgi_settings = settings.ddgi_settings;
+  hddagi_settings = settings.hddagi_settings;
 }
 
 bool EnvironmentalLighting::TrySetGiSettings(const GiSettings& settings, std::string& error) {
@@ -37,7 +39,7 @@ bool GiSettings::operator==(const GiSettings& other) const {
   return gi_probe_settings == other.gi_probe_settings && indirect_gi_provider == other.indirect_gi_provider &&
          DeriveSdfgiSettings(gi_probe_settings, sdfgi_settings) ==
              DeriveSdfgiSettings(other.gi_probe_settings, other.sdfgi_settings) &&
-         ddgi_settings == other.ddgi_settings;
+         ddgi_settings == other.ddgi_settings && hddagi_settings == other.hddagi_settings;
 }
 
 std::string GiSettings::Validate(const bool device_limits) const {
@@ -60,6 +62,15 @@ std::string GiSettings::Validate(const bool device_limits) const {
     return layout.HistoryBytes(settings.cascade_count, settings.history_size, bytes) && GiHistoryBudget{}.CanAdd(bytes)
                ? std::string{}
                : "GI histories must remain strictly below 4 GiB.";
+  }
+  if (indirect_gi_provider == IndirectGiProvider::AutomaticHddagi) {
+    if (const auto error = hddagi_settings.Validate(gi_probe_settings); !error.empty())
+      return error;
+    if (device_limits)
+      return QueryHddagiCapabilities(gi_probe_settings, hddagi_settings).failure;
+    return HddagiLogicalTemporalBytes(gi_probe_settings, hddagi_settings) < (uint64_t{4} << 30)
+               ? std::string{}
+               : "HDDAGI temporal storage must remain below 4 GiB.";
   }
   if (indirect_gi_provider != IndirectGiProvider::AutomaticDdgi)
     return "Unknown indirect GI provider.";
@@ -237,6 +248,8 @@ void evo_engine::SerializeEnvironmentalLighting(YAML::Emitter& out, const Enviro
     out << YAML::Key << "sdfgi_settings" << YAML::Value;
     SerializeSdfgiSettings(out, lighting.sdfgi_settings);
   }
+  out << YAML::Key << "hddagi_settings" << YAML::Value;
+  SerializeHddagiSettings(out, lighting.hddagi_settings);
   out << YAML::Key << "local_reflection_probes_enabled" << YAML::Value << lighting.local_reflection_probes_enabled;
   lighting.reflection_probe_pack.Save("reflection_probe_pack", out);
 }
@@ -251,6 +264,7 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
   lighting.ddgi_settings = {};
   lighting.indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   lighting.sdfgi_settings = {};
+  lighting.hddagi_settings = {};
   lighting.gi_probe_settings = {};
   lighting.local_reflection_probes_enabled = true;
   lighting.reflection_probe_pack.Clear();
@@ -270,10 +284,12 @@ void evo_engine::DeserializeEnvironmentalLighting(const YAML::Node& in, Environm
     DeserializeDdgiSettings(settings, lighting.ddgi_settings);
   if (in["indirect_gi_provider"]) {
     const auto provider = in["indirect_gi_provider"].as<uint32_t>();
-    lighting.indirect_gi_provider = provider <= static_cast<uint32_t>(IndirectGiProvider::AutomaticSdfgi)
+    lighting.indirect_gi_provider = provider <= static_cast<uint32_t>(IndirectGiProvider::AutomaticHddagi)
                                         ? static_cast<IndirectGiProvider>(provider)
                                         : IndirectGiProvider::Environment;
   }
+  if (const auto settings = in["hddagi_settings"])
+    DeserializeHddagiSettings(settings, lighting.hddagi_settings);
   if (const auto settings = in["sdfgi_settings"]) {
     DeserializeSdfgiSettings(settings, lighting.sdfgi_settings);
     lighting.gi_probe_settings = GiProbesFromSdfgi(lighting.sdfgi_settings);

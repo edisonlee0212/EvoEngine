@@ -169,6 +169,7 @@ void ResolveFromAsset(const EnvironmentalLighting& lighting, ResolvedEnvironment
   resolved.indirect_gi_provider = lighting.indirect_gi_provider;
   resolved.gi_probe_settings = lighting.gi_probe_settings;
   resolved.sdfgi_settings = DeriveSdfgiSettings(lighting.gi_probe_settings, lighting.sdfgi_settings);
+  resolved.hddagi_settings = lighting.hddagi_settings;
   resolved.ddgi_settings.runtime.enabled = lighting.indirect_gi_provider == IndirectGiProvider::AutomaticDdgi;
   auto dynamic_settings = lighting.dynamic_reflection_probe_settings;
   dynamic_settings.Clamp();

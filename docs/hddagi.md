@@ -1,6 +1,6 @@
 # Automatic HDDAGI
 
-Status: implementation in progress. H0 reference contract recorded; no HDDAGI rendering is available yet.
+Status: implementation in progress. H0 reference contract committed; H1 adds provider/settings/preflight and allocation ownership. Selecting HDDAGI uses Environment until transport is implemented and published. No HDDAGI rendering is available yet.
 
 HDDAGI is an explicit third indirect-GI provider. Existing Environment=0, Automatic DDGI=1 and Automatic SDFGI=2 retain their meanings and defaults; Automatic HDDAGI uses 3. It shares nominal probe coverage and anchor selection, not DDGI/SDFGI field storage. Correctness and recorded results are required; no speedup threshold applies.
 
@@ -41,7 +41,7 @@ Let V=(X,Y,X), P=V/8+1, C=cascades, H=history.3D field cascades stack along Y. P
 | Lit voxels and neighbor payload | (X,C*Y,X) each | R32_UINT; light sampled as E5B9G9R9_UFLOAT_PACK32 |
 | Raster albedo | (X/2,Y/2,3X) | R16_UINT,6 anisotropic faces |
 | Raster normal bits | V | R32_UINT atomics |
-| Raster emission / anisotropic emission | V/2 each | R32_UINT atomics |
+| Raster emission / anisotropic emission | V/2 each | R32_UINT stores |
 | Diffuse / specular / filtered diffuse | (7Px,7PyPz),C layers each | R32_UINT / E5B9G9R9_UFLOAT_PACK32 |
 | Hit cache / version / sample history | (5Px,5PyPz),C*H layers | R32_UINT / R16_UINT / R32_UINT |
 | RGB running sums | (15Px,5PyPz),C layers | R32_UINT |
@@ -77,3 +77,11 @@ Camera data is resolved after GTAO. Do not move normal-map/roughness evaluation 
 Scene-owned runtime plans once per frame. Frame slots retain immutable input/descriptors and allocation owners. Graph uses cover raster atomic writes, compute reads/writes, indirect buffers, clears and camera reads; GENERAL layout does not replace barriers. Publish only a valid complete generation with shader-visible readiness/failure checks. Failure or unavailable transport selects Environment.
 
 H0 is source reconnaissance, not a GPU-validation or performance result. Subsequent milestones must record exact test/build/install commands and results. Compare existing providers without changing their baselines. Record warmed stationary/motion/edit captures and timing/memory; slower results or reference artifacts are reported without an improvement gate. Implementation and installed manual review remain pending.
+
+H1 settings are available through Environmental Lighting > GI > Provider and Python GiSettings.hddagi. Inactive settings remain authored; only active-provider storage requirements participate in validation. The H1 allocator is exercised directly by tests; scene allocation begins with initialized hierarchy work in H2. Camera pipeline descriptors and frame-submission retirement are validated as their consuming passes are added.
+
+### Provider foundation validation
+
+The RelWithDebInfo editor and test executable build with the provider foundation. The focused run covers 51 shared-GI, Environmental Lighting, provider migration and HDDAGI tests; all pass with Vulkan core/synchronization validation enabled. HDDAGI allocation and switching tests explicitly disable RT, ray queries and acceleration structures. No Vulkan validation errors were logged. This verifies allocation/view compatibility and partial-failure cleanup, not transport or rendered appearance.
+
+On the NVIDIA GeForce RTX 5070, default image requirements total 802,766,848 padded bytes, including 264,568,832 temporal bytes. These figures exclude future buffers, camera resources and retired generations; they are not peak runtime memory measurements. Reproduce the focused run with `EvoEngine_Tests --gtest_filter=Hddagi*.*:GiProbes.*:GiSettings.*:EnvironmentalLighting*.*:SdfgiRuntime.ProviderDefaultsToAutomaticAndPreservesExplicitChoices` from its build output directory. Local logs and XML results are in `tasks/h1-tests.*`.

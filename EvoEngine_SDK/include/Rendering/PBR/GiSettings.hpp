@@ -1,6 +1,7 @@
 #pragma once
 
 #include "DdgiSettings.hpp"
+#include "HddagiSettings.hpp"
 #include "SdfgiSettings.hpp"
 
 namespace evo_engine {
@@ -9,6 +10,7 @@ struct EVOENGINE_API GiSettings {
   IndirectGiProvider indirect_gi_provider = IndirectGiProvider::AutomaticSdfgi;
   SdfgiSettings sdfgi_settings;
   DdgiSettings ddgi_settings;
+  HddagiSettings hddagi_settings{};
 
   [[nodiscard]] bool operator==(const GiSettings& other) const;
   [[nodiscard]] std::string Validate(bool device_limits = true) const;
